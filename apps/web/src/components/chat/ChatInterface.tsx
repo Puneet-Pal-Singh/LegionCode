@@ -34,6 +34,11 @@ import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import { getBrainHttpBase, runApprovalPath } from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
+import { useGitReview } from "../git/GitReviewContext";
+import {
+  buildReviewCommentPrompt,
+  validateReviewPromptBudget,
+} from "../git/reviewComments";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
@@ -235,6 +240,13 @@ export function ChatInterface({
   >({});
 
   const { summary } = useRunSummary(runId, isLoading);
+  const {
+    selectedReviewComments,
+    toggleReviewCommentSelected,
+    markReviewCommentsDispatching,
+    markReviewCommentsDispatched,
+    markReviewCommentsDispatchFailed,
+  } = useGitReview();
   const { events } = useRunEvents(runId, isLoading);
   const { feed } = useRunActivityFeed(runId);
   const showDebugPanel =
@@ -247,8 +259,12 @@ export function ChatInterface({
   >(null);
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
+  const lastReviewDispatchIdsRef = useRef<string[]>([]);
   const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
+  const [reviewCommentError, setReviewCommentError] = useState<string | null>(
+    null,
+  );
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -292,14 +308,63 @@ export function ChatInterface({
 
   const handleInputChangeWrapper = useCallback(
     (value: string) => {
+      if (reviewCommentError) {
+        setReviewCommentError(null);
+      }
       // Create a synthetic event to match the expected interface
       const syntheticEvent = {
         target: { value },
       } as React.ChangeEvent<HTMLTextAreaElement>;
       handleInputChange(syntheticEvent);
     },
-    [handleInputChange],
+    [handleInputChange, reviewCommentError],
   );
+
+  const handleRemoveReviewComment = useCallback(
+    (commentId: string) => {
+      toggleReviewCommentSelected(commentId, false);
+      if (reviewCommentError) {
+        setReviewCommentError(null);
+      }
+    },
+    [reviewCommentError, toggleReviewCommentSelected],
+  );
+
+  const handleSubmitWithReviewComments = useCallback(async () => {
+    const budgetResult = validateReviewPromptBudget(selectedReviewComments, input);
+    if (!budgetResult.ok) {
+      setReviewCommentError(budgetResult.reason);
+      return;
+    }
+
+    const { prompt } = buildReviewCommentPrompt(selectedReviewComments, input);
+    const selectedIds = selectedReviewComments.map((comment) => comment.id);
+    lastReviewDispatchIdsRef.current = selectedIds;
+    setReviewCommentError(null);
+    markReviewCommentsDispatching(selectedIds);
+
+    try {
+      await append({ role: "user", content: prompt });
+      markReviewCommentsDispatched(selectedIds);
+      handleInputChangeWrapper("");
+    } catch (submitError) {
+      markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
+      lastReviewDispatchIdsRef.current = [];
+      const message =
+        submitError instanceof Error
+          ? submitError.message
+          : "Failed to send review comments.";
+      setReviewCommentError(message);
+    }
+  }, [
+    append,
+    handleInputChangeWrapper,
+    input,
+    markReviewCommentsDispatchFailed,
+    markReviewCommentsDispatched,
+    markReviewCommentsDispatching,
+    selectedReviewComments,
+  ]);
 
   useEffect(() => {
     if (!pendingPlanPrompt || mode !== "build" || isLoading) {
@@ -322,6 +387,25 @@ export function ChatInterface({
 
     void submitPlanHandoff();
   }, [append, handleInputChangeWrapper, isLoading, mode, pendingPlanPrompt]);
+
+  useEffect(() => {
+    if (!error || lastReviewDispatchIdsRef.current.length === 0) {
+      return;
+    }
+
+    markReviewCommentsDispatchFailed(lastReviewDispatchIdsRef.current, {
+      reselect: false,
+    });
+    lastReviewDispatchIdsRef.current = [];
+  }, [error, markReviewCommentsDispatchFailed]);
+
+  useEffect(() => {
+    if (isLoading || error || lastReviewDispatchIdsRef.current.length === 0) {
+      return;
+    }
+
+    lastReviewDispatchIdsRef.current = [];
+  }, [error, isLoading]);
 
   useEffect(() => {
     if (mode !== "plan" || !onModeChange) {
@@ -600,7 +684,14 @@ export function ChatInterface({
         <ChatInputBar
           input={input}
           onChange={handleInputChangeWrapper}
-          onSubmit={handleSubmit}
+          onSubmit={
+            selectedReviewComments.length > 0
+              ? () => void handleSubmitWithReviewComments()
+              : handleSubmit
+          }
+          reviewComments={selectedReviewComments}
+          onRemoveReviewComment={handleRemoveReviewComment}
+          reviewCommentError={reviewCommentError}
           onStop={stop}
           canStop={canStop ?? isLoading}
           isLoading={isLoading}
