@@ -12,16 +12,22 @@ import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shar
 import DiffLine from "./DiffLine";
 import { DiffCodeText } from "./DiffCodeText";
 import { resolveDiffLanguage } from "./resolveDiffLanguage";
+import type {
+  CreateReviewCommentInput,
+  ReviewCommentAnchor,
+  ReviewCommentDraft,
+  ReviewCommentSelectionMode,
+  ReviewCommentSide,
+} from "../git/reviewComments";
+import { normalizeLinePreview } from "../git/reviewComments";
 
 interface DiffViewerProps {
   diff: DiffContent;
   className?: string;
-}
-
-interface DiffAnnotation {
-  id: string;
-  rowKeys: string[];
-  note: string;
+  reviewComments?: ReviewCommentDraft[];
+  diffFingerprint?: string | null;
+  onCreateReviewComment?: (input: CreateReviewCommentInput) => void;
+  onDeleteReviewComment?: (commentId: string) => void;
 }
 
 interface SplitRow {
@@ -31,7 +37,14 @@ interface SplitRow {
   right: DiffLineType | null;
 }
 
-export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
+export function DiffViewer({
+  diff,
+  className = "",
+  reviewComments = [],
+  diffFingerprint = null,
+  onCreateReviewComment,
+  onDeleteReviewComment,
+}: DiffViewerProps) {
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(
     new Set(diff.hunks.map((_: DiffHunk, index: number) => index)),
   );
@@ -41,7 +54,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [annotationDraft, setAnnotationDraft] = useState("");
-  const [annotations, setAnnotations] = useState<DiffAnnotation[]>([]);
+  const lineLookup = useMemo(() => buildLineLookup(diff), [diff]);
 
   const rowOrder = useMemo(() => {
     const keys: string[] = [];
@@ -55,18 +68,19 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
 
   const annotationCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    annotations.forEach((annotation) => {
-      annotation.rowKeys.forEach((rowKey) => {
+    reviewComments.forEach((annotation) => {
+      annotation.anchors.forEach((anchor) => {
+        const rowKey = anchor.rowKey;
         counts.set(rowKey, (counts.get(rowKey) ?? 0) + 1);
       });
     });
     return counts;
-  }, [annotations]);
+  }, [reviewComments]);
 
   const annotationsByAnchor = useMemo(() => {
-    const anchored = new Map<string, DiffAnnotation[]>();
-    annotations.forEach((annotation) => {
-      const anchorKey = annotation.rowKeys[annotation.rowKeys.length - 1];
+    const anchored = new Map<string, ReviewCommentDraft[]>();
+    reviewComments.forEach((annotation) => {
+      const anchorKey = annotation.primaryAnchor.rowKey;
       if (!anchorKey) {
         return;
       }
@@ -75,7 +89,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
       anchored.set(anchorKey, existing);
     });
     return anchored;
-  }, [annotations]);
+  }, [reviewComments]);
 
   const additions = useMemo(
     () =>
@@ -113,44 +127,82 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
   };
 
   const handleRowSelection = (
-    rowKey: string,
+    rowKeys: string[],
     event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
   ) => {
+    const firstRowKey = rowKeys[0] ?? null;
+    const lastRowKey = rowKeys[rowKeys.length - 1] ?? null;
+    if (!firstRowKey || !lastRowKey) {
+      return;
+    }
+
     if (event.shiftKey && selectionAnchor) {
       const anchorIndex = rowOrder.indexOf(selectionAnchor);
-      const targetIndex = rowOrder.indexOf(rowKey);
-      if (anchorIndex >= 0 && targetIndex >= 0) {
-        const start = Math.min(anchorIndex, targetIndex);
-        const end = Math.max(anchorIndex, targetIndex);
+      const targetStartIndex = rowOrder.indexOf(firstRowKey);
+      const targetEndIndex = rowOrder.indexOf(lastRowKey);
+      if (
+        anchorIndex >= 0 &&
+        targetStartIndex >= 0 &&
+        targetEndIndex >= 0
+      ) {
+        const start = Math.min(anchorIndex, targetStartIndex);
+        const end = Math.max(anchorIndex, targetEndIndex);
         setSelectedRowKeys(rowOrder.slice(start, end + 1));
         return;
       }
     }
 
-    setSelectionAnchor(rowKey);
-    setSelectedRowKeys([rowKey]);
+    setSelectionAnchor(firstRowKey);
+    setSelectedRowKeys(rowKeys);
   };
 
   const addAnnotation = () => {
     const note = annotationDraft.trim();
-    if (!note || selectedRowKeys.length === 0) {
+    if (
+      !note ||
+      selectedRowKeys.length === 0 ||
+      !diffFingerprint ||
+      !onCreateReviewComment
+    ) {
       return;
     }
 
-    setAnnotations((previous) => [
-      {
-        id: crypto.randomUUID(),
-        rowKeys: selectedRowKeys,
-        note,
-      },
-      ...previous,
-    ]);
+    const anchors = selectedRowKeys
+      .map((rowKey) => lineLookup.get(rowKey))
+      .filter((anchor): anchor is ReviewCommentAnchor => anchor !== undefined);
+    const primaryAnchor = anchors[anchors.length - 1];
+    if (!primaryAnchor) {
+      return;
+    }
+
+    const selectionMode: ReviewCommentSelectionMode =
+      anchors.length > 1 ? "range" : "single";
+    onCreateReviewComment({
+      filePath: diff.newPath || diff.oldPath,
+      line:
+        primaryAnchor.newLineNumber ??
+        primaryAnchor.oldLineNumber ??
+        0,
+      side: normalizePrimarySide(primaryAnchor.side),
+      note,
+      linePreview: primaryAnchor.linePreview,
+      anchors,
+      primaryAnchor,
+      selectionMode,
+      diffFingerprint,
+    });
     setAnnotationDraft("");
+    clearSelection();
   };
 
-  const openInlineComment = (rowKey: string) => {
-    setSelectionAnchor(rowKey);
-    setSelectedRowKeys([rowKey]);
+  const openInlineComment = (rowKeys: string[]) => {
+    const firstRowKey = rowKeys[0] ?? null;
+    if (!firstRowKey) {
+      return;
+    }
+
+    setSelectionAnchor(firstRowKey);
+    setSelectedRowKeys(rowKeys);
     setAnnotationDraft("");
   };
 
@@ -160,17 +212,15 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
     setAnnotationDraft("");
   };
 
-  const restoreAnnotationSelection = (annotation: DiffAnnotation) => {
-    const anchorKey = annotation.rowKeys[annotation.rowKeys.length - 1] ?? null;
+  const restoreAnnotationSelection = (annotation: ReviewCommentDraft) => {
+    const anchorKey = annotation.anchors[0]?.rowKey ?? null;
     setSelectionAnchor(anchorKey);
-    setSelectedRowKeys(annotation.rowKeys);
+    setSelectedRowKeys(annotation.anchors.map((anchor) => anchor.rowKey));
     setAnnotationDraft("");
   };
 
   const resolveAnnotation = (annotationId: string) => {
-    setAnnotations((previous) =>
-      previous.filter((annotation) => annotation.id !== annotationId),
-    );
+    onDeleteReviewComment?.(annotationId);
   };
 
   return (
@@ -196,7 +246,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                 <span className="text-emerald-400">+{additions}</span>
                 <span className="text-red-400">-{deletions}</span>
                 <span>{diff.hunks.length} hunks</span>
-                <span>{annotations.length} notes</span>
+                <span>{reviewComments.length} notes</span>
               </div>
             </div>
 
@@ -335,17 +385,17 @@ interface StackedHunkViewProps {
   wrap: boolean;
   selectedRowKeys: string[];
   annotationDraft: string;
-  annotationsByAnchor: Map<string, DiffAnnotation[]>;
+  annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
   onRowSelect: (
-    rowKey: string,
+    rowKeys: string[],
     event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
   ) => void;
-  onOpenInlineComment: (rowKey: string) => void;
+  onOpenInlineComment: (rowKeys: string[]) => void;
   onAnnotationDraftChange: (value: string) => void;
   onAddAnnotation: () => void;
   onClearSelection: () => void;
-  onReplyToAnnotation: (annotation: DiffAnnotation) => void;
+  onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
 }
 
@@ -384,10 +434,10 @@ function StackedHunkView({
               wrap={wrap}
               isSelected={selectedRowKeys.includes(rowKey)}
               annotationCount={annotationCounts.get(rowKey) ?? 0}
-              onClick={(event) => onRowSelect(rowKey, event)}
+              onClick={(event) => onRowSelect([rowKey], event)}
               onAddComment={(event) => {
                 event.stopPropagation();
-                onOpenInlineComment(rowKey);
+                onOpenInlineComment([rowKey]);
               }}
             />
             {composerAnchor === rowKey ? (
@@ -421,17 +471,17 @@ interface SplitHunkViewProps {
   wrap: boolean;
   selectedRowKeys: string[];
   annotationDraft: string;
-  annotationsByAnchor: Map<string, DiffAnnotation[]>;
+  annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
   onRowSelect: (
-    rowKey: string,
+    rowKeys: string[],
     event: React.MouseEvent<HTMLDivElement>,
   ) => void;
-  onOpenInlineComment: (rowKey: string) => void;
+  onOpenInlineComment: (rowKeys: string[]) => void;
   onAnnotationDraftChange: (value: string) => void;
   onAddAnnotation: () => void;
   onClearSelection: () => void;
-  onReplyToAnnotation: (annotation: DiffAnnotation) => void;
+  onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
 }
 
@@ -472,8 +522,12 @@ function SplitHunkView({
           (sum, rowKey) => sum + (annotationCounts.get(rowKey) ?? 0),
           0,
         );
-        const anchoredAnnotations = row.rowKeys.flatMap(
-          (rowKey) => annotationsByAnchor.get(rowKey) ?? [],
+        const anchoredAnnotations = Array.from(
+          new Map(
+            row.rowKeys
+              .flatMap((rowKey) => annotationsByAnchor.get(rowKey) ?? [])
+              .map((annotation) => [annotation.id, annotation]),
+          ).values(),
         );
         return (
           <Fragment key={row.key}>
@@ -484,10 +538,10 @@ function SplitHunkView({
               wrap={wrap}
               isSelected={isSelected}
               annotationCount={annotationCount}
-              onClick={(event) => onRowSelect(row.key, event)}
+              onClick={(event) => onRowSelect(row.rowKeys, event)}
               onAddComment={(event) => {
                 event.stopPropagation();
-                onOpenInlineComment(row.key);
+                onOpenInlineComment(row.rowKeys);
               }}
             />
             <SplitDiffCell
@@ -497,10 +551,10 @@ function SplitHunkView({
               wrap={wrap}
               isSelected={isSelected}
               annotationCount={annotationCount}
-              onClick={(event) => onRowSelect(row.key, event)}
+              onClick={(event) => onRowSelect(row.rowKeys, event)}
               onAddComment={(event) => {
                 event.stopPropagation();
-                onOpenInlineComment(row.key);
+                onOpenInlineComment(row.rowKeys);
               }}
             />
             {composerAnchor === row.key ? (
@@ -694,7 +748,7 @@ function InlineCommentComposer({
 }
 
 interface InlineAnnotationCardProps {
-  annotation: DiffAnnotation;
+  annotation: ReviewCommentDraft;
   onReply: () => void;
   onResolve: () => void;
 }
@@ -752,6 +806,44 @@ function getComposerAnchor(visibleRowKeys: string[], selectedRowKeys: string[]):
 
 function buildLineKey(hunkIndex: number, lineIndex: number): string {
   return `${hunkIndex}:${lineIndex}`;
+}
+
+function buildLineLookup(diff: DiffContent): Map<string, ReviewCommentAnchor> {
+  const lookup = new Map<string, ReviewCommentAnchor>();
+
+  diff.hunks.forEach((hunk, hunkIndex) => {
+    hunk.lines.forEach((line, lineIndex) => {
+      const rowKey = buildLineKey(hunkIndex, lineIndex);
+      lookup.set(rowKey, {
+        hunkIndex,
+        lineIndex,
+        rowKey,
+        oldLineNumber: line.oldLineNumber,
+        newLineNumber: line.newLineNumber,
+        side: deriveReviewCommentSide(line),
+        linePreview: normalizeLinePreview(line.content),
+      });
+    });
+  });
+
+  return lookup;
+}
+
+function deriveReviewCommentSide(line: DiffLineType): ReviewCommentSide {
+  if (line.type === "deleted") {
+    return "left";
+  }
+  if (line.type === "added") {
+    return "right";
+  }
+  return "both";
+}
+
+function normalizePrimarySide(side: ReviewCommentSide): ReviewCommentSide {
+  if (side === "both") {
+    return "right";
+  }
+  return side;
 }
 
 function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {
