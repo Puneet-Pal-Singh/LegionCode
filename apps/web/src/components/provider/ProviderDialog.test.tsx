@@ -254,7 +254,18 @@ describe("ProviderDialog", () => {
         // In full mode, stays open and navigates to manage models instead of closing
         expect(onClose).not.toHaveBeenCalled();
         // Verify manage models view is shown
-        expect(screen.getByText(/manage models/i)).toBeInTheDocument();
+        expect(
+          screen.getByRole("heading", { name: /manage models/i }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText("OpenAI connected. Choose your models next."),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Choose the models you want to show in the model selector next/i),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Select which models from this provider should appear in the model picker before you continue/i),
+        ).toBeInTheDocument();
       });
     });
 
@@ -425,6 +436,43 @@ describe("ProviderDialog", () => {
 
       fireEvent.keyDown(window, { key: "Escape" });
       expect(onClose).toHaveBeenCalled();
+    });
+
+    it("redirects to manage models with guidance after a successful connect", async () => {
+      render(
+        <ProviderDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          variant="connect-only"
+        />,
+      );
+
+      const openaiButton = screen.getByText("OpenAI").closest("button");
+      fireEvent.click(openaiButton!);
+
+      const secretInput = await screen.findByPlaceholderText(/api key/i);
+      fireEvent.change(secretInput, { target: { value: "sk-test123" } });
+
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: /submit/i,
+        }),
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("heading", { name: /manage models/i }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText("OpenAI connected. Choose your models next."),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Choose the models you want to show in the model selector next/i),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Select which models from this provider should appear in the model picker before you continue/i),
+        ).toBeInTheDocument();
+      });
     });
   });
 
