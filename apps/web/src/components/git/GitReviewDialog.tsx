@@ -17,6 +17,7 @@ export function GitReviewDialog({
     status,
     stagedFiles,
     selectedFile,
+    selectedReviewCommentCount,
     selectFile,
   } = useGitReview();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(
@@ -128,6 +129,14 @@ export function GitReviewDialog({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={closeReview}
+              disabled={selectedReviewCommentCount === 0}
+              className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-300 transition-colors hover:border-sky-400/40 hover:bg-sky-500/15 hover:text-sky-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+            >
+              Review changes ({selectedReviewCommentCount})
+            </button>
             <button
               type="button"
               onClick={() => setIsCommitDialogOpen(true)}
