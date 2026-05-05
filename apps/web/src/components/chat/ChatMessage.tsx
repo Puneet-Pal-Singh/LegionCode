@@ -1,22 +1,47 @@
-import { useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import type { Message } from "@ai-sdk/react";
+import type { DiffContent, DiffLine, FileStatus } from "@repo/shared-types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArtifactPreview } from "./ArtifactPreview";
 import { cn } from "../../lib/utils";
-import { FilePill } from "./FilePill";
 import type { ChatMessageMetadata } from "./messageMetadata";
+
+interface ChangedFilesSummary {
+  files: FileStatus[];
+  loadFileDiff?: (file: FileStatus) => Promise<DiffContent>;
+}
+
+interface ChangeLineStats {
+  additions: number | null;
+  deletions: number | null;
+}
+
+interface ChangedFileDiffState {
+  loading: boolean;
+  diff?: DiffContent;
+  error?: string;
+}
 
 interface ChatMessageProps {
   message: Message;
   metadata?: ChatMessageMetadata;
   onArtifactOpen?: (path: string, content: string) => void;
+  changedFilesSummary?: ChangedFilesSummary;
 }
 
 export function ChatMessage({
   message,
   metadata,
   onArtifactOpen,
+  changedFilesSummary,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isThinkingVisible, setIsThinkingVisible] = useState(false);
@@ -74,28 +99,29 @@ export function ChatMessage({
       thinkingBlocks: dedupedThinking,
     };
   }, [message.content, message.role]);
+  const displayContent = useMemo(() => {
+    if (isUser || !changedFilesSummary || !content) {
+      return content;
+    }
 
-  // Extract file references from assistant answer content (simple regex)
-  const fileRefs =
-    content.match(/[\w-]+\.(md|json|ts|tsx|js|jsx|css|html)/g) || [];
+    return stripAssistantChangeCounts(content);
+  }, [changedFilesSummary, content, isUser]);
 
-  // Unique file references
-  const uniqueFileRefs = [...new Set(fileRefs)] as string[];
   const metadataText = useMemo(
     () => formatMetadataText(metadata, isUser),
     [isUser, metadata],
   );
-  const canCopyContent = content.length > 0;
+  const canCopyContent = displayContent.length > 0;
   const handleCopy = useCallback(async () => {
     if (!canCopyContent || typeof navigator === "undefined") {
       return;
     }
     try {
-      await navigator.clipboard.writeText(content);
+      await navigator.clipboard.writeText(displayContent);
     } catch (error) {
       console.warn("[chat/message] Failed to copy message", error);
     }
-  }, [canCopyContent, content]);
+  }, [canCopyContent, displayContent]);
 
   return (
     <div
@@ -107,14 +133,14 @@ export function ChatMessage({
       {/* Message Content */}
       <div className={cn("max-w-4xl", isUser ? "text-right" : "flex-1")}>
         {/* User message bubble */}
-        {isUser && content && (
+        {isUser && displayContent && (
           <div className="inline-block bg-[#262626] text-white px-4 py-2.5 rounded-2xl text-sm leading-relaxed">
-            <MarkdownMessageContent content={content} isUser />
+            <MarkdownMessageContent content={displayContent} isUser />
           </div>
         )}
 
         {/* Assistant message */}
-        {!isUser && (content || thinkingBlocks.length > 0) && (
+        {!isUser && (displayContent || thinkingBlocks.length > 0) && (
           <div className="space-y-3">
             {thinkingBlocks.length > 0 && (
               <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/70">
@@ -140,20 +166,7 @@ export function ChatMessage({
               </div>
             )}
 
-            {content && <MarkdownMessageContent content={content} />}
-
-            {/* File references as pills */}
-            {uniqueFileRefs.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-3">
-                {uniqueFileRefs.map((filename) => (
-                  <FilePill
-                    key={filename}
-                    filename={filename}
-                    onClick={() => console.log("Open file:", filename)}
-                  />
-                ))}
-              </div>
-            )}
+            {displayContent && <MarkdownMessageContent content={displayContent} />}
           </div>
         )}
 
@@ -189,6 +202,13 @@ export function ChatMessage({
             return null;
           })}
 
+        {!isUser && changedFilesSummary && changedFilesSummary.files.length > 0 && (
+          <ChangedFilesCard
+            files={changedFilesSummary.files}
+            loadFileDiff={changedFilesSummary.loadFileDiff}
+          />
+        )}
+
         {metadataText && (
           <div
             className={cn(
@@ -222,6 +242,357 @@ export function ChatMessage({
       </div>
     </div>
   );
+}
+
+function ChangedFilesCard({
+  files,
+  loadFileDiff,
+}: {
+  files: FileStatus[];
+  loadFileDiff?: (file: FileStatus) => Promise<DiffContent>;
+}) {
+  const [expandedPath, setExpandedPath] = useState<string | null>(null);
+  const diffStates = useChangedFileDiffStates(files, loadFileDiff);
+  const totals = calculateChangedFileTotals(files, diffStates);
+  const fileCountLabel = files.length === 1 ? "Changed file" : "Changed files";
+
+  return (
+    <div className="mt-5 space-y-3">
+      <div className="flex items-center gap-3 text-sm font-semibold text-zinc-100">
+        <span>
+          {files.length} {fileCountLabel}
+        </span>
+        {files.length > 1 ? (
+          <ChangeStats additions={totals.additions} deletions={totals.deletions} />
+        ) : null}
+      </div>
+      <div className="overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+        {files.map((file) => (
+          <ChangedFileRow
+            key={file.path}
+            file={file}
+            diffState={diffStates[file.path]}
+            isExpanded={expandedPath === file.path}
+            onToggle={() =>
+              setExpandedPath((currentPath) =>
+                currentPath === file.path ? null : file.path,
+              )
+            }
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function useChangedFileDiffStates(
+  files: FileStatus[],
+  loadFileDiff: ((file: FileStatus) => Promise<DiffContent>) | undefined,
+): Record<string, ChangedFileDiffState> {
+  const [diffStates, setDiffStates] = useState<
+    Record<string, ChangedFileDiffState>
+  >({});
+
+  useEffect(() => {
+    if (!loadFileDiff) {
+      return;
+    }
+
+    let cancelled = false;
+    files.forEach((file) => {
+      setDiffStateLoading(setDiffStates, file.path);
+      void loadFileDiff(file)
+        .then((diff) => {
+          if (!cancelled) {
+            setDiffStateResult(setDiffStates, file.path, diff);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setDiffStateError(setDiffStates, file.path, error);
+          }
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [files, loadFileDiff]);
+
+  return diffStates;
+}
+
+function setDiffStateLoading(
+  setDiffStates: Dispatch<SetStateAction<Record<string, ChangedFileDiffState>>>,
+  path: string,
+): void {
+  setDiffStates((current) => ({
+    ...current,
+    [path]: current[path] ?? { loading: true },
+  }));
+}
+
+function setDiffStateResult(
+  setDiffStates: Dispatch<SetStateAction<Record<string, ChangedFileDiffState>>>,
+  path: string,
+  diff: DiffContent,
+): void {
+  setDiffStates((current) => ({
+    ...current,
+    [path]: { loading: false, diff },
+  }));
+}
+
+function setDiffStateError(
+  setDiffStates: Dispatch<SetStateAction<Record<string, ChangedFileDiffState>>>,
+  path: string,
+  error: unknown,
+): void {
+  setDiffStates((current) => ({
+    ...current,
+    [path]: {
+      loading: false,
+      error: error instanceof Error ? error.message : String(error),
+    },
+  }));
+}
+
+function ChangedFileRow({
+  file,
+  diffState,
+  isExpanded,
+  onToggle,
+}: {
+  file: FileStatus;
+  diffState?: ChangedFileDiffState;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const fileNameParts = splitPathForDisplay(file.path);
+  const stats = getFileStats(file, diffState);
+
+  return (
+    <div className="border-b border-zinc-800/80 last:border-b-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80"
+        aria-expanded={isExpanded}
+        aria-label={`${isExpanded ? "Collapse" : "Expand"} changes for ${file.path}`}
+      >
+        <span className="min-w-0 flex-1 truncate font-mono text-sm text-zinc-400">
+          {fileNameParts.directory}
+          <span className="font-semibold text-zinc-100">{fileNameParts.name}</span>
+        </span>
+        <ChangeStats additions={stats.additions} deletions={stats.deletions} />
+        <span className="text-zinc-600" aria-hidden="true">
+          {isExpanded ? "⌃" : "›"}
+        </span>
+      </button>
+      {isExpanded ? <ChangedFileInlineDiff diffState={diffState} /> : null}
+    </div>
+  );
+}
+
+function ChangedFileInlineDiff({
+  diffState,
+}: {
+  diffState?: ChangedFileDiffState;
+}) {
+  if (!diffState || diffState.loading) {
+    return (
+      <div className="border-t border-zinc-800 px-4 py-4 text-sm text-zinc-500">
+        Loading diff...
+      </div>
+    );
+  }
+  if (diffState.error) {
+    return (
+      <div className="border-t border-red-500/30 px-4 py-4 text-sm text-red-300">
+        {diffState.error}
+      </div>
+    );
+  }
+  if (!diffState.diff) {
+    return (
+      <div className="border-t border-zinc-800 px-4 py-4 text-sm text-zinc-500">
+        No diff available
+      </div>
+    );
+  }
+  return <InlineDiffViewer diff={diffState.diff} />;
+}
+
+function InlineDiffViewer({ diff }: { diff: DiffContent }) {
+  if (diff.isBinary) {
+    return (
+      <div className="border-t border-zinc-800 px-4 py-4 text-sm text-zinc-500">
+        Binary file changed
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[28rem] overflow-auto border-t border-zinc-800 bg-black/70">
+      {diff.hunks.length === 0 || !hasRenderableChangedLines(diff) ? (
+        <div className="px-4 py-4 text-sm text-zinc-500">No line changes</div>
+      ) : (
+        diff.hunks.map((hunk, hunkIndex) => (
+          <div
+            key={`${hunk.header}-${hunkIndex}`}
+            className="border-b border-zinc-900 last:border-b-0"
+          >
+            {hunk.lines
+              .filter((line) => line.type !== "unchanged")
+              .map((line, lineIndex) => (
+              <InlineDiffLine
+                key={`${hunkIndex}-${lineIndex}`}
+                line={line}
+              />
+            ))}
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function InlineDiffLine({ line }: { line: DiffLine }) {
+  const lineStyle = getInlineDiffLineStyle(line.type);
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 border-l-2 font-mono text-xs",
+        lineStyle.container,
+      )}
+    >
+      <span className="w-12 shrink-0 bg-zinc-900/60 px-2 py-1 text-right text-zinc-500">
+        {line.oldLineNumber ?? ""}
+      </span>
+      <span className="w-12 shrink-0 bg-zinc-900/60 px-2 py-1 text-right text-zinc-500">
+        {line.newLineNumber ?? ""}
+      </span>
+      <pre
+        className={cn(
+          "min-w-0 flex-1 whitespace-pre-wrap break-words px-3 py-1",
+          lineStyle.text,
+        )}
+      >
+        {line.content}
+      </pre>
+    </div>
+  );
+}
+
+function hasRenderableChangedLines(diff: DiffContent): boolean {
+  return diff.hunks.some((hunk) =>
+    hunk.lines.some((line) => line.type !== "unchanged"),
+  );
+}
+
+function ChangeStats({
+  additions,
+  deletions,
+}: {
+  additions: number | null;
+  deletions: number | null;
+}) {
+  return (
+    <span className="flex shrink-0 items-center gap-2 font-mono text-sm font-semibold">
+      <span className="text-emerald-400">+{additions ?? "…"}</span>
+      <span className="text-red-400">-{deletions ?? "…"}</span>
+    </span>
+  );
+}
+
+function calculateChangedFileTotals(
+  files: FileStatus[],
+  diffStates: Record<string, ChangedFileDiffState>,
+): ChangeLineStats {
+  return files.reduce<ChangeLineStats>(
+    (totals, file) => {
+      const stats = getFileStats(file, diffStates[file.path]);
+      if (stats.additions === null || stats.deletions === null) {
+        return { additions: null, deletions: null };
+      }
+      if (totals.additions === null || totals.deletions === null) {
+        return totals;
+      }
+      return {
+        additions: totals.additions + stats.additions,
+        deletions: totals.deletions + stats.deletions,
+      };
+    },
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function getFileStats(
+  file: FileStatus,
+  diffState?: ChangedFileDiffState,
+): ChangeLineStats {
+  if (diffState?.diff) {
+    return calculateDiffStats(diffState.diff);
+  }
+
+  if (diffState?.loading && file.additions === 0 && file.deletions === 0) {
+    return { additions: null, deletions: null };
+  }
+
+  if (!diffState?.diff) {
+    return { additions: file.additions, deletions: file.deletions };
+  }
+
+  return calculateDiffStats(diffState.diff);
+}
+
+function calculateDiffStats(diff: DiffContent): ChangeLineStats {
+  return diff.hunks.reduce(
+    (totals, hunk) => ({
+      additions:
+        totals.additions +
+        hunk.lines.filter((line) => line.type === "added").length,
+      deletions:
+        totals.deletions +
+        hunk.lines.filter((line) => line.type === "deleted").length,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+}
+
+function getInlineDiffLineStyle(lineType: DiffLine["type"]): {
+  container: string;
+  text: string;
+} {
+  if (lineType === "added") {
+    return {
+      container: "border-l-emerald-400 bg-emerald-500/14",
+      text: "text-emerald-200",
+    };
+  }
+  if (lineType === "deleted") {
+    return {
+      container: "border-l-red-400 bg-red-500/14",
+      text: "text-red-200",
+    };
+  }
+  return { container: "border-l-transparent bg-black", text: "text-zinc-300" };
+}
+
+function splitPathForDisplay(path: string): { directory: string; name: string } {
+  const lastSlashIndex = path.lastIndexOf("/");
+  if (lastSlashIndex < 0) {
+    return { directory: "", name: path };
+  }
+
+  return {
+    directory: path.slice(0, lastSlashIndex + 1),
+    name: path.slice(lastSlashIndex + 1),
+  };
+}
+
+function stripAssistantChangeCounts(content: string): string {
+  return content.replace(/ \(\+\d+ -\d+\)/g, "");
 }
 
 function formatMetadataText(
