@@ -12,6 +12,7 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { CheckCircle2, X } from "lucide-react";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
   BYOKCredential as ProviderCredential,
@@ -87,6 +88,20 @@ export function ProviderDialog({
   const [manageOnlyView, setManageOnlyView] = useState<"manage" | "connect">(
     "manage"
   );
+  const [connectOnlyView, setConnectOnlyView] = useState<"connect" | "manage">(
+    "connect",
+  );
+  const [manageModelsGuidance, setManageModelsGuidance] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
+  const [connectToasts, setConnectToasts] = useState<
+    Array<{
+      id: string;
+      providerName: string;
+      description: string;
+    }>
+  >([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -101,6 +116,8 @@ export function ProviderDialog({
     setConnectSuccess(null);
     setIsConnecting(false);
     setManageOnlyView("manage");
+    setConnectOnlyView("connect");
+    setManageModelsGuidance(null);
   }, [initialTab, initialView, isOpen, mode]);
 
   useEffect(() => {
@@ -152,10 +169,30 @@ export function ProviderDialog({
         label: labelValue || undefined,
       });
 
-      setConnectSuccess("API key saved and provider connected.");
+      const providerName =
+        catalog.find((entry) => entry.providerId === providerId)?.displayName ??
+        providerId;
+      const successMessage = "API key saved and provider connected.";
+      setConnectSuccess(successMessage);
+      setManageModelsGuidance({
+        title: `${providerName} connected. Choose your models next.`,
+        description:
+          "Select which models from this provider should appear in the model picker before you continue.",
+      });
+      setConnectToasts((current) => [
+        {
+          id: crypto.randomUUID(),
+          providerName,
+          description:
+            "Choose the models you want to show in the model selector next.",
+        },
+        ...current,
+      ]);
 
       if (variant === "manage-models-only") {
         setManageOnlyView("manage");
+      } else if (variant === "connect-only") {
+        setConnectOnlyView("manage");
       } else if (variant === "full") {
         setActiveTab("connected");
         setShowManageModels(true);
@@ -300,12 +337,53 @@ export function ProviderDialog({
         onToggleModelVisibility={toggleModelVisibility}
         onSetProviderVisibleModels={setProviderVisibleModels}
         onConnectProvider={() => setManageOnlyView("connect")}
+        guidanceBanner={manageModelsGuidance}
       />
     );
   }
 
   if (variant === "connect-only") {
-    return renderConnectProviderDialog(onClose);
+    if (connectOnlyView === "manage") {
+      return (
+        <>
+          <ManageModelsDialog
+            isOpen={isOpen}
+            onClose={onClose}
+            catalog={catalog}
+            credentials={credentials}
+            providerModels={manageProviderModels}
+            visibleModelIds={visibleModelIds}
+            loadingProviderModelIds={loadingManageModelsForProviderIds}
+            onLoadProviderModels={loadManageProviderModels}
+            onToggleModelVisibility={toggleModelVisibility}
+            onSetProviderVisibleModels={setProviderVisibleModels}
+            guidanceBanner={manageModelsGuidance}
+          />
+          <ProviderConnectToastStack
+            toasts={connectToasts}
+            onDismiss={(toastId) =>
+              setConnectToasts((current) =>
+                current.filter((toast) => toast.id !== toastId),
+              )
+            }
+          />
+        </>
+      );
+    }
+
+    return (
+      <>
+        {renderConnectProviderDialog(onClose)}
+        <ProviderConnectToastStack
+          toasts={connectToasts}
+          onDismiss={(toastId) =>
+            setConnectToasts((current) =>
+              current.filter((toast) => toast.id !== toastId),
+            )
+          }
+        />
+      </>
+    );
   }
 
   return (
@@ -467,7 +545,66 @@ export function ProviderDialog({
           setShowManageModels(false);
           setActiveTab("available");
         }}
+        guidanceBanner={manageModelsGuidance}
       />
+
+      <ProviderConnectToastStack
+        toasts={connectToasts}
+        onDismiss={(toastId) =>
+          setConnectToasts((current) =>
+            current.filter((toast) => toast.id !== toastId),
+          )
+        }
+      />
+    </div>
+  );
+}
+
+function ProviderConnectToastStack({
+  toasts,
+  onDismiss,
+}: {
+  toasts: Array<{
+    id: string;
+    providerName: string;
+    description: string;
+  }>;
+  onDismiss: (toastId: string) => void;
+}): React.ReactElement | null {
+  if (toasts.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed bottom-5 right-5 z-[80] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col gap-2">
+      {toasts.map((toast) => (
+        <div
+          key={toast.id}
+          className="pointer-events-auto rounded-xl border border-zinc-700/80 bg-[#0f1117]/95 px-4 py-3 text-zinc-100 shadow-2xl"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2.5">
+              <CheckCircle2 className="mt-0.5 text-zinc-300" size={16} />
+              <div>
+                <p className="text-lg font-medium leading-tight">
+                  {toast.providerName} connected
+                </p>
+                <p className="mt-1 text-sm text-zinc-300">
+                  {toast.description}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onDismiss(toast.id)}
+              className="rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-300"
+              aria-label="Dismiss notification"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
