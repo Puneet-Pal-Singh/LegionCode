@@ -27,6 +27,7 @@ import type {
   RunStatus,
   IAgent,
   RepositoryContext,
+  RuntimeExecutionService,
   RuntimeDurableObjectState,
   WorkspaceBootstrapper,
 } from "../types.js";
@@ -130,6 +131,21 @@ export type {
 
 const gitHubTaskStrategy = new GitHubTaskStrategy();
 const gitToolFailureClassifier = new GitToolFailureClassifier();
+
+interface RuntimeExecutionResultLike {
+  success: boolean;
+  error?: string;
+}
+
+function isRuntimeExecutionResultLike(
+  value: unknown,
+): value is RuntimeExecutionResultLike {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return typeof (value as { success?: unknown }).success === "boolean";
+}
 
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
@@ -426,6 +442,8 @@ export class RunEngine implements IRunEngine {
           blocked: bootstrapEvaluation.blocked,
           message: bootstrapEvaluation.message ?? undefined,
           expectedMiss: bootstrapEvaluation.expectedMiss,
+          clonedDuringBootstrap:
+            bootstrapEvaluation.clonedDuringBootstrap ?? false,
           recordedAt: new Date().toISOString(),
         };
         await this.runRepo.update(run);
@@ -565,6 +583,11 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
+    const restoredPersistedEdits =
+      await this.restoreContinuationWorkspaceEditsIfNeeded(
+      run,
+      directExecutionService,
+    );
     const loopCallbacks = buildAgenticLoopCallbacks({
       run,
       directExecutionService,
@@ -589,6 +612,7 @@ export class RunEngine implements IRunEngine {
           return currentRun?.status === "CANCELLED";
         },
         executeTool: loopCallbacks.executeTool,
+        initialCompletedMutatingToolCount: restoredPersistedEdits ? 1 : 0,
         modelId: input.modelId,
         providerId: input.providerId,
         temperature: 0.2,
@@ -995,6 +1019,45 @@ export class RunEngine implements IRunEngine {
         runInput: input,
       }),
     );
+  }
+
+  private async restoreContinuationWorkspaceEditsIfNeeded(
+    run: Run,
+    executionService: RuntimeExecutionService | undefined,
+  ): Promise<boolean> {
+    if (!executionService) {
+      return false;
+    }
+
+    const continuation = run.metadata.continuation;
+    const workspaceBootstrap = run.metadata.workspaceBootstrap;
+    if (
+      !workspaceBootstrap?.clonedDuringBootstrap ||
+      !continuation ||
+      continuation.restorableEdits.length === 0
+    ) {
+      return false;
+    }
+
+    console.log(
+      `[run/engine] Restoring ${continuation.restorableEdits.length} persisted edit(s) after workspace re-clone for run ${run.id}`,
+    );
+    for (const edit of continuation.restorableEdits) {
+      const result = await executionService.execute("filesystem", "write_file", {
+        path: edit.filePath,
+        content: edit.content,
+      });
+      if (!isRuntimeExecutionResultLike(result) || !result.success) {
+        throw new Error(
+          `Failed to restore persisted workspace edit for ${edit.filePath}: ${
+            isRuntimeExecutionResultLike(result)
+              ? result.error ?? "unknown restore error"
+              : "unexpected execution result"
+          }`,
+        );
+      }
+    }
+    return true;
   }
   private async handleExecutionError(
     runId: string,
