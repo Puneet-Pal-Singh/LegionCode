@@ -379,7 +379,7 @@ export function Workspace({
       <GitReviewProvider
         key={`${sessionId}:${activeRunId}`}
         isReviewOpen={isGitReviewOpen}
-        onReviewOpenChange={(open) => onGitReviewOpenChange?.(open)}
+        onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
       >
         <div className="ui-center-surface flex-1 flex overflow-hidden relative">
         {/* Chat Area */}
