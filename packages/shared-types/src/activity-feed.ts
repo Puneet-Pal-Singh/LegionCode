@@ -160,6 +160,7 @@ export interface EditToolActivityMetadata {
   additions: number;
   deletions: number;
   diffPreview?: string;
+  restorationContent?: string;
   diagnostics?: string[];
 }
 
