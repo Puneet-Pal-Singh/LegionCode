@@ -10,6 +10,8 @@ import {
   RUN_EVENT_TYPES,
   type ApprovalDecisionKind,
   type ApprovalRequest,
+  type DiffContent,
+  type FileStatus,
   type ProductMode,
   type RunEvent,
   type RunMode,
@@ -39,6 +41,7 @@ import {
   buildReviewCommentPrompt,
   validateReviewPromptBudget,
 } from "../git/reviewComments";
+import { getGitDiff } from "../../lib/git-client.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
@@ -241,6 +244,7 @@ export function ChatInterface({
 
   const { summary } = useRunSummary(runId, isLoading);
   const {
+    status: gitStatus,
     selectedReviewComments,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
@@ -285,6 +289,26 @@ export function ChatInterface({
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
     [messages],
+  );
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role === "assistant") {
+        return message.id;
+      }
+    }
+    return null;
+  }, [messages]);
+  const loadChangedFileDiff = useCallback(
+    async (file: FileStatus): Promise<DiffContent> => {
+      return await getGitDiff({
+        runId,
+        sessionId,
+        path: file.path,
+        staged: file.isStaged,
+      });
+    },
+    [runId, sessionId],
   );
 
   useEffect(() => {
@@ -781,6 +805,16 @@ export function ChatInterface({
                   message={entry.message}
                   metadata={messageMetadataById[entry.message.id]}
                   onArtifactOpen={onArtifactOpen}
+                  changedFilesSummary={
+                    !isLoading &&
+                    entry.message.id === latestAssistantMessageId &&
+                    gitStatus?.files.length
+                      ? {
+                          files: gitStatus.files,
+                          loadFileDiff: loadChangedFileDiff,
+                        }
+                      : undefined
+                  }
                 />
               ) : (
                 renderActivityTurn(entry.turn)
