@@ -14,6 +14,7 @@ export function createRunContinuationState(
   run: Run,
 ): RunContinuationState | undefined {
   const toolLifecycle = run.metadata.agenticLoop?.toolLifecycle ?? [];
+  const restorableEdits = collectRestorableEdits(toolLifecycle);
   const completedFiles = [
     ...new Set(
       toolLifecycle.flatMap((event) =>
@@ -44,6 +45,7 @@ export function createRunContinuationState(
     !run.metadata.prompt &&
     !run.output?.content &&
     completedFiles.length === 0 &&
+    restorableEdits.length === 0 &&
     completedGitSteps.length === 0 &&
     !failedEvent
   ) {
@@ -55,6 +57,7 @@ export function createRunContinuationState(
     previousOutput: run.output?.content,
     previousStopReason: run.metadata.agenticLoop?.stopReason,
     completedFiles,
+    restorableEdits,
     completedGitSteps,
     hasTrustedGitCommitIdentity,
     activeBranch: resolveActiveBranch(run),
@@ -66,6 +69,35 @@ export function createRunContinuationState(
         : undefined,
     recordedAt: new Date().toISOString(),
   };
+}
+
+function collectRestorableEdits(
+  toolLifecycle: AgenticLoopToolLifecycleEvent[] | undefined,
+): Array<{ filePath: string; content: string }> {
+  if (!toolLifecycle) {
+    return [];
+  }
+
+  const latestByFile = new Map<string, { filePath: string; content: string }>();
+  for (const event of toolLifecycle) {
+    if (event.status !== "completed" || event.metadata?.family !== "edit") {
+      continue;
+    }
+    const restorationContent = event.metadata.restorationContent;
+    if (
+      typeof event.metadata.filePath !== "string" ||
+      event.metadata.filePath.trim().length === 0 ||
+      typeof restorationContent !== "string"
+    ) {
+      continue;
+    }
+    latestByFile.set(event.metadata.filePath, {
+      filePath: event.metadata.filePath,
+      content: restorationContent,
+    });
+  }
+
+  return Array.from(latestByFile.values());
 }
 
 export function buildAgenticLoopWorkspaceContext(input: {
