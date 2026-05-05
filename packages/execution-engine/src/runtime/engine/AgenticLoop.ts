@@ -81,6 +81,7 @@ export interface AgenticLoopResult {
 
 interface AgenticLoopHooks {
   workspaceContext?: string;
+  initialCompletedMutatingToolCount?: number;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
   isRunCancelled?: () => Promise<boolean>;
@@ -161,6 +162,10 @@ export class AgenticLoop {
     } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
     this.reset();
+    this.completedMutatingToolCount = Math.max(
+      0,
+      context.initialCompletedMutatingToolCount ?? 0,
+    );
     const messages: CoreMessage[] = [...initialMessages];
     const currentTurnIntent =
       classifyCurrentTurnIntentFromMessages(initialMessages);
