@@ -377,6 +377,7 @@ export function Workspace({
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <GitReviewProvider
+        key={`${sessionId}:${activeRunId}`}
         isReviewOpen={isGitReviewOpen}
         onReviewOpenChange={(open) => onGitReviewOpenChange?.(open)}
       >
