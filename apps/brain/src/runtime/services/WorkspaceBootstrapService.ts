@@ -153,6 +153,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         status: "invalid-context",
         message:
           "Repository context is missing or invalid. Select a repository and branch, then retry.",
+        clonedDuringBootstrap: false,
       };
       this.logBootstrapTiming(
         request.runId,
@@ -168,6 +169,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         status: "invalid-context",
         message:
           "Repository URL is invalid. Re-select the repository and branch, then retry.",
+        clonedDuringBootstrap: false,
       };
       this.logBootstrapTiming(
         request.runId,
@@ -183,7 +185,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       bootstrapMode,
     );
     if (isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs)) {
-      bootstrapResult = { status: "ready" };
+      bootstrapResult = { status: "ready", clonedDuringBootstrap: false };
       this.logBootstrapTiming(
         request.runId,
         bootstrapResult,
@@ -280,7 +282,10 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         workspaceStatus.files.length > 0;
       if (hasLocalChanges) {
         setWorkspaceSyncCache(cacheKey);
-        bootstrapResult = { status: "ready" };
+        bootstrapResult = {
+          status: "ready",
+          clonedDuringBootstrap: false,
+        };
         this.logBootstrapTiming(
           request.runId,
           bootstrapResult,
@@ -406,7 +411,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     if (shouldPull) {
       if (branchExistsOnRemote === false) {
         setWorkspaceSyncCache(cacheKey);
-        return { status: "ready" };
+        return { status: "ready", clonedDuringBootstrap };
       }
       const pullResult = await this.executeGit(
         "git_pull",
@@ -425,14 +430,14 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
           matchesAny(pullError, NO_TRACKING_PATTERNS)
         ) {
           setWorkspaceSyncCache(cacheKey);
-          return { status: "ready" };
+          return { status: "ready", clonedDuringBootstrap };
         }
         return mapGitFailure(pullError);
       }
     }
 
     setWorkspaceSyncCache(cacheKey);
-    return { status: "ready" };
+    return { status: "ready", clonedDuringBootstrap };
   }
 
   private async readBranchAvailability(
@@ -612,12 +617,14 @@ function mapGitFailure(error: string): WorkspaceBootstrapResult {
       status: "needs-auth",
       message:
         "GitHub authorization is required to access this repository. Reconnect GitHub and retry.",
+      clonedDuringBootstrap: false,
     };
   }
 
   return {
     status: "sync-failed",
     message: sanitizeError(error),
+    clonedDuringBootstrap: false,
   };
 }
 
