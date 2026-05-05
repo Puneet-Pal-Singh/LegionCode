@@ -49,6 +49,7 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
+    expect(result.clonedDuringBootstrap).toBe(true);
     expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
@@ -210,6 +211,7 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
+    expect(result.clonedDuringBootstrap).toBe(true);
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
     });
