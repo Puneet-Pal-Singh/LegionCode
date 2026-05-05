@@ -30,6 +30,7 @@ describe("RunContinuationContext", () => {
             filePath: "src/components/Hero.tsx",
             additions: 20,
             deletions: 3,
+            restorationContent: "export const Hero = () => null;\n",
           },
         },
         {
@@ -69,6 +70,12 @@ describe("RunContinuationContext", () => {
       previousPrompt: "make the hero prettier",
       previousStopReason: "tool_error",
       completedFiles: ["src/components/Hero.tsx"],
+      restorableEdits: [
+        {
+          filePath: "src/components/Hero.tsx",
+          content: "export const Hero = () => null;\n",
+        },
+      ],
       completedGitSteps: ["Branch created: feat/floating-hero-carousels"],
       activeBranch: "feat/floating-hero-carousels",
       failedToolName: "bash",
@@ -214,6 +221,7 @@ describe("RunContinuationContext", () => {
           "I couldn't finish the git step in the sandbox. Retry the step or run it locally.",
         previousStopReason: "tool_error",
         completedFiles: ["src/components/landing/hero/FloatingCarousels.tsx"],
+        restorableEdits: [],
         completedGitSteps: [
           "Branch created: feat/floating-hero-carousels",
           "Commit created: feat: add floating carousels to hero section",
@@ -252,6 +260,7 @@ describe("RunContinuationContext", () => {
         previousOutput:
           "The branch was pushed, but the PR step failed before GitHub accepted it.",
         completedFiles: ["src/components/landing/hero/FloatingCarousels.tsx"],
+        restorableEdits: [],
         completedGitSteps: [
           "Branch created: feat/floating-hero-carousels",
           "Commit created: feat: add floating carousels to hero section",
@@ -289,6 +298,7 @@ describe("RunContinuationContext", () => {
           "src/components/landing/hero/FloatingCarousels.tsx",
           "src/components/landing/hero/index.tsx",
         ],
+        restorableEdits: [],
         completedGitSteps: [
           "Branch created: feat/floating-hero-carousels",
           "Commit created: feat: add floating carousels to hero section",
@@ -347,6 +357,7 @@ describe("RunContinuationContext", () => {
         previousStopReason: "tool_error",
         previousOutput: "Scope clarification required.",
         completedFiles: [],
+        restorableEdits: [],
         completedGitSteps: [],
         failedToolName: "git_stage",
         failedToolDetail:
