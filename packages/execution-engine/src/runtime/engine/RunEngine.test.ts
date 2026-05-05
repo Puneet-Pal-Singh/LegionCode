@@ -3568,6 +3568,192 @@ describe("RunEngine", () => {
     ).toBe(false);
   });
 
+  it("restores persisted workspace edits when bootstrap had to recreate the repo", async () => {
+    const state = new MockRuntimeState();
+    const workspaceBootstrapper = {
+      bootstrap: vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: "ready" as const,
+          clonedDuringBootstrap: false,
+        })
+        .mockResolvedValueOnce({
+          status: "ready" as const,
+          clonedDuringBootstrap: true,
+        }),
+    };
+    const generateText = vi
+      .fn()
+      .mockResolvedValueOnce({
+        text: "I'll update the hero file.",
+        toolCalls: [
+          {
+            id: "write-hero-1",
+            toolName: "write_file",
+            args: {
+              path: "src/components/landing/hero/index.tsx",
+              content: "export const hero = 'floating';\n",
+            },
+          },
+        ],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 4,
+          completionTokens: 8,
+          totalTokens: 12,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "Hero updated.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 2,
+          completionTokens: 3,
+          totalTokens: 5,
+        },
+      })
+      .mockResolvedValueOnce({
+        text: "Continuing from the restored workspace.",
+        toolCalls: [],
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 2,
+          completionTokens: 3,
+          totalTokens: 5,
+        },
+      });
+
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: async () => ({
+        object: { tasks: [], metadata: { estimatedSteps: 1 } },
+        usage: {
+          provider: "mock",
+          model: "mock-model",
+          promptTokens: 1,
+          completionTokens: 1,
+          totalTokens: 2,
+        },
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+
+    const executionService: RuntimeExecutionService = {
+      execute: vi.fn(async (plugin: string, action: string, payload?: Record<string, unknown>) => {
+        if (plugin === "filesystem" && action === "read_file") {
+          return {
+            success: false,
+            error: "File not found",
+          };
+        }
+        if (
+          plugin === "filesystem" &&
+          action === "write_file" &&
+          payload?.path === "src/components/landing/hero/index.tsx"
+        ) {
+          return {
+            success: true,
+            output: "File written successfully",
+          };
+        }
+        if (plugin === "git" && action === "git_status") {
+          return {
+            success: true,
+            output: JSON.stringify({
+              branch: "main",
+              files: [],
+              repoIdentity: "github.com/acme/career-crew",
+              hasStaged: false,
+              hasUnstaged: false,
+              gitAvailable: true,
+            }),
+          };
+        }
+        return {
+          success: false,
+          error: `Unexpected route ${plugin}:${action}`,
+        };
+      }),
+    };
+
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId: TEST_RUN_ID,
+        correlationId: "corr-restore-edits",
+      },
+      new CodingAgent(llmGateway, executionService),
+      undefined,
+      { llmGateway, workspaceBootstrapper },
+    );
+
+    await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "add floating hero markup",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "acme",
+          repo: "career-crew",
+          branch: "main",
+        },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [{ role: "user", content: "add floating hero markup" }],
+      {},
+    );
+
+    await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "continue?",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "acme",
+          repo: "career-crew",
+          branch: "main",
+        },
+        metadata: { featureFlags: { agenticLoopV1: true } },
+      },
+      [
+        { role: "user", content: "add floating hero markup" },
+        { role: "assistant", content: "Hero updated." },
+        { role: "user", content: "continue?" },
+      ],
+      {},
+    );
+
+    const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
+    const restoredWrites = executeSpy.mock.calls.filter(
+      ([plugin, action, payload]) =>
+        plugin === "filesystem" &&
+        action === "write_file" &&
+        payload?.path === "src/components/landing/hero/index.tsx" &&
+        payload?.content === "export const hero = 'floating';\n",
+    );
+    expect(restoredWrites).toHaveLength(2);
+    expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(2, {
+      runId: TEST_RUN_ID,
+      mode: "mutation",
+      repositoryContext: {
+        owner: "acme",
+        repo: "career-crew",
+        branch: "main",
+      },
+    });
+  });
+
   it("enforces the bounded golden-flow tool floor for agentic-loop tool maps", async () => {
     const generateText = vi.fn().mockResolvedValue({
       text: "done",
