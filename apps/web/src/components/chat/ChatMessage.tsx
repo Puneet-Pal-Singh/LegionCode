@@ -30,6 +30,27 @@ interface ChangedFileDiffState {
   error?: string;
 }
 
+type InlineDiffRow =
+  | {
+      kind: "line";
+      key: string;
+      line: DiffLine;
+    }
+  | {
+      kind: "separator";
+      key: string;
+    };
+
+interface InlineDiffSegment {
+  key: string;
+  lines: Array<{
+    key: string;
+    line: DiffLine;
+  }>;
+  sortLineNumber: number;
+  originalIndex: number;
+}
+
 interface ChatMessageProps {
   message: Message;
   metadata?: ChatMessageMetadata;
@@ -437,21 +458,13 @@ function InlineDiffViewer({ diff }: { diff: DiffContent }) {
       {diff.hunks.length === 0 || !hasRenderableChangedLines(diff) ? (
         <div className="px-4 py-4 text-sm text-zinc-500">No line changes</div>
       ) : (
-        diff.hunks.map((hunk, hunkIndex) => (
-          <div
-            key={`${hunk.header}-${hunkIndex}`}
-            className="border-b border-zinc-900 last:border-b-0"
-          >
-            {hunk.lines
-              .filter((line) => line.type !== "unchanged")
-              .map((line, lineIndex) => (
-              <InlineDiffLine
-                key={`${hunkIndex}-${lineIndex}`}
-                line={line}
-              />
-            ))}
-          </div>
-        ))
+        buildInlineDiffRows(diff).map((row) =>
+          row.kind === "line" ? (
+            <InlineDiffLine key={row.key} line={row.line} />
+          ) : (
+            <InlineDiffSeparator key={row.key} />
+          ),
+        )
       )}
     </div>
   );
@@ -459,6 +472,7 @@ function InlineDiffViewer({ diff }: { diff: DiffContent }) {
 
 function InlineDiffLine({ line }: { line: DiffLine }) {
   const lineStyle = getInlineDiffLineStyle(line.type);
+  const lineNumber = getInlineDiffLineNumber(line);
   return (
     <div
       className={cn(
@@ -466,11 +480,13 @@ function InlineDiffLine({ line }: { line: DiffLine }) {
         lineStyle.container,
       )}
     >
-      <span className="w-12 shrink-0 bg-zinc-900/60 px-2 py-1 text-right text-zinc-500">
-        {line.oldLineNumber ?? ""}
-      </span>
-      <span className="w-12 shrink-0 bg-zinc-900/60 px-2 py-1 text-right text-zinc-500">
-        {line.newLineNumber ?? ""}
+      <span
+        className={cn(
+          "w-14 shrink-0 bg-zinc-900/60 px-2 py-1 text-right",
+          lineStyle.number,
+        )}
+      >
+        {lineNumber}
       </span>
       <pre
         className={cn(
@@ -484,10 +500,176 @@ function InlineDiffLine({ line }: { line: DiffLine }) {
   );
 }
 
+function getInlineDiffLineNumber(line: DiffLine): string {
+  const lineNumber = getInlineDiffSortLineNumber(line);
+  return lineNumber === null ? "" : String(lineNumber);
+}
+
+function InlineDiffSeparator() {
+  return (
+    <div className="flex min-w-0 items-center bg-zinc-950/90">
+      <span className="w-14 shrink-0 bg-zinc-900/60 px-2 py-2" />
+      <div className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
+        <span className="h-px flex-1 bg-zinc-800/90" />
+        <span className="text-[10px] font-medium uppercase tracking-[0.24em] text-zinc-500">
+          ...
+        </span>
+        <span className="h-px flex-1 bg-zinc-800/90" />
+      </div>
+    </div>
+  );
+}
+
 function hasRenderableChangedLines(diff: DiffContent): boolean {
   return diff.hunks.some((hunk) =>
     hunk.lines.some((line) => line.type !== "unchanged"),
   );
+}
+
+function buildInlineDiffRows(
+  diff: DiffContent,
+  contextLineCount = 3,
+): InlineDiffRow[] {
+  const sortedSegments = buildInlineDiffSegments(diff, contextLineCount).sort(
+    compareInlineDiffSegments,
+  );
+
+  return sortedSegments.flatMap((segment, index) => {
+    const separator: InlineDiffRow[] =
+      index === 0 ? [] : [{ kind: "separator", key: `separator-${segment.key}` }];
+    const lines = segment.lines.map<InlineDiffRow>((line) => ({
+      kind: "line",
+      key: line.key,
+      line: line.line,
+    }));
+    return [...separator, ...lines];
+  });
+}
+
+function buildInlineDiffSegments(
+  diff: DiffContent,
+  contextLineCount: number,
+): InlineDiffSegment[] {
+  const segments: InlineDiffSegment[] = [];
+  let originalIndex = 0;
+  diff.hunks.forEach((hunk, hunkIndex) => {
+    const ranges = buildContextRanges(hunk.lines, contextLineCount);
+    ranges.forEach((range, rangeIndex) => {
+      const segmentLines: InlineDiffSegment["lines"] = [];
+      for (let lineIndex = range.start; lineIndex <= range.end; lineIndex += 1) {
+        const line = hunk.lines[lineIndex];
+        if (!line) {
+          continue;
+        }
+        segmentLines.push({
+          key: `line-${hunkIndex}-${lineIndex}`,
+          line,
+        });
+      }
+      const splitSegments = splitInlineDiffSegmentLines(segmentLines);
+      splitSegments.forEach((lines, splitIndex) => {
+        segments.push({
+          key: `${hunkIndex}-${rangeIndex}-${splitIndex}`,
+          lines,
+          sortLineNumber: getSegmentSortLineNumber(lines),
+          originalIndex,
+        });
+        originalIndex += 1;
+      });
+    });
+  });
+
+  return segments;
+}
+
+function splitInlineDiffSegmentLines(
+  lines: InlineDiffSegment["lines"],
+): Array<InlineDiffSegment["lines"]> {
+  const segments: Array<InlineDiffSegment["lines"]> = [];
+  let currentSegment: InlineDiffSegment["lines"] = [];
+  let previousLineNumber: number | null = null;
+
+  lines.forEach((line) => {
+    const currentLineNumber = getInlineDiffSortLineNumber(line.line);
+    if (
+      currentSegment.length > 0 &&
+      previousLineNumber !== null &&
+      currentLineNumber !== null &&
+      currentLineNumber < previousLineNumber
+    ) {
+      segments.push(currentSegment);
+      currentSegment = [];
+    }
+
+    currentSegment.push(line);
+    if (currentLineNumber !== null) {
+      previousLineNumber = currentLineNumber;
+    }
+  });
+
+  if (currentSegment.length > 0) {
+    segments.push(currentSegment);
+  }
+
+  return segments;
+}
+
+function compareInlineDiffSegments(
+  first: InlineDiffSegment,
+  second: InlineDiffSegment,
+): number {
+  if (first.sortLineNumber !== second.sortLineNumber) {
+    return first.sortLineNumber - second.sortLineNumber;
+  }
+
+  return first.originalIndex - second.originalIndex;
+}
+
+function getSegmentSortLineNumber(lines: InlineDiffSegment["lines"]): number {
+  return lines.reduce((minimumLineNumber, line) => {
+    const lineNumber = getInlineDiffSortLineNumber(line.line);
+    if (lineNumber === null) {
+      return minimumLineNumber;
+    }
+    return Math.min(minimumLineNumber, lineNumber);
+  }, Number.MAX_SAFE_INTEGER);
+}
+
+function getInlineDiffSortLineNumber(line: DiffLine): number | null {
+  if (line.type === "deleted") {
+    return line.oldLineNumber ?? null;
+  }
+
+  return line.newLineNumber ?? line.oldLineNumber ?? null;
+}
+
+function buildContextRanges(
+  lines: DiffLine[],
+  contextLineCount: number,
+): Array<{ start: number; end: number }> {
+  const changedLineIndexes = lines.flatMap((line, index) =>
+    line.type === "unchanged" ? [] : [index],
+  );
+
+  if (changedLineIndexes.length === 0) {
+    return [];
+  }
+
+  const ranges = changedLineIndexes.map((index) => ({
+    start: Math.max(0, index - contextLineCount),
+    end: Math.min(lines.length - 1, index + contextLineCount),
+  }));
+
+  return ranges.reduce<Array<{ start: number; end: number }>>((merged, range) => {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.start > previous.end + 1) {
+      merged.push({ ...range });
+      return merged;
+    }
+
+    previous.end = Math.max(previous.end, range.end);
+    return merged;
+  }, []);
 }
 
 function ChangeStats({
@@ -562,21 +744,28 @@ function calculateDiffStats(diff: DiffContent): ChangeLineStats {
 
 function getInlineDiffLineStyle(lineType: DiffLine["type"]): {
   container: string;
+  number: string;
   text: string;
 } {
   if (lineType === "added") {
     return {
       container: "border-l-emerald-400 bg-emerald-500/14",
+      number: "text-emerald-400",
       text: "text-emerald-200",
     };
   }
   if (lineType === "deleted") {
     return {
       container: "border-l-red-400 bg-red-500/14",
+      number: "text-red-400",
       text: "text-red-200",
     };
   }
-  return { container: "border-l-transparent bg-black", text: "text-zinc-300" };
+  return {
+    container: "border-l-transparent bg-black",
+    number: "text-zinc-500",
+    text: "text-zinc-300",
+  };
 }
 
 function splitPathForDisplay(path: string): { directory: string; name: string } {

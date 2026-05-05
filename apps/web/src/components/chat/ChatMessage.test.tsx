@@ -306,6 +306,145 @@ describe("ChatMessage", () => {
     expect(screen.queryByText(" const value = 1")).toBeNull();
   });
 
+  it("shows contextual unchanged lines and separators between distant change blocks", async () => {
+    const message = {
+      id: "assistant-changes-context",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/index.tsx",
+        status: "modified",
+        additions: 2,
+        deletions: 1,
+        isStaged: false,
+      },
+    ];
+    const loadFileDiff = vi.fn(async (): Promise<DiffContent> => ({
+      oldPath: "src/index.tsx",
+      newPath: "src/index.tsx",
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 7,
+          newStart: 1,
+          newLines: 7,
+          header: "@@ -1,7 +1,7 @@",
+          lines: [
+            { type: "unchanged", content: "line 1", oldLineNumber: 1, newLineNumber: 1 },
+            { type: "unchanged", content: "line 2", oldLineNumber: 2, newLineNumber: 2 },
+            { type: "unchanged", content: "line 3", oldLineNumber: 3, newLineNumber: 3 },
+            { type: "deleted", content: "-line 4 old", oldLineNumber: 4 },
+            { type: "added", content: "+line 4 new", newLineNumber: 4 },
+            { type: "unchanged", content: "line 5", oldLineNumber: 5, newLineNumber: 5 },
+            { type: "unchanged", content: "line 6", oldLineNumber: 6, newLineNumber: 6 },
+            { type: "unchanged", content: "line 7", oldLineNumber: 7, newLineNumber: 7 },
+          ],
+        },
+        {
+          oldStart: 111,
+          oldLines: 4,
+          newStart: 111,
+          newLines: 4,
+          header: "@@ -111,4 +111,4 @@",
+          lines: [
+            { type: "unchanged", content: "line 111", oldLineNumber: 111, newLineNumber: 111 },
+            { type: "unchanged", content: "line 112", oldLineNumber: 112, newLineNumber: 112 },
+            { type: "added", content: "+line 113 new", newLineNumber: 113 },
+            { type: "unchanged", content: "line 114", oldLineNumber: 114, newLineNumber: 114 },
+          ],
+        },
+      ],
+    }));
+
+    render(
+      <ChatMessage
+        message={message}
+        changedFilesSummary={{ files, loadFileDiff }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /src\/index\.tsx/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText("line 1")).toBeInTheDocument();
+      expect(screen.getByText("line 7")).toBeInTheDocument();
+      expect(screen.getByText("line 111")).toBeInTheDocument();
+      expect(screen.getByText("line 114")).toBeInTheDocument();
+      expect(screen.getByText("+line 4 new")).toBeInTheDocument();
+      expect(screen.getByText("+line 113 new")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("...")).toBeInTheDocument();
+  });
+
+  it("sorts split diff chunks by the single displayed line number", async () => {
+    const message = {
+      id: "assistant-changes-sorted",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/index.tsx",
+        status: "modified",
+        additions: 4,
+        deletions: 3,
+        isStaged: false,
+      },
+    ];
+    const loadFileDiff = vi.fn(async (): Promise<DiffContent> => ({
+      oldPath: "src/index.tsx",
+      newPath: "src/index.tsx",
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+      hunks: [
+        {
+          oldStart: 243,
+          oldLines: 10,
+          newStart: 206,
+          newLines: 7,
+          header: "@@ -243,10 +206,7 @@",
+          lines: [
+            { type: "deleted", content: "old 251", oldLineNumber: 251 },
+            { type: "deleted", content: "old 252", oldLineNumber: 252 },
+            { type: "deleted", content: "old 253", oldLineNumber: 253 },
+            { type: "added", content: "new 206", newLineNumber: 206 },
+            { type: "added", content: "new 207", newLineNumber: 207 },
+            { type: "added", content: "new 208", newLineNumber: 208 },
+            { type: "added", content: "new 209", newLineNumber: 209 },
+          ],
+        },
+      ],
+    }));
+
+    render(
+      <ChatMessage
+        message={message}
+        changedFilesSummary={{ files, loadFileDiff }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /src\/index\.tsx/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText("new 206")).toBeInTheDocument();
+      expect(screen.getByText("old 251")).toBeInTheDocument();
+    });
+
+    const newBlock = screen.getByText("new 206");
+    const oldBlock = screen.getByText("old 251");
+    expect(
+      newBlock.compareDocumentPosition(oldBlock) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("does not repeat total line stats in the section header for a single changed file", () => {
     const message = {
       id: "assistant-single-change",
