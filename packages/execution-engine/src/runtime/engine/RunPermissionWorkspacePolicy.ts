@@ -25,6 +25,7 @@ export interface WorkspaceBootstrapEvaluation {
   message: string | null;
   blocked: boolean;
   expectedMiss: boolean;
+  clonedDuringBootstrap: boolean;
 }
 
 export async function processPermissionDirectives(
@@ -117,6 +118,7 @@ export async function evaluateWorkspaceBootstrap(
       message: null,
       blocked: false,
       expectedMiss: false,
+      clonedDuringBootstrap: false,
     };
   }
 
@@ -127,6 +129,7 @@ export async function evaluateWorkspaceBootstrap(
         "I need a valid repository selection before I can run repository actions. Please reselect the repository and try again.",
       blocked: true,
       expectedMiss: false,
+      clonedDuringBootstrap: false,
     };
   }
 
@@ -144,6 +147,7 @@ export async function evaluateWorkspaceBootstrap(
       message,
       blocked: message !== null,
       expectedMiss: isExpectedBootstrapMiss(bootstrapResult.message),
+      clonedDuringBootstrap: bootstrapResult.clonedDuringBootstrap ?? false,
     };
   } catch (error) {
     const errorMessage =
@@ -156,6 +160,7 @@ export async function evaluateWorkspaceBootstrap(
       message,
       blocked: true,
       expectedMiss: isExpectedBootstrapMiss(errorMessage),
+      clonedDuringBootstrap: false,
     };
   }
 }
