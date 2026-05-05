@@ -32,6 +32,8 @@ import {
   isProviderModelBootstrapLoading,
   isProviderVisibleModelHydrationPending,
 } from "../../lib/provider-model-bootstrap-loading.js";
+import type { ReviewCommentDraft } from "../git/reviewComments";
+import { getReviewCommentDisplayLabel } from "../git/reviewComments";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -48,6 +50,9 @@ interface ChatInputBarProps {
   input: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  reviewComments?: ReviewCommentDraft[];
+  onRemoveReviewComment?: (commentId: string) => void;
+  reviewCommentError?: string | null;
   onStop?: () => void;
   canStop?: boolean;
   isLoading?: boolean;
@@ -66,6 +71,9 @@ export function ChatInputBar({
   input,
   onChange,
   onSubmit,
+  reviewComments = [],
+  onRemoveReviewComment,
+  reviewCommentError = null,
   onStop,
   canStop = false,
   isLoading = false,
@@ -94,6 +102,9 @@ export function ChatInputBar({
     null,
   );
   const [showProviderDialog, setShowProviderDialog] = useState(false);
+  const [expandedReviewCommentId, setExpandedReviewCommentId] = useState<
+    string | null
+  >(null);
   const [providerDialogInitialTab, setProviderDialogInitialTab] = useState<
     "connected" | "available" | "preferences" | "session" | undefined
   >(undefined);
@@ -128,6 +139,8 @@ export function ChatInputBar({
     applySessionSelection,
   } = useProviderStore();
   const hasInput = input.trim().length > 0;
+  const hasReviewComments = reviewComments.length > 0;
+  const canSubmit = hasInput || hasReviewComments;
   const shouldShowStop = canStop && onStop !== undefined;
   const isComposerActiveRun = isLoading || canStop || shouldShowStop;
   const effectivePlaceholder =
@@ -272,7 +285,9 @@ export function ChatInputBar({
       if (isComposerActiveRun) {
         return;
       }
-      onSubmit();
+      if (canSubmit) {
+        onSubmit();
+      }
     }
   };
 
@@ -447,7 +462,9 @@ export function ChatInputBar({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit();
+          if (canSubmit) {
+            onSubmit();
+          }
         }}
         className={
           layout === "hero"
@@ -527,6 +544,70 @@ export function ChatInputBar({
             ${isFocused ? "shadow-lg shadow-black/20" : ""}
           `}
         >
+          {hasReviewComments ? (
+            <div className="mb-3 space-y-2">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                <span>{reviewComments.length} local review comment{reviewComments.length === 1 ? "" : "s"}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {reviewComments.map((comment) => {
+                  const isExpanded = expandedReviewCommentId === comment.id;
+                  return (
+                    <div
+                      key={comment.id}
+                      className="relative inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900/90 pr-1"
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedReviewCommentId((current) =>
+                            current === comment.id ? null : comment.id,
+                          )
+                        }
+                        className="rounded-full px-3 py-1.5 text-xs text-zinc-200 transition-colors hover:bg-zinc-800"
+                      >
+                        {getReviewCommentDisplayLabel(comment)}
+                      </button>
+                      {onRemoveReviewComment ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onRemoveReviewComment(comment.id);
+                            setExpandedReviewCommentId((current) =>
+                              current === comment.id ? null : current,
+                            );
+                          }}
+                          className="rounded-full p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                          aria-label={`Remove ${getReviewCommentDisplayLabel(comment)} from review request`}
+                        >
+                          <X size={12} />
+                        </button>
+                      ) : null}
+                      {isExpanded ? (
+                        <div className="ui-surface-popover absolute left-0 top-full z-20 mt-2 w-80 max-w-[80vw] p-3 text-left">
+                          <div className="text-xs font-semibold text-zinc-100">
+                            {comment.filePath}
+                          </div>
+                          <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                            Line {comment.line}
+                          </div>
+                          {comment.linePreview ? (
+                            <div className="mt-2 rounded-md border border-zinc-800 bg-black/40 px-2 py-1 font-mono text-[11px] text-zinc-400">
+                              {comment.linePreview}
+                            </div>
+                          ) : null}
+                          <p className="mt-2 text-sm leading-6 text-zinc-200">
+                            {comment.note}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <textarea
             ref={textareaRef}
             value={input}
@@ -571,6 +652,12 @@ export function ChatInputBar({
                   </button>
                 ) : null}
               </div>
+            </div>
+          ) : null}
+
+          {reviewCommentError ? (
+            <div className="ui-control-surface mt-3 px-3 py-2 text-xs text-amber-100">
+              {reviewCommentError}
             </div>
           ) : null}
 
@@ -693,7 +780,7 @@ export function ChatInputBar({
               <motion.button
                 type="button"
                 onClick={shouldShowStop ? onStop : onSubmit}
-                disabled={shouldShowStop ? false : !input.trim()}
+                disabled={shouldShowStop ? false : !canSubmit}
                 aria-label={shouldShowStop ? "Stop generation" : "Send message"}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -702,7 +789,7 @@ export function ChatInputBar({
                   ${
                     shouldShowStop
                       ? "bg-white text-black hover:bg-zinc-200"
-                      : input.trim()
+                      : canSubmit
                         ? "bg-white text-black hover:bg-zinc-200"
                         : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                   }
