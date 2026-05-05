@@ -53,6 +53,16 @@ vi.mock("../../contexts/AuthContext.js", () => ({
   }),
 }));
 
+vi.mock("../git/GitReviewContext", () => ({
+  useGitReview: () => ({
+    selectedReviewComments: [],
+    toggleReviewCommentSelected: vi.fn(),
+    markReviewCommentsDispatching: vi.fn(),
+    markReviewCommentsDispatched: vi.fn(),
+    markReviewCommentsDispatchFailed: vi.fn(),
+  }),
+}));
+
 const mockDispatchRunSummaryRefresh = vi.fn();
 vi.mock("../../lib/run-summary-events.js", () => ({
   RUN_SUMMARY_REFRESH_EVENT: "shadowbox:run-summary:refresh",
