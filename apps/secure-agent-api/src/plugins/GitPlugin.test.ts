@@ -54,6 +54,65 @@ describe("GitPlugin", () => {
     expect(diffCommandSpec?.args).not.toContain("--staged");
   });
 
+  it("materializes untracked file content as a new-file diff", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "src/new.ts\n",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "export const value = 1;\n",
+        stderr: "",
+      } satisfies SafeCommandResult);
+
+    const plugin = new GitPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_diff",
+      runId: "run_git_diff_untracked",
+      path: "src/new.ts",
+    });
+
+    expect(result.success).toBe(true);
+    const output = JSON.parse(String(result.output)) as {
+      isNewFile: boolean;
+      hunks: Array<{
+        lines: Array<{
+          type: string;
+          content: string;
+          newLineNumber?: number;
+        }>;
+      }>;
+    };
+    expect(output.isNewFile).toBe(true);
+    expect(output.hunks[0]?.lines).toEqual([
+      {
+        type: "added",
+        content: "export const value = 1;",
+        newLineNumber: 1,
+      },
+    ]);
+
+    const diffCommandSpec = runSafeCommandMock.mock.calls[1]?.[1] as
+      | { args?: string[] }
+      | undefined;
+    expect(diffCommandSpec?.args).toEqual(
+      expect.arrayContaining(["diff", "--", "src/new.ts"]),
+    );
+  });
+
   it("hydrates commit identity from GitHub token when local identity is missing", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock

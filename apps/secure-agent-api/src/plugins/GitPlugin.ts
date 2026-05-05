@@ -12,6 +12,7 @@ import type {
 import {
   getWorkspaceRoot,
   normalizeRunId,
+  resolveWorkspacePath,
   validateRepoRelativePath,
 } from "./security/PathGuard";
 import { runSafeCommand } from "./security/SafeCommand";
@@ -489,8 +490,9 @@ export class GitPlugin implements IPlugin {
     if (staged) {
       args.push("--cached");
     }
+    const safeFilePath = filePath ? validateRepoRelativePath(filePath) : undefined;
     if (filePath) {
-      args.push(validateRepoRelativePath(filePath));
+      args.push("--", safeFilePath ?? filePath);
     }
 
     const diffResult = await this.runToolboxCommand(
@@ -504,8 +506,74 @@ export class GitPlugin implements IPlugin {
       return { success: false, error: diffResult.stderr };
     }
 
+    if (safeFilePath && !staged && diffResult.stdout.trim().length === 0) {
+      const untrackedDiff = await this.getUntrackedFileDiff(
+        sandbox,
+        worktree,
+        safeFilePath,
+        toolboxContext,
+        runId,
+      );
+      if (untrackedDiff) {
+        return { success: true, output: JSON.stringify(untrackedDiff) };
+      }
+    }
+
     const parsedDiff = this.parseDiff(diffResult.stdout, filePath);
     return { success: true, output: JSON.stringify(parsedDiff) };
+  }
+
+  private async getUntrackedFileDiff(
+    sandbox: Sandbox,
+    worktree: string,
+    safeFilePath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<DiffContent | null> {
+    const untrackedResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: [
+          "-C",
+          worktree,
+          "ls-files",
+          "--others",
+          "--exclude-standard",
+          "--",
+          safeFilePath,
+        ],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.diff_untracked_check",
+    );
+    if (
+      untrackedResult.exitCode !== 0 ||
+      !untrackedResult.stdout
+        .split("\n")
+        .some((path) => path.trim() === safeFilePath)
+    ) {
+      return null;
+    }
+
+    const fileResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "cat",
+        args: [resolveWorkspacePath(worktree, safeFilePath)],
+        runId,
+      },
+      ["cat"],
+      toolboxContext,
+      "git.diff_untracked_read",
+    );
+    if (fileResult.exitCode !== 0) {
+      return null;
+    }
+
+    return createUntrackedFileDiff(safeFilePath, fileResult.stdout);
   }
 
   private parseDiff(diffOutput: string, filePath?: string): DiffContent {
@@ -1272,6 +1340,38 @@ function createDiffLine(
     },
     nextOldLineNumber: oldLineNumber + 1,
     nextNewLineNumber: newLineNumber + 1,
+  };
+}
+
+function createUntrackedFileDiff(filePath: string, content: string): DiffContent {
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  return {
+    oldPath: filePath,
+    newPath: filePath,
+    hunks:
+      lines.length === 0
+        ? []
+        : [
+            {
+              oldStart: 0,
+              oldLines: 0,
+              newStart: 1,
+              newLines: lines.length,
+              header: `@@ -0,0 +1,${lines.length} @@`,
+              lines: lines.map((line, index) => ({
+                type: "added",
+                content: line,
+                newLineNumber: index + 1,
+              })),
+            },
+          ],
+    isBinary: false,
+    isNewFile: true,
+    isDeleted: false,
   };
 }
 
