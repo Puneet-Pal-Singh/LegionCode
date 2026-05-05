@@ -70,6 +70,7 @@ export interface WorkspaceBootstrapRequest {
 export interface WorkspaceBootstrapResult {
   status: WorkspaceBootstrapStatus;
   message?: string;
+  clonedDuringBootstrap?: boolean;
 }
 
 export interface RunWorkspaceBootstrapState {
@@ -80,6 +81,7 @@ export interface RunWorkspaceBootstrapState {
   blocked: boolean;
   message?: string;
   expectedMiss: boolean;
+  clonedDuringBootstrap?: boolean;
   recordedAt: string;
 }
 
@@ -297,6 +299,10 @@ export interface RunContinuationState {
     | "tool_error"
     | "cancelled";
   completedFiles: string[];
+  restorableEdits: Array<{
+    filePath: string;
+    content: string;
+  }>;
   completedGitSteps: string[];
   hasTrustedGitCommitIdentity?: boolean;
   activeBranch?: string;
