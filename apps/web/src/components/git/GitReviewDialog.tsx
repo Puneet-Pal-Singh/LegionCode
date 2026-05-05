@@ -27,6 +27,11 @@ export function GitReviewDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeReviewRef = useRef(closeReview);
+
+  useEffect(() => {
+    closeReviewRef.current = closeReview;
+  }, [closeReview]);
 
   useEffect(() => {
     if (!isReviewOpen || selectedFile || !status?.files.length) {
@@ -49,7 +54,7 @@ export function GitReviewDialog({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        closeReview();
+        closeReviewRef.current();
         return;
       }
 
@@ -83,7 +88,7 @@ export function GitReviewDialog({
       window.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus();
     };
-  }, [closeReview, isReviewOpen]);
+  }, [isReviewOpen]);
 
   if (!isReviewOpen) {
     return null;
