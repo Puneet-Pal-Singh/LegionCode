@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -53,7 +53,6 @@ export function DiffViewer({
   const [showViewMenu, setShowViewMenu] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  const [annotationDraft, setAnnotationDraft] = useState("");
   const lineLookup = useMemo(() => buildLineLookup(diff), [diff]);
 
   const rowOrder = useMemo(() => {
@@ -156,10 +155,10 @@ export function DiffViewer({
     setSelectedRowKeys(rowKeys);
   };
 
-  const addAnnotation = () => {
-    const note = annotationDraft.trim();
+  const addAnnotation = (note: string) => {
+    const trimmedNote = note.trim();
     if (
-      !note ||
+      !trimmedNote ||
       selectedRowKeys.length === 0 ||
       !diffFingerprint ||
       !onCreateReviewComment
@@ -184,14 +183,13 @@ export function DiffViewer({
         primaryAnchor.oldLineNumber ??
         0,
       side: normalizePrimarySide(primaryAnchor.side),
-      note,
+      note: trimmedNote,
       linePreview: primaryAnchor.linePreview,
       anchors,
       primaryAnchor,
       selectionMode,
       diffFingerprint,
     });
-    setAnnotationDraft("");
     clearSelection();
   };
 
@@ -203,20 +201,17 @@ export function DiffViewer({
 
     setSelectionAnchor(firstRowKey);
     setSelectedRowKeys(rowKeys);
-    setAnnotationDraft("");
   };
 
   const clearSelection = () => {
     setSelectionAnchor(null);
     setSelectedRowKeys([]);
-    setAnnotationDraft("");
   };
 
   const restoreAnnotationSelection = (annotation: ReviewCommentDraft) => {
     const anchorKey = annotation.anchors[0]?.rowKey ?? null;
     setSelectionAnchor(anchorKey);
     setSelectedRowKeys(annotation.anchors.map((anchor) => anchor.rowKey));
-    setAnnotationDraft("");
   };
 
   const resolveAnnotation = (annotationId: string) => {
@@ -337,12 +332,10 @@ export function DiffViewer({
                         language={language}
                         wrap={wordWrap}
                         selectedRowKeys={selectedRowKeys}
-                        annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
                         annotationCounts={annotationCounts}
                         onRowSelect={handleRowSelection}
                         onOpenInlineComment={openInlineComment}
-                        onAnnotationDraftChange={setAnnotationDraft}
                         onAddAnnotation={addAnnotation}
                         onClearSelection={clearSelection}
                         onReplyToAnnotation={restoreAnnotationSelection}
@@ -355,12 +348,10 @@ export function DiffViewer({
                         language={language}
                         wrap={wordWrap}
                         selectedRowKeys={selectedRowKeys}
-                        annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
                         annotationCounts={annotationCounts}
                         onRowSelect={handleRowSelection}
                         onOpenInlineComment={openInlineComment}
-                        onAnnotationDraftChange={setAnnotationDraft}
                         onAddAnnotation={addAnnotation}
                         onClearSelection={clearSelection}
                         onReplyToAnnotation={restoreAnnotationSelection}
@@ -384,7 +375,6 @@ interface StackedHunkViewProps {
   language: string;
   wrap: boolean;
   selectedRowKeys: string[];
-  annotationDraft: string;
   annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
   onRowSelect: (
@@ -392,8 +382,7 @@ interface StackedHunkViewProps {
     event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
   ) => void;
   onOpenInlineComment: (rowKeys: string[]) => void;
-  onAnnotationDraftChange: (value: string) => void;
-  onAddAnnotation: () => void;
+  onAddAnnotation: (note: string) => void;
   onClearSelection: () => void;
   onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
@@ -405,12 +394,10 @@ function StackedHunkView({
   language,
   wrap,
   selectedRowKeys,
-  annotationDraft,
   annotationsByAnchor,
   annotationCounts,
   onRowSelect,
   onOpenInlineComment,
-  onAnnotationDraftChange,
   onAddAnnotation,
   onClearSelection,
   onReplyToAnnotation,
@@ -443,8 +430,6 @@ function StackedHunkView({
             {composerAnchor === rowKey ? (
               <InlineCommentComposer
                 selectedCount={selectedRowKeys.length}
-                annotationDraft={annotationDraft}
-                onAnnotationDraftChange={onAnnotationDraftChange}
                 onAddAnnotation={onAddAnnotation}
                 onCancel={onClearSelection}
               />
@@ -470,7 +455,6 @@ interface SplitHunkViewProps {
   language: string;
   wrap: boolean;
   selectedRowKeys: string[];
-  annotationDraft: string;
   annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
   onRowSelect: (
@@ -478,8 +462,7 @@ interface SplitHunkViewProps {
     event: React.MouseEvent<HTMLDivElement>,
   ) => void;
   onOpenInlineComment: (rowKeys: string[]) => void;
-  onAnnotationDraftChange: (value: string) => void;
-  onAddAnnotation: () => void;
+  onAddAnnotation: (note: string) => void;
   onClearSelection: () => void;
   onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
@@ -491,12 +474,10 @@ function SplitHunkView({
   language,
   wrap,
   selectedRowKeys,
-  annotationDraft,
   annotationsByAnchor,
   annotationCounts,
   onRowSelect,
   onOpenInlineComment,
-  onAnnotationDraftChange,
   onAddAnnotation,
   onClearSelection,
   onReplyToAnnotation,
@@ -561,8 +542,6 @@ function SplitHunkView({
               <div className="col-span-2 border-b border-zinc-900/80 bg-sky-500/12 px-6 py-5">
                 <InlineCommentComposer
                   selectedCount={selectedRowKeys.length}
-                  annotationDraft={annotationDraft}
-                  onAnnotationDraftChange={onAnnotationDraftChange}
                   onAddAnnotation={onAddAnnotation}
                   onCancel={onClearSelection}
                 />
@@ -695,19 +674,31 @@ function SplitDiffCell({
 
 interface InlineCommentComposerProps {
   selectedCount: number;
-  annotationDraft: string;
-  onAnnotationDraftChange: (value: string) => void;
-  onAddAnnotation: () => void;
+  onAddAnnotation: (note: string) => void;
   onCancel: () => void;
 }
 
 function InlineCommentComposer({
   selectedCount,
-  annotationDraft,
-  onAnnotationDraftChange,
   onAddAnnotation,
   onCancel,
 }: InlineCommentComposerProps) {
+  const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleSubmit = () => {
+    const note = draft.trim();
+    if (!note) {
+      return;
+    }
+    onAddAnnotation(note);
+    setDraft("");
+  };
+
   return (
     <div className="border-b border-zinc-900/80 bg-sky-500/12 px-6 py-5">
       <div className="mx-auto max-w-3xl rounded-2xl border border-red-500/30 bg-[#111112] p-4 shadow-[0_0_0_1px_rgba(239,68,68,0.08)]">
@@ -720,16 +711,23 @@ function InlineCommentComposer({
           </div>
         </div>
         <textarea
-          value={annotationDraft}
-          onChange={(event) => onAnnotationDraftChange(event.target.value)}
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
           placeholder="Leave a comment"
           className="min-h-24 w-full rounded-xl border border-red-500/30 bg-black/70 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-red-400/50 focus:outline-none"
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              handleSubmit();
+            }
+          }}
         />
         <div className="mt-3 flex items-center gap-3">
           <button
             type="button"
-            onClick={onAddAnnotation}
-            disabled={!annotationDraft.trim()}
+            onClick={handleSubmit}
+            disabled={!draft.trim()}
             className="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
           >
             Comment
