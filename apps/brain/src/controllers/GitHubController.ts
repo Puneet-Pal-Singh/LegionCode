@@ -206,6 +206,21 @@ export class GitHubController {
 
       return envJsonResponse(request, env, { tree });
     } catch (error) {
+      if (isGitHubApiStatus(error, 404)) {
+        const requestUrl = new URL(request.url);
+        console.warn("[GitHub] Tree ref unavailable:", {
+          owner: requestUrl.searchParams.get("owner"),
+          repo: requestUrl.searchParams.get("repo"),
+          sha: requestUrl.searchParams.get("sha") || "HEAD",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return envJsonResponse(request, env, {
+          tree: [],
+          unavailable: true,
+          reason: "ref_not_found",
+        });
+      }
+
       return handleGitHubControllerError(
         request,
         env,
@@ -422,4 +437,12 @@ function resolveGitHubControllerError(error: unknown): {
     message:
       error instanceof Error ? error.message : "GitHub API request failed",
   };
+}
+
+function isGitHubApiStatus(error: unknown, status: number): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes(`GitHub API error (${status})`);
 }
