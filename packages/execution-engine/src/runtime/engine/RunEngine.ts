@@ -657,17 +657,26 @@ export class RunEngine implements IRunEngine {
         loopResult,
         metadata: finalMessage.metadata,
       });
+      const shouldFrameTerminalSummary =
+        finalSummaryContractEnabled ||
+        terminalState === RUN_TERMINAL_STATES.FAILED_TOOL;
       const finalOutput = finalMessage.metadata
-        ? finalSummaryContractEnabled &&
+        ? shouldFrameTerminalSummary &&
           shouldUseDeterministicTerminalSummary(terminalState)
-          ? buildFinalSummaryFrame({
-              terminalState,
-              detail: resolveSummaryReason(finalMessage.text),
-              nextStep:
-                (typeof finalMessage.metadata.resumeHint === "string"
-                  ? finalMessage.metadata.resumeHint
-                  : undefined) ??
-                resolveNextStepFromSummaryText(finalMessage.text),
+          ? appendTerminalDetailsIfNeeded({
+              framedOutput: buildFinalSummaryFrame({
+                terminalState,
+                detail: resolveSummaryReason(finalMessage.text),
+                nextStep:
+                  (typeof finalMessage.metadata.resumeHint === "string"
+                    ? finalMessage.metadata.resumeHint
+                    : undefined) ??
+                  resolveNextStepFromSummaryText(finalMessage.text),
+              }),
+              originalText: finalMessage.text,
+              includeDetails:
+                !finalSummaryContractEnabled &&
+                terminalState === RUN_TERMINAL_STATES.FAILED_TOOL,
             })
           : finalMessage.text
         : await applyReviewerPassIfEnabled({
@@ -1109,6 +1118,23 @@ export class RunEngine implements IRunEngine {
       },
     });
   }
+}
+
+function appendTerminalDetailsIfNeeded(input: {
+  framedOutput: string;
+  originalText: string;
+  includeDetails: boolean;
+}): string {
+  const details = input.originalText.trim();
+  if (
+    !input.includeDetails ||
+    !details ||
+    input.framedOutput.includes(details)
+  ) {
+    return input.framedOutput;
+  }
+
+  return `${input.framedOutput}\n\nDetails:\n${details}`;
 }
 
 export class RunEngineError extends Error {
