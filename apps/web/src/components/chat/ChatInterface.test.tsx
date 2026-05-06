@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
-import type { RunEvent } from "@repo/shared-types";
+import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
 import { ChatInterface } from "./ChatInterface.js";
 import { runApprovalPath } from "../../lib/platform-endpoints.js";
 
@@ -13,6 +13,19 @@ const mockChatInputBar = vi.hoisted(() =>
 );
 const mockLogin = vi.hoisted(() => vi.fn());
 const mockRefreshSession = vi.hoisted(() => vi.fn(async () => undefined));
+const mockGitReviewState = vi.hoisted(() => ({
+  status: null as GitStatusResponse | null,
+}));
+const mockGetGitDiff = vi.hoisted(() =>
+  vi.fn(async () => ({
+    oldPath: "src/index.tsx",
+    newPath: "src/index.tsx",
+    hunks: [],
+    isBinary: false,
+    isNewFile: false,
+    isDeleted: false,
+  })),
+);
 
 vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
@@ -55,12 +68,17 @@ vi.mock("../../contexts/AuthContext.js", () => ({
 
 vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
+    status: mockGitReviewState.status,
     selectedReviewComments: [],
     toggleReviewCommentSelected: vi.fn(),
     markReviewCommentsDispatching: vi.fn(),
     markReviewCommentsDispatched: vi.fn(),
     markReviewCommentsDispatchFailed: vi.fn(),
   }),
+}));
+
+vi.mock("../../lib/git-client.js", () => ({
+  getGitDiff: (input: unknown) => mockGetGitDiff(input),
 }));
 
 const mockDispatchRunSummaryRefresh = vi.fn();
@@ -80,6 +98,8 @@ describe("ChatInterface", () => {
     mockChatInputBar.mockClear();
     mockLogin.mockClear();
     mockRefreshSession.mockClear();
+    mockGitReviewState.status = null;
+    mockGetGitDiff.mockClear();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -155,6 +175,90 @@ describe("ChatInterface", () => {
           },
         ],
       },
+    });
+  });
+
+  it("keeps changed files on the final assistant message after git status becomes clean", async () => {
+    const changedStatus: GitStatusResponse = {
+      files: [
+        {
+          path: "src/components/landing/hero/index.tsx",
+          status: "modified",
+          additions: 5,
+          deletions: 1,
+          isStaged: false,
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      branch: "main",
+      hasStaged: false,
+      hasUnstaged: true,
+      gitAvailable: true,
+    };
+    const cleanStatus: GitStatusResponse = {
+      ...changedStatus,
+      files: [],
+      hasUnstaged: false,
+    };
+    const messages: Message[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "edit the hero",
+      },
+      {
+        id: "assistant-final",
+        role: "assistant",
+        content: "I completed the requested update.",
+      },
+    ];
+    mockGitReviewState.status = changedStatus;
+
+    const { rerender } = render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    mockGitReviewState.status = cleanStatus;
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("1 Changed file")).toBeInTheDocument();
+      expect(screen.getByText("index.tsx")).toBeInTheDocument();
+      expect(screen.getByText("+5")).toBeInTheDocument();
+      expect(screen.getByText("-1")).toBeInTheDocument();
     });
   });
 
