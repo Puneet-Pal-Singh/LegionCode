@@ -305,7 +305,7 @@ export function GitReviewProvider({
 
   const markReviewCommentsDispatching = useCallback(
     (commentIds: string[]) => {
-      updateReviewCommentDeliveryState(commentIds, "dispatching", true);
+      updateReviewCommentDeliveryState(commentIds, "dispatching", false);
     },
     [updateReviewCommentDeliveryState],
   );
