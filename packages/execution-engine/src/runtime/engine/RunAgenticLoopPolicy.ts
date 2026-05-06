@@ -700,6 +700,15 @@ function describeSingleFailedTool(
     return "I couldn't finish the pull request step because it was attempted through bash instead of the dedicated GitHub-backed PR action. Retry the step so it creates the PR with the dedicated tool, or open the PR manually in your local terminal.";
   }
 
+  if (isGitMutationGateFailure(event)) {
+    return [
+      "I couldn't finish the push because the safety gate did not find a successful file edit or committed-change handoff for this run.",
+      `The tool reported: ${summarizeLifecycleDetail(event.detail)}`,
+      "No new commit or pull request was created.",
+      "Retry after committing the intended changes, or ask me to push/create the PR from an already committed branch.",
+    ].join(" ");
+  }
+
   const missingPackageScript = extractMissingPackageScriptFailure(event);
   if (missingPackageScript) {
     return `A shell step failed because this workspace does not define a script named "${missingPackageScript.scriptName}". I should rerun the correct script for this repository after checking available scripts.`;
@@ -770,6 +779,10 @@ function deriveToolFailureResumeHint(
 
   if (isPullRequestShellFailure(event)) {
     return "Retry the pull request step so it uses the dedicated PR action. If needed, open the pull request from your local terminal.";
+  }
+
+  if (isGitMutationGateFailure(event)) {
+    return "Retry after committing the intended changes, or ask me to push/create the PR from the already committed branch if the edits are already committed.";
   }
 
   const missingPackageScript = extractMissingPackageScriptFailure(event);
@@ -891,6 +904,19 @@ function isPullRequestShellFailure(
 
   const detail = `${event.detail ?? ""} ${event.metadata.stderr ?? ""}`;
   return /invalid (arguments|command argument)|maximum length|too big/i.test(
+    detail,
+  );
+}
+
+function isGitMutationGateFailure(
+  event: AgenticLoopToolLifecycleEvent,
+): boolean {
+  if (event.toolName !== "git_push") {
+    return false;
+  }
+
+  const detail = `${event.detail ?? ""}`;
+  return /no successful file mutation|no successful file mutation or committed-change evidence/i.test(
     detail,
   );
 }
