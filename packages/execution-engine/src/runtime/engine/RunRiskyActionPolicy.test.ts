@@ -58,7 +58,7 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.kind).toBe("allow");
   });
 
-  it("denies git commit until mutation evidence exists", async () => {
+  it("asks before git commit even when the current run did not edit files", async () => {
     const store = new PermissionApprovalStore(new MockRuntimeState(), "run-risk-2");
 
     const result = await evaluateToolPermission({
@@ -73,11 +73,11 @@ describe("RunRiskyActionPolicy", () => {
       approvalStore: store,
     });
 
-    expect(result.kind).toBe("deny");
-    if (result.kind !== "deny") {
-      throw new Error("Expected deny result");
+    expect(result.kind).toBe("ask");
+    if (result.kind !== "ask") {
+      throw new Error("Expected ask result");
     }
-    expect(result.reason).toContain("no successful file mutation");
+    expect(result.request.category).toBe("git_mutation");
   });
 
   it("bypasses mutation evidence denials on read-only turns", async () => {
