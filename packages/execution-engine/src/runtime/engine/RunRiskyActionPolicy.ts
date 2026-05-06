@@ -159,9 +159,7 @@ function requiresMutationEvidence(
 
   return (
     classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION &&
-    (toolName === "git_stage" ||
-      toolName === "git_commit" ||
-      toolName === "git_push")
+    toolName === "git_push"
   );
 }
 
@@ -183,7 +181,7 @@ function getMutationEvidenceDenial(
     return {
       kind: "deny",
       reason:
-        "LegionCode cannot continue with git stage/commit/push yet because no successful file mutation has occurred in this run.",
+        "LegionCode cannot continue with git push yet because no successful file mutation or committed-change evidence exists in this run.",
     };
   }
 
