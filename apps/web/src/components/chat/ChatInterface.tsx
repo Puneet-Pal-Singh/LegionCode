@@ -264,11 +264,16 @@ export function ChatInterface({
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const lastReviewDispatchIdsRef = useRef<string[]>([]);
+  const pendingChangedFilesRef = useRef<FileStatus[]>([]);
+  const previousIsLoadingRef = useRef(isLoading);
+  const diffSnapshotByPathRef = useRef<Record<string, DiffContent>>({});
   const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(
     null,
   );
+  const [changedFilesByAssistantMessageId, setChangedFilesByAssistantMessageId] =
+    useState<Record<string, FileStatus[]>>({});
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -301,15 +306,66 @@ export function ChatInterface({
   }, [messages]);
   const loadChangedFileDiff = useCallback(
     async (file: FileStatus): Promise<DiffContent> => {
-      return await getGitDiff({
+      const cachedDiff = diffSnapshotByPathRef.current[file.path];
+      if (cachedDiff) {
+        return cachedDiff;
+      }
+
+      const diff = await getGitDiff({
         runId,
         sessionId,
         path: file.path,
         staged: file.isStaged,
       });
+      diffSnapshotByPathRef.current[file.path] = diff;
+      return diff;
     },
     [runId, sessionId],
   );
+
+  useEffect(() => {
+    pendingChangedFilesRef.current = [];
+    diffSnapshotByPathRef.current = {};
+    previousIsLoadingRef.current = false;
+    setChangedFilesByAssistantMessageId({});
+  }, [runId]);
+
+  useEffect(() => {
+    if (!previousIsLoadingRef.current && isLoading) {
+      pendingChangedFilesRef.current = [];
+      diffSnapshotByPathRef.current = {};
+    }
+    previousIsLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  useEffect(() => {
+    const files = gitStatus?.files ?? [];
+    if (files.length === 0) {
+      return;
+    }
+    pendingChangedFilesRef.current = cloneFileStatuses(files);
+  }, [gitStatus?.files]);
+
+  useEffect(() => {
+    if (isLoading || !latestAssistantMessageId) {
+      return;
+    }
+
+    const changedFiles = pendingChangedFilesRef.current;
+    if (changedFiles.length === 0) {
+      return;
+    }
+
+    setChangedFilesByAssistantMessageId((current) => {
+      if (current[latestAssistantMessageId]?.length) {
+        return current;
+      }
+      return {
+        ...current,
+        [latestAssistantMessageId]: cloneFileStatuses(changedFiles),
+      };
+    });
+  }, [isLoading, latestAssistantMessageId]);
 
   useEffect(() => {
     setExpandedActivityTurns({});
@@ -805,16 +861,14 @@ export function ChatInterface({
                   message={entry.message}
                   metadata={messageMetadataById[entry.message.id]}
                   onArtifactOpen={onArtifactOpen}
-                  changedFilesSummary={
-                    !isLoading &&
-                    entry.message.id === latestAssistantMessageId &&
-                    gitStatus?.files.length
-                      ? {
-                          files: gitStatus.files,
-                          loadFileDiff: loadChangedFileDiff,
-                        }
-                      : undefined
-                  }
+                  changedFilesSummary={resolveChangedFilesSummary({
+                    messageId: entry.message.id,
+                    latestAssistantMessageId,
+                    isLoading,
+                    liveFiles: gitStatus?.files,
+                    snapshots: changedFilesByAssistantMessageId,
+                    loadFileDiff: loadChangedFileDiff,
+                  })}
                 />
               ) : (
                 renderActivityTurn(entry.turn)
@@ -881,6 +935,40 @@ async function submitApprovalDecision(input: {
       decision: input.decision,
     }),
   });
+}
+
+function resolveChangedFilesSummary(input: {
+  messageId: string;
+  latestAssistantMessageId: string | null;
+  isLoading: boolean;
+  liveFiles: FileStatus[] | undefined;
+  snapshots: Record<string, FileStatus[]>;
+  loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
+}):
+  | {
+      files: FileStatus[];
+      loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
+    }
+  | undefined {
+  const liveFiles =
+    !input.isLoading &&
+    input.messageId === input.latestAssistantMessageId &&
+    input.liveFiles?.length
+      ? input.liveFiles
+      : undefined;
+  const files = liveFiles ?? input.snapshots[input.messageId];
+  if (!files?.length) {
+    return undefined;
+  }
+
+  return {
+    files,
+    loadFileDiff: input.loadFileDiff,
+  };
+}
+
+function cloneFileStatuses(files: FileStatus[]): FileStatus[] {
+  return files.map((file) => ({ ...file }));
 }
 
 async function fetchLatestPendingApproval(
