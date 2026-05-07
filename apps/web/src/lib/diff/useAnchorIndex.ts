@@ -11,8 +11,11 @@ export interface AnchorIndexState {
   lineLookup: Map<string, ReviewCommentAnchor>;
 }
 
-export function useAnchorIndex(diff: DiffContent): AnchorIndexState {
-  const rowOrder = useMemo(() => {
+export function useAnchorIndex(
+  diff: DiffContent,
+  visibleRowOrder?: string[],
+): AnchorIndexState {
+  const rawRowOrder = useMemo(() => {
     const keys: string[] = [];
     diff.hunks.forEach((hunk, hunkIndex) => {
       hunk.lines.forEach((_, lineIndex) => {
@@ -21,6 +24,8 @@ export function useAnchorIndex(diff: DiffContent): AnchorIndexState {
     });
     return keys;
   }, [diff.hunks]);
+
+  const rowOrder = visibleRowOrder ?? rawRowOrder;
 
   const lineLookup = useMemo(() => {
     const lookup = new Map<string, ReviewCommentAnchor>();
