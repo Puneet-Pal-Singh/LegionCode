@@ -530,6 +530,34 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<DiffContent | null> {
+    const isUntracked = await this.isFileUntracked(
+      sandbox,
+      worktree,
+      safeFilePath,
+      toolboxContext,
+      runId,
+    );
+    if (!isUntracked) {
+      return null;
+    }
+
+    const fileContent = await this.readUntrackedFileContent(
+      sandbox,
+      worktree,
+      safeFilePath,
+      toolboxContext,
+      runId,
+    );
+    return createUntrackedFileDiff(safeFilePath, fileContent);
+  }
+
+  private async isFileUntracked(
+    sandbox: Sandbox,
+    worktree: string,
+    safeFilePath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<boolean> {
     const untrackedResult = await this.runToolboxCommand(
       sandbox,
       {
@@ -549,15 +577,21 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.diff_untracked_check",
     );
-    if (
-      untrackedResult.exitCode !== 0 ||
-      !untrackedResult.stdout
-        .split("\n")
-        .some((path) => path.trim() === safeFilePath)
-    ) {
-      return null;
+    if (untrackedResult.exitCode !== 0) {
+      return false;
     }
+    return untrackedResult.stdout
+      .split("\n")
+      .some((path) => path.trim() === safeFilePath);
+  }
 
+  private async readUntrackedFileContent(
+    sandbox: Sandbox,
+    worktree: string,
+    safeFilePath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string> {
     const fileResult = await this.runToolboxCommand(
       sandbox,
       {
@@ -570,10 +604,12 @@ export class GitPlugin implements IPlugin {
       "git.diff_untracked_read",
     );
     if (fileResult.exitCode !== 0) {
-      return null;
+      throw new Error(
+        fileResult.stderr.trim() ||
+          `Failed to read untracked file: ${safeFilePath}`,
+      );
     }
-
-    return createUntrackedFileDiff(safeFilePath, fileResult.stdout);
+    return fileResult.stdout;
   }
 
   private parseDiff(diffOutput: string, filePath?: string): DiffContent {
