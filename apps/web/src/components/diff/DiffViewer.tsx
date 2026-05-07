@@ -53,6 +53,7 @@ export function DiffViewer({
   const [showViewMenu, setShowViewMenu] = useState(false);
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const canCreateReviewComment = Boolean(diffFingerprint && onCreateReviewComment);
   const lineLookup = useMemo(() => buildLineLookup(diff), [diff]);
 
   const rowOrder = useMemo(() => {
@@ -160,6 +161,7 @@ export function DiffViewer({
     if (
       !trimmedNote ||
       selectedRowKeys.length === 0 ||
+      !canCreateReviewComment ||
       !diffFingerprint ||
       !onCreateReviewComment
     ) {
@@ -331,6 +333,7 @@ export function DiffViewer({
                         hunkIndex={hunkIndex}
                         language={language}
                         wrap={wordWrap}
+                        canCreateReviewComment={canCreateReviewComment}
                         selectedRowKeys={selectedRowKeys}
                         annotationsByAnchor={annotationsByAnchor}
                         annotationCounts={annotationCounts}
@@ -347,6 +350,7 @@ export function DiffViewer({
                         hunkIndex={hunkIndex}
                         language={language}
                         wrap={wordWrap}
+                        canCreateReviewComment={canCreateReviewComment}
                         selectedRowKeys={selectedRowKeys}
                         annotationsByAnchor={annotationsByAnchor}
                         annotationCounts={annotationCounts}
@@ -374,6 +378,7 @@ interface StackedHunkViewProps {
   hunkIndex: number;
   language: string;
   wrap: boolean;
+  canCreateReviewComment: boolean;
   selectedRowKeys: string[];
   annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
@@ -393,6 +398,7 @@ function StackedHunkView({
   hunkIndex,
   language,
   wrap,
+  canCreateReviewComment,
   selectedRowKeys,
   annotationsByAnchor,
   annotationCounts,
@@ -422,12 +428,16 @@ function StackedHunkView({
               isSelected={selectedRowKeys.includes(rowKey)}
               annotationCount={annotationCounts.get(rowKey) ?? 0}
               onClick={(event) => onRowSelect([rowKey], event)}
-              onAddComment={(event) => {
-                event.stopPropagation();
-                onOpenInlineComment([rowKey]);
-              }}
+              onAddComment={
+                canCreateReviewComment
+                  ? (event) => {
+                      event.stopPropagation();
+                      onOpenInlineComment([rowKey]);
+                    }
+                  : undefined
+              }
             />
-            {composerAnchor === rowKey ? (
+            {canCreateReviewComment && composerAnchor === rowKey ? (
               <InlineCommentComposer
                 selectedCount={selectedRowKeys.length}
                 onAddAnnotation={onAddAnnotation}
@@ -454,6 +464,7 @@ interface SplitHunkViewProps {
   hunkIndex: number;
   language: string;
   wrap: boolean;
+  canCreateReviewComment: boolean;
   selectedRowKeys: string[];
   annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
@@ -473,6 +484,7 @@ function SplitHunkView({
   hunkIndex,
   language,
   wrap,
+  canCreateReviewComment,
   selectedRowKeys,
   annotationsByAnchor,
   annotationCounts,
@@ -520,10 +532,14 @@ function SplitHunkView({
               isSelected={isSelected}
               annotationCount={annotationCount}
               onClick={(event) => onRowSelect(row.rowKeys, event)}
-              onAddComment={(event) => {
-                event.stopPropagation();
-                onOpenInlineComment(row.rowKeys);
-              }}
+              onAddComment={
+                canCreateReviewComment
+                  ? (event) => {
+                      event.stopPropagation();
+                      onOpenInlineComment(row.rowKeys);
+                    }
+                  : undefined
+              }
             />
             <SplitDiffCell
               line={row.right}
@@ -533,12 +549,16 @@ function SplitHunkView({
               isSelected={isSelected}
               annotationCount={annotationCount}
               onClick={(event) => onRowSelect(row.rowKeys, event)}
-              onAddComment={(event) => {
-                event.stopPropagation();
-                onOpenInlineComment(row.rowKeys);
-              }}
+              onAddComment={
+                canCreateReviewComment
+                  ? (event) => {
+                      event.stopPropagation();
+                      onOpenInlineComment(row.rowKeys);
+                    }
+                  : undefined
+              }
             />
-            {composerAnchor === row.key ? (
+            {canCreateReviewComment && composerAnchor === row.key ? (
               <div className="col-span-2 border-b border-zinc-900/80 bg-sky-500/12 px-6 py-5">
                 <InlineCommentComposer
                   selectedCount={selectedRowKeys.length}
@@ -574,7 +594,7 @@ interface SplitDiffCellProps {
   isSelected: boolean;
   annotationCount: number;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
-  onAddComment: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onAddComment?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
 function SplitDiffCell({
@@ -646,16 +666,18 @@ function SplitDiffCell({
       } ${background} ${borderColor}`}
     >
       <div className="absolute left-0 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onAddComment}
-          className={`flex h-6 w-6 items-center justify-center rounded-md bg-sky-500 text-white shadow-[0_0_0_1px_rgba(125,211,252,0.35)] transition-opacity hover:bg-sky-400 ${
-            isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-          }`}
-          aria-label="Add comment"
-        >
-          <Plus size={14} />
-        </button>
+        {onAddComment ? (
+          <button
+            type="button"
+            onClick={onAddComment}
+            className={`flex h-6 w-6 items-center justify-center rounded-md bg-sky-500 text-white shadow-[0_0_0_1px_rgba(125,211,252,0.35)] transition-opacity hover:bg-sky-400 ${
+              isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+            aria-label="Add comment"
+          >
+            <Plus size={14} />
+          </button>
+        ) : null}
       </div>
       <div className="w-12 shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
         {lineNumber ?? ""}
