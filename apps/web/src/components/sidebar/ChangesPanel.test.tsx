@@ -1,13 +1,9 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ChangesPanel } from "./ChangesPanel";
 
 const mockSelectFile = vi.hoisted(() => vi.fn());
-const mockToggleFileStaged = vi.hoisted(() => vi.fn(async () => {}));
-const mockStageAll = vi.hoisted(() => vi.fn(async () => {}));
-const mockUnstageAll = vi.hoisted(() => vi.fn(async () => {}));
-const mockSubmitCommit = vi.hoisted(() => vi.fn(async () => true));
-const mockSetCommitMessage = vi.hoisted(() => vi.fn());
+const mockSetReviewScope = vi.hoisted(() => vi.fn());
 const mockOpenReview = vi.hoisted(() => vi.fn());
 
 vi.mock("../git/GitReviewContext", () => ({
@@ -36,6 +32,8 @@ vi.mock("../git/GitReviewContext", () => ({
     selectedFile: null,
     stagedFiles: new Set<string>(),
     commitMessage: "feat: ship it",
+    reviewScope: "git-changes",
+    setReviewScope: mockSetReviewScope,
     reviewComments: [],
     selectedReviewComments: [],
     selectedReviewCommentCount: 0,
@@ -47,28 +45,24 @@ vi.mock("../git/GitReviewContext", () => ({
     markReviewCommentsDispatching: vi.fn(),
     markReviewCommentsDispatched: vi.fn(),
     markReviewCommentsDispatchFailed: vi.fn(),
-    setCommitMessage: mockSetCommitMessage,
+    setCommitMessage: vi.fn(),
     openReview: mockOpenReview,
     closeReview: vi.fn(),
     selectFile: mockSelectFile,
-    toggleFileStaged: mockToggleFileStaged,
-    stageAll: mockStageAll,
-    unstageAll: mockUnstageAll,
-    submitCommit: mockSubmitCommit,
+    toggleFileStaged: vi.fn(),
+    stageAll: vi.fn(),
+    unstageAll: vi.fn(),
+    submitCommit: vi.fn(),
     refetch: vi.fn(),
   }),
 }));
 
 vi.mock("../diff/ChangesList", () => ({
   ChangesList: ({
-    onToggleStaged,
-    onStageAll,
-    onUnstageAll,
     onSelectFile,
+    reviewScope,
+    onReviewScopeChange,
   }: {
-    onToggleStaged: (path: string, staged: boolean) => void;
-    onStageAll: () => void;
-    onUnstageAll: () => void;
     onSelectFile: (file: {
       path: string;
       status: "modified";
@@ -76,8 +70,11 @@ vi.mock("../diff/ChangesList", () => ({
       additions: number;
       deletions: number;
     }) => void;
+    reviewScope: "git-changes";
+    onReviewScopeChange: (scope: "git-changes") => void;
   }) => (
     <div>
+      <div data-testid="review-scope">{reviewScope}</div>
       <button
         type="button"
         data-testid="select-file"
@@ -95,16 +92,10 @@ vi.mock("../diff/ChangesList", () => ({
       </button>
       <button
         type="button"
-        data-testid="stage-file"
-        onClick={() => onToggleStaged("src/main.ts", true)}
+        data-testid="set-scope"
+        onClick={() => onReviewScopeChange("git-changes")}
       >
-        stage
-      </button>
-      <button type="button" data-testid="stage-all" onClick={onStageAll}>
-        stage all
-      </button>
-      <button type="button" data-testid="unstage-all" onClick={onUnstageAll}>
-        unstage all
+        set scope
       </button>
     </div>
   ),
@@ -117,47 +108,43 @@ vi.mock("../diff/DiffViewer", () => ({
 describe("ChangesPanel", () => {
   beforeEach(() => {
     mockSelectFile.mockClear();
-    mockToggleFileStaged.mockClear();
-    mockStageAll.mockClear();
-    mockUnstageAll.mockClear();
-    mockSubmitCommit.mockClear();
-    mockSetCommitMessage.mockClear();
+    mockSetReviewScope.mockClear();
     mockOpenReview.mockClear();
   });
 
-  it("opens the shared review dialog when selecting a file from the sidebar", async () => {
-    render(<ChangesPanel />);
+  it("selects a file from the sidebar without opening the modal review dialog", () => {
+    const onFileSelect = vi.fn();
+    render(<ChangesPanel onFileSelect={onFileSelect} />);
 
     fireEvent.click(screen.getByTestId("select-file"));
-
-    expect(mockOpenReview).toHaveBeenCalledWith("src/main.ts");
-    expect(mockSelectFile).not.toHaveBeenCalled();
-  });
-
-  it("delegates file selection and staging actions to the shared git review state in modal mode", async () => {
-    render(<ChangesPanel mode="modal" />);
-
-    fireEvent.click(screen.getByTestId("select-file"));
-    fireEvent.click(screen.getByTestId("stage-file"));
-    fireEvent.click(screen.getByTestId("stage-all"));
-    fireEvent.click(screen.getByTestId("unstage-all"));
 
     expect(mockSelectFile).toHaveBeenCalledWith(
       expect.objectContaining({ path: "src/main.ts" }),
     );
+    expect(onFileSelect).toHaveBeenCalledWith("src/main.ts");
     expect(mockOpenReview).not.toHaveBeenCalled();
-    expect(mockToggleFileStaged).toHaveBeenCalledWith("src/main.ts", true);
-    expect(mockStageAll).toHaveBeenCalledTimes(1);
-    expect(mockUnstageAll).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the shared commit action", async () => {
+  it("delegates file selection to the shared git review state in modal mode", () => {
+    const onFileSelect = vi.fn();
+    render(<ChangesPanel mode="modal" onFileSelect={onFileSelect} />);
+
+    fireEvent.click(screen.getByTestId("select-file"));
+
+    expect(mockSelectFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "src/main.ts" }),
+    );
+    expect(onFileSelect).toHaveBeenCalledWith("src/main.ts");
+    expect(mockOpenReview).not.toHaveBeenCalled();
+  });
+
+  it("passes the shared review scope state to the changes list", () => {
     render(<ChangesPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+    expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
 
-    await waitFor(() => {
-      expect(mockSubmitCommit).toHaveBeenCalledTimes(1);
-    });
+    fireEvent.click(screen.getByTestId("set-scope"));
+
+    expect(mockSetReviewScope).toHaveBeenCalledWith("git-changes");
   });
 });
