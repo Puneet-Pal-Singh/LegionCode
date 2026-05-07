@@ -583,11 +583,11 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
-    const restoredPersistedEdits =
+    const restoredPersistedEditCount =
       await this.restoreContinuationWorkspaceEditsIfNeeded(
-      run,
-      directExecutionService,
-    );
+        run,
+        directExecutionService,
+      );
     const loopCallbacks = buildAgenticLoopCallbacks({
       run,
       directExecutionService,
@@ -612,7 +612,7 @@ export class RunEngine implements IRunEngine {
           return currentRun?.status === "CANCELLED";
         },
         executeTool: loopCallbacks.executeTool,
-        initialCompletedMutatingToolCount: restoredPersistedEdits ? 1 : 0,
+        initialCompletedMutatingToolCount: restoredPersistedEditCount,
         modelId: input.modelId,
         providerId: input.providerId,
         temperature: 0.2,
@@ -1033,9 +1033,9 @@ export class RunEngine implements IRunEngine {
   private async restoreContinuationWorkspaceEditsIfNeeded(
     run: Run,
     executionService: RuntimeExecutionService | undefined,
-  ): Promise<boolean> {
+  ): Promise<number> {
     if (!executionService) {
-      return false;
+      return 0;
     }
 
     const continuation = run.metadata.continuation;
@@ -1045,7 +1045,7 @@ export class RunEngine implements IRunEngine {
       !continuation ||
       continuation.restorableEdits.length === 0
     ) {
-      return false;
+      return 0;
     }
 
     console.log(
@@ -1066,7 +1066,7 @@ export class RunEngine implements IRunEngine {
         );
       }
     }
-    return true;
+    return continuation.restorableEdits.length;
   }
   private async handleExecutionError(
     runId: string,
