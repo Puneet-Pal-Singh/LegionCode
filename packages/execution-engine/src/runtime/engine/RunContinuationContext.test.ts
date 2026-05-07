@@ -251,6 +251,68 @@ describe("RunContinuationContext", () => {
     );
   });
 
+  it("carries forward restorable edits when a recycled turn restores files but makes no new edits", () => {
+    const run = new Run("run-restore-carry", "session-1", "COMPLETED", "coding", {
+      agentType: "coding",
+      prompt: "continue?",
+      sessionId: "session-1",
+    });
+    run.metadata.continuation = {
+      previousPrompt: "add floating carousel",
+      previousStopReason: "tool_error",
+      completedFiles: ["src/components/landing/hero/index.tsx"],
+      restorableEdits: [
+        {
+          filePath: "src/components/landing/hero/index.tsx",
+          content: "export const hero = 'floating';\n",
+        },
+      ],
+      completedGitSteps: [],
+      recordedAt: new Date().toISOString(),
+    };
+    run.metadata.workspaceBootstrap = {
+      requested: true,
+      bootstrapMode: "mutation",
+      resolvedBy: "classifier",
+      clonedDuringBootstrap: true,
+      repositoryIdentity: "acme/career-crew",
+      repositoryContext: {
+        owner: "acme",
+        repo: "career-crew",
+      },
+      hydratedAt: new Date().toISOString(),
+    };
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: "tool_error",
+      toolLifecycle: [
+        {
+          toolCallId: "tool-shell-fail",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "git push failed",
+          metadata: {
+            family: "shell",
+            command: "git push",
+            origin: "agent_tool",
+            truncated: false,
+          },
+        },
+      ],
+    };
+
+    const continuation = createRunContinuationState(run);
+
+    expect(continuation?.restorableEdits).toEqual([
+      {
+        filePath: "src/components/landing/hero/index.tsx",
+        content: "export const hero = 'floating';\n",
+      },
+    ]);
+  });
+
   it("adds PR-specific recovery guidance when gh pr create failed through bash", () => {
     const workspaceContext = buildAgenticLoopWorkspaceContext({
       prompt: "continue?",
