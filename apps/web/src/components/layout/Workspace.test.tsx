@@ -122,10 +122,64 @@ vi.mock("../git/GitReviewContext", () => ({
   GitReviewProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  useGitReview: () => ({
+    status: {
+      branch: "main",
+      files: [],
+      ahead: 0,
+      behind: 0,
+      hasStaged: false,
+      hasUnstaged: false,
+      gitAvailable: true,
+    },
+    gitAvailable: true,
+    statusLoading: false,
+    statusError: null,
+    diff: null,
+    diffError: null,
+    stageError: null,
+    commitError: null,
+    commitErrorCode: null,
+    commitErrorMetadata: null,
+    diffLoading: false,
+    committing: false,
+    isReviewOpen: false,
+    selectedFile: null,
+    stagedFiles: new Set<string>(),
+    commitMessage: "",
+    reviewComments: [],
+    selectedReviewComments: [],
+    selectedReviewCommentCount: 0,
+    selectedReviewCommentsForFile: [],
+    currentDiffFingerprint: null,
+    reviewScope: "git-changes",
+    setReviewScope: vi.fn(),
+    openReview: vi.fn(),
+    closeReview: vi.fn(),
+    selectFile: vi.fn(),
+    addReviewComment: vi.fn(),
+    deleteReviewComment: vi.fn(),
+    toggleReviewCommentSelected: vi.fn(),
+    markReviewCommentsDispatching: vi.fn(),
+    markReviewCommentsDispatched: vi.fn(),
+    markReviewCommentsDispatchFailed: vi.fn(),
+    toggleFileStaged: vi.fn(),
+    stageAll: vi.fn(),
+    unstageAll: vi.fn(),
+    createBranch: vi.fn(),
+    pushBranch: vi.fn(),
+    submitCommit: vi.fn(),
+    setCommitMessage: vi.fn(),
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("../git/GitReviewDialog", () => ({
   GitReviewDialog: () => null,
+}));
+
+vi.mock("../git/GitCommitDialog", () => ({
+  GitCommitDialog: () => null,
 }));
 
 vi.mock("../../lib/git-workspace-bootstrap", () => ({
