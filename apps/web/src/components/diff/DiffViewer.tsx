@@ -12,14 +12,13 @@ import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shar
 import DiffLine from "./DiffLine";
 import { DiffCodeText } from "./DiffCodeText";
 import { resolveDiffLanguage } from "./resolveDiffLanguage";
+import { useAnchorIndex, buildLineKey } from "../../lib/diff/useAnchorIndex";
+import { useSelectionManager } from "../../lib/diff/useSelectionManager";
+import { useAnnotationDispatcher } from "../../lib/diff/useAnnotationDispatcher";
 import type {
   CreateReviewCommentInput,
-  ReviewCommentAnchor,
   ReviewCommentDraft,
-  ReviewCommentSelectionMode,
-  ReviewCommentSide,
 } from "../git/reviewComments";
-import { normalizeLinePreview } from "../git/reviewComments";
 
 interface DiffViewerProps {
   diff: DiffContent;
@@ -51,45 +50,30 @@ export function DiffViewer({
   const [layout, setLayout] = useState<"stacked" | "split">("stacked");
   const [wordWrap, setWordWrap] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
-  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
-  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  const canCreateReviewComment = Boolean(diffFingerprint && onCreateReviewComment);
-  const lineLookup = useMemo(() => buildLineLookup(diff), [diff]);
-
-  const rowOrder = useMemo(() => {
-    const keys: string[] = [];
-    diff.hunks.forEach((hunk, hunkIndex) => {
-      hunk.lines.forEach((_, lineIndex) => {
-        keys.push(buildLineKey(hunkIndex, lineIndex));
-      });
-    });
-    return keys;
-  }, [diff.hunks]);
-
-  const annotationCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    reviewComments.forEach((annotation) => {
-      annotation.anchors.forEach((anchor) => {
-        const rowKey = anchor.rowKey;
-        counts.set(rowKey, (counts.get(rowKey) ?? 0) + 1);
-      });
-    });
-    return counts;
-  }, [reviewComments]);
-
-  const annotationsByAnchor = useMemo(() => {
-    const anchored = new Map<string, ReviewCommentDraft[]>();
-    reviewComments.forEach((annotation) => {
-      const anchorKey = annotation.primaryAnchor.rowKey;
-      if (!anchorKey) {
-        return;
-      }
-      const existing = anchored.get(anchorKey) ?? [];
-      existing.push(annotation);
-      anchored.set(anchorKey, existing);
-    });
-    return anchored;
-  }, [reviewComments]);
+  const { rowOrder, lineLookup } = useAnchorIndex(diff);
+  const {
+    selectedRowKeys,
+    handleRowSelection,
+    openInlineComment,
+    clearSelection,
+    restoreAnnotationSelection,
+  } = useSelectionManager({ rowOrder });
+  const {
+    canCreateReviewComment,
+    annotationCounts,
+    annotationsByAnchor,
+    addAnnotation,
+    resolveAnnotation,
+  } = useAnnotationDispatcher({
+    diff,
+    reviewComments,
+    diffFingerprint,
+    onCreateReviewComment,
+    onDeleteReviewComment,
+    selectedRowKeys,
+    lineLookup,
+    clearSelection,
+  });
 
   const additions = useMemo(
     () =>
@@ -124,100 +108,6 @@ export function DiffViewer({
       }
       return next;
     });
-  };
-
-  const handleRowSelection = (
-    rowKeys: string[],
-    event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
-  ) => {
-    const firstRowKey = rowKeys[0] ?? null;
-    const lastRowKey = rowKeys[rowKeys.length - 1] ?? null;
-    if (!firstRowKey || !lastRowKey) {
-      return;
-    }
-
-    if (event.shiftKey && selectionAnchor) {
-      const anchorIndex = rowOrder.indexOf(selectionAnchor);
-      const targetStartIndex = rowOrder.indexOf(firstRowKey);
-      const targetEndIndex = rowOrder.indexOf(lastRowKey);
-      if (
-        anchorIndex >= 0 &&
-        targetStartIndex >= 0 &&
-        targetEndIndex >= 0
-      ) {
-        const start = Math.min(anchorIndex, targetStartIndex);
-        const end = Math.max(anchorIndex, targetEndIndex);
-        setSelectedRowKeys(rowOrder.slice(start, end + 1));
-        return;
-      }
-    }
-
-    setSelectionAnchor(firstRowKey);
-    setSelectedRowKeys(rowKeys);
-  };
-
-  const addAnnotation = (note: string) => {
-    const trimmedNote = note.trim();
-    if (
-      !trimmedNote ||
-      selectedRowKeys.length === 0 ||
-      !canCreateReviewComment ||
-      !diffFingerprint ||
-      !onCreateReviewComment
-    ) {
-      return;
-    }
-
-    const anchors = selectedRowKeys
-      .map((rowKey) => lineLookup.get(rowKey))
-      .filter((anchor): anchor is ReviewCommentAnchor => anchor !== undefined);
-    const primaryAnchor = anchors[anchors.length - 1];
-    if (!primaryAnchor) {
-      return;
-    }
-
-    const selectionMode: ReviewCommentSelectionMode =
-      anchors.length > 1 ? "range" : "single";
-    onCreateReviewComment({
-      filePath: diff.newPath || diff.oldPath,
-      line:
-        primaryAnchor.newLineNumber ??
-        primaryAnchor.oldLineNumber ??
-        0,
-      side: normalizePrimarySide(primaryAnchor.side),
-      note: trimmedNote,
-      linePreview: primaryAnchor.linePreview,
-      anchors,
-      primaryAnchor,
-      selectionMode,
-      diffFingerprint,
-    });
-    clearSelection();
-  };
-
-  const openInlineComment = (rowKeys: string[]) => {
-    const firstRowKey = rowKeys[0] ?? null;
-    if (!firstRowKey) {
-      return;
-    }
-
-    setSelectionAnchor(firstRowKey);
-    setSelectedRowKeys(rowKeys);
-  };
-
-  const clearSelection = () => {
-    setSelectionAnchor(null);
-    setSelectedRowKeys([]);
-  };
-
-  const restoreAnnotationSelection = (annotation: ReviewCommentDraft) => {
-    const anchorKey = annotation.anchors[0]?.rowKey ?? null;
-    setSelectionAnchor(anchorKey);
-    setSelectedRowKeys(annotation.anchors.map((anchor) => anchor.rowKey));
-  };
-
-  const resolveAnnotation = (annotationId: string) => {
-    onDeleteReviewComment?.(annotationId);
   };
 
   return (
@@ -822,48 +712,6 @@ function getComposerAnchor(visibleRowKeys: string[], selectedRowKeys: string[]):
 
   const visibleSelection = visibleRowKeys.filter((rowKey) => selectedRowKeys.includes(rowKey));
   return visibleSelection[visibleSelection.length - 1] ?? null;
-}
-
-function buildLineKey(hunkIndex: number, lineIndex: number): string {
-  return `${hunkIndex}:${lineIndex}`;
-}
-
-function buildLineLookup(diff: DiffContent): Map<string, ReviewCommentAnchor> {
-  const lookup = new Map<string, ReviewCommentAnchor>();
-
-  diff.hunks.forEach((hunk, hunkIndex) => {
-    hunk.lines.forEach((line, lineIndex) => {
-      const rowKey = buildLineKey(hunkIndex, lineIndex);
-      lookup.set(rowKey, {
-        hunkIndex,
-        lineIndex,
-        rowKey,
-        oldLineNumber: line.oldLineNumber,
-        newLineNumber: line.newLineNumber,
-        side: deriveReviewCommentSide(line),
-        linePreview: normalizeLinePreview(line.content),
-      });
-    });
-  });
-
-  return lookup;
-}
-
-function deriveReviewCommentSide(line: DiffLineType): ReviewCommentSide {
-  if (line.type === "deleted") {
-    return "left";
-  }
-  if (line.type === "added") {
-    return "right";
-  }
-  return "both";
-}
-
-function normalizePrimarySide(side: ReviewCommentSide): ReviewCommentSide {
-  if (side === "both") {
-    return "right";
-  }
-  return side;
 }
 
 function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {
