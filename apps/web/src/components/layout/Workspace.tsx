@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import {
+  type DiffContent,
   type ProductMode,
   type RunMode,
 } from "@repo/shared-types";
@@ -24,6 +25,7 @@ import {
 } from "../../lib/product-mode-storage";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
+import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 
 interface WorkspaceProps {
@@ -37,6 +39,7 @@ interface WorkspaceProps {
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
+  reviewSidebarFocusRequest?: number;
   isGitReviewOpen?: boolean;
   gitReviewIntent?: "review" | "commit";
   onGitReviewOpenChange?: (open: boolean) => void;
@@ -53,6 +56,7 @@ export function Workspace({
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
+  reviewSidebarFocusRequest = 0,
   isGitReviewOpen = false,
   gitReviewIntent = "review",
   onGitReviewOpenChange,
@@ -61,7 +65,9 @@ export function Workspace({
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const previousChatLoadingRef = useRef(false);
+  const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const sandboxId = sessionId;
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
@@ -146,6 +152,34 @@ export function Workspace({
     setIsViewingContent,
     setSelectedFile,
   });
+
+  const handleSidebarDiffSelected = useCallback(
+    (path: string, content: DiffContent) => {
+      setSelectedFile(null);
+      setSelectedDiff({ path, content });
+      setIsViewingContent(true);
+      setActiveTab("changes");
+    },
+    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
+  );
+
+  useEffect(() => {
+    if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
+      return;
+    }
+
+    previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
+    setActiveTab("review");
+    setIsViewingContent(false);
+    setSelectedFile(null);
+    setSelectedDiff(null);
+  }, [
+    reviewSidebarFocusRequest,
+    setActiveTab,
+    setIsViewingContent,
+    setSelectedDiff,
+    setSelectedFile,
+  ]);
 
   const handleStopRun = useCallback(() => {
     stop();
@@ -467,6 +501,7 @@ export function Workspace({
                 setIsRightSidebarOpen?.(true);
                 onGitReviewOpenChange?.(true);
               }}
+              onCommit={() => setIsCommitDialogOpen(true)}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
@@ -489,6 +524,7 @@ export function Workspace({
               branch={branch}
               handleGitHubFileSelect={handleGitHubFileSelect}
               handleFileClick={handleFileClick}
+              onDiffSelected={handleSidebarDiffSelected}
               explorerRef={explorerRef}
               sandboxId={sandboxId}
               runId={activeRunId}
@@ -498,6 +534,10 @@ export function Workspace({
         <GitReviewDialog
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:${gitReviewIntent}`}
           initialIntent={gitReviewIntent}
+        />
+        <GitCommitDialog
+          isOpen={isCommitDialogOpen}
+          onClose={() => setIsCommitDialogOpen(false)}
         />
       </div>
       </GitReviewProvider>
