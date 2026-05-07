@@ -17,14 +17,17 @@ const mockGitReviewState = vi.hoisted(() => ({
   status: null as GitStatusResponse | null,
 }));
 const mockGetGitDiff = vi.hoisted(() =>
-  vi.fn(async () => ({
-    oldPath: "src/index.tsx",
-    newPath: "src/index.tsx",
-    hunks: [],
-    isBinary: false,
-    isNewFile: false,
-    isDeleted: false,
-  })),
+  vi.fn(async (input?: unknown) => {
+    void input;
+    return {
+      oldPath: "src/index.tsx",
+      newPath: "src/index.tsx",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+  }),
 );
 
 vi.mock("./ChatInputBar.js", () => ({
