@@ -577,6 +577,47 @@ describe("RunAgenticLoopPolicy", () => {
     );
   });
 
+  it("explains git mutation gate failures with a retryable final message", () => {
+    const finalMessage = buildAgenticLoopFinalMessage({
+      stopReason: "tool_error",
+      messages: [{ role: "user", content: "create a PR and push it" }],
+      toolExecutionCount: 3,
+      failedToolCount: 1,
+      stepsExecuted: 3,
+      requiresMutation: true,
+      completedMutatingToolCount: 1,
+      completedReadOnlyToolCount: 1,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-0",
+          toolName: "git_branch_create",
+          status: "completed",
+          mutating: true,
+          recordedAt: "2026-05-06T12:00:00.000Z",
+        },
+        {
+          toolCallId: "tool-1",
+          toolName: "git_push",
+          status: "failed",
+          mutating: true,
+          recordedAt: "2026-05-06T12:00:01.000Z",
+          detail:
+            "LegionCode cannot continue with git push yet because no successful file mutation or committed-change evidence exists in this run.",
+        },
+      ],
+    });
+
+    expect(finalMessage.text).toContain(
+      "the safety gate did not find a successful file edit",
+    );
+    expect(finalMessage.text).toContain(
+      "No new commit or pull request was created.",
+    );
+    expect(finalMessage.metadata?.resumeHint).toContain(
+      "Retry after committing the intended changes",
+    );
+  });
+
   it("explains missing local git refs during push recovery in plain language", () => {
     const result: AgenticLoopResult = {
       stopReason: "tool_error",

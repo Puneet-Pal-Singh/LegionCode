@@ -760,6 +760,7 @@ export function AgentSetup({
 
   return (
     <GitReviewProvider
+      key={`${sessionId}:${activeRunId}`}
       isReviewOpen={isGitReviewOpen}
       onReviewOpenChange={setIsGitReviewOpen}
     >

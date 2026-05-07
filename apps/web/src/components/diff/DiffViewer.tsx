@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -12,16 +12,21 @@ import type { DiffContent, DiffHunk, DiffLine as DiffLineType } from "@repo/shar
 import DiffLine from "./DiffLine";
 import { DiffCodeText } from "./DiffCodeText";
 import { resolveDiffLanguage } from "./resolveDiffLanguage";
+import { useAnchorIndex, buildLineKey } from "../../lib/diff/useAnchorIndex";
+import { useSelectionManager } from "../../lib/diff/useSelectionManager";
+import { useAnnotationDispatcher } from "../../lib/diff/useAnnotationDispatcher";
+import type {
+  CreateReviewCommentInput,
+  ReviewCommentDraft,
+} from "../git/reviewComments";
 
 interface DiffViewerProps {
   diff: DiffContent;
   className?: string;
-}
-
-interface DiffAnnotation {
-  id: string;
-  rowKeys: string[];
-  note: string;
+  reviewComments?: ReviewCommentDraft[];
+  diffFingerprint?: string | null;
+  onCreateReviewComment?: (input: CreateReviewCommentInput) => void;
+  onDeleteReviewComment?: (commentId: string) => void;
 }
 
 interface SplitRow {
@@ -31,51 +36,44 @@ interface SplitRow {
   right: DiffLineType | null;
 }
 
-export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
+export function DiffViewer({
+  diff,
+  className = "",
+  reviewComments = [],
+  diffFingerprint = null,
+  onCreateReviewComment,
+  onDeleteReviewComment,
+}: DiffViewerProps) {
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(
     new Set(diff.hunks.map((_: DiffHunk, index: number) => index)),
   );
   const [layout, setLayout] = useState<"stacked" | "split">("stacked");
   const [wordWrap, setWordWrap] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
-  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
-  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  const [annotationDraft, setAnnotationDraft] = useState("");
-  const [annotations, setAnnotations] = useState<DiffAnnotation[]>([]);
-
-  const rowOrder = useMemo(() => {
-    const keys: string[] = [];
-    diff.hunks.forEach((hunk, hunkIndex) => {
-      hunk.lines.forEach((_, lineIndex) => {
-        keys.push(buildLineKey(hunkIndex, lineIndex));
-      });
-    });
-    return keys;
-  }, [diff.hunks]);
-
-  const annotationCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    annotations.forEach((annotation) => {
-      annotation.rowKeys.forEach((rowKey) => {
-        counts.set(rowKey, (counts.get(rowKey) ?? 0) + 1);
-      });
-    });
-    return counts;
-  }, [annotations]);
-
-  const annotationsByAnchor = useMemo(() => {
-    const anchored = new Map<string, DiffAnnotation[]>();
-    annotations.forEach((annotation) => {
-      const anchorKey = annotation.rowKeys[annotation.rowKeys.length - 1];
-      if (!anchorKey) {
-        return;
-      }
-      const existing = anchored.get(anchorKey) ?? [];
-      existing.push(annotation);
-      anchored.set(anchorKey, existing);
-    });
-    return anchored;
-  }, [annotations]);
+  const { rowOrder, lineLookup } = useAnchorIndex(diff);
+  const {
+    selectedRowKeys,
+    handleRowSelection,
+    openInlineComment,
+    clearSelection,
+    restoreAnnotationSelection,
+  } = useSelectionManager({ rowOrder });
+  const {
+    canCreateReviewComment,
+    annotationCounts,
+    annotationsByAnchor,
+    addAnnotation,
+    resolveAnnotation,
+  } = useAnnotationDispatcher({
+    diff,
+    reviewComments,
+    diffFingerprint,
+    onCreateReviewComment,
+    onDeleteReviewComment,
+    selectedRowKeys,
+    lineLookup,
+    clearSelection,
+  });
 
   const additions = useMemo(
     () =>
@@ -112,67 +110,6 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
     });
   };
 
-  const handleRowSelection = (
-    rowKey: string,
-    event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
-  ) => {
-    if (event.shiftKey && selectionAnchor) {
-      const anchorIndex = rowOrder.indexOf(selectionAnchor);
-      const targetIndex = rowOrder.indexOf(rowKey);
-      if (anchorIndex >= 0 && targetIndex >= 0) {
-        const start = Math.min(anchorIndex, targetIndex);
-        const end = Math.max(anchorIndex, targetIndex);
-        setSelectedRowKeys(rowOrder.slice(start, end + 1));
-        return;
-      }
-    }
-
-    setSelectionAnchor(rowKey);
-    setSelectedRowKeys([rowKey]);
-  };
-
-  const addAnnotation = () => {
-    const note = annotationDraft.trim();
-    if (!note || selectedRowKeys.length === 0) {
-      return;
-    }
-
-    setAnnotations((previous) => [
-      {
-        id: crypto.randomUUID(),
-        rowKeys: selectedRowKeys,
-        note,
-      },
-      ...previous,
-    ]);
-    setAnnotationDraft("");
-  };
-
-  const openInlineComment = (rowKey: string) => {
-    setSelectionAnchor(rowKey);
-    setSelectedRowKeys([rowKey]);
-    setAnnotationDraft("");
-  };
-
-  const clearSelection = () => {
-    setSelectionAnchor(null);
-    setSelectedRowKeys([]);
-    setAnnotationDraft("");
-  };
-
-  const restoreAnnotationSelection = (annotation: DiffAnnotation) => {
-    const anchorKey = annotation.rowKeys[annotation.rowKeys.length - 1] ?? null;
-    setSelectionAnchor(anchorKey);
-    setSelectedRowKeys(annotation.rowKeys);
-    setAnnotationDraft("");
-  };
-
-  const resolveAnnotation = (annotationId: string) => {
-    setAnnotations((previous) =>
-      previous.filter((annotation) => annotation.id !== annotationId),
-    );
-  };
-
   return (
     <div className={`flex h-full bg-black ${className}`}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg">
@@ -196,7 +133,7 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                 <span className="text-emerald-400">+{additions}</span>
                 <span className="text-red-400">-{deletions}</span>
                 <span>{diff.hunks.length} hunks</span>
-                <span>{annotations.length} notes</span>
+                <span>{reviewComments.length} notes</span>
               </div>
             </div>
 
@@ -286,13 +223,12 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                         hunkIndex={hunkIndex}
                         language={language}
                         wrap={wordWrap}
+                        canCreateReviewComment={canCreateReviewComment}
                         selectedRowKeys={selectedRowKeys}
-                        annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
                         annotationCounts={annotationCounts}
                         onRowSelect={handleRowSelection}
                         onOpenInlineComment={openInlineComment}
-                        onAnnotationDraftChange={setAnnotationDraft}
                         onAddAnnotation={addAnnotation}
                         onClearSelection={clearSelection}
                         onReplyToAnnotation={restoreAnnotationSelection}
@@ -304,13 +240,12 @@ export function DiffViewer({ diff, className = "" }: DiffViewerProps) {
                         hunkIndex={hunkIndex}
                         language={language}
                         wrap={wordWrap}
+                        canCreateReviewComment={canCreateReviewComment}
                         selectedRowKeys={selectedRowKeys}
-                        annotationDraft={annotationDraft}
                         annotationsByAnchor={annotationsByAnchor}
                         annotationCounts={annotationCounts}
                         onRowSelect={handleRowSelection}
                         onOpenInlineComment={openInlineComment}
-                        onAnnotationDraftChange={setAnnotationDraft}
                         onAddAnnotation={addAnnotation}
                         onClearSelection={clearSelection}
                         onReplyToAnnotation={restoreAnnotationSelection}
@@ -333,19 +268,18 @@ interface StackedHunkViewProps {
   hunkIndex: number;
   language: string;
   wrap: boolean;
+  canCreateReviewComment: boolean;
   selectedRowKeys: string[];
-  annotationDraft: string;
-  annotationsByAnchor: Map<string, DiffAnnotation[]>;
+  annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
   onRowSelect: (
-    rowKey: string,
+    rowKeys: string[],
     event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
   ) => void;
-  onOpenInlineComment: (rowKey: string) => void;
-  onAnnotationDraftChange: (value: string) => void;
-  onAddAnnotation: () => void;
+  onOpenInlineComment: (rowKeys: string[]) => void;
+  onAddAnnotation: (note: string) => void;
   onClearSelection: () => void;
-  onReplyToAnnotation: (annotation: DiffAnnotation) => void;
+  onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
 }
 
@@ -354,13 +288,12 @@ function StackedHunkView({
   hunkIndex,
   language,
   wrap,
+  canCreateReviewComment,
   selectedRowKeys,
-  annotationDraft,
   annotationsByAnchor,
   annotationCounts,
   onRowSelect,
   onOpenInlineComment,
-  onAnnotationDraftChange,
   onAddAnnotation,
   onClearSelection,
   onReplyToAnnotation,
@@ -384,17 +317,19 @@ function StackedHunkView({
               wrap={wrap}
               isSelected={selectedRowKeys.includes(rowKey)}
               annotationCount={annotationCounts.get(rowKey) ?? 0}
-              onClick={(event) => onRowSelect(rowKey, event)}
-              onAddComment={(event) => {
-                event.stopPropagation();
-                onOpenInlineComment(rowKey);
-              }}
+              onClick={(event) => onRowSelect([rowKey], event)}
+              onAddComment={
+                canCreateReviewComment
+                  ? (event) => {
+                      event.stopPropagation();
+                      onOpenInlineComment([rowKey]);
+                    }
+                  : undefined
+              }
             />
-            {composerAnchor === rowKey ? (
+            {canCreateReviewComment && composerAnchor === rowKey ? (
               <InlineCommentComposer
                 selectedCount={selectedRowKeys.length}
-                annotationDraft={annotationDraft}
-                onAnnotationDraftChange={onAnnotationDraftChange}
                 onAddAnnotation={onAddAnnotation}
                 onCancel={onClearSelection}
               />
@@ -419,19 +354,18 @@ interface SplitHunkViewProps {
   hunkIndex: number;
   language: string;
   wrap: boolean;
+  canCreateReviewComment: boolean;
   selectedRowKeys: string[];
-  annotationDraft: string;
-  annotationsByAnchor: Map<string, DiffAnnotation[]>;
+  annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   annotationCounts: Map<string, number>;
   onRowSelect: (
-    rowKey: string,
+    rowKeys: string[],
     event: React.MouseEvent<HTMLDivElement>,
   ) => void;
-  onOpenInlineComment: (rowKey: string) => void;
-  onAnnotationDraftChange: (value: string) => void;
-  onAddAnnotation: () => void;
+  onOpenInlineComment: (rowKeys: string[]) => void;
+  onAddAnnotation: (note: string) => void;
   onClearSelection: () => void;
-  onReplyToAnnotation: (annotation: DiffAnnotation) => void;
+  onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
 }
 
@@ -440,13 +374,12 @@ function SplitHunkView({
   hunkIndex,
   language,
   wrap,
+  canCreateReviewComment,
   selectedRowKeys,
-  annotationDraft,
   annotationsByAnchor,
   annotationCounts,
   onRowSelect,
   onOpenInlineComment,
-  onAnnotationDraftChange,
   onAddAnnotation,
   onClearSelection,
   onReplyToAnnotation,
@@ -472,8 +405,12 @@ function SplitHunkView({
           (sum, rowKey) => sum + (annotationCounts.get(rowKey) ?? 0),
           0,
         );
-        const anchoredAnnotations = row.rowKeys.flatMap(
-          (rowKey) => annotationsByAnchor.get(rowKey) ?? [],
+        const anchoredAnnotations = Array.from(
+          new Map(
+            row.rowKeys
+              .flatMap((rowKey) => annotationsByAnchor.get(rowKey) ?? [])
+              .map((annotation) => [annotation.id, annotation]),
+          ).values(),
         );
         return (
           <Fragment key={row.key}>
@@ -484,11 +421,15 @@ function SplitHunkView({
               wrap={wrap}
               isSelected={isSelected}
               annotationCount={annotationCount}
-              onClick={(event) => onRowSelect(row.key, event)}
-              onAddComment={(event) => {
-                event.stopPropagation();
-                onOpenInlineComment(row.key);
-              }}
+              onClick={(event) => onRowSelect(row.rowKeys, event)}
+              onAddComment={
+                canCreateReviewComment
+                  ? (event) => {
+                      event.stopPropagation();
+                      onOpenInlineComment(row.rowKeys);
+                    }
+                  : undefined
+              }
             />
             <SplitDiffCell
               line={row.right}
@@ -497,18 +438,20 @@ function SplitHunkView({
               wrap={wrap}
               isSelected={isSelected}
               annotationCount={annotationCount}
-              onClick={(event) => onRowSelect(row.key, event)}
-              onAddComment={(event) => {
-                event.stopPropagation();
-                onOpenInlineComment(row.key);
-              }}
+              onClick={(event) => onRowSelect(row.rowKeys, event)}
+              onAddComment={
+                canCreateReviewComment
+                  ? (event) => {
+                      event.stopPropagation();
+                      onOpenInlineComment(row.rowKeys);
+                    }
+                  : undefined
+              }
             />
-            {composerAnchor === row.key ? (
+            {canCreateReviewComment && composerAnchor === row.key ? (
               <div className="col-span-2 border-b border-zinc-900/80 bg-sky-500/12 px-6 py-5">
                 <InlineCommentComposer
                   selectedCount={selectedRowKeys.length}
-                  annotationDraft={annotationDraft}
-                  onAnnotationDraftChange={onAnnotationDraftChange}
                   onAddAnnotation={onAddAnnotation}
                   onCancel={onClearSelection}
                 />
@@ -541,7 +484,7 @@ interface SplitDiffCellProps {
   isSelected: boolean;
   annotationCount: number;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
-  onAddComment: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  onAddComment?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
 function SplitDiffCell({
@@ -613,16 +556,18 @@ function SplitDiffCell({
       } ${background} ${borderColor}`}
     >
       <div className="absolute left-0 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
-        <button
-          type="button"
-          onClick={onAddComment}
-          className={`flex h-6 w-6 items-center justify-center rounded-md bg-sky-500 text-white shadow-[0_0_0_1px_rgba(125,211,252,0.35)] transition-opacity hover:bg-sky-400 ${
-            isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-          }`}
-          aria-label="Add comment"
-        >
-          <Plus size={14} />
-        </button>
+        {onAddComment ? (
+          <button
+            type="button"
+            onClick={onAddComment}
+            className={`flex h-6 w-6 items-center justify-center rounded-md bg-sky-500 text-white shadow-[0_0_0_1px_rgba(125,211,252,0.35)] transition-opacity hover:bg-sky-400 ${
+              isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+            aria-label="Add comment"
+          >
+            <Plus size={14} />
+          </button>
+        ) : null}
       </div>
       <div className="w-12 shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
         {lineNumber ?? ""}
@@ -641,19 +586,31 @@ function SplitDiffCell({
 
 interface InlineCommentComposerProps {
   selectedCount: number;
-  annotationDraft: string;
-  onAnnotationDraftChange: (value: string) => void;
-  onAddAnnotation: () => void;
+  onAddAnnotation: (note: string) => void;
   onCancel: () => void;
 }
 
 function InlineCommentComposer({
   selectedCount,
-  annotationDraft,
-  onAnnotationDraftChange,
   onAddAnnotation,
   onCancel,
 }: InlineCommentComposerProps) {
+  const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleSubmit = () => {
+    const note = draft.trim();
+    if (!note) {
+      return;
+    }
+    onAddAnnotation(note);
+    setDraft("");
+  };
+
   return (
     <div className="border-b border-zinc-900/80 bg-sky-500/12 px-6 py-5">
       <div className="mx-auto max-w-3xl rounded-2xl border border-red-500/30 bg-[#111112] p-4 shadow-[0_0_0_1px_rgba(239,68,68,0.08)]">
@@ -666,16 +623,23 @@ function InlineCommentComposer({
           </div>
         </div>
         <textarea
-          value={annotationDraft}
-          onChange={(event) => onAnnotationDraftChange(event.target.value)}
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
           placeholder="Leave a comment"
           className="min-h-24 w-full rounded-xl border border-red-500/30 bg-black/70 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-red-400/50 focus:outline-none"
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              handleSubmit();
+            }
+          }}
         />
         <div className="mt-3 flex items-center gap-3">
           <button
             type="button"
-            onClick={onAddAnnotation}
-            disabled={!annotationDraft.trim()}
+            onClick={handleSubmit}
+            disabled={!draft.trim()}
             className="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
           >
             Comment
@@ -694,7 +658,7 @@ function InlineCommentComposer({
 }
 
 interface InlineAnnotationCardProps {
-  annotation: DiffAnnotation;
+  annotation: ReviewCommentDraft;
   onReply: () => void;
   onResolve: () => void;
 }
@@ -748,10 +712,6 @@ function getComposerAnchor(visibleRowKeys: string[], selectedRowKeys: string[]):
 
   const visibleSelection = visibleRowKeys.filter((rowKey) => selectedRowKeys.includes(rowKey));
   return visibleSelection[visibleSelection.length - 1] ?? null;
-}
-
-function buildLineKey(hunkIndex: number, lineIndex: number): string {
-  return `${hunkIndex}:${lineIndex}`;
 }
 
 function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {

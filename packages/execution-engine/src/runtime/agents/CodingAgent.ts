@@ -998,6 +998,7 @@ function buildWriteActivityMetadata(
     additions,
     deletions,
     diffPreview: buildDiffPreview(previousContent, nextContent),
+    restorationContent: nextContent,
   };
 }
 

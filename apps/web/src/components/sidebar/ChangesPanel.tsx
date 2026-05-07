@@ -28,6 +28,10 @@ export function ChangesPanel({
     selectedFile,
     stagedFiles,
     commitMessage,
+    selectedReviewCommentsForFile,
+    currentDiffFingerprint,
+    addReviewComment,
+    deleteReviewComment,
     setCommitMessage,
     openReview,
     selectFile,
@@ -104,6 +108,10 @@ export function ChangesPanel({
                 key={`${diff.oldPath}:${diff.newPath}:${diff.hunks.length}`}
                 diff={diff}
                 className="flex-1 overflow-hidden"
+                reviewComments={selectedReviewCommentsForFile}
+                diffFingerprint={currentDiffFingerprint}
+                onCreateReviewComment={addReviewComment}
+                onDeleteReviewComment={deleteReviewComment}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">

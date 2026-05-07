@@ -524,4 +524,58 @@ describe("ChatInputBar", () => {
     expect(screen.queryByTitle("Attach file")).toBeNull();
     expect(screen.queryByTitle("Voice input")).toBeNull();
   });
+
+  it("allows sending selected review comments without freeform text", () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        sessionId="session-1"
+        reviewComments={[
+          {
+            id: "comment-1",
+            filePath: "apps/web/src/App.tsx",
+            line: 24,
+            side: "right",
+            note: "Extract this branch.",
+            createdAt: new Date().toISOString(),
+            linePreview: "if (isReady) {",
+            selected: true,
+            anchors: [
+              {
+                hunkIndex: 0,
+                lineIndex: 0,
+                rowKey: "0:0",
+                newLineNumber: 24,
+                side: "right",
+                linePreview: "if (isReady) {",
+              },
+            ],
+            primaryAnchor: {
+              hunkIndex: 0,
+              lineIndex: 0,
+              rowKey: "0:0",
+              newLineNumber: 24,
+              side: "right",
+              linePreview: "if (isReady) {",
+            },
+            selectionMode: "single",
+            runId: "run-1",
+            sessionId: "session-1",
+            diffFingerprint: "fingerprint-1",
+            stale: false,
+            deliveryState: "draft",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("App.tsx:24")).toBeTruthy();
+  });
 });

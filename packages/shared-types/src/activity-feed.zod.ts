@@ -99,6 +99,7 @@ const EditToolMetadataSchema = z.object({
   additions: z.number().int().min(0),
   deletions: z.number().int().min(0),
   diffPreview: z.string().optional(),
+  restorationContent: z.string().optional(),
   diagnostics: z.array(z.string()).optional(),
 });
 

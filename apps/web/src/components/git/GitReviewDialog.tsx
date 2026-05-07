@@ -17,6 +17,7 @@ export function GitReviewDialog({
     status,
     stagedFiles,
     selectedFile,
+    selectedReviewCommentCount,
     selectFile,
   } = useGitReview();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(
@@ -26,6 +27,11 @@ export function GitReviewDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeReviewRef = useRef(closeReview);
+
+  useEffect(() => {
+    closeReviewRef.current = closeReview;
+  }, [closeReview]);
 
   useEffect(() => {
     if (!isReviewOpen || selectedFile || !status?.files.length) {
@@ -48,7 +54,7 @@ export function GitReviewDialog({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        closeReview();
+        closeReviewRef.current();
         return;
       }
 
@@ -82,7 +88,7 @@ export function GitReviewDialog({
       window.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus();
     };
-  }, [closeReview, isReviewOpen]);
+  }, [isReviewOpen]);
 
   if (!isReviewOpen) {
     return null;
@@ -128,6 +134,14 @@ export function GitReviewDialog({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={closeReview}
+              disabled={selectedReviewCommentCount === 0}
+              className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-300 transition-colors hover:border-sky-400/40 hover:bg-sky-500/15 hover:text-sky-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+            >
+              Review changes ({selectedReviewCommentCount})
+            </button>
             <button
               type="button"
               onClick={() => setIsCommitDialogOpen(true)}

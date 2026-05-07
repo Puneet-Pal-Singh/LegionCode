@@ -175,6 +175,10 @@ export interface ManageModelsDialogProps {
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
   onSetProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
   onConnectProvider?: () => void;
+  guidanceBanner?: {
+    title: string;
+    description: string;
+  } | null;
 }
 
 /**
@@ -192,6 +196,7 @@ export function ManageModelsDialog({
   onToggleModelVisibility,
   onSetProviderVisibleModels,
   onConnectProvider,
+  guidanceBanner = null,
 }: ManageModelsDialogProps): React.ReactElement | null {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -276,6 +281,12 @@ export function ManageModelsDialog({
 
         {/* Search */}
         <div className="px-6 py-3">
+          {guidanceBanner ? (
+            <div className="mb-3 rounded-lg border border-blue-900 bg-blue-950/30 px-4 py-3 text-blue-100">
+              <p className="text-sm font-medium">{guidanceBanner.title}</p>
+              <p className="mt-1 text-xs text-blue-200">{guidanceBanner.description}</p>
+            </div>
+          ) : null}
           <div className="relative">
             <Search
               size={16}

@@ -30,6 +30,7 @@ describe("RunContinuationContext", () => {
             filePath: "src/components/Hero.tsx",
             additions: 20,
             deletions: 3,
+            restorationContent: "export const Hero = () => null;\n",
           },
         },
         {
@@ -69,6 +70,12 @@ describe("RunContinuationContext", () => {
       previousPrompt: "make the hero prettier",
       previousStopReason: "tool_error",
       completedFiles: ["src/components/Hero.tsx"],
+      restorableEdits: [
+        {
+          filePath: "src/components/Hero.tsx",
+          content: "export const Hero = () => null;\n",
+        },
+      ],
       completedGitSteps: ["Branch created: feat/floating-hero-carousels"],
       activeBranch: "feat/floating-hero-carousels",
       failedToolName: "bash",
@@ -214,6 +221,7 @@ describe("RunContinuationContext", () => {
           "I couldn't finish the git step in the sandbox. Retry the step or run it locally.",
         previousStopReason: "tool_error",
         completedFiles: ["src/components/landing/hero/FloatingCarousels.tsx"],
+        restorableEdits: [],
         completedGitSteps: [
           "Branch created: feat/floating-hero-carousels",
           "Commit created: feat: add floating carousels to hero section",
@@ -243,6 +251,68 @@ describe("RunContinuationContext", () => {
     );
   });
 
+  it("carries forward restorable edits when a recycled turn restores files but makes no new edits", () => {
+    const run = new Run("run-restore-carry", "session-1", "COMPLETED", "coding", {
+      agentType: "coding",
+      prompt: "continue?",
+      sessionId: "session-1",
+    });
+    run.metadata.continuation = {
+      previousPrompt: "add floating carousel",
+      previousStopReason: "tool_error",
+      completedFiles: ["src/components/landing/hero/index.tsx"],
+      restorableEdits: [
+        {
+          filePath: "src/components/landing/hero/index.tsx",
+          content: "export const hero = 'floating';\n",
+        },
+      ],
+      completedGitSteps: [],
+      recordedAt: new Date().toISOString(),
+    };
+    run.metadata.workspaceBootstrap = {
+      requested: true,
+      bootstrapMode: "mutation",
+      resolvedBy: "classifier",
+      clonedDuringBootstrap: true,
+      repositoryIdentity: "acme/career-crew",
+      repositoryContext: {
+        owner: "acme",
+        repo: "career-crew",
+      },
+      hydratedAt: new Date().toISOString(),
+    };
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: "tool_error",
+      toolLifecycle: [
+        {
+          toolCallId: "tool-shell-fail",
+          toolName: "bash",
+          status: "failed",
+          mutating: true,
+          recordedAt: new Date().toISOString(),
+          detail: "git push failed",
+          metadata: {
+            family: "shell",
+            command: "git push",
+            origin: "agent_tool",
+            truncated: false,
+          },
+        },
+      ],
+    };
+
+    const continuation = createRunContinuationState(run);
+
+    expect(continuation?.restorableEdits).toEqual([
+      {
+        filePath: "src/components/landing/hero/index.tsx",
+        content: "export const hero = 'floating';\n",
+      },
+    ]);
+  });
+
   it("adds PR-specific recovery guidance when gh pr create failed through bash", () => {
     const workspaceContext = buildAgenticLoopWorkspaceContext({
       prompt: "continue?",
@@ -252,6 +322,7 @@ describe("RunContinuationContext", () => {
         previousOutput:
           "The branch was pushed, but the PR step failed before GitHub accepted it.",
         completedFiles: ["src/components/landing/hero/FloatingCarousels.tsx"],
+        restorableEdits: [],
         completedGitSteps: [
           "Branch created: feat/floating-hero-carousels",
           "Commit created: feat: add floating carousels to hero section",
@@ -289,6 +360,7 @@ describe("RunContinuationContext", () => {
           "src/components/landing/hero/FloatingCarousels.tsx",
           "src/components/landing/hero/index.tsx",
         ],
+        restorableEdits: [],
         completedGitSteps: [
           "Branch created: feat/floating-hero-carousels",
           "Commit created: feat: add floating carousels to hero section",
@@ -347,6 +419,7 @@ describe("RunContinuationContext", () => {
         previousStopReason: "tool_error",
         previousOutput: "Scope clarification required.",
         completedFiles: [],
+        restorableEdits: [],
         completedGitSteps: [],
         failedToolName: "git_stage",
         failedToolDetail:
