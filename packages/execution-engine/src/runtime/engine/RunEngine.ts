@@ -26,8 +26,6 @@ import type {
   RunInput,
   RunStatus,
   IAgent,
-  RepositoryContext,
-  RuntimeExecutionService,
   RuntimeDurableObjectState,
   WorkspaceBootstrapper,
 } from "../types.js";
@@ -47,7 +45,6 @@ import {
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
   getPermissionPolicyMessage,
-  getWorkspaceBootstrapMessage,
   evaluateWorkspaceBootstrap,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
@@ -100,11 +97,12 @@ import {
   handleExecutionErrorPolicy,
   safeMemoryOperation as safeMemoryOperationPolicy,
 } from "./RunEngineReliabilityPolicy.js";
-import { GitHubTaskStrategy } from "./GitHubTaskStrategy.js";
-import { GitToolFailureClassifier } from "./GitToolFailureClassifier.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
-import { resolveGitTaskStrategyPolicy } from "./RunGitTaskStrategyPolicy.js";
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
+import {
+  resolveGitTaskStrategyForRun,
+  restoreContinuationWorkspaceEditsIfNeeded,
+} from "./RunExecutionPreparationPolicy.js";
 import {
   buildFinalSummaryFrame,
   isFinalSummaryContractEnabled,
@@ -128,24 +126,6 @@ export type {
   RunEngineEnv,
   RunEngineOptions,
 } from "./RunEngineTypes.js";
-
-const gitHubTaskStrategy = new GitHubTaskStrategy();
-const gitToolFailureClassifier = new GitToolFailureClassifier();
-
-interface RuntimeExecutionResultLike {
-  success: boolean;
-  error?: string;
-}
-
-function isRuntimeExecutionResultLike(
-  value: unknown,
-): value is RuntimeExecutionResultLike {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  return typeof (value as { success?: unknown }).success === "boolean";
-}
 
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
@@ -368,8 +348,9 @@ export class RunEngine implements IRunEngine {
         runMode === "build" &&
         isPlatformApprovalOwner(run.metadata.manifest)
       ) {
-        const approvalDirectiveMessage = await this.processPermissionDirectives(
+        const approvalDirectiveMessage = await processPermissionDirectivesPolicy(
           input.prompt,
+          this.permissionApprovalStore,
         );
         if (approvalDirectiveMessage) {
           recordLifecycleStep(
@@ -557,10 +538,12 @@ export class RunEngine implements IRunEngine {
     run.transition("RUNNING");
     recordPhaseSelectionSnapshot(run, "execution");
     recordLifecycleStep(run, "TASK_EXECUTING", "agentic_loop");
-    run.metadata.gitTaskStrategy = await this.resolveGitTaskStrategy(
+    run.metadata.gitTaskStrategy = await resolveGitTaskStrategyForRun({
       run,
-      input,
-    );
+      runInput: input,
+      options: this.options,
+      hasGitHubAuthChecker: this.hasGitHubAuthChecker,
+    });
     await this.runEventRecorder.recordRunStatusChanged(
       previousStatus,
       run.status,
@@ -584,7 +567,7 @@ export class RunEngine implements IRunEngine {
         ? this.agent.getRuntimeExecutionService()
         : undefined;
     const restoredPersistedEditCount =
-      await this.restoreContinuationWorkspaceEditsIfNeeded(
+      await restoreContinuationWorkspaceEditsIfNeeded(
         run,
         directExecutionService,
       );
@@ -926,6 +909,28 @@ export class RunEngine implements IRunEngine {
     return this.planner.plan(run, prompt, memoryContext);
   }
 
+  private async processPermissionDirectives(
+    prompt: string,
+  ): Promise<string | null> {
+    return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
+  }
+
+  private async getPermissionPolicyMessage(
+    prompt: string,
+    repositoryContext?: { owner?: string; repo?: string },
+  ): Promise<string | null> {
+    return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
+  }
+
+  private async getWorkspaceBootstrapMessage(
+    runId: string,
+    prompt: string,
+    repositoryContext?: { owner?: string; repo?: string; branch?: string },
+  ): Promise<string | null> {
+    const evaluation = await evaluateWorkspaceBootstrap(runId, prompt, repositoryContext, this.workspaceBootstrapper);
+    return evaluation.message;
+  }
+
   private async completeRunWithAssistantMessage(
     run: Run,
     text: string,
@@ -967,107 +972,6 @@ export class RunEngine implements IRunEngine {
     });
   }
 
-  private async processPermissionDirectives(
-    prompt: string,
-  ): Promise<string | null> {
-    return processPermissionDirectivesPolicy(
-      prompt,
-      this.permissionApprovalStore,
-    );
-  }
-
-  private async getPermissionPolicyMessage(
-    prompt: string,
-    repositoryContext?: RepositoryContext,
-  ): Promise<string | null> {
-    return getPermissionPolicyMessage(
-      prompt,
-      repositoryContext,
-      this.permissionApprovalStore,
-    );
-  }
-
-  private async getWorkspaceBootstrapMessage(
-    runId: string,
-    prompt: string,
-    repositoryContext?: RepositoryContext,
-  ): Promise<string | null> {
-    return getWorkspaceBootstrapMessage(
-      runId,
-      prompt,
-      repositoryContext,
-      this.workspaceBootstrapper,
-    );
-  }
-
-  private async resolveGitTaskStrategy(
-    run: Run,
-    input: RunInput,
-  ): Promise<Run["metadata"]["gitTaskStrategy"]> {
-    const hasGitHubAuth = await this.resolveGitHubAuthAvailability(input);
-    return resolveGitTaskStrategyPolicy({
-      run,
-      runInput: input,
-      hasGitHubAuth,
-      strategy: gitHubTaskStrategy,
-      classifier: gitToolFailureClassifier,
-    });
-  }
-
-  private async resolveGitHubAuthAvailability(
-    input: RunInput,
-  ): Promise<boolean> {
-    if (!this.hasGitHubAuthChecker) {
-      return false;
-    }
-    return Boolean(
-      await this.hasGitHubAuthChecker({
-        userId: this.options.userId,
-        runId: this.options.runId,
-        sessionId: this.options.sessionId,
-        runInput: input,
-      }),
-    );
-  }
-
-  private async restoreContinuationWorkspaceEditsIfNeeded(
-    run: Run,
-    executionService: RuntimeExecutionService | undefined,
-  ): Promise<number> {
-    if (!executionService) {
-      return 0;
-    }
-
-    const continuation = run.metadata.continuation;
-    const workspaceBootstrap = run.metadata.workspaceBootstrap;
-    if (
-      !workspaceBootstrap?.clonedDuringBootstrap ||
-      !continuation ||
-      continuation.restorableEdits.length === 0
-    ) {
-      return 0;
-    }
-
-    console.log(
-      `[run/engine] Restoring ${continuation.restorableEdits.length} persisted edit(s) after workspace re-clone for run ${run.id}`,
-    );
-    for (const edit of continuation.restorableEdits) {
-      const result = await executionService.execute("filesystem", "write_file", {
-        path: edit.filePath,
-        content: edit.content,
-      });
-      if (!isRuntimeExecutionResultLike(result) || !result.success) {
-        throw new Error(
-          `Failed to restore persisted workspace edit for ${edit.filePath}: ${
-            isRuntimeExecutionResultLike(result)
-              ? result.error ?? "unknown restore error"
-              : "unexpected execution result"
-          }`,
-        );
-      }
-    }
-    return continuation.restorableEdits.length;
-  }
   private async handleExecutionError(
     runId: string,
     error: unknown,
