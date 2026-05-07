@@ -15,7 +15,6 @@ export function GitReviewDialog({
     isReviewOpen,
     closeReview,
     status,
-    stagedFiles,
     selectedFile,
     selectedReviewCommentCount,
     selectFile,
@@ -94,9 +93,6 @@ export function GitReviewDialog({
     return null;
   }
 
-  const totalChanges = status?.files.length ?? 0;
-  const stagedCount = stagedFiles.size;
-
   return (
     <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center px-6 py-8">
       <button
@@ -127,9 +123,6 @@ export function GitReviewDialog({
                 <GitBranch size={14} className="text-emerald-400" />
                 {status?.branch || "No branch"}
               </span>
-              <span>{totalChanges} changed</span>
-              <span>{stagedCount} staged</span>
-              <span>{Math.max(totalChanges - stagedCount, 0)} unstaged</span>
             </div>
           </div>
 
