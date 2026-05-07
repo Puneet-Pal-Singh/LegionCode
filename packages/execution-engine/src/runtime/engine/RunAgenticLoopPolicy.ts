@@ -915,7 +915,19 @@ function isGitMutationGateFailure(
     return false;
   }
 
-  const detail = `${event.detail ?? ""}`;
+  const metadata = event.metadata as Record<string, unknown> | undefined;
+  const metadataText = metadata
+    ? [
+        metadata.error,
+        metadata.message,
+        metadata.reason,
+        metadata.detail,
+        metadata.stderr,
+      ]
+        .filter((value): value is string => typeof value === "string")
+        .join(" ")
+    : "";
+  const detail = `${event.detail ?? ""} ${metadataText}`;
   return /no successful file mutation|no successful file mutation or committed-change evidence/i.test(
     detail,
   );
