@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
+  type DiffContent,
   DEFAULT_RUN_MODE,
   type RunMode,
 } from "@repo/shared-types";
@@ -24,14 +25,16 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap.js";
-import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
+import {
+  type TabType,
+  useWorkspaceState,
+} from "../layout/workspace/useWorkspaceState";
 import { SidebarHeader } from "../layout/workspace/SidebarHeader";
 import { SidebarContent } from "../layout/workspace/SidebarContent";
 import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
 import { Resizer } from "../ui/Resizer";
 import { useGitStatus } from "../../hooks/useGitStatus";
-import { useGitDiff } from "../../hooks/useGitDiff";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
@@ -42,6 +45,7 @@ import {
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
+import { GitCommitDialog } from "../git/GitCommitDialog";
 import {
   isProviderModelBootstrapLoading,
 } from "../../lib/provider-model-bootstrap-loading.js";
@@ -54,6 +58,7 @@ interface AgentSetupProps {
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
+  reviewSidebarFocusRequest?: number;
   showOnboardingHighlights?: boolean;
   onStart: (config: {
     repo: string;
@@ -66,16 +71,18 @@ interface AgentSetupProps {
 
 interface SetupSidebarHeaderProps {
   isViewingContent: boolean;
-  activeTab: "files" | "changes";
+  activeTab: TabType;
   changesCount: number;
+  onCommit: () => void;
   onBack: () => void;
-  onTabChange: (tab: "files" | "changes") => void;
+  onTabChange: (tab: TabType) => void;
 }
 
 function SetupSidebarHeader({
   isViewingContent,
   activeTab,
   changesCount,
+  onCommit,
   onBack,
   onTabChange,
 }: SetupSidebarHeaderProps) {
@@ -87,6 +94,7 @@ function SetupSidebarHeader({
       activeTab={activeTab}
       changesCount={changesCount}
       onExpand={() => openReview()}
+      onCommit={onCommit}
       onBack={onBack}
       onTabChange={onTabChange}
     />
@@ -99,6 +107,7 @@ export function AgentSetup({
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   requiresRepository = false,
+  reviewSidebarFocusRequest = 0,
   showOnboardingHighlights = false,
   onStart,
   onRepoClick,
@@ -127,6 +136,8 @@ export function AgentSetup({
     "full" | "connect-only" | "manage-models-only"
   >("full");
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const {
     catalog,
     credentials,
@@ -197,10 +208,6 @@ export function AgentSetup({
     isGitHubLoaded,
   } = useGitHubTree();
   const { status: gitStatus, refetch: refetchGitStatus } = useGitStatus(
-    activeRunId || undefined,
-    sessionId,
-  );
-  const { fetch: fetchDiff, diff } = useGitDiff(
     activeRunId || undefined,
     sessionId,
   );
@@ -359,20 +366,33 @@ export function AgentSetup({
     sessionId,
   ]);
 
-  useEffect(() => {
-    if (diff && activeTab === "changes") {
-      setSelectedDiff({ path: diff.newPath, content: diff });
+  const handleSidebarDiffSelected = useCallback(
+    (path: string, content: DiffContent) => {
+      setSelectedFile(null);
+      setSelectedDiff({ path, content });
       setIsViewingContent(true);
-    }
-  }, [activeTab, diff, setIsViewingContent, setSelectedDiff]);
-
-  const handleViewChange = useCallback(
-    (path: string) => {
-      void handleFileClick(path);
-      void fetchDiff(path);
+      setActiveTab("changes");
     },
-    [fetchDiff, handleFileClick],
+    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
   );
+
+  useEffect(() => {
+    if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
+      return;
+    }
+
+    previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
+    setActiveTab("review");
+    setIsViewingContent(false);
+    setSelectedFile(null);
+    setSelectedDiff(null);
+  }, [
+    reviewSidebarFocusRequest,
+    setActiveTab,
+    setIsViewingContent,
+    setSelectedDiff,
+    setSelectedFile,
+  ]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -876,6 +896,7 @@ export function AgentSetup({
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               changesCount={changesCount}
+              onCommit={() => setIsCommitDialogOpen(true)}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
@@ -902,7 +923,7 @@ export function AgentSetup({
               branch={githubBranch || "main"}
               handleGitHubFileSelect={handleGitHubFileSelect}
               handleFileClick={handleFileClick}
-              handleViewChange={handleViewChange}
+              onDiffSelected={handleSidebarDiffSelected}
               explorerRef={explorerRef}
               sandboxId={sessionId}
               runId={activeRunId}
@@ -912,6 +933,11 @@ export function AgentSetup({
 
         <GitReviewDialog
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
+        />
+
+        <GitCommitDialog
+          isOpen={isCommitDialogOpen}
+          onClose={() => setIsCommitDialogOpen(false)}
         />
 
         <ProviderDialog
