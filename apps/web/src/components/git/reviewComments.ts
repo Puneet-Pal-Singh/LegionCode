@@ -240,10 +240,12 @@ function lineMatchesAnchor(
   anchor: ReviewCommentAnchor,
   preview: string,
 ): boolean {
+  const lineSide = deriveAnchorSide(line);
   const sideMatches =
     anchor.side === "unknown" ||
     anchor.side === "both" ||
-    anchor.side === deriveAnchorSide(line);
+    anchor.side === lineSide ||
+    lineSide === "both";
   if (!sideMatches) {
     return false;
   }
