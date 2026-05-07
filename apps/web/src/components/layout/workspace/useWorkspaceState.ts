@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { DiffContent } from "@repo/shared-types";
 
-export type TabType = "files" | "changes";
+export type TabType = "review" | "changes" | "files";
 
 export interface SelectedFile {
   path: string;
@@ -16,9 +16,8 @@ export interface SelectedDiff {
 export function useWorkspaceState() {
   // Sidebar states
   const [activeTab, setActiveTab] = useState<TabType>(() => {
-    return (
-      (localStorage.getItem("shadowbox_active_tab") as TabType) || "files"
-    );
+    const storedTab = localStorage.getItem("shadowbox_active_tab") as TabType | null;
+    return storedTab || "files";
   });
 
   useEffect(() => {
