@@ -2485,7 +2485,7 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "LegionCode wants to stage repository changes",
+      "LegionCode wants to run a shell command",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
@@ -3185,7 +3185,7 @@ describe("RunEngine", () => {
 
     expect(secondResponse.status).toBe(200);
     expect(await secondResponse.text()).toContain(
-      "no successful file mutation has occurred in this run",
+      "no successful file mutation or committed-change evidence exists in this run",
     );
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
