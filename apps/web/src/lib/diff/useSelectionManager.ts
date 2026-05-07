@@ -27,25 +27,25 @@ export function useSelectionManager({
     rowKeys: string[],
     event: React.MouseEvent<HTMLButtonElement | HTMLDivElement>,
   ) => {
-    const firstRowKey = rowKeys[0] ?? null;
-    const lastRowKey = rowKeys[rowKeys.length - 1] ?? null;
-    if (!firstRowKey || !lastRowKey) {
+    const rowBounds = resolveRowSelectionBounds(rowKeys);
+    if (!rowBounds) {
       return;
     }
 
     if (event.shiftKey && selectionAnchor) {
-      const anchorIndex = rowOrder.indexOf(selectionAnchor);
-      const targetStartIndex = rowOrder.indexOf(firstRowKey);
-      const targetEndIndex = rowOrder.indexOf(lastRowKey);
-      if (anchorIndex >= 0 && targetStartIndex >= 0 && targetEndIndex >= 0) {
-        const start = Math.min(anchorIndex, targetStartIndex);
-        const end = Math.max(anchorIndex, targetEndIndex);
-        setSelectedRowKeys(rowOrder.slice(start, end + 1));
+      const rangedSelection = resolveRangeSelection({
+        rowOrder,
+        selectionAnchor,
+        firstRowKey: rowBounds.firstRowKey,
+        lastRowKey: rowBounds.lastRowKey,
+      });
+      if (rangedSelection) {
+        setSelectedRowKeys(rangedSelection);
         return;
       }
     }
 
-    setSelectionAnchor(firstRowKey);
+    setSelectionAnchor(rowBounds.firstRowKey);
     setSelectedRowKeys(rowKeys);
   };
 
@@ -77,4 +77,34 @@ export function useSelectionManager({
     clearSelection,
     restoreAnnotationSelection,
   };
+}
+
+function resolveRowSelectionBounds(
+  rowKeys: string[],
+): { firstRowKey: string; lastRowKey: string } | null {
+  const firstRowKey = rowKeys[0] ?? null;
+  const lastRowKey = rowKeys[rowKeys.length - 1] ?? null;
+  if (!firstRowKey || !lastRowKey) {
+    return null;
+  }
+
+  return { firstRowKey, lastRowKey };
+}
+
+function resolveRangeSelection(input: {
+  rowOrder: string[];
+  selectionAnchor: string;
+  firstRowKey: string;
+  lastRowKey: string;
+}): string[] | null {
+  const anchorIndex = input.rowOrder.indexOf(input.selectionAnchor);
+  const targetStartIndex = input.rowOrder.indexOf(input.firstRowKey);
+  const targetEndIndex = input.rowOrder.indexOf(input.lastRowKey);
+  if (anchorIndex < 0 || targetStartIndex < 0 || targetEndIndex < 0) {
+    return null;
+  }
+
+  const start = Math.min(anchorIndex, targetStartIndex);
+  const end = Math.max(anchorIndex, targetEndIndex);
+  return input.rowOrder.slice(start, end + 1);
 }
