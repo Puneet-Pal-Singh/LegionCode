@@ -86,9 +86,18 @@ export function useAnnotationDispatcher({
 
     const selectionMode: ReviewCommentSelectionMode =
       anchors.length > 1 ? "range" : "single";
+    const lineNumber =
+      primaryAnchor.newLineNumber ?? primaryAnchor.oldLineNumber;
+    if (lineNumber == null) {
+      console.warn(
+        `[diff/review-comments] Cannot create review comment without a valid line number for row key "${primaryAnchor.rowKey}".`,
+      );
+      return;
+    }
+
     onCreateReviewComment({
       filePath: diff.newPath || diff.oldPath,
-      line: primaryAnchor.newLineNumber ?? primaryAnchor.oldLineNumber ?? 0,
+      line: lineNumber,
       side: normalizePrimarySide(primaryAnchor.side),
       note: trimmedNote,
       linePreview: primaryAnchor.linePreview,
