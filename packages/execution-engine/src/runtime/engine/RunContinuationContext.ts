@@ -14,7 +14,14 @@ export function createRunContinuationState(
   run: Run,
 ): RunContinuationState | undefined {
   const toolLifecycle = run.metadata.agenticLoop?.toolLifecycle ?? [];
-  const restorableEdits = collectRestorableEdits(toolLifecycle);
+  const baselineRestorableEdits =
+    run.metadata.workspaceBootstrap?.clonedDuringBootstrap
+      ? run.metadata.continuation?.restorableEdits
+      : undefined;
+  const restorableEdits = collectRestorableEdits(
+    toolLifecycle,
+    baselineRestorableEdits,
+  );
   const completedFiles = [
     ...new Set(
       toolLifecycle.flatMap((event) =>
@@ -73,12 +80,27 @@ export function createRunContinuationState(
 
 function collectRestorableEdits(
   toolLifecycle: AgenticLoopToolLifecycleEvent[] | undefined,
+  baselineEdits: Array<{ filePath: string; content: string }> = [],
 ): Array<{ filePath: string; content: string }> {
-  if (!toolLifecycle) {
-    return [];
+  const latestByFile = new Map<string, { filePath: string; content: string }>();
+  for (const edit of baselineEdits) {
+    if (
+      typeof edit.filePath !== "string" ||
+      edit.filePath.trim().length === 0 ||
+      typeof edit.content !== "string"
+    ) {
+      continue;
+    }
+    latestByFile.set(edit.filePath, {
+      filePath: edit.filePath,
+      content: edit.content,
+    });
   }
 
-  const latestByFile = new Map<string, { filePath: string; content: string }>();
+  if (!toolLifecycle) {
+    return Array.from(latestByFile.values());
+  }
+
   for (const event of toolLifecycle) {
     if (event.status !== "completed" || event.metadata?.family !== "edit") {
       continue;
