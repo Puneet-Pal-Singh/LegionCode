@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { DiffContent } from "@repo/shared-types";
 import {
   buildReviewCommentPrompt,
+  rebindReviewCommentDraft,
   validateReviewPromptBudget,
   type ReviewCommentDraft,
 } from "./reviewComments";
@@ -88,5 +90,67 @@ describe("reviewComments", () => {
       ok: false,
       reason: "Select 20 comments or fewer before sending.",
     });
+  });
+
+  it("rebinds when an added/deleted anchor settles into an unchanged line", () => {
+    const draft = createDraft({
+      side: "right",
+      line: 25,
+      linePreview: "const value = nextValue;",
+      anchors: [
+        {
+          hunkIndex: 0,
+          lineIndex: 0,
+          rowKey: "0:0",
+          newLineNumber: 25,
+          side: "right",
+          linePreview: "const value = nextValue;",
+        },
+      ],
+      primaryAnchor: {
+        hunkIndex: 0,
+        lineIndex: 0,
+        rowKey: "0:0",
+        newLineNumber: 25,
+        side: "right",
+        linePreview: "const value = nextValue;",
+      },
+    });
+
+    const refreshedDiff: DiffContent = {
+      oldPath: "apps/web/src/App.tsx",
+      newPath: "apps/web/src/App.tsx",
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+      hunks: [
+        {
+          oldStart: 20,
+          oldLines: 6,
+          newStart: 20,
+          newLines: 6,
+          header: "@@ -20,6 +20,6 @@",
+          lines: [
+            {
+              type: "unchanged",
+              content: " const value = nextValue;",
+              oldLineNumber: 25,
+              newLineNumber: 25,
+            },
+          ],
+        },
+      ],
+    };
+
+    const rebound = rebindReviewCommentDraft(
+      draft,
+      refreshedDiff,
+      "refreshed-fingerprint",
+    );
+
+    expect(rebound.stale).toBe(false);
+    expect(rebound.side).toBe("both");
+    expect(rebound.line).toBe(25);
+    expect(rebound.primaryAnchor.side).toBe("both");
   });
 });
