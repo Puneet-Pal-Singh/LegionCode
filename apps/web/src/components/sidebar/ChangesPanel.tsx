@@ -52,12 +52,6 @@ export function ChangesPanel({
   } = useGitReview();
 
   const handleSelectFile = (file: NonNullable<typeof selectedFile>) => {
-    if (mode === "sidebar") {
-      selectFile(file);
-      onFileSelect?.(file.path);
-      return;
-    }
-
     selectFile(file);
     onFileSelect?.(file.path);
   };
