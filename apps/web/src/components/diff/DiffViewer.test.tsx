@@ -78,4 +78,45 @@ describe("DiffViewer", () => {
 
     expect(screen.getByRole("menuitem", { name: "Disable word wrap" })).toBeInTheDocument();
   });
+
+  it("uses file summary headers when the full diff header is hidden", () => {
+    render(
+      <DiffViewer
+        showHeader={false}
+        diff={{
+          oldPath: "src/example.ts",
+          newPath: "src/example.ts",
+          isBinary: false,
+          isNewFile: false,
+          isDeleted: false,
+          hunks: [
+            {
+              oldStart: 1,
+              oldLines: 2,
+              newStart: 1,
+              newLines: 2,
+              header: "@@ -1,2 +1,2 @@",
+              lines: [
+                {
+                  type: "deleted",
+                  content: "const removed = true;",
+                  oldLineNumber: 1,
+                },
+                {
+                  type: "added",
+                  content: "const added = true;",
+                  newLineNumber: 1,
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("src/example.ts")).toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+    expect(screen.getByText("-1")).toBeInTheDocument();
+    expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
+  });
 });

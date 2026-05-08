@@ -144,6 +144,7 @@ export function DiffViewer({
     () => resolveDiffLanguage(diff.newPath || diff.oldPath),
     [diff.newPath, diff.oldPath],
   );
+  const diffPath = diff.newPath || diff.oldPath || "Unknown file";
   const deletions = useMemo(
     () =>
       diff.hunks.reduce(
@@ -301,7 +302,17 @@ export function DiffViewer({
                   ) : (
                     <ChevronRight size={16} />
                   )}
-                  <span>{hunk.header}</span>
+                  {showHeader ? (
+                    <span>{hunk.header}</span>
+                  ) : (
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span className="truncate text-zinc-100">{diffPath}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="text-emerald-400">+{additions}</span>
+                        <span className="text-red-400">-{deletions}</span>
+                      </span>
+                    </span>
+                  )}
                 </button>
 
                 {expandedHunks.has(plan.hunkIndex) ? (
