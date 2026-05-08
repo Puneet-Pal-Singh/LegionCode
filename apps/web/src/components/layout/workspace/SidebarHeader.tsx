@@ -4,11 +4,14 @@ import {
   ArrowLeft,
   FileDiff,
   Folder,
+  GitCommitHorizontal,
   GitBranch,
   Maximize2,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import type { TabType } from "./useWorkspaceState";
+
+const REVIEW_COMMIT_ENTRY_POINT_ENABLED = false;
 
 interface SidebarHeaderProps {
   isViewingContent: boolean;
@@ -16,6 +19,7 @@ interface SidebarHeaderProps {
   changesCount: number;
   onBack: () => void;
   onTabChange: (tab: TabType) => void;
+  onCommit?: () => void;
   onExpand?: () => void;
 }
 
@@ -25,6 +29,7 @@ export function SidebarHeader({
   changesCount,
   onBack,
   onTabChange,
+  onCommit,
   onExpand,
 }: SidebarHeaderProps) {
   return (
@@ -42,6 +47,7 @@ export function SidebarHeader({
           activeTab={activeTab}
           changesCount={changesCount}
           onTabChange={onTabChange}
+          onCommit={onCommit}
           onExpand={onExpand}
         />
       ) : (
@@ -49,6 +55,7 @@ export function SidebarHeader({
           activeTab={activeTab}
           changesCount={changesCount}
           onTabChange={onTabChange}
+          onCommit={onCommit}
           onExpand={onExpand}
         />
       )}
@@ -60,11 +67,13 @@ function SidebarSurfaceControls({
   activeTab,
   changesCount,
   onTabChange,
+  onCommit,
   onExpand,
 }: {
   activeTab: TabType;
   changesCount: number;
   onTabChange: (tab: TabType) => void;
+  onCommit?: () => void;
   onExpand?: () => void;
 }) {
   return (
@@ -95,7 +104,17 @@ function SidebarSurfaceControls({
         />
       </div>
       <div className="flex items-center gap-1">
-        {/* TODO: Restore the git actions button after commit flow reliability is production-ready. */}
+        {/* TODO: Set REVIEW_COMMIT_ENTRY_POINT_ENABLED true after commit flow reliability is production-ready. */}
+        {REVIEW_COMMIT_ENTRY_POINT_ENABLED ? (
+          <HeaderIconButton
+            title="Git actions"
+            onClick={onCommit}
+            disabled={!onCommit}
+            className="hover:text-emerald-300"
+          >
+            <GitCommitHorizontal size={15} />
+          </HeaderIconButton>
+        ) : null}
         <HeaderIconButton
           title="Fullscreen review"
           onClick={onExpand}
