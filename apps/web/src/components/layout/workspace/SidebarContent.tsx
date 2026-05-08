@@ -129,7 +129,6 @@ export function SidebarContent({
               mode="modal"
               layout="stacked"
               className="p-3"
-              showToolbar={false}
             />
           </motion.div>
         ) : activeTab === "files" ? (
