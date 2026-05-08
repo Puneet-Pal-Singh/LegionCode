@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GoogleAdapter } from "./GoogleAdapter";
+import {
+  addMissingGoogleThoughtSignaturesToRequestBody,
+  GoogleAdapter,
+} from "./GoogleAdapter";
 import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
 
 const mockGenerateText = vi.fn();
@@ -89,6 +92,86 @@ describe("GoogleAdapter", () => {
         model: "gemini-2.5-flash-lite",
       }),
     ).rejects.toThrow("boom");
+  });
+
+  it("configures Google client with the Gemini thought-signature fetch bridge", () => {
+    new GoogleAdapter({
+      apiKey: "google-test-key",
+    });
+
+    expect(mockCreateGoogleGenerativeAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fetch: expect.any(Function),
+      }),
+    );
+  });
+
+  it("adds the Gemini validator-skip thought signature to replayed function calls", () => {
+    const body = JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: "Please inspect files" }],
+        },
+        {
+          role: "model",
+          parts: [
+            {
+              functionCall: {
+                name: "list_files",
+                args: { path: "src" },
+              },
+            },
+          ],
+        },
+        {
+          role: "user",
+          parts: [
+            {
+              functionResponse: {
+                name: "list_files",
+                response: { content: ["index.ts"] },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bridgedBody = addMissingGoogleThoughtSignaturesToRequestBody(body);
+
+    const bridgedPayload = JSON.parse(String(bridgedBody)) as {
+      contents: Array<{ parts: unknown[] }>;
+    };
+
+    expect(bridgedPayload.contents[1]?.parts[0]).toEqual({
+      thoughtSignature: "skip_thought_signature_validator",
+      functionCall: {
+        name: "list_files",
+        args: { path: "src" },
+      },
+    });
+  });
+
+  it("preserves existing Gemini thought signatures", () => {
+    const body = JSON.stringify({
+      contents: [
+        {
+          role: "model",
+          parts: [
+            {
+              thoughtSignature: "provider-signature",
+              functionCall: {
+                name: "read_file",
+                args: { path: "README.md" },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(addMissingGoogleThoughtSignaturesToRequestBody(body)).toBe(body);
   });
 
   it("streams text, tool calls, and finish chunks incrementally", async () => {
