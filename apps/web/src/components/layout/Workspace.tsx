@@ -41,7 +41,6 @@ interface WorkspaceProps {
   setIsRightSidebarOpen?: (open: boolean) => void;
   reviewSidebarFocusRequest?: number;
   isGitReviewOpen?: boolean;
-  gitReviewIntent?: "review" | "commit";
   onGitReviewOpenChange?: (open: boolean) => void;
 }
 
@@ -58,7 +57,6 @@ export function Workspace({
   setIsRightSidebarOpen,
   reviewSidebarFocusRequest = 0,
   isGitReviewOpen = false,
-  gitReviewIntent = "review",
   onGitReviewOpenChange,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
@@ -532,8 +530,7 @@ export function Workspace({
           </div>
         </motion.aside>
         <GitReviewDialog
-          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:${gitReviewIntent}`}
-          initialIntent={gitReviewIntent}
+          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
         />
         <GitCommitDialog
           isOpen={isCommitDialogOpen}
