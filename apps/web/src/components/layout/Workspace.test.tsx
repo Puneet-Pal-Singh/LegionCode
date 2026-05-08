@@ -35,6 +35,15 @@ const mockGitHubTreeState = vi.hoisted(() => ({
 const mockRunSummaryState = vi.hoisted(() => ({
   summary: null as { runId: string; status: string | null } | null,
 }));
+const mockWorkspaceStateSetters = vi.hoisted(() => ({
+  setActiveTab: vi.fn(),
+  setSidebarWidth: vi.fn(),
+  setIsResizing: vi.fn(),
+  setSelectedFile: vi.fn(),
+  setSelectedDiff: vi.fn(),
+  setIsViewingContent: vi.fn(),
+  setIsLoadingContent: vi.fn(),
+}));
 const mockChatInterface = vi.hoisted(() =>
   vi.fn((props: unknown) => {
     void props;
@@ -75,19 +84,19 @@ vi.mock("../../hooks/useGitDiff", () => ({
 vi.mock("./workspace/useWorkspaceState", () => ({
   useWorkspaceState: () => ({
     activeTab: "changes",
-    setActiveTab: vi.fn(),
+    setActiveTab: mockWorkspaceStateSetters.setActiveTab,
     sidebarWidth: 320,
-    setSidebarWidth: vi.fn(),
+    setSidebarWidth: mockWorkspaceStateSetters.setSidebarWidth,
     isResizing: false,
-    setIsResizing: vi.fn(),
+    setIsResizing: mockWorkspaceStateSetters.setIsResizing,
     selectedFile: null,
-    setSelectedFile: vi.fn(),
+    setSelectedFile: mockWorkspaceStateSetters.setSelectedFile,
     selectedDiff: null,
-    setSelectedDiff: vi.fn(),
+    setSelectedDiff: mockWorkspaceStateSetters.setSelectedDiff,
     isViewingContent: false,
-    setIsViewingContent: vi.fn(),
+    setIsViewingContent: mockWorkspaceStateSetters.setIsViewingContent,
     isLoadingContent: false,
-    setIsLoadingContent: vi.fn(),
+    setIsLoadingContent: mockWorkspaceStateSetters.setIsLoadingContent,
   }),
 }));
 
@@ -191,6 +200,7 @@ describe("Workspace", () => {
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockChatState.stop.mockClear();
+    Object.values(mockWorkspaceStateSetters).forEach((setter) => setter.mockClear());
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
@@ -586,5 +596,33 @@ describe("Workspace", () => {
 
     expect(mockChatState.stop).toHaveBeenCalled();
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("opens the right sidebar when review focus is requested", () => {
+    const setIsRightSidebarOpen = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+        reviewSidebarFocusRequest={0}
+      />,
+    );
+
+    expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
+
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+        reviewSidebarFocusRequest={1}
+      />,
+    );
+
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith("review");
   });
 });

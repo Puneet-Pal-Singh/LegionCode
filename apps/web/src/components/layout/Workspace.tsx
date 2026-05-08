@@ -167,6 +167,7 @@ export function Workspace({
     }
 
     previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
+    setIsRightSidebarOpen?.(true);
     setActiveTab("review");
     setIsViewingContent(false);
     setSelectedFile(null);
@@ -174,6 +175,7 @@ export function Workspace({
   }, [
     reviewSidebarFocusRequest,
     setActiveTab,
+    setIsRightSidebarOpen,
     setIsViewingContent,
     setSelectedDiff,
     setSelectedFile,
