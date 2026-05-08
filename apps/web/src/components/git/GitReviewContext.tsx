@@ -35,6 +35,8 @@ interface GitReviewProviderProps {
   onReviewOpenChange: (open: boolean) => void;
 }
 
+export type ReviewScope = "git-changes";
+
 interface GitReviewContextValue {
   status: GitStatusResponse | null;
   gitAvailable: boolean;
@@ -57,6 +59,8 @@ interface GitReviewContextValue {
   selectedReviewCommentCount: number;
   selectedReviewCommentsForFile: ReviewCommentDraft[];
   currentDiffFingerprint: string | null;
+  reviewScope: ReviewScope;
+  setReviewScope: (scope: ReviewScope) => void;
   openReview: (path?: string) => void;
   closeReview: () => void;
   selectFile: (file: FileStatus) => void;
@@ -118,6 +122,7 @@ export function GitReviewProvider({
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [stageError, setStageError] = useState<string | null>(null);
+  const [reviewScope, setReviewScope] = useState<ReviewScope>("git-changes");
   const [reviewComments, setReviewComments] = useState<ReviewCommentDraft[]>([]);
   const currentDiffFingerprint = useMemo(
     () => (diff ? buildDiffFingerprint(diff) : null),
@@ -507,6 +512,8 @@ export function GitReviewProvider({
     selectedReviewCommentCount,
     selectedReviewCommentsForFile,
     currentDiffFingerprint,
+    reviewScope,
+    setReviewScope,
     openReview,
     closeReview,
     selectFile,

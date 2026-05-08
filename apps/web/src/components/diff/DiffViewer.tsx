@@ -25,15 +25,49 @@ interface DiffViewerProps {
   className?: string;
   reviewComments?: ReviewCommentDraft[];
   diffFingerprint?: string | null;
+  layout?: "stacked" | "split";
+  onLayoutChange?: (layout: "stacked" | "split") => void;
+  wordWrap?: boolean;
+  onWordWrapChange?: (enabled: boolean) => void;
+  showHeader?: boolean;
+  useFileSummaryHunkHeader?: boolean;
+  hunkExpansionRequest?: {
+    action: "collapse" | "expand";
+    id: number;
+  };
   onCreateReviewComment?: (input: CreateReviewCommentInput) => void;
   onDeleteReviewComment?: (commentId: string) => void;
 }
 
-interface SplitRow {
+interface SplitLineRow {
+  kind: "line";
   key: string;
   rowKeys: string[];
   left: DiffLineType | null;
   right: DiffLineType | null;
+}
+
+type SplitRenderRow = SplitLineRow | CollapsedDiffRow;
+
+interface VisibleDiffRow {
+  kind: "line";
+  key: string;
+  line: DiffLineType;
+  lineIndex: number;
+}
+
+interface CollapsedDiffRow {
+  kind: "collapsed";
+  key: string;
+  hiddenLineCount: number;
+}
+
+type DiffRenderRow = VisibleDiffRow | CollapsedDiffRow;
+
+interface HunkRenderPlan {
+  hunkIndex: number;
+  rows: DiffRenderRow[];
+  selectableRowKeys: string[];
 }
 
 export function DiffViewer({
@@ -41,16 +75,57 @@ export function DiffViewer({
   className = "",
   reviewComments = [],
   diffFingerprint = null,
+  layout: controlledLayout,
+  onLayoutChange,
+  wordWrap: controlledWordWrap,
+  onWordWrapChange,
+  showHeader = true,
+  useFileSummaryHunkHeader = false,
+  hunkExpansionRequest,
   onCreateReviewComment,
   onDeleteReviewComment,
 }: DiffViewerProps) {
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(
     new Set(diff.hunks.map((_: DiffHunk, index: number) => index)),
   );
-  const [layout, setLayout] = useState<"stacked" | "split">("stacked");
-  const [wordWrap, setWordWrap] = useState(false);
+  const [internalLayout, setInternalLayout] = useState<"stacked" | "split">("stacked");
+  const [internalWordWrap, setInternalWordWrap] = useState(true);
   const [showViewMenu, setShowViewMenu] = useState(false);
-  const { rowOrder, lineLookup } = useAnchorIndex(diff);
+  const layout = controlledLayout ?? internalLayout;
+  const wordWrap = controlledWordWrap ?? internalWordWrap;
+  const canChangeLayout = controlledLayout === undefined || onLayoutChange !== undefined;
+  const setLayout = (nextLayout: "stacked" | "split") => {
+    if (onLayoutChange) {
+      onLayoutChange(nextLayout);
+      return;
+    }
+
+    if (controlledLayout === undefined) {
+      setInternalLayout(nextLayout);
+    }
+  };
+
+  const setWordWrap = (value: boolean | ((prev: boolean) => boolean)) => {
+    const nextValue = typeof value === "function" ? value(wordWrap) : value;
+    if (onWordWrapChange) {
+      onWordWrapChange(nextValue);
+      return;
+    }
+
+    if (controlledWordWrap === undefined) {
+      setInternalWordWrap(nextValue);
+    }
+  };
+  const commentedRowKeys = useMemo(() => collectCommentedRowKeys(reviewComments), [reviewComments]);
+  const renderPlans = useMemo(
+    () => buildRenderPlans(diff, commentedRowKeys),
+    [commentedRowKeys, diff],
+  );
+  const visibleRowOrder = useMemo(
+    () => renderPlans.flatMap((plan) => plan.selectableRowKeys),
+    [renderPlans],
+  );
+  const { rowOrder, lineLookup } = useAnchorIndex(diff, visibleRowOrder);
   const {
     selectedRowKeys,
     handleRowSelection,
@@ -88,6 +163,8 @@ export function DiffViewer({
     () => resolveDiffLanguage(diff.newPath || diff.oldPath),
     [diff.newPath, diff.oldPath],
   );
+  const diffPath = diff.newPath || diff.oldPath || "Unknown file";
+  const showFileSummaryHunkHeader = useFileSummaryHunkHeader || !showHeader;
   const deletions = useMemo(
     () =>
       diff.hunks.reduce(
@@ -110,9 +187,33 @@ export function DiffViewer({
     });
   };
 
+  useEffect(() => {
+    if (!hunkExpansionRequest) {
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setExpandedHunks(
+        hunkExpansionRequest.action === "expand"
+          ? new Set(diff.hunks.map((_: DiffHunk, index: number) => index))
+          : new Set(),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [diff.hunks, hunkExpansionRequest]);
+
   return (
     <div className={`flex h-full bg-black ${className}`}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg">
+        {showHeader ? (
         <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -132,8 +233,6 @@ export function DiffViewer({
                 ) : null}
                 <span className="text-emerald-400">+{additions}</span>
                 <span className="text-red-400">-{deletions}</span>
-                <span>{diff.hunks.length} hunks</span>
-                <span>{reviewComments.length} notes</span>
               </div>
             </div>
 
@@ -171,7 +270,8 @@ export function DiffViewer({
               <button
                 type="button"
                 onClick={() => setLayout("split")}
-                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors ${
+                disabled={!canChangeLayout}
+                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
                   layout === "split"
                     ? "border-zinc-600 bg-zinc-800 text-white"
                     : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -183,7 +283,8 @@ export function DiffViewer({
               <button
                 type="button"
                 onClick={() => setLayout("stacked")}
-                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors ${
+                disabled={!canChangeLayout}
+                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
                   layout === "stacked"
                     ? "border-zinc-600 bg-zinc-800 text-white"
                     : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -195,32 +296,48 @@ export function DiffViewer({
             </div>
           </div>
         </div>
+        ) : null}
 
         <div className="flex-1 overflow-x-auto overflow-y-auto">
           {diff.hunks.length === 0 ? (
             <div className="p-4 text-sm text-zinc-500">No changes</div>
           ) : (
-            diff.hunks.map((hunk, hunkIndex) => (
-              <div key={hunkIndex} className="border-b border-zinc-800 last:border-b-0">
+            renderPlans.map((plan) => {
+              const hunk = diff.hunks[plan.hunkIndex];
+              if (!hunk) {
+                return null;
+              }
+
+              return (
+              <div key={plan.hunkIndex} className="border-b border-zinc-800 last:border-b-0">
                 <button
                   type="button"
-                  onClick={() => toggleHunk(hunkIndex)}
+                  onClick={() => toggleHunk(plan.hunkIndex)}
                   className="flex w-full items-center gap-2 bg-zinc-900 px-4 py-2 font-mono text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
                 >
-                  {expandedHunks.has(hunkIndex) ? (
+                  {expandedHunks.has(plan.hunkIndex) ? (
                     <ChevronDown size={16} />
                   ) : (
                     <ChevronRight size={16} />
                   )}
-                  <span>{hunk.header}</span>
+                  {showFileSummaryHunkHeader ? (
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span className="truncate text-zinc-100">{diffPath}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="text-emerald-400">+{additions}</span>
+                        <span className="text-red-400">-{deletions}</span>
+                      </span>
+                    </span>
+                  ) : (
+                    <span>{hunk.header}</span>
+                  )}
                 </button>
 
-                {expandedHunks.has(hunkIndex) ? (
+                {expandedHunks.has(plan.hunkIndex) ? (
                   <div className="border-t border-zinc-800">
                     {layout === "stacked" ? (
                       <StackedHunkView
-                        hunk={hunk}
-                        hunkIndex={hunkIndex}
+                        plan={plan}
                         language={language}
                         wrap={wordWrap}
                         canCreateReviewComment={canCreateReviewComment}
@@ -236,8 +353,7 @@ export function DiffViewer({
                       />
                     ) : (
                       <SplitHunkView
-                        hunk={hunk}
-                        hunkIndex={hunkIndex}
+                        plan={plan}
                         language={language}
                         wrap={wordWrap}
                         canCreateReviewComment={canCreateReviewComment}
@@ -255,7 +371,8 @@ export function DiffViewer({
                   </div>
                 ) : null}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -264,8 +381,7 @@ export function DiffViewer({
 }
 
 interface StackedHunkViewProps {
-  hunk: DiffHunk;
-  hunkIndex: number;
+  plan: HunkRenderPlan;
   language: string;
   wrap: boolean;
   canCreateReviewComment: boolean;
@@ -284,8 +400,7 @@ interface StackedHunkViewProps {
 }
 
 function StackedHunkView({
-  hunk,
-  hunkIndex,
+  plan,
   language,
   wrap,
   canCreateReviewComment,
@@ -299,20 +414,23 @@ function StackedHunkView({
   onReplyToAnnotation,
   onResolveAnnotation,
 }: StackedHunkViewProps) {
-  const hunkRowKeys = hunk.lines.map((_, lineIndex) => buildLineKey(hunkIndex, lineIndex));
-  const composerAnchor = getComposerAnchor(hunkRowKeys, selectedRowKeys);
+  const composerAnchor = getComposerAnchor(plan.selectableRowKeys, selectedRowKeys);
 
   return (
     <>
-      {hunk.lines.map((line, lineIndex) => {
-        const rowKey = buildLineKey(hunkIndex, lineIndex);
+      {plan.rows.map((row) => {
+        if (row.kind === "collapsed") {
+          return <CollapsedLinesBanner key={row.key} count={row.hiddenLineCount} />;
+        }
+
+        const rowKey = row.key;
         const anchoredAnnotations = annotationsByAnchor.get(rowKey) ?? [];
         return (
           <Fragment key={rowKey}>
             <DiffLine
-              line={line}
-              hunksIndex={hunkIndex}
-              lineIndex={lineIndex}
+              line={row.line}
+              hunksIndex={plan.hunkIndex}
+              lineIndex={row.lineIndex}
               language={language}
               wrap={wrap}
               isSelected={selectedRowKeys.includes(rowKey)}
@@ -350,8 +468,7 @@ function StackedHunkView({
 }
 
 interface SplitHunkViewProps {
-  hunk: DiffHunk;
-  hunkIndex: number;
+  plan: HunkRenderPlan;
   language: string;
   wrap: boolean;
   canCreateReviewComment: boolean;
@@ -370,8 +487,7 @@ interface SplitHunkViewProps {
 }
 
 function SplitHunkView({
-  hunk,
-  hunkIndex,
+  plan,
   language,
   wrap,
   canCreateReviewComment,
@@ -385,7 +501,7 @@ function SplitHunkView({
   onReplyToAnnotation,
   onResolveAnnotation,
 }: SplitHunkViewProps) {
-  const rows = useMemo(() => buildSplitRows(hunk.lines, hunkIndex), [hunk.lines, hunkIndex]);
+  const rows = useMemo(() => buildSplitRows(plan.rows), [plan.rows]);
   const composerAnchor = getComposerAnchor(
     rows.map((row) => row.key),
     selectedRowKeys,
@@ -396,10 +512,14 @@ function SplitHunkView({
       className={`grid divide-x divide-zinc-800 ${
         wrap
           ? "w-full grid-cols-2"
-          : "min-w-full w-max grid-cols-[max-content_max-content]"
+          : "min-w-[960px] w-full grid-cols-2"
       }`}
     >
       {rows.map((row) => {
+        if (row.kind === "collapsed") {
+          return <CollapsedLinesBanner key={row.key} count={row.hiddenLineCount} split />;
+        }
+
         const isSelected = row.rowKeys.some((rowKey) => selectedRowKeys.includes(rowKey));
         const annotationCount = row.rowKeys.reduce(
           (sum, rowKey) => sum + (annotationCounts.get(rowKey) ?? 0),
@@ -550,8 +670,6 @@ function SplitDiffCell({
       tabIndex={0}
       aria-pressed={isSelected}
       className={`group relative flex min-h-8 min-w-full border-b border-l-2 border-zinc-900/80 font-mono text-sm ${
-        wrap ? "w-full" : "w-max"
-      } ${
         isSelected ? "ring-1 ring-inset ring-sky-500/50" : ""
       } ${background} ${borderColor}`}
     >
@@ -580,6 +698,25 @@ function SplitDiffCell({
           {annotationCount}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CollapsedLinesBanner({
+  count,
+  split = false,
+}: {
+  count: number;
+  split?: boolean;
+}) {
+  return (
+    <div
+      className={`border-b border-zinc-900/80 bg-zinc-950/90 px-4 py-2 text-center font-mono text-xs text-zinc-500 ${
+        split ? "col-span-2" : ""
+      }`}
+      aria-label={`${count} unmodified lines collapsed`}
+    >
+      {count} unmodified line{count === 1 ? "" : "s"}
     </div>
   );
 }
@@ -714,39 +851,169 @@ function getComposerAnchor(visibleRowKeys: string[], selectedRowKeys: string[]):
   return visibleSelection[visibleSelection.length - 1] ?? null;
 }
 
-function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {
-  const rows: SplitRow[] = [];
+function collectCommentedRowKeys(reviewComments: ReviewCommentDraft[]): Set<string> {
+  return new Set(
+    reviewComments.flatMap((comment) =>
+      comment.anchors.map((anchor) => anchor.rowKey),
+    ),
+  );
+}
 
-  for (let index = 0; index < lines.length;) {
-    const line = lines[index];
-    if (!line) {
-      break;
+function buildRenderPlans(
+  diff: DiffContent,
+  commentedRowKeys: Set<string>,
+): HunkRenderPlan[] {
+  return diff.hunks.map((hunk, hunkIndex) =>
+    buildHunkRenderPlan(hunk, hunkIndex, commentedRowKeys),
+  );
+}
+
+function buildHunkRenderPlan(
+  hunk: DiffHunk,
+  hunkIndex: number,
+  commentedRowKeys: Set<string>,
+): HunkRenderPlan {
+  const ranges = buildVisibleRanges(hunk.lines, hunkIndex, commentedRowKeys);
+  const rows = buildRenderRows(hunk.lines, hunkIndex, ranges);
+  const selectableRowKeys = rows.flatMap((row) =>
+    row.kind === "line" ? [row.key] : [],
+  );
+  return { hunkIndex, rows, selectableRowKeys };
+}
+
+function buildVisibleRanges(
+  lines: DiffLineType[],
+  hunkIndex: number,
+  commentedRowKeys: Set<string>,
+) {
+  const contextLineCount = 3;
+  const visibleIndexes = lines.flatMap((line, lineIndex) => {
+    const rowKey = buildLineKey(hunkIndex, lineIndex);
+    return line.type !== "unchanged" || commentedRowKeys.has(rowKey)
+      ? [lineIndex]
+      : [];
+  });
+
+  const ranges = visibleIndexes.map((lineIndex) => ({
+    start: Math.max(0, lineIndex - contextLineCount),
+    end: Math.min(lines.length - 1, lineIndex + contextLineCount),
+  }));
+
+  return mergeRanges(ranges);
+}
+
+function mergeRanges(ranges: Array<{ start: number; end: number }>) {
+  return ranges.reduce<Array<{ start: number; end: number }>>((merged, range) => {
+    const previous = merged[merged.length - 1];
+    if (!previous || range.start > previous.end + 1) {
+      merged.push({ ...range });
+      return merged;
     }
 
-    if (line.type === "unchanged") {
-      const rowKey = buildLineKey(hunkIndex, index);
+    previous.end = Math.max(previous.end, range.end);
+    return merged;
+  }, []);
+}
+
+function buildRenderRows(
+  lines: DiffLineType[],
+  hunkIndex: number,
+  ranges: Array<{ start: number; end: number }>,
+): DiffRenderRow[] {
+  if (ranges.length === 0) {
+    return [{ kind: "collapsed", key: `${hunkIndex}:all-collapsed`, hiddenLineCount: lines.length }];
+  }
+
+  const rows: DiffRenderRow[] = [];
+  let nextLineIndex = 0;
+  ranges.forEach((range, rangeIndex) => {
+    appendCollapsedRows(rows, hunkIndex, nextLineIndex, range.start, rangeIndex);
+    appendVisibleRows(rows, lines, hunkIndex, range);
+    nextLineIndex = range.end + 1;
+  });
+  appendCollapsedRows(rows, hunkIndex, nextLineIndex, lines.length, ranges.length);
+  return rows;
+}
+
+function appendCollapsedRows(
+  rows: DiffRenderRow[],
+  hunkIndex: number,
+  start: number,
+  end: number,
+  position: number,
+) {
+  const hiddenLineCount = end - start;
+  if (hiddenLineCount <= 0) {
+    return;
+  }
+
+  rows.push({
+    kind: "collapsed",
+    key: `${hunkIndex}:collapsed:${position}:${start}-${end}`,
+    hiddenLineCount,
+  });
+}
+
+function appendVisibleRows(
+  rows: DiffRenderRow[],
+  lines: DiffLineType[],
+  hunkIndex: number,
+  range: { start: number; end: number },
+) {
+  for (let lineIndex = range.start; lineIndex <= range.end; lineIndex += 1) {
+    const line = lines[lineIndex];
+    if (!line) {
+      continue;
+    }
+
+    rows.push({
+      kind: "line",
+      key: buildLineKey(hunkIndex, lineIndex),
+      line,
+      lineIndex,
+    });
+  }
+}
+
+function buildSplitRows(renderRows: DiffRenderRow[]): SplitRenderRow[] {
+  const rows: SplitRenderRow[] = [];
+
+  for (let index = 0; index < renderRows.length;) {
+    const row = renderRows[index];
+    if (!row) {
+      return rows;
+    }
+
+    if (row.kind === "collapsed") {
+      rows.push(row);
+      index += 1;
+      continue;
+    }
+
+    if (row.line.type === "unchanged") {
       rows.push({
-        key: rowKey,
-        rowKeys: [rowKey],
-        left: line,
-        right: line,
+        kind: "line",
+        key: row.key,
+        rowKeys: [row.key],
+        left: row.line,
+        right: row.line,
       });
       index += 1;
       continue;
     }
 
-    const deleted: Array<{ line: DiffLineType; lineIndex: number }> = [];
-    const added: Array<{ line: DiffLineType; lineIndex: number }> = [];
-    while (index < lines.length && lines[index]?.type !== "unchanged") {
-      const current = lines[index];
-      if (!current) {
+    const deleted: VisibleDiffRow[] = [];
+    const added: VisibleDiffRow[] = [];
+    while (index < renderRows.length) {
+      const current = renderRows[index];
+      if (!current || current.kind === "collapsed" || current.line.type === "unchanged") {
         break;
       }
-      if (current.type === "deleted") {
-        deleted.push({ line: current, lineIndex: index });
+      if (current.line.type === "deleted") {
+        deleted.push(current);
       }
-      if (current.type === "added") {
-        added.push({ line: current, lineIndex: index });
+      if (current.line.type === "added") {
+        added.push(current);
       }
       index += 1;
     }
@@ -756,11 +1023,12 @@ function buildSplitRows(lines: DiffLineType[], hunkIndex: number): SplitRow[] {
       const leftEntry = deleted[rowIndex] ?? null;
       const rightEntry = added[rowIndex] ?? null;
       const rowKeys = [leftEntry, rightEntry]
-        .filter((entry): entry is { line: DiffLineType; lineIndex: number } => entry !== null)
-        .map((entry) => buildLineKey(hunkIndex, entry.lineIndex));
+        .filter((entry): entry is VisibleDiffRow => entry !== null)
+        .map((entry) => entry.key);
 
       rows.push({
-        key: rowKeys[0] ?? buildLineKey(hunkIndex, index),
+        kind: "line",
+        key: rowKeys[0] ?? `split-empty-${index}-${rowIndex}`,
         rowKeys,
         left: leftEntry?.line ?? null,
         right: rightEntry?.line ?? null,

@@ -1,13 +1,10 @@
-import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
 import type { FileStatus } from "@repo/shared-types";
 
 interface ChangeItemProps {
   file: FileStatus;
+  depth: number;
   isSelected: boolean;
-  isStaged: boolean;
   onSelect: () => void;
-  onToggleStaged: (staged: boolean) => void;
 }
 
 const statusColors: Record<FileStatus["status"], string> = {
@@ -28,65 +25,39 @@ const statusLabels: Record<FileStatus["status"], string> = {
 
 export function ChangeItem({
   file,
+  depth,
   isSelected,
-  isStaged,
   onSelect,
-  onToggleStaged,
 }: ChangeItemProps) {
-  const [expanded, setExpanded] = useState(false);
+  const fileName = file.path.split("/").pop() || file.path;
 
   return (
-    <div className={`border-b border-zinc-800 ${isSelected ? "bg-zinc-900" : "bg-black"}`}>
-      <div className="flex items-center gap-2 px-4 py-2 hover:bg-zinc-900/50 transition-colors">
-        <input
-          type="checkbox"
-          checked={isStaged}
-          onChange={(e) => onToggleStaged(e.target.checked)}
-          className="w-4 h-4 rounded cursor-pointer accent-emerald-500 bg-zinc-800 border-zinc-600"
-        />
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+        isSelected ? "bg-zinc-900 text-white" : "text-zinc-300 hover:bg-zinc-900/50 hover:text-white"
+      }`}
+      style={{ paddingLeft: `${12 + depth * 16}px` }}
+    >
+      <span className={`w-4 shrink-0 font-mono text-xs font-bold ${statusColors[file.status]}`}>
+        {statusLabels[file.status]}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-sm">{fileName}</span>
+      <ChangeItemStats file={file} />
+    </button>
+  );
+}
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded(!expanded);
-          }}
-          className="p-0 hover:bg-zinc-800 rounded transition-colors text-zinc-500 hover:text-zinc-300"
-        >
-          {expanded ? (
-            <ChevronDown size={16} />
-          ) : (
-            <ChevronRight size={16} />
-          )}
-        </button>
-
-        <span
-          className={`w-4 font-mono font-bold text-xs ${statusColors[file.status]}`}
-        >
-          {statusLabels[file.status]}
-        </span>
-
-        <button
-          onClick={onSelect}
-          className="flex-1 text-left font-mono text-sm text-zinc-300 hover:text-white transition-colors truncate"
-        >
-          {file.path}
-        </button>
-
-        <div className="flex gap-2 text-xs text-zinc-500 flex-shrink-0">
-          {file.additions > 0 && (
-            <span className="text-emerald-500">+{file.additions}</span>
-          )}
-          {file.deletions > 0 && (
-            <span className="text-red-500">-{file.deletions}</span>
-          )}
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="px-8 py-2 bg-zinc-900/30 border-t border-zinc-800 text-xs text-zinc-400">
-          <p className="truncate">{file.path}</p>
-        </div>
-      )}
-    </div>
+function ChangeItemStats({ file }: { file: FileStatus }) {
+  return (
+    <span className="flex shrink-0 gap-2 text-xs text-zinc-500">
+      {file.additions > 0 ? (
+        <span className="text-emerald-500">+{file.additions}</span>
+      ) : null}
+      {file.deletions > 0 ? (
+        <span className="text-red-500">-{file.deletions}</span>
+      ) : null}
+    </span>
   );
 }

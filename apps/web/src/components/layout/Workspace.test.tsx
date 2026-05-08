@@ -35,6 +35,15 @@ const mockGitHubTreeState = vi.hoisted(() => ({
 const mockRunSummaryState = vi.hoisted(() => ({
   summary: null as { runId: string; status: string | null } | null,
 }));
+const mockWorkspaceStateSetters = vi.hoisted(() => ({
+  setActiveTab: vi.fn(),
+  setSidebarWidth: vi.fn(),
+  setIsResizing: vi.fn(),
+  setSelectedFile: vi.fn(),
+  setSelectedDiff: vi.fn(),
+  setIsViewingContent: vi.fn(),
+  setIsLoadingContent: vi.fn(),
+}));
 const mockChatInterface = vi.hoisted(() =>
   vi.fn((props: unknown) => {
     void props;
@@ -75,19 +84,19 @@ vi.mock("../../hooks/useGitDiff", () => ({
 vi.mock("./workspace/useWorkspaceState", () => ({
   useWorkspaceState: () => ({
     activeTab: "changes",
-    setActiveTab: vi.fn(),
+    setActiveTab: mockWorkspaceStateSetters.setActiveTab,
     sidebarWidth: 320,
-    setSidebarWidth: vi.fn(),
+    setSidebarWidth: mockWorkspaceStateSetters.setSidebarWidth,
     isResizing: false,
-    setIsResizing: vi.fn(),
+    setIsResizing: mockWorkspaceStateSetters.setIsResizing,
     selectedFile: null,
-    setSelectedFile: vi.fn(),
+    setSelectedFile: mockWorkspaceStateSetters.setSelectedFile,
     selectedDiff: null,
-    setSelectedDiff: vi.fn(),
+    setSelectedDiff: mockWorkspaceStateSetters.setSelectedDiff,
     isViewingContent: false,
-    setIsViewingContent: vi.fn(),
+    setIsViewingContent: mockWorkspaceStateSetters.setIsViewingContent,
     isLoadingContent: false,
-    setIsLoadingContent: vi.fn(),
+    setIsLoadingContent: mockWorkspaceStateSetters.setIsLoadingContent,
   }),
 }));
 
@@ -122,10 +131,64 @@ vi.mock("../git/GitReviewContext", () => ({
   GitReviewProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  useGitReview: () => ({
+    status: {
+      branch: "main",
+      files: [],
+      ahead: 0,
+      behind: 0,
+      hasStaged: false,
+      hasUnstaged: false,
+      gitAvailable: true,
+    },
+    gitAvailable: true,
+    statusLoading: false,
+    statusError: null,
+    diff: null,
+    diffError: null,
+    stageError: null,
+    commitError: null,
+    commitErrorCode: null,
+    commitErrorMetadata: null,
+    diffLoading: false,
+    committing: false,
+    isReviewOpen: false,
+    selectedFile: null,
+    stagedFiles: new Set<string>(),
+    commitMessage: "",
+    reviewComments: [],
+    selectedReviewComments: [],
+    selectedReviewCommentCount: 0,
+    selectedReviewCommentsForFile: [],
+    currentDiffFingerprint: null,
+    reviewScope: "git-changes",
+    setReviewScope: vi.fn(),
+    openReview: vi.fn(),
+    closeReview: vi.fn(),
+    selectFile: vi.fn(),
+    addReviewComment: vi.fn(),
+    deleteReviewComment: vi.fn(),
+    toggleReviewCommentSelected: vi.fn(),
+    markReviewCommentsDispatching: vi.fn(),
+    markReviewCommentsDispatched: vi.fn(),
+    markReviewCommentsDispatchFailed: vi.fn(),
+    toggleFileStaged: vi.fn(),
+    stageAll: vi.fn(),
+    unstageAll: vi.fn(),
+    createBranch: vi.fn(),
+    pushBranch: vi.fn(),
+    submitCommit: vi.fn(),
+    setCommitMessage: vi.fn(),
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("../git/GitReviewDialog", () => ({
   GitReviewDialog: () => null,
+}));
+
+vi.mock("../git/GitCommitDialog", () => ({
+  GitCommitDialog: () => null,
 }));
 
 vi.mock("../../lib/git-workspace-bootstrap", () => ({
@@ -137,6 +200,7 @@ describe("Workspace", () => {
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockChatState.stop.mockClear();
+    Object.values(mockWorkspaceStateSetters).forEach((setter) => setter.mockClear());
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
@@ -532,5 +596,33 @@ describe("Workspace", () => {
 
     expect(mockChatState.stop).toHaveBeenCalled();
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("opens the right sidebar when review focus is requested", () => {
+    const setIsRightSidebarOpen = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+        reviewSidebarFocusRequest={0}
+      />,
+    );
+
+    expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
+
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+        reviewSidebarFocusRequest={1}
+      />,
+    );
+
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith("review");
   });
 });

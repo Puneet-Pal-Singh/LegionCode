@@ -1,11 +1,13 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
-import type { RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
+import type { DiffContent } from "@repo/shared-types";
 import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
 import { ChangesPanel } from "../../sidebar/ChangesPanel";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
 import { RepoFileTree } from "../../github/RepoFileTree";
+import { useGitReview } from "../../git/GitReviewContext";
 import type { TabType, SelectedFile, SelectedDiff } from "./useWorkspaceState";
 import type { Repository } from "../../../services/GitHubService";
 
@@ -27,7 +29,7 @@ interface SidebarContentProps {
   // Handlers
   handleGitHubFileSelect: (path: string) => void;
   handleFileClick: (path: string) => void;
-  handleViewChange?: (path: string) => void;
+  onDiffSelected?: (path: string, content: DiffContent) => void;
   
   // Explorer props
   explorerRef: RefObject<FileExplorerHandle | null>;
@@ -49,11 +51,39 @@ export function SidebarContent({
   branch,
   handleGitHubFileSelect,
   handleFileClick,
-  handleViewChange,
+  onDiffSelected,
   explorerRef,
   sandboxId,
   runId,
 }: SidebarContentProps) {
+  const { diff } = useGitReview();
+  const pendingDiffPathRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const pendingDiffPath = pendingDiffPathRef.current;
+    if (!pendingDiffPath || !diff) {
+      return;
+    }
+
+    if (diff.newPath !== pendingDiffPath && diff.oldPath !== pendingDiffPath) {
+      return;
+    }
+
+    const diffPath = diff.newPath || diff.oldPath || pendingDiffPath;
+    onDiffSelected?.(diffPath, diff);
+    pendingDiffPathRef.current = null;
+  }, [diff, onDiffSelected]);
+
+  const handleChangedFileSelect = (path: string) => {
+    pendingDiffPathRef.current = path;
+
+    if (diff?.newPath === path || diff?.oldPath === path) {
+      const diffPath = diff.newPath || diff.oldPath || path;
+      onDiffSelected?.(diffPath, diff);
+      pendingDiffPathRef.current = null;
+    }
+  };
+
   return (
     <div className="flex-1 overflow-hidden relative">
       <AnimatePresence mode="wait" initial={false}>
@@ -83,8 +113,24 @@ export function SidebarContent({
               <DiffViewer
                 diff={selectedDiff.content}
                 className="flex-1"
+                useFileSummaryHunkHeader
               />
             ) : null}
+          </motion.div>
+        ) : activeTab === "review" ? (
+          <motion.div
+            key="review"
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 10 }}
+            transition={{ duration: 0.15 }}
+            className="absolute inset-0 overflow-hidden"
+          >
+            <ChangesPanel
+              mode="modal"
+              layout="stacked"
+              className="p-3"
+            />
           </motion.div>
         ) : activeTab === "files" ? (
           <motion.div
@@ -140,7 +186,8 @@ export function SidebarContent({
           >
             <ChangesPanel
               mode="sidebar"
-              onFileSelect={handleViewChange}
+              showToolbar={false}
+              onFileSelect={handleChangedFileSelect}
             />
           </motion.div>
         )}

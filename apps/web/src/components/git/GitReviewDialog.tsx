@@ -1,28 +1,17 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { FileDiff, GitBranch, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import { useGitReview } from "./GitReviewContext";
-import { GitCommitDialog } from "./GitCommitDialog";
 
-interface GitReviewDialogProps {
-  initialIntent?: "review" | "commit";
-}
-
-export function GitReviewDialog({
-  initialIntent = "review",
-}: GitReviewDialogProps) {
+export function GitReviewDialog() {
   const {
     isReviewOpen,
     closeReview,
     status,
-    stagedFiles,
     selectedFile,
     selectedReviewCommentCount,
     selectFile,
   } = useGitReview();
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(
-    initialIntent === "commit",
-  );
   const dialogTitleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -94,9 +83,6 @@ export function GitReviewDialog({
     return null;
   }
 
-  const totalChanges = status?.files.length ?? 0;
-  const stagedCount = stagedFiles.size;
-
   return (
     <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center px-6 py-8">
       <button
@@ -127,9 +113,6 @@ export function GitReviewDialog({
                 <GitBranch size={14} className="text-emerald-400" />
                 {status?.branch || "No branch"}
               </span>
-              <span>{totalChanges} changed</span>
-              <span>{stagedCount} staged</span>
-              <span>{Math.max(totalChanges - stagedCount, 0)} unstaged</span>
             </div>
           </div>
 
@@ -141,13 +124,6 @@ export function GitReviewDialog({
               className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-300 transition-colors hover:border-sky-400/40 hover:bg-sky-500/15 hover:text-sky-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
             >
               Review changes ({selectedReviewCommentCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsCommitDialogOpen(true)}
-              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/15 hover:text-emerald-200"
-            >
-              Commit
             </button>
 
             <button
@@ -165,12 +141,6 @@ export function GitReviewDialog({
         <div className="min-h-0 flex-1">
           <ChangesPanel className="h-full p-5" mode="modal" />
         </div>
-
-        <GitCommitDialog
-          key={isCommitDialogOpen ? "commit-open" : "commit-closed"}
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
-        />
       </div>
     </div>
   );

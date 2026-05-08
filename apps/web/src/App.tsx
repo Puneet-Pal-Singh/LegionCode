@@ -109,9 +109,7 @@ function AppContent() {
   );
   const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
     usePendingApprovalStateBySession();
-  const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
-    "review",
-  );
+  const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] =
     useState<SettingsSection>("general");
@@ -582,7 +580,6 @@ function AppContent() {
     console.log("[App] handleNewTask called with:", repositoryName);
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
-    setGitReviewIntent("review");
 
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
@@ -628,38 +625,29 @@ function AppContent() {
     }
   };
 
-  const openGitReview = (intent: "review" | "commit") => {
-    if (!activeSessionId || !activeSession) {
-      return;
-    }
+  const focusReviewSidebar = () => {
+    setReviewSidebarFocusRequest((previous) => previous + 1);
+  };
 
+  const handleOpenReviewSidebar = () => {
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
     setIsRightSidebarOpen(true);
-    setGitReviewIntent(intent);
-    setIsGitReviewOpen(true);
-    setGitReviewSessionId(activeSessionId);
-  };
-
-  const handleReview = () => {
-    openGitReview("review");
-  };
-
-  const handleCommit = () => {
-    openGitReview("commit");
-  };
-
-  const handleToggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
+    focusReviewSidebar();
   };
 
   const handleToggleRightSidebar = () => {
     setIsRightSidebarOpen((previous) => !previous);
   };
 
+  const handleToggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
   const handleSelectSession = (sessionId: string) => {
     if (sessionId !== activeSessionId) {
       setIsGitReviewOpen(false);
       setGitReviewSessionId(null);
-      setGitReviewIntent("review");
     }
     setActiveSessionId(sessionId);
   };
@@ -674,7 +662,6 @@ function AppContent() {
   ) => {
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
-    setGitReviewIntent("review");
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
     clearSetupSessionState();
@@ -748,8 +735,7 @@ function AppContent() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top Navigation Bar - Only in content area */}
         <TopNavBar
-          onReview={showWorkspace ? handleReview : undefined}
-          onCommit={showWorkspace ? handleCommit : undefined}
+          onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
           isRightSidebarOpen={isRightSidebarOpen}
@@ -794,6 +780,7 @@ function AppContent() {
                       updateSession(activeSessionId, { mode })
                     }
                     isRightSidebarOpen={isRightSidebarOpen}
+                    reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
                     onStart={(config) => {
@@ -834,6 +821,7 @@ function AppContent() {
                   <AgentSetup
                     sessionId={setupSession.id}
                     isRightSidebarOpen={isRightSidebarOpen}
+                    reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     requiresRepository
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
@@ -872,16 +860,13 @@ function AppContent() {
                   }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                   isGitReviewOpen={
                     isGitReviewOpen && gitReviewSessionId === activeSessionId
                   }
-                  gitReviewIntent={gitReviewIntent}
                   onGitReviewOpenChange={(open) => {
                     setIsGitReviewOpen(open);
                     setGitReviewSessionId(open ? activeSessionId : null);
-                    if (!open) {
-                      setGitReviewIntent("review");
-                    }
                   }}
                 />
               </motion.div>
