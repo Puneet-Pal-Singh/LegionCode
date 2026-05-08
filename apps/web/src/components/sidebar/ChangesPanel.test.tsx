@@ -5,20 +5,31 @@ import { ChangesPanel } from "./ChangesPanel";
 const mockSelectFile = vi.hoisted(() => vi.fn());
 const mockSetReviewScope = vi.hoisted(() => vi.fn());
 const mockOpenReview = vi.hoisted(() => vi.fn());
+const mockStatusFiles = vi.hoisted(() => [
+  {
+    path: "src/main.ts",
+    status: "modified" as const,
+    isStaged: false,
+    additions: 1,
+    deletions: 0,
+  },
+]);
+
+function buildChangedFile() {
+  return {
+    path: "src/main.ts",
+    status: "modified" as const,
+    isStaged: false,
+    additions: 1,
+    deletions: 0,
+  };
+}
 
 vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
     status: {
       branch: "main",
-      files: [
-        {
-          path: "src/main.ts",
-          status: "modified",
-          isStaged: false,
-          additions: 1,
-          deletions: 0,
-        },
-      ],
+      files: mockStatusFiles,
     },
     gitAvailable: true,
     statusLoading: false,
@@ -107,6 +118,7 @@ vi.mock("../diff/DiffViewer", () => ({
 
 describe("ChangesPanel", () => {
   beforeEach(() => {
+    mockStatusFiles.splice(0, mockStatusFiles.length, buildChangedFile());
     mockSelectFile.mockClear();
     mockSetReviewScope.mockClear();
     mockOpenReview.mockClear();
@@ -146,5 +158,24 @@ describe("ChangesPanel", () => {
     fireEvent.click(screen.getByTestId("set-scope"));
 
     expect(mockSetReviewScope).toHaveBeenCalledWith("git-changes");
+  });
+
+  it("selects the first changed file when the stacked modal hides the file tree", () => {
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    expect(screen.queryByTestId("select-file")).not.toBeInTheDocument();
+    expect(screen.getByText("Loading diff...")).toBeInTheDocument();
+    expect(mockSelectFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "src/main.ts" }),
+    );
+  });
+
+  it("shows no changes in the stacked modal when there are no changed files", () => {
+    mockStatusFiles.splice(0, mockStatusFiles.length);
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    expect(screen.getByText("No changes")).toBeInTheDocument();
+    expect(mockSelectFile).not.toHaveBeenCalled();
   });
 });

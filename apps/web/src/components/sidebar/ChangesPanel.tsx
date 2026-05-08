@@ -6,7 +6,7 @@ import {
   Rows3,
   SquareSplitHorizontal,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useGitReview } from "../git/GitReviewContext";
@@ -57,6 +57,20 @@ export function ChangesPanel({
     selectFile(file);
     onFileSelect?.(file.path);
   };
+
+  const showChangesList = mode === "sidebar" || layout !== "stacked";
+  const files = status?.files ?? [];
+
+  useEffect(() => {
+    if (showChangesList || selectedFile || files.length === 0) {
+      return;
+    }
+
+    const [firstFile] = files;
+    if (firstFile) {
+      selectFile(firstFile);
+    }
+  }, [files, selectFile, selectedFile, showChangesList]);
 
   if (statusLoading && !status) {
     return (
@@ -113,24 +127,22 @@ export function ChangesPanel({
             : "gap-4"
         }`}
       >
-        <div
-          className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
-            mode === "sidebar"
-              ? "w-full"
-              : layout === "stacked"
-                ? "max-h-64 min-h-36"
-                : "w-80"
-          }`}
-        >
-          <ChangesList
-            files={status?.files || []}
-            selectedFile={selectedFile}
-            onSelectFile={handleSelectFile}
-            reviewScope={reviewScope}
-            onReviewScopeChange={setReviewScope}
-            showToolbar={mode === "sidebar" ? showToolbar : false}
-          />
-        </div>
+        {showChangesList ? (
+          <div
+            className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
+              mode === "sidebar" ? "w-full" : "w-80"
+            }`}
+          >
+            <ChangesList
+              files={files}
+              selectedFile={selectedFile}
+              onSelectFile={handleSelectFile}
+              reviewScope={reviewScope}
+              onReviewScopeChange={setReviewScope}
+              showToolbar={mode === "sidebar" ? showToolbar : false}
+            />
+          </div>
+        ) : null}
 
         {mode === "modal" && (
           <div className="ui-surface-section flex-1 flex flex-col overflow-hidden">
@@ -156,7 +168,9 @@ export function ChangesPanel({
                   ? diffLoading
                     ? "Loading diff..."
                     : diffError ?? "No diff available"
-                  : "Select a file to view changes"}
+                  : files.length > 0
+                    ? "Loading diff..."
+                    : "No changes"}
               </div>
             )}
           </div>
