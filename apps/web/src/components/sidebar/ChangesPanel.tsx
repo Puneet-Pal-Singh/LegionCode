@@ -91,7 +91,7 @@ export function ChangesPanel({
 
   return (
     <div className={`flex flex-col h-full gap-4 p-4 bg-transparent ${className}`}>
-      {mode === "modal" ? (
+      {mode === "modal" && showToolbar ? (
         <ReviewDiffToolbar
           reviewScope={reviewScope}
           onReviewScopeChange={setReviewScope}

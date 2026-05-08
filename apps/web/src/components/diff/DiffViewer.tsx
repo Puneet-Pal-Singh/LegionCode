@@ -86,7 +86,17 @@ export function DiffViewer({
   const [wordWrap, setWordWrap] = useState(true);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const layout = controlledLayout ?? internalLayout;
-  const setLayout = onLayoutChange ?? setInternalLayout;
+  const canChangeLayout = controlledLayout === undefined || onLayoutChange !== undefined;
+  const setLayout = (nextLayout: "stacked" | "split") => {
+    if (onLayoutChange) {
+      onLayoutChange(nextLayout);
+      return;
+    }
+
+    if (controlledLayout === undefined) {
+      setInternalLayout(nextLayout);
+    }
+  };
   const commentedRowKeys = useMemo(() => collectCommentedRowKeys(reviewComments), [reviewComments]);
   const renderPlans = useMemo(
     () => buildRenderPlans(diff, commentedRowKeys),
@@ -241,7 +251,8 @@ export function DiffViewer({
               <button
                 type="button"
                 onClick={() => setLayout("split")}
-                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors ${
+                disabled={!canChangeLayout}
+                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
                   layout === "split"
                     ? "border-zinc-600 bg-zinc-800 text-white"
                     : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -253,7 +264,8 @@ export function DiffViewer({
               <button
                 type="button"
                 onClick={() => setLayout("stacked")}
-                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors ${
+                disabled={!canChangeLayout}
+                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
                   layout === "stacked"
                     ? "border-zinc-600 bg-zinc-800 text-white"
                     : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
@@ -629,8 +641,6 @@ function SplitDiffCell({
       tabIndex={0}
       aria-pressed={isSelected}
       className={`group relative flex min-h-8 min-w-full border-b border-l-2 border-zinc-900/80 font-mono text-sm ${
-        wrap ? "w-full" : "w-full"
-      } ${
         isSelected ? "ring-1 ring-inset ring-sky-500/50" : ""
       } ${background} ${borderColor}`}
     >

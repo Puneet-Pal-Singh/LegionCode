@@ -3,6 +3,8 @@ import type { DiffContent } from "@repo/shared-types";
 
 export type TabType = "review" | "changes" | "files";
 
+const VALID_TABS: ReadonlySet<string> = new Set(["review", "changes", "files"]);
+
 export interface SelectedFile {
   path: string;
   content: string;
@@ -16,8 +18,8 @@ export interface SelectedDiff {
 export function useWorkspaceState() {
   // Sidebar states
   const [activeTab, setActiveTab] = useState<TabType>(() => {
-    const storedTab = localStorage.getItem("shadowbox_active_tab") as TabType | null;
-    return storedTab || "files";
+    const storedTab = localStorage.getItem("shadowbox_active_tab");
+    return storedTab && VALID_TABS.has(storedTab) ? (storedTab as TabType) : "files";
   });
 
   useEffect(() => {

@@ -87,8 +87,9 @@ export function TopNavBar({
             onClick={onToggleRightSidebar}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            disabled={!onToggleRightSidebar}
             aria-label="Toggle right sidebar"
-            className={`rounded-md p-1.5 transition-colors ${
+            className={`rounded-md p-1.5 transition-colors disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent ${
               isRightSidebarOpen
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"

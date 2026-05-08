@@ -83,22 +83,33 @@ function ChangeTreeRow({
   onSelectFile: (file: FileStatus) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  if (node.file) {
-    return (
+  const file = node.file;
+  const children = Array.from(node.children.values());
+  const hasChildren = children.length > 0;
+
+  if (!file && !hasChildren) {
+    return null;
+  }
+
+  const fileRow = file ? (
       <ChangeItem
-        file={node.file}
+        file={file}
         depth={depth}
-        isSelected={selectedFile?.path === node.file.path}
-        onSelect={() => onSelectFile(node.file as FileStatus)}
+        isSelected={selectedFile?.path === file.path}
+        onSelect={() => onSelectFile(file)}
       />
-    );
+  ) : null;
+
+  if (!hasChildren) {
+    return fileRow;
   }
 
   return (
     <div>
+      {fileRow}
       <FolderRow node={node} depth={depth} expanded={expanded} onToggle={() => setExpanded((next) => !next)} />
       {expanded
-        ? Array.from(node.children.values()).map((child) => (
+        ? children.map((child) => (
             <ChangeTreeRow
               key={child.path}
               node={child}
