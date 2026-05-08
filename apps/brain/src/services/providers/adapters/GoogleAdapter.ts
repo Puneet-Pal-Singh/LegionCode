@@ -10,6 +10,11 @@ import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
 
+// Google documents this sentinel for client-generated/replayed function calls
+// that cannot preserve Gemini 3's encrypted thought signature.
+const GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP =
+  "skip_thought_signature_validator";
+
 interface GoogleAdapterConfig {
   apiKey: string;
   baseURL?: string;
@@ -29,6 +34,7 @@ export class GoogleAdapter implements ProviderAdapter {
     this.client = createGoogleGenerativeAI({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
+      fetch: createGeminiThoughtSignatureFetchBridge(),
     });
     this.defaultModel = config.defaultModel ?? "gemini-2.5-flash-lite";
     this.supportedModels = [];
@@ -364,4 +370,117 @@ function getErrorNumberField(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function createGeminiThoughtSignatureFetchBridge(
+  baseFetch: typeof fetch = fetch,
+): typeof fetch {
+  return (input, init) => {
+    if (!shouldBridgeGeminiThoughtSignatures(input) || !init) {
+      return baseFetch(input, init);
+    }
+
+    const bridgedBody = addMissingGoogleThoughtSignaturesToRequestBody(
+      init.body,
+    );
+    if (bridgedBody === init.body) {
+      return baseFetch(input, init);
+    }
+
+    return baseFetch(input, {
+      ...init,
+      body: bridgedBody,
+    });
+  };
+}
+
+export function addMissingGoogleThoughtSignaturesToRequestBody(
+  body: BodyInit | null | undefined,
+): BodyInit | null | undefined {
+  if (typeof body !== "string") {
+    return body;
+  }
+
+  const payload = safeParseRequestBody(body);
+  if (!payload) {
+    return body;
+  }
+
+  const changed = addMissingGoogleThoughtSignatures(payload);
+  return changed ? JSON.stringify(payload) : body;
+}
+
+function safeParseRequestBody(body: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function addMissingGoogleThoughtSignatures(
+  payload: Record<string, unknown>,
+): boolean {
+  const contents = payload.contents;
+  if (!Array.isArray(contents)) {
+    return false;
+  }
+
+  let changed = false;
+  for (const content of contents) {
+    if (!isRecord(content) || content.role !== "model") {
+      continue;
+    }
+    changed = addMissingSignatureToFirstFunctionCall(content.parts) || changed;
+  }
+
+  return changed;
+}
+
+function addMissingSignatureToFirstFunctionCall(parts: unknown): boolean {
+  if (!Array.isArray(parts)) {
+    return false;
+  }
+
+  for (const part of parts) {
+    if (!isRecord(part) || !isRecord(part.functionCall)) {
+      continue;
+    }
+    if (hasGoogleThoughtSignature(part)) {
+      return false;
+    }
+
+    part.thoughtSignature = GEMINI_THOUGHT_SIGNATURE_VALIDATOR_SKIP;
+    return true;
+  }
+
+  return false;
+}
+
+function hasGoogleThoughtSignature(part: Record<string, unknown>): boolean {
+  return (
+    typeof part.thoughtSignature === "string" ||
+    typeof part.thought_signature === "string"
+  );
+}
+
+function shouldBridgeGeminiThoughtSignatures(
+  input: Parameters<typeof fetch>[0],
+): boolean {
+  return /\/models\/gemini-3[^/:]*:(generateContent|streamGenerateContent)/.test(
+    getFetchUrl(input),
+  );
+}
+
+function getFetchUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === "string") {
+    return input;
+  }
+
+  if (input instanceof URL) {
+    return input.toString();
+  }
+
+  return input.url;
 }
