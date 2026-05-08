@@ -27,6 +27,8 @@ interface DiffViewerProps {
   diffFingerprint?: string | null;
   layout?: "stacked" | "split";
   onLayoutChange?: (layout: "stacked" | "split") => void;
+  wordWrap?: boolean;
+  onWordWrapChange?: (enabled: boolean) => void;
   showHeader?: boolean;
   useFileSummaryHunkHeader?: boolean;
   hunkExpansionRequest?: {
@@ -75,6 +77,8 @@ export function DiffViewer({
   diffFingerprint = null,
   layout: controlledLayout,
   onLayoutChange,
+  wordWrap: controlledWordWrap,
+  onWordWrapChange,
   showHeader = true,
   useFileSummaryHunkHeader = false,
   hunkExpansionRequest,
@@ -85,9 +89,10 @@ export function DiffViewer({
     new Set(diff.hunks.map((_: DiffHunk, index: number) => index)),
   );
   const [internalLayout, setInternalLayout] = useState<"stacked" | "split">("stacked");
-  const [wordWrap, setWordWrap] = useState(true);
+  const [internalWordWrap, setInternalWordWrap] = useState(true);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const layout = controlledLayout ?? internalLayout;
+  const wordWrap = controlledWordWrap ?? internalWordWrap;
   const canChangeLayout = controlledLayout === undefined || onLayoutChange !== undefined;
   const setLayout = (nextLayout: "stacked" | "split") => {
     if (onLayoutChange) {
@@ -97,6 +102,18 @@ export function DiffViewer({
 
     if (controlledLayout === undefined) {
       setInternalLayout(nextLayout);
+    }
+  };
+
+  const setWordWrap = (value: boolean | ((prev: boolean) => boolean)) => {
+    const nextValue = typeof value === "function" ? value(wordWrap) : value;
+    if (onWordWrapChange) {
+      onWordWrapChange(nextValue);
+      return;
+    }
+
+    if (controlledWordWrap === undefined) {
+      setInternalWordWrap(nextValue);
     }
   };
   const commentedRowKeys = useMemo(() => collectCommentedRowKeys(reviewComments), [reviewComments]);

@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  Ellipsis,
   LoaderCircle,
   Rows3,
   SquareSplitHorizontal,
@@ -28,6 +29,7 @@ export function ChangesPanel({
   showToolbar = true,
 }: ChangesPanelProps) {
   const [diffLayout, setDiffLayout] = useState<"stacked" | "split">("stacked");
+  const [wordWrap, setWordWrap] = useState(true);
   const [hunksCollapsed, setHunksCollapsed] = useState(false);
   const [hunkExpansionRequest, setHunkExpansionRequest] = useState<{
     action: "collapse" | "expand";
@@ -91,6 +93,8 @@ export function ChangesPanel({
           onReviewScopeChange={setReviewScope}
           layout={diffLayout}
           onLayoutChange={setDiffLayout}
+          wordWrap={wordWrap}
+          onWordWrapChange={setWordWrap}
           hunksCollapsed={hunksCollapsed}
           onToggleHunks={() => {
             const nextCollapsed = !hunksCollapsed;
@@ -137,6 +141,8 @@ export function ChangesPanel({
                 className="flex-1 overflow-hidden"
                 layout={diffLayout}
                 onLayoutChange={setDiffLayout}
+                wordWrap={wordWrap}
+                onWordWrapChange={setWordWrap}
                 showHeader={false}
                 hunkExpansionRequest={hunkExpansionRequest}
                 reviewComments={selectedReviewCommentsForFile}
@@ -165,6 +171,8 @@ function ReviewDiffToolbar({
   onReviewScopeChange,
   layout,
   onLayoutChange,
+  wordWrap,
+  onWordWrapChange,
   hunksCollapsed,
   onToggleHunks,
 }: {
@@ -172,9 +180,13 @@ function ReviewDiffToolbar({
   onReviewScopeChange: (scope: "git-changes") => void;
   layout: "stacked" | "split";
   onLayoutChange: (layout: "stacked" | "split") => void;
+  wordWrap: boolean;
+  onWordWrapChange: (enabled: boolean) => void;
   hunksCollapsed: boolean;
   onToggleHunks: () => void;
 }) {
+  const [showViewMenu, setShowViewMenu] = useState(false);
+
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
       <ReviewScopeDropdown
@@ -182,6 +194,36 @@ function ReviewDiffToolbar({
         onChange={onReviewScopeChange}
       />
       <div className="flex items-center gap-2">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowViewMenu((previous) => !previous)}
+            className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1.5 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
+            aria-haspopup="menu"
+            aria-expanded={showViewMenu}
+            aria-label="Diff view options"
+          >
+            <Ellipsis size={14} />
+          </button>
+          {showViewMenu ? (
+            <div
+              role="menu"
+              className="absolute right-0 top-9 z-20 min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onWordWrapChange(!wordWrap);
+                  setShowViewMenu(false);
+                }}
+                className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
+              >
+                {wordWrap ? "Disable word wrap" : "Enable word wrap"}
+              </button>
+            </div>
+          ) : null}
+        </div>
         <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
           <button
             type="button"
