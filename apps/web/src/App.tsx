@@ -109,9 +109,6 @@ function AppContent() {
   );
   const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
     usePendingApprovalStateBySession();
-  const [gitReviewIntent, setGitReviewIntent] = useState<"review" | "commit">(
-    "review",
-  );
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] =
@@ -583,7 +580,6 @@ function AppContent() {
     console.log("[App] handleNewTask called with:", repositoryName);
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
-    setGitReviewIntent("review");
 
     // If no repo name provided, try to use the currently active repo
     const targetRepo = repositoryName || repo?.full_name;
@@ -636,7 +632,6 @@ function AppContent() {
   const handleOpenReviewSidebar = () => {
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
-    setGitReviewIntent("review");
     setIsRightSidebarOpen(true);
     focusReviewSidebar();
   };
@@ -653,7 +648,6 @@ function AppContent() {
     if (sessionId !== activeSessionId) {
       setIsGitReviewOpen(false);
       setGitReviewSessionId(null);
-      setGitReviewIntent("review");
     }
     setActiveSessionId(sessionId);
   };
@@ -668,7 +662,6 @@ function AppContent() {
   ) => {
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
-    setGitReviewIntent("review");
     setContext(selectedRepo, selectedBranch);
     setShowRepoPicker(false);
     clearSetupSessionState();
@@ -871,13 +864,9 @@ function AppContent() {
                   isGitReviewOpen={
                     isGitReviewOpen && gitReviewSessionId === activeSessionId
                   }
-                  gitReviewIntent={gitReviewIntent}
                   onGitReviewOpenChange={(open) => {
                     setIsGitReviewOpen(open);
                     setGitReviewSessionId(open ? activeSessionId : null);
-                    if (!open) {
-                      setGitReviewIntent("review");
-                    }
                   }}
                 />
               </motion.div>

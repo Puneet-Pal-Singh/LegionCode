@@ -45,7 +45,6 @@ import {
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
-import { GitCommitDialog } from "../git/GitCommitDialog";
 import {
   isProviderModelBootstrapLoading,
 } from "../../lib/provider-model-bootstrap-loading.js";
@@ -73,7 +72,6 @@ interface SetupSidebarHeaderProps {
   isViewingContent: boolean;
   activeTab: TabType;
   changesCount: number;
-  onCommit: () => void;
   onBack: () => void;
   onTabChange: (tab: TabType) => void;
 }
@@ -82,7 +80,6 @@ function SetupSidebarHeader({
   isViewingContent,
   activeTab,
   changesCount,
-  onCommit,
   onBack,
   onTabChange,
 }: SetupSidebarHeaderProps) {
@@ -94,7 +91,6 @@ function SetupSidebarHeader({
       activeTab={activeTab}
       changesCount={changesCount}
       onExpand={() => openReview()}
-      onCommit={onCommit}
       onBack={onBack}
       onTabChange={onTabChange}
     />
@@ -136,7 +132,6 @@ export function AgentSetup({
     "full" | "connect-only" | "manage-models-only"
   >("full");
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const {
     catalog,
@@ -896,7 +891,6 @@ export function AgentSetup({
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               changesCount={changesCount}
-              onCommit={() => setIsCommitDialogOpen(true)}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
@@ -933,11 +927,6 @@ export function AgentSetup({
 
         <GitReviewDialog
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
-        />
-
-        <GitCommitDialog
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
         />
 
         <ProviderDialog

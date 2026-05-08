@@ -1,16 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { FileDiff, GitBranch, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import { useGitReview } from "./GitReviewContext";
-import { GitCommitDialog } from "./GitCommitDialog";
 
-interface GitReviewDialogProps {
-  initialIntent?: "review" | "commit";
-}
-
-export function GitReviewDialog({
-  initialIntent = "review",
-}: GitReviewDialogProps) {
+export function GitReviewDialog() {
   const {
     isReviewOpen,
     closeReview,
@@ -19,9 +12,6 @@ export function GitReviewDialog({
     selectedReviewCommentCount,
     selectFile,
   } = useGitReview();
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(
-    initialIntent === "commit",
-  );
   const dialogTitleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -135,13 +125,7 @@ export function GitReviewDialog({
             >
               Review changes ({selectedReviewCommentCount})
             </button>
-            <button
-              type="button"
-              onClick={() => setIsCommitDialogOpen(true)}
-              className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 transition-colors hover:border-emerald-400/40 hover:bg-emerald-500/15 hover:text-emerald-200"
-            >
-              Commit
-            </button>
+            {/* TODO: Reintroduce commit from review after GitCommitDialog is reliable in production. */}
 
             <button
               ref={closeButtonRef}
@@ -158,12 +142,6 @@ export function GitReviewDialog({
         <div className="min-h-0 flex-1">
           <ChangesPanel className="h-full p-5" mode="modal" />
         </div>
-
-        <GitCommitDialog
-          key={isCommitDialogOpen ? "commit-open" : "commit-closed"}
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
-        />
       </div>
     </div>
   );

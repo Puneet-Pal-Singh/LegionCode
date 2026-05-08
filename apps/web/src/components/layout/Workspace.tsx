@@ -25,7 +25,6 @@ import {
 } from "../../lib/product-mode-storage";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
-import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 
 interface WorkspaceProps {
@@ -41,7 +40,6 @@ interface WorkspaceProps {
   setIsRightSidebarOpen?: (open: boolean) => void;
   reviewSidebarFocusRequest?: number;
   isGitReviewOpen?: boolean;
-  gitReviewIntent?: "review" | "commit";
   onGitReviewOpenChange?: (open: boolean) => void;
 }
 
@@ -58,7 +56,6 @@ export function Workspace({
   setIsRightSidebarOpen,
   reviewSidebarFocusRequest = 0,
   isGitReviewOpen = false,
-  gitReviewIntent = "review",
   onGitReviewOpenChange,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
@@ -67,7 +64,6 @@ export function Workspace({
   const previousChatLoadingRef = useRef(false);
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const sandboxId = sessionId;
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
@@ -501,7 +497,6 @@ export function Workspace({
                 setIsRightSidebarOpen?.(true);
                 onGitReviewOpenChange?.(true);
               }}
-              onCommit={() => setIsCommitDialogOpen(true)}
               onBack={() => {
                 setIsViewingContent(false);
                 setSelectedFile(null);
@@ -532,12 +527,7 @@ export function Workspace({
           </div>
         </motion.aside>
         <GitReviewDialog
-          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:${gitReviewIntent}`}
-          initialIntent={gitReviewIntent}
-        />
-        <GitCommitDialog
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
+          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
         />
       </div>
       </GitReviewProvider>
