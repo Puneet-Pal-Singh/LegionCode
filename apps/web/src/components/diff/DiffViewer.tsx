@@ -28,6 +28,7 @@ interface DiffViewerProps {
   layout?: "stacked" | "split";
   onLayoutChange?: (layout: "stacked" | "split") => void;
   showHeader?: boolean;
+  useFileSummaryHunkHeader?: boolean;
   hunkExpansionRequest?: {
     action: "collapse" | "expand";
     id: number;
@@ -75,6 +76,7 @@ export function DiffViewer({
   layout: controlledLayout,
   onLayoutChange,
   showHeader = true,
+  useFileSummaryHunkHeader = false,
   hunkExpansionRequest,
   onCreateReviewComment,
   onDeleteReviewComment,
@@ -145,6 +147,7 @@ export function DiffViewer({
     [diff.newPath, diff.oldPath],
   );
   const diffPath = diff.newPath || diff.oldPath || "Unknown file";
+  const showFileSummaryHunkHeader = useFileSummaryHunkHeader || !showHeader;
   const deletions = useMemo(
     () =>
       diff.hunks.reduce(
@@ -302,9 +305,7 @@ export function DiffViewer({
                   ) : (
                     <ChevronRight size={16} />
                   )}
-                  {showHeader ? (
-                    <span>{hunk.header}</span>
-                  ) : (
+                  {showFileSummaryHunkHeader ? (
                     <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
                       <span className="truncate text-zinc-100">{diffPath}</span>
                       <span className="flex shrink-0 items-center gap-2">
@@ -312,6 +313,8 @@ export function DiffViewer({
                         <span className="text-red-400">-{deletions}</span>
                       </span>
                     </span>
+                  ) : (
+                    <span>{hunk.header}</span>
                   )}
                 </button>
 

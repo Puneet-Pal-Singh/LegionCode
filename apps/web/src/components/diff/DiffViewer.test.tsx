@@ -119,4 +119,43 @@ describe("DiffViewer", () => {
     expect(screen.getByText("-1")).toBeInTheDocument();
     expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
   });
+
+  it("can use file summary hunk headers with the full diff header visible", () => {
+    render(
+      <DiffViewer
+        useFileSummaryHunkHeader
+        diff={{
+          oldPath: "src/example.ts",
+          newPath: "src/example.ts",
+          isBinary: false,
+          isNewFile: false,
+          isDeleted: false,
+          hunks: [
+            {
+              oldStart: 1,
+              oldLines: 2,
+              newStart: 1,
+              newLines: 2,
+              header: "@@ -1,2 +1,2 @@",
+              lines: [
+                {
+                  type: "deleted",
+                  content: "const removed = true;",
+                  oldLineNumber: 1,
+                },
+                {
+                  type: "added",
+                  content: "const added = true;",
+                  newLineNumber: 1,
+                },
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText("src/example.ts")).toHaveLength(2);
+    expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
+  });
 });
