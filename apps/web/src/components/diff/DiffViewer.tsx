@@ -216,8 +216,6 @@ export function DiffViewer({
                 ) : null}
                 <span className="text-emerald-400">+{additions}</span>
                 <span className="text-red-400">-{deletions}</span>
-                <span>{diff.hunks.length} hunks</span>
-                <span>{reviewComments.length} notes</span>
               </div>
             </div>
 
