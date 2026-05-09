@@ -9,7 +9,6 @@ import type {
 import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
-const INCOMPLETE_MUTATION_CODE = "INCOMPLETE_MUTATION";
 export const TASK_MODEL_NO_ACTION_CODE = "TASK_MODEL_NO_ACTION";
 const TOOL_EXECUTION_FAILED_CODE = "TOOL_EXECUTION_FAILED";
 const LEAKED_INTERNAL_PREFACE_PATTERNS = [
@@ -95,7 +94,7 @@ export function recordRecoveredAgenticLoopMetadata(
     completedReadOnlyToolCount: number;
     llmRetryCount: number;
     toolLifecycle: AgenticLoopToolLifecycleEvent[];
-    recoveryCode?: "INCOMPLETE_MUTATION" | typeof TASK_MODEL_NO_ACTION_CODE;
+    recoveryCode?: typeof TASK_MODEL_NO_ACTION_CODE;
     terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   },
 ): void {
@@ -127,31 +126,6 @@ export function buildAgenticLoopFinalMessage(
   const mutationScopedTurn = isMutationScopedTurn(result);
   const assistantText = getLastAssistantText(result.messages);
 
-  if (isZeroActionMutationModelIssue(result, mutationScopedTurn)) {
-    return {
-      text: buildTaskModelNoActionSummary({
-        requiresMutation: mutationScopedTurn,
-        toolLifecycle: result.toolLifecycle,
-      }),
-      metadata: buildTaskModelNoActionMetadata(),
-    };
-  }
-
-  if (
-    mutationScopedTurn &&
-    result.completedMutatingToolCount === 0 &&
-    shouldPreserveAssistantText(assistantText)
-  ) {
-    return { text: assistantText! };
-  }
-
-  if (mutationScopedTurn && result.completedMutatingToolCount === 0) {
-    return {
-      text: buildIncompleteMutationSummary(result),
-      metadata: buildIncompleteMutationMetadata(),
-    };
-  }
-
   if (mutationScopedTurn && result.completedMutatingToolCount > 0) {
     const groundedMutationSummary = buildCompletedMutationSummary(result);
     if (groundedMutationSummary) {
@@ -174,6 +148,18 @@ export function buildAgenticLoopFinalMessage(
 
   if (result.stopReason !== "llm_stop") {
     return { text: buildFallbackLoopSummary(result) };
+  }
+
+  if (
+    mutationScopedTurn &&
+    result.completedMutatingToolCount === 0 &&
+    shouldPreserveNoMutationAssistantText(assistantText)
+  ) {
+    return { text: assistantText! };
+  }
+
+  if (mutationScopedTurn && result.completedMutatingToolCount === 0) {
+    return { text: buildNoMutationEvidenceSummary(result) };
   }
 
   if (assistantText) {
@@ -221,16 +207,14 @@ export function buildTaskModelNoActionSummary(input: {
   return lines.join("\n");
 }
 
-function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
+function buildNoMutationEvidenceSummary(result: AgenticLoopResult): string {
   const completedTools = getLatestToolLifecycle(
     result.toolLifecycle,
     "completed",
   );
   const failedTools = getLatestToolLifecycle(result.toolLifecycle, "failed");
 
-  const lines = [
-    "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
-  ];
+  const lines = ["No files were changed in this run."];
 
   if (completedTools.length > 0) {
     lines.push(describeCompletedToolWork(completedTools));
@@ -239,10 +223,6 @@ function buildIncompleteMutationSummary(result: AgenticLoopResult): string {
   if (failedTools.length > 0) {
     lines.push(describeFailedToolWork(failedTools));
   }
-
-  lines.push(
-    "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
-  );
 
   return lines.join("\n");
 }
@@ -488,23 +468,11 @@ function describeLoopStopReason(
       return "I stopped because the run hit the execution budget.";
     case "max_steps_reached":
       return "I ran out of tool steps before I could finish the request.";
-    case "incomplete_mutation":
-      return "I stopped because the requested edit never reached a successful file change.";
     case "cancelled":
       return "The run was cancelled before I could finish the answer.";
     case "llm_stop":
       return "The build loop completed.";
   }
-}
-
-function buildIncompleteMutationMetadata(): Record<string, unknown> {
-  return {
-    code: INCOMPLETE_MUTATION_CODE,
-    retryable: true,
-    resumeHint:
-      "Retry with a more specific file, component, or exact edit target.",
-    resumeActions: ["retry", "refine_edit_target"],
-  };
 }
 
 export function buildTaskModelNoActionMetadata(): Record<string, unknown> {
@@ -531,44 +499,9 @@ function buildToolExecutionFailedMetadata(
 }
 
 function deriveAgenticLoopRecoveryCode(
-  result: AgenticLoopResult,
-): "INCOMPLETE_MUTATION" | typeof TASK_MODEL_NO_ACTION_CODE | undefined {
-  const mutationScopedTurn = isMutationScopedTurn(result);
-  if (isZeroActionMutationModelIssue(result, mutationScopedTurn)) {
-    return TASK_MODEL_NO_ACTION_CODE;
-  }
-
-  if (
-    mutationScopedTurn &&
-    result.completedMutatingToolCount === 0 &&
-    shouldPreserveAssistantText(getLastAssistantText(result.messages))
-  ) {
-    return undefined;
-  }
-
-  if (mutationScopedTurn && result.completedMutatingToolCount === 0) {
-    return INCOMPLETE_MUTATION_CODE;
-  }
-
+  _result: AgenticLoopResult,
+): typeof TASK_MODEL_NO_ACTION_CODE | undefined {
   return undefined;
-}
-
-function isZeroActionMutationModelIssue(
-  result: AgenticLoopResult,
-  mutationScopedTurn: boolean,
-): boolean {
-  if (!mutationScopedTurn) {
-    return false;
-  }
-
-  if (
-    result.toolExecutionCount !== 0 ||
-    result.completedMutatingToolCount !== 0
-  ) {
-    return false;
-  }
-
-  return !shouldPreserveAssistantText(getLastAssistantText(result.messages));
 }
 
 function isMutationScopedTurn(result: AgenticLoopResult): boolean {
@@ -624,6 +557,43 @@ function shouldPreserveAssistantText(text: string | null): boolean {
     "not allowed",
   ];
   return refusalSignals.some((signal) => normalized.includes(signal));
+}
+
+function shouldPreserveNoMutationAssistantText(text: string | null): boolean {
+  if (!text) {
+    return false;
+  }
+
+  if (shouldPreserveAssistantText(text)) {
+    return true;
+  }
+
+  return !looksLikeMutationCompletionClaim(text);
+}
+
+function looksLikeMutationCompletionClaim(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    /^(?:done|all set|complete|completed|finished|fixed|updated)[.!]*$/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  const completionMutationSignals = [
+    /\bi(?:'|’)ve\s+(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
+    /\bi have\s+(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
+    /\bi\s+(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
+    /\b(?:done|all set|completed|finished)\b[\s\S]{0,120}\b(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
+    /\b(?:file|files|code|component|page|section|copy)\s+(?:was|were|has been|have been|is now|are now)\s+(?:updated|changed|modified|fixed|implemented|written|created|added|removed|renamed|replaced)\b/,
+  ];
+
+  return completionMutationSignals.some((pattern) => pattern.test(normalized));
 }
 
 function getLatestToolLifecycle(
