@@ -384,7 +384,9 @@ describe("RunEngine", () => {
   it("completes with recoverable guidance when provider retries are exhausted during task execution", async () => {
     const state = new MockRuntimeState();
     const retryFailure = Object.assign(
-      new Error("Failed after 3 attempts. Last error: Internal error encountered."),
+      new Error(
+        "Failed after 3 attempts. Last error: Internal error encountered.",
+      ),
       {
         name: "AI_RetryError",
         cause: { statusCode: 500, message: "Internal error encountered." },
@@ -460,7 +462,7 @@ describe("RunEngine", () => {
     ).toBe(false);
   });
 
-  it("keeps zero-action mutation runs on the normal completion path with TASK_MODEL_NO_ACTION", async () => {
+  it("keeps zero-action mutation runs on the normal no-change completion path", async () => {
     const state = new MockRuntimeState();
     const llmGateway: ILLMGateway = {
       generateText: vi.fn().mockResolvedValue({
@@ -509,10 +511,10 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     const output = await response.text();
-    expect(output).toContain(
+    expect(output).toContain("No files were changed in this run.");
+    expect(output).not.toContain(
       "The model did not return a usable next action for this edit request.",
     );
-    expect(output).toContain("No file was changed in this run.");
 
     const persisted = await (
       runEngine as unknown as {
@@ -521,9 +523,7 @@ describe("RunEngine", () => {
     ).getRun(TEST_RUN_ID);
     expect(persisted?.status).toBe("COMPLETED");
     expect(persisted?.metadata.error).toBeUndefined();
-    expect(persisted?.metadata.agenticLoop?.recoveryCode).toBe(
-      "TASK_MODEL_NO_ACTION",
-    );
+    expect(persisted?.metadata.agenticLoop?.recoveryCode).toBeUndefined();
 
     const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
     const assistantMessageEvent = [...events]
@@ -533,12 +533,12 @@ describe("RunEngine", () => {
       type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
       payload: {
         role: "assistant",
-        metadata: {
-          code: "TASK_MODEL_NO_ACTION",
-          retryable: true,
-        },
       },
     });
+    expect(
+      (assistantMessageEvent?.payload as { metadata?: unknown } | undefined)
+        ?.metadata,
+    ).toEqual({ terminalState: "completed" });
   });
 
   it("recovers exhausted unusable-response retries without failing the run", async () => {
@@ -2202,14 +2202,15 @@ describe("RunEngine", () => {
     expect(response.status).toBe(200);
     const output = await response.text();
     expect(output).toContain(
-      "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
+      "I stopped because a required tool action failed.",
     );
     expect(output).toContain(
       "A required file edit step failed: Permission denied",
     );
-    expect(output).toContain(
-      "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
+    expect(output).not.toContain(
+      "did not complete the requested change because no mutating tool succeeded",
     );
+    expect(output).not.toContain("Retry with a more specific target file");
     expect(output).not.toContain("I'll update the file now.");
 
     const persisted = await (
@@ -2748,7 +2749,11 @@ describe("RunEngine", () => {
     );
 
     expect(secondResponse.status).toBe(200);
-    expect(await secondResponse.text()).toContain(
+    const secondOutput = await secondResponse.text();
+    expect(secondOutput).toContain(
+      "I need explicit approval before continuing git mutation steps.",
+    );
+    expect(secondOutput).not.toContain(
       "The model did not return a usable next action for this edit request.",
     );
 
@@ -2972,7 +2977,11 @@ describe("RunEngine", () => {
     );
 
     expect(secondResponse.status).toBe(200);
-    expect(await secondResponse.text()).toContain(
+    const secondOutput = await secondResponse.text();
+    expect(secondOutput).toContain(
+      "I still need file mutation evidence before push actions.",
+    );
+    expect(secondOutput).not.toContain(
       "The model did not return a usable next action for this edit request.",
     );
 
@@ -3010,7 +3019,8 @@ describe("RunEngine", () => {
             id: "git-commit-1",
             toolName: "git_commit",
             args: {
-              message: "feat: add coming soon indicator to newsletter subscription in footer",
+              message:
+                "feat: add coming soon indicator to newsletter subscription in footer",
             },
           },
           {
@@ -3322,7 +3332,9 @@ describe("RunEngine", () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      throw new Error("Timed out waiting for git_stage approval request in test.");
+      throw new Error(
+        "Timed out waiting for git_stage approval request in test.",
+      );
     })();
 
     const response = await responsePromise;
@@ -3347,27 +3359,25 @@ describe("RunEngine", () => {
 
   it("asks for scope when git mutation request does not match local diff", async () => {
     const state = new MockRuntimeState();
-    const generateText = vi
-      .fn()
-      .mockResolvedValueOnce({
-        text: "I'll stage the footer change now.",
-        toolCalls: [
-          {
-            id: "git-stage-1",
-            toolName: "git_stage",
-            args: {
-              files: ["src/components/layout/Footer.tsx"],
-            },
+    const generateText = vi.fn().mockResolvedValueOnce({
+      text: "I'll stage the footer change now.",
+      toolCalls: [
+        {
+          id: "git-stage-1",
+          toolName: "git_stage",
+          args: {
+            files: ["src/components/layout/Footer.tsx"],
           },
-        ],
-        usage: {
-          provider: "mock",
-          model: "mock-model",
-          promptTokens: 6,
-          completionTokens: 6,
-          totalTokens: 12,
         },
-      });
+      ],
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 6,
+        completionTokens: 6,
+        totalTokens: 12,
+      },
+    });
 
     const llmGateway: ILLMGateway = {
       generateText,
@@ -3729,41 +3739,47 @@ describe("RunEngine", () => {
     };
 
     const executionService: RuntimeExecutionService = {
-      execute: vi.fn(async (plugin: string, action: string, payload?: Record<string, unknown>) => {
-        if (plugin === "filesystem" && action === "read_file") {
+      execute: vi.fn(
+        async (
+          plugin: string,
+          action: string,
+          payload?: Record<string, unknown>,
+        ) => {
+          if (plugin === "filesystem" && action === "read_file") {
+            return {
+              success: false,
+              error: "File not found",
+            };
+          }
+          if (
+            plugin === "filesystem" &&
+            action === "write_file" &&
+            payload?.path === "src/components/landing/hero/index.tsx"
+          ) {
+            return {
+              success: true,
+              output: "File written successfully",
+            };
+          }
+          if (plugin === "git" && action === "git_status") {
+            return {
+              success: true,
+              output: JSON.stringify({
+                branch: "main",
+                files: [],
+                repoIdentity: "github.com/acme/career-crew",
+                hasStaged: false,
+                hasUnstaged: false,
+                gitAvailable: true,
+              }),
+            };
+          }
           return {
             success: false,
-            error: "File not found",
+            error: `Unexpected route ${plugin}:${action}`,
           };
-        }
-        if (
-          plugin === "filesystem" &&
-          action === "write_file" &&
-          payload?.path === "src/components/landing/hero/index.tsx"
-        ) {
-          return {
-            success: true,
-            output: "File written successfully",
-          };
-        }
-        if (plugin === "git" && action === "git_status") {
-          return {
-            success: true,
-            output: JSON.stringify({
-              branch: "main",
-              files: [],
-              repoIdentity: "github.com/acme/career-crew",
-              hasStaged: false,
-              hasUnstaged: false,
-              gitAvailable: true,
-            }),
-          };
-        }
-        return {
-          success: false,
-          error: `Unexpected route ${plugin}:${action}`,
-        };
-      }),
+        },
+      ),
     };
 
     const runEngine = new RunEngine(
@@ -3910,7 +3926,7 @@ describe("RunEngine", () => {
 
   it("strips leaked internal-style reasoning preface from user-facing output", () => {
     const leaked =
-      'The user asked me to check PR #58. I need to inspect branch state first. First, I\'ll check git status. The current branch is main. Wait, I should switch branches. I found the issue in Footer.tsx.';
+      "The user asked me to check PR #58. I need to inspect branch state first. First, I'll check git status. The current branch is main. Wait, I should switch branches. I found the issue in Footer.tsx.";
 
     const sanitized = sanitizeUserFacingOutput(leaked);
 
@@ -4631,7 +4647,9 @@ describe("RunEngine", () => {
       "check repository acme/platform-core README.md",
       { owner: "sourcegraph", repo: "shadowbox" },
     );
-    expect(blockedMessage).toContain("Cross-repo access requires explicit approval");
+    expect(blockedMessage).toContain(
+      "Cross-repo access requires explicit approval",
+    );
 
     const directiveMessage = await privateApi.processPermissionDirectives(
       "approve cross-repo acme/platform-core for 20m",
@@ -4692,7 +4710,9 @@ describe("RunEngine", () => {
       "check repository acme/platform-core README.md",
       { owner: "sourcegraph", repo: "shadowbox" },
     );
-    expect(blockedMessage).toContain("Cross-repo access requires explicit approval");
+    expect(blockedMessage).toContain(
+      "Cross-repo access requires explicit approval",
+    );
   });
 
   it("forces platform approval gate when delegated harness mode is untrusted", async () => {
