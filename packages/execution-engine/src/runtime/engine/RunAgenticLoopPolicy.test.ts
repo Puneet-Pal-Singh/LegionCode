@@ -4,7 +4,6 @@ import {
   buildAgenticLoopFinalMessage,
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
-  TASK_MODEL_NO_ACTION_CODE,
 } from "./RunAgenticLoopPolicy.js";
 import { Run } from "../run/index.js";
 import type { AgenticLoopResult } from "./AgenticLoop.js";
@@ -196,7 +195,7 @@ describe("RunAgenticLoopPolicy", () => {
     const output = buildAgenticLoopFinalOutput(result);
 
     expect(output).toContain(
-      "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
+      "I stopped because a required tool action failed.",
     );
     expect(output).toContain(
       "Before the run stopped, I completed 1 inspection step(s) to gather workspace evidence.",
@@ -737,7 +736,7 @@ describe("RunAgenticLoopPolicy", () => {
     expect(getAgenticLoopMaxSteps()).toBe(25);
   });
 
-  it("does not trust a read-only stop as completion for edit requests", () => {
+  it("reports no file changes without failing read-only stops for edit requests", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -766,18 +765,54 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalOutput(result);
 
-    expect(output).toContain(
-      "I inspected the workspace, but I did not complete the requested change because no mutating tool succeeded.",
-    );
-    expect(output).toContain(
-      "No file changed in this run. Retry with a more specific target file, component, or edit instruction so I can attempt the mutation again.",
-    );
+    expect(output).toContain("No files were changed in this run.");
     expect(output).not.toContain("Done! I updated the landing page.");
+    expect(output).not.toContain("did not complete the requested change");
+    expect(output).not.toContain("more specific target file");
   });
 
-  it("classifies zero-action mutation runs as recoverable model stalls", () => {
+  it("preserves useful no-change advisory text for mutation-scoped turns", () => {
     const result: AgenticLoopResult = {
-      stopReason: "incomplete_mutation",
+      stopReason: "llm_stop",
+      messages: [
+        {
+          role: "user",
+          content: "check if I can update hero page @index.tsx",
+        },
+        {
+          role: "assistant",
+          content:
+            "I inspected the hero page. You can update the headline safely by editing src/components/landing/hero/index.tsx.",
+        },
+      ],
+      toolExecutionCount: 2,
+      failedToolCount: 0,
+      stepsExecuted: 3,
+      requiresMutation: true,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 2,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          status: "completed",
+          mutating: false,
+          recordedAt: new Date().toISOString(),
+          detail: "src/components/landing/hero/index.tsx",
+        },
+      ],
+    };
+
+    const output = buildAgenticLoopFinalOutput(result);
+
+    expect(output).toContain("I inspected the hero page.");
+    expect(output).toContain("src/components/landing/hero/index.tsx");
+    expect(output).not.toContain("No files were changed in this run.");
+  });
+
+  it("reports zero-action mutation runs as neutral no-change completions", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
       messages: [
         { role: "user", content: "update the footer copy" },
         { role: "assistant", content: "Done." },
@@ -794,21 +829,17 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalMessage(result);
 
-    expect(output.metadata).toMatchObject({
-      code: TASK_MODEL_NO_ACTION_CODE,
-      retryable: true,
-      resumeActions: ["retry", "switch_model"],
-    });
-    expect(output.text).toContain(
+    expect(output.metadata).toBeUndefined();
+    expect(output.text).toContain("No files were changed in this run.");
+    expect(output.text).not.toContain(
       "The model did not return a usable next action for this edit request.",
     );
-    expect(output.text).toContain("No file was changed in this run.");
     expect(output.text).not.toContain("more specific target file");
   });
 
   it("preserves substantive clarification text for zero-action mutation runs", () => {
     const result: AgenticLoopResult = {
-      stopReason: "incomplete_mutation",
+      stopReason: "llm_stop",
       messages: [
         { role: "user", content: "update the footer copy" },
         {
