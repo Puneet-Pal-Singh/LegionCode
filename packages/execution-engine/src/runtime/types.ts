@@ -239,7 +239,6 @@ export interface RunMetadata {
       | "max_steps_reached"
       | "budget_exceeded"
       | "llm_stop"
-      | "incomplete_mutation"
       | "tool_error"
       | "cancelled";
     stepsExecuted?: number;
@@ -249,7 +248,7 @@ export interface RunMetadata {
     currentTurnIntent?: "read_only" | "mutation" | "mixed";
     completedMutatingToolCount?: number;
     completedReadOnlyToolCount?: number;
-    recoveryCode?: "INCOMPLETE_MUTATION" | "TASK_MODEL_NO_ACTION";
+    recoveryCode?: "TASK_MODEL_NO_ACTION";
     llmRetryCount?: number;
     terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
     toolLifecycle?: AgenticLoopToolLifecycleEvent[];
@@ -295,7 +294,6 @@ export interface RunContinuationState {
     | "max_steps_reached"
     | "budget_exceeded"
     | "llm_stop"
-    | "incomplete_mutation"
     | "tool_error"
     | "cancelled";
   completedFiles: string[];
