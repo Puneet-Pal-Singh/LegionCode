@@ -130,7 +130,6 @@ function hasRecoveryMetadata(
 
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
   return (
-    code === "INCOMPLETE_MUTATION" ||
     code === "TOOL_EXECUTION_FAILED" ||
     code === "TASK_EXECUTION_TIMEOUT" ||
     code === "TASK_MODEL_NO_ACTION"
@@ -348,10 +347,6 @@ function deriveRecoveryLabel(code: string | undefined): string {
 
   if (code === "TASK_MODEL_NO_ACTION") {
     return "Model stalled";
-  }
-
-  if (code === "INCOMPLETE_MUTATION") {
-    return "Edit incomplete";
   }
 
   if (code === "TOOL_EXECUTION_FAILED") {
