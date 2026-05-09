@@ -60,7 +60,6 @@ export type StopReason =
   | "max_steps_reached"
   | "budget_exceeded"
   | "llm_stop"
-  | "incomplete_mutation"
   | "tool_error"
   | "cancelled";
 
@@ -175,7 +174,6 @@ export class AgenticLoop {
     let encounteredCiLogsAuthorizationBoundary = false;
     let attemptedCiLogsCliFallback = false;
     let stopReason: StopReason | null = null;
-    let correctiveMutationRetryIssued = false;
 
     for (let step = 0; step < this.config.maxSteps; step++) {
       this.stepsExecuted = step + 1;
@@ -212,9 +210,6 @@ export class AgenticLoop {
 
       const progress = buildLoopProgressUpdate({
         isFinalSynthesisStep,
-        requiresMutation,
-        completedMutatingToolCount: this.completedMutatingToolCount,
-        completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       });
       if (progress) {
         await context.onProgress?.(progress);
@@ -238,7 +233,6 @@ export class AgenticLoop {
               requiresMutation,
               completedMutatingToolCount: this.completedMutatingToolCount,
               completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-              correctiveRetryRequested: correctiveMutationRetryIssued,
               explicitCiLogRequest: latestTurnExplicitCiLogRequest,
               encounteredCiLogsAuthorizationBoundary,
               attemptedCiLogsCliFallback,
@@ -269,40 +263,8 @@ export class AgenticLoop {
         console.log(
           `[agentic-loop] LLM finished (no tool calls) at step ${step}`,
         );
-        if (
-          !requiresMutation ||
-          this.completedMutatingToolCount > 0 ||
-          isFinalSynthesisStep
-        ) {
-          stopReason =
-            requiresMutation && this.completedMutatingToolCount === 0
-              ? "incomplete_mutation"
-              : "llm_stop";
-          break;
-        }
-
-        const isOverBudget = await this.isRunOverBudget();
-        if (isOverBudget || correctiveMutationRetryIssued) {
-          await context.onProgress?.({
-            phase: "execution",
-            label: "Run incomplete",
-            summary:
-              "No file changed before the run stopped, so the edit remains incomplete.",
-            status: "completed",
-          });
-          stopReason = "incomplete_mutation";
-          break;
-        }
-
-        correctiveMutationRetryIssued = true;
-        await context.onProgress?.({
-          phase: "execution",
-          label: "Corrective retry",
-          summary:
-            "No file changed yet. Requesting one concrete mutation before ending the run.",
-          status: "active",
-        });
-        continue;
+        stopReason = "llm_stop";
+        break;
       }
 
       // Execute requested tools
@@ -687,7 +649,6 @@ function buildAgenticLoopSystemPrompt(input: {
   requiresMutation: boolean;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
-  correctiveRetryRequested: boolean;
   explicitCiLogRequest: boolean;
   encounteredCiLogsAuthorizationBoundary: boolean;
   attemptedCiLogsCliFallback: boolean;
@@ -729,10 +690,9 @@ function buildAgenticLoopSystemPrompt(input: {
   if (input.requiresMutation) {
     sections.push(
       [
-        "Editing rule:",
-        "- The user asked you to change the workspace, not only inspect it.",
-        "- Do not claim success until a mutating tool such as write_file has completed successfully.",
-        "- After enough inspection, choose the best concrete file and make the change.",
+        "Edit-reporting rule:",
+        "- If you change files, reference the concrete files or git facts you actually observed.",
+        "- If you did not change files, say so plainly and do not claim that files were updated or improved.",
       ].join("\n"),
     );
   }
@@ -767,32 +727,6 @@ function buildAgenticLoopSystemPrompt(input: {
     }
   }
 
-  if (
-    input.requiresMutation &&
-    input.completedMutatingToolCount === 0 &&
-    input.completedReadOnlyToolCount >= 4
-  ) {
-    sections.push(
-      [
-        "Progress correction:",
-        "- You have already used several read-only tools without making the requested change.",
-        "- Stop broad inspection and attempt the concrete edit now unless the target is still genuinely unknown.",
-        "- If you still cannot identify the right file, say that explicitly in the final answer instead of claiming completion.",
-      ].join("\n"),
-    );
-  }
-
-  if (input.correctiveRetryRequested) {
-    sections.push(
-      [
-        "Corrective retry:",
-        "- The last response stopped without changing any files.",
-        "- You must now either call a concrete mutating tool or clearly admit that no file was changed.",
-        "- Do not end with a success claim unless a mutating tool succeeds in this run.",
-      ].join("\n"),
-    );
-  }
-
   if (input.finalSynthesisOnly) {
     const finalStepRules = [
       "Final step rule:",
@@ -800,15 +734,6 @@ function buildAgenticLoopSystemPrompt(input: {
       "- Synthesize what you have already learned into the best truthful answer you can.",
       "- If the task is incomplete, say what you checked, what you found, and what remains uncertain.",
     ];
-
-    if (input.requiresMutation && input.completedMutatingToolCount === 0) {
-      finalStepRules.push(
-        "- The requested change is not complete because no mutating tool succeeded.",
-      );
-      finalStepRules.push(
-        "- Do not claim that files were updated or improved unless a mutating tool actually succeeded.",
-      );
-    }
 
     sections.push(finalStepRules.join("\n"));
   }
@@ -1043,9 +968,6 @@ function normalizeStandaloneToolCallMarkup(text: string): string {
 
 function buildLoopProgressUpdate(input: {
   isFinalSynthesisStep: boolean;
-  requiresMutation: boolean;
-  completedMutatingToolCount: number;
-  completedReadOnlyToolCount: number;
 }): {
   phase: "planning" | "execution" | "synthesis";
   label: string;
@@ -1054,19 +976,6 @@ function buildLoopProgressUpdate(input: {
 } | null {
   if (input.isFinalSynthesisStep) {
     return null;
-  }
-
-  if (
-    input.requiresMutation &&
-    input.completedMutatingToolCount === 0 &&
-    input.completedReadOnlyToolCount > 0
-  ) {
-    return {
-      phase: "execution",
-      label: "Thinking",
-      summary: "",
-      status: "active",
-    };
   }
 
   return {
