@@ -1,4 +1,12 @@
 import {
+  Undo2,
+  ArrowUpRight,
+  Maximize2,
+  Minimize2,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -55,6 +63,7 @@ interface ChatMessageProps {
   message: Message;
   metadata?: ChatMessageMetadata;
   onArtifactOpen?: (path: string, content: string) => void;
+  onReviewOpen?: () => void;
   changedFilesSummary?: ChangedFilesSummary;
 }
 
@@ -62,6 +71,7 @@ export function ChatMessage({
   message,
   metadata,
   onArtifactOpen,
+  onReviewOpen,
   changedFilesSummary,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
@@ -227,6 +237,7 @@ export function ChatMessage({
           <ChangedFilesCard
             files={changedFilesSummary.files}
             loadFileDiff={changedFilesSummary.loadFileDiff}
+            onReviewOpen={onReviewOpen}
           />
         )}
 
@@ -268,40 +279,74 @@ export function ChatMessage({
 function ChangedFilesCard({
   files,
   loadFileDiff,
+  onReviewOpen,
 }: {
   files: FileStatus[];
   loadFileDiff?: (file: FileStatus) => Promise<DiffContent>;
+  onReviewOpen?: () => void;
 }) {
-  const [expandedPath, setExpandedPath] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const diffStates = useChangedFileDiffStates(files, loadFileDiff);
   const totals = calculateChangedFileTotals(files, diffStates);
-  const fileCountLabel = files.length === 1 ? "Changed file" : "Changed files";
+  const fileCountLabel = files.length === 1 ? "file changed" : "files changed";
+
+  const togglePath = (path: string) => {
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
 
   return (
-    <div className="mt-5 space-y-3">
-      <div className="flex items-center gap-3 text-sm font-semibold text-zinc-100">
-        <span>
-          {files.length} {fileCountLabel}
-        </span>
-        {files.length > 1 ? (
+    <div className="mt-5 overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+      {/* Header */}
+      <div className={cn("flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/30 px-4 py-2.5", !isExpanded && "border-b-0")}>
+        <div className="flex items-center gap-3 text-sm font-semibold text-zinc-100">
+          <span>
+            {files.length} {fileCountLabel}
+          </span>
           <ChangeStats additions={totals.additions} deletions={totals.deletions} />
-        ) : null}
+        </div>
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+            onClick={onReviewOpen}
+          >
+            <span>Review</span>
+            <ArrowUpRight size={14} />
+          </button>
+          <button
+            type="button"
+            className="text-zinc-500 transition-colors hover:text-zinc-300"
+            onClick={() => setIsExpanded(!isExpanded)}
+            title={isExpanded ? "Collapse files" : "Expand files"}
+          >
+            {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+        </div>
       </div>
-      <div className="overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
-        {files.map((file) => (
-          <ChangedFileRow
-            key={file.path}
-            file={file}
-            diffState={diffStates[file.path]}
-            isExpanded={expandedPath === file.path}
-            onToggle={() =>
-              setExpandedPath((currentPath) =>
-                currentPath === file.path ? null : file.path,
-              )
-            }
-          />
-        ))}
-      </div>
+
+      {/* Files List */}
+      {isExpanded && (
+        <div className="divide-y divide-zinc-800/80">
+          {files.map((file) => (
+            <ChangedFileRow
+              key={file.path}
+              file={file}
+              diffState={diffStates[file.path]}
+              isExpanded={expandedPaths.has(file.path)}
+              onToggle={() => togglePath(file.path)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -407,7 +452,7 @@ function ChangedFileRow({
         </span>
         <ChangeStats additions={stats.additions} deletions={stats.deletions} />
         <span className="text-zinc-600" aria-hidden="true">
-          {isExpanded ? "⌃" : "›"}
+          {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </span>
       </button>
       {isExpanded ? <ChangedFileInlineDiff diffState={diffState} /> : null}
