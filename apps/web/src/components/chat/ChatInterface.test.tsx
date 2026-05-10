@@ -258,7 +258,7 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("1 Changed file")).toBeInTheDocument();
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
       expect(screen.getByText("index.tsx")).toBeInTheDocument();
       expect(screen.getByText("+5")).toBeInTheDocument();
       expect(screen.getByText("-1")).toBeInTheDocument();

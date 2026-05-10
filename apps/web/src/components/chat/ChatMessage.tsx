@@ -310,7 +310,9 @@ function ChangedFilesCard({
           <span>
             {files.length} {fileCountLabel}
           </span>
-          <ChangeStats additions={totals.additions} deletions={totals.deletions} />
+          {files.length > 1 && (
+            <ChangeStats additions={totals.additions} deletions={totals.deletions} />
+          )}
         </div>
         <div className="flex items-center gap-4">
           <button
