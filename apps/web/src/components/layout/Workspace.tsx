@@ -456,6 +456,13 @@ export function Workspace({
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("files");
               }}
+              onReviewOpen={() => {
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("review");
+                setIsViewingContent(false);
+                setSelectedFile(null);
+                setSelectedDiff(null);
+              }}
             />
           )}
         </main>
