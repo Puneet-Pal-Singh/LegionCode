@@ -732,6 +732,29 @@ describe("RunAgenticLoopPolicy", () => {
     expect(run.metadata.agenticLoop?.llmRetryCount).toBe(0);
   });
 
+  it("records TASK_MODEL_NO_ACTION recovery code when no assistant synthesis exists", () => {
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "update footer",
+      sessionId: "session-1",
+    });
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [{ role: "user", content: "update footer" }],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: true,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      toolLifecycle: [],
+    };
+
+    recordAgenticLoopMetadata(run, result);
+
+    expect(run.metadata.agenticLoop?.recoveryCode).toBe("TASK_MODEL_NO_ACTION");
+  });
+
   it("raises the default max steps to support repo discovery flows", () => {
     expect(getAgenticLoopMaxSteps()).toBe(25);
   });
@@ -771,7 +794,7 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("more specific target file");
   });
 
-  it("preserves useful no-change advisory text for mutation-scoped turns", () => {
+  it("replaces arbitrary inspection text with explicit no-change evidence for mutation-scoped turns", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -805,9 +828,11 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalOutput(result);
 
-    expect(output).toContain("I inspected the hero page.");
-    expect(output).toContain("src/components/landing/hero/index.tsx");
-    expect(output).not.toContain("No files were changed in this run.");
+    expect(output).toContain("No files were changed in this run.");
+    expect(output).toContain(
+      "Before the run stopped, I completed 1 inspection step(s) to gather workspace evidence.",
+    );
+    expect(output).not.toContain("I inspected the hero page.");
   });
 
   it("reports zero-action mutation runs as neutral no-change completions", () => {
@@ -864,6 +889,35 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output.text).toContain(
       "Which file should I update for the footer copy, or do you want me to choose one?",
     );
+  });
+
+  it("preserves explicit blocker text for zero-action mutation runs", () => {
+    const result: AgenticLoopResult = {
+      stopReason: "llm_stop",
+      messages: [
+        { role: "user", content: "continue pushing?" },
+        {
+          role: "assistant",
+          content: "I still need file mutation evidence before push actions.",
+        },
+      ],
+      toolExecutionCount: 0,
+      failedToolCount: 0,
+      stepsExecuted: 1,
+      requiresMutation: true,
+      completedMutatingToolCount: 0,
+      completedReadOnlyToolCount: 0,
+      llmRetryCount: 0,
+      toolLifecycle: [],
+    };
+
+    const output = buildAgenticLoopFinalMessage(result);
+
+    expect(output.metadata).toBeUndefined();
+    expect(output.text).toContain(
+      "I still need file mutation evidence before push actions.",
+    );
+    expect(output.text).not.toContain("No files were changed in this run.");
   });
 
   it("ignores raw standalone tool-call markup when extracting assistant text", () => {

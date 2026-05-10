@@ -499,8 +499,15 @@ function buildToolExecutionFailedMetadata(
 }
 
 function deriveAgenticLoopRecoveryCode(
-  _result: AgenticLoopResult,
+  result: AgenticLoopResult,
 ): typeof TASK_MODEL_NO_ACTION_CODE | undefined {
+  if (
+    result.stopReason === "llm_stop" &&
+    !getLastAssistantText(result.messages)
+  ) {
+    return TASK_MODEL_NO_ACTION_CODE;
+  }
+
   return undefined;
 }
 
@@ -568,32 +575,21 @@ function shouldPreserveNoMutationAssistantText(text: string | null): boolean {
     return true;
   }
 
-  return !looksLikeMutationCompletionClaim(text);
-}
-
-function looksLikeMutationCompletionClaim(text: string): boolean {
   const normalized = text.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-
-  if (
-    /^(?:done|all set|complete|completed|finished|fixed|updated)[.!]*$/.test(
-      normalized,
-    )
-  ) {
-    return true;
-  }
-
-  const completionMutationSignals = [
-    /\bi(?:'|’)ve\s+(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
-    /\bi have\s+(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
-    /\bi\s+(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
-    /\b(?:done|all set|completed|finished)\b[\s\S]{0,120}\b(?:updated|changed|modified|fixed|implemented|wrote|created|added|removed|renamed|replaced)\b/,
-    /\b(?:file|files|code|component|page|section|copy)\s+(?:was|were|has been|have been|is now|are now)\s+(?:updated|changed|modified|fixed|implemented|written|created|added|removed|renamed|replaced)\b/,
+  const explicitBlockerSignals = [
+    "approval",
+    "authorization",
+    "cannot continue",
+    "can't continue",
+    "could not continue",
+    "must approve",
+    "scope decision",
+    "still need",
+    "need file mutation evidence",
+    "blocked",
   ];
 
-  return completionMutationSignals.some((pattern) => pattern.test(normalized));
+  return explicitBlockerSignals.some((signal) => normalized.includes(signal));
 }
 
 function getLatestToolLifecycle(
