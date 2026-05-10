@@ -111,7 +111,17 @@ function AppContent() {
   const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
     usePendingApprovalStateBySession();
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
-  const [activeTab, setActiveTab] = useState<TabType>("files");
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    try {
+      const stored = localStorage.getItem("shadowbox_active_tab");
+      if (stored === "review" || stored === "changes" || stored === "files") {
+        return stored as TabType;
+      }
+    } catch (error) {
+      console.warn("[App] Failed to read active tab state:", error);
+    }
+    return "files";
+  });
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] =
     useState<SettingsSection>("general");
@@ -424,6 +434,10 @@ function AppContent() {
       String(isRightSidebarOpen),
     );
   }, [isRightSidebarOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("shadowbox_active_tab", activeTab);
+  }, [activeTab]);
 
   // Check if current session has a pending query or messages
   const hasPendingQuery = activeSessionId
