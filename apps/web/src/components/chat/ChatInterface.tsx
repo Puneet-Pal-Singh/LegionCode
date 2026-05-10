@@ -200,6 +200,7 @@ interface ChatInterfaceProps {
   onPermissionModeChange?: (mode: ProductMode) => void;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   onArtifactOpen?: (path: string, content: string) => void;
+  onReviewOpen?: () => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
@@ -214,6 +215,7 @@ export function ChatInterface({
   onPermissionModeChange,
   onPendingApprovalChange,
   onArtifactOpen,
+  onReviewOpen,
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
@@ -861,6 +863,7 @@ export function ChatInterface({
                   message={entry.message}
                   metadata={messageMetadataById[entry.message.id]}
                   onArtifactOpen={onArtifactOpen}
+                  onReviewOpen={onReviewOpen}
                   changedFilesSummary={resolveChangedFilesSummary({
                     messageId: entry.message.id,
                     latestAssistantMessageId,

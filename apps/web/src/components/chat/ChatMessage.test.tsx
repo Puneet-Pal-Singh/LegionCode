@@ -151,7 +151,7 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} changedFilesSummary={{ files }} />);
 
-    expect(screen.getByText("2 Changed files")).toBeInTheDocument();
+    expect(screen.getByText(/2 files changed/i)).toBeInTheDocument();
     expect(screen.getByText("+14")).toBeInTheDocument();
     expect(screen.getAllByText("-2").length).toBeGreaterThan(0);
     expect(screen.getByText("ChatMessage.tsx")).toBeInTheDocument();
@@ -463,7 +463,7 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} changedFilesSummary={{ files }} />);
 
-    expect(screen.getByText("1 Changed file")).toBeInTheDocument();
+    expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
     expect(screen.getAllByText("+1")).toHaveLength(1);
     expect(screen.getAllByText("-1")).toHaveLength(1);
   });
