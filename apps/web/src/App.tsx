@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSessionManager } from "./hooks/useSessionManager";
 import { AgentSidebar } from "./components/layout/AgentSidebar";
 import { Workspace } from "./components/layout/Workspace";
+import { TabType } from "./components/layout/workspace/useWorkspaceState";
 import { AgentSetup } from "./components/agent/AgentSetup";
 import { TopNavBar } from "./components/layout/TopNavBar";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -110,6 +111,7 @@ function AppContent() {
   const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
     usePendingApprovalStateBySession();
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
+  const [activeTab, setActiveTab] = useState<TabType>("files");
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] =
     useState<SettingsSection>("general");
@@ -630,10 +632,14 @@ function AppContent() {
   };
 
   const handleOpenReviewSidebar = () => {
-    setIsGitReviewOpen(false);
-    setGitReviewSessionId(null);
-    setIsRightSidebarOpen(true);
-    focusReviewSidebar();
+    if (isRightSidebarOpen && activeTab === "review") {
+      setIsRightSidebarOpen(false);
+    } else {
+      setIsGitReviewOpen(false);
+      setGitReviewSessionId(null);
+      setIsRightSidebarOpen(true);
+      focusReviewSidebar();
+    }
   };
 
   const handleToggleRightSidebar = () => {
@@ -868,6 +874,7 @@ function AppContent() {
                     setIsGitReviewOpen(open);
                     setGitReviewSessionId(open ? activeSessionId : null);
                   }}
+                  onTabChange={setActiveTab}
                 />
               </motion.div>
             ) : isPreparingSetupShell ? (

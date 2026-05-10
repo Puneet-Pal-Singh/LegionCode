@@ -1,5 +1,4 @@
 import {
-  Undo2,
   ArrowUpRight,
   Maximize2,
   Minimize2,

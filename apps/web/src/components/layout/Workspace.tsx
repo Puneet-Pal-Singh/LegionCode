@@ -18,6 +18,7 @@ import { useGitHubTree } from "./workspace/useGitHubTree";
 import { useFileLoader } from "./workspace/useFileLoader";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
+import { TabType } from "./workspace/useWorkspaceState";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
 import {
   loadStoredProductMode,
@@ -42,6 +43,7 @@ interface WorkspaceProps {
   reviewSidebarFocusRequest?: number;
   isGitReviewOpen?: boolean;
   onGitReviewOpenChange?: (open: boolean) => void;
+  onTabChange?: (tab: TabType) => void;
 }
 
 export function Workspace({
@@ -58,6 +60,7 @@ export function Workspace({
   reviewSidebarFocusRequest = 0,
   isGitReviewOpen = false,
   onGitReviewOpenChange,
+  onTabChange,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
@@ -87,6 +90,10 @@ export function Workspace({
     isLoadingContent,
     setIsLoadingContent,
   } = useWorkspaceState();
+
+  useEffect(() => {
+    onTabChange?.(activeTab);
+  }, [activeTab, onTabChange]);
 
   const {
     repoTree,
