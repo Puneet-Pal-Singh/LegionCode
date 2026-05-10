@@ -26,7 +26,7 @@ export function useWorkspaceState() {
     localStorage.setItem("shadowbox_active_tab", activeTab);
   }, [activeTab]);
 
-  const [sidebarWidth, setSidebarWidth] = useState(440);
+  const [sidebarWidth, setSidebarWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
 
   // Content view states
