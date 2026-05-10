@@ -501,8 +501,8 @@ describe("ActivityFeedViewModel", () => {
           createdAt: "2026-03-24T10:00:01.000Z",
           updatedAt: "2026-03-24T10:00:01.000Z",
           source: "brain",
-          label: "Corrective retry",
-          summary: "No file changed yet. Requesting one concrete mutation.",
+          label: "Thinking",
+          summary: "Inspecting the workspace before answering.",
           phase: "execution",
           status: "active",
         },
@@ -531,7 +531,7 @@ describe("ActivityFeedViewModel", () => {
         (row) =>
           row.kind === "reasoning" &&
           row.summary ===
-            "No file changed yet. Requesting one concrete mutation.",
+            "Inspecting the workspace before answering.",
       ),
     ).toBe(true);
     expect(

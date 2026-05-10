@@ -20,9 +20,7 @@ export function resolveLoopTerminalState(input: {
     return RUN_TERMINAL_STATES.FAILED_TOOL;
   }
   if (
-    code === "INCOMPLETE_MUTATION" ||
     code === "TASK_MODEL_NO_ACTION" ||
-    input.loopResult.stopReason === "incomplete_mutation" ||
     input.loopResult.stopReason === "max_steps_reached" ||
     input.loopResult.stopReason === "budget_exceeded"
   ) {

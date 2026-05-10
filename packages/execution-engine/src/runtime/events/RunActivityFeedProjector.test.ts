@@ -150,8 +150,8 @@ describe("RunActivityFeedProjector", () => {
         }),
         createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
           phase: "execution",
-          label: "Corrective retry",
-          summary: "No file changed yet. Requesting one concrete mutation.",
+          label: "Thinking",
+          summary: "Inspecting the workspace before answering.",
           status: "active",
         }),
         createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
@@ -169,8 +169,8 @@ describe("RunActivityFeedProjector", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: ACTIVITY_PART_KINDS.REASONING,
-          label: "Corrective retry",
-          summary: "No file changed yet. Requesting one concrete mutation.",
+          label: "Thinking",
+          summary: "Inspecting the workspace before answering.",
         }),
         expect.objectContaining({
           kind: ACTIVITY_PART_KINDS.COMMENTARY,

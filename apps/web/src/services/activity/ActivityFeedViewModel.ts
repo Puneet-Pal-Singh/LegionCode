@@ -450,7 +450,9 @@ function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
 function isThinkingReasoningRow(
   row: ActivityFeedRowViewModel | undefined,
 ): row is ActivityReasoningRowViewModel {
-  return row?.kind === "reasoning" && row.label === "Thinking";
+  return (
+    row?.kind === "reasoning" && row.label === "Thinking" && row.summary === ""
+  );
 }
 
 function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
@@ -574,15 +576,11 @@ function shouldDisplayTextRow(
     return false;
   }
 
-  // The activity transcript only promotes terminal recovery/incomplete messages.
+  // The activity transcript only promotes terminal recovery messages.
   // Normal assistant replies stay in the main chat transcript instead of duplicating here.
   const code =
     typeof item.metadata?.code === "string" ? item.metadata.code : undefined;
-  return (
-    code === "INCOMPLETE_MUTATION" ||
-    code === "TASK_EXECUTION_TIMEOUT" ||
-    code === "TASK_MODEL_NO_ACTION"
-  );
+  return code === "TASK_EXECUTION_TIMEOUT" || code === "TASK_MODEL_NO_ACTION";
 }
 
 function createLegacyCommentaryRow(
@@ -745,7 +743,9 @@ function isGenericPlanningReasoningSummary(
     { kind: typeof ACTIVITY_PART_KINDS.REASONING }
   >["phase"],
 ): boolean {
-  return phase === "planning" && GENERIC_PLANNING_REASONING_SUMMARIES.has(summary);
+  return (
+    phase === "planning" && GENERIC_PLANNING_REASONING_SUMMARIES.has(summary)
+  );
 }
 
 function isGenericSynthesisReasoningSummary(

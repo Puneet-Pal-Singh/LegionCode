@@ -84,12 +84,13 @@ async function handleTaskTimeoutRecovery(
 ): Promise<Response> {
   const { run, deps } = input;
   const context = buildTaskExecutionRecoveryContext(input);
-  const timeoutDetails = buildTaskTimeoutDetails(input.run, input.error, context);
+  const timeoutDetails = buildTaskTimeoutDetails(
+    input.run,
+    input.error,
+    context,
+  );
   const text = buildTaskExecutionTimeoutMessage({
-    requiresMutation: context.requiresMutation,
-    noFileChanged:
-      !context.requiresMutation ||
-      context.stats.completedMutatingToolCount === 0,
+    noFileChanged: context.stats.completedMutatingToolCount === 0,
     toolExecutionCount: context.stats.toolExecutionCount,
     stepsExecuted: context.stats.stepsExecuted,
     timeoutMs: timeoutDetails.timeoutMs,
@@ -122,13 +123,8 @@ async function handleUnusableResponseRecovery(
   const terminalLlmIssue =
     context.stats.terminalLlmIssue ??
     buildTerminalLlmIssueFromError(error, context.stats.llmRetryCount);
-  const recoveryStopReason =
-    context.requiresMutation && context.stats.completedMutatingToolCount === 0
-      ? "incomplete_mutation"
-      : "llm_stop";
-
   recordRecoveredAgenticLoopMetadata(run, {
-    stopReason: recoveryStopReason,
+    stopReason: "llm_stop",
     stepsExecuted: context.stats.stepsExecuted,
     toolExecutionCount: context.stats.toolExecutionCount,
     failedToolCount: context.stats.failedToolCount,
@@ -174,10 +170,7 @@ async function handleProviderUnavailableRecovery(
     context,
   );
   const text = buildProviderUnavailableMessage({
-    requiresMutation: context.requiresMutation,
-    noFileChanged:
-      !context.requiresMutation ||
-      context.stats.completedMutatingToolCount === 0,
+    noFileChanged: context.stats.completedMutatingToolCount === 0,
     toolExecutionCount: context.stats.toolExecutionCount,
     stepsExecuted: context.stats.stepsExecuted,
     providerId: details.providerId,
@@ -247,7 +240,6 @@ function isRecoverableProviderUnavailable(error: unknown): boolean {
 }
 
 function buildTaskExecutionTimeoutMessage(input: {
-  requiresMutation: boolean;
   noFileChanged: boolean;
   toolExecutionCount: number;
   stepsExecuted: number;
@@ -279,19 +271,12 @@ function buildTaskExecutionTimeoutMessage(input: {
     `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
   );
 
-  if (input.requiresMutation) {
-    lines.push(
-      "Retry this task with a more specific file or component target, or switch to a faster or more reliable model.",
-    );
-  } else {
-    lines.push("Retry the task or switch to a faster or more reliable model.");
-  }
+  lines.push("Retry the task or switch to a faster or more reliable model.");
 
   return lines.join("\n");
 }
 
 function buildProviderUnavailableMessage(input: {
-  requiresMutation: boolean;
   noFileChanged: boolean;
   toolExecutionCount: number;
   stepsExecuted: number;
@@ -319,13 +304,7 @@ function buildProviderUnavailableMessage(input: {
       : "The run made partial progress before the provider interruption.",
     `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
   );
-  if (input.requiresMutation) {
-    lines.push(
-      "Retry with a specific file target, or switch to another provider/model and retry.",
-    );
-  } else {
-    lines.push("Retry the request, or switch to another provider/model.");
-  }
+  lines.push("Retry the request, or switch to another provider/model.");
 
   return lines.join("\n");
 }
@@ -423,7 +402,9 @@ function buildProviderUnavailableDetails(
       run.metadata.manifest?.modelId ?? run.input.modelId ?? null,
     ),
     statusCode: resolveProviderStatusCode(error),
-    lastCompletedAction: describeLastCompletedAction(context.stats.toolLifecycle),
+    lastCompletedAction: describeLastCompletedAction(
+      context.stats.toolLifecycle,
+    ),
     signal: getBoundedErrorSignal(error),
   };
 }
