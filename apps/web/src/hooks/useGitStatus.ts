@@ -64,7 +64,7 @@ export function useGitStatus(
     }
 
     const retryAfter = retryAfterByRunId.get(cacheKey);
-    if (retryAfter && Date.now() < retryAfter) {
+    if (!force && retryAfter && Date.now() < retryAfter) {
       return;
     }
 
