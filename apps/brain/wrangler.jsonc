@@ -5,7 +5,7 @@
   "compatibility_date": "2025-05-06",
   "compatibility_flags": ["nodejs_compat"],
   "limits": {
-    "cpu_ms": 20000
+    "cpu_ms": 20000,
   },
 
   // 1. Enable Cloudflare Workers AI (Free Tier Llama-3)
@@ -113,4 +113,16 @@
       "database_id": "73d62c9e-12ad-48a4-a9c5-1ac976d1bd2b",
     },
   ],
+
+  "r2_buckets": [
+    {
+      "binding": "EDIT_ARTIFACTS",
+      "bucket_name": "shadowbox-artifacts",
+      "remote": true,
+    },
+  ],
+
+  "triggers": {
+    "crons": ["0 3 * * *"],
+  },
 }
