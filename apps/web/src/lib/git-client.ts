@@ -23,6 +23,7 @@ import {
   gitStagePath,
   gitStatusPath,
 } from "./platform-endpoints.js";
+import { observeRuntimeBootId } from "./runtime-boot-monitor.js";
 
 interface GitRequestContext {
   runId: string;
@@ -246,6 +247,7 @@ export async function getGitStatus(
     );
   }
 
+  observeRuntimeBootId(response.headers.get("X-Shadowbox-Runtime-Boot-Id"));
   const payload = (await response.json()) as unknown;
   return normalizeGitStatusResponse(payload);
 }
