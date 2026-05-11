@@ -39,6 +39,7 @@ export function ChangesPanel({
     status,
     gitAvailable,
     statusLoading,
+    isGitWorkspaceRecovering,
     statusError,
     diff,
     diffLoading,
@@ -91,6 +92,14 @@ export function ChangesPanel({
   }
 
   if (!gitAvailable) {
+    if (statusLoading || isGitWorkspaceRecovering) {
+      return (
+        <div className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}>
+          Recovering workspace after restart...
+        </div>
+      );
+    }
+
     return (
       <div className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}>
         Git is not available for this workspace yet. Connect or initialize a
