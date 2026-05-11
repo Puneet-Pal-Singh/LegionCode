@@ -33,6 +33,7 @@ interface GitReviewProviderProps {
   children: React.ReactNode;
   isReviewOpen: boolean;
   onReviewOpenChange: (open: boolean) => void;
+  isGitWorkspaceRecovering?: boolean;
 }
 
 export type ReviewScope = "git-changes";
@@ -41,6 +42,7 @@ interface GitReviewContextValue {
   status: GitStatusResponse | null;
   gitAvailable: boolean;
   statusLoading: boolean;
+  isGitWorkspaceRecovering: boolean;
   statusError: string | null;
   diff: DiffContent | null;
   diffError: string | null;
@@ -96,6 +98,7 @@ export function GitReviewProvider({
   children,
   isReviewOpen,
   onReviewOpenChange,
+  isGitWorkspaceRecovering = false,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
 
@@ -494,6 +497,7 @@ export function GitReviewProvider({
     status,
     gitAvailable,
     statusLoading,
+    isGitWorkspaceRecovering,
     statusError,
     diff,
     diffError,
