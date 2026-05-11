@@ -5,6 +5,7 @@ import type {
   Fetcher,
   KVNamespace,
   D1Database,
+  R2Bucket,
 } from "@cloudflare/workers-types";
 
 export interface Env {
@@ -14,6 +15,7 @@ export interface Env {
 
   // ✅ D1 Database for BYOK (Plan 81)
   BYOK_DB: D1Database;
+  EDIT_ARTIFACTS?: R2Bucket;
 
   // ✅ New Keys required for Vercel AI SDK
   GOOGLE_GENERATIVE_AI_API_KEY?: string;
