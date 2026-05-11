@@ -65,10 +65,13 @@ export function Workspace({
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
+  const workspaceBootstrapRecoveryKeyRef = useRef<string | null>(null);
   const previousChatLoadingRef = useRef(false);
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const sandboxId = sessionId;
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [isGitWorkspaceRecovering, setIsGitWorkspaceRecovering] =
+    useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
@@ -127,7 +130,11 @@ export function Workspace({
     productMode,
   );
   const { summary: runSummary } = useRunSummary(activeRunId, true);
-  const { status, refetch: refetchGitStatus } = useGitStatus(
+  const {
+    status,
+    gitAvailable,
+    refetch: refetchGitStatus,
+  } = useGitStatus(
     activeRunId,
     sessionId,
   );
@@ -334,14 +341,27 @@ export function Workspace({
     }
 
     const bootstrapKey = `${sessionId}:${activeRunId}:${repositoryOwner}/${repositoryName}:${repositoryBranch}`;
+    const shouldRecoverGitWorkspace = gitAvailable === false;
     if (
-      workspaceBootstrapKeyRef.current === bootstrapKey ||
+      (!shouldRecoverGitWorkspace &&
+        workspaceBootstrapKeyRef.current === bootstrapKey) ||
       workspaceBootstrapInFlightRef.current === bootstrapKey
     ) {
       return;
     }
 
+    if (
+      shouldRecoverGitWorkspace &&
+      workspaceBootstrapRecoveryKeyRef.current === bootstrapKey
+    ) {
+      return;
+    }
+
     workspaceBootstrapInFlightRef.current = bootstrapKey;
+    if (shouldRecoverGitWorkspace) {
+      workspaceBootstrapRecoveryKeyRef.current = bootstrapKey;
+      setIsGitWorkspaceRecovering(true);
+    }
     const bootstrap = async (): Promise<void> => {
       let bootstrapReady = false;
       try {
@@ -356,6 +376,7 @@ export function Workspace({
         if (result.status === "ready") {
           bootstrapReady = true;
           workspaceBootstrapKeyRef.current = bootstrapKey;
+          workspaceBootstrapRecoveryKeyRef.current = null;
         }
         if (result.status !== "ready" && result.message) {
           if (result.status === "sync-failed") {
@@ -377,12 +398,16 @@ export function Workspace({
         if (bootstrapReady) {
           await refetchGitStatus(true);
         }
+        if (shouldRecoverGitWorkspace) {
+          setIsGitWorkspaceRecovering(false);
+        }
       }
     };
 
     void bootstrap();
   }, [
     activeRunId,
+    gitAvailable,
     isRunLoading,
     isContextMismatch,
     isGitHubLoaded,
@@ -421,6 +446,7 @@ export function Workspace({
         key={`${sessionId}:${activeRunId}`}
         isReviewOpen={isGitReviewOpen}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
+        isGitWorkspaceRecovering={isGitWorkspaceRecovering}
       >
         <div className="ui-center-surface flex-1 flex overflow-hidden relative">
         {/* Chat Area */}
