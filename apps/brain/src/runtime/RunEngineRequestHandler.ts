@@ -35,6 +35,7 @@ import {
   runEngineJsonResponse,
   withRunEngineHeaders,
 } from "./RunEngineHttpResponse";
+import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
 import type { RealtimeEventPort } from "./ports";
 import {
   enforceGoldenFlowToolFloor,
@@ -336,15 +337,13 @@ export class RunEngineRequestHandler {
     const runRepo = new RunRepository(runtimeState);
     const run = await runRepo.getById(payload.runId);
     if (!run) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Run not found",
-        404,
-      );
+      return runEngineErrorResponse(request, this.env, "Run not found", 404);
     }
 
-    const approvalStore = new PermissionApprovalStore(runtimeState, payload.runId);
+    const approvalStore = new PermissionApprovalStore(
+      runtimeState,
+      payload.runId,
+    );
     const runEventRecorder = new RunEventRecorder(
       new RunEventRepository(runtimeState),
       payload.runId,
@@ -354,7 +353,9 @@ export class RunEngineRequestHandler {
       },
     );
 
-    let decisionResult: Awaited<ReturnType<typeof approvalStore.resolveDecision>>;
+    let decisionResult: Awaited<
+      ReturnType<typeof approvalStore.resolveDecision>
+    >;
     try {
       decisionResult = await approvalStore.resolveDecision(
         {
@@ -380,18 +381,17 @@ export class RunEngineRequestHandler {
           `[run/approval] failed to record ignored approval decision: ${sanitizeUnknownError(recordError)}`,
         );
       }
-      const status =
-        message.includes("No pending approval request")
+      const status = message.includes("No pending approval request")
+        ? 409
+        : message.includes("does not match pending request")
           ? 409
-          : message.includes("does not match pending request")
-            ? 409
-            : message.includes("not allowed for this request")
+          : message.includes("not allowed for this request")
+            ? 400
+            : message.includes("rejected because it is too broad")
               ? 400
-              : message.includes("rejected because it is too broad")
+              : message.includes("authenticated user id")
                 ? 400
-                : message.includes("authenticated user id")
-                  ? 400
-                  : 500;
+                : 500;
       return runEngineErrorResponse(request, this.env, message, status);
     }
 
@@ -457,6 +457,12 @@ export class RunEngineRequestHandler {
           payload,
           { strict: true },
         );
+        const editArtifactCoordinator = createEditArtifactCoordinator({
+          env: this.env,
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+          repositoryContext: payload.input.repositoryContext,
+        });
 
         const runEngine = new RunEngine(
           runtimeState,
@@ -474,6 +480,7 @@ export class RunEngineRequestHandler {
             ...runEngineDeps,
             runEventListener: (event) => {
               this.emitLiveEvent(event);
+              editArtifactCoordinator.handleEvent(event);
             },
           },
         );
@@ -492,6 +499,7 @@ export class RunEngineRequestHandler {
             response: executionResponse,
           });
         }
+        await editArtifactCoordinator.waitForPendingCapture();
 
         return withRunEngineHeaders(request, this.env, executionResponse);
       });
