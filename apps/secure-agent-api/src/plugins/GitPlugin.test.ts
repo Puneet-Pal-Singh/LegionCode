@@ -13,8 +13,8 @@ interface SafeCommandResult {
   stderr: string;
 }
 
-function asSandbox(): Sandbox {
-  return {} as Sandbox;
+function asSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
+  return overrides as Sandbox;
 }
 
 describe("GitPlugin", () => {
@@ -148,6 +148,57 @@ describe("GitPlugin", () => {
     expect(result.error).toContain("read failed");
   });
 
+  it("validates and applies saved edit artifact patches", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    const writeFile = vi.fn(async () => ({ success: true }));
+    runSafeCommandMock
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult)
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      } satisfies SafeCommandResult);
+
+    const plugin = new GitPlugin();
+    const result = await plugin.execute({ writeFile } as unknown as Sandbox, {
+      action: "git_patch_apply",
+      runId: "run_patch_apply_1",
+      patch: "diff --git a/src/app.ts b/src/app.ts\n",
+    });
+
+    expect(result.success).toBe(true);
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/home/sandbox/runs/run_patch_apply_1/.shadowbox/edit-artifact-",
+      ),
+      "diff --git a/src/app.ts b/src/app.ts\n",
+    );
+    const gitApplyCalls = runSafeCommandMock.mock.calls.filter(([, spec]) =>
+      spec.args?.includes("apply"),
+    );
+    expect(gitApplyCalls).toHaveLength(2);
+    expect(gitApplyCalls[0]?.[1].args).toContain("--check");
+  });
+
   it("hydrates commit identity from GitHub token when local identity is missing", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock
@@ -234,12 +285,16 @@ describe("GitPlugin", () => {
       },
     });
 
-    const writeNameArgs = (runSafeCommandMock.mock.calls[3]?.[1] as {
-      args?: string[];
-    }).args;
-    const writeEmailArgs = (runSafeCommandMock.mock.calls[4]?.[1] as {
-      args?: string[];
-    }).args;
+    const writeNameArgs = (
+      runSafeCommandMock.mock.calls[3]?.[1] as {
+        args?: string[];
+      }
+    ).args;
+    const writeEmailArgs = (
+      runSafeCommandMock.mock.calls[4]?.[1] as {
+        args?: string[];
+      }
+    ).args;
     expect(writeNameArgs).toEqual(
       expect.arrayContaining(["config", "user.name", "Puneet Singh"]),
     );
@@ -327,12 +382,16 @@ describe("GitPlugin", () => {
         verified: true,
       },
     });
-    const writeNameArgs = (runSafeCommandMock.mock.calls[3]?.[1] as {
-      args?: string[];
-    }).args;
-    const writeEmailArgs = (runSafeCommandMock.mock.calls[4]?.[1] as {
-      args?: string[];
-    }).args;
+    const writeNameArgs = (
+      runSafeCommandMock.mock.calls[3]?.[1] as {
+        args?: string[];
+      }
+    ).args;
+    const writeEmailArgs = (
+      runSafeCommandMock.mock.calls[4]?.[1] as {
+        args?: string[];
+      }
+    ).args;
     expect(writeNameArgs).toEqual(
       expect.arrayContaining(["config", "user.name", "Puneet Singh"]),
     );
@@ -365,11 +424,18 @@ describe("GitPlugin", () => {
 
     expect(result.success).toBe(true);
     expect(result.output).toBe("Changes pushed");
-    const pushArgs = (runSafeCommandMock.mock.calls[1]?.[1] as {
-      args?: string[];
-    }).args;
+    const pushArgs = (
+      runSafeCommandMock.mock.calls[1]?.[1] as {
+        args?: string[];
+      }
+    ).args;
     expect(pushArgs).toEqual(
-      expect.arrayContaining(["push", "-u", "origin", "HEAD:style/redesign-footer"]),
+      expect.arrayContaining([
+        "push",
+        "-u",
+        "origin",
+        "HEAD:style/redesign-footer",
+      ]),
     );
   });
 
@@ -455,9 +521,11 @@ describe("GitPlugin", () => {
     expect(result.error).toBe(
       "Git commit author could not be written to this workspace before committing.",
     );
-    const rollbackArgs = (runSafeCommandMock.mock.calls[5]?.[1] as {
-      args?: string[];
-    }).args;
+    const rollbackArgs = (
+      runSafeCommandMock.mock.calls[5]?.[1] as {
+        args?: string[];
+      }
+    ).args;
     expect(rollbackArgs).toEqual(
       expect.arrayContaining(["config", "user.name", "Existing User"]),
     );
