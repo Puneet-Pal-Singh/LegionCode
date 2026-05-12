@@ -11,12 +11,17 @@ export function observeRuntimeBootId(bootId: string | null): void {
     return;
   }
 
-  const previousBootId = localStorage.getItem(RUNTIME_BOOT_STORAGE_KEY);
+  const previousBootId = readStoredBootId();
+  if (previousBootId === undefined) {
+    return;
+  }
   if (previousBootId === normalizedBootId) {
     return;
   }
 
-  localStorage.setItem(RUNTIME_BOOT_STORAGE_KEY, normalizedBootId);
+  if (!writeStoredBootId(normalizedBootId)) {
+    return;
+  }
   if (previousBootId) {
     notifyRuntimeBootChanged(normalizedBootId);
   }
@@ -29,7 +34,7 @@ export function subscribeRuntimeBootChanges(
   const handleWindowEvent = (event: Event): void => {
     const detail = (event as CustomEvent<{ bootId?: unknown }>).detail;
     if (typeof detail?.bootId === "string") {
-      listener(detail.bootId);
+      notifyListener(listener, detail.bootId);
     }
   };
   window.addEventListener(RUNTIME_BOOT_CHANGED_EVENT, handleWindowEvent);
@@ -42,12 +47,56 @@ export function subscribeRuntimeBootChanges(
 
 export function _resetRuntimeBootMonitorForTests(): void {
   listeners.clear();
-  localStorage.removeItem(RUNTIME_BOOT_STORAGE_KEY);
+  clearStoredBootId();
 }
 
 function notifyRuntimeBootChanged(bootId: string): void {
-  listeners.forEach((listener) => listener(bootId));
+  listeners.forEach((listener) => notifyListener(listener, bootId));
   window.dispatchEvent(
     new CustomEvent(RUNTIME_BOOT_CHANGED_EVENT, { detail: { bootId } }),
   );
+}
+
+function readStoredBootId(): string | null | undefined {
+  try {
+    return localStorage.getItem(RUNTIME_BOOT_STORAGE_KEY);
+  } catch (error) {
+    console.warn(
+      "[runtime-boot-monitor/observe] Failed to read boot id from localStorage:",
+      error,
+    );
+    return undefined;
+  }
+}
+
+function writeStoredBootId(bootId: string): boolean {
+  try {
+    localStorage.setItem(RUNTIME_BOOT_STORAGE_KEY, bootId);
+    return true;
+  } catch (error) {
+    console.error(
+      "[runtime-boot-monitor/observe] Failed to persist boot id to localStorage:",
+      error,
+    );
+    return false;
+  }
+}
+
+function clearStoredBootId(): void {
+  try {
+    localStorage.removeItem(RUNTIME_BOOT_STORAGE_KEY);
+  } catch (error) {
+    console.warn(
+      "[runtime-boot-monitor/reset] Failed to clear boot id from localStorage:",
+      error,
+    );
+  }
+}
+
+function notifyListener(listener: RuntimeBootListener, bootId: string): void {
+  try {
+    listener(bootId);
+  } catch (error) {
+    console.error("[runtime-boot-monitor/notify] Listener error:", error);
+  }
 }
