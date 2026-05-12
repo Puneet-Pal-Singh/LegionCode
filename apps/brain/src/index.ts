@@ -236,6 +236,8 @@ export default {
     const result = await new EditArtifactRetentionService(
       env,
     ).expireArtifacts();
-    console.log(`[edit-artifacts/retention] expired=${result.expiredCount}`);
+    console.log(
+      `[edit-artifacts/retention] expired=${result.expiredCount} repaired_pending=${result.repairedPendingCount}`,
+    );
   },
 };
