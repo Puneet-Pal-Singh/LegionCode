@@ -551,7 +551,7 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const status = await this.getStatus(
+    const status = await this.ensureGitStatusAvailable(
       sandbox,
       worktree,
       toolboxContext,
@@ -561,6 +561,55 @@ export class GitPlugin implements IPlugin {
       return status;
     }
 
+    const trackedPatch = await this.captureTrackedPatch(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!trackedPatch.success) {
+      return trackedPatch;
+    }
+
+    const untrackedPatch = await this.captureUntrackedPatch(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!untrackedPatch.success) {
+      return untrackedPatch;
+    }
+
+    const metadata = await this.capturePatchMetadata(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+
+    return buildPatchCaptureResult(
+      trackedPatch.output,
+      untrackedPatch.output,
+      metadata,
+    );
+  }
+
+  private async ensureGitStatusAvailable(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    return this.getStatus(sandbox, worktree, toolboxContext, runId);
+  }
+
+  private async captureTrackedPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
     const diffResult = await this.runToolboxCommand(
       sandbox,
       {
@@ -579,20 +628,17 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.patch_capture.diff",
     );
-    if (diffResult.exitCode !== 0) {
-      return { success: false, error: diffResult.stderr };
-    }
+    return diffResult.exitCode === 0
+      ? { success: true, output: diffResult.stdout }
+      : { success: false, error: diffResult.stderr };
+  }
 
-    const untrackedPatch = await this.captureUntrackedPatch(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-    );
-    if (!untrackedPatch.success) {
-      return untrackedPatch;
-    }
-
+  private async capturePatchMetadata(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<{ baseCommitSha: string | null; branch: string | null }> {
     const baseCommitSha = await this.readHeadCommitSha(
       sandbox,
       worktree,
@@ -606,16 +652,7 @@ export class GitPlugin implements IPlugin {
       runId,
     );
 
-    return {
-      success: true,
-      output: JSON.stringify({
-        patch: [diffResult.stdout, untrackedPatch.output]
-          .filter((part) => typeof part === "string" && part.trim().length > 0)
-          .join("\n"),
-        baseCommitSha,
-        branch,
-      }),
-    };
+    return { baseCommitSha, branch };
   }
 
   private async captureUntrackedPatch(
@@ -677,13 +714,54 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    if (!patch || patch.trim().length === 0) {
-      return { success: false, error: "Patch payload is required" };
-    }
-    if (patch.length > 5_000_000) {
-      return { success: false, error: "Patch payload exceeds maximum size" };
+    const patchPayload = validatePatchPayload(patch);
+    if (!patchPayload.success) {
+      return { success: false, error: patchPayload.error };
     }
 
+    const patchPath = await this.writeTemporaryPatch(
+      sandbox,
+      worktree,
+      patchPayload.patch,
+      toolboxContext,
+      runId,
+    );
+    try {
+      const checkResult = await this.checkTemporaryPatch(
+        sandbox,
+        worktree,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+      if (!checkResult.success || dryRun) {
+        return checkResult;
+      }
+
+      return await this.applyTemporaryPatch(
+        sandbox,
+        worktree,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    } finally {
+      await this.deleteTemporaryPatch(
+        sandbox,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    }
+  }
+
+  private async writeTemporaryPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patch: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string> {
     const patchPath = `${worktree}/.shadowbox/edit-artifact-${crypto.randomUUID()}.patch`;
     await this.runToolboxCommand(
       sandbox,
@@ -693,8 +771,17 @@ export class GitPlugin implements IPlugin {
       "git.patch_apply.prepare",
     );
     await sandbox.writeFile(patchPath, patch);
+    return patchPath;
+  }
 
-    const checkResult = await this.runToolboxCommand(
+  private async checkTemporaryPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patchPath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
@@ -705,37 +792,28 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.patch_apply.check",
     );
-    if (checkResult.exitCode !== 0) {
-      await this.deleteTemporaryPatch(
-        sandbox,
-        patchPath,
-        toolboxContext,
-        runId,
-      );
-      return { success: false, error: checkResult.stderr };
-    }
-    if (dryRun) {
-      await this.deleteTemporaryPatch(
-        sandbox,
-        patchPath,
-        toolboxContext,
-        runId,
-      );
-      return { success: true, output: "Patch dry-run succeeded" };
-    }
+    return result.exitCode === 0
+      ? { success: true, output: "Patch dry-run succeeded" }
+      : { success: false, error: result.stderr };
+  }
 
-    const applyResult = await this.runToolboxCommand(
+  private async applyTemporaryPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patchPath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const result = await this.runToolboxCommand(
       sandbox,
       { command: "git", args: ["-C", worktree, "apply", patchPath], runId },
       ["git"],
       toolboxContext,
       "git.patch_apply.apply",
     );
-    await this.deleteTemporaryPatch(sandbox, patchPath, toolboxContext, runId);
-    if (applyResult.exitCode !== 0) {
-      return { success: false, error: applyResult.stderr };
-    }
-    return { success: true, output: "Patch applied" };
+    return result.exitCode === 0
+      ? { success: true, output: "Patch applied" }
+      : { success: false, error: result.stderr };
   }
 
   private async readHeadCommitSha(
@@ -1773,6 +1851,40 @@ function containsIllegalTokenChars(token: string): boolean {
 
 function isNonFastForwardGitPushError(stderr: string): boolean {
   return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
+}
+
+function buildPatchCaptureResult(
+  trackedPatch: unknown,
+  untrackedPatch: unknown,
+  metadata: { baseCommitSha: string | null; branch: string | null },
+): PluginResult {
+  return {
+    success: true,
+    output: JSON.stringify({
+      patch: combinePatchParts(trackedPatch, untrackedPatch),
+      baseCommitSha: metadata.baseCommitSha,
+      branch: metadata.branch,
+    }),
+  };
+}
+
+function combinePatchParts(...parts: unknown[]): string {
+  return parts
+    .filter((part): part is string => typeof part === "string")
+    .filter((part) => part.trim().length > 0)
+    .join("\n");
+}
+
+function validatePatchPayload(
+  patch: string | undefined,
+): { success: true; patch: string } | { success: false; error: string } {
+  if (!patch || patch.trim().length === 0) {
+    return { success: false, error: "Patch payload is required" };
+  }
+  if (patch.length > 5_000_000) {
+    return { success: false, error: "Patch payload exceeds maximum size" };
+  }
+  return { success: true, patch };
 }
 
 function buildNonFastForwardPushError(
