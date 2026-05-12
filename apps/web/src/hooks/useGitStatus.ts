@@ -55,21 +55,13 @@ export function useGitStatus(
         return;
       }
 
-      const cachedStatus = statusCacheByRunId.get(cacheKey);
-      const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
-      if (cachedStatus) {
-        applyStatusSnapshot(cachedStatus);
-        const cacheAgeMs = Date.now() - cachedAt;
-        if (!force && cacheAgeMs < STATUS_CACHE_TTL_MS) {
-          setLoading(false);
-          return;
-        }
-      } else {
-        applyStatusSnapshot(null);
+      const cached = readCachedStatus(cacheKey, force);
+      applyStatusSnapshot(cached.status);
+      if (cached.isFresh) {
+        setLoading(false);
+        return;
       }
-
-      const retryAfter = retryAfterByRunId.get(cacheKey);
-      if (!force && retryAfter && Date.now() < retryAfter) {
+      if (shouldSkipDueToRetry(cacheKey, force)) {
         return;
       }
 
@@ -77,24 +69,19 @@ export function useGitStatus(
       setError(null);
 
       try {
-        const request =
-          inflightByRunId.get(cacheKey) ??
-          createGitStatusRequest(runId, sessionId);
-        inflightByRunId.set(cacheKey, request);
-        const data = await request;
+        const data = await getOrCreateGitStatusRequest(
+          cacheKey,
+          runId,
+          sessionId,
+        );
 
         updateCachedStatus(cacheKey, data);
         retryAfterByRunId.delete(cacheKey);
         applyStatusSnapshot(data);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
+        const message = recordGitStatusFailure(cacheKey, err);
         applyStatusSnapshot(null);
         setError(message);
-        if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
-          console.error("[useGitStatus] Error:", err);
-          lastLoggedErrorByRunId.set(cacheKey, message);
-        }
       } finally {
         setLoading(false);
       }
@@ -145,6 +132,35 @@ export function useGitStatus(
   return { status, gitAvailable, loading, error, refetch: fetchStatus };
 }
 
+function readCachedStatus(
+  cacheKey: string,
+  force: boolean,
+): { status: GitStatusResponse | null; isFresh: boolean } {
+  const status = statusCacheByRunId.get(cacheKey) ?? null;
+  const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
+  const cacheAgeMs = Date.now() - cachedAt;
+  return {
+    status,
+    isFresh: Boolean(status && !force && cacheAgeMs < STATUS_CACHE_TTL_MS),
+  };
+}
+
+function shouldSkipDueToRetry(cacheKey: string, force: boolean): boolean {
+  const retryAfter = retryAfterByRunId.get(cacheKey);
+  return Boolean(!force && retryAfter && Date.now() < retryAfter);
+}
+
+async function getOrCreateGitStatusRequest(
+  cacheKey: string,
+  runId: string,
+  sessionId: string,
+): Promise<GitStatusResponse> {
+  const request =
+    inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
+  inflightByRunId.set(cacheKey, request);
+  return request;
+}
+
 async function createGitStatusRequest(
   runId: string,
   sessionId: string,
@@ -155,6 +171,16 @@ async function createGitStatusRequest(
   } finally {
     inflightByRunId.delete(cacheKey);
   }
+}
+
+function recordGitStatusFailure(cacheKey: string, err: unknown): string {
+  const message = err instanceof Error ? err.message : "Unknown error";
+  retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
+  if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
+    console.error("[useGitStatus] Error:", err);
+    lastLoggedErrorByRunId.set(cacheKey, message);
+  }
+  return message;
 }
 
 function clearGitStatusCache(cacheKey: string): void {
