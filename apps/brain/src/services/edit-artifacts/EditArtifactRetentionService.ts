@@ -23,9 +23,22 @@ export class EditArtifactRetentionService {
       repository,
       now,
     );
-    const expiredArtifacts = await repository.listExpiredArtifacts(now);
+    const expiredCount = await expireArtifacts(repository, objectStore, now);
 
-    for (const artifact of expiredArtifacts) {
+    return { expiredCount, repairedPendingCount };
+  }
+}
+
+async function expireArtifacts(
+  repository: D1EditArtifactRepository,
+  objectStore: EditArtifactObjectStore,
+  now: string,
+): Promise<number> {
+  const expiredArtifacts = await repository.listExpiredArtifacts(now);
+  let expiredCount = 0;
+
+  for (const artifact of expiredArtifacts) {
+    try {
       await objectStore.deletePatch(artifact.r2ObjectKey);
       await repository.updateStatus({
         artifactId: artifact.id,
@@ -38,10 +51,16 @@ export class EditArtifactRetentionService {
         eventType: "expired",
         message: "Expired edit artifact payload removed from R2",
       });
+      expiredCount += 1;
+    } catch (error) {
+      console.error(
+        `[edit-artifacts/retention] Failed to expire artifact ${artifact.id}`,
+        error,
+      );
     }
-
-    return { expiredCount: expiredArtifacts.length, repairedPendingCount };
   }
+
+  return expiredCount;
 }
 
 async function repairStalePendingArtifacts(
@@ -52,21 +71,30 @@ async function repairStalePendingArtifacts(
     pendingRepairCutoff(now),
   );
 
+  let repairedCount = 0;
   for (const artifact of staleArtifacts) {
-    await repository.updateStatus({
-      artifactId: artifact.id,
-      status: "capture_failed",
-    });
-    await repository.appendEvent({
-      id: crypto.randomUUID(),
-      artifactId: artifact.id,
-      runId: artifact.runId,
-      eventType: "capture_failed",
-      message: "Pending edit artifact capture exceeded repair window",
-    });
+    try {
+      await repository.updateStatus({
+        artifactId: artifact.id,
+        status: "capture_failed",
+      });
+      await repository.appendEvent({
+        id: crypto.randomUUID(),
+        artifactId: artifact.id,
+        runId: artifact.runId,
+        eventType: "capture_failed",
+        message: "Pending edit artifact capture exceeded repair window",
+      });
+      repairedCount += 1;
+    } catch (error) {
+      console.error(
+        `[edit-artifacts/retention] Failed to repair stale artifact ${artifact.id}`,
+        error,
+      );
+    }
   }
 
-  return staleArtifacts.length;
+  return repairedCount;
 }
 
 function pendingRepairCutoff(now: string): string {
