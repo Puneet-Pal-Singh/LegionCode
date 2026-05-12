@@ -1,4 +1,4 @@
-import type { GitStatusResponse } from "@repo/shared-types";
+import type { EditArtifactRecord, GitStatusResponse } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { D1EditArtifactRepository } from "./D1EditArtifactRepository";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
@@ -23,33 +23,17 @@ export class EditArtifactRestoreService {
     muscleSession: string;
     currentStatus: GitStatusResponse;
   }): Promise<"not-needed" | "restored" | "requires-user-resolution"> {
-    if (!input.currentStatus.gitAvailable) {
-      return "not-needed";
-    }
-    if (changedFilesFromStatus(input.currentStatus).length > 0) {
+    if (!shouldRestore(input.currentStatus)) {
       return "not-needed";
     }
 
     await ensureByokSchemaReady(this.env.BYOK_DB);
-    const artifact = await this.repository.getLatestRestorableArtifact(
-      input.runId,
-    );
-    if (!artifact || artifact.status === "requires_user_resolution") {
+    const artifact = await this.loadRestorableArtifact(input.runId);
+    if (!artifact) {
       return "not-needed";
     }
 
-    await this.repository.updateStatus({
-      artifactId: artifact.id,
-      status: "restore_in_progress",
-    });
-    await this.repository.appendEvent({
-      id: crypto.randomUUID(),
-      artifactId: artifact.id,
-      runId: input.runId,
-      eventType: "restore_attempted",
-      message: "Applying latest saved edit artifact after workspace bootstrap",
-      metadata: { r2ObjectKey: artifact.r2ObjectKey },
-    });
+    await this.markRestoreAttempted(artifact, input.runId);
 
     const patch = await this.objectStore.readPatch(artifact.r2ObjectKey);
     if (!patch) {
@@ -62,29 +46,65 @@ export class EditArtifactRestoreService {
     }
 
     try {
-      const gitClient = new SecureGitArtifactClient(
-        this.env,
-        input.muscleSession,
-        input.runId,
-      );
-      await gitClient.applyPatch(patch);
-      await this.repository.updateStatus({
-        artifactId: artifact.id,
-        status: "restored",
-      });
-      await this.repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId: input.runId,
-        eventType: "restored",
-        message: "Saved edit artifact restored into workspace",
-      });
+      await this.applyPatch(input, patch);
+      await this.markRestored(artifact.id, input.runId);
       return "restored";
     } catch (error) {
       const message = error instanceof Error ? error.message : "Restore failed";
       await this.markRequiresResolution(artifact.id, input.runId, message);
       return "requires-user-resolution";
     }
+  }
+
+  private async loadRestorableArtifact(
+    runId: string,
+  ): Promise<EditArtifactRecord | null> {
+    const artifact = await this.repository.getLatestRestorableArtifact(runId);
+    return artifact?.status === "requires_user_resolution" ? null : artifact;
+  }
+
+  private async markRestoreAttempted(
+    artifact: EditArtifactRecord,
+    runId: string,
+  ): Promise<void> {
+    await this.repository.updateStatus({
+      artifactId: artifact.id,
+      status: "restore_in_progress",
+    });
+    await this.repository.appendEvent({
+      id: crypto.randomUUID(),
+      artifactId: artifact.id,
+      runId,
+      eventType: "restore_attempted",
+      message: "Applying latest saved edit artifact after workspace bootstrap",
+      metadata: { r2ObjectKey: artifact.r2ObjectKey },
+    });
+  }
+
+  private async applyPatch(
+    input: { runId: string; muscleSession: string },
+    patch: string,
+  ): Promise<void> {
+    const gitClient = new SecureGitArtifactClient(
+      this.env,
+      input.muscleSession,
+      input.runId,
+    );
+    await gitClient.applyPatch(patch);
+  }
+
+  private async markRestored(artifactId: string, runId: string): Promise<void> {
+    await this.repository.updateStatus({
+      artifactId,
+      status: "restored",
+    });
+    await this.repository.appendEvent({
+      id: crypto.randomUUID(),
+      artifactId,
+      runId,
+      eventType: "restored",
+      message: "Saved edit artifact restored into workspace",
+    });
   }
 
   private async markRestoreFailed(
@@ -126,4 +146,8 @@ export class EditArtifactRestoreService {
 
 export function canRestoreEditArtifacts(env: Env): boolean {
   return Boolean(env.EDIT_ARTIFACTS && env.BYOK_DB);
+}
+
+function shouldRestore(status: GitStatusResponse): boolean {
+  return status.gitAvailable && changedFilesFromStatus(status).length === 0;
 }
