@@ -151,6 +151,30 @@ export const GitTools: ToolDefinition[] = [
     },
   },
   {
+    name: "git_patch_capture",
+    description: "Capture uncommitted workspace changes as a binary git patch.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "git_patch_apply",
+    description: "Apply a saved binary git patch after workspace recovery.",
+    parameters: {
+      type: "object",
+      properties: {
+        patch: { type: "string", description: "Git patch payload" },
+        dryRun: {
+          type: "boolean",
+          description: "When true, validate the patch without applying it",
+        },
+      },
+      required: ["patch"],
+    },
+  },
+  {
     name: "git_config",
     description: "Configure git authentication with token (internal use).",
     parameters: {

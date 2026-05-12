@@ -13,6 +13,7 @@ import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { SessionMemoryRuntime } from "./runtime/SessionMemoryRuntime";
 import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
+import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArtifactRetentionService";
 
 export {
   RunEngineRuntime,
@@ -107,7 +108,11 @@ function createRouter(): Router {
   router.add(/\/api\/git\/commit/, GitController.commit, "POST");
   router.add(/\/api\/git\/branch/, GitController.createBranch, "POST");
   router.add(/\/api\/git\/push/, GitController.push, "POST");
-  router.add(/\/api\/git\/pull-request/, GitController.createPullRequest, "POST");
+  router.add(
+    /\/api\/git\/pull-request/,
+    GitController.createPullRequest,
+    "POST",
+  );
   router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
   router.add(
     /^\/api\/run\/events\/stream$/,
@@ -221,5 +226,18 @@ export default {
         },
       });
     }
+  },
+
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    const result = await new EditArtifactRetentionService(
+      env,
+    ).expireArtifacts();
+    console.log(
+      `[edit-artifacts/retention] expired=${result.expiredCount} repaired_pending=${result.repairedPendingCount}`,
+    );
   },
 };

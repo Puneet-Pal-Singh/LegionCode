@@ -185,6 +185,67 @@ CREATE TABLE IF NOT EXISTS provider_user_model_cache (
 `;
 
 /**
+ * D1 Migration: Create run edit artifact metadata table
+ *
+ * Stores D1-side metadata for chat/run-attached edit artifacts. The actual
+ * patch/snapshot payload is stored in R2 and referenced by r2_object_key.
+ */
+export const RUN_EDIT_ARTIFACTS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS run_edit_artifacts (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  repo_owner TEXT,
+  repo_name TEXT,
+  repo_url TEXT,
+  branch TEXT,
+  base_commit_sha TEXT,
+  head_commit_sha TEXT,
+  artifact_kind TEXT NOT NULL,
+  r2_object_key TEXT NOT NULL,
+  changed_file_count INTEGER NOT NULL DEFAULT 0,
+  changed_files_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_run_edit_artifacts_run_status_updated
+  ON run_edit_artifacts(run_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_run_edit_artifacts_session_updated
+  ON run_edit_artifacts(session_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_run_edit_artifacts_expiry
+  ON run_edit_artifacts(expires_at, status);
+`;
+
+/**
+ * D1 Migration: Create run edit artifact event table
+ *
+ * Stores capture/restore lifecycle events for artifact outbox and diagnostics.
+ */
+export const RUN_EDIT_ARTIFACT_EVENTS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS run_edit_artifact_events (
+  id TEXT PRIMARY KEY,
+  artifact_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  message TEXT NOT NULL,
+  metadata_json TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_run_edit_artifact_events_artifact_time
+  ON run_edit_artifact_events(artifact_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS ix_run_edit_artifact_events_run_time
+  ON run_edit_artifact_events(run_id, created_at DESC);
+`;
+
+/**
  * D1 Migration: Add fetched_at and expires_at to provider registry cache
  *
  * Adds columns for tracking cache freshness and TTL.
@@ -251,4 +312,6 @@ export const ALL_BYOK_MIGRATIONS = [
   // byok_migration_<index> ledger entries stay stable across deploys.
   PROVIDER_USER_MODEL_CACHE_SCHEMA,
   PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA,
+  RUN_EDIT_ARTIFACTS_SCHEMA,
+  RUN_EDIT_ARTIFACT_EVENTS_SCHEMA,
 ];

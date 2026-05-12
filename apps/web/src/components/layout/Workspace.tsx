@@ -20,6 +20,7 @@ import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
 import { TabType } from "./workspace/useWorkspaceState";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
+import { subscribeRuntimeBootChanges } from "../../lib/runtime-boot-monitor";
 import {
   loadStoredProductMode,
   persistProductMode,
@@ -65,10 +66,13 @@ export function Workspace({
   const explorerRef = useRef<FileExplorerHandle>(null);
   const workspaceBootstrapKeyRef = useRef<string | null>(null);
   const workspaceBootstrapInFlightRef = useRef<string | null>(null);
+  const workspaceBootstrapRecoveryKeyRef = useRef<string | null>(null);
   const previousChatLoadingRef = useRef(false);
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const sandboxId = sessionId;
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [isGitWorkspaceRecovering, setIsGitWorkspaceRecovering] =
+    useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
@@ -127,13 +131,14 @@ export function Workspace({
     productMode,
   );
   const { summary: runSummary } = useRunSummary(activeRunId, true);
-  const { status, refetch: refetchGitStatus } = useGitStatus(
-    activeRunId,
-    sessionId,
-  );
+  const {
+    status,
+    gitAvailable,
+    refetch: refetchGitStatus,
+  } = useGitStatus(activeRunId, sessionId);
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
   const canonicalRunStatus = runSummaryMatchesActiveRun
-    ? runSummary.status?.trim().toUpperCase() ?? null
+    ? (runSummary.status?.trim().toUpperCase() ?? null)
     : null;
   const isCanonicalRunActive =
     canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
@@ -205,6 +210,14 @@ export function Workspace({
   }, [activeRunId]);
 
   useEffect(() => {
+    return subscribeRuntimeBootChanges(() => {
+      workspaceBootstrapKeyRef.current = null;
+      workspaceBootstrapRecoveryKeyRef.current = null;
+      void refetchGitStatus(true);
+    });
+  }, [refetchGitStatus]);
+
+  useEffect(() => {
     setProductMode(loadStoredProductMode(sessionId));
   }, [sessionId]);
 
@@ -258,11 +271,19 @@ export function Workspace({
       return;
     }
 
-    if (canonicalRunStatus === "COMPLETED" || canonicalRunStatus === "CANCELLED") {
+    if (
+      canonicalRunStatus === "COMPLETED" ||
+      canonicalRunStatus === "CANCELLED"
+    ) {
       onSessionStatusChange?.("completed");
       void refetchGitStatus(true);
     }
-  }, [activeRunId, canonicalRunStatus, onSessionStatusChange, refetchGitStatus]);
+  }, [
+    activeRunId,
+    canonicalRunStatus,
+    onSessionStatusChange,
+    refetchGitStatus,
+  ]);
 
   useEffect(() => {
     if (!chatError || isLoading || isCanonicalRunActive) {
@@ -310,7 +331,14 @@ export function Workspace({
     }
 
     switchBranch(currentWorkspaceBranch);
-  }, [branch, isContextMismatch, isGitHubLoaded, repo, status?.branch, switchBranch]);
+  }, [
+    branch,
+    isContextMismatch,
+    isGitHubLoaded,
+    repo,
+    status?.branch,
+    switchBranch,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !activeRunId) {
@@ -334,14 +362,27 @@ export function Workspace({
     }
 
     const bootstrapKey = `${sessionId}:${activeRunId}:${repositoryOwner}/${repositoryName}:${repositoryBranch}`;
+    const shouldRecoverGitWorkspace = gitAvailable === false;
     if (
-      workspaceBootstrapKeyRef.current === bootstrapKey ||
+      (!shouldRecoverGitWorkspace &&
+        workspaceBootstrapKeyRef.current === bootstrapKey) ||
       workspaceBootstrapInFlightRef.current === bootstrapKey
     ) {
       return;
     }
 
+    if (
+      shouldRecoverGitWorkspace &&
+      workspaceBootstrapRecoveryKeyRef.current === bootstrapKey
+    ) {
+      return;
+    }
+
     workspaceBootstrapInFlightRef.current = bootstrapKey;
+    if (shouldRecoverGitWorkspace) {
+      workspaceBootstrapRecoveryKeyRef.current = bootstrapKey;
+      setIsGitWorkspaceRecovering(true);
+    }
     const bootstrap = async (): Promise<void> => {
       let bootstrapReady = false;
       try {
@@ -356,6 +397,7 @@ export function Workspace({
         if (result.status === "ready") {
           bootstrapReady = true;
           workspaceBootstrapKeyRef.current = bootstrapKey;
+          workspaceBootstrapRecoveryKeyRef.current = null;
         }
         if (result.status !== "ready" && result.message) {
           if (result.status === "sync-failed") {
@@ -377,12 +419,16 @@ export function Workspace({
         if (bootstrapReady) {
           await refetchGitStatus(true);
         }
+        if (shouldRecoverGitWorkspace) {
+          setIsGitWorkspaceRecovering(false);
+        }
       }
     };
 
     void bootstrap();
   }, [
     activeRunId,
+    gitAvailable,
     isRunLoading,
     isContextMismatch,
     isGitHubLoaded,
@@ -421,138 +467,139 @@ export function Workspace({
         key={`${sessionId}:${activeRunId}`}
         isReviewOpen={isGitReviewOpen}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
+        isGitWorkspaceRecovering={isGitWorkspaceRecovering}
       >
         <div className="ui-center-surface flex-1 flex overflow-hidden relative">
-        {/* Chat Area */}
-        <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
-          {isHydrating ? (
-            <div className="flex-1 flex items-center justify-center bg-background">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-                  Hydrating History...
-                </span>
+          {/* Chat Area */}
+          <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
+            {isHydrating ? (
+              <div className="flex-1 flex items-center justify-center bg-background">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
+                    Hydrating History...
+                  </span>
+                </div>
               </div>
-            </div>
-          ) : (
-            <ChatInterface
-              chatProps={{
-                messages,
-                runId: activeRunId,
-                input,
-                handleInputChange,
-                handleSubmit,
-                append,
-                stop: handleStopRun,
-                canStop: canStopRun,
-                isLoading: isRunLoading,
-                error: chatError,
-                debugEvents,
-              }}
-              sessionId={sessionId}
-              mode={mode}
-              onModeChange={onModeChange}
-              permissionMode={productMode}
-              onPermissionModeChange={setProductMode}
-              onPendingApprovalChange={onPendingApprovalStateChange}
-              repoTree={repoTree}
-              isLoadingRepoTree={isLoadingTree}
-              onArtifactOpen={(path, content) => {
-                setSelectedFile({ path, content });
-                setIsViewingContent(true);
-                setIsRightSidebarOpen?.(true);
-                setActiveTab("files");
-              }}
-              onReviewOpen={() => {
-                setIsRightSidebarOpen?.(true);
-                setActiveTab("review");
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
-              }}
-            />
-          )}
-        </main>
+            ) : (
+              <ChatInterface
+                chatProps={{
+                  messages,
+                  runId: activeRunId,
+                  input,
+                  handleInputChange,
+                  handleSubmit,
+                  append,
+                  stop: handleStopRun,
+                  canStop: canStopRun,
+                  isLoading: isRunLoading,
+                  error: chatError,
+                  debugEvents,
+                }}
+                sessionId={sessionId}
+                mode={mode}
+                onModeChange={onModeChange}
+                permissionMode={productMode}
+                onPermissionModeChange={setProductMode}
+                onPendingApprovalChange={onPendingApprovalStateChange}
+                repoTree={repoTree}
+                isLoadingRepoTree={isLoadingTree}
+                onArtifactOpen={(path, content) => {
+                  setSelectedFile({ path, content });
+                  setIsViewingContent(true);
+                  setIsRightSidebarOpen?.(true);
+                  setActiveTab("files");
+                }}
+                onReviewOpen={() => {
+                  setIsRightSidebarOpen?.(true);
+                  setActiveTab("review");
+                  setIsViewingContent(false);
+                  setSelectedFile(null);
+                  setSelectedDiff(null);
+                }}
+              />
+            )}
+          </main>
 
-        {/* Combined Sidebar */}
-        <motion.aside
-          initial={false}
-          animate={{
-            width: isRightSidebarOpen ? sidebarWidth : 0,
-          }}
-          transition={
-            isResizing
-              ? { duration: 0 }
-              : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
-          }
-          className={cn(
-            "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative",
-            !isRightSidebarOpen && "border-transparent",
-          )}
-        >
-          {isRightSidebarOpen && (
-            <Resizer
-              side="right"
-              onResizeStart={() => setIsResizing(true)}
-              onResizeEnd={() => setIsResizing(false)}
-              onResize={(delta) =>
-                setSidebarWidth((prev) =>
-                  Math.max(280, Math.min(600, prev + delta)),
-                )
-              }
-            />
-          )}
-
-          <div
-            className="flex-1 flex flex-col min-w-[280px]"
-            style={{ width: sidebarWidth }}
+          {/* Combined Sidebar */}
+          <motion.aside
+            initial={false}
+            animate={{
+              width: isRightSidebarOpen ? sidebarWidth : 0,
+            }}
+            transition={
+              isResizing
+                ? { duration: 0 }
+                : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
+            }
+            className={cn(
+              "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative",
+              !isRightSidebarOpen && "border-transparent",
+            )}
           >
-            <SidebarHeader
-              isViewingContent={isViewingContent}
-              activeTab={activeTab}
-              changesCount={changesCount}
-              onExpand={() => {
-                setIsRightSidebarOpen?.(true);
-                onGitReviewOpenChange?.(true);
-              }}
-              onCommit={() => setIsCommitDialogOpen(true)}
-              onBack={() => {
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
-              }}
-              onTabChange={setActiveTab}
-            />
+            {isRightSidebarOpen && (
+              <Resizer
+                side="right"
+                onResizeStart={() => setIsResizing(true)}
+                onResizeEnd={() => setIsResizing(false)}
+                onResize={(delta) =>
+                  setSidebarWidth((prev) =>
+                    Math.max(280, Math.min(600, prev + delta)),
+                  )
+                }
+              />
+            )}
 
-            <SidebarContent
-              isViewingContent={isViewingContent}
-              activeTab={activeTab}
-              isLoadingContent={isLoadingContent}
-              selectedFile={selectedFile}
-              selectedDiff={selectedDiff}
-              onCloseContent={() => setIsViewingContent(false)}
-              repo={repo}
-              isGitHubLoaded={isGitHubLoaded}
-              repoTree={repoTree}
-              isLoadingTree={!!isLoadingTree}
-              branch={branch}
-              handleGitHubFileSelect={handleGitHubFileSelect}
-              handleFileClick={handleFileClick}
-              onDiffSelected={handleSidebarDiffSelected}
-              explorerRef={explorerRef}
-              sandboxId={sandboxId}
-              runId={activeRunId}
-            />
-          </div>
-        </motion.aside>
-        <GitReviewDialog
-          key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
-        />
-        <GitCommitDialog
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
-        />
-      </div>
+            <div
+              className="flex-1 flex flex-col min-w-[280px]"
+              style={{ width: sidebarWidth }}
+            >
+              <SidebarHeader
+                isViewingContent={isViewingContent}
+                activeTab={activeTab}
+                changesCount={changesCount}
+                onExpand={() => {
+                  setIsRightSidebarOpen?.(true);
+                  onGitReviewOpenChange?.(true);
+                }}
+                onCommit={() => setIsCommitDialogOpen(true)}
+                onBack={() => {
+                  setIsViewingContent(false);
+                  setSelectedFile(null);
+                  setSelectedDiff(null);
+                }}
+                onTabChange={setActiveTab}
+              />
+
+              <SidebarContent
+                isViewingContent={isViewingContent}
+                activeTab={activeTab}
+                isLoadingContent={isLoadingContent}
+                selectedFile={selectedFile}
+                selectedDiff={selectedDiff}
+                onCloseContent={() => setIsViewingContent(false)}
+                repo={repo}
+                isGitHubLoaded={isGitHubLoaded}
+                repoTree={repoTree}
+                isLoadingTree={!!isLoadingTree}
+                branch={branch}
+                handleGitHubFileSelect={handleGitHubFileSelect}
+                handleFileClick={handleFileClick}
+                onDiffSelected={handleSidebarDiffSelected}
+                explorerRef={explorerRef}
+                sandboxId={sandboxId}
+                runId={activeRunId}
+              />
+            </div>
+          </motion.aside>
+          <GitReviewDialog
+            key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
+          />
+          <GitCommitDialog
+            isOpen={isCommitDialogOpen}
+            onClose={() => setIsCommitDialogOpen(false)}
+          />
+        </div>
       </GitReviewProvider>
     </RunContextProvider>
   );

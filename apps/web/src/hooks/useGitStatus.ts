@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
 import { getGitStatus } from "../lib/git-client.js";
+import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
@@ -36,63 +37,57 @@ export function useGitStatus(
   const [gitAvailable, setGitAvailable] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const applyStatusSnapshot = useCallback((nextStatus: GitStatusResponse | null) => {
-    setStatus(nextStatus);
-    setGitAvailable(nextStatus?.gitAvailable ?? true);
-    setError(null);
-  }, []);
+  const applyStatusSnapshot = useCallback(
+    (nextStatus: GitStatusResponse | null) => {
+      setStatus(nextStatus);
+      setGitAvailable(nextStatus?.gitAvailable ?? true);
+      setError(null);
+    },
+    [],
+  );
 
-  const fetchStatus = useCallback(async (force = false) => {
-    if (!runId || !sessionId || !cacheKey) {
-      setLoading(false);
-      applyStatusSnapshot(null);
-      setError(!runId ? null : "No session context available");
-      return;
-    }
+  const fetchStatus = useCallback(
+    async (force = false) => {
+      if (!runId || !sessionId || !cacheKey) {
+        setLoading(false);
+        applyStatusSnapshot(null);
+        setError(!runId ? null : "No session context available");
+        return;
+      }
 
-    const cachedStatus = statusCacheByRunId.get(cacheKey);
-    const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
-    if (cachedStatus) {
-      applyStatusSnapshot(cachedStatus);
-      const cacheAgeMs = Date.now() - cachedAt;
-      if (!force && cacheAgeMs < STATUS_CACHE_TTL_MS) {
+      const cached = readCachedStatus(cacheKey, force);
+      applyStatusSnapshot(cached.status);
+      if (cached.isFresh) {
         setLoading(false);
         return;
       }
-    } else {
-      applyStatusSnapshot(null);
-    }
-
-    const retryAfter = retryAfterByRunId.get(cacheKey);
-    if (retryAfter && Date.now() < retryAfter) {
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const request =
-        inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
-      inflightByRunId.set(cacheKey, request);
-      const data = await request;
-
-      updateCachedStatus(cacheKey, data);
-      retryAfterByRunId.delete(cacheKey);
-      applyStatusSnapshot(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
-      applyStatusSnapshot(null);
-      setError(message);
-      if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
-        console.error("[useGitStatus] Error:", err);
-        lastLoggedErrorByRunId.set(cacheKey, message);
+      if (shouldSkipDueToRetry(cacheKey, force)) {
+        return;
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [applyStatusSnapshot, cacheKey, runId, sessionId]);
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await getOrCreateGitStatusRequest(
+          cacheKey,
+          runId,
+          sessionId,
+        );
+
+        updateCachedStatus(cacheKey, data);
+        retryAfterByRunId.delete(cacheKey);
+        applyStatusSnapshot(data);
+      } catch (err) {
+        const message = recordGitStatusFailure(cacheKey, err);
+        applyStatusSnapshot(null);
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [applyStatusSnapshot, cacheKey, runId, sessionId],
+  );
 
   useEffect(() => {
     if (!cacheKey) {
@@ -123,7 +118,47 @@ export function useGitStatus(
     void fetchStatus();
   }, [fetchStatus]);
 
+  useEffect(() => {
+    if (!cacheKey) {
+      return;
+    }
+
+    return subscribeRuntimeBootChanges(() => {
+      clearGitStatusCache(cacheKey);
+      void fetchStatus(true);
+    });
+  }, [cacheKey, fetchStatus]);
+
   return { status, gitAvailable, loading, error, refetch: fetchStatus };
+}
+
+function readCachedStatus(
+  cacheKey: string,
+  force: boolean,
+): { status: GitStatusResponse | null; isFresh: boolean } {
+  const status = statusCacheByRunId.get(cacheKey) ?? null;
+  const cachedAt = statusCacheTimestampByRunId.get(cacheKey) ?? 0;
+  const cacheAgeMs = Date.now() - cachedAt;
+  return {
+    status,
+    isFresh: Boolean(status && !force && cacheAgeMs < STATUS_CACHE_TTL_MS),
+  };
+}
+
+function shouldSkipDueToRetry(cacheKey: string, force: boolean): boolean {
+  const retryAfter = retryAfterByRunId.get(cacheKey);
+  return Boolean(!force && retryAfter && Date.now() < retryAfter);
+}
+
+async function getOrCreateGitStatusRequest(
+  cacheKey: string,
+  runId: string,
+  sessionId: string,
+): Promise<GitStatusResponse> {
+  const request =
+    inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
+  inflightByRunId.set(cacheKey, request);
+  return request;
 }
 
 async function createGitStatusRequest(
@@ -138,10 +173,23 @@ async function createGitStatusRequest(
   }
 }
 
-function updateCachedStatus(
-  cacheKey: string,
-  status: GitStatusResponse,
-): void {
+function recordGitStatusFailure(cacheKey: string, err: unknown): string {
+  const message = err instanceof Error ? err.message : "Unknown error";
+  retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
+  if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
+    console.error("[useGitStatus] Error:", err);
+    lastLoggedErrorByRunId.set(cacheKey, message);
+  }
+  return message;
+}
+
+function clearGitStatusCache(cacheKey: string): void {
+  statusCacheByRunId.delete(cacheKey);
+  statusCacheTimestampByRunId.delete(cacheKey);
+  retryAfterByRunId.delete(cacheKey);
+}
+
+function updateCachedStatus(cacheKey: string, status: GitStatusResponse): void {
   statusCacheByRunId.set(cacheKey, status);
   statusCacheTimestampByRunId.set(cacheKey, Date.now());
   listenersByRunId.get(cacheKey)?.forEach((listener) => listener(status));

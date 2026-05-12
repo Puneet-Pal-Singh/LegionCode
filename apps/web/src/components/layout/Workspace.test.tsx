@@ -35,6 +35,17 @@ const mockGitHubTreeState = vi.hoisted(() => ({
 const mockRunSummaryState = vi.hoisted(() => ({
   summary: null as { runId: string; status: string | null } | null,
 }));
+const mockGitStatusState = vi.hoisted(() => ({
+  status: {
+    branch: "main",
+    files: [],
+    ahead: 0,
+    behind: 0,
+    hasStaged: false,
+    hasUnstaged: false,
+    gitAvailable: true,
+  },
+}));
 const mockWorkspaceStateSetters = vi.hoisted(() => ({
   setActiveTab: vi.fn(),
   setSidebarWidth: vi.fn(),
@@ -57,15 +68,8 @@ vi.mock("../../hooks/useChat", () => ({
 
 vi.mock("../../hooks/useGitStatus", () => ({
   useGitStatus: () => ({
-    status: {
-      branch: "main",
-      files: [],
-      ahead: 0,
-      behind: 0,
-      hasStaged: false,
-      hasUnstaged: false,
-      gitAvailable: true,
-    },
+    status: mockGitStatusState.status,
+    gitAvailable: mockGitStatusState.status.gitAvailable,
     refetch: mockRefetchGitStatus,
   }),
 }));
@@ -207,6 +211,15 @@ describe("Workspace", () => {
     mockChatState.runId = "run-123";
     mockChatState.error = null;
     mockRunSummaryState.summary = null;
+    mockGitStatusState.status = {
+      branch: "main",
+      files: [],
+      ahead: 0,
+      behind: 0,
+      hasStaged: false,
+      hasUnstaged: false,
+      gitAvailable: true,
+    };
     mockGitHubTreeState.repo = null;
     mockGitHubTreeState.branch = "main";
     mockGitHubTreeState.switchBranch.mockClear();
@@ -451,6 +464,47 @@ describe("Workspace", () => {
 
     await waitFor(() => {
       expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
+    });
+  });
+
+  it("reruns workspace bootstrap when known repository git state becomes unavailable", async () => {
+    mockGitHubTreeState.repo = {
+      owner: { login: "Puneet-Pal-Singh" },
+      name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
+      html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
+      default_branch: "main",
+    };
+    mockGitHubTreeState.isGitHubLoaded = true;
+
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockBootstrapGitWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    mockBootstrapGitWorkspace.mockClear();
+    mockGitStatusState.status = {
+      ...mockGitStatusState.status,
+      gitAvailable: false,
+    };
+
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockBootstrapGitWorkspace).toHaveBeenCalledTimes(1);
     });
   });
 

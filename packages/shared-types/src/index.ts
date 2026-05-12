@@ -30,6 +30,28 @@ export type {
   StageFilesRequest,
 } from "./git.js";
 
+export {
+  EDIT_ARTIFACT_KINDS,
+  EDIT_ARTIFACT_STATUSES,
+  EDIT_ARTIFACT_EVENT_TYPES,
+  EditArtifactKindSchema,
+  EditArtifactStatusSchema,
+  EditArtifactEventTypeSchema,
+  EditArtifactChangedFileSchema,
+  EditArtifactRecordSchema,
+  EditArtifactEventSchema,
+  CreateEditArtifactInputSchema,
+  EditArtifactPatchObjectMetadataSchema,
+  type EditArtifactKind,
+  type EditArtifactStatus,
+  type EditArtifactEventType,
+  type EditArtifactChangedFile,
+  type EditArtifactRecord,
+  type EditArtifactEvent,
+  type CreateEditArtifactInput,
+  type EditArtifactPatchObjectMetadata,
+} from "./edit-artifacts.js";
+
 // Credential vault contracts
 export {
   CredentialVaultSurfaceSchema,

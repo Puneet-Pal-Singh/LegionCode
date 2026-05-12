@@ -39,6 +39,8 @@ const GIT_ACTIONS = [
   "git_branch_list",
   "git_stage",
   "git_status",
+  "git_patch_capture",
+  "git_patch_apply",
   "git_config",
 ] as const;
 
@@ -58,6 +60,8 @@ const GitPayloadSchema = z.object({
   files: z.array(z.string()).optional(),
   remote: z.string().optional(),
   staged: z.boolean().optional(),
+  patch: z.string().optional(),
+  dryRun: z.boolean().optional(),
 });
 
 type GitPayload = z.infer<typeof GitPayloadSchema>;
@@ -97,6 +101,22 @@ export class GitPlugin implements IPlugin {
         case "status":
         case "git_status":
           return await this.getStatus(sandbox, worktree, toolboxContext, runId);
+        case "git_patch_capture":
+          return await this.capturePatch(
+            sandbox,
+            worktree,
+            toolboxContext,
+            runId,
+          );
+        case "git_patch_apply":
+          return await this.applyPatch(
+            sandbox,
+            worktree,
+            parsed.patch,
+            parsed.dryRun,
+            toolboxContext,
+            runId,
+          );
         case "diff":
         case "git_diff":
           return await this.getDiff(
@@ -490,7 +510,9 @@ export class GitPlugin implements IPlugin {
     if (staged) {
       args.push("--cached");
     }
-    const safeFilePath = filePath ? validateRepoRelativePath(filePath) : undefined;
+    const safeFilePath = filePath
+      ? validateRepoRelativePath(filePath)
+      : undefined;
     if (filePath) {
       args.push("--", safeFilePath ?? filePath);
     }
@@ -521,6 +543,331 @@ export class GitPlugin implements IPlugin {
 
     const parsedDiff = this.parseDiff(diffResult.stdout, filePath);
     return { success: true, output: JSON.stringify(parsedDiff) };
+  }
+
+  private async capturePatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const status = await this.ensureGitStatusAvailable(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!status.success) {
+      return status;
+    }
+
+    const trackedPatch = await this.captureTrackedPatch(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!trackedPatch.success) {
+      return trackedPatch;
+    }
+
+    const untrackedPatch = await this.captureUntrackedPatch(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    if (!untrackedPatch.success) {
+      return untrackedPatch;
+    }
+
+    const metadata = await this.capturePatchMetadata(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+
+    return buildPatchCaptureResult(
+      getPatchOutput(trackedPatch),
+      getPatchOutput(untrackedPatch),
+      metadata,
+    );
+  }
+
+  private async ensureGitStatusAvailable(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    return this.getStatus(sandbox, worktree, toolboxContext, runId);
+  }
+
+  private async captureTrackedPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const diffResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: [
+          "-C",
+          worktree,
+          "diff",
+          "--binary",
+          "--no-ext-diff",
+          "--find-renames",
+        ],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.patch_capture.diff",
+    );
+    return diffResult.exitCode === 0
+      ? { success: true, output: diffResult.stdout }
+      : { success: false, error: diffResult.stderr };
+  }
+
+  private async capturePatchMetadata(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<{ baseCommitSha: string | null; branch: string | null }> {
+    const baseCommitSha = await this.readHeadCommitSha(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+    const branch = await this.readCurrentBranch(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+    );
+
+    return { baseCommitSha, branch };
+  }
+
+  private async captureUntrackedPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const listResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: [
+          "-C",
+          worktree,
+          "ls-files",
+          "-z",
+          "--others",
+          "--exclude-standard",
+        ],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.patch_capture.untracked_list",
+    );
+    if (listResult.exitCode !== 0) {
+      return { success: false, error: listResult.stderr };
+    }
+
+    const patches: string[] = [];
+    for (const filePath of splitNullTerminatedPaths(listResult.stdout)) {
+      const safePath = validateRepoRelativePath(filePath);
+      const diffResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: ["diff", "--binary", "--no-index", "--", "/dev/null", safePath],
+          cwd: worktree,
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.patch_capture.untracked_diff",
+      );
+      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
+        return { success: false, error: diffResult.stderr };
+      }
+      if (diffResult.stdout.trim().length > 0) {
+        patches.push(diffResult.stdout);
+      }
+    }
+
+    return { success: true, output: patches.join("\n") };
+  }
+
+  private async applyPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patch: string | undefined,
+    dryRun: boolean | undefined,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const patchPayload = validatePatchPayload(patch);
+    if (!patchPayload.success) {
+      return { success: false, error: patchPayload.error };
+    }
+
+    const patchPath = await this.writeTemporaryPatch(
+      sandbox,
+      worktree,
+      patchPayload.patch,
+      toolboxContext,
+      runId,
+    );
+    try {
+      const checkResult = await this.checkTemporaryPatch(
+        sandbox,
+        worktree,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+      if (!checkResult.success || dryRun) {
+        return checkResult;
+      }
+
+      return await this.applyTemporaryPatch(
+        sandbox,
+        worktree,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    } finally {
+      await this.deleteTemporaryPatch(
+        sandbox,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    }
+  }
+
+  private async writeTemporaryPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patch: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string> {
+    const patchPath = `${worktree}/.shadowbox/edit-artifact-${crypto.randomUUID()}.patch`;
+    await this.runToolboxCommand(
+      sandbox,
+      { command: "mkdir", args: ["-p", `${worktree}/.shadowbox`], runId },
+      ["mkdir"],
+      toolboxContext,
+      "git.patch_apply.prepare",
+    );
+    await sandbox.writeFile(patchPath, patch);
+    return patchPath;
+  }
+
+  private async checkTemporaryPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patchPath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "apply", "--check", patchPath],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.patch_apply.check",
+    );
+    return result.exitCode === 0
+      ? { success: true, output: "Patch dry-run succeeded" }
+      : { success: false, error: result.stderr };
+  }
+
+  private async applyTemporaryPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    patchPath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      { command: "git", args: ["-C", worktree, "apply", patchPath], runId },
+      ["git"],
+      toolboxContext,
+      "git.patch_apply.apply",
+    );
+    return result.exitCode === 0
+      ? { success: true, output: "Patch applied" }
+      : { success: false, error: result.stderr };
+  }
+
+  private async readHeadCommitSha(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string | null> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      { command: "git", args: ["-C", worktree, "rev-parse", "HEAD"], runId },
+      ["git"],
+      toolboxContext,
+      "git.patch_capture.head",
+    );
+    return result.exitCode === 0 ? result.stdout.trim() || null : null;
+  }
+
+  private async readCurrentBranch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<string | null> {
+    const result = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "branch", "--show-current"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.patch_capture.branch",
+    );
+    return result.exitCode === 0 ? result.stdout.trim() || null : null;
+  }
+
+  private async deleteTemporaryPatch(
+    sandbox: Sandbox,
+    patchPath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<void> {
+    await this.runToolboxCommand(
+      sandbox,
+      { command: "rm", args: ["-f", patchPath], runId },
+      ["rm"],
+      toolboxContext,
+      "git.patch_apply.cleanup",
+    );
   }
 
   private async getUntrackedFileDiff(
@@ -914,11 +1261,14 @@ export class GitPlugin implements IPlugin {
       const authorName = readStringValue(profile.name) ?? login ?? null;
       const directEmail = readStringValue(profile.email);
 
-      const emailFromList = await this.resolvePrimaryEmailFromToken(accessToken);
+      const emailFromList =
+        await this.resolvePrimaryEmailFromToken(accessToken);
       const authorEmail =
         directEmail ??
         emailFromList ??
-        (login && id !== null ? `${id}+${login}@users.noreply.github.com` : null);
+        (login && id !== null
+          ? `${id}+${login}@users.noreply.github.com`
+          : null);
 
       if (!authorName || !authorEmail) {
         return null;
@@ -943,11 +1293,15 @@ export class GitPlugin implements IPlugin {
     token: string,
   ): Promise<string | null> {
     try {
-      const emails = await this.fetchGitHubJson<
-        Array<Record<string, unknown>>
-      >(token, "/user/emails");
+      const emails = await this.fetchGitHubJson<Array<Record<string, unknown>>>(
+        token,
+        "/user/emails",
+      );
       const selected =
-        emails.find((entry) => readBooleanValue(entry.primary) && readBooleanValue(entry.verified)) ??
+        emails.find(
+          (entry) =>
+            readBooleanValue(entry.primary) && readBooleanValue(entry.verified),
+        ) ??
         emails.find((entry) => readBooleanValue(entry.verified)) ??
         emails.find((entry) => readBooleanValue(entry.primary)) ??
         null;
@@ -957,10 +1311,7 @@ export class GitPlugin implements IPlugin {
     }
   }
 
-  private async fetchGitHubJson<T>(
-    token: string,
-    path: string,
-  ): Promise<T> {
+  private async fetchGitHubJson<T>(token: string, path: string): Promise<T> {
     const response = await fetch(`https://api.github.com${path}`, {
       method: "GET",
       headers: {
@@ -1379,7 +1730,10 @@ function createDiffLine(
   };
 }
 
-function createUntrackedFileDiff(filePath: string, content: string): DiffContent {
+function createUntrackedFileDiff(
+  filePath: string,
+  content: string,
+): DiffContent {
   const lines = content.split("\n");
   if (lines[lines.length - 1] === "") {
     lines.pop();
@@ -1502,6 +1856,49 @@ function isNonFastForwardGitPushError(stderr: string): boolean {
   return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
 }
 
+function getPatchOutput(result: PluginResult): string {
+  return typeof result.output === "string" ? result.output : "";
+}
+
+function buildPatchCaptureResult(
+  trackedPatch: string,
+  untrackedPatch: string,
+  metadata: { baseCommitSha: string | null; branch: string | null },
+): PluginResult {
+  return {
+    success: true,
+    output: JSON.stringify({
+      patch: combinePatchParts(trackedPatch, untrackedPatch),
+      baseCommitSha: metadata.baseCommitSha,
+      branch: metadata.branch,
+    }),
+  };
+}
+
+function combinePatchParts(...parts: string[]): string {
+  return parts.filter(hasPatchContent).join("\n");
+}
+
+function hasPatchContent(patch: string): boolean {
+  return /\S/u.test(patch);
+}
+
+function splitNullTerminatedPaths(output: string): string[] {
+  return output.split("\0").filter((filePath) => filePath.length > 0);
+}
+
+function validatePatchPayload(
+  patch: string | undefined,
+): { success: true; patch: string } | { success: false; error: string } {
+  if (!patch || patch.trim().length === 0) {
+    return { success: false, error: "Patch payload is required" };
+  }
+  if (patch.length > 5_000_000) {
+    return { success: false, error: "Patch payload exceeds maximum size" };
+  }
+  return { success: true, patch };
+}
+
 function buildNonFastForwardPushError(
   remote: string,
   branch: string | undefined,
@@ -1518,9 +1915,7 @@ function buildGitResult(
     success: result.exitCode === 0,
     output: result.exitCode === 0 ? successMessage : undefined,
     error:
-      result.exitCode === 0
-        ? undefined
-        : buildGitCommandFailureMessage(result),
+      result.exitCode === 0 ? undefined : buildGitCommandFailureMessage(result),
   };
 }
 
@@ -1541,9 +1936,7 @@ function buildGitCommitResult(
           }
         : undefined,
     error:
-      result.exitCode === 0
-        ? undefined
-        : buildGitCommandFailureMessage(result),
+      result.exitCode === 0 ? undefined : buildGitCommandFailureMessage(result),
   };
 }
 

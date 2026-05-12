@@ -21,6 +21,8 @@ describe("ByokSchemaService", () => {
     expect(appliedMigrations.length).toBeGreaterThan(0);
     expect(appliedMigrations).toContain("byok_migration_000");
     expect(appliedMigrations).toContain("byok_migration_005");
+    expect(db.inspect.hasTable("run_edit_artifacts")).toBe(true);
+    expect(db.inspect.hasTable("run_edit_artifact_events")).toBe(true);
   });
 
   it("skips already-applied migrations on subsequent ensureReady calls", async () => {
@@ -82,7 +84,7 @@ describe("ByokSchemaService", () => {
 
     const appliedMigrations = db.inspect.getAppliedMigrationIds();
     expect(appliedMigrations).toContain("byok_migration_010");
-    expect(appliedMigrations).toHaveLength(12);
+    expect(appliedMigrations).toHaveLength(14);
   });
 
   it("recovers local ledgers that recorded the old migration id without creating the user cache table", async () => {
@@ -99,13 +101,13 @@ describe("ByokSchemaService", () => {
 
     const appliedMigrations = db.inspect.getAppliedMigrationIds();
     expect(appliedMigrations).toContain("byok_migration_011");
-    expect(appliedMigrations).toHaveLength(12);
+    expect(appliedMigrations).toHaveLength(14);
     expect(db.inspect.hasTable("provider_user_model_cache")).toBe(true);
   });
 
   it("repairs missing required tables even when the migration ledger is already complete", async () => {
     const db = createTestByokD1Database();
-    for (let index = 0; index <= 11; index += 1) {
+    for (let index = 0; index <= 13; index += 1) {
       db.inspect.seedAppliedMigration(
         `byok_migration_${index.toString().padStart(3, "0")}`,
       );

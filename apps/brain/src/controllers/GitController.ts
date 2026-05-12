@@ -15,6 +15,7 @@ import { decryptToken } from "@shadowbox/github-bridge";
 import { z } from "zod";
 import { WorkspaceBootstrapService } from "../runtime/services/WorkspaceBootstrapService";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import {
   logErrorRateLimited,
   logWarnRateLimited,
@@ -33,6 +34,10 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
+import {
+  canRestoreEditArtifacts,
+  EditArtifactRestoreService,
+} from "../services/edit-artifacts/EditArtifactRestoreService";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -91,10 +96,7 @@ type GitBootstrapRequestBody = z.infer<typeof GitBootstrapRequestBodySchema>;
 type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
-const bootstrapRequestsByRun = new Map<
-  string,
-  Promise<GitBootstrapResult>
->();
+const bootstrapRequestsByRun = new Map<string, Promise<GitBootstrapResult>>();
 const ERROR_LOG_WINDOW_MS = 30_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_ATTEMPTS = 3;
@@ -500,6 +502,14 @@ export class GitController {
         }
       }
 
+      if (result.status === "ready" && canRestoreEditArtifacts(env)) {
+        await restoreLatestEditArtifactIfNeeded(
+          env,
+          muscleSession,
+          normalizedRunId,
+        );
+      }
+
       return corsJsonResponse(req, env, result);
     } catch (error) {
       return handleGitControllerError(req, env, error, "bootstrap");
@@ -619,6 +629,37 @@ async function getCurrentGitStatus(
     runId,
   );
   return parseGitPayload<GitStatusResponse>(rawPayload, "status");
+}
+
+async function restoreLatestEditArtifactIfNeeded(
+  env: Env,
+  muscleSession: string,
+  runId: string,
+): Promise<void> {
+  try {
+    const currentStatus = await getCurrentGitStatus(env, muscleSession, runId);
+    const restoreService = new EditArtifactRestoreService(env);
+    const result = await restoreService.restoreLatestIfWorkspaceIsEmpty({
+      runId,
+      muscleSession,
+      currentStatus,
+    });
+    if (result === "restored") {
+      logWarnRateLimited(
+        `GitController:bootstrap:artifact-restored:${runId}`,
+        "[GitController:bootstrap] Restored saved edit artifact after workspace bootstrap",
+        undefined,
+        ERROR_LOG_WINDOW_MS,
+      );
+    }
+  } catch (error) {
+    logWarnRateLimited(
+      `GitController:bootstrap:artifact-restore-failed:${runId}`,
+      "[GitController:bootstrap] Edit artifact restore did not complete",
+      { error: sanitizeUnknownError(error) },
+      ERROR_LOG_WINDOW_MS,
+    );
+  }
 }
 
 async function executeGitStatusViaCanonicalApiWithRetry(
@@ -993,6 +1034,7 @@ function corsJsonResponse(
     headers: {
       "Content-Type": "application/json",
       ...getCorsHeaders(req, env),
+      ...getBrainRuntimeHeaders(env),
     },
   });
 }
@@ -1251,6 +1293,7 @@ function errorResponse(
     headers: {
       "Content-Type": "application/json",
       ...getCorsHeaders(req, env),
+      ...getBrainRuntimeHeaders(env),
     },
   });
 }
