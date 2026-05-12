@@ -16,19 +16,24 @@ interface PluginErrorPayload {
   error?: string;
 }
 
-interface CanonicalExecutionResponse {
-  taskId: string;
-  status: "success" | "failure" | "timeout" | "cancelled";
-  output?: string;
-  error?: {
-    message?: string;
-  };
-}
-
+const SecureMuscleSessionSchema = z.object({
+  sessionId: z.string().min(1),
+  token: z.string().min(1),
+});
 const PatchCapturePayloadSchema = z.object({
   patch: z.string(),
   baseCommitSha: z.string().min(1).nullable(),
   branch: z.string().min(1).nullable(),
+});
+const CanonicalExecutionResponseSchema = z.object({
+  taskId: z.string().min(1),
+  status: z.enum(["success", "failure", "timeout", "cancelled"]),
+  output: z.string().optional(),
+  error: z
+    .object({
+      message: z.string().optional(),
+    })
+    .optional(),
 });
 const GitStatusPayloadSchema = z.object({
   files: z.array(
@@ -55,6 +60,9 @@ export interface CapturedGitPatch {
   branch: string | null;
 }
 
+type CanonicalExecutionResponse = z.infer<
+  typeof CanonicalExecutionResponseSchema
+>;
 export type CapturedGitStatus = z.infer<typeof GitStatusPayloadSchema>;
 
 export class SecureGitArtifactClient {
@@ -150,21 +158,7 @@ export class SecureGitArtifactClient {
       );
     }
 
-    const payload = (await response.json()) as {
-      sessionId?: unknown;
-      token?: unknown;
-    };
-    if (
-      typeof payload.sessionId !== "string" ||
-      typeof payload.token !== "string"
-    ) {
-      throw new Error("Git execution session response is missing credentials");
-    }
-
-    return {
-      sessionId: payload.sessionId,
-      token: payload.token,
-    };
+    return SecureMuscleSessionSchema.parse(await response.json());
   }
 }
 
@@ -190,17 +184,7 @@ function normalizeCanonicalGitResponse(
 function parseCanonicalExecutionResponse(
   payload: unknown,
 ): CanonicalExecutionResponse {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Git execution returned an invalid response payload");
-  }
-  const candidate = payload as CanonicalExecutionResponse;
-  if (
-    typeof candidate.taskId !== "string" ||
-    !["success", "failure", "timeout", "cancelled"].includes(candidate.status)
-  ) {
-    throw new Error("Git execution returned an invalid canonical response");
-  }
-  return candidate;
+  return CanonicalExecutionResponseSchema.parse(payload);
 }
 
 function assertPluginSuccess(
