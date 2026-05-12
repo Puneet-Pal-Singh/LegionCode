@@ -72,6 +72,7 @@ export class EditArtifactWriter {
       UPDATE_STATUS_SQL,
       statusBindings(input),
       "Failed to update edit artifact status",
+      { requireRowsWritten: true },
     );
   }
 }
@@ -129,6 +130,7 @@ async function runMutation(
   sql: string,
   bindings: unknown[],
   errorMessage: string,
+  options: { requireRowsWritten?: boolean } = {},
 ): Promise<void> {
   const result = await db
     .prepare(sql)
@@ -137,4 +139,16 @@ async function runMutation(
   if (!result.success) {
     throw new Error(errorMessage);
   }
+  if (options.requireRowsWritten && getRowsWritten(result) === 0) {
+    throw new Error(`${errorMessage}: artifact row not found`);
+  }
+}
+
+type D1MutationResult = Awaited<
+  ReturnType<ReturnType<D1Database["prepare"]>["run"]>
+>;
+
+function getRowsWritten(result: D1MutationResult): number | null {
+  const rowsWritten = result.meta?.rows_written;
+  return typeof rowsWritten === "number" ? rowsWritten : null;
 }
