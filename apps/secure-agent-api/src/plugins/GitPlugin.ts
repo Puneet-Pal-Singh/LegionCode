@@ -589,8 +589,8 @@ export class GitPlugin implements IPlugin {
     );
 
     return buildPatchCaptureResult(
-      trackedPatch.output,
-      untrackedPatch.output,
+      getPatchOutput(trackedPatch),
+      getPatchOutput(untrackedPatch),
       metadata,
     );
   }
@@ -665,7 +665,14 @@ export class GitPlugin implements IPlugin {
       sandbox,
       {
         command: "git",
-        args: ["-C", worktree, "ls-files", "--others", "--exclude-standard"],
+        args: [
+          "-C",
+          worktree,
+          "ls-files",
+          "-z",
+          "--others",
+          "--exclude-standard",
+        ],
         runId,
       },
       ["git"],
@@ -677,12 +684,8 @@ export class GitPlugin implements IPlugin {
     }
 
     const patches: string[] = [];
-    for (const filePath of listResult.stdout.split("\n")) {
-      const trimmedPath = filePath.trim();
-      if (!trimmedPath) {
-        continue;
-      }
-      const safePath = validateRepoRelativePath(trimmedPath);
+    for (const filePath of splitNullTerminatedPaths(listResult.stdout)) {
+      const safePath = validateRepoRelativePath(filePath);
       const diffResult = await this.runToolboxCommand(
         sandbox,
         {
@@ -1853,9 +1856,13 @@ function isNonFastForwardGitPushError(stderr: string): boolean {
   return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
 }
 
+function getPatchOutput(result: PluginResult): string {
+  return typeof result.output === "string" ? result.output : "";
+}
+
 function buildPatchCaptureResult(
-  trackedPatch: unknown,
-  untrackedPatch: unknown,
+  trackedPatch: string,
+  untrackedPatch: string,
   metadata: { baseCommitSha: string | null; branch: string | null },
 ): PluginResult {
   return {
@@ -1868,11 +1875,16 @@ function buildPatchCaptureResult(
   };
 }
 
-function combinePatchParts(...parts: unknown[]): string {
-  return parts
-    .filter((part): part is string => typeof part === "string")
-    .filter((part) => part.trim().length > 0)
-    .join("\n");
+function combinePatchParts(...parts: string[]): string {
+  return parts.filter(hasPatchContent).join("\n");
+}
+
+function hasPatchContent(patch: string): boolean {
+  return /\S/u.test(patch);
+}
+
+function splitNullTerminatedPaths(output: string): string[] {
+  return output.split("\0").filter((filePath) => filePath.length > 0);
 }
 
 function validatePatchPayload(
