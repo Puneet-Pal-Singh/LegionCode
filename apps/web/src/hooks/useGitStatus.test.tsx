@@ -4,6 +4,7 @@ import { useGitStatus, _resetGitStatusStateForTests } from "./useGitStatus";
 import {
   _resetRuntimeBootMonitorForTests,
   observeRuntimeBootId,
+  subscribeRuntimeBootChanges,
 } from "../lib/runtime-boot-monitor";
 
 vi.mock("./useRunContext", () => ({
@@ -153,5 +154,38 @@ describe("useGitStatus", () => {
       expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
     });
     expect(getGitStatusMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates runtime boot listener and localStorage failures", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const readFailure = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementationOnce(() => {
+        throw new Error("blocked storage");
+      });
+
+    expect(() => observeRuntimeBootId("boot-blocked")).not.toThrow();
+    readFailure.mockRestore();
+
+    const throwingListener = vi.fn(() => {
+      throw new Error("listener failed");
+    });
+    const healthyListener = vi.fn();
+    const unsubscribeThrowing = subscribeRuntimeBootChanges(throwingListener);
+    const unsubscribeHealthy = subscribeRuntimeBootChanges(healthyListener);
+
+    observeRuntimeBootId("boot-1");
+    observeRuntimeBootId("boot-2");
+
+    expect(throwingListener).toHaveBeenCalledWith("boot-2");
+    expect(healthyListener).toHaveBeenCalledWith("boot-2");
+
+    unsubscribeThrowing();
+    unsubscribeHealthy();
+    consoleError.mockRestore();
+    consoleWarn.mockRestore();
   });
 });
