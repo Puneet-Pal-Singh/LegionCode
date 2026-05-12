@@ -4,6 +4,8 @@ import {
 } from "@repo/shared-types";
 import type { R2Bucket } from "@cloudflare/workers-types";
 
+const EDIT_ARTIFACT_KEY_PREFIX = "edit-artifacts/";
+
 export interface StoredEditArtifactPatch {
   key: string;
   etag: string;
@@ -33,6 +35,7 @@ export class EditArtifactObjectStore {
     patch: string;
     metadata: EditArtifactPatchObjectMetadata;
   }): Promise<StoredEditArtifactPatch> {
+    assertPatchKeyScope(input.key);
     const metadata = EditArtifactPatchObjectMetadataSchema.parse(
       input.metadata,
     );
@@ -49,12 +52,20 @@ export class EditArtifactObjectStore {
   }
 
   async readPatch(key: string): Promise<string | null> {
+    assertPatchKeyScope(key);
     const object = await this.bucket.get(key);
     return object ? await object.text() : null;
   }
 
   async deletePatch(key: string): Promise<void> {
+    assertPatchKeyScope(key);
     await this.bucket.delete(key);
+  }
+}
+
+function assertPatchKeyScope(key: string): void {
+  if (!key.startsWith(EDIT_ARTIFACT_KEY_PREFIX)) {
+    throw new Error("Invalid edit artifact key scope");
   }
 }
 
