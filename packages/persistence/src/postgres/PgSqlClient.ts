@@ -32,9 +32,19 @@ export class PgSqlClient implements SqlClient {
       await this.query("COMMIT");
       return result;
     } catch (error) {
-      await this.query("ROLLBACK");
+      try {
+        await this.query("ROLLBACK");
+      } catch (rollbackError) {
+        attachRollbackError(error, rollbackError);
+      }
       throw error;
     }
+  }
+}
+
+function attachRollbackError(error: unknown, rollbackError: unknown): void {
+  if (error instanceof Error) {
+    error.cause ??= rollbackError;
   }
 }
 

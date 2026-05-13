@@ -5,6 +5,8 @@ import type { QueryResult, QueryResultRow } from "pg";
 class RecordingPgConnection implements PgConnection {
   public readonly statements: string[] = [];
 
+  constructor(private readonly failureStatement?: string) {}
+
   async connect(): Promise<void> {}
 
   async end(): Promise<void> {}
@@ -13,6 +15,9 @@ class RecordingPgConnection implements PgConnection {
     statement: string,
   ): Promise<QueryResult<Row>> {
     this.statements.push(statement);
+    if (statement === this.failureStatement) {
+      throw new Error(`failed ${statement}`);
+    }
     return {
       rows: [{ value: "ok" }] as Row[],
       rowCount: 1,
@@ -61,5 +66,19 @@ describe("PgSqlClient", () => {
       "SELECT inside",
       "ROLLBACK",
     ]);
+  });
+
+  it("preserves the original transaction error when rollback fails", async () => {
+    const connection = new RecordingPgConnection("ROLLBACK");
+    const client = new PgSqlClient(connection);
+    const originalError = new Error("callback failed");
+
+    await expect(
+      client.transaction(async () => {
+        throw originalError;
+      }),
+    ).rejects.toBe(originalError);
+    expect(originalError.cause).toEqual(new Error("failed ROLLBACK"));
+    expect(connection.statements).toEqual(["BEGIN", "ROLLBACK"]);
   });
 });
