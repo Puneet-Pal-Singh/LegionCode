@@ -265,6 +265,110 @@ describe("ChatInterface", () => {
     });
   });
 
+  it("shows only files changed during the current assistant turn", async () => {
+    const footerStatus: GitStatusResponse = {
+      files: [
+        {
+          path: "src/components/layout/Footer.tsx",
+          status: "modified",
+          additions: 9,
+          deletions: 9,
+          isStaged: false,
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      branch: "main",
+      hasStaged: false,
+      hasUnstaged: true,
+      gitAvailable: true,
+    };
+    const heroAndFooterStatus: GitStatusResponse = {
+      ...footerStatus,
+      files: [
+        {
+          path: "src/components/landing/hero/index.tsx",
+          status: "modified",
+          additions: 34,
+          deletions: 23,
+          isStaged: false,
+        },
+        ...footerStatus.files,
+      ],
+    };
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "edit the footer" },
+      { id: "assistant-1", role: "assistant", content: "Footer done." },
+      { id: "user-2", role: "user", content: "add it to hero too" },
+      { id: "assistant-2", role: "assistant", content: "Hero done." },
+    ];
+    mockGitReviewState.status = footerStatus;
+
+    const { rerender } = render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    mockGitReviewState.status = heroAndFooterStatus;
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
+      expect(screen.getByText("index.tsx")).toBeInTheDocument();
+      expect(screen.queryByText("Footer.tsx")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders backend-provided approval decisions and resolves the selected decision", async () => {
     const fetchMock = vi
       .fn()

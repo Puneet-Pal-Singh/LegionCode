@@ -267,6 +267,8 @@ export function ChatInterface({
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const lastReviewDispatchIdsRef = useRef<string[]>([]);
   const pendingChangedFilesRef = useRef<FileStatus[]>([]);
+  const turnBaselineFilesRef = useRef<FileStatus[]>([]);
+  const lastSettledFilesRef = useRef<FileStatus[]>([]);
   const previousIsLoadingRef = useRef(isLoading);
   const diffSnapshotByPathRef = useRef<Record<string, DiffContent>>({});
   const { providerModels } = useProviderStore(runId);
@@ -324,9 +326,17 @@ export function ChatInterface({
     },
     [runId, sessionId],
   );
+  const liveChangedFiles = useMemo(() => {
+    return collectChangedFilesSinceBaseline(
+      gitStatus?.files ?? [],
+      turnBaselineFilesRef.current,
+    );
+  }, [gitStatus?.files]);
 
   useEffect(() => {
     pendingChangedFilesRef.current = [];
+    turnBaselineFilesRef.current = [];
+    lastSettledFilesRef.current = [];
     diffSnapshotByPathRef.current = {};
     previousIsLoadingRef.current = false;
     setChangedFilesByAssistantMessageId({});
@@ -334,6 +344,9 @@ export function ChatInterface({
 
   useEffect(() => {
     if (!previousIsLoadingRef.current && isLoading) {
+      turnBaselineFilesRef.current = cloneFileStatuses(
+        lastSettledFilesRef.current,
+      );
       pendingChangedFilesRef.current = [];
       diffSnapshotByPathRef.current = {};
     }
@@ -342,11 +355,17 @@ export function ChatInterface({
 
   useEffect(() => {
     const files = gitStatus?.files ?? [];
+    if (!isLoading) {
+      lastSettledFilesRef.current = cloneFileStatuses(files);
+    }
     if (files.length === 0) {
       return;
     }
-    pendingChangedFilesRef.current = cloneFileStatuses(files);
-  }, [gitStatus?.files]);
+    pendingChangedFilesRef.current = collectChangedFilesSinceBaseline(
+      files,
+      turnBaselineFilesRef.current,
+    );
+  }, [gitStatus?.files, isLoading]);
 
   useEffect(() => {
     if (isLoading || !latestAssistantMessageId) {
@@ -868,7 +887,7 @@ export function ChatInterface({
                     messageId: entry.message.id,
                     latestAssistantMessageId,
                     isLoading,
-                    liveFiles: gitStatus?.files,
+                    liveFiles: liveChangedFiles,
                     snapshots: changedFilesByAssistantMessageId,
                     loadFileDiff: loadChangedFileDiff,
                   })}
@@ -968,6 +987,31 @@ function resolveChangedFilesSummary(input: {
     files,
     loadFileDiff: input.loadFileDiff,
   };
+}
+
+function collectChangedFilesSinceBaseline(
+  files: FileStatus[],
+  baselineFiles: FileStatus[],
+): FileStatus[] {
+  if (baselineFiles.length === 0) {
+    return cloneFileStatuses(files);
+  }
+
+  const baselineByPath = new Map(
+    baselineFiles.map((file) => [file.path, fileStatusSignature(file)]),
+  );
+  return files
+    .filter((file) => baselineByPath.get(file.path) !== fileStatusSignature(file))
+    .map((file) => ({ ...file }));
+}
+
+function fileStatusSignature(file: FileStatus): string {
+  return [
+    file.status,
+    file.additions,
+    file.deletions,
+    file.isStaged ? "staged" : "unstaged",
+  ].join(":");
 }
 
 function cloneFileStatuses(files: FileStatus[]): FileStatus[] {

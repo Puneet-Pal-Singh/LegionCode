@@ -42,7 +42,7 @@ export function ArtifactPreview({ title, content: initialContent, onOpen, status
 
   return (
     <div className={cn(
-      "w-full max-w-xl my-4 rounded-xl border bg-zinc-900/50 overflow-hidden transition-all shadow-lg",
+      "w-full max-w-full my-4 rounded-xl border bg-zinc-900/50 overflow-hidden transition-all shadow-lg",
       isRunning ? "border-zinc-800 opacity-70" : "border-zinc-800 hover:border-zinc-700"
     )}>
       {/* Header */}
