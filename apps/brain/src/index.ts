@@ -6,6 +6,7 @@ import { GitController } from "./controllers/GitController";
 import { RunController } from "./controllers/RunController";
 import { ProviderController } from "./controllers/ProviderController";
 import { RuntimeController } from "./controllers/RuntimeController";
+import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -79,6 +80,11 @@ function createRouter(): Router {
     /^\/api\/debug\/runtime$/,
     RuntimeController.getRuntimeDebug,
     "GET",
+  );
+  router.add(
+    /^\/internal\/runtime\/events$/,
+    RuntimeEventController.acceptInternalRuntimeEvent,
+    "POST",
   );
 
   // Auth routes - OAuth flow
