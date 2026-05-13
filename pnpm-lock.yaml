@@ -39,6 +39,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^1.1.0
         version: 1.1.0(zod@3.25.1)
+      '@repo/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
       '@shadowbox/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
@@ -433,6 +436,22 @@ importers:
       vitest:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/persistence:
+    dependencies:
+      '@repo/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
 
   packages/planning-engine:
     dependencies:

@@ -1,4 +1,22 @@
-// Git types
+// Shared JSON and runtime event contracts
+export { JsonValueSchema, type JsonPrimitive, type JsonValue } from "./json.js";
+
+export {
+  INTERNAL_RUNTIME_EVENT_SIGNATURE_HEADER,
+  INTERNAL_RUNTIME_EVENT_TIMESTAMP_HEADER,
+  RUNTIME_EVENT_SIGNATURE_VERSION,
+  RuntimeEventSourceSchema,
+  RuntimeEventTypeSchema,
+  RuntimeEventIdempotencyKeySchema,
+  InternalRuntimeEventRequestSchema,
+  buildRuntimeEventSignatureBase,
+  formatRuntimeEventSignature,
+  type RuntimeEventSource,
+  type InternalRuntimeEventRequest,
+  type SignedRuntimeEventHeaders,
+  type InternalRuntimeEventEnvelope,
+} from "./runtime-events.js";
+
 export type {
   FileStatusType,
   FileStatus,
