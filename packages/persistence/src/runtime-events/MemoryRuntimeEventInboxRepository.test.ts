@@ -43,4 +43,23 @@ describe("MemoryRuntimeEventInboxRepository", () => {
     expect(second.inserted).toBe(true);
     expect(second.entry.id).not.toBe(first.entry.id);
   });
+
+  it("clones the payload to prevent mutations", async () => {
+    const repository = new MemoryRuntimeEventInboxRepository();
+    const payload = { nested: { value: 1 } };
+    const event = {
+      source: "secure-agent-api" as const,
+      eventType: "tool.completed",
+      idempotencyKey: "run-1:tool-1:completed",
+      payloadSchemaVersion: 1,
+      payload,
+    };
+
+    const { entry } = await repository.accept(event);
+
+    // Mutate original payload
+    payload.nested.value = 2;
+
+    expect((entry.payload as typeof payload).nested.value).toBe(1);
+  });
 });

@@ -6,14 +6,19 @@ import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
 class RecordingSqlClient implements SqlClient {
   public readonly statements: string[] = [];
 
-  constructor(private readonly failureStatement?: string) {}
+  constructor(
+    private readonly failureStatement?: string,
+    private readonly failureError: unknown = new Error(
+      "database rejected statement",
+    ),
+  ) {}
 
   async query<Row extends SqlRow = SqlRow>(
     statement: string,
   ): Promise<SqlQueryResult<Row>> {
     this.statements.push(statement);
     if (statement === this.failureStatement) {
-      throw new Error("database rejected statement");
+      throw this.failureError;
     }
     return { rows: [], rowCount: 0 };
   }
@@ -76,6 +81,48 @@ describe("PostgresMigrationRunner", () => {
       ]),
     ).rejects.toThrow(
       "Failed to apply migration 0001_broken statement 2: database rejected statement",
+    );
+  });
+
+  it("handles non-Error throwables with detail preservation", async () => {
+    const client = new RecordingSqlClient(
+      "SELECT broken",
+      "custom string error",
+    );
+    const ledger = new FakeLedger(new Set());
+    const runner = new PostgresMigrationRunner(client, ledger);
+
+    await expect(
+      runner.runPending([
+        {
+          id: "0001_broken",
+          description: "broken",
+          statements: ["SELECT broken"],
+        },
+      ]),
+    ).rejects.toThrow(
+      "Failed to apply migration 0001_broken statement 1: custom string error",
+    );
+  });
+
+  it("handles object throwables by stringifying them", async () => {
+    const client = new RecordingSqlClient("SELECT broken", {
+      code: "X123",
+      detail: "object error",
+    });
+    const ledger = new FakeLedger(new Set());
+    const runner = new PostgresMigrationRunner(client, ledger);
+
+    await expect(
+      runner.runPending([
+        {
+          id: "0001_broken",
+          description: "broken",
+          statements: ["SELECT broken"],
+        },
+      ]),
+    ).rejects.toThrow(
+      'Failed to apply migration 0001_broken statement 1: {"code":"X123","detail":"object error"}',
     );
   });
 });

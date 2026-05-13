@@ -40,7 +40,7 @@ function createEntry(
     source: event.source,
     eventType: event.eventType,
     idempotencyKey: event.idempotencyKey,
-    payload: event.payload,
+    payload: structuredClone(event.payload),
     payloadSchemaVersion: event.payloadSchemaVersion,
     status: "received",
     receivedAt: receivedAt.toISOString(),

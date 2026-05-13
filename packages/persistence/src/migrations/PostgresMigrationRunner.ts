@@ -54,5 +54,22 @@ async function applyMigration(
 }
 
 function readErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown migration error";
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    try {
+      return JSON.stringify(error);
+    } catch {
+      // Fall through to String()
+    }
+  }
+
+  const fallback = String(error);
+  return fallback !== "" ? fallback : "Unknown migration error";
 }
