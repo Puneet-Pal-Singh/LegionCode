@@ -1,4 +1,8 @@
+import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
 import type { SqlMigration } from "./types.js";
+
+const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
+  buildRuntimeEventInboxStatusSqlList();
 
 export const runtimeEventInboxMigration: SqlMigration = {
   id: "0001_runtime_event_inbox",
@@ -20,7 +24,7 @@ export const runtimeEventInboxMigration: SqlMigration = {
         received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         processed_at TIMESTAMPTZ,
         CONSTRAINT runtime_event_inbox_status_check
-          CHECK (status IN ('received', 'processing', 'processed', 'failed')),
+          CHECK (status IN (${RUNTIME_EVENT_INBOX_STATUS_SQL_LIST})),
         CONSTRAINT runtime_event_inbox_payload_schema_version_check
           CHECK (payload_schema_version > 0)
       )

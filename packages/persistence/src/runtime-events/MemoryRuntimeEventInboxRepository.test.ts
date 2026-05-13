@@ -3,7 +3,8 @@ import { MemoryRuntimeEventInboxRepository } from "./MemoryRuntimeEventInboxRepo
 
 describe("MemoryRuntimeEventInboxRepository", () => {
   it("dedupes by source and idempotency key", async () => {
-    const repository = new MemoryRuntimeEventInboxRepository();
+    const receivedAt = new Date("2026-05-14T00:00:00.000Z");
+    const repository = new MemoryRuntimeEventInboxRepository(() => receivedAt);
     const event = {
       source: "secure-agent-api" as const,
       eventType: "tool.completed",
@@ -18,5 +19,28 @@ describe("MemoryRuntimeEventInboxRepository", () => {
     expect(first.inserted).toBe(true);
     expect(second.inserted).toBe(false);
     expect(second.entry.id).toBe(first.entry.id);
+    expect(first.entry.receivedAt).toBe(receivedAt.toISOString());
+  });
+
+  it("does not dedupe different idempotency keys", async () => {
+    const repository = new MemoryRuntimeEventInboxRepository();
+    const first = await repository.accept({
+      source: "secure-agent-api",
+      eventType: "tool.completed",
+      idempotencyKey: "run-1:tool-1:completed",
+      payloadSchemaVersion: 1,
+      payload: { runId: "run-1" },
+    });
+    const second = await repository.accept({
+      source: "secure-agent-api",
+      eventType: "tool.completed",
+      idempotencyKey: "run-1:tool-2:completed",
+      payloadSchemaVersion: 1,
+      payload: { runId: "run-1" },
+    });
+
+    expect(first.inserted).toBe(true);
+    expect(second.inserted).toBe(true);
+    expect(second.entry.id).not.toBe(first.entry.id);
   });
 });

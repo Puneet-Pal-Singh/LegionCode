@@ -10,6 +10,8 @@ export class MemoryRuntimeEventInboxRepository
 {
   private readonly entries = new Map<string, RuntimeEventInboxEntry>();
 
+  constructor(private readonly now: () => Date = () => new Date()) {}
+
   async accept(
     event: InternalRuntimeEventRequest,
   ): Promise<RuntimeEventInboxAcceptResult> {
@@ -19,7 +21,7 @@ export class MemoryRuntimeEventInboxRepository
       return { entry: existing, inserted: false };
     }
 
-    const entry = createEntry(event);
+    const entry = createEntry(event, this.now());
     this.entries.set(key, entry);
     return { entry, inserted: true };
   }
@@ -31,6 +33,7 @@ function buildMemoryKey(event: InternalRuntimeEventRequest): string {
 
 function createEntry(
   event: InternalRuntimeEventRequest,
+  receivedAt: Date,
 ): RuntimeEventInboxEntry {
   return {
     id: crypto.randomUUID(),
@@ -40,6 +43,6 @@ function createEntry(
     payload: event.payload,
     payloadSchemaVersion: event.payloadSchemaVersion,
     status: "received",
-    receivedAt: new Date().toISOString(),
+    receivedAt: receivedAt.toISOString(),
   };
 }

@@ -1,4 +1,4 @@
-// Git types
+// Shared JSON and runtime event contracts
 export { JsonValueSchema, type JsonPrimitive, type JsonValue } from "./json.js";
 
 export {

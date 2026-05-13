@@ -4,13 +4,9 @@ import type {
   RuntimeEventInboxEntry,
   RuntimeEventInboxStatus,
 } from "./types.js";
+import { RUNTIME_EVENT_INBOX_STATUSES as STATUS_VALUES } from "./types.js";
 
-const RUNTIME_EVENT_INBOX_STATUSES = new Set<string>([
-  "received",
-  "processing",
-  "processed",
-  "failed",
-]);
+const RUNTIME_EVENT_INBOX_STATUS_SET = new Set<string>(STATUS_VALUES);
 
 export function mapRuntimeEventInboxRow(row: SqlRow): RuntimeEventInboxEntry {
   return {
@@ -30,14 +26,20 @@ export function mapRuntimeEventInboxRow(row: SqlRow): RuntimeEventInboxEntry {
 function readPayload(row: SqlRow): JsonValue {
   const value = row.payload_json;
   if (typeof value === "string") {
-    return JSON.parse(value) as JsonValue;
+    try {
+      return JSON.parse(value) as JsonValue;
+    } catch (error) {
+      throw new TypeError("Invalid JSON in runtime_event_inbox.payload_json", {
+        cause: error,
+      });
+    }
   }
   return value as JsonValue;
 }
 
 function readStatus(row: SqlRow): RuntimeEventInboxStatus {
   const status = readString(row, "status");
-  if (!RUNTIME_EVENT_INBOX_STATUSES.has(status)) {
+  if (!RUNTIME_EVENT_INBOX_STATUS_SET.has(status)) {
     throw new TypeError(`Unexpected runtime event inbox status: ${status}`);
   }
   return status as RuntimeEventInboxStatus;

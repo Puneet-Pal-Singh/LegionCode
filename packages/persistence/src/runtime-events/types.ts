@@ -4,11 +4,15 @@ import type {
   RuntimeEventSource,
 } from "@repo/shared-types";
 
+export const RUNTIME_EVENT_INBOX_STATUSES = [
+  "received",
+  "processing",
+  "processed",
+  "failed",
+] as const;
+
 export type RuntimeEventInboxStatus =
-  | "received"
-  | "processing"
-  | "processed"
-  | "failed";
+  (typeof RUNTIME_EVENT_INBOX_STATUSES)[number];
 
 export interface RuntimeEventInboxEntry {
   id: string;
@@ -32,4 +36,8 @@ export interface RuntimeEventInboxRepository {
   accept(
     event: InternalRuntimeEventRequest,
   ): Promise<RuntimeEventInboxAcceptResult>;
+}
+
+export function buildRuntimeEventInboxStatusSqlList(): string {
+  return RUNTIME_EVENT_INBOX_STATUSES.map((status) => `'${status}'`).join(", ");
 }

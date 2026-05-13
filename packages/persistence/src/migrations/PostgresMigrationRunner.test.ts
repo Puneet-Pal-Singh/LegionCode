@@ -6,10 +6,15 @@ import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
 class RecordingSqlClient implements SqlClient {
   public readonly statements: string[] = [];
 
+  constructor(private readonly failureStatement?: string) {}
+
   async query<Row extends SqlRow = SqlRow>(
     statement: string,
   ): Promise<SqlQueryResult<Row>> {
     this.statements.push(statement);
+    if (statement === this.failureStatement) {
+      throw new Error("database rejected statement");
+    }
     return { rows: [], rowCount: 0 };
   }
 
@@ -54,5 +59,23 @@ describe("PostgresMigrationRunner", () => {
     });
     expect(client.statements).toEqual(["SELECT 2"]);
     expect(ledger.recorded).toEqual(["0002_pending"]);
+  });
+
+  it("adds migration context to statement failures", async () => {
+    const client = new RecordingSqlClient("SELECT broken");
+    const ledger = new FakeLedger(new Set());
+    const runner = new PostgresMigrationRunner(client, ledger);
+
+    await expect(
+      runner.runPending([
+        {
+          id: "0001_broken",
+          description: "broken",
+          statements: ["SELECT ok", "SELECT broken"],
+        },
+      ]),
+    ).rejects.toThrow(
+      "Failed to apply migration 0001_broken statement 2: database rejected statement",
+    );
   });
 });

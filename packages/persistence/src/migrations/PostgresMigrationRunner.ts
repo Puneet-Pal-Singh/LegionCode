@@ -41,7 +41,18 @@ async function applyMigration(
   client: SqlClient,
   migration: SqlMigration,
 ): Promise<void> {
-  for (const statement of migration.statements) {
-    await client.query(statement);
+  for (const [index, statement] of migration.statements.entries()) {
+    try {
+      await client.query(statement);
+    } catch (error) {
+      throw new Error(
+        `Failed to apply migration ${migration.id} statement ${index + 1}: ${readErrorMessage(error)}`,
+        { cause: error },
+      );
+    }
   }
+}
+
+function readErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown migration error";
 }
