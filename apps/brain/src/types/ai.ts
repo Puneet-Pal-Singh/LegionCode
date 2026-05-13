@@ -8,6 +8,10 @@ import type {
   R2Bucket,
 } from "@cloudflare/workers-types";
 
+export interface HyperdriveBinding {
+  connectionString: string;
+}
+
 export interface Env {
   // Existing bindings
   AI: Ai;
@@ -16,6 +20,9 @@ export interface Env {
   // ✅ D1 Database for BYOK (Plan 81)
   BYOK_DB: D1Database;
   EDIT_ARTIFACTS?: R2Bucket;
+  HYPERDRIVE?: HyperdriveBinding;
+  DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
+  INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK
   GOOGLE_GENERATIVE_AI_API_KEY?: string;
