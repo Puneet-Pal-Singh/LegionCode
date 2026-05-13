@@ -4,6 +4,11 @@ export type {
   SqlRow,
   SqlValue,
 } from "./sql.js";
+export {
+  PgSqlClient,
+  withPostgresSqlClient,
+  type PgConnection,
+} from "./postgres/PgSqlClient.js";
 
 export {
   runtimeEventInboxMigration,
