@@ -31,6 +31,7 @@
     "@shadowbox/orchestrator-adapters-cloudflare-agents": "workspace:*",
     "@shadowbox/orchestrator-core": "workspace:*",
     "@shadowbox/github-bridge": "workspace:*",
+    "@repo/persistence": "workspace:*",
     "ai": "4.1.0",
     "zod": "^3.22.4"
   }
