@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./git": "./src/git.ts",
-    "./edit-artifacts": "./src/edit-artifacts.ts"
+    "./edit-artifacts": "./src/edit-artifacts.ts",
+    "./runtime-events": "./src/runtime-events.ts"
   },
   "scripts": {
     "lint": "eslint .",
