@@ -22,6 +22,13 @@
       "when": 1778779498649,
       "tag": "0002_workspace_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778781631658,
+      "tag": "0003_workspace_selection_consistency",
+      "breakpoints": true
     }
   ]
 }

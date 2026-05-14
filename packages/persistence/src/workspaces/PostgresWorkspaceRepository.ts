@@ -167,11 +167,19 @@ function mapWorkspaceRow(row: WorkspaceSelectionRow): WorkspaceRecord {
     name: row.workspace_name,
     defaultBranch: row.workspace_default_branch,
     lastSelectedBranch: row.last_selected_branch,
-    status: row.status === "archived" ? "archived" : "active",
+    status: mapWorkspaceStatus(row.status),
     createdAt: toIsoString(row.workspace_created_at),
     updatedAt: toIsoString(row.workspace_updated_at),
     lastOpenedAt: toIsoString(row.last_opened_at),
   };
+}
+
+function mapWorkspaceStatus(status: string): WorkspaceRecord["status"] {
+  if (status === "active" || status === "archived") {
+    return status;
+  }
+
+  throw new Error(`Unsupported workspace status: ${status}`);
 }
 
 function mapSelectionRow(row: WorkspaceSelectionRow): WorkspaceSelectionRecord {

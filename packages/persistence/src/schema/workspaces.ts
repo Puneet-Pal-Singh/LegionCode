@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   index,
   check,
+  foreignKey,
   pgTable,
   primaryKey,
   text,
@@ -67,6 +68,7 @@ export const workspaces = pgTable(
   },
   (table) => [
     uniqueIndex("workspaces_user_repo_idx").on(table.userId, table.repoId),
+    uniqueIndex("workspaces_id_repo_idx").on(table.id, table.repoId),
     index("workspaces_user_updated_at_idx").on(table.userId, table.updatedAt),
     index("workspaces_repo_id_idx").on(table.repoId),
     check(
@@ -102,5 +104,10 @@ export const workspaceSelections = pgTable(
       table.selectedWorkspaceId,
     ),
     index("workspace_selections_repo_id_idx").on(table.selectedRepoId),
+    foreignKey({
+      columns: [table.selectedWorkspaceId, table.selectedRepoId],
+      foreignColumns: [workspaces.id, workspaces.repoId],
+      name: "workspace_selections_workspace_repo_fk",
+    }).onDelete("cascade"),
   ],
 );

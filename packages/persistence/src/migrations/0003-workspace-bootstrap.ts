@@ -46,6 +46,10 @@ export const workspaceBootstrapMigration: SqlMigration = {
         ON workspaces (user_id, repo_id)
     `,
     `
+      CREATE UNIQUE INDEX IF NOT EXISTS workspaces_id_repo_idx
+        ON workspaces (id, repo_id)
+    `,
+    `
       CREATE INDEX IF NOT EXISTS workspaces_user_updated_at_idx
         ON workspaces (user_id, updated_at)
     `,
@@ -69,6 +73,13 @@ export const workspaceBootstrapMigration: SqlMigration = {
     `
       CREATE INDEX IF NOT EXISTS workspace_selections_repo_id_idx
         ON workspace_selections (selected_repo_id)
+    `,
+    `
+      ALTER TABLE workspace_selections
+      ADD CONSTRAINT workspace_selections_workspace_repo_fk
+      FOREIGN KEY (selected_workspace_id, selected_repo_id)
+      REFERENCES workspaces(id, repo_id)
+      ON DELETE CASCADE
     `,
   ],
 };

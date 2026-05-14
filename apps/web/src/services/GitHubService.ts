@@ -205,11 +205,47 @@ export async function selectWorkspace(
   );
 
   if (!response.ok) {
-    throw new Error("Failed to persist workspace selection");
+    throw await readWorkspaceSelectionError(response);
   }
 
-  const data = (await response.json()) as { selection: WorkspaceSelection };
-  return data.selection;
+  return parseWorkspaceSelectionResponse(await response.json());
+}
+
+async function readWorkspaceSelectionError(response: Response): Promise<Error> {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: unknown }
+    | null;
+  const serverMessage =
+    typeof payload?.error === "string" && payload.error.trim().length > 0
+      ? `: ${payload.error}`
+      : "";
+
+  return new Error(
+    `Failed to persist workspace selection (HTTP ${response.status})${serverMessage}`,
+  );
+}
+
+function parseWorkspaceSelectionResponse(payload: unknown): WorkspaceSelection {
+  if (!isRecord(payload) || !isWorkspaceSelection(payload.selection)) {
+    throw new Error("Invalid workspace selection response from server");
+  }
+
+  return payload.selection;
+}
+
+function isWorkspaceSelection(value: unknown): value is WorkspaceSelection {
+  return (
+    isRecord(value) &&
+    typeof value.workspaceId === "string" &&
+    typeof value.repoId === "string" &&
+    typeof value.selectedBranch === "string" &&
+    typeof value.workspaceName === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /**

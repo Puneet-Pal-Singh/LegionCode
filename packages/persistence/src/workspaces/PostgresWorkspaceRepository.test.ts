@@ -8,6 +8,8 @@ class WorkspaceSqlClient implements SqlClient {
     params: readonly SqlValue[];
   }> = [];
 
+  constructor(private readonly options: { status?: string } = {}) {}
+
   async query<Row extends SqlRow = SqlRow>(
     statement: string,
     params?: readonly SqlValue[],
@@ -19,7 +21,7 @@ class WorkspaceSqlClient implements SqlClient {
     }
 
     if (statement.includes("INSERT INTO workspaces")) {
-      return rows([createWorkspaceRow()]);
+      return rows([createWorkspaceRow(this.options)]);
     }
 
     if (statement.includes("INSERT INTO workspace_selections")) {
@@ -27,12 +29,22 @@ class WorkspaceSqlClient implements SqlClient {
     }
 
     if (statement.includes("FROM workspace_selections")) {
-      return rows([{ ...createRepoRow(), ...createWorkspaceRow(), ...createSelectionRow() }]);
+      return rows([
+        {
+          ...createRepoRow(),
+          ...createWorkspaceRow(this.options),
+          ...createSelectionRow(),
+        },
+      ]);
     }
 
     if (statement.includes("FROM workspaces")) {
       return rows([
-        { ...createRepoRow(), ...createWorkspaceRow(), selected_workspace_id: "workspace-1" },
+        {
+          ...createRepoRow(),
+          ...createWorkspaceRow(this.options),
+          selected_workspace_id: "workspace-1",
+        },
       ]);
     }
 
@@ -88,6 +100,15 @@ describe("PostgresWorkspaceRepository", () => {
     expect(workspaces).toHaveLength(1);
     expect(workspaces[0]?.selected).toBe(true);
   });
+
+  it("fails fast on unsupported workspace statuses", async () => {
+    const client = new WorkspaceSqlClient({ status: "deleted" });
+    const repository = new PostgresWorkspaceRepository(client);
+
+    await expect(repository.listWorkspaces("user-1")).rejects.toThrow(
+      "Unsupported workspace status: deleted",
+    );
+  });
 });
 
 function findQuery(
@@ -118,7 +139,7 @@ function createRepoRow(): SqlRow {
   };
 }
 
-function createWorkspaceRow(): SqlRow {
+function createWorkspaceRow(options: { status?: string } = {}): SqlRow {
   return {
     workspace_id: "workspace-1",
     user_id: "user-1",
@@ -126,7 +147,7 @@ function createWorkspaceRow(): SqlRow {
     workspace_name: "acme/legioncode",
     workspace_default_branch: "main",
     last_selected_branch: "dev",
-    status: "active",
+    status: options.status ?? "active",
     workspace_created_at: "2026-05-14T00:00:00.000Z",
     workspace_updated_at: "2026-05-14T00:00:00.000Z",
     last_opened_at: "2026-05-14T00:00:00.000Z",

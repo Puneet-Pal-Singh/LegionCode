@@ -14,6 +14,8 @@ import {
 import { DependencyError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
 
+let autoMigrationRun: Promise<void> | null = null;
+
 export async function withWorkspaceRepository<T>(
   env: Env,
   callback: (repository: WorkspaceRepository) => Promise<T>,
@@ -52,6 +54,14 @@ async function runAutomaticMigrations(
     return;
   }
 
+  autoMigrationRun ??= runPendingMigrations(client).catch((error: unknown) => {
+    autoMigrationRun = null;
+    throw error;
+  });
+  await autoMigrationRun;
+}
+
+async function runPendingMigrations(client: SqlClient): Promise<void> {
   const runner = new PostgresMigrationRunner(
     client,
     new PostgresMigrationLedger(),

@@ -5,7 +5,7 @@ import * as GitHubService from "../../services/GitHubService";
 import { sortBranchesForRepoPicker } from "./sortBranchesForRepoPicker";
 
 interface RepoPickerProps {
-  onRepoSelect: (repo: Repository, branch: string) => void;
+  onRepoSelect: (repo: Repository, branch: string) => void | Promise<void>;
   onSkip: () => void;
 }
 

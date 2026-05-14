@@ -677,10 +677,25 @@ function AppContent() {
    * Handle repository selection from RepoPicker
    * Creates a session immediately for the selected repository
    */
-  const handleRepoSelect = (
+  const handleRepoSelect = async (
     selectedRepo: Repository,
     selectedBranch: string,
-  ) => {
+  ): Promise<void> => {
+    try {
+      await GitHubService.selectWorkspace(selectedRepo, selectedBranch);
+    } catch (error) {
+      console.error("[workspace/select] Failed to persist selection:", error);
+      window.dispatchEvent(
+        new CustomEvent("legioncode:workspace-selection-persist-failed", {
+          detail: {
+            repository: selectedRepo.full_name,
+            branch: selectedBranch,
+          },
+        }),
+      );
+      return;
+    }
+
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
     setContext(selectedRepo, selectedBranch);
@@ -698,11 +713,6 @@ function AppContent() {
       fullName: selectedRepo.full_name,
       branch: selectedBranch,
     });
-    void GitHubService.selectWorkspace(selectedRepo, selectedBranch).catch(
-      (error) => {
-        console.error("[App] Failed to persist workspace selection:", error);
-      },
-    );
 
     console.log(
       `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
