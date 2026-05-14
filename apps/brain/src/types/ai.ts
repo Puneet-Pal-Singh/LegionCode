@@ -20,7 +20,7 @@ export interface Env {
   // ✅ D1 Database for BYOK (Plan 81)
   BYOK_DB: D1Database;
   EDIT_ARTIFACTS?: R2Bucket;
-  HYPERDRIVE?: HyperdriveBinding;
+  HYPERDRIVE: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 

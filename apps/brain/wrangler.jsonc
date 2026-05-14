@@ -23,6 +23,14 @@
     },
   ],
 
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "00000000-0000-0000-0000-000000000000",
+      "localConnectionString": "postgres://postgres:postgres@localhost:5432/shadowbox",
+    },
+  ],
+
   "durable_objects": {
     "bindings": [
       {
