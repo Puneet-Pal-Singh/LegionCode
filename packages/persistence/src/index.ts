@@ -19,6 +19,7 @@ export {
   type WorkerDatabaseEnv,
 } from "./config/database.js";
 
+export { identitySessionBootstrapMigration } from "./migrations/0002-identity-session-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -34,10 +35,24 @@ export type {
 
 export { PostgresRuntimeEventInboxRepository } from "./runtime-events/PostgresRuntimeEventInboxRepository.js";
 export { MemoryRuntimeEventInboxRepository } from "./runtime-events/MemoryRuntimeEventInboxRepository.js";
+export { MemoryIdentitySessionRepository } from "./identity/MemoryIdentitySessionRepository.js";
+export { PostgresIdentitySessionRepository } from "./identity/PostgresIdentitySessionRepository.js";
+export type {
+  EncryptedOAuthToken,
+  GitHubIdentitySessionInput,
+  IdentitySessionRecord,
+  IdentitySessionRepository,
+} from "./identity/types.js";
 export type {
   RuntimeEventInboxAcceptResult,
   RuntimeEventInboxEntry,
   RuntimeEventInboxRepository,
   RuntimeEventInboxStatus,
 } from "./runtime-events/types.js";
-export { runtimeEventInbox } from "./schema/index.js";
+export {
+  accounts,
+  authSessions,
+  oauthTokens,
+  runtimeEventInbox,
+  users,
+} from "./schema/index.js";
