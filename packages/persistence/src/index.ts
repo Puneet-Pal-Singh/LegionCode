@@ -20,6 +20,7 @@ export {
 } from "./config/database.js";
 
 export { identitySessionBootstrapMigration } from "./migrations/0002-identity-session-bootstrap.js";
+export { workspaceBootstrapMigration } from "./migrations/0003-workspace-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -44,6 +45,16 @@ export type {
   IdentitySessionRepository,
 } from "./identity/types.js";
 export type {
+  RepositoryRecord,
+  SelectWorkspaceInput,
+  WorkspaceBootstrapRecord,
+  WorkspaceRecord,
+  WorkspaceRepository,
+  WorkspaceSelectionRecord,
+  WorkspaceStatus,
+} from "./workspaces/types.js";
+export { WORKSPACE_STATUSES } from "./workspaces/types.js";
+export type {
   RuntimeEventInboxAcceptResult,
   RuntimeEventInboxEntry,
   RuntimeEventInboxRepository,
@@ -53,6 +64,9 @@ export {
   accounts,
   authSessions,
   oauthTokens,
+  repos,
   runtimeEventInbox,
   users,
+  workspaces,
+  workspaceSelections,
 } from "./schema/index.js";
