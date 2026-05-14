@@ -147,6 +147,7 @@ import {
 } from "./schemas/http-api";
 import { composeRuntime } from "./factories/RuntimeCompositionFactory";
 import { enforceLaunchSafetyForRoute } from "./services/LaunchSafetyService";
+import { InternalRuntimeEventClient } from "./services/runtime-events/InternalRuntimeEventClient";
 
 export { Sandbox, AgentRuntime, LaunchRateLimiter, composeRuntime };
 
@@ -163,6 +164,8 @@ export interface Env {
   LAUNCH_RATE_LIMITER?: DurableObjectNamespace;
   LAUNCH_EMERGENCY_SHUTOFF_MODE?: "off" | "block_session_and_execute" | "block_all";
   LAUNCH_RATE_LIMIT_REQUIRED?: "true" | "false";
+  BRAIN?: Fetcher;
+  INTERNAL_RUNTIME_EVENT_SECRET?: string;
   SESSION_CREATE_RATE_LIMIT_AUTH_MAX?: string;
   SESSION_CREATE_RATE_LIMIT_ANON_MAX?: string;
   SESSION_CREATE_RATE_LIMIT_WINDOW_SECONDS?: string;
@@ -248,7 +251,11 @@ export default {
         if (safetyResponse) {
           response = safetyResponse;
         } else {
-          response = await handleExecuteTask(request, stub);
+          response = await handleExecuteTask(
+            request,
+            stub,
+            createRuntimeEventClient(env),
+          );
         }
       } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
         response = await handleStreamLogs(
@@ -359,3 +366,17 @@ export default {
     }
   },
 };
+
+function createRuntimeEventClient(env: Env): InternalRuntimeEventClient {
+  const secret = env.INTERNAL_RUNTIME_EVENT_SECRET?.trim();
+  if (!env.BRAIN || !secret) {
+    throw new Error(
+      "BRAIN binding and INTERNAL_RUNTIME_EVENT_SECRET are required for runtime event emission",
+    );
+  }
+
+  return new InternalRuntimeEventClient({
+    brain: env.BRAIN,
+    secret,
+  });
+}

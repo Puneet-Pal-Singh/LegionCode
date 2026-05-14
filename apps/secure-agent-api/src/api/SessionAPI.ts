@@ -19,6 +19,8 @@ import type {
   SandboxExecutionPort,
   TaskExecutionInput,
 } from "../ports/SandboxExecutionPort";
+import type { RuntimeEventPublisher } from "../services/runtime-events/InternalRuntimeEventClient";
+import type { JsonValue } from "@repo/shared-types";
 
 type RuntimeStub = Record<string, unknown>;
 
@@ -402,6 +404,7 @@ export async function handleCreateSession(
 export async function handleExecuteTask(
   request: Request,
   runtime: RuntimeStub,
+  runtimeEventPublisher?: RuntimeEventPublisher,
 ): Promise<Response> {
   console.log("[api/execute] Handling task execution request");
 
@@ -438,6 +441,13 @@ export async function handleExecuteTask(
       );
     }
 
+    await publishTaskEvent(runtimeEventPublisher, {
+      eventType: "runtime.task.started",
+      session: auth.session,
+      sessionId,
+      request: validation.data,
+    });
+
     const runtimeResult = await executionPort.executeTask(
       sessionId,
       toTaskExecutionInput(validation.data),
@@ -463,6 +473,14 @@ export async function handleExecuteTask(
       );
     }
 
+    await publishTaskEvent(runtimeEventPublisher, {
+      eventType: "runtime.task.finished",
+      session: auth.session,
+      sessionId,
+      request: validation.data,
+      result: executionResult,
+    });
+
     await recordLog(
       runtime,
       sessionId,
@@ -478,6 +496,67 @@ export async function handleExecuteTask(
     console.error(`[api/execute] Unexpected error: ${msg}`);
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
+}
+
+interface RuntimeTaskEventInput {
+  eventType: "runtime.task.started" | "runtime.task.finished";
+  session: SessionRecord;
+  sessionId: string;
+  request: ExecuteTaskRequest;
+  result?: ExecuteTaskResponse;
+}
+
+async function publishTaskEvent(
+  publisher: RuntimeEventPublisher | undefined,
+  input: RuntimeTaskEventInput,
+): Promise<void> {
+  if (!publisher) {
+    return;
+  }
+
+  await publisher.publish({
+    source: "secure-agent-api",
+    eventType: input.eventType,
+    idempotencyKey: buildTaskEventIdempotencyKey(input),
+    payloadSchemaVersion: 1,
+    payload: buildTaskEventPayload(input),
+  });
+}
+
+function buildTaskEventIdempotencyKey(input: RuntimeTaskEventInput): string {
+  return [
+    input.session.runId,
+    input.sessionId,
+    input.request.taskId,
+    input.eventType,
+  ].join(":");
+}
+
+function buildTaskEventPayload(input: RuntimeTaskEventInput): JsonValue {
+  const payload: Record<string, JsonValue> = {
+    runId: input.session.runId,
+    sessionId: input.sessionId,
+    taskId: input.request.taskId,
+    action: input.request.action,
+    status: input.result?.status ?? "started",
+    retryable: input.request.retryable ?? false,
+  };
+
+  if (input.result?.metrics) {
+    payload.metrics = {
+      duration: input.result.metrics.duration,
+      memoryUsed: input.result.metrics.memoryUsed ?? null,
+    };
+  }
+
+  if (input.result?.error) {
+    payload.error = {
+      code: input.result.error.code,
+      message: input.result.error.message,
+    };
+  }
+
+  return payload;
 }
 
 export async function handleStreamLogs(
