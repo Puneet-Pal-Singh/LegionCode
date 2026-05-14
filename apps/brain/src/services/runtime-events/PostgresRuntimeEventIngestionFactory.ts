@@ -3,8 +3,12 @@ import {
   PostgresMigrationLedger,
   PostgresMigrationRunner,
   PostgresRuntimeEventInboxRepository,
+  DatabaseConfigurationError,
+  readWorkerDatabaseConfig,
   withPostgresSqlClient,
+  type DatabaseMigrationsMode,
   type SqlClient,
+  type WorkerDatabaseConfig,
 } from "@repo/persistence";
 import { DependencyError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
@@ -15,33 +19,36 @@ export async function withPostgresRuntimeEventIngestionService<T>(
   env: Env,
   callback: (service: RuntimeEventIngestionService) => Promise<T>,
 ): Promise<T> {
-  const connectionString = readHyperdriveConnectionString(env);
+  const databaseConfig = readBrainDatabaseConfig(env);
 
-  return withPostgresSqlClient(connectionString, async (client) => {
-    await runAutomaticMigrations(env, client);
-    const repository = new PostgresRuntimeEventInboxRepository(client);
-    const service = createRuntimeEventIngestionService(env, repository);
-    return callback(service);
-  });
+  return withPostgresSqlClient(
+    databaseConfig.connectionString,
+    async (client) => {
+      await runAutomaticMigrations(databaseConfig.migrationsMode, client);
+      const repository = new PostgresRuntimeEventInboxRepository(client);
+      const service = createRuntimeEventIngestionService(env, repository);
+      return callback(service);
+    },
+  );
 }
 
-function readHyperdriveConnectionString(env: Env): string {
-  const connectionString = env.HYPERDRIVE?.connectionString?.trim();
-  if (!connectionString) {
-    throw new DependencyError(
-      "HYPERDRIVE binding is required for runtime event ingestion",
-      "HYPERDRIVE_BINDING_MISSING",
-      false,
-    );
+function readBrainDatabaseConfig(env: Env): WorkerDatabaseConfig {
+  try {
+    return readWorkerDatabaseConfig(env);
+  } catch (error) {
+    if (error instanceof DatabaseConfigurationError) {
+      throw new DependencyError(error.message, error.code, false);
+    }
+
+    throw error;
   }
-  return connectionString;
 }
 
 async function runAutomaticMigrations(
-  env: Env,
+  migrationsMode: DatabaseMigrationsMode,
   client: SqlClient,
 ): Promise<void> {
-  if (env.DATABASE_MIGRATIONS_MODE !== "auto") {
+  if (migrationsMode !== "auto") {
     return;
   }
 

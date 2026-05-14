@@ -1,14 +1,23 @@
-export type {
-  SqlClient,
-  SqlQueryResult,
-  SqlRow,
-  SqlValue,
-} from "./sql.js";
+export type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "./sql.js";
 export {
   PgSqlClient,
   withPostgresSqlClient,
   type PgConnection,
 } from "./postgres/PgSqlClient.js";
+export {
+  withDrizzleDatabase,
+  type PersistenceDatabase,
+} from "./postgres/DrizzleDatabase.js";
+export {
+  readDatabaseMigrationsMode,
+  readWorkerDatabaseConfig,
+  DatabaseConfigurationError,
+  DATABASE_MIGRATIONS_MODES,
+  type DatabaseMigrationsMode,
+  type HyperdriveConnectionBinding,
+  type WorkerDatabaseConfig,
+  type WorkerDatabaseEnv,
+} from "./config/database.js";
 
 export {
   runtimeEventInboxMigration,
@@ -31,3 +40,4 @@ export type {
   RuntimeEventInboxRepository,
   RuntimeEventInboxStatus,
 } from "./runtime-events/types.js";
+export { runtimeEventInbox } from "./schema/index.js";
