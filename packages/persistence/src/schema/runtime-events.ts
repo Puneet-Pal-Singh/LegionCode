@@ -10,7 +10,10 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
+import {
+  DEFAULT_RUNTIME_EVENT_INBOX_STATUS,
+  buildRuntimeEventInboxStatusSqlList,
+} from "../runtime-events/types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
   buildRuntimeEventInboxStatusSqlList();
@@ -26,7 +29,7 @@ export const runtimeEventInbox = pgTable(
     idempotencyKey: text("idempotency_key").notNull(),
     payloadJson: jsonb("payload_json").notNull(),
     payloadSchemaVersion: integer("payload_schema_version").notNull(),
-    status: text("status").notNull().default("received"),
+    status: text("status").notNull().default(DEFAULT_RUNTIME_EVENT_INBOX_STATUS),
     errorMessage: text("error_message"),
     receivedAt: timestamp("received_at", {
       withTimezone: true,
