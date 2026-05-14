@@ -15,7 +15,6 @@
 	"devDependencies": {
 		"@cloudflare/sandbox": "*",
 		"@cloudflare/workers-types": "^4.20260118.0",
-		"@repo/shared-types": "workspace:*",
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^24.10.9",
 		"typescript": "^5.9.3",
@@ -24,6 +23,7 @@
 		"ws": "^8.19.0"
 	},
 	"dependencies": {
+		"@repo/shared-types": "workspace:*",
 		"zod": "^3.25.1"
 	},
 	"author": "",
