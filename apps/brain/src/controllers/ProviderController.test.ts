@@ -6,8 +6,9 @@ import { createTestByokD1Database } from "../test-utils/byokTestD1";
 
 const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "workspace-main";
+const TEST_WORKSPACE_ID = "default";
 const TEST_SESSION_SECRET = "test-session-secret";
+const TEST_SESSION_TOKEN = "test-session-token";
 
 function createMockEnv(options?: {
   axisConnected?: boolean;
@@ -30,15 +31,7 @@ function createMockEnv(options?: {
       updatedAt: string;
     }
   >();
-  const sessions = new Map<string, string>();
-  sessions.set(
-    `user_session:${TEST_USER_ID}`,
-    JSON.stringify({
-      userId: TEST_USER_ID,
-      workspaceIds: [TEST_WORKSPACE_ID],
-      defaultWorkspaceId: TEST_WORKSPACE_ID,
-    }),
-  );
+  const oauthState = new Map<string, string>();
 
   const catalog: Record<ProviderId, Array<{ id: string; name: string }>> = {
     axis: [
@@ -401,20 +394,35 @@ function createMockEnv(options?: {
 
   return {
     RUN_ENGINE_RUNTIME: namespace as unknown as Env["RUN_ENGINE_RUNTIME"],
+    AUTH_IDENTITY_REPOSITORY: {
+      createGitHubSession: async () => {
+        throw new Error("not used");
+      },
+      findSessionByHash: async () => {
+        if (options?.sessionsGetError) {
+          throw new Error("database unavailable");
+        }
+        return createIdentitySessionRecord();
+      },
+      findLatestGitHubSessionByUserId: async () => {
+        if (options?.sessionsGetError) {
+          throw new Error("database unavailable");
+        }
+        return createIdentitySessionRecord();
+      },
+      revokeSession: async () => undefined,
+    },
     SESSION_SECRET: TEST_SESSION_SECRET,
     BYOK_DB: byokDb.database,
     SESSIONS: {
       get: async (key: string) => {
-        if (options?.sessionsGetError) {
-          throw new Error("KV GET failed: 500 Internal Server Error");
-        }
-        return sessions.get(key) ?? null;
+        return oauthState.get(key) ?? null;
       },
       put: async (key: string, value: string) => {
-        sessions.set(key, value);
+        oauthState.set(key, value);
       },
       delete: async (key: string) => {
-        sessions.delete(key);
+        oauthState.delete(key);
       },
     } as unknown as Env["SESSIONS"],
     LLM_PROVIDER: "litellm",
@@ -429,39 +437,31 @@ async function withByokHeaders(
   env: Env,
   headers: Record<string, string> = {},
 ): Promise<Record<string, string>> {
-  const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
   return {
     "Content-Type": "application/json",
     "X-Run-Id": TEST_RUN_ID,
-    Cookie: `shadowbox_session=${token}`,
+    Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
     ...headers,
   };
 }
 
-async function createSessionToken(
-  userId: string,
-  secret: string,
-): Promise<string> {
-  const timestamp = Date.now().toString();
-  const data = `${userId}:${timestamp}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-
-  const signatureBuffer = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(data),
-  );
-  const signature = btoa(
-    String.fromCharCode(...new Uint8Array(signatureBuffer)),
-  );
-  return `${data}:${signature}`;
+function createIdentitySessionRecord() {
+  return {
+    authSessionId: "session-1",
+    userId: TEST_USER_ID,
+    login: "puneet",
+    avatar: "",
+    email: "puneet@example.com",
+    name: "Puneet Pal Singh",
+    githubScopes: ["repo"],
+    encryptedToken: {
+      ciphertext: "ciphertext",
+      iv: "iv",
+      tag: "tag",
+    },
+    createdAt: Date.now(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
 }
 
 function jsonOk(data: unknown): Response {
@@ -1046,7 +1046,7 @@ describe("ProviderController", () => {
       );
     });
 
-    it("returns provider unavailable when session KV reads fail", async () => {
+    it("returns provider unavailable when session repository reads fail", async () => {
       const env = createMockEnv({ sessionsGetError: true });
 
       const resolveResponse = await ProviderController.byokResolve(

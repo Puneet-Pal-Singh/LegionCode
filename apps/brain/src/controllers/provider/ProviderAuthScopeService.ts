@@ -8,8 +8,8 @@ import {
   type ProviderStoreScopeInput,
 } from "../../types/provider-scope";
 import {
-  extractSessionToken,
-  verifySessionToken,
+  getAuthenticatedUserSession,
+  type UserSessionRecord,
 } from "../../services/AuthService";
 
 const DEFAULT_WORKSPACE_ID = "default";
@@ -19,12 +19,6 @@ const ScopeIdSchema = z
   .min(1)
   .max(MAX_SCOPE_IDENTIFIER_LENGTH)
   .regex(SAFE_SCOPE_IDENTIFIER_REGEX);
-const SessionRecordSchema = z.object({
-  userId: z.string().optional(),
-  workspaceId: z.string().optional(),
-  defaultWorkspaceId: z.string().optional(),
-  workspaceIds: z.array(z.string()).optional(),
-});
 
 export interface AuthorizedProviderScope extends ProviderStoreScopeInput {
   userId: string;
@@ -102,20 +96,25 @@ async function loadSessionClaims(
   env: Env,
   correlationId: string,
 ): Promise<SessionClaims> {
-  const sessionToken = extractSessionToken(request);
-  if (!sessionToken) {
-    throw unauthorized(correlationId);
-  }
-
-  const verifiedUserId = await verifySessionToken(sessionToken, env);
-  if (!verifiedUserId) {
-    throw unauthorized(correlationId);
-  }
-
-  let sessionData: string | null;
   try {
-    sessionData = await env.SESSIONS.get(`user_session:${verifiedUserId}`);
+    const authenticatedSession = await getAuthenticatedUserSession(
+      request,
+      env,
+    );
+    if (!authenticatedSession) {
+      throw unauthorized(correlationId);
+    }
+
+    return buildSessionClaims(
+      authenticatedSession.userId,
+      authenticatedSession.session,
+      correlationId,
+    );
   } catch (error) {
+    if (error instanceof DomainError) {
+      throw error;
+    }
+
     console.warn(
       `[provider/auth-scope] ${correlationId}: session store read failed`,
       error,
@@ -128,45 +127,13 @@ async function loadSessionClaims(
       correlationId,
     );
   }
-  if (!sessionData) {
-    throw unauthorized(correlationId);
-  }
-
-  let parsedSessionRaw: unknown;
-  try {
-    parsedSessionRaw = JSON.parse(sessionData) as unknown;
-  } catch {
-    throw unauthorized(correlationId);
-  }
-
-  const parsedSession = validateWithSchema<z.infer<typeof SessionRecordSchema>>(
-    parsedSessionRaw,
-    SessionRecordSchema,
-    correlationId,
-  );
-  return buildSessionClaims(parsedSession, verifiedUserId, correlationId);
 }
 
 function buildSessionClaims(
-  session: z.infer<typeof SessionRecordSchema>,
   verifiedUserId: string,
+  session: UserSessionRecord,
   correlationId: string,
 ): SessionClaims {
-  const sessionUserId = parseOptionalScopeId(
-    session.userId,
-    "session.userId",
-    correlationId,
-  );
-  if (sessionUserId && sessionUserId !== verifiedUserId) {
-    throw new DomainError(
-      "AUTH_FAILED",
-      "Forbidden: authenticated session is inconsistent.",
-      403,
-      false,
-      correlationId,
-    );
-  }
-
   const workspaceIds = collectWorkspaceIds(session, correlationId);
   const defaultWorkspaceId = workspaceIds[0];
   if (!defaultWorkspaceId) {
@@ -189,7 +156,7 @@ function buildSessionClaims(
 }
 
 function collectWorkspaceIds(
-  session: z.infer<typeof SessionRecordSchema>,
+  session: UserSessionRecord,
   correlationId: string,
 ): string[] {
   const scoped = new Set<string>();

@@ -19,6 +19,7 @@ import {
   GIT_MUTATION_TIMEOUT_MS,
   GIT_STATUS_TIMEOUT_MS,
 } from "./gitExecutionTimeouts";
+import { getUserSessionByUserId } from "./AuthService";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
@@ -76,7 +77,8 @@ interface GitHubAuthState {
  * - Tokens are passed securely from Brain to Muscle
  */
 export class ExecutionService {
-  private executionSessionPromise: Promise<SecureExecutionSession> | null = null;
+  private executionSessionPromise: Promise<SecureExecutionSession> | null =
+    null;
 
   constructor(
     private env: Env,
@@ -140,10 +142,7 @@ export class ExecutionService {
           }),
         );
       } else {
-        console.error(
-          `[ExecutionService] Error:`,
-          sanitizeUnknownError(error),
-        );
+        console.error(`[ExecutionService] Error:`, sanitizeUnknownError(error));
       }
       throw error;
     }
@@ -184,21 +183,12 @@ export class ExecutionService {
     userId: string,
   ): Promise<GitHubAuthState | null> {
     try {
-      const sessionData = await this.env.SESSIONS.get(`user_session:${userId}`);
-      if (!sessionData) {
+      const session = await getUserSessionByUserId(this.env, userId);
+      if (!session) {
         console.log(`[ExecutionService] No session found for user ${userId}`);
         return null;
       }
 
-      const session = JSON.parse(sessionData);
-      if (!session.encryptedToken) {
-        console.log(
-          `[ExecutionService] No GitHub token in session for user ${userId}`,
-        );
-        return null;
-      }
-
-      // Decrypt the token
       const token = await decryptToken(
         session.encryptedToken,
         this.env.GITHUB_TOKEN_ENCRYPTION_KEY,
@@ -324,12 +314,13 @@ export class ExecutionService {
 
       if (!res.ok) {
         await logForwardingPromise;
-        throw new Error((await res.text()) || `Failed to execute ${plugin}:${action}`);
+        throw new Error(
+          (await res.text()) || `Failed to execute ${plugin}:${action}`,
+        );
       }
 
-      const executionResult = await parseJsonResponse<SecureExecutionTaskResponse>(
-        res,
-      );
+      const executionResult =
+        await parseJsonResponse<SecureExecutionTaskResponse>(res);
       await logForwardingPromise;
       return executionResult;
     } catch (error) {
@@ -378,7 +369,8 @@ export class ExecutionService {
       const client = new GitHubAPIClient(token);
       const base =
         request.base ??
-        (await client.getRepository(request.owner, request.repo)).default_branch;
+        (await client.getRepository(request.owner, request.repo))
+          .default_branch;
       const pullRequest = await client.createPullRequest(
         request.owner,
         request.repo,
@@ -451,9 +443,8 @@ export class ExecutionService {
       );
     }
 
-    const session = await parseJsonResponse<SecureExecutionSessionResponse>(
-      response,
-    );
+    const session =
+      await parseJsonResponse<SecureExecutionSessionResponse>(response);
     return {
       sessionId: session.sessionId,
       token: session.token,
@@ -723,9 +714,7 @@ function readString(value: unknown): string | undefined {
     : undefined;
 }
 
-function parseGitPullRequestPayload(
-  payload: Record<string, unknown>,
-): {
+function parseGitPullRequestPayload(payload: Record<string, unknown>): {
   owner: CreatePullRequestFromRunPayload["owner"];
   repo: CreatePullRequestFromRunPayload["repo"];
   title: CreatePullRequestFromRunPayload["title"];
@@ -739,9 +728,7 @@ function parseGitPullRequestPayload(
   const base = readString(payload.base);
 
   if (!owner || !repo || !title) {
-    throw new Error(
-      "Pull request creation requires owner, repo, and title.",
-    );
+    throw new Error("Pull request creation requires owner, repo, and title.");
   }
 
   return { owner, repo, title, body, base };

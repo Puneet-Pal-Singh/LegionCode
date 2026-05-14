@@ -12,6 +12,7 @@ describe("GitCommitIdentityService", () => {
   it("returns null when the stored user session is malformed", async () => {
     const result = await resolveCommitIdentityForStoredUserSession(
       {
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository(null),
         SESSIONS: {
           get: async () => "{bad json",
         },
@@ -82,19 +83,15 @@ describe("GitCommitIdentityService", () => {
   it("resolves runtime commit identity from OAuth session even when a persisted preference exists", async () => {
     const identity = await resolveCommitIdentityForStoredOAuthSession(
       {
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository({
+          userId: "user-1",
+          login: "puneet",
+          avatar: "",
+          email: "puneet@example.com",
+          name: "Puneet Pal Singh",
+        }),
         SESSIONS: {
           get: async (key: string) => {
-            if (key === "user_session:user-1") {
-              return JSON.stringify({
-                userId: "user-1",
-                login: "puneet",
-                avatar: "",
-                email: "puneet@example.com",
-                name: "Puneet Pal Singh",
-                encryptedToken: "encrypted-token",
-                createdAt: Date.now(),
-              });
-            }
             if (key === "git_commit_identity_preference:user-1") {
               return JSON.stringify({
                 authorName: "Random User",
@@ -118,3 +115,41 @@ describe("GitCommitIdentityService", () => {
     });
   });
 });
+
+function createIdentityRepository(
+  session: {
+    userId: string;
+    login: string;
+    avatar: string;
+    email: string | null;
+    name: string | null;
+  } | null,
+) {
+  const record = session
+    ? {
+        authSessionId: "session-1",
+        userId: session.userId,
+        login: session.login,
+        avatar: session.avatar,
+        email: session.email,
+        name: session.name,
+        githubScopes: ["repo"],
+        encryptedToken: {
+          ciphertext: "ciphertext",
+          iv: "iv",
+          tag: "tag",
+        },
+        createdAt: Date.now(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+    : null;
+
+  return {
+    createGitHubSession: async () => {
+      throw new Error("not used");
+    },
+    findSessionByHash: async () => record,
+    findLatestGitHubSessionByUserId: async () => record,
+    revokeSession: async () => undefined,
+  };
+}

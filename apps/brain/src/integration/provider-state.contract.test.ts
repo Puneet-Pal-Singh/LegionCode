@@ -330,16 +330,10 @@ function createEnvWithRunNamespace(): {
           const userId = request.headers.get("X-User-Id");
           const workspaceId = request.headers.get("X-Workspace-Id");
           if (!runId) {
-            return json(
-              { error: "Missing required X-Run-Id header" },
-              400,
-            );
+            return json({ error: "Missing required X-Run-Id header" }, 400);
           }
           if (runId !== id) {
-            return json(
-              { error: `X-Run-Id mismatch: expected ${id}` },
-              400,
-            );
+            return json({ error: `X-Run-Id mismatch: expected ${id}` }, 400);
           }
           if (userId !== TEST_USER_ID || !workspaceId) {
             return json(
@@ -369,6 +363,16 @@ function createEnvWithRunNamespace(): {
         },
       }),
     } as Env["RUN_ENGINE_RUNTIME"],
+    AUTH_IDENTITY_REPOSITORY: {
+      createGitHubSession: async () => {
+        throw new Error("not used");
+      },
+      findSessionByHash: async () =>
+        createIdentitySessionRecord(allowedWorkspaceIds),
+      findLatestGitHubSessionByUserId: async () =>
+        createIdentitySessionRecord(allowedWorkspaceIds),
+      revokeSession: async () => undefined,
+    },
     BYOK_DB: byokDb.database,
     SESSION_SECRET: TEST_SESSION_SECRET,
     SESSIONS: {
@@ -539,6 +543,27 @@ async function createByokHeaders(
   }
 
   return headers;
+}
+
+function createIdentitySessionRecord(allowedWorkspaceIds: string[]) {
+  return {
+    authSessionId: "session-1",
+    userId: TEST_USER_ID,
+    login: "puneet",
+    avatar: "",
+    email: "puneet@example.com",
+    name: "Puneet Pal Singh",
+    githubScopes: ["repo"],
+    encryptedToken: {
+      ciphertext: "ciphertext",
+      iv: "iv",
+      tag: "tag",
+    },
+    createdAt: Date.now(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    workspaceIds: allowedWorkspaceIds,
+    defaultWorkspaceId: TEST_WORKSPACE_ID,
+  };
 }
 
 async function createSessionToken(

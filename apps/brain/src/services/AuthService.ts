@@ -1,18 +1,36 @@
 /**
  * AuthService
  *
- * Shared authentication utilities for extracting and verifying session tokens.
- * Follows Single Responsibility: Only handles auth-related operations.
- * Used by multiple controllers (AuthController, GitHubController).
+ * Shared authentication utilities for opaque cookie sessions.
  */
 
-import { Env } from "../types/ai";
+import {
+  DatabaseConfigurationError,
+  persistenceMigrations,
+  PostgresIdentitySessionRepository,
+  PostgresMigrationLedger,
+  PostgresMigrationRunner,
+  readWorkerDatabaseConfig,
+  withPostgresSqlClient,
+  type DatabaseMigrationsMode,
+  type IdentitySessionRecord,
+  type IdentitySessionRepository,
+  type SqlClient,
+  type WorkerDatabaseConfig,
+} from "@repo/persistence";
 import {
   GitHubAPIClient,
   decryptToken,
   type EncryptedToken,
 } from "@shadowbox/github-bridge";
 import type { GitCommitIdentityState } from "@repo/shared-types";
+import { DependencyError } from "../domain/errors";
+import type { Env } from "../types/ai";
+
+const SESSION_COOKIE_NAME = "shadowbox_session";
+const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const AUTH_SESSION_TTL_MS = AUTH_SESSION_TTL_SECONDS * 1000;
+const SESSION_TOKEN_BYTES = 32;
 
 export interface UserSessionRecord {
   userId: string;
@@ -24,6 +42,27 @@ export interface UserSessionRecord {
   encryptedToken: EncryptedToken;
   createdAt: number;
   commitIdentity?: GitCommitIdentityState;
+  workspaceId?: string;
+  defaultWorkspaceId?: string;
+  workspaceIds?: string[];
+}
+
+export interface CreateGitHubOAuthSessionInput {
+  providerAccountId: string;
+  login: string;
+  avatarUrl: string;
+  email: string | null;
+  displayName: string | null;
+  accessToken: string;
+  encryptedToken: EncryptedToken;
+  scopes: string[];
+  tokenExpiresInSeconds?: number | null;
+}
+
+export interface CreatedGitHubOAuthSession {
+  sessionToken: string;
+  session: UserSessionRecord;
+  expiresAt: string;
 }
 
 export interface AuthResult {
@@ -45,75 +84,74 @@ export function isSessionStoreUnavailableError(
   return error instanceof SessionStoreUnavailableError;
 }
 
-/**
- * Extract session token from request
- * Checks both cookies and Authorization header
- */
-export function extractSessionToken(request: Request): string | null {
-  // Check cookie first
-  const cookie = request.headers.get("Cookie");
-  if (cookie) {
-    const match = cookie.match(/shadowbox_session=([^;]+)/);
-    if (match && match[1]) return match[1];
-  }
-
-  // Check Authorization header
-  const auth = request.headers.get("Authorization");
-  if (auth?.startsWith("Bearer ")) {
-    return auth.slice(7);
-  }
-
-  return null;
+export function createSessionCookie(token: string): string {
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${AUTH_SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
 }
 
-/**
- * Verify and extract user ID from session token
- * Uses HMAC-SHA256 for token validation
- */
+export function createExpiredSessionCookie(): string {
+  return `${SESSION_COOKIE_NAME}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`;
+}
+
+export function extractSessionToken(request: Request): string | null {
+  const cookie = request.headers.get("Cookie");
+  if (!cookie) {
+    return null;
+  }
+
+  const match = cookie.match(/(?:^|;\s*)shadowbox_session=([^;]+)/);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  return decodeURIComponent(match[1]);
+}
+
+export async function createGitHubOAuthSession(
+  env: Env,
+  input: CreateGitHubOAuthSessionInput,
+): Promise<CreatedGitHubOAuthSession> {
+  const now = new Date();
+  const token = generateOpaqueSessionToken();
+  const sessionHash = await hashSessionToken(token);
+  const tokenFingerprint = await hashSecret(input.accessToken);
+  const tokenExpiresAt = resolveTokenExpiresAt(
+    input.tokenExpiresInSeconds,
+    now,
+  );
+  const sessionExpiresAt = new Date(now.getTime() + AUTH_SESSION_TTL_MS);
+
+  const record = await withIdentitySessionRepository(env, (repository) =>
+    repository.createGitHubSession({
+      providerAccountId: input.providerAccountId,
+      login: input.login,
+      avatarUrl: input.avatarUrl,
+      email: input.email,
+      displayName: input.displayName,
+      encryptedAccessToken: input.encryptedToken,
+      tokenFingerprint,
+      scopes: input.scopes,
+      tokenExpiresAt: tokenExpiresAt?.toISOString() ?? null,
+      sessionHash,
+      sessionExpiresAt: sessionExpiresAt.toISOString(),
+      now: now.toISOString(),
+    }),
+  );
+
+  return {
+    sessionToken: token,
+    session: mapIdentitySession(record),
+    expiresAt: record.expiresAt,
+  };
+}
+
 export async function verifySessionToken(
   token: string,
   env: Env,
 ): Promise<string | null> {
-  try {
-    const [userId, timestamp, signature] = token.split(":");
-    if (!userId || !timestamp || !signature) return null;
-
-    const data = `${userId}:${timestamp}`;
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(env.SESSION_SECRET),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"],
-    );
-
-    const sigBytes = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      key,
-      sigBytes,
-      encoder.encode(data),
-    );
-
-    if (!valid) return null;
-
-    // Check expiration (7 days)
-    const tokenTime = parseInt(timestamp, 10);
-    if (Date.now() - tokenTime > 7 * 24 * 60 * 60 * 1000) {
-      return null;
-    }
-
-    return userId;
-  } catch {
-    return null;
-  }
+  const session = await findSessionByToken(env, token);
+  return session?.userId ?? null;
 }
 
-/**
- * Get authenticated GitHub client for user
- * Returns null if authentication fails
- */
 export async function getGitHubClient(
   request: Request,
   env: Env,
@@ -124,8 +162,6 @@ export async function getGitHubClient(
   }
 
   const { userId, session } = authenticatedSession;
-
-  // Decrypt token
   const accessToken = await decryptToken(
     session.encryptedToken,
     env.GITHUB_TOKEN_ENCRYPTION_KEY,
@@ -144,93 +180,194 @@ export async function getAuthenticatedUserSession(
 ): Promise<{ userId: string; session: UserSessionRecord } | null> {
   const sessionToken = extractSessionToken(request);
   if (!sessionToken) {
-    console.warn("[auth/session] missing session token on request");
+    console.warn("[auth/session] missing session cookie on request");
     return null;
   }
 
-  const userId = await verifySessionToken(sessionToken, env);
-  if (!userId) {
-    console.warn("[auth/session] session token failed verification");
+  const session = await findSessionByToken(env, sessionToken);
+  if (!session) {
+    console.warn("[auth/session] session cookie failed verification");
     return null;
   }
 
-  // Get user session from KV storage
-  let sessionData: string | null;
+  return { userId: session.userId, session };
+}
+
+export async function getUserSessionByUserId(
+  env: Env,
+  userId: string,
+): Promise<UserSessionRecord | null> {
+  return await readSessionRecord(env, (repository, now) =>
+    repository.findLatestGitHubSessionByUserId(userId, now),
+  );
+}
+
+export async function revokeAuthenticatedSession(
+  request: Request,
+  env: Env,
+): Promise<void> {
+  const sessionToken = extractSessionToken(request);
+  if (!sessionToken) {
+    return;
+  }
+
+  const sessionHash = await hashSessionToken(sessionToken);
+  await withIdentitySessionRepository(env, (repository) =>
+    repository.revokeSession(sessionHash, new Date().toISOString()),
+  );
+}
+
+export async function hashSessionToken(token: string): Promise<string> {
+  return await hashSecret(token);
+}
+
+async function findSessionByToken(
+  env: Env,
+  token: string,
+): Promise<UserSessionRecord | null> {
+  const sessionHash = await hashSessionToken(token);
+  return await readSessionRecord(env, (repository, now) =>
+    repository.findSessionByHash(sessionHash, now),
+  );
+}
+
+async function readSessionRecord(
+  env: Env,
+  read: (
+    repository: IdentitySessionRepository,
+    now: string,
+  ) => Promise<IdentitySessionRecord | null>,
+): Promise<UserSessionRecord | null> {
   try {
-    sessionData = await env.SESSIONS.get(`user_session:${userId}`);
+    const now = new Date().toISOString();
+    const record = await withIdentitySessionRepository(env, (repository) =>
+      read(repository, now),
+    );
+    return record ? mapIdentitySession(record) : null;
   } catch (error) {
     console.warn("[auth/session] failed to read session record", {
-      userId,
       error: formatUnknownError(error),
     });
     throw new SessionStoreUnavailableError();
   }
-  if (!sessionData) {
-    console.warn("[auth/session] verified token but no session record found", {
-      userId,
-    });
+}
+
+async function withIdentitySessionRepository<T>(
+  env: Env,
+  callback: (repository: IdentitySessionRepository) => Promise<T>,
+): Promise<T> {
+  if (env.AUTH_IDENTITY_REPOSITORY) {
+    return await callback(env.AUTH_IDENTITY_REPOSITORY);
+  }
+
+  const databaseConfig = readBrainDatabaseConfig(env);
+  return await withPostgresSqlClient(
+    databaseConfig.connectionString,
+    async (client) => {
+      await runAutomaticMigrations(databaseConfig.migrationsMode, client);
+      return await callback(new PostgresIdentitySessionRepository(client));
+    },
+  );
+}
+
+function readBrainDatabaseConfig(env: Env): WorkerDatabaseConfig {
+  try {
+    return readWorkerDatabaseConfig(env);
+  } catch (error) {
+    if (error instanceof DatabaseConfigurationError) {
+      throw new DependencyError(error.message, error.code, false);
+    }
+
+    throw error;
+  }
+}
+
+async function runAutomaticMigrations(
+  migrationsMode: DatabaseMigrationsMode,
+  client: SqlClient,
+): Promise<void> {
+  if (migrationsMode !== "auto") {
+    return;
+  }
+
+  const runner = new PostgresMigrationRunner(
+    client,
+    new PostgresMigrationLedger(),
+  );
+  await runner.runPending(persistenceMigrations);
+}
+
+function generateOpaqueSessionToken(): string {
+  const bytes = new Uint8Array(SESSION_TOKEN_BYTES);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+
+async function hashSecret(secret: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(secret),
+  );
+  return bytesToHex(new Uint8Array(digest));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function resolveTokenExpiresAt(
+  expiresInSeconds: number | null | undefined,
+  now: Date,
+): Date | null {
+  if (!expiresInSeconds || expiresInSeconds <= 0) {
     return null;
   }
 
-  const session = parseUserSessionRecord(sessionData);
-  if (!session) {
-    console.warn("[auth/session] session record payload is invalid", {
-      userId,
-    });
-    return null;
-  }
+  return new Date(now.getTime() + expiresInSeconds * 1000);
+}
 
+function mapIdentitySession(record: IdentitySessionRecord): UserSessionRecord {
+  const workspaceClaims = readWorkspaceClaims(record);
   return {
-    userId,
-    session,
+    userId: record.userId,
+    login: record.login,
+    avatar: record.avatar,
+    email: record.email,
+    name: record.name,
+    githubScopes: record.githubScopes,
+    encryptedToken: record.encryptedToken,
+    createdAt: record.createdAt,
+    ...workspaceClaims,
   };
 }
 
-function parseUserSessionRecord(payload: string): UserSessionRecord | null {
-  try {
-    const parsed = JSON.parse(payload) as unknown;
-    if (!isUserSessionRecord(parsed)) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
+function readWorkspaceClaims(
+  record: IdentitySessionRecord,
+): Pick<
+  UserSessionRecord,
+  "workspaceId" | "defaultWorkspaceId" | "workspaceIds"
+> {
+  const claims = record as {
+    workspaceId?: unknown;
+    defaultWorkspaceId?: unknown;
+    workspaceIds?: unknown;
+  };
 
-function isUserSessionRecord(value: unknown): value is UserSessionRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.userId === "string" &&
-    typeof record.login === "string" &&
-    typeof record.avatar === "string" &&
-    isEncryptedTokenRecord(record.encryptedToken) &&
-    typeof record.createdAt === "number" &&
-    (record.email === null || typeof record.email === "string") &&
-    (record.name === undefined ||
-      record.name === null ||
-      typeof record.name === "string") &&
-    (record.githubScopes === undefined ||
-      (Array.isArray(record.githubScopes) &&
-        record.githubScopes.every((entry) => typeof entry === "string")))
-  );
-}
-
-function isEncryptedTokenRecord(value: unknown): value is EncryptedToken {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const token = value as Record<string, unknown>;
-  return (
-    typeof token.ciphertext === "string" &&
-    typeof token.iv === "string" &&
-    typeof token.tag === "string"
-  );
+  return {
+    workspaceId:
+      typeof claims.workspaceId === "string" ? claims.workspaceId : undefined,
+    defaultWorkspaceId:
+      typeof claims.defaultWorkspaceId === "string"
+        ? claims.defaultWorkspaceId
+        : undefined,
+    workspaceIds: Array.isArray(claims.workspaceIds)
+      ? claims.workspaceIds.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : undefined,
+  };
 }
 
 function formatUnknownError(error: unknown): string {
