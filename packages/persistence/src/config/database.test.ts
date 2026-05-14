@@ -23,6 +23,11 @@ describe("database configuration", () => {
 
   it("defaults migration mode to manual", () => {
     expect(readDatabaseMigrationsMode(undefined)).toBe("manual");
+    expect(readDatabaseMigrationsMode("   ")).toBe("manual");
+  });
+
+  it("trims migration mode values before validation", () => {
+    expect(readDatabaseMigrationsMode(" auto ")).toBe("auto");
   });
 
   it("rejects missing Hyperdrive binding", () => {
