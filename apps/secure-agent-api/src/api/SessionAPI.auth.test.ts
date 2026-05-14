@@ -238,6 +238,36 @@ describe("session auth hardening", () => {
     expect(body.output).toContain("node.execute");
   });
 
+  it("publishes signed runtime task events around execution", async () => {
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
+    const published: Array<{ eventType: string; idempotencyKey: string }> = [];
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${token}`),
+      runtime,
+      {
+        async publish(event) {
+          published.push({
+            eventType: event.eventType,
+            idempotencyKey: event.idempotencyKey,
+          });
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(published).toEqual([
+      {
+        eventType: "runtime.task.started",
+        idempotencyKey: `run-auth-1:${sessionId}:task-execute-auth:runtime.task.started`,
+      },
+      {
+        eventType: "runtime.task.finished",
+        idempotencyKey: `run-auth-1:${sessionId}:task-execute-auth:runtime.task.finished`,
+      },
+    ]);
+  });
+
   it("rejects logs without authorization header", async () => {
     const runtime = createRuntimeStoreMock();
     const { sessionId } = await createSession(runtime);

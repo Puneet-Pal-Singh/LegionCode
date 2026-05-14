@@ -57,6 +57,12 @@
 			"remote": true
 		}
 	],
+	"services": [
+		{
+			"binding": "BRAIN",
+			"service": "shadowbox-brain"
+		}
+	],
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
@@ -85,6 +91,7 @@
 	 * - EXECUTE_TASK_RATE_LIMIT_AUTH_MAX: default 120 (10-min window)
 	 * - EXECUTE_TASK_RATE_LIMIT_ANON_MAX: default 20 (10-min window)
 	 * - EXECUTE_TASK_RATE_LIMIT_WINDOW_SECONDS: default 600
+	 * - INTERNAL_RUNTIME_EVENT_SECRET: secret shared with Brain for runtime event HMAC signing
 	 *
 	 * Production example (LegionCode launch):
 	 * - CORS_ALLOWED_ORIGINS=https://legioncode.dev,https://staging.legioncode.dev
@@ -104,5 +111,4 @@
 	 * Service Bindings (communicate between multiple Workers)
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
 	 */
-	// "services": [  {   "binding": "MY_SERVICE",   "service": "my-service"  } ]
 }
