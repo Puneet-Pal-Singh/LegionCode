@@ -11,6 +11,9 @@ export const RUNTIME_EVENT_INBOX_STATUSES = [
   "failed",
 ] as const;
 
+export const DEFAULT_RUNTIME_EVENT_INBOX_STATUS =
+  RUNTIME_EVENT_INBOX_STATUSES[0];
+
 export type RuntimeEventInboxStatus =
   (typeof RUNTIME_EVENT_INBOX_STATUSES)[number];
 

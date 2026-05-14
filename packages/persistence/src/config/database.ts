@@ -46,12 +46,14 @@ export function readWorkerDatabaseConfig(
 export function readDatabaseMigrationsMode(
   value: string | null | undefined,
 ): DatabaseMigrationsMode {
-  if (value === undefined || value === null || value === "") {
+  const normalized = value === null ? null : value?.trim();
+
+  if (normalized === undefined || normalized === null || normalized === "") {
     return "manual";
   }
 
-  if (isDatabaseMigrationsMode(value)) {
-    return value;
+  if (isDatabaseMigrationsMode(normalized)) {
+    return normalized;
   }
 
   throw new DatabaseConfigurationError(
