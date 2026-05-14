@@ -28,6 +28,7 @@ import {
   createTestByokD1Database,
   type TestByokD1Handle,
 } from "../test-utils/byokTestD1";
+import { createIdentitySessionRecord } from "../test-utils/identityTestHelpers";
 import { resetByokSchemaReadyCacheForTests } from "../services/byok/ByokSchemaService.js";
 
 const RUN_ID_A = "123e4567-e89b-42d3-a456-426614174001";
@@ -368,9 +369,9 @@ function createEnvWithRunNamespace(): {
         throw new Error("not used");
       },
       findSessionByHash: async () =>
-        createIdentitySessionRecord(allowedWorkspaceIds),
+        createProviderIdentitySessionRecord(allowedWorkspaceIds),
       findLatestGitHubSessionByUserId: async () =>
-        createIdentitySessionRecord(allowedWorkspaceIds),
+        createProviderIdentitySessionRecord(allowedWorkspaceIds),
       revokeSession: async () => undefined,
     },
     BYOK_DB: byokDb.database,
@@ -545,25 +546,12 @@ async function createByokHeaders(
   return headers;
 }
 
-function createIdentitySessionRecord(allowedWorkspaceIds: string[]) {
-  return {
-    authSessionId: "session-1",
+function createProviderIdentitySessionRecord(allowedWorkspaceIds: string[]) {
+  return createIdentitySessionRecord({
     userId: TEST_USER_ID,
-    login: "puneet",
-    avatar: "",
-    email: "puneet@example.com",
-    name: "Puneet Pal Singh",
-    githubScopes: ["repo"],
-    encryptedToken: {
-      ciphertext: "ciphertext",
-      iv: "iv",
-      tag: "tag",
-    },
-    createdAt: Date.now(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
     workspaceIds: allowedWorkspaceIds,
     defaultWorkspaceId: TEST_WORKSPACE_ID,
-  };
+  });
 }
 
 async function createSessionToken(

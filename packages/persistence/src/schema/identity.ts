@@ -9,19 +9,30 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  displayName: text("display_name"),
-  avatarUrl: text("avatar_url"),
-  primaryEmail: text("primary_email"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
-    .notNull()
-    .defaultNow(),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true, mode: "string" }),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    displayName: text("display_name"),
+    avatarUrl: text("avatar_url"),
+    primaryEmail: text("primary_email"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+  },
+  (table) => [
+    uniqueIndex("users_primary_email_idx")
+      .on(table.primaryEmail)
+      .where(sql`${table.primaryEmail} IS NOT NULL`),
+  ],
+);
 
 export const accounts = pgTable(
   "accounts",
@@ -29,7 +40,7 @@ export const accounts = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     providerAccountId: text("provider_account_id").notNull(),
     providerLogin: text("provider_login").notNull(),
@@ -57,7 +68,7 @@ export const authSessions = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: "cascade" }),
     sessionHash: text("session_hash").notNull(),
     expiresAt: timestamp("expires_at", {
       withTimezone: true,
@@ -87,10 +98,10 @@ export const oauthTokens = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id")
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: "cascade" }),
     accountId: uuid("account_id")
       .notNull()
-      .references(() => accounts.id),
+      .references(() => accounts.id, { onDelete: "cascade" }),
     provider: text("provider").notNull(),
     encryptedAccessTokenJson: jsonb("encrypted_access_token_json").notNull(),
     tokenFingerprint: text("token_fingerprint").notNull(),

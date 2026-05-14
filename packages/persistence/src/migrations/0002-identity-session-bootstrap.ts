@@ -19,9 +19,14 @@ export const identitySessionBootstrapMigration: SqlMigration = {
       )
     `,
     `
+      CREATE UNIQUE INDEX IF NOT EXISTS users_primary_email_idx
+        ON users (primary_email)
+        WHERE primary_email IS NOT NULL
+    `,
+    `
       CREATE TABLE IF NOT EXISTS accounts (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL REFERENCES users(id),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         provider TEXT NOT NULL,
         provider_account_id TEXT NOT NULL,
         provider_login TEXT NOT NULL,
@@ -42,7 +47,7 @@ export const identitySessionBootstrapMigration: SqlMigration = {
     `
       CREATE TABLE IF NOT EXISTS auth_sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL REFERENCES users(id),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         session_hash TEXT NOT NULL,
         expires_at TIMESTAMPTZ NOT NULL,
         revoked_at TIMESTAMPTZ,
@@ -66,8 +71,8 @@ export const identitySessionBootstrapMigration: SqlMigration = {
     `
       CREATE TABLE IF NOT EXISTS oauth_tokens (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL REFERENCES users(id),
-        account_id UUID NOT NULL REFERENCES accounts(id),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         provider TEXT NOT NULL,
         encrypted_access_token_json JSONB NOT NULL,
         token_fingerprint TEXT NOT NULL,

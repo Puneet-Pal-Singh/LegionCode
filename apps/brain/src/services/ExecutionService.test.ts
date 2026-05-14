@@ -3,9 +3,10 @@ import { GitHubAPIClient, decryptToken } from "@shadowbox/github-bridge";
 import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
+import { createIdentityRepository } from "../test-utils/identityTestHelpers";
 
 vi.mock("@shadowbox/github-bridge", () => ({
-  decryptToken: vi.fn(async (value: string) => `token:${value}`),
+  decryptToken: vi.fn(async () => "token:encrypted-token"),
   GitHubAPIClient: vi.fn().mockImplementation(() => ({
     getRepository: vi.fn(async () => ({ default_branch: "main" })),
     createPullRequest: vi.fn(async () => ({
@@ -1017,27 +1018,3 @@ describe("ExecutionService", () => {
     });
   });
 });
-
-function createIdentityRepository(userId: string, githubScopes = ["repo"]) {
-  const record = {
-    authSessionId: "session-1",
-    userId,
-    login: "puneet",
-    avatar: "",
-    email: "puneet@example.com",
-    name: "Puneet Pal Singh",
-    githubScopes,
-    encryptedToken: "encrypted-token",
-    createdAt: Date.now(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
-  };
-
-  return {
-    createGitHubSession: async () => {
-      throw new Error("not used");
-    },
-    findSessionByHash: async () => record,
-    findLatestGitHubSessionByUserId: async () => record,
-    revokeSession: async () => undefined,
-  };
-}

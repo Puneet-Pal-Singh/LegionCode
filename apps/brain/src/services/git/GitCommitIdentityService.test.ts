@@ -7,6 +7,7 @@ import {
   resolveCommitIdentityForStoredOAuthSession,
   resolveCommitIdentityForStoredUserSession,
 } from "./GitCommitIdentityService";
+import { createIdentityRepository } from "../../test-utils/identityTestHelpers";
 
 describe("GitCommitIdentityService", () => {
   it("returns null when the stored user session is malformed", async () => {
@@ -115,41 +116,3 @@ describe("GitCommitIdentityService", () => {
     });
   });
 });
-
-function createIdentityRepository(
-  session: {
-    userId: string;
-    login: string;
-    avatar: string;
-    email: string | null;
-    name: string | null;
-  } | null,
-) {
-  const record = session
-    ? {
-        authSessionId: "session-1",
-        userId: session.userId,
-        login: session.login,
-        avatar: session.avatar,
-        email: session.email,
-        name: session.name,
-        githubScopes: ["repo"],
-        encryptedToken: {
-          ciphertext: "ciphertext",
-          iv: "iv",
-          tag: "tag",
-        },
-        createdAt: Date.now(),
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      }
-    : null;
-
-  return {
-    createGitHubSession: async () => {
-      throw new Error("not used");
-    },
-    findSessionByHash: async () => record,
-    findLatestGitHubSessionByUserId: async () => record,
-    revokeSession: async () => undefined,
-  };
-}
