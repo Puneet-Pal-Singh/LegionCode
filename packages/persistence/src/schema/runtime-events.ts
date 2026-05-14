@@ -15,6 +15,8 @@ import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js"
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
   buildRuntimeEventInboxStatusSqlList();
 
+// Keep default/status constraints tied to RUNTIME_EVENT_INBOX_STATUSES in
+// runtime-events/types.ts; status drift is guarded by migration tests.
 export const runtimeEventInbox = pgTable(
   "runtime_event_inbox",
   {

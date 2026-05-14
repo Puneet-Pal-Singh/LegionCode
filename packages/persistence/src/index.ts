@@ -41,20 +41,3 @@ export type {
   RuntimeEventInboxStatus,
 } from "./runtime-events/types.js";
 export { runtimeEventInbox } from "./schema/index.js";
-export type {
-  AccountRepository,
-  ArtifactRepository,
-  AuthSessionRepository,
-  ContextRepository,
-  MessageRepository,
-  PersistenceDomain,
-  ProviderRepository,
-  RepoRepository,
-  RepositoryContract,
-  RunRepository,
-  SessionRepository,
-  TaskRepository,
-  UsageRepository,
-  UserRepository,
-  WorkspaceRepository,
-} from "./repositories/contracts.js";

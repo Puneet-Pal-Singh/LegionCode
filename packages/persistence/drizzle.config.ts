@@ -8,6 +8,7 @@ export default defineConfig({
   schema: "./src/schema/index.ts",
   out: "./drizzle",
   dbCredentials: {
+    // Local fallback only. CI/prod migration runners should set DATABASE_URL.
     url: process.env.DATABASE_URL ?? DEFAULT_LOCAL_DATABASE_URL,
   },
   strict: true,
