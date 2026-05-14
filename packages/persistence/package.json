@@ -11,15 +11,19 @@
   "scripts": {
     "build": "tsc",
     "check-types": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "test": "vitest run"
   },
   "dependencies": {
     "@repo/shared-types": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.16.3"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.0.0",
     "vitest": "^1.0.0"
   }
