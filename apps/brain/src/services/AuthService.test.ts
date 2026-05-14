@@ -50,6 +50,18 @@ describe("AuthService", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null for malformed percent-encoded session cookies", async () => {
+    const request = new Request("https://shadowbox.test", {
+      headers: {
+        Cookie: "shadowbox_session=%E0%A4%A",
+      },
+    });
+
+    const result = await getAuthenticatedUserSession(request, createTestEnv());
+
+    expect(result).toBeNull();
+  });
+
   it("throws a typed error when the session repository is unavailable", async () => {
     const request = new Request("https://shadowbox.test", {
       headers: {

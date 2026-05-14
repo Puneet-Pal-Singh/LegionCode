@@ -30,6 +30,9 @@ export interface IdentitySessionRecord {
   encryptedToken: EncryptedOAuthToken;
   createdAt: number;
   expiresAt: string;
+  workspaceId?: string;
+  defaultWorkspaceId?: string;
+  workspaceIds?: string[];
 }
 
 export interface IdentitySessionRepository {

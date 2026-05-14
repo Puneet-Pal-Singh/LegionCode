@@ -103,7 +103,11 @@ export function extractSessionToken(request: Request): string | null {
     return null;
   }
 
-  return decodeURIComponent(match[1]);
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 export async function createGitHubOAuthSession(
@@ -349,24 +353,10 @@ function readWorkspaceClaims(
   UserSessionRecord,
   "workspaceId" | "defaultWorkspaceId" | "workspaceIds"
 > {
-  const claims = record as {
-    workspaceId?: unknown;
-    defaultWorkspaceId?: unknown;
-    workspaceIds?: unknown;
-  };
-
   return {
-    workspaceId:
-      typeof claims.workspaceId === "string" ? claims.workspaceId : undefined,
-    defaultWorkspaceId:
-      typeof claims.defaultWorkspaceId === "string"
-        ? claims.defaultWorkspaceId
-        : undefined,
-    workspaceIds: Array.isArray(claims.workspaceIds)
-      ? claims.workspaceIds.filter(
-          (entry): entry is string => typeof entry === "string",
-        )
-      : undefined,
+    workspaceId: record.workspaceId,
+    defaultWorkspaceId: record.defaultWorkspaceId,
+    workspaceIds: record.workspaceIds,
   };
 }
 

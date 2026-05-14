@@ -15,6 +15,11 @@ interface IdRow extends SqlRow {
   id: string;
 }
 
+interface AccountRow extends SqlRow {
+  id: string;
+  user_id: string;
+}
+
 interface SessionRow extends SqlRow {
   auth_session_id: string;
   user_id: string;
@@ -39,12 +44,14 @@ export class PostgresIdentitySessionRepository implements IdentitySessionReposit
         tx,
         input.providerAccountId,
       );
-      const userId = existingUserId ?? (await insertUser(tx, input));
-      if (existingUserId) {
-        await updateUser(tx, userId, input);
+      const tentativeUserId = existingUserId ?? (await insertUser(tx, input));
+      const account = await upsertGitHubAccount(tx, tentativeUserId, input);
+      const userId = account.userId;
+      await updateUser(tx, userId, input);
+      if (userId !== tentativeUserId) {
+        await deleteUserIfUnreferenced(tx, tentativeUserId);
       }
-      const accountId = await upsertGitHubAccount(tx, userId, input);
-      await insertOAuthToken(tx, userId, accountId, input);
+      await insertOAuthToken(tx, userId, account.id, input);
       const authSessionId = await insertAuthSession(tx, userId, input);
 
       return {
@@ -179,8 +186,8 @@ async function upsertGitHubAccount(
   client: SqlClient,
   userId: string,
   input: GitHubIdentitySessionInput,
-): Promise<string> {
-  const result = await client.query<IdRow>(
+): Promise<{ id: string; userId: string }> {
+  const result = await client.query<AccountRow>(
     `
       INSERT INTO accounts (
         user_id,
@@ -199,7 +206,7 @@ async function upsertGitHubAccount(
         provider_email = EXCLUDED.provider_email,
         avatar_url = EXCLUDED.avatar_url,
         updated_at = EXCLUDED.updated_at
-      RETURNING id
+      RETURNING id, user_id
     `,
     [
       userId,
@@ -210,7 +217,33 @@ async function upsertGitHubAccount(
       input.now,
     ],
   );
-  return readReturnedId(result.rows[0], "accounts");
+  const row = result.rows[0];
+  if (!row?.id || !row.user_id) {
+    throw new Error("accounts upsert returned no id or user_id");
+  }
+  return { id: row.id, userId: row.user_id };
+}
+
+async function deleteUserIfUnreferenced(
+  client: SqlClient,
+  userId: string,
+): Promise<void> {
+  await client.query(
+    `
+      DELETE FROM users
+      WHERE id = $1
+        AND NOT EXISTS (
+          SELECT 1 FROM accounts WHERE accounts.user_id = users.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM auth_sessions WHERE auth_sessions.user_id = users.id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM oauth_tokens WHERE oauth_tokens.user_id = users.id
+        )
+    `,
+    [userId],
+  );
 }
 
 async function insertOAuthToken(
