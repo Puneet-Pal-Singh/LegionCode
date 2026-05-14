@@ -23,6 +23,9 @@ export interface GitHubUser {
   name: string | null;
   githubScopes?: string[];
   commitIdentity?: GitCommitIdentityState;
+  workspaceId?: string;
+  defaultWorkspaceId?: string;
+  workspaceIds?: string[];
 }
 
 export interface Repository {
@@ -59,6 +62,14 @@ export interface PullRequestSummary {
   state: "open" | "closed";
   head: string;
   base: string;
+}
+
+export interface WorkspaceSelection {
+  workspaceId: string;
+  repoId: string;
+  selectedBranch: string;
+  workspaceName: string;
+  updatedAt: string;
 }
 
 const BRAIN_API_URL = getBrainHttpBase();
@@ -172,6 +183,69 @@ export async function listRepositories(
 
   const data = await response.json();
   return data.repositories;
+}
+
+export async function selectWorkspace(
+  repository: Repository,
+  selectedBranch: string,
+): Promise<WorkspaceSelection> {
+  const response = await fetch(
+    `${BRAIN_API_URL}/api/workspaces/selection`,
+    getFetchOptions({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repository: {
+          owner: repository.owner.login,
+          name: repository.name,
+        },
+        selectedBranch,
+      }),
+    }),
+  );
+
+  if (!response.ok) {
+    throw await readWorkspaceSelectionError(response);
+  }
+
+  return parseWorkspaceSelectionResponse(await response.json());
+}
+
+async function readWorkspaceSelectionError(response: Response): Promise<Error> {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: unknown }
+    | null;
+  const serverMessage =
+    typeof payload?.error === "string" && payload.error.trim().length > 0
+      ? `: ${payload.error}`
+      : "";
+
+  return new Error(
+    `Failed to persist workspace selection (HTTP ${response.status})${serverMessage}`,
+  );
+}
+
+function parseWorkspaceSelectionResponse(payload: unknown): WorkspaceSelection {
+  if (!isRecord(payload) || !isWorkspaceSelection(payload.selection)) {
+    throw new Error("Invalid workspace selection response from server");
+  }
+
+  return payload.selection;
+}
+
+function isWorkspaceSelection(value: unknown): value is WorkspaceSelection {
+  return (
+    isRecord(value) &&
+    typeof value.workspaceId === "string" &&
+    typeof value.repoId === "string" &&
+    typeof value.selectedBranch === "string" &&
+    typeof value.workspaceName === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /**

@@ -20,6 +20,7 @@ export {
 } from "./config/database.js";
 
 export { identitySessionBootstrapMigration } from "./migrations/0002-identity-session-bootstrap.js";
+export { workspaceBootstrapMigration } from "./migrations/0003-workspace-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -37,12 +38,25 @@ export { PostgresRuntimeEventInboxRepository } from "./runtime-events/PostgresRu
 export { MemoryRuntimeEventInboxRepository } from "./runtime-events/MemoryRuntimeEventInboxRepository.js";
 export { MemoryIdentitySessionRepository } from "./identity/MemoryIdentitySessionRepository.js";
 export { PostgresIdentitySessionRepository } from "./identity/PostgresIdentitySessionRepository.js";
+export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepository.js";
+export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
 export type {
   EncryptedOAuthToken,
   GitHubIdentitySessionInput,
   IdentitySessionRecord,
   IdentitySessionRepository,
 } from "./identity/types.js";
+export type {
+  RepositoryRecord,
+  SelectWorkspaceInput,
+  WorkspaceBootstrapRecord,
+  WorkspaceListItem,
+  WorkspaceRecord,
+  WorkspaceRepository,
+  WorkspaceSelectionRecord,
+  WorkspaceStatus,
+} from "./workspaces/types.js";
+export { WORKSPACE_STATUSES } from "./workspaces/types.js";
 export type {
   RuntimeEventInboxAcceptResult,
   RuntimeEventInboxEntry,
@@ -53,6 +67,9 @@ export {
   accounts,
   authSessions,
   oauthTokens,
+  repos,
   runtimeEventInbox,
   users,
+  workspaces,
+  workspaceSelections,
 } from "./schema/index.js";
