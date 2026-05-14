@@ -38,6 +38,8 @@ export { PostgresRuntimeEventInboxRepository } from "./runtime-events/PostgresRu
 export { MemoryRuntimeEventInboxRepository } from "./runtime-events/MemoryRuntimeEventInboxRepository.js";
 export { MemoryIdentitySessionRepository } from "./identity/MemoryIdentitySessionRepository.js";
 export { PostgresIdentitySessionRepository } from "./identity/PostgresIdentitySessionRepository.js";
+export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepository.js";
+export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
 export type {
   EncryptedOAuthToken,
   GitHubIdentitySessionInput,
@@ -48,6 +50,7 @@ export type {
   RepositoryRecord,
   SelectWorkspaceInput,
   WorkspaceBootstrapRecord,
+  WorkspaceListItem,
   WorkspaceRecord,
   WorkspaceRepository,
   WorkspaceSelectionRecord,

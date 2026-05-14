@@ -61,12 +61,18 @@ export interface WorkspaceBootstrapRecord {
   selection: WorkspaceSelectionRecord;
 }
 
+export interface WorkspaceListItem {
+  repository: RepositoryRecord;
+  workspace: WorkspaceRecord;
+  selected: boolean;
+}
+
 export interface WorkspaceRepository {
   selectWorkspace(input: SelectWorkspaceInput): Promise<WorkspaceBootstrapRecord>;
   findWorkspaceSelection(
     userId: string,
   ): Promise<WorkspaceBootstrapRecord | null>;
-  listWorkspaces(userId: string): Promise<WorkspaceBootstrapRecord[]>;
+  listWorkspaces(userId: string): Promise<WorkspaceListItem[]>;
 }
 
 export function buildWorkspaceStatusSqlList(): string {
