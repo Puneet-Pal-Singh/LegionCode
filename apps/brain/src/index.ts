@@ -7,6 +7,7 @@ import { RunController } from "./controllers/RunController";
 import { ProviderController } from "./controllers/ProviderController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
+import { WorkspaceController } from "./controllers/WorkspaceController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -103,6 +104,12 @@ function createRouter(): Router {
   router.add(
     /\/api\/github\/pulls$/,
     GitHubController.createPullRequest,
+    "POST",
+  );
+  router.add(/^\/api\/workspaces$/, WorkspaceController.listWorkspaces, "GET");
+  router.add(
+    /^\/api\/workspaces\/selection$/,
+    WorkspaceController.selectWorkspace,
     "POST",
   );
 

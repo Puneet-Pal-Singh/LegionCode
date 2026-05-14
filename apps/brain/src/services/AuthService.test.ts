@@ -1,4 +1,7 @@
-import { MemoryIdentitySessionRepository } from "@repo/persistence";
+import {
+  MemoryIdentitySessionRepository,
+  MemoryWorkspaceRepository,
+} from "@repo/persistence";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../types/ai";
 import {
@@ -78,11 +81,47 @@ describe("AuthService", () => {
       SessionStoreUnavailableError,
     );
   });
+
+  it("hydrates workspace claims from canonical workspace selection", async () => {
+    const workspaceRepository = new MemoryWorkspaceRepository();
+    const env = createTestEnv({ workspaceRepository });
+    const created = await createTestSession(env);
+
+    await workspaceRepository.selectWorkspace({
+      userId: created.session.userId,
+      selectedBranch: "main",
+      now: "2026-05-14T00:00:00.000Z",
+      repository: {
+        provider: "github",
+        owner: "acme",
+        name: "legioncode",
+        fullName: "acme/legioncode",
+        repoUrl: "https://github.com/acme/legioncode",
+        defaultBranch: "main",
+        providerRepoId: "123",
+        now: "2026-05-14T00:00:00.000Z",
+      },
+    });
+
+    const request = new Request("https://shadowbox.test", {
+      headers: {
+        Cookie: `shadowbox_session=${created.sessionToken}`,
+      },
+    });
+    const result = await getAuthenticatedUserSession(request, env);
+
+    expect(result?.session.workspaceId).toBe("workspace-1");
+    expect(result?.session.defaultWorkspaceId).toBe("workspace-1");
+    expect(result?.session.workspaceIds).toEqual(["workspace-1"]);
+  });
 });
 
-function createTestEnv(): Env {
+function createTestEnv(options?: {
+  workspaceRepository?: MemoryWorkspaceRepository;
+}): Env {
   return {
     AUTH_IDENTITY_REPOSITORY: new MemoryIdentitySessionRepository(),
+    AUTH_WORKSPACE_REPOSITORY: options?.workspaceRepository,
     GITHUB_TOKEN_ENCRYPTION_KEY: "test-encryption-key",
   } as unknown as Env;
 }

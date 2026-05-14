@@ -16,6 +16,7 @@ import {
   type IdentitySessionRecord,
   type IdentitySessionRepository,
   type SqlClient,
+  type WorkspaceBootstrapRecord,
   type WorkerDatabaseConfig,
 } from "@repo/persistence";
 import {
@@ -26,6 +27,7 @@ import {
 import type { GitCommitIdentityState } from "@repo/shared-types";
 import { DependencyError } from "../domain/errors";
 import type { Env } from "../types/ai";
+import { withWorkspaceRepository } from "./workspaces/WorkspacePersistenceFactory";
 
 const SESSION_COOKIE_NAME = "shadowbox_session";
 const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -143,7 +145,7 @@ export async function createGitHubOAuthSession(
 
   return {
     sessionToken: token,
-    session: mapIdentitySession(record),
+    session: await mapIdentitySession(env, record),
     expiresAt: record.expiresAt,
   };
 }
@@ -247,7 +249,7 @@ async function readSessionRecord(
     const record = await withIdentitySessionRepository(env, (repository) =>
       read(repository, now),
     );
-    return record ? mapIdentitySession(record) : null;
+    return record ? await mapIdentitySession(env, record) : null;
   } catch (error) {
     console.warn("[auth/session] failed to read session record", {
       error: formatUnknownError(error),
@@ -332,9 +334,12 @@ function resolveTokenExpiresAt(
   return new Date(now.getTime() + expiresInSeconds * 1000);
 }
 
-function mapIdentitySession(record: IdentitySessionRecord): UserSessionRecord {
+async function mapIdentitySession(
+  env: Env,
+  record: IdentitySessionRecord,
+): Promise<UserSessionRecord> {
   const workspaceClaims = readWorkspaceClaims(record);
-  return {
+  const session = {
     userId: record.userId,
     login: record.login,
     avatar: record.avatar,
@@ -345,6 +350,8 @@ function mapIdentitySession(record: IdentitySessionRecord): UserSessionRecord {
     createdAt: record.createdAt,
     ...workspaceClaims,
   };
+
+  return await enrichWorkspaceClaims(env, session);
 }
 
 function readWorkspaceClaims(
@@ -357,6 +364,43 @@ function readWorkspaceClaims(
     workspaceId: record.workspaceId,
     defaultWorkspaceId: record.defaultWorkspaceId,
     workspaceIds: record.workspaceIds,
+  };
+}
+
+async function enrichWorkspaceClaims(
+  env: Env,
+  session: UserSessionRecord,
+): Promise<UserSessionRecord> {
+  if (!shouldReadWorkspaceClaims(env, session)) {
+    return session;
+  }
+
+  const selection = await withWorkspaceRepository(env, (repository) =>
+    repository.findWorkspaceSelection(session.userId),
+  );
+  return selection ? applyWorkspaceSelection(session, selection) : session;
+}
+
+function shouldReadWorkspaceClaims(
+  env: Env,
+  session: UserSessionRecord,
+): boolean {
+  if (session.workspaceId || session.defaultWorkspaceId) {
+    return false;
+  }
+
+  return Boolean(env.AUTH_WORKSPACE_REPOSITORY || !env.AUTH_IDENTITY_REPOSITORY);
+}
+
+function applyWorkspaceSelection(
+  session: UserSessionRecord,
+  selection: WorkspaceBootstrapRecord,
+): UserSessionRecord {
+  return {
+    ...session,
+    workspaceId: selection.workspace.id,
+    defaultWorkspaceId: selection.workspace.id,
+    workspaceIds: [selection.workspace.id],
   };
 }
 

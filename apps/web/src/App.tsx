@@ -13,6 +13,7 @@ import {
 } from "./components/github/GitHubContextProvider";
 import { RepoPicker } from "./components/github/RepoPicker";
 import type { Repository } from "./services/GitHubService";
+import * as GitHubService from "./services/GitHubService";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
 import type { RunInboxItem } from "./components/run/RunInbox";
@@ -697,6 +698,11 @@ function AppContent() {
       fullName: selectedRepo.full_name,
       branch: selectedBranch,
     });
+    void GitHubService.selectWorkspace(selectedRepo, selectedBranch).catch(
+      (error) => {
+        console.error("[App] Failed to persist workspace selection:", error);
+      },
+    );
 
     console.log(
       `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
