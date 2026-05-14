@@ -4,7 +4,7 @@ import type { Env } from "../types/ai";
 
 const VALID_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "workspace-main";
+const TEST_WORKSPACE_ID = "default";
 const mockCloudflareAgentExecute = vi.fn();
 
 vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
@@ -465,18 +465,19 @@ function createEnv(
     cloudflareAgentsEnabled?: Env["FEATURE_FLAG_CLOUDFLARE_AGENTS_V1"];
   } = {},
 ): Env {
-  const sessions = new Map<string, string>();
-  sessions.set(
-    `user_session:${TEST_USER_ID}`,
-    JSON.stringify({
-      userId: TEST_USER_ID,
-      workspaceIds: [TEST_WORKSPACE_ID],
-      defaultWorkspaceId: TEST_WORKSPACE_ID,
-    }),
-  );
+  const oauthState = new Map<string, string>();
 
   return {
     AI: {} as Env["AI"],
+    AUTH_IDENTITY_REPOSITORY: {
+      createGitHubSession: async () => {
+        throw new Error("not used");
+      },
+      findSessionByHash: async () => createIdentitySessionRecord(),
+      findLatestGitHubSessionByUserId: async () =>
+        createIdentitySessionRecord(),
+      revokeSession: async () => undefined,
+    },
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
@@ -487,12 +488,12 @@ function createEnv(
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
     SESSIONS: {
-      get: async (key: string) => sessions.get(key) ?? null,
+      get: async (key: string) => oauthState.get(key) ?? null,
       put: async (key: string, value: string) => {
-        sessions.set(key, value);
+        oauthState.set(key, value);
       },
       delete: async (key: string) => {
-        sessions.delete(key);
+        oauthState.delete(key);
       },
     } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
@@ -500,6 +501,25 @@ function createEnv(
     RUN_ENGINE_AGENT: options.runEngineAgent,
     FEATURE_FLAG_CLOUDFLARE_AGENTS_V1:
       options.cloudflareAgentsEnabled ?? "false",
+  };
+}
+
+function createIdentitySessionRecord() {
+  return {
+    authSessionId: "session-1",
+    userId: TEST_USER_ID,
+    login: "puneet",
+    avatar: "",
+    email: "puneet@example.com",
+    name: "Puneet Pal Singh",
+    githubScopes: ["repo"],
+    encryptedToken: {
+      ciphertext: "ciphertext",
+      iv: "iv",
+      tag: "tag",
+    },
+    createdAt: Date.now(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
   };
 }
 

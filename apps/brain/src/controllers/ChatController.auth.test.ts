@@ -4,7 +4,8 @@ import type { Env } from "../types/ai";
 
 const VALID_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "workspace-main";
+const TEST_WORKSPACE_ID = "default";
+const TEST_SESSION_TOKEN = "test-session-token";
 
 vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
   CloudflareAgent: class MockCloudflareAgent {},
@@ -46,12 +47,11 @@ describe("ChatController auth contract", () => {
   it("accepts authenticated chat requests and forwards resolved scope", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
-    const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
 
     const response = await ChatController.handle(
       createChatRequest({
         headers: {
-          Cookie: `shadowbox_session=${token}`,
+          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
         },
       }),
       env,
@@ -111,18 +111,19 @@ function createMockRuntimeNamespace() {
 }
 
 function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
-  const sessions = new Map<string, string>();
-  sessions.set(
-    `user_session:${TEST_USER_ID}`,
-    JSON.stringify({
-      userId: TEST_USER_ID,
-      workspaceIds: [TEST_WORKSPACE_ID],
-      defaultWorkspaceId: TEST_WORKSPACE_ID,
-    }),
-  );
+  const oauthState = new Map<string, string>();
 
   return {
     AI: {} as Env["AI"],
+    AUTH_IDENTITY_REPOSITORY: {
+      createGitHubSession: async () => {
+        throw new Error("not used");
+      },
+      findSessionByHash: async () => createIdentitySessionRecord(),
+      findLatestGitHubSessionByUserId: async () =>
+        createIdentitySessionRecord(),
+      revokeSession: async () => undefined,
+    },
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
@@ -133,18 +134,37 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
     SESSIONS: {
-      get: async (key: string) => sessions.get(key) ?? null,
+      get: async (key: string) => oauthState.get(key) ?? null,
       put: async (key: string, value: string) => {
-        sessions.set(key, value);
+        oauthState.set(key, value);
       },
       delete: async (key: string) => {
-        sessions.delete(key);
+        oauthState.delete(key);
       },
     } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
     RUN_ADMISSION_LIMITER: createMockRunAdmissionLimiterNamespace(),
     FEATURE_FLAG_CLOUDFLARE_AGENTS_V1: "false",
   } as Env;
+}
+
+function createIdentitySessionRecord() {
+  return {
+    authSessionId: "session-1",
+    userId: TEST_USER_ID,
+    login: "puneet",
+    avatar: "",
+    email: "puneet@example.com",
+    name: "Puneet Pal Singh",
+    githubScopes: ["repo"],
+    encryptedToken: {
+      ciphertext: "ciphertext",
+      iv: "iv",
+      tag: "tag",
+    },
+    createdAt: Date.now(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
 }
 
 function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] {
@@ -179,29 +199,4 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
     idFromName,
     get,
   } as unknown as Env["RUN_ADMISSION_LIMITER"];
-}
-
-async function createSessionToken(
-  userId: string,
-  secret: string,
-): Promise<string> {
-  const timestamp = Date.now().toString();
-  const data = `${userId}:${timestamp}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signatureBuffer = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(data),
-  );
-  const signature = btoa(
-    String.fromCharCode(...new Uint8Array(signatureBuffer)),
-  );
-  return `${data}:${signature}`;
 }

@@ -75,14 +75,16 @@ export function useChatCore(
 
   const pushDebugEvent = useCallback(
     (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
-      setDebugEvents((previous) => [
-        {
-          id: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-          ...event,
-        },
-        ...previous,
-      ].slice(0, 50));
+      setDebugEvents((previous) =>
+        [
+          {
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            ...event,
+          },
+          ...previous,
+        ].slice(0, 50),
+      );
     },
     [],
   );
@@ -195,7 +197,8 @@ export function useChatCore(
       let modelId =
         selectedModelId?.trim() || lastResolvedConfig?.modelId?.trim();
       let credentialId =
-        selectedCredentialId?.trim() || lastResolvedConfig?.credentialId?.trim();
+        selectedCredentialId?.trim() ||
+        lastResolvedConfig?.credentialId?.trim();
       let configResolutionSource: "store_selection" | "provider_resolve_api" =
         "store_selection";
 
@@ -296,9 +299,7 @@ export function useChatCore(
             payload: {
               source: "appendWithResolution",
               error:
-                error instanceof Error
-                  ? error.message
-                  : "Unknown append error",
+                error instanceof Error ? error.message : "Unknown append error",
             },
           });
           console.error(
@@ -405,7 +406,9 @@ interface ParsedChatErrorPayload {
   };
 }
 
-function parseJsonErrorPayload(rawMessage: string): ParsedChatErrorPayload | null {
+function parseJsonErrorPayload(
+  rawMessage: string,
+): ParsedChatErrorPayload | null {
   try {
     const parsed = JSON.parse(rawMessage) as ParsedChatErrorPayload;
     if (
@@ -535,28 +538,12 @@ function fetchWithSessionAuth(
   init?: RequestInit,
 ): Promise<Response> {
   const headers = new Headers(init?.headers ?? {});
-  const token = loadBrowserSessionToken();
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
 
   return fetch(input, {
     ...init,
     credentials: "include",
     headers,
   });
-}
-
-function loadBrowserSessionToken(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    return window.localStorage.getItem("shadowbox_session");
-  } catch {
-    return null;
-  }
 }
 
 function resolveRuntimeHarnessId(sessionId: string): RuntimeHarnessId {
@@ -598,7 +585,10 @@ function loadRepositoryContextFields(
   sessionId: string,
 ): Pick<
   ChatRequestBody,
-  "repositoryOwner" | "repositoryName" | "repositoryBranch" | "repositoryBaseUrl"
+  | "repositoryOwner"
+  | "repositoryName"
+  | "repositoryBranch"
+  | "repositoryBaseUrl"
 > {
   const context = SessionStateService.loadSessionGitHubContext(sessionId);
   if (!context) {
@@ -637,8 +627,6 @@ function loadRepositoryContextFields(
     repositoryOwner: owner,
     repositoryName: name,
     repositoryBranch: branch || undefined,
-    repositoryBaseUrl: fullName
-      ? `https://github.com/${fullName}`
-      : undefined,
+    repositoryBaseUrl: fullName ? `https://github.com/${fullName}` : undefined,
   };
 }

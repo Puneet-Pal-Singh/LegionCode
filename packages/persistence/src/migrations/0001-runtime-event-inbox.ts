@@ -1,4 +1,5 @@
 import { buildRuntimeEventInboxStatusSqlList } from "../runtime-events/types.js";
+import { identitySessionBootstrapMigration } from "./0002-identity-session-bootstrap.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -40,4 +41,7 @@ export const runtimeEventInboxMigration: SqlMigration = {
   ],
 };
 
-export const persistenceMigrations = [runtimeEventInboxMigration] as const;
+export const persistenceMigrations = [
+  runtimeEventInboxMigration,
+  identitySessionBootstrapMigration,
+] as const;

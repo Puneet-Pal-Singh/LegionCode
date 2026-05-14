@@ -3,9 +3,10 @@ import { GitHubAPIClient, decryptToken } from "@shadowbox/github-bridge";
 import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
+import { createIdentityRepository } from "../test-utils/identityTestHelpers";
 
 vi.mock("@shadowbox/github-bridge", () => ({
-  decryptToken: vi.fn(async (value: string) => `token:${value}`),
+  decryptToken: vi.fn(async () => "token:encrypted-token"),
   GitHubAPIClient: vi.fn().mockImplementation(() => ({
     getRepository: vi.fn(async () => ({ default_branch: "main" })),
     createPullRequest: vi.fn(async () => ({
@@ -80,7 +81,9 @@ describe("ExecutionService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
-    expect(sessionUrl).toBe("http://internal/api/v1/session?session=session-123");
+    expect(sessionUrl).toBe(
+      "http://internal/api/v1/session?session=session-123",
+    );
     expect(sessionInit?.method).toBe("POST");
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-456",
@@ -89,7 +92,9 @@ describe("ExecutionService", () => {
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
-    expect(executeUrl).toBe("http://internal/api/v1/execute?session=session-123");
+    expect(executeUrl).toBe(
+      "http://internal/api/v1/execute?session=session-123",
+    );
     expect(executeInit?.headers).toMatchObject({
       Authorization: "Bearer tok-1",
       "Content-Type": "application/json",
@@ -234,6 +239,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-123"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
             key === "user_session:user-123"
@@ -303,6 +309,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-commit-oauth"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
             key === "user_session:user-commit-oauth"
@@ -374,6 +381,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-456"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
             key === "user_session:user-456"
@@ -453,6 +461,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-789"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
             key === "user_session:user-789"
@@ -503,6 +512,10 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-790", [
+          "read:user",
+          "user:email",
+        ]),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
             key === "user_session:user-790"
@@ -654,7 +667,9 @@ describe("ExecutionService", () => {
       },
     );
 
-    expect(chunks).toEqual([{ message: "chunk", source: "stdout", timestamp: 2 }]);
+    expect(chunks).toEqual([
+      { message: "chunk", source: "stdout", timestamp: 2 },
+    ]);
     nowSpy.mockRestore();
     randomSpy.mockRestore();
   });
@@ -793,7 +808,7 @@ describe("ExecutionService", () => {
 
     fetchMock.mockResolvedValueOnce(
       new Response(
-        "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+        'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
         { status: 503, headers: { "Content-Type": "text/plain" } },
       ),
     );
@@ -817,7 +832,9 @@ describe("ExecutionService", () => {
     expect(logSpy).toHaveBeenCalledWith(
       "[ExecutionService] git:git_status transient startup miss",
       expect.objectContaining({
-        errorMessage: expect.stringMatching(/Couldn't find a local dev session/i),
+        errorMessage: expect.stringMatching(
+          /Couldn't find a local dev session/i,
+        ),
       }),
     );
 
@@ -866,6 +883,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
             key === "user_session:user-pr"
@@ -897,7 +915,8 @@ describe("ExecutionService", () => {
 
     expect(result).toEqual({
       success: true,
-      output: "Created pull request #42: https://github.com/acme/career-crew/pull/42",
+      output:
+        "Created pull request #42: https://github.com/acme/career-crew/pull/42",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -912,7 +931,8 @@ describe("ExecutionService", () => {
     });
 
     expect(GitHubAPIClient).toHaveBeenCalledWith("github-token");
-    const clientInstance = vi.mocked(GitHubAPIClient).mock.results[0]?.value as {
+    const clientInstance = vi.mocked(GitHubAPIClient).mock.results[0]
+      ?.value as {
       getRepository: ReturnType<typeof vi.fn>;
       createPullRequest: ReturnType<typeof vi.fn>;
     };
@@ -964,6 +984,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async () =>
             JSON.stringify({

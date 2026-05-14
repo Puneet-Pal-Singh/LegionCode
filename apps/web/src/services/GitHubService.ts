@@ -80,16 +80,8 @@ const treeInFlight = new Map<
   Promise<Array<{ path: string; type: string; sha: string }>>
 >();
 
-/**
- * Helper to get fetch options with optional session token
- */
 function getFetchOptions(options: RequestInit = {}): RequestInit {
-  const token = localStorage.getItem("shadowbox_session");
   const headers = new Headers(options.headers || {});
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
 
   return {
     ...options,
@@ -116,9 +108,6 @@ export async function getSession(): Promise<{
 
   const data = await response.json();
 
-  // If we got a user, but didn't have a token in localStorage,
-  // we might want to keep it that way (let cookie handle it).
-  // But if we're authenticated, we're good.
   return data;
 }
 
@@ -157,7 +146,6 @@ export function initiateGitHubLogin(): void {
  * Logout user
  */
 export async function logout(): Promise<void> {
-  localStorage.removeItem("shadowbox_session");
   await fetch(
     `${BRAIN_API_URL}/auth/logout`,
     getFetchOptions({
@@ -398,22 +386,17 @@ export async function getFileContent(
 }
 
 /**
- * Handle OAuth callback
- * Extracts session token from URL and stores it
+ * Handle OAuth callback cleanup.
  */
 export function handleOAuthCallback(): {
   user: string | null;
   success: boolean;
 } {
   const params = new URLSearchParams(window.location.search);
-  const session = params.get("session");
   const user = params.get("user");
+  const hadLegacySessionParams = params.has("session") || params.has("user");
 
-  if (session) {
-    // Store token in localStorage as fallback for cookies
-    localStorage.setItem("shadowbox_session", session);
-
-    // Just clean up URL
+  if (hadLegacySessionParams) {
     window.history.replaceState({}, document.title, window.location.pathname);
     return { user, success: true };
   }

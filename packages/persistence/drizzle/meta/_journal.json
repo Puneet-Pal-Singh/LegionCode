@@ -8,6 +8,13 @@
       "when": 1778757600673,
       "tag": "0000_runtime_event_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778766887669,
+      "tag": "0001_identity_session_bootstrap",
+      "breakpoints": true
     }
   ]
 }

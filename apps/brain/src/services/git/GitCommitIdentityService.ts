@@ -10,7 +10,7 @@ import type {
   GitMutationErrorMetadata,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
-import type { UserSessionRecord } from "../AuthService";
+import { getUserSessionByUserId, type UserSessionRecord } from "../AuthService";
 
 const USER_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS = USER_SESSION_TTL_SECONDS;
@@ -107,12 +107,7 @@ export async function resolveCommitIdentityForStoredUserSession(
   userId: string,
   explicitInput?: ExplicitCommitIdentityInput,
 ): Promise<GitCommitIdentity | null> {
-  const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-  if (!sessionData) {
-    return null;
-  }
-
-  const session = parseUserSessionRecord(sessionData);
+  const session = await getUserSessionByUserId(env, userId);
   if (!session) {
     return null;
   }
@@ -131,12 +126,7 @@ export async function resolveCommitIdentityForStoredOAuthSession(
   env: Env,
   userId: string,
 ): Promise<GitCommitIdentity | null> {
-  const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-  if (!sessionData) {
-    return null;
-  }
-
-  const session = parseUserSessionRecord(sessionData);
+  const session = await getUserSessionByUserId(env, userId);
   if (!session) {
     return null;
   }
@@ -274,7 +264,6 @@ async function hydrateGitHubProfileDefaults(
     email: defaults.authorEmail,
   };
 
-  await persistUserSession(env, nextSession);
   return nextSession;
 }
 
@@ -358,17 +347,6 @@ function isGitHubNoreplyEmail(email: string): boolean {
   return email.endsWith("@users.noreply.github.com");
 }
 
-async function persistUserSession(
-  env: Env,
-  session: UserSessionRecord,
-): Promise<void> {
-  await env.SESSIONS.put(
-    `user_session:${session.userId}`,
-    JSON.stringify(session),
-    { expirationTtl: USER_SESSION_TTL_SECONDS },
-  );
-}
-
 async function readPersistedCommitIdentityPreference(
   env: Env,
   userId: string,
@@ -397,44 +375,17 @@ async function persistCommitIdentityPreference(
   userId: string,
   preference: CommitIdentityPreferenceRecord,
 ): Promise<void> {
-  await env.SESSIONS.put(buildPreferenceKey(userId), JSON.stringify(preference), {
-    expirationTtl: COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS,
-  });
+  await env.SESSIONS.put(
+    buildPreferenceKey(userId),
+    JSON.stringify(preference),
+    {
+      expirationTtl: COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS,
+    },
+  );
 }
 
 function buildPreferenceKey(userId: string): string {
   return `${COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX}${userId}`;
-}
-
-function parseUserSessionRecord(payload: string): UserSessionRecord | null {
-  try {
-    const parsed = JSON.parse(payload) as unknown;
-    if (!isUserSessionRecord(parsed)) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function isUserSessionRecord(value: unknown): value is UserSessionRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.userId === "string" &&
-    typeof record.login === "string" &&
-    typeof record.avatar === "string" &&
-    typeof record.encryptedToken === "string" &&
-    typeof record.createdAt === "number" &&
-    (record.email === null || typeof record.email === "string") &&
-    (record.name === undefined ||
-      record.name === null ||
-      typeof record.name === "string")
-  );
 }
 
 function isCommitIdentityPreferenceRecord(

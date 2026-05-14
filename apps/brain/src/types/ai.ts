@@ -7,6 +7,7 @@ import type {
   D1Database,
   R2Bucket,
 } from "@cloudflare/workers-types";
+import type { IdentitySessionRepository } from "@repo/persistence";
 
 export interface HyperdriveBinding {
   connectionString: string;
@@ -22,6 +23,7 @@ export interface Env {
   EDIT_ARTIFACTS?: R2Bucket;
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
+  AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK

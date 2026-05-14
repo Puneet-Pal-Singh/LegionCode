@@ -7,11 +7,13 @@ import {
   resolveCommitIdentityForStoredOAuthSession,
   resolveCommitIdentityForStoredUserSession,
 } from "./GitCommitIdentityService";
+import { createIdentityRepository } from "../../test-utils/identityTestHelpers";
 
 describe("GitCommitIdentityService", () => {
   it("returns null when the stored user session is malformed", async () => {
     const result = await resolveCommitIdentityForStoredUserSession(
       {
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository(null),
         SESSIONS: {
           get: async () => "{bad json",
         },
@@ -82,19 +84,15 @@ describe("GitCommitIdentityService", () => {
   it("resolves runtime commit identity from OAuth session even when a persisted preference exists", async () => {
     const identity = await resolveCommitIdentityForStoredOAuthSession(
       {
+        AUTH_IDENTITY_REPOSITORY: createIdentityRepository({
+          userId: "user-1",
+          login: "puneet",
+          avatar: "",
+          email: "puneet@example.com",
+          name: "Puneet Pal Singh",
+        }),
         SESSIONS: {
           get: async (key: string) => {
-            if (key === "user_session:user-1") {
-              return JSON.stringify({
-                userId: "user-1",
-                login: "puneet",
-                avatar: "",
-                email: "puneet@example.com",
-                name: "Puneet Pal Singh",
-                encryptedToken: "encrypted-token",
-                createdAt: Date.now(),
-              });
-            }
             if (key === "git_commit_identity_preference:user-1") {
               return JSON.stringify({
                 authorName: "Random User",

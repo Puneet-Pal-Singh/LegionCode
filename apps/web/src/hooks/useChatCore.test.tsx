@@ -66,8 +66,7 @@ describe("useChatCore", () => {
     localStorage.clear();
   });
 
-  it("configures chat requests with cookie credentials and bearer auth", async () => {
-    localStorage.setItem("shadowbox_session", "session-token-123");
+  it("configures chat requests with cookie credentials", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response(null, { status: 200 }));
@@ -76,7 +75,10 @@ describe("useChatCore", () => {
 
     const options = mockUseChat.mock.calls[0]?.[0] as {
       credentials?: RequestCredentials;
-      fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+      fetch?: (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => Promise<Response>;
     };
 
     expect(options.credentials).toBe("include");
@@ -96,7 +98,7 @@ describe("useChatCore", () => {
     });
 
     const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Headers;
-    expect(headers.get("Authorization")).toBe("Bearer session-token-123");
+    expect(headers.has("Authorization")).toBe(false);
     expect(headers.get("Content-Type")).toBe("application/json");
   });
 
@@ -124,10 +126,15 @@ describe("useChatCore", () => {
   });
 
   it("sends explicit plan mode in request overrides", async () => {
-    const { result } = renderHook(() => useChatCore("session-1", undefined, "plan"));
+    const { result } = renderHook(() =>
+      useChatCore("session-1", undefined, "plan"),
+    );
 
     await act(async () => {
-      await result.current.append({ role: "user", content: "Design this first" });
+      await result.current.append({
+        role: "user",
+        content: "Design this first",
+      });
     });
 
     expect(appendSpy).toHaveBeenCalledWith(
@@ -147,7 +154,10 @@ describe("useChatCore", () => {
     );
 
     await act(async () => {
-      await result.current.append({ role: "user", content: "Run this end-to-end" });
+      await result.current.append({
+        role: "user",
+        content: "Run this end-to-end",
+      });
     });
 
     expect(appendSpy).toHaveBeenCalledWith(
@@ -166,7 +176,10 @@ describe("useChatCore", () => {
     const { result } = renderHook(() => useChatCore("session-1"));
 
     await act(async () => {
-      await result.current.append({ role: "user", content: "Fast path submit" });
+      await result.current.append({
+        role: "user",
+        content: "Fast path submit",
+      });
     });
 
     expect(mockResolveForChat).not.toHaveBeenCalled();
@@ -183,14 +196,12 @@ describe("useChatCore", () => {
 
   it("keeps stop active until the cancel request settles", async () => {
     let resolveFetch: ((value: Response) => void) | null = null;
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(
-        () =>
-          new Promise<Response>((resolve) => {
-            resolveFetch = resolve;
-          }),
-      );
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
 
     const { result } = renderHook(() => useChatCore("session-1"));
 

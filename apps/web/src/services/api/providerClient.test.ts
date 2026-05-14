@@ -39,7 +39,6 @@ describe("ProviderApiClient", () => {
     fetchSpy = vi.spyOn(globalThis, "fetch") as unknown as ReturnType<
       typeof vi.spyOn
     >;
-    localStorage.setItem("shadowbox_session", "session-token-123");
     sessionStorage.clear();
   });
 
@@ -78,7 +77,6 @@ describe("ProviderApiClient", () => {
         method: "GET",
         credentials: "include",
         headers: {
-          Authorization: "Bearer session-token-123",
           "Content-Type": "application/json",
           "X-Run-Id": testRunId,
         },
@@ -91,7 +89,11 @@ describe("ProviderApiClient", () => {
   describe("getProviderModels", () => {
     it("fetches paginated model discovery response for provider", async () => {
       const mockModels = [
-        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", providerId: "openrouter" },
+        {
+          id: "openai/gpt-4o-mini",
+          name: "GPT-4o Mini",
+          providerId: "openrouter",
+        },
       ];
       fetchSpy.mockResolvedValueOnce({
         ok: true,
@@ -123,17 +125,20 @@ describe("ProviderApiClient", () => {
           method: "GET",
           credentials: "include",
           headers: {
-            Authorization: "Bearer session-token-123",
             "Content-Type": "application/json",
             "X-Run-Id": testRunId,
           },
           signal: expect.any(AbortSignal),
-        }
+        },
       );
       expect(models.providerId).toBe("openrouter");
       expect(models.view).toBe("popular");
       expect(models.models).toEqual([
-        { id: "openai/gpt-4o-mini", name: "GPT-4o Mini", provider: "openrouter" },
+        {
+          id: "openai/gpt-4o-mini",
+          name: "GPT-4o Mini",
+          provider: "openrouter",
+        },
       ]);
       expect(models.page.hasMore).toBe(false);
       expect(models.metadata.stale).toBe(false);
@@ -170,9 +175,7 @@ describe("ProviderApiClient", () => {
 
   describe("getCredentials", () => {
     it("fetches credentials", async () => {
-      const mockCredentials = [
-        createCredentialFixture(),
-      ];
+      const mockCredentials = [createCredentialFixture()];
 
       fetchSpy.mockResolvedValueOnce({
         ok: true,
@@ -182,16 +185,18 @@ describe("ProviderApiClient", () => {
 
       const credentials = await client.getCredentials();
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/credentials`, {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          Authorization: "Bearer session-token-123",
-          "Content-Type": "application/json",
-          "X-Run-Id": testRunId,
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${providerApiBaseUrl}/credentials`,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Run-Id": testRunId,
+          },
+          signal: expect.any(AbortSignal),
         },
-        signal: expect.any(AbortSignal),
-      });
+      );
       expect(credentials).toEqual(mockCredentials);
     });
   });
@@ -211,20 +216,22 @@ describe("ProviderApiClient", () => {
         secret: "sk-test",
       });
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/credentials`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          Authorization: "Bearer session-token-123",
-          "Content-Type": "application/json",
-          "X-Run-Id": testRunId,
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${providerApiBaseUrl}/credentials`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Run-Id": testRunId,
+          },
+          signal: expect.any(AbortSignal),
+          body: JSON.stringify({
+            providerId: "openai",
+            secret: "sk-test",
+          }),
         },
-        signal: expect.any(AbortSignal),
-        body: JSON.stringify({
-          providerId: "openai",
-          secret: "sk-test",
-        }),
-      });
+      );
       expect(credential).toEqual(mockCredential);
     });
   });
@@ -238,16 +245,18 @@ describe("ProviderApiClient", () => {
 
       await client.disconnectCredential("cred-1");
 
-      expect(fetchSpy).toHaveBeenCalledWith(`${providerApiBaseUrl}/credentials/cred-1`, {
-        method: "DELETE",
-        credentials: "include",
-        headers: {
-          Authorization: "Bearer session-token-123",
-          "Content-Type": "application/json",
-          "X-Run-Id": testRunId,
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `${providerApiBaseUrl}/credentials/cred-1`,
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Run-Id": testRunId,
+          },
+          signal: expect.any(AbortSignal),
         },
-        signal: expect.any(AbortSignal),
-      });
+      );
     });
   });
 
@@ -274,7 +283,7 @@ describe("ProviderApiClient", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ mode: "format" }),
-        })
+        }),
       );
     });
 
@@ -435,9 +444,11 @@ describe("ProviderApiClient", () => {
         ok: true,
         status: 200,
         headers: new Headers({ "content-type": "application/json" }),
-        json: vi.fn().mockResolvedValueOnce([
-          { providerId: "openai", displayName: "OpenAI" },
-        ]),
+        json: vi
+          .fn()
+          .mockResolvedValueOnce([
+            { providerId: "openai", displayName: "OpenAI" },
+          ]),
       });
 
       await expect(client.getCatalog()).rejects.toMatchObject({

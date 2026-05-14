@@ -18,6 +18,7 @@ import { resolveAgent } from "./AgentFactory";
 import { buildSessionMemoryClient } from "./SessionMemoryFactory";
 import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
 import { WorkspaceBootstrapService } from "../services/WorkspaceBootstrapService";
+import { getUserSessionByUserId } from "../../services/AuthService";
 
 /**
  * Build complete runtime dependencies for RunEngine execution.
@@ -117,13 +118,8 @@ async function hasGitHubTokenForUser(
   }
 
   try {
-    const sessionData = await env.SESSIONS.get(`user_session:${userId}`);
-    if (!sessionData) {
-      return false;
-    }
-
-    const session = JSON.parse(sessionData) as { encryptedToken?: unknown };
-    return hasEncryptedTokenShape(session.encryptedToken);
+    const session = await getUserSessionByUserId(env, userId);
+    return hasEncryptedTokenShape(session?.encryptedToken);
   } catch (error) {
     console.warn(
       `[runtime/deps] Failed to resolve GitHub auth availability: ${String(error)}`,

@@ -17,20 +17,19 @@ import {
   type OAuthConfig,
 } from "@shadowbox/github-bridge";
 import {
-  extractSessionToken,
+  createExpiredSessionCookie,
+  createGitHubOAuthSession,
+  createSessionCookie,
   getAuthenticatedUserSession,
   isSessionStoreUnavailableError,
-  verifySessionToken,
+  revokeAuthenticatedSession,
 } from "../services/AuthService";
 import { parseGitHubScopeList } from "../services/github/GitHubScopeMatrix";
 import {
   readCommitIdentityStateForUser,
   resolveGitHubProfileIdentityFromOAuth,
 } from "../services/git/GitCommitIdentityService";
-import {
-  errorResponse,
-  jsonResponse,
-} from "../http/response";
+import { errorResponse, jsonResponse } from "../http/response";
 import { getCorsHeaders } from "../lib/cors";
 
 interface AuthSession {
@@ -107,7 +106,12 @@ export class AuthController {
       });
     } catch (error) {
       console.error("[auth/login] error:", error);
-      return errorResponse(request, env, "Failed to initiate authentication", 500);
+      return errorResponse(
+        request,
+        env,
+        "Failed to initiate authentication",
+        500,
+      );
     }
   }
 
@@ -127,11 +131,21 @@ export class AuthController {
       // Handle OAuth errors from GitHub
       if (oauthError) {
         console.error("[auth/callback] GitHub OAuth error:", oauthError);
-        return errorResponse(request, env, `GitHub authentication failed: ${oauthError}`, 400);
+        return errorResponse(
+          request,
+          env,
+          `GitHub authentication failed: ${oauthError}`,
+          400,
+        );
       }
 
       if (!code || !state) {
-        return errorResponse(request, env, "Missing code or state parameter", 400);
+        return errorResponse(
+          request,
+          env,
+          "Missing code or state parameter",
+          400,
+        );
       }
 
       // Verify state to prevent CSRF
@@ -198,41 +212,28 @@ export class AuthController {
         env.GITHUB_TOKEN_ENCRYPTION_KEY,
       );
 
-      // Create or update user session
-      const userSession = {
-        userId: user.id.toString(),
+      const createdSession = await createGitHubOAuthSession(env, {
+        providerAccountId: user.id.toString(),
         login: user.login,
-        avatar: user.avatar_url,
+        avatarUrl: user.avatar_url,
         email: commitIdentityDefaults.authorEmail,
-        name: commitIdentityDefaults.authorName,
-        githubScopes: grantedScopes ?? undefined,
+        displayName: commitIdentityDefaults.authorName,
+        accessToken: tokenResponse.access_token,
         encryptedToken,
-        createdAt: Date.now(),
-      };
+        scopes: grantedScopes ?? [],
+        tokenExpiresInSeconds: tokenResponse.expires_in ?? null,
+      });
 
-      // Store session (7 days expiration)
-      await env.SESSIONS.put(
-        `user_session:${user.id}`,
-        JSON.stringify(userSession),
-        { expirationTtl: 7 * 24 * 60 * 60 },
-      );
-
-      // Create session cookie/token for frontend
-      const sessionToken = await generateSessionToken(user.id.toString(), env);
-
-      // Redirect to frontend with session token
       const frontendUrl = env.FRONTEND_URL || "http://localhost:5173";
       console.log("[auth/callback] redirecting to frontend");
 
       const redirectUrl = new URL(frontendUrl);
-      redirectUrl.searchParams.set("session", sessionToken);
-      redirectUrl.searchParams.set("user", user.login);
 
       return new Response(null, {
         status: 302,
         headers: {
           Location: redirectUrl.toString(),
-          "Set-Cookie": createSessionCookie(sessionToken),
+          "Set-Cookie": createSessionCookie(createdSession.sessionToken),
           ...getCorsHeaders(request, env),
         },
       });
@@ -250,7 +251,10 @@ export class AuthController {
    */
   static async handleGetSession(request: Request, env: Env): Promise<Response> {
     try {
-      const authenticatedSession = await getAuthenticatedUserSession(request, env);
+      const authenticatedSession = await getAuthenticatedUserSession(
+        request,
+        env,
+      );
       if (!authenticatedSession) {
         return jsonResponse(request, env, { authenticated: false });
       }
@@ -293,13 +297,7 @@ export class AuthController {
    */
   static async handleLogout(request: Request, env: Env): Promise<Response> {
     try {
-      const sessionToken = extractSessionToken(request);
-      if (sessionToken) {
-        const userId = await verifySessionToken(sessionToken, env);
-        if (userId) {
-          await env.SESSIONS.delete(`user_session:${userId}`);
-        }
-      }
+      await revokeAuthenticatedSession(request, env);
 
       return jsonResponse(
         request,
@@ -308,8 +306,7 @@ export class AuthController {
         {
           status: 200,
           customHeaders: {
-            "Set-Cookie":
-              "shadowbox_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax",
+            "Set-Cookie": createExpiredSessionCookie(),
           },
         },
       );
@@ -318,33 +315,4 @@ export class AuthController {
       return errorResponse(request, env, "Logout failed", 500);
     }
   }
-}
-
-/**
- * Generate a signed session token
- */
-async function generateSessionToken(userId: string, env: Env): Promise<string> {
-  const data = `${userId}:${Date.now()}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(env.SESSION_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  const sigBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
-
-  return `${data}:${sigBase64}`;
-}
-
-/**
- * Create session cookie
- */
-function createSessionCookie(token: string): string {
-  // Use SameSite=Lax for cross-origin local development
-  // Secure is usually required for HttpOnly in modern browsers even on localhost
-  return `shadowbox_session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax`;
 }
