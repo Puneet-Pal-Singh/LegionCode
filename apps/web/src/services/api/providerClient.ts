@@ -41,7 +41,8 @@ export interface ProviderModelOption {
   provider?: string;
 }
 
-export type ProviderModelDiscoveryView = BYOKDiscoveredProviderModelsQuery["view"];
+export type ProviderModelDiscoveryView =
+  BYOKDiscoveredProviderModelsQuery["view"];
 
 export interface ProviderModelsQuery {
   view?: ProviderModelDiscoveryView;
@@ -89,7 +90,7 @@ export class ProviderApiError extends Error {
     public statusCode: number,
     public code: string,
     message: string,
-    public correlationId?: string
+    public correlationId?: string,
   ) {
     super(message);
     this.name = "ProviderApiError";
@@ -107,8 +108,8 @@ export class ProviderApiClient {
 
   constructor(
     private readonly runIdResolver: RunIdResolver = new DefaultRunIdResolver(
-      ProviderApiClient.sessionRunIdKey
-    )
+      ProviderApiClient.sessionRunIdKey,
+    ),
   ) {
     this.sdkClient = createProviderClient(
       createByokHttpTransport({
@@ -162,7 +163,7 @@ export class ProviderApiClient {
   }
 
   async connectCredential(
-    req: ConnectCredentialRequest
+    req: ConnectCredentialRequest,
   ): Promise<ProviderCredential> {
     return this.callWithAbortKey("POST /credentials", (signal) =>
       this.sdkClient.connectCredential(req, { signal }),
@@ -171,7 +172,7 @@ export class ProviderApiClient {
 
   async updateCredential(
     credentialId: string,
-    req: UpdateCredentialRequest
+    req: UpdateCredentialRequest,
   ): Promise<ProviderCredential> {
     const requestKey = `PATCH /credentials/${encodeURIComponent(credentialId)}`;
     return this.callWithAbortKey(requestKey, (signal) =>
@@ -188,7 +189,7 @@ export class ProviderApiClient {
 
   async validateCredential(
     credentialId: string,
-    req: ValidateCredentialRequest
+    req: ValidateCredentialRequest,
   ): Promise<ValidationResult> {
     const requestKey = `POST /credentials/${encodeURIComponent(credentialId)}/validate`;
     return this.callWithAbortKey(requestKey, (signal) =>
@@ -203,7 +204,7 @@ export class ProviderApiClient {
   }
 
   async updatePreferences(
-    req: BYOKPreferencesUpdateRequest
+    req: BYOKPreferencesUpdateRequest,
   ): Promise<ProviderPreference> {
     return this.callWithAbortKey("PATCH /preferences", (signal) =>
       this.sdkClient.selectDefault(req, { signal }),
@@ -230,19 +231,7 @@ export class ProviderApiClient {
   }
 
   private resolveAuthHeaders(): Record<string, string> {
-    try {
-      const token = localStorage.getItem("shadowbox_session");
-      if (!token) {
-        return {};
-      }
-
-      return {
-        Authorization: `Bearer ${token}`,
-      };
-    } catch (error) {
-      console.warn("[provider/authHeaders] Failed to read localStorage", error);
-      return {};
-    }
+    return {};
   }
 
   private async call<T>(operation: () => Promise<T>): Promise<T> {
@@ -275,7 +264,10 @@ export class ProviderApiClient {
     return controller;
   }
 
-  private releaseAbortController(key: string, controller: AbortController): void {
+  private releaseAbortController(
+    key: string,
+    controller: AbortController,
+  ): void {
     if (this.abortControllers.get(key) === controller) {
       this.abortControllers.delete(key);
     }
@@ -353,7 +345,10 @@ class DefaultRunIdResolver implements RunIdResolver {
         return runId;
       }
     } catch (error) {
-      console.warn("[provider/resolveRunId] Failed to read sessionStorage", error);
+      console.warn(
+        "[provider/resolveRunId] Failed to read sessionStorage",
+        error,
+      );
     }
     return SessionStateService.loadActiveSessionRunId();
   }
