@@ -521,7 +521,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "provider_axis_quota_user_id_users_id_fk": {
+          "name": "provider_axis_quota_user_id_users_id_fk",
+          "tableFrom": "provider_axis_quota",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "provider_axis_quota_workspace_id_workspaces_id_fk": {
+          "name": "provider_axis_quota_workspace_id_workspaces_id_fk",
+          "tableFrom": "provider_axis_quota",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -591,7 +618,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "provider_axis_quota_user_id_users_id_fk": {
+          "name": "provider_axis_quota_user_id_users_id_fk",
+          "tableFrom": "provider_axis_quota",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "provider_axis_quota_workspace_id_workspaces_id_fk": {
+          "name": "provider_axis_quota_workspace_id_workspaces_id_fk",
+          "tableFrom": "provider_axis_quota",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {
         "provider_axis_quota_user_workspace_day_pk": {
           "name": "provider_axis_quota_user_workspace_day_pk",
@@ -713,34 +767,6 @@
         }
       },
       "indexes": {
-        "provider_credentials_user_provider_label_idx": {
-          "name": "provider_credentials_user_provider_label_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "provider_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "label",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"provider_credentials\".\"deleted_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "provider_credentials_user_provider_idx": {
           "name": "provider_credentials_user_provider_idx",
           "columns": [
@@ -757,7 +783,8 @@
               "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
+          "where": "\"provider_credentials\".\"deleted_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -997,7 +1024,34 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "provider_user_model_cache_user_id_users_id_fk": {
+          "name": "provider_user_model_cache_user_id_users_id_fk",
+          "tableFrom": "provider_user_model_cache",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "provider_user_model_cache_credential_id_provider_credentials_id_fk": {
+          "name": "provider_user_model_cache_credential_id_provider_credentials_id_fk",
+          "tableFrom": "provider_user_model_cache",
+          "tableTo": "provider_credentials",
+          "columnsFrom": [
+            "credential_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

@@ -82,11 +82,14 @@ CREATE TABLE "provider_user_model_cache" (
 ALTER TABLE "provider_credentials" ADD CONSTRAINT "provider_credentials_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "provider_preferences" ADD CONSTRAINT "provider_preferences_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "provider_preferences" ADD CONSTRAINT "provider_preferences_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "provider_axis_quota" ADD CONSTRAINT "provider_axis_quota_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "provider_axis_quota" ADD CONSTRAINT "provider_axis_quota_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "provider_user_model_cache" ADD CONSTRAINT "provider_user_model_cache_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "provider_user_model_cache" ADD CONSTRAINT "provider_user_model_cache_credential_id_provider_credentials_id_fk" FOREIGN KEY ("credential_id") REFERENCES "public"."provider_credentials"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "provider_audit_events_scope_time_idx" ON "provider_audit_events" USING btree ("user_id","workspace_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "provider_audit_events_type_time_idx" ON "provider_audit_events" USING btree ("operation","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "provider_axis_quota_updated_at_idx" ON "provider_axis_quota" USING btree ("updated_at" DESC NULLS LAST);--> statement-breakpoint
-CREATE UNIQUE INDEX "provider_credentials_user_provider_label_idx" ON "provider_credentials" USING btree ("user_id","provider_id","label") WHERE "provider_credentials"."deleted_at" IS NULL;--> statement-breakpoint
-CREATE INDEX "provider_credentials_user_provider_idx" ON "provider_credentials" USING btree ("user_id","provider_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_credentials_user_provider_idx" ON "provider_credentials" USING btree ("user_id","provider_id") WHERE "provider_credentials"."deleted_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "provider_credentials_user_status_idx" ON "provider_credentials" USING btree ("user_id","status");--> statement-breakpoint
 CREATE INDEX "provider_credentials_created_at_idx" ON "provider_credentials" USING btree ("created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "provider_user_model_cache_expiry_idx" ON "provider_user_model_cache" USING btree ("expires_at");

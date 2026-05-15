@@ -38,13 +38,9 @@ export const providerStateBootstrapMigration: SqlMigration = {
       )
     `,
     `
-      CREATE UNIQUE INDEX IF NOT EXISTS provider_credentials_user_provider_label_idx
-        ON provider_credentials (user_id, provider_id, label)
-        WHERE deleted_at IS NULL
-    `,
-    `
-      CREATE INDEX IF NOT EXISTS provider_credentials_user_provider_idx
+      CREATE UNIQUE INDEX IF NOT EXISTS provider_credentials_user_provider_idx
         ON provider_credentials (user_id, provider_id)
+        WHERE deleted_at IS NULL
     `,
     `
       CREATE INDEX IF NOT EXISTS provider_credentials_user_status_idx
@@ -97,8 +93,8 @@ export const providerStateBootstrapMigration: SqlMigration = {
     `,
     `
       CREATE TABLE IF NOT EXISTS provider_axis_quota (
-        user_id UUID NOT NULL,
-        workspace_id UUID NOT NULL,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
         day_key TEXT NOT NULL,
         usage_count INTEGER NOT NULL DEFAULT 0,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -124,9 +120,9 @@ export const providerStateBootstrapMigration: SqlMigration = {
     `,
     `
       CREATE TABLE IF NOT EXISTS provider_user_model_cache (
-        user_id UUID NOT NULL,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         provider_id TEXT NOT NULL,
-        credential_id UUID NOT NULL,
+        credential_id UUID NOT NULL REFERENCES provider_credentials(id) ON DELETE CASCADE,
         models_json JSONB NOT NULL,
         source_version TEXT NOT NULL,
         fetched_at TIMESTAMPTZ NOT NULL,

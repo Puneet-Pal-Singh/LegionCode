@@ -54,13 +54,9 @@ export const providerCredentials = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "string" }),
   },
   (table) => [
-    uniqueIndex("provider_credentials_user_provider_label_idx")
-      .on(table.userId, table.providerId, table.label)
+    uniqueIndex("provider_credentials_user_provider_idx")
+      .on(table.userId, table.providerId)
       .where(sql`${table.deletedAt} IS NULL`),
-    index("provider_credentials_user_provider_idx").on(
-      table.userId,
-      table.providerId,
-    ),
     index("provider_credentials_user_status_idx").on(
       table.userId,
       table.status,
@@ -141,8 +137,12 @@ export const providerAuditEvents = pgTable(
 export const providerAxisQuota = pgTable(
   "provider_axis_quota",
   {
-    userId: uuid("user_id").notNull(),
-    workspaceId: uuid("workspace_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     dayKey: text("day_key").notNull(),
     usageCount: integer("usage_count").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
@@ -182,9 +182,13 @@ export const providerRegistryCache = pgTable("provider_registry_cache", {
 export const providerUserModelCache = pgTable(
   "provider_user_model_cache",
   {
-    userId: uuid("user_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     providerId: text("provider_id").notNull(),
-    credentialId: uuid("credential_id").notNull(),
+    credentialId: uuid("credential_id")
+      .notNull()
+      .references(() => providerCredentials.id, { onDelete: "cascade" }),
     modelsJson: jsonb("models_json").notNull(),
     sourceVersion: text("source_version").notNull(),
     fetchedAt: timestamp("fetched_at", {
