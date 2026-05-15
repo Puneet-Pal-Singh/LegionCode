@@ -5,7 +5,6 @@ import {
   PostgresMigrationRunner,
   createPostgresSqlClient,
   readWorkerDatabaseConfig,
-  type DatabaseMigrationsMode,
   type SqlClient,
   type WorkerDatabaseConfig,
 } from "@repo/persistence";
@@ -21,7 +20,7 @@ import { DependencyError } from "../../../domain/errors";
 import type { Env } from "../../../types/ai";
 import { getProviderEncryptionConfig } from "./ProviderEncryptionConfig";
 
-let autoMigrationRun: Promise<void> | null = null;
+const autoMigrationRuns = new Map<string, Promise<void>>();
 
 export function createPostgresProviderConfigService(
   env: Env,
@@ -44,7 +43,7 @@ export function createPostgresProviderConfigService(
       workspaceId,
       encryptionConfig.masterKey,
       encryptionConfig.keyVersion,
-      encryptionConfig.previousKeyVersion,
+      encryptionConfig.previousMasterKey,
     ),
     preferenceStore: new PostgresPreferenceStore(
       sqlClient,
@@ -55,7 +54,7 @@ export function createPostgresProviderConfigService(
     auditLog: new PostgresProviderAuditLog(sqlClient, userId, workspaceId),
     quotaStore: new PostgresProviderQuotaStore(sqlClient, userId, workspaceId),
     ensureReady: () =>
-      runAutomaticMigrations(databaseConfig.migrationsMode, sqlClient),
+      runAutomaticMigrations(databaseConfig, sqlClient),
   });
 }
 
@@ -71,18 +70,26 @@ function readBrainDatabaseConfig(env: Env): WorkerDatabaseConfig {
 }
 
 async function runAutomaticMigrations(
-  migrationsMode: DatabaseMigrationsMode,
+  databaseConfig: WorkerDatabaseConfig,
   client: SqlClient,
 ): Promise<void> {
-  if (migrationsMode !== "auto") {
+  if (databaseConfig.migrationsMode !== "auto") {
     return;
   }
 
-  autoMigrationRun ??= runPendingMigrations(client).catch((error: unknown) => {
-    autoMigrationRun = null;
+  const key = databaseConfig.connectionString;
+  const existing = autoMigrationRuns.get(key);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const migrationRun = runPendingMigrations(client).catch((error: unknown) => {
+    autoMigrationRuns.delete(key);
     throw error;
   });
-  await autoMigrationRun;
+  autoMigrationRuns.set(key, migrationRun);
+  await migrationRun;
 }
 
 async function runPendingMigrations(client: SqlClient): Promise<void> {

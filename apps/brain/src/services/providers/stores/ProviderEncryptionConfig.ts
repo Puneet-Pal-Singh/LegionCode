@@ -3,7 +3,7 @@ import { ValidationError } from "../../../domain/errors";
 export interface ProviderEncryptionConfig {
   masterKey: string;
   keyVersion: string;
-  previousKeyVersion: string | undefined;
+  previousMasterKey: string | undefined;
 }
 
 export function getProviderEncryptionConfig(
@@ -12,8 +12,9 @@ export function getProviderEncryptionConfig(
   const masterKey = env.BYOK_CREDENTIAL_ENCRYPTION_KEY as string | undefined;
   const keyVersion =
     (env.BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION as string) || "v1";
-  const previousKeyVersion =
-    env.BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION as string | undefined;
+  const previousMasterKey = env.BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS as
+    | string
+    | undefined;
 
   if (!masterKey) {
     throw new ValidationError(
@@ -25,6 +26,6 @@ export function getProviderEncryptionConfig(
   return {
     masterKey,
     keyVersion,
-    previousKeyVersion,
+    previousMasterKey,
   };
 }
