@@ -159,11 +159,20 @@ export function runApprovalPath(): string {
 
 /**
  * Build the full chat history endpoint URL
- * Used for fetching previous chat messages from Muscle
+ * Used for fetching canonical transcript messages from Brain
  * Path: /api/chat/history
  */
 export function chatHistoryPath(runId: string): string {
-  return `${getMuscleHttpBase()}/api/chat/history/${encodeURIComponent(runId)}`;
+  return `${getBrainHttpBase()}/api/chat/history/${encodeURIComponent(runId)}`;
+}
+
+/**
+ * Build the canonical sessions endpoint URL
+ * Used for hydrating and creating task/sidebar session roots from Brain
+ * Path: /api/sessions
+ */
+export function sessionsPath(): string {
+  return `${getBrainHttpBase()}/api/sessions`;
 }
 
 /**

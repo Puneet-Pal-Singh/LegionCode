@@ -97,7 +97,7 @@ export class ChatHydrationService {
       url.searchParams.set("cursor", cursor);
     }
 
-    const res = await fetch(url.toString());
+    const res = await fetch(url.toString(), { credentials: "include" });
 
     if (!res.ok) {
       return {
@@ -120,14 +120,6 @@ export class ChatHydrationService {
         messages: paginatedResponse.messages,
         nextCursor: paginatedResponse.nextCursor,
       };
-    }
-
-    // Backward compatibility: handle legacy array response
-    if (Array.isArray(data)) {
-      console.warn(
-        "[ChatHydrationService] Received legacy array response, consider updating server",
-      );
-      return { messages: data as ServerMessage[] };
     }
 
     return { messages: [], error: "Invalid history format" };

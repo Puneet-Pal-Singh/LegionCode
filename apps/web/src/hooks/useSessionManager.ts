@@ -31,12 +31,36 @@ function hasSessionUpdates(
   return keys.some((key) => updates[key] !== undefined && session[key] !== updates[key]);
 }
 
+function mergeSessions(
+  localSessions: AgentSession[],
+  serverSessions: AgentSession[],
+): AgentSession[] {
+  const merged = new Map<string, AgentSession>();
+  for (const session of localSessions) {
+    merged.set(session.id, session);
+  }
+  for (const session of serverSessions) {
+    merged.set(session.id, session);
+  }
+  return Array.from(merged.values()).sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
+function mergeRepositories(
+  currentRepositories: string[],
+  serverRepositories: string[],
+): string[] {
+  return Array.from(new Set([...currentRepositories, ...serverRepositories]));
+}
+
 export function useSessionManager() {
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const sessionsMap = SessionStateService.loadSessions();
     return Object.values(sessionsMap);
   });
   const sessionsRef = useRef<AgentSession[]>(sessions);
+  const activeSessionIdRef = useRef<string | null>(null);
 
   // Persist activeSessionId to survive refreshes
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
@@ -51,11 +75,42 @@ export function useSessionManager() {
   // Persist sessions and active ID to localStorage with v2 schema
   useEffect(() => {
     sessionsRef.current = sessions;
+    activeSessionIdRef.current = activeSessionId;
     const sessionsMap = createSessionsMap(sessions);
     // Pass activeSessionId to avoid race condition between load and save
     SessionStateService.saveSessions(sessionsMap, activeSessionId);
     SessionStateService.saveActiveSessionId(activeSessionId, sessionsMap);
   }, [activeSessionId, sessions]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateServerSessions(): Promise<void> {
+      try {
+        const serverSessions = await SessionStateService.hydrateSessionsFromServer();
+        const serverSessionList = Object.values(serverSessions);
+        if (cancelled || serverSessionList.length === 0) {
+          return;
+        }
+
+        setSessions((current) => mergeSessions(current, serverSessionList));
+        setRepositories((current) =>
+          mergeRepositories(current, serverSessionList.map((session) => session.repository)),
+        );
+        if (!activeSessionIdRef.current) {
+          setActiveSessionId(serverSessionList[0]?.id ?? null);
+        }
+      } catch (error) {
+        console.warn("[useSessionManager] Failed to hydrate sessions:", error);
+      }
+    }
+
+    void hydrateServerSessions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [repositories, setRepositories] = useState<string[]>(() => {
     try {
@@ -109,6 +164,9 @@ export function useSessionManager() {
 
       SessionStateService.saveSessions(sessionsMap, newSession.id);
       SessionStateService.saveActiveSessionId(newSession.id, sessionsMap);
+      void SessionStateService.persistSession(newSession).catch((error) => {
+        console.warn("[useSessionManager] Failed to persist session:", error);
+      });
 
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
