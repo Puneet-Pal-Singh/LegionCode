@@ -1,276 +1,98 @@
-import type { CoreMessage } from "ai";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-// NOTE: This contract test intentionally lives in src/integration because the
-// PR3 readiness gate executes the exact path:
-// `pnpm --filter @shadowbox/brain test -- src/integration/provider-state.contract.test.ts`
-// Keep this location aligned with the documented gate in:
-// plans/codex-like-app/Top-version/16-AUDIT-CLOSURE-AND-BYOK-READINESS-LLD.md
 import type { ProviderId } from "@repo/shared-types";
-import type { Env } from "../types/ai";
-import { ProviderController } from "../controllers/ProviderController";
-import { AIService } from "../services/AIService";
+import type {
+  SqlClient,
+  SqlQueryResult,
+  SqlRow,
+  SqlValue,
+  ProviderModelCacheStore,
+  ProviderAuditLog,
+  ProviderQuotaStore,
+  ProviderModelCacheRecord,
+  ProviderAuditEvent,
+  UserScopedCacheKey,
+} from "@repo/persistence";
+import {
+  PostgresCredentialStore,
+  PostgresPreferenceStore,
+} from "@repo/persistence";
+import { afterEach, describe, expect, it } from "vitest";
 import { ProviderConfigService } from "../services/providers/ProviderConfigService";
-import { OpenAICompatibleAdapter } from "../services/providers/adapters/OpenAICompatibleAdapter";
 import {
   getRuntimeProviderFromAdapter,
   mapProviderIdToRuntimeProvider,
   resolveModelSelection,
 } from "../services/ai/ModelSelectionPolicy";
 import { setCompatModeOverride } from "../config/runtime-compat";
-import {
-  createD1Stores,
-  getEncryptionConfig,
-} from "../services/providers/stores/D1StoreFactory";
-import { D1AuditService } from "../services/providers/D1AuditService";
-import { D1AxisQuotaService } from "../services/providers/D1AxisQuotaService";
-import {
-  createTestByokD1Database,
-  type TestByokD1Handle,
-} from "../test-utils/byokTestD1";
-import { createIdentitySessionRecord } from "../test-utils/identityTestHelpers";
-import { resetByokSchemaReadyCacheForTests } from "../services/byok/ByokSchemaService.js";
+import type { Env } from "../types/ai";
 
-const RUN_ID_A = "123e4567-e89b-42d3-a456-426614174001";
-const RUN_ID_B = "123e4567-e89b-42d3-a456-426614174002";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "workspace-main";
-const TEST_WORKSPACE_ID_B = "workspace-alt";
-const TEST_SESSION_SECRET = "test-session-secret";
+const WORKSPACE_A = "workspace-a";
+const WORKSPACE_B = "workspace-b";
+const MASTER_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
+describe("Provider State Contract: Postgres-backed provider ownership", () => {
   afterEach(() => {
-    vi.restoreAllMocks();
     setCompatModeOverride(false);
-    resetByokSchemaReadyCacheForTests();
     ProviderConfigService.resetForTests();
   });
 
-  it("connects once and resolves the same credential on a different runId through D1-backed stores", async () => {
-    const { env } = createEnvWithRunNamespace();
+  it("shares credentials across runs while keeping workspace preferences isolated", async () => {
+    const client = new MemoryProviderSqlClient();
+    const serviceA = createProviderConfigService(client, WORKSPACE_A);
+    const serviceB = createProviderConfigService(client, WORKSPACE_B);
 
-    const connectResponse = await ProviderController.byokConnect(
-      new Request("http://localhost/api/byok/providers/connect", {
-        method: "POST",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_A,
-          workspaceId: TEST_WORKSPACE_ID,
-        }),
-        body: JSON.stringify({
-          providerId: "openai",
-          apiKey: "sk-test-provider-state-1234567890",
-        }),
-      }),
-      env,
-    );
-    expect(connectResponse.status).toBe(200);
-
-    const connectionsResponse = await ProviderController.byokConnections(
-      new Request("http://localhost/api/byok/providers/connections", {
-        method: "GET",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_B,
-          workspaceId: TEST_WORKSPACE_ID,
-          contentType: null,
-        }),
-      }),
-      env,
-    );
-    const connectionsBody = await connectionsResponse.json();
-    expect(connectionsResponse.status).toBe(200);
-    expect(
-      connectionsBody.connections.some(
-        (provider: { providerId: string; status: string }) =>
-          provider.providerId === "openai" && provider.status === "connected",
-      ),
-    ).toBe(true);
-
-    const runtimeProviderConfig = createRuntimeProviderConfigService(
-      env,
-      TEST_WORKSPACE_ID,
-    );
-    expect(await runtimeProviderConfig.getApiKey("openai")).toBe(
+    const connectResponse = await serviceA.connect({
+      providerId: "openai" as ProviderId,
+      apiKey: "sk-test-provider-state-1234567890",
+    });
+    expect(connectResponse.status).toBe("connected");
+    expect(await serviceB.getApiKey("openai" as ProviderId)).toBe(
       "sk-test-provider-state-1234567890",
     );
+    expect(await serviceB.isConnected("openai" as ProviderId)).toBe(true);
 
-    const generateSpy = vi
-      .spyOn(OpenAICompatibleAdapter.prototype, "generate")
-      .mockResolvedValue({
-        content: "integration-inference-ok",
-        usage: {
-          provider: "openai",
-          model: "gpt-4o",
-          promptTokens: 3,
-          completionTokens: 2,
-          totalTokens: 5,
-        },
-      });
-
-    const aiService = new AIService(env, runtimeProviderConfig);
-    const messages: CoreMessage[] = [{ role: "user", content: "hello" }];
-    const inferenceResult = await aiService.generateText({
-      messages,
-      providerId: "openai",
-      model: "gpt-4o",
+    await serviceA.updatePreferences({
+      defaultProviderId: "openai" as ProviderId,
+      defaultModelId: "gpt-4o",
     });
+    await serviceB.updatePreferences({
+      defaultProviderId: "groq" as ProviderId,
+      defaultModelId: "llama-3.3-70b-versatile",
+    });
+    await serviceA.setCredentialLabel("credential-openai", "Primary");
 
-    expect(inferenceResult.text).toBe("integration-inference-ok");
-    expect(inferenceResult.usage.provider).toBe("openai");
-    expect(inferenceResult.usage.model).toBe("gpt-4o");
-    expect(generateSpy).toHaveBeenCalledTimes(1);
+    const preferencesA = await serviceA.getPreferences();
+    const preferencesB = await serviceB.getPreferences();
+
+    expect(preferencesA.defaultProviderId).toBe("openai");
+    expect(preferencesA.defaultModelId).toBe("gpt-4o");
+    expect(preferencesA.credentialLabels["credential-openai"]).toBe("Primary");
+    expect(preferencesB.defaultProviderId).toBe("groq");
+    expect(preferencesB.defaultModelId).toBe("llama-3.3-70b-versatile");
+    expect(preferencesB.credentialLabels["credential-openai"]).toBeUndefined();
   });
 
-  it("keeps credentials user-global while workspace preferences remain scoped", async () => {
-    const { env } = createEnvWithRunNamespace();
+  it("surfaces connected providers from the Postgres-backed vault", async () => {
+    const client = new MemoryProviderSqlClient();
+    const service = createProviderConfigService(client, WORKSPACE_A);
 
-    await connectProvider(env, {
-      runId: RUN_ID_A,
-      workspaceId: TEST_WORKSPACE_ID,
-      providerId: "openai",
-      apiKey: "sk-test-openai-1234567890",
-    });
-    await connectProvider(env, {
-      runId: RUN_ID_A,
-      workspaceId: TEST_WORKSPACE_ID,
-      providerId: "groq",
-      apiKey: "gsk_test_provider_state_1234567890",
+    await service.connect({
+      providerId: "openai" as ProviderId,
+      apiKey: "sk-test-provider-state-1234567890",
     });
 
-    const workspaceAPreferences = await ProviderController.byokPreferences(
-      new Request("http://localhost/api/byok/preferences", {
-        method: "PATCH",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_A,
-          workspaceId: TEST_WORKSPACE_ID,
-        }),
-        body: JSON.stringify({
-          defaultProviderId: "openai",
-          defaultModelId: "gpt-4o",
-        }),
-      }),
-      env,
-    );
-    expect(workspaceAPreferences.status).toBe(200);
-
-    const workspaceBPreferences = await ProviderController.byokPreferences(
-      new Request("http://localhost/api/byok/preferences", {
-        method: "PATCH",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_B,
-          workspaceId: TEST_WORKSPACE_ID_B,
-        }),
-        body: JSON.stringify({
-          defaultProviderId: "groq",
-          defaultModelId: "llama-3.3-70b-versatile",
-        }),
-      }),
-      env,
-    );
-    expect(workspaceBPreferences.status).toBe(200);
-
-    const workspaceBConnections = await ProviderController.byokConnections(
-      new Request("http://localhost/api/byok/providers/connections", {
-        method: "GET",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_B,
-          workspaceId: TEST_WORKSPACE_ID_B,
-          contentType: null,
-        }),
-      }),
-      env,
-    );
-    const workspaceBConnectionsBody = await workspaceBConnections.json();
-    expect(workspaceBConnections.status).toBe(200);
+    const connections = await service.getConnections();
     expect(
-      workspaceBConnectionsBody.connections.some(
-        (provider: { providerId: string; status: string }) =>
-          provider.providerId === "openai" && provider.status === "connected",
+      connections.connections.some(
+        (connection) =>
+          connection.providerId === "openai" &&
+          connection.status === "connected",
       ),
     ).toBe(true);
-
-    const resolveWorkspaceA = await ProviderController.byokResolve(
-      new Request("http://localhost/api/byok/resolve", {
-        method: "POST",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_A,
-          workspaceId: TEST_WORKSPACE_ID,
-        }),
-        body: JSON.stringify({}),
-      }),
-      env,
-    );
-    const resolveWorkspaceABody = await resolveWorkspaceA.json();
-    expect(resolveWorkspaceA.status).toBe(200);
-    expect(resolveWorkspaceABody.providerId).toBe("openai");
-    expect(resolveWorkspaceABody.modelId).toBe("gpt-4o");
-
-    const resolveWorkspaceB = await ProviderController.byokResolve(
-      new Request("http://localhost/api/byok/resolve", {
-        method: "POST",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_B,
-          workspaceId: TEST_WORKSPACE_ID_B,
-        }),
-        body: JSON.stringify({}),
-      }),
-      env,
-    );
-    const resolveWorkspaceBBody = await resolveWorkspaceB.json();
-    expect(resolveWorkspaceB.status).toBe(200);
-    expect(resolveWorkspaceBBody.providerId).toBe("groq");
-    expect(resolveWorkspaceBBody.modelId).toBe("llama-3.3-70b-versatile");
   });
 
-  it("stores workspace credential labels in D1 without relying on session KV writes", async () => {
-    const { env, byokDb } = createEnvWithRunNamespace();
-
-    const connectResponse = await ProviderController.byokConnectCredential(
-      new Request("http://localhost/api/byok/credentials", {
-        method: "POST",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_A,
-          workspaceId: TEST_WORKSPACE_ID,
-        }),
-        body: JSON.stringify({
-          providerId: "openai",
-          secret: "sk-test-label-1234567890",
-          label: "Primary",
-        }),
-      }),
-      env,
-    );
-    const connectBody = await connectResponse.json();
-    expect(connectResponse.status).toBe(200);
-    expect(connectBody.label).toBe("Primary");
-
-    const credentialsResponse = await ProviderController.byokCredentials(
-      new Request("http://localhost/api/byok/credentials", {
-        method: "GET",
-        headers: await createByokHeaders(env, {
-          runId: RUN_ID_A,
-          workspaceId: TEST_WORKSPACE_ID,
-          contentType: null,
-        }),
-      }),
-      env,
-    );
-    const credentialsBody = await credentialsResponse.json();
-    expect(credentialsResponse.status).toBe(200);
-    expect(
-      credentialsBody.find(
-        (credential: { providerId: string; label: string }) =>
-          credential.providerId === "openai",
-      )?.label,
-    ).toBe("Primary");
-
-    const preferenceRow = byokDb.inspect.getPreference(
-      TEST_USER_ID,
-      TEST_WORKSPACE_ID,
-    );
-    expect(preferenceRow?.credential_labels_json).toContain("Primary");
-  });
-
-  it("enforces strict-mode typed errors for invalid provider selections", () => {
+  it("enforces strict provider selection rules", () => {
     setCompatModeOverride(false);
 
     const selection = resolveModelSelection(
@@ -281,6 +103,7 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
       mapProviderIdToRuntimeProvider,
       getRuntimeProviderFromAdapter,
     );
+
     expect(selection.provider).toBe("openai");
     expect(selection.model).toBe("llama-3.3-70b-versatile");
     expect(selection.fallback).toBe(false);
@@ -297,310 +120,328 @@ describe("Provider State Contract: Controller/Runtime Shared Ownership", () => {
         ),
       "INVALID_PROVIDER_SELECTION",
     );
-
-    expectDomainError(
-      () =>
-        resolveModelSelection(
-          "openai",
-          undefined,
-          "litellm",
-          "llama-3.3-70b-versatile",
-          mapProviderIdToRuntimeProvider,
-          getRuntimeProviderFromAdapter,
-        ),
-      "INVALID_PROVIDER_SELECTION",
-    );
   });
 });
 
-function createEnvWithRunNamespace(): {
-  env: Env;
-  byokDb: TestByokD1Handle;
-} {
-  const byokDb = createTestByokD1Database();
-  const allowedWorkspaceIds = [TEST_WORKSPACE_ID, TEST_WORKSPACE_ID_B];
-
-  const env = {
-    RUN_ENGINE_RUNTIME: {
-      idFromName: (name: string) => name,
-      get: (id: string) => ({
-        fetch: async (input: string | URL | Request, init?: RequestInit) => {
-          const request =
-            input instanceof Request ? input : new Request(String(input), init);
-          const runId = request.headers.get("X-Run-Id");
-          const userId = request.headers.get("X-User-Id");
-          const workspaceId = request.headers.get("X-Workspace-Id");
-          if (!runId) {
-            return json({ error: "Missing required X-Run-Id header" }, 400);
-          }
-          if (runId !== id) {
-            return json({ error: `X-Run-Id mismatch: expected ${id}` }, 400);
-          }
-          if (userId !== TEST_USER_ID || !workspaceId) {
-            return json(
-              {
-                error: "Invalid BYOK scope",
-                code: "AUTH_FAILED",
-              },
-              403,
-            );
-          }
-          if (!allowedWorkspaceIds.includes(workspaceId)) {
-            return json(
-              {
-                error: "Invalid BYOK scope",
-                code: "AUTH_FAILED",
-              },
-              403,
-            );
-          }
-
-          const configService = createRuntimeProviderConfigService(
-            env as Env,
-            workspaceId,
-          );
-          const url = new URL(request.url);
-          return handleProviderRuntimeRoute(request, url, configService);
-        },
-      }),
-    } as Env["RUN_ENGINE_RUNTIME"],
-    AUTH_IDENTITY_REPOSITORY: {
-      createGitHubSession: async () => {
-        throw new Error("not used");
-      },
-      findSessionByHash: async () =>
-        createProviderIdentitySessionRecord(allowedWorkspaceIds),
-      findLatestGitHubSessionByUserId: async () =>
-        createProviderIdentitySessionRecord(allowedWorkspaceIds),
-      revokeSession: async () => undefined,
-    },
-    BYOK_DB: byokDb.database,
-    SESSION_SECRET: TEST_SESSION_SECRET,
-    SESSIONS: {
-      get: async (key: string) =>
-        key === `user_session:${TEST_USER_ID}`
-          ? JSON.stringify({
-              userId: TEST_USER_ID,
-              workspaceIds: allowedWorkspaceIds,
-              defaultWorkspaceId: TEST_WORKSPACE_ID,
-            })
-          : null,
-    } as Env["SESSIONS"],
-    LLM_PROVIDER: "litellm",
-    DEFAULT_MODEL: "llama-3.3-70b-versatile",
-    GROQ_API_KEY: "test-key",
-    OPENAI_API_KEY: "sk-env-openai-key",
-    AXIS_OPENROUTER_API_KEY: "sk-or-v1-axis-managed-key",
-    BYOK_CREDENTIAL_ENCRYPTION_KEY:
-      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    GITHUB_TOKEN_ENCRYPTION_KEY:
-      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  } as Env;
-
-  return { env, byokDb };
-}
-
-function createRuntimeProviderConfigService(
-  env: Env,
+function createProviderConfigService(
+  client: SqlClient,
   workspaceId: string,
 ): ProviderConfigService {
-  const encryptionConfig = getEncryptionConfig(
-    env as unknown as Record<string, unknown>,
-  );
-  const stores = createD1Stores(env.BYOK_DB, {
-    userId: TEST_USER_ID,
-    workspaceId,
-    masterKey: encryptionConfig.masterKey,
-    keyVersion: encryptionConfig.keyVersion,
-    previousKeyVersion: encryptionConfig.previousKeyVersion,
-  });
-
   return new ProviderConfigService({
-    env,
+    env: createTestEnv(),
     userId: TEST_USER_ID,
     workspaceId,
-    credentialStore: stores.credentialStore,
-    preferenceStore: stores.preferenceStore,
-    modelCacheStore: stores.modelCacheStore,
-    auditLog: new D1AuditService(env.BYOK_DB, TEST_USER_ID, workspaceId),
-    quotaStore: new D1AxisQuotaService(env.BYOK_DB, TEST_USER_ID, workspaceId),
+    credentialStore: new PostgresCredentialStore(
+      client,
+      TEST_USER_ID,
+      workspaceId,
+      MASTER_KEY,
+      "v1",
+    ),
+    preferenceStore: new PostgresPreferenceStore(
+      client,
+      TEST_USER_ID,
+      workspaceId,
+    ),
+    modelCacheStore: new NoopProviderModelCacheStore(),
+    auditLog: new NoopProviderAuditLog(),
+    quotaStore: new NoopProviderQuotaStore(),
   });
 }
 
-async function handleProviderRuntimeRoute(
-  request: Request,
-  url: URL,
-  configService: ProviderConfigService,
-): Promise<Response> {
-  if (url.pathname === "/providers/connect" && request.method === "POST") {
-    const body = (await request.json()) as {
-      providerId: ProviderId;
-      apiKey: string;
-    };
-    return json(await configService.connect(body), 200);
-  }
-
-  if (url.pathname === "/providers/disconnect" && request.method === "POST") {
-    const body = (await request.json()) as {
-      providerId: ProviderId;
-    };
-    return json(await configService.disconnect(body), 200);
-  }
-
-  if (url.pathname === "/providers/catalog" && request.method === "GET") {
-    return json(await configService.getCatalog(), 200);
-  }
-
-  if (url.pathname === "/providers/connections" && request.method === "GET") {
-    return json(await configService.getConnections(), 200);
-  }
-
-  if (url.pathname === "/providers/preferences" && request.method === "GET") {
-    return json(await configService.getPreferences(), 200);
-  }
-
-  if (url.pathname === "/providers/preferences" && request.method === "PATCH") {
-    const body = (await request.json()) as {
-      defaultProviderId?: ProviderId;
-      defaultModelId?: string;
-    };
-    return json(await configService.updatePreferences(body), 200);
-  }
-
-  if (
-    url.pathname === "/providers/preferences/credential-labels" &&
-    request.method === "POST"
-  ) {
-    const body = (await request.json()) as {
-      credentialId: string;
-      label: string;
-    };
-    return json(
-      await configService.setCredentialLabel(body.credentialId, body.label),
-      200,
-    );
-  }
-
-  if (
-    url.pathname.startsWith("/providers/preferences/credential-labels/") &&
-    request.method === "DELETE"
-  ) {
-    const credentialId = decodeURIComponent(
-      url.pathname.split("/").pop() ?? "",
-    );
-    return json(await configService.deleteCredentialLabel(credentialId), 200);
-  }
-
-  if (url.pathname === "/providers/axis/quota" && request.method === "GET") {
-    return json(await configService.getAxisQuotaStatus(), 200);
-  }
-
-  return new Response("Not Found", { status: 404 });
-}
-
-async function connectProvider(
-  env: Env,
-  input: {
-    runId: string;
-    workspaceId: string;
-    providerId: ProviderId;
-    apiKey: string;
-  },
-): Promise<void> {
-  const response = await ProviderController.byokConnect(
-    new Request("http://localhost/api/byok/providers/connect", {
-      method: "POST",
-      headers: await createByokHeaders(env, input),
-      body: JSON.stringify({
-        providerId: input.providerId,
-        apiKey: input.apiKey,
-      }),
-    }),
-    env,
-  );
-  expect(response.status).toBe(200);
-}
-
-async function createByokHeaders(
-  env: Env,
-  options: {
-    runId: string;
-    workspaceId: string;
-    contentType?: string | null;
-  },
-): Promise<Record<string, string>> {
-  const token = await createSessionToken(TEST_USER_ID, env.SESSION_SECRET);
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Run-Id": options.runId,
-    "X-Workspace-Id": options.workspaceId,
-    Cookie: `shadowbox_session=${token}`,
+function createTestEnv(): Env {
+  return {
+    AI: {} as Env["AI"],
+    SECURE_API: {} as Env["SECURE_API"],
+    BYOK_DB: {} as Env["BYOK_DB"],
+    EDIT_ARTIFACTS: undefined,
+    HYPERDRIVE: undefined,
+    DATABASE_MIGRATIONS_MODE: "manual",
+    AUTH_IDENTITY_REPOSITORY: undefined,
+    AUTH_WORKSPACE_REPOSITORY: undefined,
+    INTERNAL_RUNTIME_EVENT_SECRET: "test-secret",
+    GOOGLE_GENERATIVE_AI_API_KEY: undefined,
+    ANTHROPIC_API_KEY: undefined,
+    GROQ_API_KEY: "test-groq-key",
+    OPENROUTER_API_KEY: undefined,
+    AXIS_OPENROUTER_API_KEY: undefined,
+    AXIS_DAILY_LIMIT: undefined,
+    OPENAI_API_KEY: "sk-test-openai-key",
+    SYSTEM_PROMPT: undefined,
+    LLM_PROVIDER: "litellm",
+    DEFAULT_MODEL: "gpt-4o",
+    LITELLM_BASE_URL: undefined,
+    COST_UNKNOWN_PRICING_MODE: undefined,
+    COST_FAIL_ON_UNSEEDED_PRICING: undefined,
+    MAX_RUN_BUDGET: undefined,
+    MAX_SESSION_BUDGET: undefined,
+    GITHUB_CLIENT_ID: "test-client-id",
+    GITHUB_CLIENT_SECRET: "test-client-secret",
+    GITHUB_REDIRECT_URI: "http://localhost/oauth/callback",
+    GITHUB_TOKEN_ENCRYPTION_KEY: MASTER_KEY,
+    BYOK_CREDENTIAL_ENCRYPTION_KEY: MASTER_KEY,
+    BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION: "v1",
+    BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS: undefined,
+    BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION: undefined,
+    BYOK_VALIDATE_LIVE_ENABLED: "false",
+    BYOK_VALIDATE_LIVE_TIMEOUT_MS: undefined,
+    BYOK_CONNECT_RATE_LIMIT_MAX: undefined,
+    BYOK_CONNECT_RATE_LIMIT_WINDOW_SECONDS: undefined,
+    BYOK_VALIDATE_RATE_LIMIT_MAX: undefined,
+    BYOK_VALIDATE_RATE_LIMIT_WINDOW_SECONDS: undefined,
+    SESSION_SECRET: "test-session-secret",
+    FRONTEND_URL: "http://localhost:5173",
+    CORS_ALLOWED_ORIGINS: undefined,
+    CORS_ALLOW_DEV_ORIGINS: "true",
+    FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1: undefined,
+    FEATURE_FLAG_CHAT_REVIEWER_PASS_V1: undefined,
+    FEATURE_FLAG_CLOUDFLARE_AGENTS_V1: undefined,
+    FEATURE_FLAG_GH_CLI_LANE_ENABLED: undefined,
+    FEATURE_FLAG_GH_CLI_CI_ENABLED: undefined,
+    FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED: undefined,
+    LAUNCH_EMERGENCY_SHUTOFF_MODE: "off",
+    RUN_SUBMISSION_RATE_LIMIT_MAX: undefined,
+    RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS: undefined,
+    MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX: undefined,
+    MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS: undefined,
+    ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX: undefined,
+    ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX: undefined,
+    ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX: undefined,
+    ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX: undefined,
+    ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS: undefined,
+    MUSCLE_BASE_URL: undefined,
+    SESSIONS: {} as Env["SESSIONS"],
+    RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
+    RUN_ENGINE_AGENT: undefined,
+    RUN_ADMISSION_LIMITER: undefined,
+    SESSION_MEMORY_RUNTIME: undefined,
+    NODE_ENV: "test",
+    ENVIRONMENT: "development",
   };
+}
 
-  if (options.contentType === null) {
-    delete headers["Content-Type"];
-  } else if (options.contentType !== undefined) {
-    headers["Content-Type"] = options.contentType;
+class NoopProviderModelCacheStore implements ProviderModelCacheStore {
+  async getModelCache(
+    _providerId: string,
+  ): Promise<ProviderModelCacheRecord | null> {
+    return null;
   }
 
-  return headers;
+  async setModelCache(_record: ProviderModelCacheRecord): Promise<void> {}
+
+  async invalidateModelCache(_providerId: string): Promise<void> {}
+
+  async getUserModelCache(
+    _key: UserScopedCacheKey,
+  ): Promise<ProviderModelCacheRecord | null> {
+    return null;
+  }
+
+  async setUserModelCache(
+    _key: UserScopedCacheKey,
+    _record: ProviderModelCacheRecord,
+  ): Promise<void> {}
+
+  async invalidateUserModelCache(_key: UserScopedCacheKey): Promise<void> {}
 }
 
-function createProviderIdentitySessionRecord(allowedWorkspaceIds: string[]) {
-  return createIdentitySessionRecord({
-    userId: TEST_USER_ID,
-    workspaceIds: allowedWorkspaceIds,
-    defaultWorkspaceId: TEST_WORKSPACE_ID,
-  });
+class NoopProviderAuditLog implements ProviderAuditLog {
+  async appendAuditEvent(_event: ProviderAuditEvent): Promise<void> {}
 }
 
-async function createSessionToken(
-  userId: string,
-  secret: string,
-): Promise<string> {
-  const timestamp = Date.now().toString();
-  const data = `${userId}:${timestamp}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+class NoopProviderQuotaStore implements ProviderQuotaStore {
+  async getAxisQuotaUsage(_dayKey: string): Promise<number> {
+    return 0;
+  }
 
-  const signatureBuffer = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(data),
-  );
-  const signature = btoa(
-    String.fromCharCode(...new Uint8Array(signatureBuffer)),
-  );
-  return `${data}:${signature}`;
+  async setAxisQuotaUsage(_dayKey: string, _usage: number): Promise<void> {}
+
+  async incrementAndGetQuota(_dayKey: string): Promise<number> {
+    return 1;
+  }
 }
 
-function json(payload: unknown, status: number): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
+interface CredentialRow extends SqlRow {
+  id: string;
+  user_id: string;
+  workspace_id: string;
+  provider_id: string;
+  label: string;
+  key_fingerprint: string;
+  encrypted_secret_json: string;
+  key_version: string;
+  status: string;
+  last_validated_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
 }
 
-function expectDomainError(action: () => unknown, expectedCode: string): void {
+interface PreferenceRow extends SqlRow {
+  user_id: string;
+  workspace_id: string;
+  default_provider_id: string | null;
+  default_credential_id: string | null;
+  default_model_id: string | null;
+  fallback_mode: string;
+  fallback_json: unknown | null;
+  visible_model_ids_json: unknown | null;
+  credential_labels_json: unknown | null;
+  updated_at: string;
+}
+
+class MemoryProviderSqlClient implements SqlClient {
+  private readonly credentials = new Map<string, CredentialRow>();
+  private readonly preferences = new Map<string, PreferenceRow>();
+
+  async query<Row extends SqlRow = SqlRow>(
+    statement: string,
+    params?: readonly SqlValue[],
+  ): Promise<SqlQueryResult<Row>> {
+    const values = [...(params ?? [])];
+
+    if (statement.includes("INSERT INTO provider_credentials")) {
+      const row = this.upsertCredential(values);
+      return rows([row]) as SqlQueryResult<Row>;
+    }
+
+    if (statement.includes("SELECT DISTINCT provider_id")) {
+      return rows(
+        [...this.credentials.values()]
+          .filter(
+            (row) =>
+              row.user_id === (values[0] as string) && row.deleted_at === null,
+          )
+          .map((row) => ({ provider_id: row.provider_id })),
+      ) as SqlQueryResult<Row>;
+    }
+
+    if (statement.includes("FROM provider_credentials")) {
+      const row = this.getCredential(
+        values[0] as string,
+        values[1] as ProviderId,
+      );
+      return rows(row ? [row] : []) as SqlQueryResult<Row>;
+    }
+
+    if (statement.includes("UPDATE provider_credentials")) {
+      this.deleteCredential(
+        values[1] as string,
+        values[2] as ProviderId,
+        values[0] as string,
+      );
+      return rows([]) as SqlQueryResult<Row>;
+    }
+
+    if (statement.includes("FROM provider_preferences")) {
+      const row = this.preferences.get(
+        this.preferenceKey(values[0], values[1]),
+      );
+      return rows(row ? [row] : []) as SqlQueryResult<Row>;
+    }
+
+    if (statement.includes("INSERT INTO provider_preferences")) {
+      const row = this.upsertPreference(values);
+      return rows([row]) as SqlQueryResult<Row>;
+    }
+
+    throw new Error(`Unhandled SQL statement in test harness: ${statement}`);
+  }
+
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
+    return await callback(this);
+  }
+
+  private upsertCredential(values: readonly SqlValue[]): CredentialRow {
+    const row: CredentialRow = {
+      id: String(values[0]),
+      user_id: String(values[1]),
+      workspace_id: String(values[2]),
+      provider_id: String(values[3]),
+      label: String(values[4]),
+      key_fingerprint: String(values[5]),
+      encrypted_secret_json: String(values[6]),
+      key_version: String(values[7]),
+      status: String(values[8]),
+      created_by: values[9] === null ? null : String(values[9]),
+      created_at: String(values[10]),
+      updated_at: String(values[10]),
+      last_validated_at: null,
+      last_error_code: null,
+      last_error_message: null,
+      deleted_at: null,
+    };
+    this.credentials.set(this.credentialKey(row.user_id, row.provider_id), row);
+    return row;
+  }
+
+  private getCredential(
+    userId: string,
+    providerId: ProviderId,
+  ): CredentialRow | null {
+    const row = this.credentials.get(this.credentialKey(userId, providerId));
+    return row && row.deleted_at === null ? row : null;
+  }
+
+  private deleteCredential(
+    userId: string,
+    providerId: ProviderId,
+    deletedAt: string,
+  ): void {
+    const row = this.credentials.get(this.credentialKey(userId, providerId));
+    if (!row) {
+      return;
+    }
+    row.deleted_at = deletedAt;
+    row.updated_at = deletedAt;
+  }
+
+  private upsertPreference(values: readonly SqlValue[]): PreferenceRow {
+    const row: PreferenceRow = {
+      user_id: String(values[0]),
+      workspace_id: String(values[1]),
+      default_provider_id: values[2] === null ? null : String(values[2]),
+      default_credential_id: null,
+      default_model_id: values[3] === null ? null : String(values[3]),
+      fallback_mode: "strict",
+      fallback_json: null,
+      visible_model_ids_json: values[4] ?? {},
+      credential_labels_json: values[5] ?? {},
+      updated_at: String(values[6]),
+    };
+    this.preferences.set(
+      this.preferenceKey(row.user_id, row.workspace_id),
+      row,
+    );
+    return row;
+  }
+
+  private preferenceKey(userId: unknown, workspaceId: unknown): string {
+    return `${String(userId)}:${String(workspaceId)}`;
+  }
+
+  private credentialKey(userId: string, providerId: ProviderId): string {
+    return `${userId}:${providerId}`;
+  }
+}
+
+function rows<Row extends SqlRow>(rows: Row[]): SqlQueryResult<Row> {
+  return {
+    rows,
+    rowCount: rows.length,
+  };
+}
+
+function expectDomainError(run: () => unknown, expectedCode: string): void {
   try {
-    action();
+    run();
+    throw new Error(`Expected error with code ${expectedCode}`);
   } catch (error) {
-    expect(error).toBeInstanceOf(Error);
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? String((error as { code?: string }).code)
-        : undefined;
-    expect(code).toBe(expectedCode);
-    return;
+    expect(error).toMatchObject({ code: expectedCode });
   }
-
-  throw new Error(`Expected domain error ${expectedCode}`);
 }

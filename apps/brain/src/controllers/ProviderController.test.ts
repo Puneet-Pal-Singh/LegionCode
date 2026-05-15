@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
 import type { ProviderId } from "@repo/shared-types";
-import { createTestByokD1Database } from "../test-utils/byokTestD1";
 
 const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_USER_ID = "user-123";
@@ -61,8 +60,6 @@ function createMockEnv(options?: {
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
     groq: [{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" }],
   };
-  const byokDb = createTestByokD1Database();
-
   const namespace = {
     idFromName: (name: string) => name,
     get: (id: string) => ({
@@ -413,7 +410,6 @@ function createMockEnv(options?: {
       revokeSession: async () => undefined,
     },
     SESSION_SECRET: TEST_SESSION_SECRET,
-    BYOK_DB: byokDb.database,
     SESSIONS: {
       get: async (key: string) => {
         return oauthState.get(key) ?? null;
