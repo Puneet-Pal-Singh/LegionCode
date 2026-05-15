@@ -18,7 +18,7 @@ export class PgSqlClient implements SqlClient {
     statement: string,
     params?: readonly SqlValue[],
   ): Promise<SqlQueryResult<Row>> {
-    const result = await this.connection.query(statement, params);
+    const result = await this.connection.query(statement, params as any[]);
     return {
       rows: result.rows as Row[],
       rowCount: result.rowCount ?? result.rows.length,
@@ -49,7 +49,7 @@ export class PgPoolSqlClient implements SqlClient {
     statement: string,
     params?: readonly SqlValue[],
   ): Promise<SqlQueryResult<Row>> {
-    const result = await this.pool.query(statement, params);
+    const result = await this.pool.query(statement, params as any[]);
     return mapQueryResult<Row>(result);
   }
 
@@ -73,22 +73,38 @@ function attachRollbackError(error: unknown, rollbackError: unknown): void {
 
 export async function withPostgresSqlClient<T>(
   connectionString: string,
-  callback: (client: SqlClient) => Promise<T>,
+  callback: (client: PgSqlClient) => Promise<T>,
 ): Promise<T> {
-  const connection = new Client({ connectionString });
-  await connection.connect();
-
+  const client = new Client({ connectionString });
+  await client.connect();
   try {
-    return await callback(new PgSqlClient(connection));
+    return await callback(new PgSqlClient(new PgClientConnection(client)));
   } finally {
-    await connection.end();
+    await client.end();
   }
 }
 
-export function createPostgresSqlClient(
-  connectionString: string,
-): SqlClient {
+export function createPostgresSqlClient(connectionString: string): SqlClient {
   return new PgPoolSqlClient(new Pool({ connectionString }));
+}
+
+class PgClientConnection implements PgConnection {
+  constructor(private readonly client: Client) {}
+
+  async connect(): Promise<unknown> {
+    return await this.client.connect();
+  }
+
+  async end(): Promise<void> {
+    await this.client.end();
+  }
+
+  async query<Row extends QueryResultRow = QueryResultRow>(
+    statement: string,
+    params?: readonly unknown[],
+  ): Promise<QueryResult<Row>> {
+    return await this.client.query<Row>(statement, params as any[]);
+  }
 }
 
 class PgPoolConnection implements PgConnection {
@@ -106,7 +122,7 @@ class PgPoolConnection implements PgConnection {
     statement: string,
     params?: readonly unknown[],
   ): Promise<QueryResult<Row>> {
-    return await this.connection.query<Row>(statement, params);
+    return await this.connection.query<Row>(statement, params as any[]);
   }
 }
 
