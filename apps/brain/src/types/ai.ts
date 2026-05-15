@@ -9,6 +9,7 @@ import type {
 } from "@cloudflare/workers-types";
 import type {
   IdentitySessionRepository,
+  TranscriptRepository,
   WorkspaceRepository,
 } from "@repo/persistence";
 
@@ -28,6 +29,7 @@ export interface Env {
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
   AUTH_WORKSPACE_REPOSITORY?: WorkspaceRepository;
+  AUTH_TRANSCRIPT_REPOSITORY?: TranscriptRepository;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK

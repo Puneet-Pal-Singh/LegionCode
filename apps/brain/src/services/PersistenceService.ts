@@ -1,6 +1,15 @@
 import type { CoreMessage } from "ai";
+import type { JsonValue } from "@repo/shared-types";
 import { pruneToolResults } from "@shadowbox/context-pruner";
 import { Env } from "../types/ai";
+import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
+
+interface PersistMessageContext {
+  userId?: string;
+  workspaceId?: string;
+  title?: string;
+  repository?: string;
+}
 
 export class PersistenceService {
   constructor(private env: Env) {}
@@ -22,6 +31,7 @@ export class PersistenceService {
     sessionId: string,
     runId: string,
     message: CoreMessage,
+    context: PersistMessageContext = {},
   ): Promise<void> {
     try {
       const content =
@@ -36,17 +46,13 @@ export class PersistenceService {
         content,
       );
 
-      await this.env.SECURE_API.fetch(
-        `http://internal/api/chat/history/${runId}?session=${sessionId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Idempotency-Key": idempotencyKey,
-          },
-          body: JSON.stringify({ message, idempotencyKey }),
-        },
-      );
+      await this.persistMessage({
+        sessionId,
+        runId,
+        message,
+        idempotencyKey,
+        context,
+      });
       console.log(`[Brain] Persisted ${message.role} message for run ${runId}`);
     } catch (e) {
       console.error("[Brain] Persist user message failed", e);
@@ -72,28 +78,104 @@ export class PersistenceService {
       );
 
       if (prunedHistory.length > 0) {
-        const idempotencyKey = await this.generateIdempotencyKey(
-          sessionId,
-          runId,
-          "batch",
-          prunedHistory.map((m) => m.role).join(","),
-        );
-
-        await this.env.SECURE_API.fetch(
-          `http://internal/api/chat/history/${runId}?session=${sessionId}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Idempotency-Key": idempotencyKey,
-            },
-            body: JSON.stringify({ messages: prunedHistory, idempotencyKey }),
-          },
-        );
+        await this.persistPrunedHistory(sessionId, runId, prunedHistory);
         console.log(`[Brain:${correlationId}] History Sync Successful`);
       }
     } catch (e) {
       console.error(`[Brain:${correlationId}] History Sync Failed:`, e);
     }
   }
+
+  private async persistPrunedHistory(
+    sessionId: string,
+    runId: string,
+    messages: CoreMessage[],
+  ): Promise<void> {
+    for (const [index, message] of messages.entries()) {
+      const content =
+        typeof message.content === "string"
+          ? message.content
+          : JSON.stringify(message.content);
+      const idempotencyKey = await this.generateIdempotencyKey(
+        sessionId,
+        runId,
+        `${message.role}:${index}`,
+        content,
+      );
+      await this.persistMessage({
+        sessionId,
+        runId,
+        message,
+        idempotencyKey,
+        context: {},
+      });
+    }
+  }
+
+  private async persistMessage(input: {
+    sessionId: string;
+    runId: string;
+    message: CoreMessage;
+    idempotencyKey: string;
+    context: PersistMessageContext;
+  }): Promise<void> {
+    await withTranscriptRepository(this.env, async (repository) => {
+      const parts = coreMessageToTranscriptParts(input.message);
+      if (input.context.userId) {
+        await repository.appendMessage({
+          sessionId: input.sessionId,
+          runId: input.runId,
+          userId: input.context.userId,
+          workspaceId: input.context.workspaceId ?? null,
+          title: input.context.title ?? buildTitle(input.message),
+          repository: input.context.repository ?? null,
+          activeRunId: input.runId,
+          status: "running",
+          role: input.message.role,
+          clientMessageId: readClientMessageId(input.message),
+          dedupeKey: input.idempotencyKey,
+          parts,
+        });
+        return;
+      }
+
+      await repository.appendMessageToExistingSession({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        role: input.message.role,
+        clientMessageId: readClientMessageId(input.message),
+        dedupeKey: input.idempotencyKey,
+        parts,
+      });
+    });
+  }
+}
+
+function coreMessageToTranscriptParts(message: CoreMessage): Array<{
+  type: "text" | "raw";
+  content: JsonValue;
+}> {
+  if (typeof message.content === "string") {
+    return [{ type: "text", content: { text: message.content } }];
+  }
+
+  return [{ type: "raw", content: toJsonValue(message.content) }];
+}
+
+function buildTitle(message: CoreMessage): string {
+  const content =
+    typeof message.content === "string"
+      ? message.content.trim()
+      : JSON.stringify(message.content);
+  const title = content.replace(/\s+/g, " ").slice(0, 80).trim();
+  return title || "Untitled task";
+}
+
+function readClientMessageId(message: CoreMessage): string | null {
+  const candidate = message as { id?: unknown };
+  return typeof candidate.id === "string" ? candidate.id : null;
+}
+
+function toJsonValue(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
 }

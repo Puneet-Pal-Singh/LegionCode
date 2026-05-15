@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryTranscriptRepository } from "@repo/persistence";
 import { ChatController } from "./ChatController";
 import type { Env } from "../types/ai";
 
@@ -124,6 +125,7 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
         createIdentitySessionRecord(),
       revokeSession: async () => undefined,
     },
+    AUTH_TRANSCRIPT_REPOSITORY: new MemoryTranscriptRepository(),
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
