@@ -65,6 +65,7 @@ describe("Memory provider stores", () => {
     const audit = new MemoryProviderAuditLog();
     const quota = new MemoryProviderQuotaStore();
     const cache = new MemoryProviderModelCacheStore();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
     await audit.appendAuditEvent({
       eventType: "connect",
@@ -75,8 +76,8 @@ describe("Memory provider stores", () => {
     await cache.setModelCache({
       providerId: "openai",
       models: [{ id: "gpt-4o", name: "GPT-4o", providerId: "openai" }],
-      fetchedAt: "2026-05-15T00:00:00.000Z",
-      expiresAt: "2026-05-16T00:00:00.000Z",
+      fetchedAt: new Date().toISOString(),
+      expiresAt,
       source: "provider_api",
     });
 

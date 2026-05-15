@@ -34,7 +34,9 @@ class ScriptedSqlClient implements SqlClient {
       statement.includes(entry.pattern),
     );
     if (!handler) {
-      return { rows: [], rowCount: 0 };
+      throw new Error(
+        `[ScriptedSqlClient/query] No handler matched statement: ${statement}`,
+      );
     }
     return handler.response(statement, rowParams) as SqlQueryResult<Row>;
   }
@@ -96,6 +98,7 @@ describe("Postgres provider stores", () => {
     expect(created.credentialId).toBe("cred-1");
     expect(created.workspaceId).toBe("workspace-1");
     expect(client.queries[0]?.params[6]).toContain('"alg":"AES-256-GCM"');
+    expect(client.queries[0]?.params[5]).toMatch(/^sha256:/);
     expect(read?.apiKey).toBe(apiKey);
   });
 
@@ -133,6 +136,8 @@ describe("Postgres provider stores", () => {
   });
 
   it("reads and writes provider model caches", async () => {
+    const fetchedAt = new Date(Date.now() - 60_000).toISOString();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
     const client = new ScriptedSqlClient([
       {
         pattern: "INSERT INTO provider_registry_cache",
@@ -155,9 +160,9 @@ describe("Postgres provider stores", () => {
                 },
               ],
               source_version: "provider_api",
-              fetched_at: "2026-05-14T00:00:00.000Z",
-              expires_at: "2026-05-16T00:00:00.000Z",
-              refreshed_at: "2026-05-14T00:00:00.000Z",
+              fetched_at: fetchedAt,
+              expires_at: expiresAt,
+              refreshed_at: fetchedAt,
             },
           ]),
       },
@@ -177,8 +182,8 @@ describe("Postgres provider stores", () => {
                 },
               ],
               source_version: "provider_api",
-              fetched_at: "2026-05-14T00:00:00.000Z",
-              expires_at: "2026-05-16T00:00:00.000Z",
+              fetched_at: fetchedAt,
+              expires_at: expiresAt,
             },
           ]),
       },
@@ -188,8 +193,8 @@ describe("Postgres provider stores", () => {
     await store.setModelCache({
       providerId: "openai",
       models: [{ id: "gpt-4o", name: "GPT-4o", providerId: "openai" }],
-      fetchedAt: "2026-05-14T00:00:00.000Z",
-      expiresAt: "2026-05-16T00:00:00.000Z",
+      fetchedAt,
+      expiresAt,
       source: "provider_api",
     });
     const cached = await store.getModelCache("openai");
@@ -207,8 +212,8 @@ describe("Postgres provider stores", () => {
             providerId: "openrouter",
           },
         ],
-        fetchedAt: "2026-05-14T00:00:00.000Z",
-        expiresAt: "2026-05-16T00:00:00.000Z",
+        fetchedAt,
+        expiresAt,
         source: "provider_api",
       },
     );
@@ -217,6 +222,18 @@ describe("Postgres provider stores", () => {
       credentialId: "cred-1",
     });
     expect(userCached?.models[0]?.id).toBe("gpt-4o-mini");
+    await expect(
+      store.setUserModelCache(
+        { providerId: "openrouter", credentialId: "cred-1" },
+        {
+          providerId: "openai",
+          models: [],
+          fetchedAt,
+          expiresAt,
+          source: "provider_api",
+        },
+      ),
+    ).rejects.toThrow("providerId mismatch");
   });
 
   it("tracks quota and audit events by scoped postgres rows", async () => {
@@ -243,6 +260,9 @@ describe("Postgres provider stores", () => {
 
     expect(await quota.getAxisQuotaUsage("2026-05-14")).toBe(3);
     expect(await quota.incrementAndGetQuota("2026-05-14")).toBe(4);
+    await expect(quota.setAxisQuotaUsage("2026-05-14", -1)).rejects.toThrow(
+      "invalid usage_count",
+    );
     await audit.appendAuditEvent({
       eventType: "connect",
       status: "success",
