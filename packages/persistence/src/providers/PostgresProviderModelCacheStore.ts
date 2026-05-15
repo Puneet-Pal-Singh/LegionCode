@@ -8,9 +8,7 @@ import type {
   ProviderModelCacheStore,
   UserScopedCacheKey,
 } from "./types.js";
-import {
-  BYOKDiscoveredProviderModelSchema,
-} from "@repo/shared-types";
+import { BYOKDiscoveredProviderModelSchema } from "@repo/shared-types";
 import { parseJsonColumn } from "./json.js";
 
 interface ProviderCacheRow extends SqlRow {
@@ -36,10 +34,48 @@ interface UserCacheRow extends SqlRow {
 }
 
 export class PostgresProviderModelCacheStore implements ProviderModelCacheStore {
-  constructor(
-    private readonly client: SqlClient,
-    private readonly userId: string,
-  ) {}
+  private readonly providerCache: PostgresProviderRegistryCacheStore;
+  private readonly userCache: PostgresUserProviderModelCacheStore;
+
+  constructor(client: SqlClient, userId: string) {
+    this.providerCache = new PostgresProviderRegistryCacheStore(client);
+    this.userCache = new PostgresUserProviderModelCacheStore(client, userId);
+  }
+
+  async getModelCache(
+    providerId: string,
+  ): Promise<ProviderModelCacheRecord | null> {
+    return await this.providerCache.getModelCache(providerId);
+  }
+
+  async setModelCache(record: ProviderModelCacheRecord): Promise<void> {
+    await this.providerCache.setModelCache(record);
+  }
+
+  async invalidateModelCache(providerId: string): Promise<void> {
+    await this.providerCache.invalidateModelCache(providerId);
+  }
+
+  async getUserModelCache(
+    key: UserScopedCacheKey,
+  ): Promise<ProviderModelCacheRecord | null> {
+    return await this.userCache.getUserModelCache(key);
+  }
+
+  async setUserModelCache(
+    key: UserScopedCacheKey,
+    record: ProviderModelCacheRecord,
+  ): Promise<void> {
+    await this.userCache.setUserModelCache(key, record);
+  }
+
+  async invalidateUserModelCache(key: UserScopedCacheKey): Promise<void> {
+    await this.userCache.invalidateUserModelCache(key);
+  }
+}
+
+export class PostgresProviderRegistryCacheStore {
+  constructor(private readonly client: SqlClient) {}
 
   async getModelCache(
     providerId: string,
@@ -91,14 +127,22 @@ export class PostgresProviderModelCacheStore implements ProviderModelCacheStore 
   async invalidateModelCache(providerId: string): Promise<void> {
     await this.client.query(DELETE_PROVIDER_CACHE_SQL, [providerId]);
   }
+}
+
+export class PostgresUserProviderModelCacheStore {
+  constructor(
+    private readonly client: SqlClient,
+    private readonly userId: string,
+  ) {}
 
   async getUserModelCache(
     key: UserScopedCacheKey,
   ): Promise<ProviderModelCacheRecord | null> {
-    const result = await this.client.query<UserCacheRow>(
-      GET_USER_CACHE_SQL,
-      [this.userId, key.providerId, key.credentialId],
-    );
+    const result = await this.client.query<UserCacheRow>(GET_USER_CACHE_SQL, [
+      this.userId,
+      key.providerId,
+      key.credentialId,
+    ]);
     const row = result.rows[0];
     if (!row) {
       return null;

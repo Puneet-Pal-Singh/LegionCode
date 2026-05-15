@@ -658,7 +658,12 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "provider_axis_quota_usage_count_check": {
+          "name": "provider_axis_quota_usage_count_check",
+          "value": "\"provider_axis_quota\".\"usage_count\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.provider_credentials": {

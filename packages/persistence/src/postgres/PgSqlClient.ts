@@ -2,6 +2,8 @@ import { Client, Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 
+const postgresPools = new Map<string, Pool>();
+
 export interface PgConnection {
   connect(): Promise<unknown>;
   end(): Promise<void>;
@@ -18,14 +20,19 @@ export class PgSqlClient implements SqlClient {
     statement: string,
     params?: readonly SqlValue[],
   ): Promise<SqlQueryResult<Row>> {
-    const result = await this.connection.query(statement, params as any[]);
+    const result = await this.connection.query(
+      statement,
+      toQueryParams(params),
+    );
     return {
       rows: result.rows as Row[],
       rowCount: result.rowCount ?? result.rows.length,
     };
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     await this.query("BEGIN");
     try {
       const result = await callback(this);
@@ -49,16 +56,18 @@ export class PgPoolSqlClient implements SqlClient {
     statement: string,
     params?: readonly SqlValue[],
   ): Promise<SqlQueryResult<Row>> {
-    const result = await this.pool.query(statement, params as any[]);
+    const result = await this.pool.query(statement, toQueryParams(params));
     return mapQueryResult<Row>(result);
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     const connection = await this.pool.connect();
     try {
-      return await new PgSqlClient(new PgPoolConnection(connection)).transaction(
-        callback,
-      );
+      return await new PgSqlClient(
+        new PgPoolConnection(connection),
+      ).transaction(callback);
     } finally {
       connection.release();
     }
@@ -85,7 +94,17 @@ export async function withPostgresSqlClient<T>(
 }
 
 export function createPostgresSqlClient(connectionString: string): SqlClient {
-  return new PgPoolSqlClient(new Pool({ connectionString }));
+  return new PgPoolSqlClient(getPostgresPool(connectionString));
+}
+
+function getPostgresPool(connectionString: string): Pool {
+  const existing = postgresPools.get(connectionString);
+  if (existing) {
+    return existing;
+  }
+  const pool = new Pool({ connectionString });
+  postgresPools.set(connectionString, pool);
+  return pool;
 }
 
 class PgClientConnection implements PgConnection {
@@ -103,7 +122,7 @@ class PgClientConnection implements PgConnection {
     statement: string,
     params?: readonly unknown[],
   ): Promise<QueryResult<Row>> {
-    return await this.client.query<Row>(statement, params as any[]);
+    return await this.client.query<Row>(statement, toQueryParams(params));
   }
 }
 
@@ -122,8 +141,12 @@ class PgPoolConnection implements PgConnection {
     statement: string,
     params?: readonly unknown[],
   ): Promise<QueryResult<Row>> {
-    return await this.connection.query<Row>(statement, params as any[]);
+    return await this.connection.query<Row>(statement, toQueryParams(params));
   }
+}
+
+function toQueryParams(params?: readonly unknown[]): unknown[] | undefined {
+  return params ? [...params] : undefined;
 }
 
 function mapQueryResult<Row extends SqlRow>(

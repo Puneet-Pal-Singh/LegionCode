@@ -1,7 +1,11 @@
 export { PostgresCredentialStore } from "./PostgresCredentialStore.js";
 export { PostgresPreferenceStore } from "./PostgresPreferenceStore.js";
 export { PostgresProviderAuditLog } from "./PostgresProviderAuditLog.js";
-export { PostgresProviderModelCacheStore } from "./PostgresProviderModelCacheStore.js";
+export {
+  PostgresProviderModelCacheStore,
+  PostgresProviderRegistryCacheStore,
+  PostgresUserProviderModelCacheStore,
+} from "./PostgresProviderModelCacheStore.js";
 export { PostgresProviderQuotaStore } from "./PostgresProviderQuotaStore.js";
 export {
   MemoryCredentialStore,

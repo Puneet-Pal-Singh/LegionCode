@@ -344,8 +344,15 @@ class MemoryProviderSqlClient implements SqlClient {
     }
 
     if (statement.includes("INSERT INTO provider_preferences")) {
-      const row = this.upsertPreference(values);
+      const row = statement.includes("jsonb_build_object")
+        ? this.setCredentialLabel(values)
+        : this.upsertPreference(values);
       return rows([row]) as SqlQueryResult<Row>;
+    }
+
+    if (statement.includes("UPDATE provider_preferences")) {
+      this.deleteCredentialLabel(values);
+      return rows([]) as SqlQueryResult<Row>;
     }
 
     throw new Error(`Unhandled SQL statement in test harness: ${statement}`);
@@ -402,23 +409,63 @@ class MemoryProviderSqlClient implements SqlClient {
   }
 
   private upsertPreference(values: readonly SqlValue[]): PreferenceRow {
+    const key = this.preferenceKey(values[0], values[1]);
+    const current = this.preferences.get(key);
     const row: PreferenceRow = {
       user_id: String(values[0]),
       workspace_id: String(values[1]),
-      default_provider_id: values[2] === null ? null : String(values[2]),
+      default_provider_id: values[6]
+        ? valueToNullableString(values[2])
+        : (current?.default_provider_id ?? null),
       default_credential_id: null,
-      default_model_id: values[3] === null ? null : String(values[3]),
+      default_model_id: values[7]
+        ? valueToNullableString(values[3])
+        : (current?.default_model_id ?? null),
       fallback_mode: "strict",
       fallback_json: null,
-      visible_model_ids_json: values[4] ?? {},
-      credential_labels_json: values[5] ?? {},
-      updated_at: String(values[6]),
+      visible_model_ids_json: values[8]
+        ? (values[4] ?? {})
+        : (current?.visible_model_ids_json ?? {}),
+      credential_labels_json: current?.credential_labels_json ?? {},
+      updated_at: String(values[5]),
     };
-    this.preferences.set(
-      this.preferenceKey(row.user_id, row.workspace_id),
-      row,
-    );
+    this.preferences.set(key, row);
     return row;
+  }
+
+  private setCredentialLabel(values: readonly SqlValue[]): PreferenceRow {
+    const key = this.preferenceKey(values[0], values[1]);
+    const current = this.preferences.get(key);
+    const credentialLabels = {
+      ...readRecord(current?.credential_labels_json),
+      [String(values[2])]: String(values[3]),
+    };
+    const row: PreferenceRow = {
+      user_id: String(values[0]),
+      workspace_id: String(values[1]),
+      default_provider_id: current?.default_provider_id ?? null,
+      default_credential_id: null,
+      default_model_id: current?.default_model_id ?? null,
+      fallback_mode: "strict",
+      fallback_json: null,
+      visible_model_ids_json: current?.visible_model_ids_json ?? {},
+      credential_labels_json: credentialLabels,
+      updated_at: String(values[4]),
+    };
+    this.preferences.set(key, row);
+    return row;
+  }
+
+  private deleteCredentialLabel(values: readonly SqlValue[]): void {
+    const key = this.preferenceKey(values[0], values[1]);
+    const current = this.preferences.get(key);
+    if (!current) {
+      return;
+    }
+    const credentialLabels = readRecord(current.credential_labels_json);
+    delete credentialLabels[String(values[2])];
+    current.credential_labels_json = credentialLabels;
+    current.updated_at = String(values[3]);
   }
 
   private preferenceKey(userId: unknown, workspaceId: unknown): string {
@@ -428,6 +475,23 @@ class MemoryProviderSqlClient implements SqlClient {
   private credentialKey(userId: string, providerId: ProviderId): string {
     return `${userId}:${providerId}`;
   }
+}
+
+function valueToNullableString(value: SqlValue | undefined): string | null {
+  return value === null || value === undefined ? null : String(value);
+}
+
+function readRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const record: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string") {
+      record[key] = entry;
+    }
+  }
+  return record;
 }
 
 function rows<Row extends SqlRow>(rows: Row[]): SqlQueryResult<Row> {

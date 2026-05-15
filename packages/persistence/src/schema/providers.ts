@@ -155,6 +155,10 @@ export const providerAxisQuota = pgTable(
       name: "provider_axis_quota_user_workspace_day_pk",
     }),
     index("provider_axis_quota_updated_at_idx").on(table.updatedAt.desc()),
+    check(
+      "provider_axis_quota_usage_count_check",
+      sql`${table.usageCount} >= 0`,
+    ),
   ],
 );
 

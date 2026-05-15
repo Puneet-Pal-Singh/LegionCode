@@ -24,10 +24,10 @@ export class PostgresPreferenceStore implements PreferenceStore {
   ) {}
 
   async getPreferences(): Promise<BYOKPreferences> {
-    const result = await this.client.query<PreferenceRow>(
-      GET_PREFERENCES_SQL,
-      [this.userId, this.workspaceId],
-    );
+    const result = await this.client.query<PreferenceRow>(GET_PREFERENCES_SQL, [
+      this.userId,
+      this.workspaceId,
+    ]);
     const row = result.rows[0];
     if (!row) {
       return this.createDefaultPreferences();
@@ -39,40 +39,30 @@ export class PostgresPreferenceStore implements PreferenceStore {
   async updatePreferences(
     patch: BYOKPreferencesPatch,
   ): Promise<BYOKPreferences> {
-    const current = await this.getPreferences();
-    const merged: BYOKPreferences = {
-      defaultProviderId: patch.defaultProviderId ?? current.defaultProviderId,
-      defaultModelId: patch.defaultModelId ?? current.defaultModelId,
-      visibleModelIds: patch.visibleModelIds ?? current.visibleModelIds,
-      credentialLabels: current.credentialLabels,
-      updatedAt: new Date().toISOString(),
-    };
-
     const result = await this.client.query<PreferenceRow>(
       UPSERT_PREFERENCES_SQL,
       [
         this.userId,
         this.workspaceId,
-        merged.defaultProviderId ?? null,
-        merged.defaultModelId ?? null,
-        stringifyJsonColumn(merged.visibleModelIds ?? {}),
-        stringifyJsonColumn(merged.credentialLabels ?? {}),
-        merged.updatedAt,
+        patch.defaultProviderId ?? null,
+        patch.defaultModelId ?? null,
+        patch.visibleModelIds
+          ? stringifyJsonColumn(patch.visibleModelIds)
+          : null,
+        new Date().toISOString(),
+        patch.defaultProviderId !== undefined,
+        patch.defaultModelId !== undefined,
+        patch.visibleModelIds !== undefined,
       ],
     );
 
-    return this.rowToPreferences(result.rows[0] ?? {
-      user_id: this.userId,
-      workspace_id: this.workspaceId,
-      default_provider_id: merged.defaultProviderId ?? null,
-      default_credential_id: null,
-      default_model_id: merged.defaultModelId ?? null,
-      fallback_mode: "strict",
-      fallback_json: null,
-      visible_model_ids_json: merged.visibleModelIds,
-      credential_labels_json: merged.credentialLabels,
-      updated_at: merged.updatedAt,
-    });
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error(
+        "[PostgresPreferenceStore/updatePreferences] update did not return preferences",
+      );
+    }
+    return this.rowToPreferences(row);
   }
 
   async setCredentialLabel(credentialId: string, label: string): Promise<void> {
@@ -146,9 +136,13 @@ function parseRecordArrayJson(value: unknown): Record<string, string[]> {
   }
 
   const result: Record<string, string[]> = {};
-  for (const [key, entry] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const [key, entry] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
     if (Array.isArray(entry)) {
-      result[key] = entry.filter((item): item is string => typeof item === "string");
+      result[key] = entry.filter(
+        (item): item is string => typeof item === "string",
+      );
     }
   }
   return result;
@@ -161,7 +155,9 @@ function parseRecordStringJson(value: unknown): Record<string, string> {
   }
 
   const result: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const [key, entry] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
     if (typeof entry === "string") {
       result[key] = entry;
     }
@@ -194,16 +190,23 @@ const UPSERT_PREFERENCES_SQL = `
     default_provider_id,
     default_model_id,
     visible_model_ids_json,
-    credential_labels_json,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+  VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6)
   ON CONFLICT (user_id, workspace_id)
   DO UPDATE SET
-    default_provider_id = COALESCE(EXCLUDED.default_provider_id, provider_preferences.default_provider_id),
-    default_model_id = COALESCE(EXCLUDED.default_model_id, provider_preferences.default_model_id),
-    visible_model_ids_json = EXCLUDED.visible_model_ids_json,
-    credential_labels_json = EXCLUDED.credential_labels_json,
+    default_provider_id = CASE
+      WHEN $7::boolean THEN EXCLUDED.default_provider_id
+      ELSE provider_preferences.default_provider_id
+    END,
+    default_model_id = CASE
+      WHEN $8::boolean THEN EXCLUDED.default_model_id
+      ELSE provider_preferences.default_model_id
+    END,
+    visible_model_ids_json = CASE
+      WHEN $9::boolean THEN EXCLUDED.visible_model_ids_json
+      ELSE provider_preferences.visible_model_ids_json
+    END,
     updated_at = EXCLUDED.updated_at
   RETURNING
     user_id,

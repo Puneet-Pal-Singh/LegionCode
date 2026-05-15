@@ -98,6 +98,8 @@ export const providerStateBootstrapMigration: SqlMigration = {
         day_key TEXT NOT NULL,
         usage_count INTEGER NOT NULL DEFAULT 0,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT provider_axis_quota_usage_count_check
+          CHECK (usage_count >= 0),
         PRIMARY KEY (user_id, workspace_id, day_key)
       )
     `,

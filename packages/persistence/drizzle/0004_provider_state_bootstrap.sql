@@ -19,6 +19,7 @@ CREATE TABLE "provider_axis_quota" (
 	"day_key" text NOT NULL,
 	"usage_count" integer DEFAULT 0 NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "provider_axis_quota_usage_count_check" CHECK ("provider_axis_quota"."usage_count" >= 0),
 	CONSTRAINT "provider_axis_quota_user_workspace_day_pk" PRIMARY KEY("user_id","workspace_id","day_key")
 );
 --> statement-breakpoint

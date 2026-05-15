@@ -63,7 +63,7 @@ describe("Postgres provider stores", () => {
           rows([
             credentialRow({
               encrypted_secret_json: encrypted,
-              key_fingerprint: "sk-t...3456",
+              key_fingerprint: "sha256:fixture",
             }),
           ]),
       },
@@ -73,7 +73,7 @@ describe("Postgres provider stores", () => {
           rows([
             credentialRow({
               encrypted_secret_json: encrypted,
-              key_fingerprint: "sk-t...3456",
+              key_fingerprint: "sha256:fixture",
             }),
           ]),
       },
@@ -97,6 +97,7 @@ describe("Postgres provider stores", () => {
 
     expect(created.credentialId).toBe("cred-1");
     expect(created.workspaceId).toBe("workspace-1");
+    expect(client.queries[0]?.statement).toContain("label = EXCLUDED.label");
     expect(client.queries[0]?.params[6]).toContain('"alg":"AES-256-GCM"');
     expect(client.queries[0]?.params[5]).toMatch(/^sha256:/);
     expect(read?.apiKey).toBe(apiKey);
@@ -129,10 +130,13 @@ describe("Postgres provider stores", () => {
 
     expect(updated.defaultProviderId).toBe("openai");
     expect(updated.visibleModelIds.openai).toEqual(["gpt-4o"]);
+    expect(client.queries[0]?.params.slice(6, 9)).toEqual([true, false, true]);
 
     await store.setCredentialLabel("cred-1", "Primary");
+    expect(client.queries.at(-1)?.statement).toContain("jsonb_build_object");
     const credentialLabelParams = client.queries.at(-1)?.params ?? [];
-    expect(credentialLabelParams[5]).toContain('"cred-1":"Primary"');
+    expect(credentialLabelParams[2]).toBe("cred-1");
+    expect(credentialLabelParams[3]).toBe("Primary");
   });
 
   it("reads and writes provider model caches", async () => {
@@ -165,6 +169,10 @@ describe("Postgres provider stores", () => {
               refreshed_at: fetchedAt,
             },
           ]),
+      },
+      {
+        pattern: "INSERT INTO provider_user_model_cache",
+        response: () => rows([]),
       },
       {
         pattern: "FROM provider_user_model_cache",
@@ -286,7 +294,7 @@ function credentialRow(
     workspace_id: "workspace-1",
     provider_id: "openai",
     label: "default",
-    key_fingerprint: "sk-t...3456",
+    key_fingerprint: "sha256:fixture",
     encrypted_secret_json: {
       alg: "AES-256-GCM",
       ciphertext: "ciphertext",

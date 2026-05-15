@@ -22,7 +22,7 @@ export interface D1StoreFactoryOptions {
   workspaceId?: string;
   masterKey: string;
   keyVersion: string;
-  previousKeyVersion?: string;
+  previousMasterKey?: string;
 }
 
 /**
@@ -37,7 +37,7 @@ export function createCredentialStore(
     options.userId,
     options.masterKey,
     options.keyVersion,
-    options.previousKeyVersion,
+    options.previousMasterKey,
   );
 }
 

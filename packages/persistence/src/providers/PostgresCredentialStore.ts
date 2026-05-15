@@ -45,10 +45,10 @@ export class PostgresCredentialStore implements CredentialStore {
   async getCredential(
     providerId: ProviderId,
   ): Promise<ProviderCredentialRecord | null> {
-    const result = await this.client.query<CredentialRow>(
-      GET_CREDENTIAL_SQL,
-      [this.userId, providerId],
-    );
+    const result = await this.client.query<CredentialRow>(GET_CREDENTIAL_SQL, [
+      this.userId,
+      providerId,
+    ]);
     const row = result.rows[0];
     return row ? this.rowToRecord(row) : null;
   }
@@ -56,10 +56,10 @@ export class PostgresCredentialStore implements CredentialStore {
   async getCredentialWithKey(
     providerId: ProviderId,
   ): Promise<{ record: ProviderCredentialRecord; apiKey: string } | null> {
-    const result = await this.client.query<CredentialRow>(
-      GET_CREDENTIAL_SQL,
-      [this.userId, providerId],
-    );
+    const result = await this.client.query<CredentialRow>(GET_CREDENTIAL_SQL, [
+      this.userId,
+      providerId,
+    ]);
     const row = result.rows[0];
     if (!row) {
       return null;
@@ -77,7 +77,9 @@ export class PostgresCredentialStore implements CredentialStore {
     };
   }
 
-  async setCredential(input: SetCredentialInput): Promise<ProviderCredentialRecord> {
+  async setCredential(
+    input: SetCredentialInput,
+  ): Promise<ProviderCredentialRecord> {
     const credentialId = input.credentialId || crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -266,6 +268,7 @@ const UPSERT_CREDENTIAL_SQL = `
   ON CONFLICT (user_id, provider_id)
   WHERE deleted_at IS NULL
   DO UPDATE SET
+    label = EXCLUDED.label,
     encrypted_secret_json = EXCLUDED.encrypted_secret_json,
     key_version = EXCLUDED.key_version,
     key_fingerprint = EXCLUDED.key_fingerprint,
