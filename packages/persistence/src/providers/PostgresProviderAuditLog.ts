@@ -32,10 +32,18 @@ function buildMetadataJson(event: ProviderAuditEvent): string | null {
     metadata.message = event.message;
   }
   if (event.metadataJson) {
-    metadata.details = event.metadataJson;
+    metadata.details = parseMetadataJson(event.metadataJson);
   }
 
   return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
+}
+
+function parseMetadataJson(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
 }
 
 const INSERT_AUDIT_EVENT_SQL = `

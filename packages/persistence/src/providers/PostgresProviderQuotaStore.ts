@@ -22,6 +22,7 @@ export class PostgresProviderQuotaStore implements ProviderQuotaStore {
   }
 
   async setAxisQuotaUsage(dayKey: string, usage: number): Promise<void> {
+    assertValidUsageCount(usage, "setAxisQuotaUsage");
     await this.client.query(UPSERT_QUOTA_USAGE_SQL, [
       this.userId,
       this.workspaceId,
@@ -38,7 +39,21 @@ export class PostgresProviderQuotaStore implements ProviderQuotaStore {
       dayKey,
       new Date().toISOString(),
     ]);
-    return result.rows[0]?.usage_count ?? 1;
+    const usage = result.rows[0]?.usage_count;
+    if (usage === undefined) {
+      throw new Error(
+        "[PostgresProviderQuotaStore/incrementAndGetQuota] increment did not return usage_count",
+      );
+    }
+    return usage;
+  }
+}
+
+function assertValidUsageCount(usage: number, operation: string): void {
+  if (!Number.isFinite(usage) || !Number.isInteger(usage) || usage < 0) {
+    throw new Error(
+      `[PostgresProviderQuotaStore/${operation}] invalid usage_count: ${usage}`,
+    );
   }
 }
 

@@ -62,7 +62,7 @@ export interface ProviderCredentialRecord {
 }
 
 export interface SetCredentialInput {
-  credentialId: string;
+  credentialId?: string;
   userId: string;
   workspaceId?: string;
   providerId: ProviderId;

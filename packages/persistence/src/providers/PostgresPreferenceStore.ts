@@ -76,42 +76,22 @@ export class PostgresPreferenceStore implements PreferenceStore {
   }
 
   async setCredentialLabel(credentialId: string, label: string): Promise<void> {
-    const current = await this.getPreferences();
-    const credentialLabels = {
-      ...(current.credentialLabels ?? {}),
-      [credentialId]: label,
-    };
-    await this.writeCredentialLabels(current, credentialLabels);
+    await this.client.query(SET_CREDENTIAL_LABEL_SQL, [
+      this.userId,
+      this.workspaceId,
+      credentialId,
+      label,
+      new Date().toISOString(),
+    ]);
   }
 
   async deleteCredentialLabel(credentialId: string): Promise<void> {
-    const current = await this.getPreferences();
-    const credentialLabels = { ...(current.credentialLabels ?? {}) };
-    delete credentialLabels[credentialId];
-    await this.writeCredentialLabels(current, credentialLabels);
-  }
-
-  private async writeCredentialLabels(
-    current: BYOKPreferences,
-    credentialLabels: Record<string, string>,
-  ): Promise<void> {
-    const updatedAt = new Date().toISOString();
-    const result = await this.client.query<PreferenceRow>(
-      UPSERT_PREFERENCES_SQL,
-      [
-        this.userId,
-        this.workspaceId,
-        current.defaultProviderId ?? null,
-        current.defaultModelId ?? null,
-        stringifyJsonColumn(current.visibleModelIds ?? {}),
-        stringifyJsonColumn(credentialLabels),
-        updatedAt,
-      ],
-    );
-
-    if (!result.rows[0]) {
-      throw new Error("Failed to update credential labels");
-    }
+    await this.client.query(DELETE_CREDENTIAL_LABEL_SQL, [
+      this.userId,
+      this.workspaceId,
+      credentialId,
+      new Date().toISOString(),
+    ]);
   }
 
   private createDefaultPreferences(): BYOKPreferences {
@@ -236,4 +216,29 @@ const UPSERT_PREFERENCES_SQL = `
     visible_model_ids_json,
     credential_labels_json,
     updated_at
+`;
+
+const SET_CREDENTIAL_LABEL_SQL = `
+  INSERT INTO provider_preferences (
+    user_id,
+    workspace_id,
+    credential_labels_json,
+    updated_at
+  )
+  VALUES ($1, $2, jsonb_build_object($3::text, $4::text), $5)
+  ON CONFLICT (user_id, workspace_id)
+  DO UPDATE SET
+    credential_labels_json =
+      COALESCE(provider_preferences.credential_labels_json, '{}'::jsonb)
+      || jsonb_build_object($3::text, $4::text),
+    updated_at = EXCLUDED.updated_at
+`;
+
+const DELETE_CREDENTIAL_LABEL_SQL = `
+  UPDATE provider_preferences
+  SET credential_labels_json =
+        COALESCE(credential_labels_json, '{}'::jsonb) - $3::text,
+      updated_at = $4
+  WHERE user_id = $1
+    AND workspace_id = $2
 `;

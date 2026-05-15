@@ -129,6 +129,12 @@ export class PostgresProviderModelCacheStore implements ProviderModelCacheStore 
     key: UserScopedCacheKey,
     record: ProviderModelCacheRecord,
   ): Promise<void> {
+    if (record.providerId !== key.providerId) {
+      throw new Error(
+        `[PostgresProviderModelCacheStore/setUserModelCache] providerId mismatch: key=${key.providerId}, record=${record.providerId}`,
+      );
+    }
+
     await this.client.query(UPSERT_USER_CACHE_SQL, [
       this.userId,
       key.providerId,

@@ -70,7 +70,7 @@ export class MemoryCredentialStore implements CredentialStore {
       masterKey: this.masterKey,
       keyVersion: this.keyVersion,
     });
-    const record = this.buildRecord(input, existing, encrypted, now);
+    const record = await this.buildRecord(input, existing, encrypted, now);
 
     this.records.set(this.key(input.providerId), record);
     return { ...record };
@@ -126,19 +126,20 @@ export class MemoryCredentialStore implements CredentialStore {
     });
   }
 
-  private buildRecord(
+  private async buildRecord(
     input: SetCredentialInput,
     existing: ProviderCredentialRecord | null,
     encrypted: unknown,
     now: string,
-  ): ProviderCredentialRecord {
+  ): Promise<ProviderCredentialRecord> {
     return {
-      credentialId: existing?.credentialId ?? input.credentialId,
+      credentialId:
+        existing?.credentialId ?? input.credentialId ?? crypto.randomUUID(),
       userId: this.userId,
       workspaceId: input.workspaceId ?? this.workspaceId,
       providerId: input.providerId,
       label: input.label,
-      keyFingerprint: this.encryption.generateFingerprint(input.apiKey),
+      keyFingerprint: await this.encryption.generateFingerprint(input.apiKey),
       encryptedSecretJson: JSON.stringify(encrypted),
       keyVersion: this.keyVersion,
       status: "connected",
@@ -274,6 +275,7 @@ export class MemoryProviderQuotaStore implements ProviderQuotaStore {
   }
 
   async setAxisQuotaUsage(dayKey: string, usage: number): Promise<void> {
+    assertValidUsageCount(usage);
     this.usageByDay.set(dayKey, usage);
   }
 
@@ -281,6 +283,14 @@ export class MemoryProviderQuotaStore implements ProviderQuotaStore {
     const next = (await this.getAxisQuotaUsage(dayKey)) + 1;
     this.usageByDay.set(dayKey, next);
     return next;
+  }
+}
+
+function assertValidUsageCount(usage: number): void {
+  if (!Number.isFinite(usage) || !Number.isInteger(usage) || usage < 0) {
+    throw new Error(
+      `[MemoryProviderQuotaStore/setAxisQuotaUsage] invalid usage_count: ${usage}`,
+    );
   }
 }
 

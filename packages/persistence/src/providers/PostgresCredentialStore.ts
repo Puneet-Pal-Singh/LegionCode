@@ -89,7 +89,7 @@ export class PostgresCredentialStore implements CredentialStore {
       keyVersion: this.keyVersion,
       masterKey: this.masterKey,
     });
-    const fingerprint = this.encryption.generateFingerprint(input.apiKey);
+    const fingerprint = await this.encryption.generateFingerprint(input.apiKey);
     const workspaceId = input.workspaceId || this.workspaceId;
 
     const result = await this.client.query<CredentialRow>(
@@ -263,7 +263,7 @@ const UPSERT_CREDENTIAL_SQL = `
     updated_at
   )
   VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $11)
-  ON CONFLICT (user_id, provider_id, label)
+  ON CONFLICT (user_id, provider_id)
   WHERE deleted_at IS NULL
   DO UPDATE SET
     encrypted_secret_json = EXCLUDED.encrypted_secret_json,
