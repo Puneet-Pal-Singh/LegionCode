@@ -29,7 +29,7 @@ export interface ICredentialEncryptionService {
     encrypted: EncryptedSecret,
     options: DecryptionOptions,
   ): Promise<string>;
-  generateFingerprint(plaintext: string): string;
+  generateFingerprint(plaintext: string): Promise<string>;
   isValidKeyFormat(plaintext: string): boolean;
 }
 
@@ -104,7 +104,13 @@ export class CredentialEncryptionService {
         try {
           plaintext = await this.decryptWithKey(parsed, key);
           break;
-        } catch {
+        } catch (attemptError) {
+          console.warn(
+            "[CredentialEncryptionService/decrypt] key attempt failed; trying next",
+            attemptError instanceof Error
+              ? attemptError.message
+              : String(attemptError),
+          );
           continue;
         }
       }
@@ -124,14 +130,10 @@ export class CredentialEncryptionService {
     }
   }
 
-  generateFingerprint(plaintext: string): string {
-    if (plaintext.length < 8) {
-      return "***";
-    }
-
-    const first4 = plaintext.substring(0, 4);
-    const last4 = plaintext.substring(plaintext.length - 4);
-    return `${first4}...${last4}`;
+  async generateFingerprint(plaintext: string): Promise<string> {
+    const plaintextBytes = new TextEncoder().encode(plaintext);
+    const digest = await crypto.subtle.digest("SHA-256", plaintextBytes);
+    return `sha256:${this.arrayBufferToHex(new Uint8Array(digest))}`;
   }
 
   isValidKeyFormat(plaintext: string): boolean {
@@ -183,6 +185,12 @@ export class CredentialEncryptionService {
 
   private arrayBufferToBase64(buffer: Uint8Array): string {
     return btoa(String.fromCharCode(...buffer));
+  }
+
+  private arrayBufferToHex(buffer: Uint8Array): string {
+    return Array.from(buffer)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
   }
 
   private base64ToArrayBuffer(base64: string): Uint8Array {
