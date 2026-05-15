@@ -13,12 +13,7 @@ import {
 } from "../../services/providers";
 import { ProviderValidationService } from "../../services/ProviderValidationService";
 import { readByokEncryptionKey } from "../../services/providers/provider-encryption-key";
-import {
-  createD1Stores,
-  getEncryptionConfig,
-} from "../../services/providers/stores/D1StoreFactory";
-import { D1AuditService } from "../../services/providers/D1AuditService";
-import { D1AxisQuotaService } from "../../services/providers/D1AxisQuotaService";
+import { createPostgresProviderConfigService } from "../../services/providers/stores/PostgresStoreFactory";
 import type { ProviderStoreScopeInput } from "../../types/provider-scope";
 import {
   logErrorRateLimited,
@@ -113,34 +108,5 @@ function createProviderConfigService(
   userId: string,
   workspaceId: string,
 ): ProviderConfigService {
-  const db = env.BYOK_DB;
-  if (!db) {
-    throw new Error("BYOK_DB D1 binding is required");
-  }
-
-  const encryptionConfig = getEncryptionConfig(
-    env as unknown as Record<string, unknown>,
-  );
-
-  const stores = createD1Stores(db, {
-    userId,
-    workspaceId,
-    masterKey: encryptionConfig.masterKey,
-    keyVersion: encryptionConfig.keyVersion,
-    previousKeyVersion: encryptionConfig.previousKeyVersion,
-  });
-
-  const auditLog = new D1AuditService(db, userId, workspaceId);
-  const quotaStore = new D1AxisQuotaService(db, userId, workspaceId);
-
-  return new ProviderConfigService({
-    env,
-    userId,
-    workspaceId,
-    credentialStore: stores.credentialStore,
-    preferenceStore: stores.preferenceStore,
-    modelCacheStore: stores.modelCacheStore,
-    auditLog,
-    quotaStore,
-  });
+  return createPostgresProviderConfigService(env, userId, workspaceId);
 }

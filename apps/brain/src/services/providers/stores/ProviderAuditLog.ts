@@ -17,6 +17,7 @@ export interface ProviderAuditEvent {
   status: "success" | "failure";
   providerId?: ProviderId;
   credentialId?: string;
+  errorCode?: string;
   validationMode?: BYOKValidationMode;
   message?: string;
   metadataJson?: string;

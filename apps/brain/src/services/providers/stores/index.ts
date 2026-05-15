@@ -26,3 +26,5 @@ export type {
   ProviderModelCacheStore,
   ProviderModelCacheRecord,
 } from "./ProviderModelCacheStore";
+export { createPostgresProviderConfigService } from "./PostgresStoreFactory";
+export { getProviderEncryptionConfig } from "./ProviderEncryptionConfig";
