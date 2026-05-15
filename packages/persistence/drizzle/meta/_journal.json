@@ -29,6 +29,13 @@
       "when": 1778781631658,
       "tag": "0003_workspace_selection_consistency",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778839386708,
+      "tag": "0004_provider_state_bootstrap",
+      "breakpoints": true
     }
   ]
 }

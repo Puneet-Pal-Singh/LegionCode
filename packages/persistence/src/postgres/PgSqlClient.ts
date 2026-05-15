@@ -61,3 +61,25 @@ export async function withPostgresSqlClient<T>(
     await connection.end();
   }
 }
+
+export function createPostgresSqlClient(
+  connectionString: string,
+): SqlClient {
+  return {
+    async query<Row extends SqlRow = SqlRow>(
+      statement: string,
+      params?: readonly SqlValue[],
+    ): Promise<SqlQueryResult<Row>> {
+      return await withPostgresSqlClient(connectionString, async (client) =>
+        client.query<Row>(statement, params),
+      );
+    },
+    async transaction<T>(
+      callback: (client: SqlClient) => Promise<T>,
+    ): Promise<T> {
+      return await withPostgresSqlClient(connectionString, async (client) =>
+        client.transaction(callback),
+      );
+    },
+  };
+}
