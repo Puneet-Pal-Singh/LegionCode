@@ -46,7 +46,7 @@ import {
 } from "./axis";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
-import { ensureByokSchemaReady } from "../byok/ByokSchemaService.js";
+import { isDomainError } from "../../domain/errors";
 
 export interface ProviderConfigServiceOptions {
   env: Env;
@@ -57,6 +57,7 @@ export interface ProviderConfigServiceOptions {
   modelCacheStore: ProviderModelCacheStore;
   auditLog: ProviderAuditLog;
   quotaStore: ProviderQuotaStore;
+  ensureReady?: () => Promise<void>;
 }
 
 export class ProviderConfigService {
@@ -113,6 +114,7 @@ export class ProviderConfigService {
         eventType: "connect",
         status: "failure",
         providerId: request.providerId,
+        errorCode: toErrorCode(error),
         message: toErrorMessage(error),
       });
       throw error;
@@ -136,6 +138,7 @@ export class ProviderConfigService {
         status: "failure",
         providerId: request.providerId,
         validationMode: request.mode,
+        errorCode: toErrorCode(error),
         message: toErrorMessage(error),
       });
       throw error;
@@ -159,6 +162,7 @@ export class ProviderConfigService {
         eventType: "disconnect",
         status: "failure",
         providerId: request.providerId,
+        errorCode: toErrorCode(error),
         message: toErrorMessage(error),
       });
       throw error;
@@ -188,6 +192,7 @@ export class ProviderConfigService {
         eventType: "preferences",
         status: "failure",
         providerId: patch.defaultProviderId,
+        errorCode: toErrorCode(error),
         message: toErrorMessage(error),
       });
       throw error;
@@ -200,7 +205,10 @@ export class ProviderConfigService {
   ): Promise<BYOKPreferences> {
     await this.ensureStorageReady();
     try {
-      await this.options.preferenceStore.setCredentialLabel(credentialId, label);
+      await this.options.preferenceStore.setCredentialLabel(
+        credentialId,
+        label,
+      );
       return await this.options.preferenceStore.getPreferences();
     } catch (error) {
       throw error;
@@ -328,17 +336,18 @@ export class ProviderConfigService {
     if (!provider.authModes.includes("platform_managed")) {
       return true;
     }
-    return this.credentialService.isConnected(provider.providerId as ProviderId);
+    return this.credentialService.isConnected(
+      provider.providerId as ProviderId,
+    );
   }
 
   private async ensureStorageReady(): Promise<void> {
-    const db = this.options.env.BYOK_DB;
-    if (!db) {
-      throw new Error("BYOK_DB D1 binding is required");
+    if (!this.options.ensureReady) {
+      return;
     }
 
     if (!this.storageReadyPromise) {
-      this.storageReadyPromise = ensureByokSchemaReady(db).catch((error) => {
+      this.storageReadyPromise = this.options.ensureReady().catch((error) => {
         this.storageReadyPromise = null;
         throw error;
       });
@@ -353,6 +362,10 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Unknown error";
+}
+
+function toErrorCode(error: unknown): string | undefined {
+  return isDomainError(error) ? error.code : undefined;
 }
 
 function getNextUtcDayBoundary(): string {

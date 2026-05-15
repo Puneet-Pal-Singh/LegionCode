@@ -6,20 +6,23 @@
  */
 
 import type { D1Database } from "@cloudflare/workers-types";
-import { ValidationError } from "../../../domain/errors";
 import type { CredentialStore } from "./CredentialStore";
 import type { PreferenceStore } from "./PreferenceStore";
 import type { ProviderModelCacheStore } from "./ProviderModelCacheStore";
 import { D1CredentialStore } from "./D1CredentialStore";
 import { D1PreferenceStore } from "./D1PreferenceStore";
 import { D1ProviderModelCacheStore } from "./D1ProviderModelCacheStore";
+import {
+  getProviderEncryptionConfig,
+  type ProviderEncryptionConfig,
+} from "./ProviderEncryptionConfig";
 
 export interface D1StoreFactoryOptions {
   userId: string;
   workspaceId?: string;
   masterKey: string;
   keyVersion: string;
-  previousKeyVersion?: string;
+  previousMasterKey?: string;
 }
 
 /**
@@ -34,7 +37,7 @@ export function createCredentialStore(
     options.userId,
     options.masterKey,
     options.keyVersion,
-    options.previousKeyVersion,
+    options.previousMasterKey,
   );
 }
 
@@ -80,27 +83,8 @@ export function createD1Stores(
  * Extract encryption keys from environment
  * Note: This is a helper - the actual env type comes from the caller
  */
-export function getEncryptionConfig(env: Record<string, unknown>): {
-  masterKey: string;
-  keyVersion: string;
-  previousKeyVersion: string | undefined;
-} {
-  const masterKey = env.BYOK_CREDENTIAL_ENCRYPTION_KEY as string | undefined;
-  const keyVersion =
-    (env.BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION as string) || "v1";
-  const previousKeyVersion =
-    env.BYOK_CREDENTIAL_ENCRYPTION_KEY_PREVIOUS_VERSION as string | undefined;
-
-  if (!masterKey) {
-    throw new ValidationError(
-      "Missing dedicated BYOK credential encryption key",
-      "BYOK_ENCRYPTION_KEY_MISSING",
-    );
-  }
-
-  return {
-    masterKey,
-    keyVersion,
-    previousKeyVersion,
-  };
+export function getEncryptionConfig(
+  env: Record<string, unknown>,
+): ProviderEncryptionConfig {
+  return getProviderEncryptionConfig(env);
 }

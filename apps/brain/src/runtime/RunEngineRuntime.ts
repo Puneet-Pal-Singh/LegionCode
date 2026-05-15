@@ -29,12 +29,7 @@ import {
   readByokEncryptionConfig,
 } from "../services/providers";
 import { ProviderConfigService } from "../services/providers/ProviderConfigService";
-import {
-  createD1Stores,
-  getEncryptionConfig,
-} from "../services/providers/stores/D1StoreFactory";
-import { D1AuditService } from "../services/providers/D1AuditService";
-import { D1AxisQuotaService } from "../services/providers/D1AxisQuotaService";
+import { createPostgresProviderConfigService } from "../services/providers/stores/PostgresStoreFactory";
 import { AXIS_PROVIDER_ID } from "../services/providers/axis";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
@@ -372,38 +367,9 @@ export class RunEngineRuntime extends DurableObject {
     _correlationId: string,
   ): ProviderConfigService {
     const env = this.env as Env;
-    const db = env.BYOK_DB;
-    if (!db) {
-      throw new Error("BYOK_DB D1 binding is required");
-    }
-
     const userId = scope.userId || "anonymous";
     const workspaceId = scope.workspaceId || "default";
-    const encryptionConfig = getEncryptionConfig(
-      env as unknown as Record<string, unknown>,
-    );
-
-    const stores = createD1Stores(db, {
-      userId,
-      workspaceId,
-      masterKey: encryptionConfig.masterKey,
-      keyVersion: encryptionConfig.keyVersion,
-      previousKeyVersion: encryptionConfig.previousKeyVersion,
-    });
-
-    const auditLog = new D1AuditService(db, userId, workspaceId);
-    const quotaStore = new D1AxisQuotaService(db, userId, workspaceId);
-
-    return new ProviderConfigService({
-      env,
-      userId,
-      workspaceId,
-      credentialStore: stores.credentialStore,
-      preferenceStore: stores.preferenceStore,
-      modelCacheStore: stores.modelCacheStore,
-      auditLog,
-      quotaStore,
-    });
+    return createPostgresProviderConfigService(env, userId, workspaceId);
   }
 
   private createProviderRateLimitService(

@@ -1,6 +1,7 @@
 export type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "./sql.js";
 export {
   PgSqlClient,
+  createPostgresSqlClient,
   withPostgresSqlClient,
   type PgConnection,
 } from "./postgres/PgSqlClient.js";
@@ -21,6 +22,7 @@ export {
 
 export { identitySessionBootstrapMigration } from "./migrations/0002-identity-session-bootstrap.js";
 export { workspaceBootstrapMigration } from "./migrations/0003-workspace-bootstrap.js";
+export { providerStateBootstrapMigration } from "./migrations/0004-provider-state-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -40,12 +42,51 @@ export { MemoryIdentitySessionRepository } from "./identity/MemoryIdentitySessio
 export { PostgresIdentitySessionRepository } from "./identity/PostgresIdentitySessionRepository.js";
 export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepository.js";
 export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
+export {
+  PostgresCredentialStore,
+  PostgresPreferenceStore,
+  PostgresProviderAuditLog,
+  PostgresProviderModelCacheStore,
+  PostgresProviderRegistryCacheStore,
+  PostgresProviderQuotaStore,
+  PostgresUserProviderModelCacheStore,
+  MemoryCredentialStore,
+  MemoryPreferenceStore,
+  MemoryProviderAuditLog,
+  MemoryProviderModelCacheStore,
+  MemoryProviderQuotaStore,
+  parseJsonColumn,
+  stringifyJsonColumn,
+} from "./providers/index.js";
 export type {
   EncryptedOAuthToken,
   GitHubIdentitySessionInput,
   IdentitySessionRecord,
   IdentitySessionRepository,
 } from "./identity/types.js";
+export type {
+  CredentialStore,
+  ProviderAuditEvent,
+  ProviderAuditLog,
+  ProviderAuditEventType,
+  ProviderAuditStatus,
+  ProviderCredentialStatus,
+  ProviderCredentialRecord,
+  ProviderModelCacheRecord,
+  ProviderModelCacheStore,
+  PreferenceStore,
+  ProviderQuotaStore,
+  SetCredentialInput,
+  UserScopedCacheKey,
+} from "./providers/types.js";
+export {
+  PROVIDER_AUDIT_EVENT_TYPES,
+  PROVIDER_AUDIT_STATUSES,
+  PROVIDER_CREDENTIAL_STATUSES,
+  buildProviderAuditEventTypeSqlList,
+  buildProviderAuditStatusSqlList,
+  buildProviderCredentialStatusSqlList,
+} from "./providers/types.js";
 export type {
   RepositoryRecord,
   SelectWorkspaceInput,
@@ -68,6 +109,12 @@ export {
   authSessions,
   oauthTokens,
   repos,
+  providerCredentials,
+  providerPreferences,
+  providerAuditEvents,
+  providerAxisQuota,
+  providerRegistryCache,
+  providerUserModelCache,
   runtimeEventInbox,
   users,
   workspaces,

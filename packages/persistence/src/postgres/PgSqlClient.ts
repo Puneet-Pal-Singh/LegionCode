@@ -1,6 +1,8 @@
-import { Client } from "pg";
-import type { QueryResult, QueryResultRow } from "pg";
+import { Client, Pool } from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
+
+const postgresPools = new Map<string, Pool>();
 
 export interface PgConnection {
   connect(): Promise<unknown>;
@@ -18,14 +20,19 @@ export class PgSqlClient implements SqlClient {
     statement: string,
     params?: readonly SqlValue[],
   ): Promise<SqlQueryResult<Row>> {
-    const result = await this.connection.query(statement, params);
+    const result = await this.connection.query(
+      statement,
+      toQueryParams(params),
+    );
     return {
       rows: result.rows as Row[],
       rowCount: result.rowCount ?? result.rows.length,
     };
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     await this.query("BEGIN");
     try {
       const result = await callback(this);
@@ -42,6 +49,31 @@ export class PgSqlClient implements SqlClient {
   }
 }
 
+export class PgPoolSqlClient implements SqlClient {
+  constructor(private readonly pool: Pool) {}
+
+  async query<Row extends SqlRow = SqlRow>(
+    statement: string,
+    params?: readonly SqlValue[],
+  ): Promise<SqlQueryResult<Row>> {
+    const result = await this.pool.query(statement, toQueryParams(params));
+    return mapQueryResult<Row>(result);
+  }
+
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
+    const connection = await this.pool.connect();
+    try {
+      return await new PgSqlClient(
+        new PgPoolConnection(connection),
+      ).transaction(callback);
+    } finally {
+      connection.release();
+    }
+  }
+}
+
 function attachRollbackError(error: unknown, rollbackError: unknown): void {
   if (error instanceof Error) {
     error.cause ??= rollbackError;
@@ -50,14 +82,78 @@ function attachRollbackError(error: unknown, rollbackError: unknown): void {
 
 export async function withPostgresSqlClient<T>(
   connectionString: string,
-  callback: (client: SqlClient) => Promise<T>,
+  callback: (client: PgSqlClient) => Promise<T>,
 ): Promise<T> {
-  const connection = new Client({ connectionString });
-  await connection.connect();
-
+  const client = new Client({ connectionString });
+  await client.connect();
   try {
-    return await callback(new PgSqlClient(connection));
+    return await callback(new PgSqlClient(new PgClientConnection(client)));
   } finally {
-    await connection.end();
+    await client.end();
   }
+}
+
+export function createPostgresSqlClient(connectionString: string): SqlClient {
+  return new PgPoolSqlClient(getPostgresPool(connectionString));
+}
+
+function getPostgresPool(connectionString: string): Pool {
+  const existing = postgresPools.get(connectionString);
+  if (existing) {
+    return existing;
+  }
+  const pool = new Pool({ connectionString });
+  postgresPools.set(connectionString, pool);
+  return pool;
+}
+
+class PgClientConnection implements PgConnection {
+  constructor(private readonly client: Client) {}
+
+  async connect(): Promise<unknown> {
+    return await this.client.connect();
+  }
+
+  async end(): Promise<void> {
+    await this.client.end();
+  }
+
+  async query<Row extends QueryResultRow = QueryResultRow>(
+    statement: string,
+    params?: readonly unknown[],
+  ): Promise<QueryResult<Row>> {
+    return await this.client.query<Row>(statement, toQueryParams(params));
+  }
+}
+
+class PgPoolConnection implements PgConnection {
+  constructor(private readonly connection: PoolClient) {}
+
+  async connect(): Promise<unknown> {
+    return undefined;
+  }
+
+  async end(): Promise<void> {
+    this.connection.release();
+  }
+
+  async query<Row extends QueryResultRow = QueryResultRow>(
+    statement: string,
+    params?: readonly unknown[],
+  ): Promise<QueryResult<Row>> {
+    return await this.connection.query<Row>(statement, toQueryParams(params));
+  }
+}
+
+function toQueryParams(params?: readonly unknown[]): unknown[] | undefined {
+  return params ? [...params] : undefined;
+}
+
+function mapQueryResult<Row extends SqlRow>(
+  result: QueryResult<QueryResultRow>,
+): SqlQueryResult<Row> {
+  return {
+    rows: result.rows as Row[],
+    rowCount: result.rowCount ?? result.rows.length,
+  };
 }
