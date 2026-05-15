@@ -61,7 +61,7 @@ export function AppShell({
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <WorkspaceHeader
           sessionName={activeSession?.name}
-          repository={activeSession?.repository}
+          repository={activeSession?.repository ?? undefined}
         />
         <div className="flex-1 overflow-auto bg-black">
           {children}

@@ -10,6 +10,7 @@ import type {
   TranscriptMessageRecord,
   TranscriptRepository,
 } from "./types.js";
+import { assertHasParts, firstSequence, lastSequence } from "./transcriptUtils.js";
 
 interface Clock {
   now(): Date;
@@ -205,18 +206,4 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     this.messageIdByDedupeKeyBySessionId.set(sessionId, created);
     return created;
   }
-}
-
-function assertHasParts(parts: AppendExistingTranscriptMessageInput["parts"]): void {
-  if (parts.length === 0) {
-    throw new Error("Transcript message must contain at least one part");
-  }
-}
-
-function firstSequence(message: TranscriptMessageRecord): number {
-  return Math.min(...message.parts.map((part) => part.sessionSequence));
-}
-
-function lastSequence(message: TranscriptMessageRecord): number {
-  return Math.max(...message.parts.map((part) => part.sessionSequence));
 }

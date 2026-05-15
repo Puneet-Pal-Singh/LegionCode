@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   check,
+  foreignKey,
   index,
   jsonb,
   pgTable,
@@ -88,6 +89,7 @@ export const messages = pgTable(
   },
   (table) => [
     check("messages_role_check", sql.raw(`role IN (${buildMessageRoleSqlList()})`)),
+    uniqueIndex("messages_id_session_idx").on(table.id, table.sessionId),
     uniqueIndex("messages_session_dedupe_idx").on(table.sessionId, table.dedupeKey),
     index("messages_session_created_idx").on(table.sessionId, table.createdAt),
     index("messages_run_idx").on(table.runId),
@@ -101,9 +103,7 @@ export const messageParts = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    messageId: uuid("message_id")
-      .notNull()
-      .references(() => messages.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").notNull(),
     runId: uuid("run_id"),
     partType: text("part_type").notNull(),
     sessionSequence: bigint("session_sequence", { mode: "number" }).notNull(),
@@ -112,6 +112,11 @@ export const messageParts = pgTable(
   },
   (table) => [
     check("message_parts_type_check", sql.raw(`part_type IN (${buildMessagePartTypeSqlList()})`)),
+    foreignKey({
+      columns: [table.messageId, table.sessionId],
+      foreignColumns: [messages.id, messages.sessionId],
+      name: "message_parts_message_session_fk",
+    }).onDelete("cascade"),
     uniqueIndex("message_parts_session_sequence_idx").on(
       table.sessionId,
       table.sessionSequence,

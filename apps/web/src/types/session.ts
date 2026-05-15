@@ -34,8 +34,8 @@ export interface AgentSession {
   /** Session display name */
   name: string;
 
-  /** Repository this session is tied to */
-  repository: string;
+  /** Repository this session is tied to, if one has been selected */
+  repository: string | null;
 
   /** Active run ID within this session (execution context) */
   activeRunId: string;

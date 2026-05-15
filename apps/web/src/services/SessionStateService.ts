@@ -493,7 +493,6 @@ export class SessionStateService {
     const checks = [
       { name: "id", pass: !!session.id },
       { name: "name", pass: !!session.name },
-      { name: "repository", pass: !!session.repository },
       { name: "activeRunId", pass: !!session.activeRunId },
       { name: "runIds", pass: Array.isArray(session.runIds) },
       {
@@ -507,6 +506,10 @@ export class SessionStateService {
       {
         name: "activeRunId-in-runIds",
         pass: session.runIds.includes(session.activeRunId),
+      },
+      {
+        name: "repository",
+        pass: session.repository === null || session.repository.trim().length > 0,
       },
       { name: "updatedAt", pass: !!session.updatedAt },
     ];
@@ -541,7 +544,7 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
   return {
     id: session.id,
     name: session.title,
-    repository: session.repository ?? "New Project",
+    repository: session.repository,
     activeRunId: session.activeRunId,
     runIds: [session.activeRunId],
     status: mapServerStatus(session.status),

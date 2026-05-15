@@ -16,6 +16,7 @@ import type {
   TranscriptMessageRole,
   TranscriptRepository,
 } from "./types.js";
+import { assertHasParts, firstSequence } from "./transcriptUtils.js";
 
 interface Clock {
   now(): Date;
@@ -265,12 +266,6 @@ function mapUniqueTasks(rows: TranscriptRow[]): TaskRecord[] {
   return Array.from(tasks.values());
 }
 
-function assertHasParts(parts: AppendExistingTranscriptMessageInput["parts"]): void {
-  if (parts.length === 0) {
-    throw new Error("Transcript message must contain at least one part");
-  }
-}
-
 function groupMessages(rows: TranscriptRow[]): TranscriptMessageRecord[] {
   const messages = new Map<string, TranscriptMessageRecord>();
   for (const row of rows) {
@@ -426,10 +421,6 @@ function toNumber(value: number | string | undefined): number {
     return Number(value);
   }
   throw new Error("Missing numeric column");
-}
-
-function firstSequence(message: TranscriptMessageRecord): number {
-  return Math.min(...message.parts.map((part) => part.sessionSequence));
 }
 
 const TASK_COLUMNS = `

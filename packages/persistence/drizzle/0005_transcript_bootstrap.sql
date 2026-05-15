@@ -49,8 +49,9 @@ CREATE TABLE "tasks" (
 	CONSTRAINT "tasks_status_check" CHECK (status IN ('active', 'archived'))
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "messages_id_session_idx" ON "messages" USING btree ("id","session_id");--> statement-breakpoint
 ALTER TABLE "message_parts" ADD CONSTRAINT "message_parts_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "message_parts" ADD CONSTRAINT "message_parts_message_id_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "message_parts" ADD CONSTRAINT "message_parts_message_session_fk" FOREIGN KEY ("message_id","session_id") REFERENCES "public"."messages"("id","session_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "messages" ADD CONSTRAINT "messages_session_id_sessions_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "sessions" ADD CONSTRAINT "sessions_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint

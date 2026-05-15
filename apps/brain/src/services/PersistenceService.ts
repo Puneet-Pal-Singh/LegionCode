@@ -39,10 +39,10 @@ export class PersistenceService {
           ? message.content
           : JSON.stringify(message.content);
 
-      const idempotencyKey = await this.generateIdempotencyKey(
+      const idempotencyKey = await this.generateMessageIdempotencyKey(
         sessionId,
         runId,
-        message.role,
+        message,
         content,
       );
 
@@ -91,15 +91,15 @@ export class PersistenceService {
     runId: string,
     messages: CoreMessage[],
   ): Promise<void> {
-    for (const [index, message] of messages.entries()) {
+    for (const message of messages) {
       const content =
         typeof message.content === "string"
           ? message.content
           : JSON.stringify(message.content);
-      const idempotencyKey = await this.generateIdempotencyKey(
+      const idempotencyKey = await this.generateMessageIdempotencyKey(
         sessionId,
         runId,
-        `${message.role}:${index}`,
+        message,
         content,
       );
       await this.persistMessage({
@@ -148,6 +148,20 @@ export class PersistenceService {
         parts,
       });
     });
+  }
+
+  private async generateMessageIdempotencyKey(
+    sessionId: string,
+    runId: string,
+    message: CoreMessage,
+    content: string,
+  ): Promise<string> {
+    return await this.generateIdempotencyKey(
+      sessionId,
+      runId,
+      readClientMessageId(message) ?? message.role,
+      content,
+    );
   }
 }
 

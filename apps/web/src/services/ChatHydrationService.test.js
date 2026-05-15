@@ -50,7 +50,7 @@ describe("ChatHydrationService", () => {
     expect(secondUrl.searchParams.get("cursor")).toBe("cursor-page-2");
   });
 
-  it("supports legacy array chat history responses", async () => {
+  it("rejects legacy array chat history responses", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify([
@@ -68,8 +68,8 @@ describe("ChatHydrationService", () => {
       "123e4567-e89b-42d3-a456-426614174001",
     );
 
-    expect(result.error).toBeUndefined();
-    expect(result.messages).toHaveLength(2);
+    expect(result.messages).toHaveLength(0);
+    expect(result.error).toBe("Invalid history format");
   });
 
   it("returns a hydration error for invalid history response shape", async () => {

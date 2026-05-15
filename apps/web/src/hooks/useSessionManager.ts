@@ -49,9 +49,13 @@ function mergeSessions(
 
 function mergeRepositories(
   currentRepositories: string[],
-  serverRepositories: string[],
+  serverRepositories: Array<string | null>,
 ): string[] {
-  return Array.from(new Set([...currentRepositories, ...serverRepositories]));
+  const normalizedServerRepositories = serverRepositories.filter(
+    (repository): repository is string =>
+      repository !== null && repository.trim().length > 0,
+  );
+  return Array.from(new Set([...currentRepositories, ...normalizedServerRepositories]));
 }
 
 export function useSessionManager() {
@@ -82,6 +86,25 @@ export function useSessionManager() {
     SessionStateService.saveActiveSessionId(activeSessionId, sessionsMap);
   }, [activeSessionId, sessions]);
 
+  const [repositories, setRepositories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("shadowbox_repositories");
+      const parsed = saved ? JSON.parse(saved) : [];
+
+      if (Array.isArray(parsed)) return parsed;
+      return [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(
+      "shadowbox_repositories",
+      JSON.stringify(repositories),
+    );
+  }, [repositories]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -111,25 +134,6 @@ export function useSessionManager() {
       cancelled = true;
     };
   }, []);
-
-  const [repositories, setRepositories] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem("shadowbox_repositories");
-      const parsed = saved ? JSON.parse(saved) : [];
-
-      if (Array.isArray(parsed)) return parsed;
-      return [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(
-      "shadowbox_repositories",
-      JSON.stringify(repositories),
-    );
-  }, [repositories]);
 
   /**
    * Create a new session with v2 schema

@@ -371,15 +371,17 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "message_parts_message_id_messages_id_fk": {
-          "name": "message_parts_message_id_messages_id_fk",
+        "message_parts_message_session_fk": {
+          "name": "message_parts_message_session_fk",
           "tableFrom": "message_parts",
           "tableTo": "messages",
           "columnsFrom": [
-            "message_id"
+            "message_id",
+            "session_id"
           ],
           "columnsTo": [
-            "id"
+            "id",
+            "session_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -446,6 +448,27 @@
         }
       },
       "indexes": {
+        "messages_id_session_idx": {
+          "name": "messages_id_session_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "messages_session_dedupe_idx": {
           "name": "messages_session_dedupe_idx",
           "columns": [

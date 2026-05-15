@@ -81,6 +81,10 @@ export const transcriptBootstrapMigration: SqlMigration = {
       )
     `,
     `
+      CREATE UNIQUE INDEX IF NOT EXISTS messages_id_session_idx
+        ON messages (id, session_id)
+    `,
+    `
       CREATE UNIQUE INDEX IF NOT EXISTS messages_session_dedupe_idx
         ON messages (session_id, dedupe_key)
     `,
@@ -96,12 +100,14 @@ export const transcriptBootstrapMigration: SqlMigration = {
       CREATE TABLE IF NOT EXISTS message_parts (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        message_id UUID NOT NULL,
         run_id UUID,
         part_type TEXT NOT NULL,
         session_sequence BIGINT NOT NULL,
         content_json JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT message_parts_message_session_fk
+          FOREIGN KEY (message_id, session_id) REFERENCES messages(id, session_id) ON DELETE CASCADE,
         CONSTRAINT message_parts_type_check
           CHECK (part_type IN (${MESSAGE_PART_TYPE_SQL_LIST}))
       )
