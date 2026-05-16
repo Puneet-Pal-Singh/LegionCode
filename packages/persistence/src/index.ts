@@ -24,6 +24,7 @@ export { identitySessionBootstrapMigration } from "./migrations/0002-identity-se
 export { workspaceBootstrapMigration } from "./migrations/0003-workspace-bootstrap.js";
 export { providerStateBootstrapMigration } from "./migrations/0004-provider-state-bootstrap.js";
 export { transcriptBootstrapMigration } from "./migrations/0005-transcript-bootstrap.js";
+export { runBootstrapMigration } from "./migrations/0006-run-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -45,6 +46,8 @@ export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepositor
 export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
 export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepository.js";
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
+export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
+export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export {
   PostgresCredentialStore,
   PostgresPreferenceStore,
@@ -114,6 +117,7 @@ export type {
   TaskStatus,
   TranscriptMessagePartRecord,
   TranscriptMessagePartType,
+  TranscriptMessagePartType as MessagePartType,
   TranscriptMessageRecord,
   TranscriptMessageRole,
   TranscriptRepository,
@@ -134,6 +138,26 @@ export type {
   RuntimeEventInboxRepository,
   RuntimeEventInboxStatus,
 } from "./runtime-events/types.js";
+
+export type {
+  RunRecord,
+  RunStatus,
+  RunStepRecord,
+  RunStepStatus,
+  RunEventRecord,
+  EnsureRunInput,
+  UpdateRunStatusInput,
+  AppendRunEventInput,
+  RunRepository,
+} from "./runs/types.js";
+
+export {
+  RUN_STATUSES,
+  RUN_STEP_STATUSES,
+  buildRunStatusSqlList,
+  buildRunStepStatusSqlList,
+} from "./runs/types.js";
+
 export {
   accounts,
   authSessions,
@@ -153,4 +177,7 @@ export {
   users,
   workspaces,
   workspaceSelections,
+  runs,
+  runSteps,
+  runEvents,
 } from "./schema/index.js";
