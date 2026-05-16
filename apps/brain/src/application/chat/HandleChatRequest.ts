@@ -162,6 +162,14 @@ export class HandleChatRequest {
           sessionId,
           runId,
           lastUserMessage,
+          {
+            userId,
+            workspaceId,
+            repository:
+              repositoryOwner && repositoryName
+                ? `${repositoryOwner}/${repositoryName}`
+                : undefined,
+          },
         );
       } catch (persistError) {
         console.warn(

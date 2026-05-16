@@ -18,6 +18,7 @@ describe("SessionStateService", () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -45,6 +46,55 @@ describe("SessionStateService", () => {
       localStorage.setItem("shadowbox:sessions:v2", "invalid json");
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
+    });
+  });
+
+  describe("Server Session Hydration", () => {
+    it("hydrates canonical sessions from Brain", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            sessions: [
+              {
+                id: "550e8400-e29b-41d4-a716-446655440000",
+                title: "Server Task",
+                repository: "acme/legioncode",
+                activeRunId: "550e8400-e29b-41d4-a716-446655440001",
+                mode: "build",
+                status: "failed",
+                updatedAt: "2026-05-15T00:00:00.000Z",
+              },
+            ],
+          }),
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const sessions = await SessionStateService.hydrateSessionsFromServer();
+
+      const session = sessions["550e8400-e29b-41d4-a716-446655440000"];
+      expect(session?.name).toBe("Server Task");
+      expect(session?.status).toBe("error");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/sessions"),
+        { credentials: "include" },
+      );
+    });
+
+    it("persists created sessions to Brain", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 201 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const session = SessionStateService.createSession("Task", "repo");
+
+      await SessionStateService.persistSession(session);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/sessions"),
+        expect.objectContaining({
+          method: "POST",
+          credentials: "include",
+        }),
+      );
     });
   });
 

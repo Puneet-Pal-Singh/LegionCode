@@ -136,7 +136,7 @@ export function AgentSidebar({
     const combined = new Set<string>();
     repositories.forEach((repository) => combined.add(repository));
     sessions.forEach((session) => {
-      const normalizedRepository = session.repository.trim();
+      const normalizedRepository = session.repository?.trim() ?? "";
       if (normalizedRepository.length > 0) {
         combined.add(normalizedRepository);
       }

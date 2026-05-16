@@ -51,6 +51,9 @@ dist/
 .archive/
 *.tsbuildinfo
 
+# Generated review artifacts
+scripts/
+
 # Internal planning files
 local/
 tasks/

@@ -36,6 +36,13 @@
       "when": 1778839386708,
       "tag": "0004_provider_state_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778866794447,
+      "tag": "0005_transcript_bootstrap",
+      "breakpoints": true
     }
   ]
 }

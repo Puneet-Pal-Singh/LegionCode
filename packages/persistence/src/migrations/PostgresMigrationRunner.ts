@@ -19,6 +19,7 @@ export class PostgresMigrationRunner implements MigrationRunner {
     const skipped: string[] = [];
 
     await this.client.transaction(async (tx) => {
+      await acquireMigrationLock(tx);
       await this.ledger.ensureReady(tx);
 
       for (const migration of migrations) {
@@ -35,6 +36,12 @@ export class PostgresMigrationRunner implements MigrationRunner {
 
     return { applied, skipped };
   }
+}
+
+async function acquireMigrationLock(client: SqlClient): Promise<void> {
+  await client.query(
+    "SELECT pg_advisory_xact_lock(hashtext('shadowbox:persistence:migrations')::bigint)",
+  );
 }
 
 async function applyMigration(

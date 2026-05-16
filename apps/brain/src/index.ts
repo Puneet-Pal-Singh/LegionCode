@@ -8,6 +8,7 @@ import { ProviderController } from "./controllers/ProviderController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
+import { TranscriptController } from "./controllers/TranscriptController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -76,6 +77,11 @@ function createRouter(): Router {
     ChatController.handleLegacyRoute,
     "POST",
   );
+  router.add(
+    /^\/api\/chat\/history$/,
+    TranscriptController.getHistory,
+    "GET",
+  );
   router.add(/\/chat/, ChatController.handle, "POST");
   router.add(
     /^\/api\/debug\/runtime$/,
@@ -112,6 +118,8 @@ function createRouter(): Router {
     WorkspaceController.selectWorkspace,
     "POST",
   );
+  router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
+  router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
 
   // Git local routes (for sidebar)
   router.add(/\/api\/git\/status/, GitController.getStatus);

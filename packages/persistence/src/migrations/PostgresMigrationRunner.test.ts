@@ -62,7 +62,10 @@ describe("PostgresMigrationRunner", () => {
       applied: ["0002_pending"],
       skipped: ["0001_done"],
     });
-    expect(client.statements).toEqual(["SELECT 2"]);
+    expect(client.statements).toEqual([
+      "SELECT pg_advisory_xact_lock(hashtext('shadowbox:persistence:migrations')::bigint)",
+      "SELECT 2",
+    ]);
     expect(ledger.recorded).toEqual(["0002_pending"]);
   });
 

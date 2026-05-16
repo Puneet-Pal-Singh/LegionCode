@@ -225,7 +225,7 @@ function AppContent() {
         title: session.name,
         status,
         updatedAt,
-        repository: session.repository,
+        repository: session.repository ?? "No repository",
       };
     });
   };
@@ -470,7 +470,7 @@ function AppContent() {
   const hasProviderConnection = isAuthenticated && credentials.length > 0;
   const hasRealSession = sessions.length > 0;
   const hasRepoContext = sessions.some(
-    (session) => session.repository.trim().length > 0,
+    (session) => (session.repository?.trim() ?? "").length > 0,
   );
   const hasSetupRun = Boolean(setupSession?.activeRunId);
   const shellStartupState = useMemo(

@@ -15,6 +15,7 @@
  */
 
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
+import { sessionsPath } from "../lib/platform-endpoints";
 import type {
   AgentSession,
   SessionStatus,
@@ -30,6 +31,20 @@ const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 type StoredAgentSession = Omit<AgentSession, "mode"> & {
   mode?: RunMode;
 };
+
+interface ServerSessionRecord {
+  id: string;
+  title: string;
+  repository: string | null;
+  activeRunId: string | null;
+  mode: RunMode;
+  status: "idle" | "running" | "completed" | "failed";
+  updatedAt: string;
+}
+
+interface ServerSessionsResponse {
+  sessions: ServerSessionRecord[];
+}
 
 function getSessionContextKey(sessionId: string): string {
   return `shadowbox:session-context:${sessionId}`;
@@ -103,6 +118,46 @@ export class SessionStateService {
       localStorage.setItem(SESSIONS_KEY, JSON.stringify(schema));
     } catch (e) {
       console.error("[SessionStateService] Failed to save sessions:", e);
+    }
+  }
+
+  static async hydrateSessionsFromServer(): Promise<Record<string, AgentSession>> {
+    const response = await fetch(sessionsPath(), { credentials: "include" });
+    if (!response.ok) {
+      throw new Error(`Session hydration failed: ${response.status}`);
+    }
+
+    const payload = (await response.json()) as Partial<ServerSessionsResponse>;
+    if (!Array.isArray(payload.sessions)) {
+      throw new Error("Invalid session hydration response");
+    }
+
+    return Object.fromEntries(
+      payload.sessions
+        .map(mapServerSession)
+        .filter((session): session is AgentSession => session !== null)
+        .map((session) => [session.id, session]),
+    );
+  }
+
+  static async persistSession(session: AgentSession): Promise<void> {
+    const response = await fetch(sessionsPath(), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: session.id,
+        runId: session.activeRunId,
+        title: session.name,
+        repository: session.repository,
+        mode: session.mode,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Session persistence failed: ${response.status}`);
     }
   }
 
@@ -438,7 +493,6 @@ export class SessionStateService {
     const checks = [
       { name: "id", pass: !!session.id },
       { name: "name", pass: !!session.name },
-      { name: "repository", pass: !!session.repository },
       { name: "activeRunId", pass: !!session.activeRunId },
       { name: "runIds", pass: Array.isArray(session.runIds) },
       {
@@ -452,6 +506,10 @@ export class SessionStateService {
       {
         name: "activeRunId-in-runIds",
         pass: session.runIds.includes(session.activeRunId),
+      },
+      {
+        name: "repository",
+        pass: session.repository === null || session.repository.trim().length > 0,
       },
       { name: "updatedAt", pass: !!session.updatedAt },
     ];
@@ -476,4 +534,28 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
     ...session,
     mode: session.mode ?? DEFAULT_RUN_MODE,
   };
+}
+
+function mapServerSession(session: ServerSessionRecord): AgentSession | null {
+  if (!session.activeRunId) {
+    return null;
+  }
+
+  return {
+    id: session.id,
+    name: session.title,
+    repository: session.repository,
+    activeRunId: session.activeRunId,
+    runIds: [session.activeRunId],
+    status: mapServerStatus(session.status),
+    mode: session.mode ?? DEFAULT_RUN_MODE,
+    updatedAt: session.updatedAt,
+  };
+}
+
+function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
+  if (status === "failed") {
+    return "error";
+  }
+  return status;
 }

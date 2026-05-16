@@ -23,6 +23,7 @@ export {
 export { identitySessionBootstrapMigration } from "./migrations/0002-identity-session-bootstrap.js";
 export { workspaceBootstrapMigration } from "./migrations/0003-workspace-bootstrap.js";
 export { providerStateBootstrapMigration } from "./migrations/0004-provider-state-bootstrap.js";
+export { transcriptBootstrapMigration } from "./migrations/0005-transcript-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -42,6 +43,8 @@ export { MemoryIdentitySessionRepository } from "./identity/MemoryIdentitySessio
 export { PostgresIdentitySessionRepository } from "./identity/PostgresIdentitySessionRepository.js";
 export { MemoryWorkspaceRepository } from "./workspaces/MemoryWorkspaceRepository.js";
 export { PostgresWorkspaceRepository } from "./workspaces/PostgresWorkspaceRepository.js";
+export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepository.js";
+export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export {
   PostgresCredentialStore,
   PostgresPreferenceStore,
@@ -99,6 +102,33 @@ export type {
 } from "./workspaces/types.js";
 export { WORKSPACE_STATUSES } from "./workspaces/types.js";
 export type {
+  AppendExistingTranscriptMessageInput,
+  AppendTranscriptMessageInput,
+  EnsureTranscriptSessionInput,
+  ListSessionsResult,
+  ListTranscriptInput,
+  ListTranscriptResult,
+  SessionRecord,
+  SessionStatus,
+  TaskRecord,
+  TaskStatus,
+  TranscriptMessagePartRecord,
+  TranscriptMessagePartType,
+  TranscriptMessageRecord,
+  TranscriptMessageRole,
+  TranscriptRepository,
+} from "./sessions/types.js";
+export {
+  MESSAGE_PART_TYPES,
+  MESSAGE_ROLES,
+  SESSION_STATUSES,
+  TASK_STATUSES,
+  buildMessagePartTypeSqlList,
+  buildMessageRoleSqlList,
+  buildSessionStatusSqlList,
+  buildTaskStatusSqlList,
+} from "./sessions/types.js";
+export type {
   RuntimeEventInboxAcceptResult,
   RuntimeEventInboxEntry,
   RuntimeEventInboxRepository,
@@ -116,6 +146,10 @@ export {
   providerRegistryCache,
   providerUserModelCache,
   runtimeEventInbox,
+  messageParts,
+  messages,
+  sessions,
+  tasks,
   users,
   workspaces,
   workspaceSelections,

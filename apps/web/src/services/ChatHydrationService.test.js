@@ -43,14 +43,16 @@ describe("ChatHydrationService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstUrl = new URL(fetchMock.mock.calls[0]?.[0]);
     const secondUrl = new URL(fetchMock.mock.calls[1]?.[0]);
-    // runId is now in the URL path via chatHistoryPath(runId)
-    expect(firstUrl.pathname).toContain(`/api/chat/history/${runId}`);
+    // runId is now a query param via chatHistoryPath(runId)
+    expect(firstUrl.pathname).toBe("/api/chat/history");
+    expect(firstUrl.searchParams.get("runId")).toBe(runId);
     expect(firstUrl.searchParams.get("session")).toBe(sessionId);
-    expect(secondUrl.pathname).toContain(`/api/chat/history/${runId}`);
+    expect(secondUrl.pathname).toBe("/api/chat/history");
+    expect(secondUrl.searchParams.get("runId")).toBe(runId);
     expect(secondUrl.searchParams.get("cursor")).toBe("cursor-page-2");
   });
 
-  it("supports legacy array chat history responses", async () => {
+  it("rejects legacy array chat history responses", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify([
@@ -68,8 +70,8 @@ describe("ChatHydrationService", () => {
       "123e4567-e89b-42d3-a456-426614174001",
     );
 
-    expect(result.error).toBeUndefined();
-    expect(result.messages).toHaveLength(2);
+    expect(result.messages).toHaveLength(0);
+    expect(result.error).toBe("Invalid history format");
   });
 
   it("returns a hydration error for invalid history response shape", async () => {

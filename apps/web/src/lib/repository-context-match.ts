@@ -3,7 +3,7 @@ export interface SessionRepositoryContextLike {
   repoName?: string;
 }
 
-export function normalizeRepositoryIdentifier(value: string | undefined): string {
+export function normalizeRepositoryIdentifier(value: string | null | undefined): string {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return "";
@@ -27,7 +27,7 @@ export function normalizeRepositoryIdentifier(value: string | undefined): string
     .toLowerCase();
 }
 
-export function extractRepositoryName(identifier: string | undefined): string {
+export function extractRepositoryName(identifier: string | null | undefined): string {
   const normalizedIdentifier = normalizeRepositoryIdentifier(identifier);
   if (!normalizedIdentifier) {
     return "";
@@ -38,8 +38,8 @@ export function extractRepositoryName(identifier: string | undefined): string {
 }
 
 export function doesRepositorySelectionMatch(
-  expectedRepository: string | undefined,
-  actualFullName: string | undefined,
+  expectedRepository: string | null | undefined,
+  actualFullName: string | null | undefined,
 ): boolean {
   const normalizedExpected = normalizeRepositoryIdentifier(expectedRepository);
   const normalizedActual = normalizeRepositoryIdentifier(actualFullName);
@@ -63,7 +63,7 @@ export function doesRepositorySelectionMatch(
 }
 
 export function doesSessionContextMatchRepository(
-  expectedRepository: string | undefined,
+  expectedRepository: string | null | undefined,
   context: SessionRepositoryContextLike,
 ): boolean {
   const normalizedExpected = normalizeRepositoryIdentifier(expectedRepository);
