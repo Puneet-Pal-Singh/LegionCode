@@ -171,9 +171,24 @@ export class HandleChatRequest {
                 : undefined,
           },
         );
+
+        // PR6: Ensure run record exists
+        if (userId) {
+          await this.persistenceService.ensureRun({
+            id: runId,
+            userId,
+            workspaceId: workspaceId ?? null,
+            sessionId,
+            taskId: sessionId, // For now taskId is same as sessionId if not provided
+            mode,
+            providerId: input.providerId ?? null,
+            modelId: input.modelId ?? null,
+            branch: repositoryBranch ?? null,
+          });
+        }
       } catch (persistError) {
         console.warn(
-          `[chat/usecase] ${correlationId}: Failed to persist user message:`,
+          `[chat/usecase] ${correlationId}: Failed to persist initial state:`,
           persistError,
         );
         // Don't fail the request if persistence fails
