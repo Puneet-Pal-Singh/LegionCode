@@ -10,9 +10,17 @@ export function assertHasParts(parts: AppendExistingTranscriptMessageInput["part
 }
 
 export function firstSequence(message: TranscriptMessageRecord): number {
+  if (message.parts.length === 0) {
+    return 0;
+  }
+
   return Math.min(...message.parts.map((part) => part.sessionSequence));
 }
 
 export function lastSequence(message: TranscriptMessageRecord): number {
+  if (message.parts.length === 0) {
+    return 0;
+  }
+
   return Math.max(...message.parts.map((part) => part.sessionSequence));
 }
