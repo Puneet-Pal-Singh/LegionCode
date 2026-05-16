@@ -1,6 +1,6 @@
 import type { JsonValue } from "@repo/shared-types";
 
-import type { SqlClient, SqlRow } from "../sql.js";
+import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
 import type {
   AppendExistingTranscriptMessageInput,
   AppendTranscriptMessageInput,
@@ -269,7 +269,7 @@ async function insertMessageParts(
   startSequence: number,
   now: Date,
 ): Promise<TranscriptMessagePartRecord[]> {
-  const values: any[] = [];
+  const values: SqlValue[] = [];
   const placeholders: string[] = [];
   let paramIdx = 1;
 

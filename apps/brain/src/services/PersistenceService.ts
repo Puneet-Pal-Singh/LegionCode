@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
 import type { JsonValue } from "@repo/shared-types";
+import type { TranscriptRepository } from "@repo/persistence";
 import { pruneToolResults } from "@shadowbox/context-pruner";
 import { Env } from "../types/ai";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
