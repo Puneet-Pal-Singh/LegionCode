@@ -109,7 +109,7 @@ describe("Platform Endpoints", () => {
 
     it("should build chat history path with runId", () => {
       expect(chatHistoryPath("run-123")).toBe(
-        "https://brain.local/api/chat/history/run-123",
+        "https://brain.local/api/chat/history?runId=run-123",
       );
     });
 
@@ -133,7 +133,7 @@ describe("Platform Endpoints", () => {
 
     it("should encode runId in chat history path", () => {
       expect(chatHistoryPath("run/with/slashes")).toBe(
-        "https://brain.local/api/chat/history/run%2Fwith%2Fslashes",
+        "https://brain.local/api/chat/history?runId=run%2Fwith%2Fslashes",
       );
     });
 
