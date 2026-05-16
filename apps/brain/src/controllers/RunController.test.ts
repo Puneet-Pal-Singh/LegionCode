@@ -3,9 +3,19 @@ import type { Env } from "../types/ai";
 
 const runtimeHelpers = vi.hoisted(() => ({
   fetchRunRuntimeRoute: vi.fn(),
+  withRunRepository: vi.fn((_env, callback) => callback({
+    getRun: vi.fn().mockResolvedValue(null),
+    listRunEvents: vi.fn().mockResolvedValue([]),
+  })),
 }));
 
-vi.mock("./chat-runtime-helpers", () => runtimeHelpers);
+vi.mock("./chat-runtime-helpers", () => ({
+  fetchRunRuntimeRoute: runtimeHelpers.fetchRunRuntimeRoute,
+}));
+
+vi.mock("../services/runs/RunPersistenceFactory", () => ({
+  withRunRepository: runtimeHelpers.withRunRepository,
+}));
 
 import { RunController } from "./RunController";
 

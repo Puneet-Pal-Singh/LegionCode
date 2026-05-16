@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
+import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
@@ -47,6 +48,27 @@ export class RunController {
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
+      }
+
+      // PR6: Hydrate summary from Postgres
+      const summary = await withRunRepository(env, async (repo) => {
+        const run = await repo.getRun(runId);
+        if (!run) return null;
+
+        return {
+          runId: run.id,
+          status: run.status,
+          totalTasks: 0,
+          completedTasks: 0,
+          failedTasks: 0,
+          runningTasks: 0,
+          pendingTasks: 0,
+          cancelledTasks: 0,
+        };
+      });
+
+      if (summary) {
+        return jsonResponse(req, env, summary);
       }
 
       const response = await fetchRunSummaryFromRuntime(
@@ -152,6 +174,15 @@ export class RunController {
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
+      }
+
+      // PR6: Fetch events from Postgres
+      const events = await withRunRepository(env, async (repo) => {
+        return await repo.listRunEvents(runId);
+      });
+
+      if (events.length > 0) {
+        return jsonResponse(req, env, events);
       }
 
       const response = await fetchRunEventsFromRuntime(
