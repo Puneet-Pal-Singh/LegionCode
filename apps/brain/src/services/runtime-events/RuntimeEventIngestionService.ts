@@ -8,6 +8,8 @@ import type {
 } from "@repo/persistence";
 import { ParseError, ValidationError } from "../../domain/errors";
 import type { RuntimeEventSignatureVerifier } from "./RuntimeEventSignatureVerifier";
+import { RuntimeEventProcessor } from "./RuntimeEventProcessor";
+import type { Env } from "../../types/ai";
 
 export interface RuntimeEventIngestionInput {
   rawBody: string;
@@ -15,10 +17,15 @@ export interface RuntimeEventIngestionInput {
 }
 
 export class RuntimeEventIngestionService {
+  private processor: RuntimeEventProcessor;
+
   constructor(
     private readonly repository: RuntimeEventInboxRepository,
     private readonly verifier: RuntimeEventSignatureVerifier,
-  ) {}
+    env: Env,
+  ) {
+    this.processor = new RuntimeEventProcessor(env);
+  }
 
   async accept(
     input: RuntimeEventIngestionInput,
@@ -29,7 +36,20 @@ export class RuntimeEventIngestionService {
     });
 
     const event = parseRuntimeEvent(input.rawBody);
-    return this.repository.accept(event);
+    const result = await this.repository.accept(event);
+
+    // If it was inserted (new event), process it
+    if (result.inserted) {
+      try {
+        await this.processor.process(event);
+      } catch (error) {
+        console.error("[RuntimeEventIngestionService] Processing failed:", error);
+        // We still accepted it into the inbox, but domain persistence failed.
+        // In a real system, we'd have a background worker retrying this.
+      }
+    }
+
+    return result;
   }
 }
 
