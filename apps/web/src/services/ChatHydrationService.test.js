@@ -43,10 +43,12 @@ describe("ChatHydrationService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const firstUrl = new URL(fetchMock.mock.calls[0]?.[0]);
     const secondUrl = new URL(fetchMock.mock.calls[1]?.[0]);
-    // runId is now in the URL path via chatHistoryPath(runId)
-    expect(firstUrl.pathname).toContain(`/api/chat/history/${runId}`);
+    // runId is now a query param via chatHistoryPath(runId)
+    expect(firstUrl.pathname).toBe("/api/chat/history");
+    expect(firstUrl.searchParams.get("runId")).toBe(runId);
     expect(firstUrl.searchParams.get("session")).toBe(sessionId);
-    expect(secondUrl.pathname).toContain(`/api/chat/history/${runId}`);
+    expect(secondUrl.pathname).toBe("/api/chat/history");
+    expect(secondUrl.searchParams.get("runId")).toBe(runId);
     expect(secondUrl.searchParams.get("cursor")).toBe("cursor-page-2");
   });
 
