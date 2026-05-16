@@ -24,6 +24,7 @@ const SessionCreateRequestSchema = z.object({
 
 const TranscriptQuerySchema = z.object({
   session: z.string().uuid(),
+  runId: z.string().uuid(),
   cursor: z.coerce.number().int().nonnegative().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
@@ -79,7 +80,6 @@ export class TranscriptController {
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
-      const runId = extractRunId(request.url);
       const query = TranscriptQuerySchema.parse(
         Object.fromEntries(new URL(request.url).searchParams),
       );
@@ -87,7 +87,7 @@ export class TranscriptController {
         repository.listTranscript({
           sessionId: query.session,
           userId: auth.userId,
-          runId,
+          runId: query.runId,
           cursor: query.cursor,
           limit: query.limit,
         }),
@@ -143,15 +143,6 @@ function partToHydrationContent(
 
   const text = readSingleTextPart([part]);
   return { type: "text", text: text ?? "" };
-}
-
-function extractRunId(url: string): string {
-  const pathname = new URL(url).pathname;
-  const match = /^\/api\/chat\/history\/([^/]+)$/.exec(pathname);
-  if (!match?.[1]) {
-    throw new Error("Missing run id in history path");
-  }
-  return z.string().uuid().parse(decodeURIComponent(match[1]));
 }
 
 function transcriptErrorResponse(

@@ -146,4 +146,7 @@ export interface TranscriptRepository {
   ): Promise<TranscriptMessageRecord>;
   listTranscript(input: ListTranscriptInput): Promise<ListTranscriptResult>;
   listSessions(userId: string): Promise<ListSessionsResult>;
+  transaction<T>(
+    callback: (repository: TranscriptRepository) => Promise<T>,
+  ): Promise<T>;
 }

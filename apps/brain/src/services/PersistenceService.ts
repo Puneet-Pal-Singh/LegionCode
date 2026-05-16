@@ -91,62 +91,90 @@ export class PersistenceService {
     runId: string,
     messages: CoreMessage[],
   ): Promise<void> {
-    for (const message of messages) {
-      const content =
-        typeof message.content === "string"
-          ? message.content
-          : JSON.stringify(message.content);
-      const idempotencyKey = await this.generateMessageIdempotencyKey(
-        sessionId,
-        runId,
-        message,
-        content,
-      );
-      await this.persistMessage({
-        sessionId,
-        runId,
-        message,
-        idempotencyKey,
-        context: {},
+    await withTranscriptRepository(this.env, async (repository) => {
+      await repository.transaction(async (txRepo) => {
+        for (const message of messages) {
+          const content =
+            typeof message.content === "string"
+              ? message.content
+              : JSON.stringify(message.content);
+          const idempotencyKey = await this.generateMessageIdempotencyKey(
+            sessionId,
+            runId,
+            message,
+            content,
+          );
+          await this.persistMessage(
+            {
+              sessionId,
+              runId,
+              message,
+              idempotencyKey,
+              context: {},
+            },
+            txRepo,
+          );
+        }
       });
-    }
+    });
   }
 
-  private async persistMessage(input: {
-    sessionId: string;
-    runId: string;
-    message: CoreMessage;
-    idempotencyKey: string;
-    context: PersistMessageContext;
-  }): Promise<void> {
-    await withTranscriptRepository(this.env, async (repository) => {
-      const parts = coreMessageToTranscriptParts(input.message);
-      if (input.context.userId) {
-        await repository.appendMessage({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          userId: input.context.userId,
-          workspaceId: input.context.workspaceId ?? null,
-          title: input.context.title ?? buildTitle(input.message),
-          repository: input.context.repository ?? null,
-          activeRunId: input.runId,
-          status: "running",
-          role: input.message.role,
-          clientMessageId: readClientMessageId(input.message),
-          dedupeKey: input.idempotencyKey,
-          parts,
-        });
-        return;
-      }
+  private async persistMessage(
+    input: {
+      sessionId: string;
+      runId: string;
+      message: CoreMessage;
+      idempotencyKey: string;
+      context: PersistMessageContext;
+    },
+    repository?: TranscriptRepository,
+  ): Promise<void> {
+    if (repository) {
+      await this.doPersistMessage(input, repository);
+      return;
+    }
 
-      await repository.appendMessageToExistingSession({
+    await withTranscriptRepository(this.env, async (repo) => {
+      await this.doPersistMessage(input, repo);
+    });
+  }
+
+  private async doPersistMessage(
+    input: {
+      sessionId: string;
+      runId: string;
+      message: CoreMessage;
+      idempotencyKey: string;
+      context: PersistMessageContext;
+    },
+    repository: TranscriptRepository,
+  ): Promise<void> {
+    const parts = coreMessageToTranscriptParts(input.message);
+    if (input.context.userId) {
+      await repository.appendMessage({
         sessionId: input.sessionId,
         runId: input.runId,
+        userId: input.context.userId,
+        workspaceId: input.context.workspaceId ?? null,
+        title: input.context.title ?? buildTitle(input.message),
+        repository: input.context.repository ?? null,
+        activeRunId: input.runId,
+        status: "running",
         role: input.message.role,
         clientMessageId: readClientMessageId(input.message),
         dedupeKey: input.idempotencyKey,
         parts,
       });
+      return;
+    }
+
+    await repository.appendMessageToExistingSession({
+      sessionId: input.sessionId,
+      runId: input.runId,
+      role: input.message.role,
+      clientMessageId: readClientMessageId(input.message),
+      dedupeKey: input.idempotencyKey,
+      parts,
     });
   }
 

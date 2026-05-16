@@ -106,6 +106,12 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return { tasks, sessions };
   }
 
+  async transaction<T>(
+    callback: (repository: TranscriptRepository) => Promise<T>,
+  ): Promise<T> {
+    return await callback(this);
+  }
+
   private upsertTask(
     input: EnsureTranscriptSessionInput,
     now: string,

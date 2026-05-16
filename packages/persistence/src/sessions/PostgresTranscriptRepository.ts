@@ -125,6 +125,14 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
         .map((row) => mapSessionRow(row)),
     };
   }
+
+  async transaction<T>(
+    callback: (repository: TranscriptRepository) => Promise<T>,
+  ): Promise<T> {
+    return await this.client.transaction(async (tx) => {
+      return await callback(new PostgresTranscriptRepository(tx, this.clock));
+    });
+  }
 }
 
 async function ensureSessionWithClient(
@@ -188,10 +196,20 @@ async function appendMessageWithClient(
     return await readMessageByDedupeKey(client, input.sessionId, input.dedupeKey);
   }
 
-  const parts = [];
-  for (const part of input.parts) {
-    parts.push(await insertMessagePart(client, input, inserted.id, part, now));
-  }
+  const lastSequence = await incrementSessionSequence(
+    client,
+    input.sessionId,
+    input.parts.length,
+    now,
+  );
+  const startSequence = lastSequence - input.parts.length + 1;
+  const parts = await insertMessageParts(
+    client,
+    input,
+    inserted.id,
+    startSequence,
+    now,
+  );
 
   return { ...inserted, parts };
 }
@@ -230,31 +248,72 @@ async function readMessageByDedupeKey(
   return message;
 }
 
-async function insertMessagePart(
+async function incrementSessionSequence(
+  client: SqlClient,
+  sessionId: string,
+  increment: number,
+  now: Date,
+): Promise<number> {
+  const result = await client.query<TranscriptRow>(INCREMENT_SESSION_SEQUENCE_SQL, [
+    sessionId,
+    increment,
+    now,
+  ]);
+  return toNumber(readReturnedRow(result.rows[0], "sessions").last_sequence);
+}
+
+async function insertMessageParts(
   client: SqlClient,
   input: AppendExistingTranscriptMessageInput,
   messageId: string,
-  part: AppendExistingTranscriptMessageInput["parts"][number],
+  startSequence: number,
   now: Date,
-): Promise<TranscriptMessagePartRecord> {
-  const sequenceResult = await client.query<TranscriptRow>(
-    INCREMENT_SESSION_SEQUENCE_SQL,
-    [input.sessionId, now],
-  );
-  const sequence = toNumber(
-    readReturnedRow(sequenceResult.rows[0], "sessions").last_sequence,
-  );
-  const partResult = await client.query<TranscriptRow>(INSERT_MESSAGE_PART_SQL, [
-    input.sessionId,
-    messageId,
-    input.runId ?? null,
-    part.type,
-    sequence,
-    JSON.stringify(part.content),
-    now,
-  ]);
+): Promise<TranscriptMessagePartRecord[]> {
+  const values: any[] = [];
+  const placeholders: string[] = [];
+  let paramIdx = 1;
 
-  return mapMessagePartRow(readReturnedRow(partResult.rows[0], "message_parts"));
+  for (let i = 0; i < input.parts.length; i++) {
+    const part = input.parts[i]!;
+    const sequence = startSequence + i;
+    values.push(
+      input.sessionId,
+      messageId,
+      input.runId ?? null,
+      part.type,
+      sequence,
+      JSON.stringify(part.content),
+      now,
+    );
+    placeholders.push(
+      `($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++}::jsonb, $${paramIdx++})`,
+    );
+  }
+
+  const sql = `
+    INSERT INTO message_parts (
+      session_id,
+      message_id,
+      run_id,
+      part_type,
+      session_sequence,
+      content_json,
+      created_at
+    )
+    VALUES ${placeholders.join(", ")}
+    RETURNING
+      id AS part_id,
+      session_id,
+      message_id,
+      run_id,
+      part_type,
+      session_sequence,
+      content_json,
+      created_at AS part_created_at
+  `;
+
+  const result = await client.query<TranscriptRow>(sql, values);
+  return result.rows.map((row) => mapMessagePartRow(row));
 }
 
 function mapUniqueTasks(rows: TranscriptRow[]): TaskRecord[] {
@@ -553,32 +612,10 @@ const FIND_MESSAGE_BY_DEDUPE_SQL = `
 
 const INCREMENT_SESSION_SEQUENCE_SQL = `
   UPDATE sessions
-  SET last_sequence = last_sequence + 1,
-      updated_at = $2
+  SET last_sequence = last_sequence + $2,
+      updated_at = $3
   WHERE id = $1
   RETURNING last_sequence
-`;
-
-const INSERT_MESSAGE_PART_SQL = `
-  INSERT INTO message_parts (
-    session_id,
-    message_id,
-    run_id,
-    part_type,
-    session_sequence,
-    content_json,
-    created_at
-  )
-  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-  RETURNING
-    id AS part_id,
-    session_id,
-    message_id,
-    run_id,
-    part_type,
-    session_sequence,
-    content_json,
-    created_at AS part_created_at
 `;
 
 const LIST_TRANSCRIPT_SQL = `

@@ -163,7 +163,7 @@ export function runApprovalPath(): string {
  * Path: /api/chat/history
  */
 export function chatHistoryPath(runId: string): string {
-  return `${getBrainHttpBase()}/api/chat/history/${encodeURIComponent(runId)}`;
+  return `${getBrainHttpBase()}/api/chat/history?runId=${encodeURIComponent(runId)}`;
 }
 
 /**

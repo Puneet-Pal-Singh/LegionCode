@@ -78,7 +78,7 @@ function createRouter(): Router {
     "POST",
   );
   router.add(
-    /^\/api\/chat\/history\/[^/]+$/,
+    /^\/api\/chat\/history$/,
     TranscriptController.getHistory,
     "GET",
   );
