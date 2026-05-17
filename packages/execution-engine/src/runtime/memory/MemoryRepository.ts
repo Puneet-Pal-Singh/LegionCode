@@ -1,3 +1,13 @@
+// RECONSTRUCTABILITY: Memory events, snapshots, and checkpoints in DO
+// storage are the live runtime working set during execution. The canonical
+// event log is in Postgres via PostgresMemoryEventRepository. If DO storage
+// is lost, active run memory context is lost (run will fail), but committed
+// memory events can be replayed from Postgres. Idempotency keys are ephemeral
+// and safe to lose (retry will re-deduplicate against Postgres).
+// TTL: Idempotency keys have no storage-level TTL but are cleaned up by
+// clearRunMemory() at end of each run. Session-scoped keys persist for the
+// DO lifetime.
+
 import { z } from "zod";
 import type { RuntimeDurableObjectState } from "../types.js";
 import {

@@ -1,5 +1,7 @@
-// apps/brain/src/core/task/TaskRepository.ts
-// Phase 3A: Task persistence layer using Durable Object storage
+// RECONSTRUCTABILITY: This repository stores only the active per-run
+// execution queue in Durable Object storage. Product task/session records
+// are canonical in Postgres transcript tables. DO state loss can interrupt
+// an active run, but it must not erase user-visible task history.
 
 import { Task } from "./Task.js";
 import type {

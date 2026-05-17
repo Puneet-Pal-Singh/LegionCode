@@ -1,4 +1,10 @@
 // apps/secure-agent-api/src/core/AgentRuntime.ts
+// RECONSTRUCTABILITY: Execution sessions and logs exist only in DO storage.
+// Chat history is dual-written to DO (runtime cache) and Postgres
+// (via agent/brain -> PostgresTranscriptRepository). If DO storage is
+// lost, active execution sessions fail (expected), but historical chat
+// messages can be reloaded from Postgres. Execution logs are ephemeral
+// debugging state with no Postgres equivalent.
 import { DurableObject } from "cloudflare:workers";
 import { getSandbox, type Sandbox } from "@cloudflare/sandbox";
 import {
