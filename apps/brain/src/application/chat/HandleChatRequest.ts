@@ -199,10 +199,10 @@ export class HandleChatRequest {
             ensureError instanceof Error
               ? ensureError.message
               : "Unknown error";
-          console.warn(
+          console.error(
             `[chat/usecase] ${correlationId}: Failed to ensure run: ${message}`,
           );
-          // Don't fail the request if persistence fails
+          throw ensureError;
         }
       }
 
