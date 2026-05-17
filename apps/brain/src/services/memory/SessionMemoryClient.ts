@@ -25,24 +25,24 @@ export class SessionMemoryClient {
     if (validated.scope !== "session") {
       throw new Error("SessionMemoryClient only accepts session-scoped events");
     }
-
-    const existing = await this.findExistingEvent(validated.idempotencyKey);
-    if (existing) {
-      return false;
+    if (validated.sessionId !== this.deps.sessionId) {
+      throw new Error("Session memory event session does not match client scope");
     }
 
-    await withMemoryEventRepository(this.deps.env, async (repository) => {
-      await repository.appendEvent({
-        userId: this.deps.userId,
-        sessionId: validated.sessionId,
-        runId: validated.runId,
-        eventType: `${validated.scope}:${validated.kind}`,
-        payload: validated as JsonValue,
-        idempotencyKey: validated.idempotencyKey,
-      });
-    });
+    const result = await withMemoryEventRepository(
+      this.deps.env,
+      async (repository) =>
+        await repository.appendEventIfAbsent({
+          userId: this.deps.userId,
+          sessionId: validated.sessionId,
+          runId: validated.runId,
+          eventType: `${validated.scope}:${validated.kind}`,
+          payload: validated as JsonValue,
+          idempotencyKey: validated.idempotencyKey,
+        }),
+    );
 
-    return true;
+    return result.inserted;
   }
 
   async getSessionMemoryContext(
@@ -115,29 +115,6 @@ export class SessionMemoryClient {
 
   async clearSessionMemory(): Promise<void> {
     throw new Error("Session memory is append-only and cannot be cleared");
-  }
-
-  private async findExistingEvent(
-    idempotencyKey: string,
-  ): Promise<MemoryEvent | undefined> {
-    const events = await withMemoryEventRepository(
-      this.deps.env,
-      async (repository) =>
-        await repository.listEventsBySession(
-          this.deps.sessionId,
-          this.deps.userId,
-        ),
-    );
-
-    const existing = events.find(
-      (event) => event.idempotencyKey === idempotencyKey,
-    );
-    if (!existing?.payload) {
-      return undefined;
-    }
-
-    const parsed = MemoryEventSchema.safeParse(existing.payload);
-    return parsed.success ? parsed.data : undefined;
   }
 
   private async getSessionEvents(
