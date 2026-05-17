@@ -1,6 +1,6 @@
+import type { ArtifactRepository } from "@repo/persistence";
 import type { Env } from "../../types/ai";
-import { ensureByokSchemaReady } from "../byok/ByokSchemaService";
-import { D1EditArtifactRepository } from "./D1EditArtifactRepository";
+import { withArtifactRepository } from "./ArtifactPersistenceFactory";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 
 const PENDING_CAPTURE_REPAIR_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -16,21 +16,21 @@ export class EditArtifactRetentionService {
       return { expiredCount: 0, repairedPendingCount: 0 };
     }
 
-    await ensureByokSchemaReady(this.env.BYOK_DB);
-    const repository = new D1EditArtifactRepository(this.env.BYOK_DB);
     const objectStore = new EditArtifactObjectStore(this.env.EDIT_ARTIFACTS);
-    const repairedPendingCount = await repairStalePendingArtifacts(
-      repository,
-      now,
+    const { expiredCount, repairedPendingCount } = await withArtifactRepository(
+      this.env,
+      async (repository) => ({
+        repairedPendingCount: await repairStalePendingArtifacts(repository, now),
+        expiredCount: await expireArtifacts(repository, objectStore, now),
+      }),
     );
-    const expiredCount = await expireArtifacts(repository, objectStore, now);
 
     return { expiredCount, repairedPendingCount };
   }
 }
 
 async function expireArtifacts(
-  repository: D1EditArtifactRepository,
+  repository: ArtifactRepository,
   objectStore: EditArtifactObjectStore,
   now: string,
 ): Promise<number> {
@@ -64,7 +64,7 @@ async function expireArtifacts(
 }
 
 async function repairStalePendingArtifacts(
-  repository: D1EditArtifactRepository,
+  repository: ArtifactRepository,
   now: string,
 ): Promise<number> {
   const staleArtifacts = await repository.listStalePendingArtifacts(

@@ -69,6 +69,7 @@ class MockR2Bucket {
 const metadata: EditArtifactPatchObjectMetadata = {
   schemaVersion: 1,
   artifactId: "artifact-1",
+  userId: "user-1",
   runId: "run-1",
   sessionId: "session-1",
   workspaceId: "workspace-1",
@@ -91,15 +92,23 @@ describe("EditArtifactObjectStore", () => {
   it("builds deterministic escaped patch keys", () => {
     expect(
       store.buildPatchKey({
+        userId: "user 1",
         workspaceId: "workspace 1",
         runId: "run/1",
         artifactId: "artifact#1",
       }),
-    ).toBe("edit-artifacts/workspace%201/run%2F1/artifact%231/diff.patch");
+    ).toBe("edit-artifacts/user%201/workspace%201/run%2F1/artifact%231/diff.patch");
+  });
+
+  it("rejects old pre-user-owned edit artifact keys", async () => {
+    await expect(
+      store.readPatch("edit-artifacts/workspace-1/run-1/artifact-1/diff.patch"),
+    ).rejects.toThrow("Invalid edit artifact key scope");
   });
 
   it("writes, reads, and exposes patch metadata", async () => {
     const key = store.buildPatchKey({
+      userId: metadata.userId,
       workspaceId: metadata.workspaceId,
       runId: metadata.runId,
       artifactId: metadata.artifactId,

@@ -3,6 +3,8 @@ import {
   type EditArtifactPatchObjectMetadata,
 } from "@repo/shared-types";
 
+const EDIT_ARTIFACT_KEY_PREFIX = "edit-artifacts/";
+
 interface R2ObjectCompat {
   key: string;
   size: number;
@@ -34,12 +36,14 @@ export class EditArtifactObjectStore {
   constructor(private readonly bucket: R2BucketCompat) {}
 
   buildPatchKey(input: {
+    userId: string;
     workspaceId: string;
     runId: string;
     artifactId: string;
   }): string {
     return [
       "edit-artifacts",
+      encodePathSegment(input.userId),
       encodePathSegment(input.workspaceId),
       encodePathSegment(input.runId),
       encodePathSegment(input.artifactId),
@@ -52,6 +56,7 @@ export class EditArtifactObjectStore {
     patch: string;
     metadata: EditArtifactPatchObjectMetadata;
   }): Promise<StoredEditArtifactPatch> {
+    assertPatchKeyScope(input.key);
     const metadata = EditArtifactPatchObjectMetadataSchema.parse(input.metadata);
     const object = await this.bucket.put(input.key, input.patch, {
       customMetadata: serializeMetadata(metadata),
@@ -66,6 +71,7 @@ export class EditArtifactObjectStore {
   }
 
   async readPatch(key: string): Promise<string | null> {
+    assertPatchKeyScope(key);
     const object = await this.bucket.get(key);
     return object ? await object.text() : null;
   }
@@ -73,6 +79,7 @@ export class EditArtifactObjectStore {
   async getPatchMetadata(
     key: string,
   ): Promise<StoredEditArtifactPatch | null> {
+    assertPatchKeyScope(key);
     const object = await this.bucket.head(key);
     if (!object?.customMetadata) {
       return null;
@@ -87,8 +94,25 @@ export class EditArtifactObjectStore {
   }
 
   async deletePatch(key: string): Promise<void> {
+    assertPatchKeyScope(key);
     await this.bucket.delete(key);
   }
+}
+
+function assertPatchKeyScope(key: string): void {
+  if (!isCanonicalPatchKey(key)) {
+    throw new Error("Invalid edit artifact key scope");
+  }
+}
+
+function isCanonicalPatchKey(key: string): boolean {
+  const segments = key.split("/");
+  return (
+    key.startsWith(EDIT_ARTIFACT_KEY_PREFIX) &&
+    segments.length === 6 &&
+    segments[5] === "diff.patch" &&
+    segments.slice(1, 5).every((segment) => segment.trim().length > 0)
+  );
 }
 
 function encodePathSegment(value: string): string {
@@ -101,6 +125,7 @@ function serializeMetadata(
   return {
     schemaVersion: String(metadata.schemaVersion),
     artifactId: metadata.artifactId,
+    userId: metadata.userId,
     runId: metadata.runId,
     sessionId: metadata.sessionId,
     workspaceId: metadata.workspaceId,
@@ -120,6 +145,7 @@ function deserializeMetadata(
   return EditArtifactPatchObjectMetadataSchema.parse({
     schemaVersion: Number(customMetadata.schemaVersion),
     artifactId: customMetadata.artifactId,
+    userId: customMetadata.userId,
     runId: customMetadata.runId,
     sessionId: customMetadata.sessionId,
     workspaceId: customMetadata.workspaceId,

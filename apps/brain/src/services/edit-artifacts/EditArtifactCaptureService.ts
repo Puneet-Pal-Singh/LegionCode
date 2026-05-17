@@ -6,16 +6,17 @@ import type {
   RunEvent,
   ToolCompletedEvent,
 } from "@repo/shared-types";
+import type { ArtifactRepository } from "@repo/persistence";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
-import { D1EditArtifactRepository } from "./D1EditArtifactRepository";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 import { SecureGitArtifactClient } from "./SecureGitArtifactClient";
-import { ensureByokSchemaReady } from "../byok/ByokSchemaService";
+import { withArtifactRepository } from "./ArtifactPersistenceFactory";
 
 const EDIT_ARTIFACT_RETENTION_DAYS = 30;
 
 interface CaptureAfterRunInput {
+  userId: string;
   runId: string;
   sessionId: string;
   workspaceId: string;
@@ -33,11 +34,9 @@ interface CapturedPatchPayload {
 }
 
 export class EditArtifactCaptureService {
-  private readonly repository: D1EditArtifactRepository;
   private readonly objectStore: EditArtifactObjectStore;
 
   constructor(private readonly env: Env) {
-    this.repository = new D1EditArtifactRepository(env.BYOK_DB);
     if (!env.EDIT_ARTIFACTS) {
       throw new Error("EDIT_ARTIFACTS binding is unavailable");
     }
@@ -45,7 +44,6 @@ export class EditArtifactCaptureService {
   }
 
   async captureAfterRunMutation(input: CaptureAfterRunInput): Promise<void> {
-    await ensureByokSchemaReady(this.env.BYOK_DB);
     const gitClient = this.createGitClient(input);
     const changedFiles = await this.resolveChangedFiles(input, gitClient);
     if (changedFiles.length === 0) {
@@ -57,7 +55,14 @@ export class EditArtifactCaptureService {
       return;
     }
 
-    await this.persistCapturedArtifact(input, changedFiles, capturedPatch);
+    await withArtifactRepository(this.env, async (repository) => {
+      await this.persistCapturedArtifact(
+        repository,
+        input,
+        changedFiles,
+        capturedPatch,
+      );
+    });
   }
 
   private createGitClient(
@@ -80,6 +85,7 @@ export class EditArtifactCaptureService {
   }
 
   private async persistCapturedArtifact(
+    repository: ArtifactRepository,
     input: CaptureAfterRunInput,
     changedFiles: EditArtifactChangedFile[],
     capturedPatch: CapturedPatchPayload,
@@ -87,7 +93,7 @@ export class EditArtifactCaptureService {
     const artifactId = crypto.randomUUID();
     const capturedAt = new Date().toISOString();
     const r2ObjectKey = this.buildPatchKey(input, artifactId);
-    const artifact = await this.createPendingArtifact({
+    const artifact = await this.createPendingArtifact(repository, {
       artifactId,
       capturedAt,
       capturedPatch,
@@ -96,6 +102,7 @@ export class EditArtifactCaptureService {
       r2ObjectKey,
     });
     await this.recordCaptureStarted(
+      repository,
       artifactId,
       input.runId,
       r2ObjectKey,
@@ -103,6 +110,7 @@ export class EditArtifactCaptureService {
     );
 
     const patchSha256 = await this.writePatch({
+      repository,
       artifact: {
         branch: artifact.branch,
         baseCommitSha: artifact.baseCommitSha,
@@ -114,7 +122,14 @@ export class EditArtifactCaptureService {
       patch: capturedPatch.patch,
       r2ObjectKey,
     });
-    await this.markCaptureStored(artifactId, input.runId, changedFiles.length);
+    await this.markCaptureStored(
+      repository,
+      artifactId,
+      input.runId,
+      changedFiles.length,
+      patchSha256,
+      new TextEncoder().encode(capturedPatch.patch).byteLength,
+    );
   }
 
   private buildPatchKey(
@@ -122,13 +137,14 @@ export class EditArtifactCaptureService {
     artifactId: string,
   ): string {
     return this.objectStore.buildPatchKey({
+      userId: input.userId,
       workspaceId: input.workspaceId,
       runId: input.runId,
       artifactId,
     });
   }
 
-  private async createPendingArtifact(input: {
+  private async createPendingArtifact(repository: ArtifactRepository, input: {
     artifactId: string;
     capturedAt: string;
     capturedPatch: CapturedPatchPayload;
@@ -136,8 +152,9 @@ export class EditArtifactCaptureService {
     input: CaptureAfterRunInput;
     r2ObjectKey: string;
   }): Promise<EditArtifactRecord> {
-    return this.repository.createPendingArtifact({
+    return repository.createPendingArtifact({
       id: input.artifactId,
+      userId: input.input.userId,
       runId: input.input.runId,
       sessionId: input.input.sessionId,
       workspaceId: input.input.workspaceId,
@@ -154,12 +171,13 @@ export class EditArtifactCaptureService {
   }
 
   private async recordCaptureStarted(
+    repository: ArtifactRepository,
     artifactId: string,
     runId: string,
     r2ObjectKey: string,
     capturedAt: string,
   ): Promise<void> {
-    await this.repository.appendEvent({
+    await repository.appendEvent({
       id: crypto.randomUUID(),
       artifactId,
       runId,
@@ -171,6 +189,7 @@ export class EditArtifactCaptureService {
   }
 
   private async writePatch(input: {
+    repository: ArtifactRepository;
     artifact: { branch: string | null; baseCommitSha: string | null };
     artifactId: string;
     capturedAt: string;
@@ -185,7 +204,7 @@ export class EditArtifactCaptureService {
       patch: input.patch,
       metadata: buildPatchMetadata(input, patchSha256),
     });
-    await this.repository.appendEvent({
+    await input.repository.appendEvent({
       id: crypto.randomUUID(),
       artifactId: input.artifactId,
       runId: input.input.runId,
@@ -197,16 +216,25 @@ export class EditArtifactCaptureService {
   }
 
   private async markCaptureStored(
+    repository: ArtifactRepository,
     artifactId: string,
     runId: string,
     changedFileCount: number,
+    patchSha256: string,
+    patchSizeBytes: number,
   ): Promise<void> {
-    await this.repository.updateStatus({ artifactId, status: "stored" });
-    await this.repository.appendEvent({
+    await repository.updateStatus({
+      artifactId,
+      status: "stored",
+      contentType: "text/x-patch",
+      sizeBytes: patchSizeBytes,
+      sha256: patchSha256,
+    });
+    await repository.appendEvent({
       id: crypto.randomUUID(),
       artifactId,
       runId,
-      eventType: "d1_commit_succeeded",
+      eventType: "metadata_commit_succeeded",
       message: "Edit artifact metadata committed",
       metadata: { changedFileCount },
     });
@@ -241,6 +269,7 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   constructor(
     private readonly service: EditArtifactCaptureService,
     private readonly context: {
+      userId: string;
       runId: string;
       sessionId: string;
       workspaceId: string;
@@ -294,6 +323,8 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
 
 export function createEditArtifactCoordinator(input: {
   env: Env;
+  userId?: string;
+  workspaceId?: string;
   runId: string;
   sessionId: string;
   repositoryContext?: {
@@ -302,16 +333,17 @@ export function createEditArtifactCoordinator(input: {
     baseUrl?: string;
   };
 }): EditArtifactCoordinator {
-  if (!input.env.EDIT_ARTIFACTS) {
+  if (!input.env.EDIT_ARTIFACTS || !input.userId || !input.workspaceId) {
     return new NoopEditArtifactCoordinator();
   }
 
   return new EditArtifactRunCaptureCoordinator(
     new EditArtifactCaptureService(input.env),
     {
+      userId: input.userId,
       runId: input.runId,
       sessionId: input.sessionId,
-      workspaceId: resolveWorkspaceId(input),
+      workspaceId: input.workspaceId,
       muscleSession: input.sessionId || input.runId,
       repoOwner: input.repositoryContext?.owner ?? null,
       repoName: input.repositoryContext?.repo ?? null,
@@ -360,15 +392,6 @@ function addDays(isoDate: string, days: number): string {
   return date.toISOString();
 }
 
-function resolveWorkspaceId(input: {
-  sessionId: string;
-  repositoryContext?: { owner?: string; repo?: string };
-}): string {
-  const owner = input.repositoryContext?.owner?.trim();
-  const repo = input.repositoryContext?.repo?.trim();
-  return owner && repo ? `${owner}/${repo}` : input.sessionId;
-}
-
 function buildPatchMetadata(
   input: {
     artifact: { branch: string | null; baseCommitSha: string | null };
@@ -382,6 +405,7 @@ function buildPatchMetadata(
   return {
     schemaVersion: 1,
     artifactId: input.artifactId,
+    userId: input.input.userId,
     runId: input.input.runId,
     sessionId: input.input.sessionId,
     workspaceId: input.input.workspaceId,
