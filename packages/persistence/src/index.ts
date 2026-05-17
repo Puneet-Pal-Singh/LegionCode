@@ -25,6 +25,7 @@ export { workspaceBootstrapMigration } from "./migrations/0003-workspace-bootstr
 export { providerStateBootstrapMigration } from "./migrations/0004-provider-state-bootstrap.js";
 export { transcriptBootstrapMigration } from "./migrations/0005-transcript-bootstrap.js";
 export { runBootstrapMigration } from "./migrations/0006-run-bootstrap.js";
+export { contextMemoryPermissionsBootstrapMigration } from "./migrations/0007-context-memory-permissions-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -48,6 +49,12 @@ export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepositor
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
+export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
+export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
+export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
+export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
+export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";
+export { PostgresPermissionRepository } from "./permissions/PostgresPermissionRepository.js";
 export {
   PostgresCredentialStore,
   PostgresPreferenceStore,
@@ -158,6 +165,34 @@ export {
   buildRunStepStatusSqlList,
 } from "./runs/types.js";
 
+export type {
+  MemoryEventRecord,
+  MemoryEventRepository,
+  AppendMemoryEventInput,
+} from "./memory/types.js";
+
+export type {
+  ContextRepository,
+  ContextSnapshotRecord,
+  ContextSnapshotSourceRecord,
+  CreateContextSnapshotInput,
+  AddContextSourceInput,
+} from "./context/types.js";
+
+export type {
+  PermissionRepository,
+  PermissionRequestRecord,
+  PermissionDecisionRecord,
+  CreatePermissionRequestInput,
+  CreatePermissionDecisionInput,
+  PermissionRequestStatus,
+  PermissionDecisionKind,
+} from "./permissions/types.js";
+export {
+  PERMISSION_REQUEST_STATUSES,
+  PERMISSION_DECISION_KINDS,
+} from "./permissions/types.js";
+
 export {
   accounts,
   authSessions,
@@ -180,4 +215,9 @@ export {
   runs,
   runSteps,
   runEvents,
+  memoryEvents,
+  contextSnapshots,
+  contextSnapshotSources,
+  permissionRequests,
+  permissionDecisions,
 } from "./schema/index.js";

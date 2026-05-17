@@ -50,6 +50,13 @@
       "when": 1779020720547,
       "tag": "0006_run_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1779026739964,
+      "tag": "0007_context_memory_permissions_bootstrap",
+      "breakpoints": true
     }
   ]
 }
