@@ -17,12 +17,14 @@ export class EditArtifactObjectStore {
   constructor(private readonly bucket: R2Bucket) {}
 
   buildPatchKey(input: {
+    userId: string;
     workspaceId: string;
     runId: string;
     artifactId: string;
   }): string {
     return [
       "edit-artifacts",
+      encodePathSegment(input.userId),
       encodePathSegment(input.workspaceId),
       encodePathSegment(input.runId),
       encodePathSegment(input.artifactId),
@@ -64,9 +66,19 @@ export class EditArtifactObjectStore {
 }
 
 function assertPatchKeyScope(key: string): void {
-  if (!key.startsWith(EDIT_ARTIFACT_KEY_PREFIX)) {
+  if (!isCanonicalPatchKey(key)) {
     throw new Error("Invalid edit artifact key scope");
   }
+}
+
+function isCanonicalPatchKey(key: string): boolean {
+  const segments = key.split("/");
+  return (
+    key.startsWith(EDIT_ARTIFACT_KEY_PREFIX) &&
+    segments.length === 6 &&
+    segments[5] === "diff.patch" &&
+    segments.slice(1, 5).every((segment) => segment.trim().length > 0)
+  );
 }
 
 function encodePathSegment(value: string): string {
@@ -79,6 +91,7 @@ function serializeMetadata(
   return {
     schemaVersion: String(metadata.schemaVersion),
     artifactId: metadata.artifactId,
+    userId: metadata.userId,
     runId: metadata.runId,
     sessionId: metadata.sessionId,
     workspaceId: metadata.workspaceId,

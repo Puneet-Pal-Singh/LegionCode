@@ -459,6 +459,8 @@ export class RunEngineRequestHandler {
         );
         const editArtifactCoordinator = createEditArtifactCoordinator({
           env: this.env,
+          userId: payload.userId,
+          workspaceId: payload.workspaceId,
           runId: payload.runId,
           sessionId: payload.sessionId,
           repositoryContext: payload.input.repositoryContext,

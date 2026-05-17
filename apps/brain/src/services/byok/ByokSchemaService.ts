@@ -7,8 +7,6 @@
 
 import {
   ALL_BYOK_MIGRATIONS,
-  RUN_EDIT_ARTIFACTS_SCHEMA,
-  RUN_EDIT_ARTIFACT_EVENTS_SCHEMA,
   PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA,
 } from "./schema.js";
 
@@ -226,14 +224,6 @@ export class ByokSchemaService {
       {
         name: "provider_user_model_cache",
         recoverySql: PROVIDER_USER_MODEL_CACHE_BACKFILL_SCHEMA,
-      },
-      {
-        name: "run_edit_artifacts",
-        recoverySql: RUN_EDIT_ARTIFACTS_SCHEMA,
-      },
-      {
-        name: "run_edit_artifact_events",
-        recoverySql: RUN_EDIT_ARTIFACT_EVENTS_SCHEMA,
       },
     ];
 

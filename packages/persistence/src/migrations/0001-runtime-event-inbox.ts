@@ -5,6 +5,7 @@ import { providerStateBootstrapMigration } from "./0004-provider-state-bootstrap
 import { transcriptBootstrapMigration } from "./0005-transcript-bootstrap.js";
 import { runBootstrapMigration } from "./0006-run-bootstrap.js";
 import { contextMemoryPermissionsBootstrapMigration } from "./0007-context-memory-permissions-bootstrap.js";
+import { artifactMetadataBootstrapMigration } from "./0008-artifact-metadata-bootstrap.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -54,4 +55,5 @@ export const persistenceMigrations = [
   transcriptBootstrapMigration,
   runBootstrapMigration,
   contextMemoryPermissionsBootstrapMigration,
+  artifactMetadataBootstrapMigration,
 ] as const;
