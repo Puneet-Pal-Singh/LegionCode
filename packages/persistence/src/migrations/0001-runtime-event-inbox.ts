@@ -3,6 +3,7 @@ import { identitySessionBootstrapMigration } from "./0002-identity-session-boots
 import { workspaceBootstrapMigration } from "./0003-workspace-bootstrap.js";
 import { providerStateBootstrapMigration } from "./0004-provider-state-bootstrap.js";
 import { transcriptBootstrapMigration } from "./0005-transcript-bootstrap.js";
+import { runBootstrapMigration } from "./0006-run-bootstrap.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -50,4 +51,5 @@ export const persistenceMigrations = [
   workspaceBootstrapMigration,
   providerStateBootstrapMigration,
   transcriptBootstrapMigration,
+  runBootstrapMigration,
 ] as const;

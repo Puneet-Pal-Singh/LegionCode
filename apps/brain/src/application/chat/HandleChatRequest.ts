@@ -56,6 +56,7 @@ export interface HandleChatRequestInput {
   productMode?: ProductMode;
   workflowIntent?: WorkflowIntent;
   workflowEntrypoint?: WorkflowEntrypoint;
+  taskId?: string;
   // Phase 4: Repository context for workspace-aware operations
   repositoryOwner?: string;
   repositoryName?: string;
@@ -177,6 +178,32 @@ export class HandleChatRequest {
           persistError,
         );
         // Don't fail the request if persistence fails
+      }
+
+      // PR6: Ensure run record exists
+      if (userId) {
+        try {
+          await this.persistenceService.ensureRun({
+            id: runId,
+            userId,
+            workspaceId: workspaceId ?? null,
+            sessionId,
+            taskId: input.taskId ?? sessionId,
+            mode,
+            providerId: input.providerId ?? null,
+            modelId: input.modelId ?? null,
+            branch: repositoryBranch ?? null,
+          });
+        } catch (ensureError) {
+          const message =
+            ensureError instanceof Error
+              ? ensureError.message
+              : "Unknown error";
+          console.error(
+            `[chat/usecase] ${correlationId}: Failed to ensure run: ${message}`,
+          );
+          throw ensureError;
+        }
       }
 
       // Build execution payload with repository context

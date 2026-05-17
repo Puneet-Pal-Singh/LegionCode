@@ -10,3 +10,4 @@ export {
   providerUserModelCache,
 } from "./providers.js";
 export { tasks, sessions, messages, messageParts } from "./transcript.js";
+export { runs, runSteps, runEvents } from "./runs.js";

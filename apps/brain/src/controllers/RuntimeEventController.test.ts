@@ -103,7 +103,7 @@ function createDependencies(
       _env: Env,
       callback: (service: RuntimeEventIngestionService) => Promise<T>,
     ): Promise<T> {
-      return callback(new RuntimeEventIngestionService(repository, verifier));
+      return callback(new RuntimeEventIngestionService(repository, verifier, _env));
     },
   };
 }

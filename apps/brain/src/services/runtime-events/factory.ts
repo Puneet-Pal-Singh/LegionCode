@@ -20,5 +20,6 @@ export function createRuntimeEventIngestionService(
   return new RuntimeEventIngestionService(
     repository,
     new RuntimeEventSignatureVerifier(secret),
+    env,
   );
 }

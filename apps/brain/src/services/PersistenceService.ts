@@ -1,9 +1,19 @@
 import type { CoreMessage } from "ai";
 import type { JsonValue } from "@repo/shared-types";
-import type { TranscriptRepository } from "@repo/persistence";
+import type {
+  AppendRunEventInput,
+  RunEventRecord,
+  RunRecord,
+  RunRepository,
+  RunStatus,
+  TranscriptRepository,
+  UpdateRunStatusInput,
+  UpsertRunStepInput,
+} from "@repo/persistence";
 import { pruneToolResults } from "@shadowbox/context-pruner";
 import { Env } from "../types/ai";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
+import { withRunRepository } from "./runs/RunPersistenceFactory";
 
 interface PersistMessageContext {
   userId?: string;
@@ -12,8 +22,71 @@ interface PersistMessageContext {
   repository?: string;
 }
 
+export interface EnsureRunInput {
+  id: string;
+  userId: string;
+  workspaceId?: string | null;
+  sessionId: string;
+  taskId: string;
+  status?: RunStatus;
+  mode?: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  branch?: string | null;
+  baseCommitSha?: string | null;
+  headCommitSha?: string | null;
+}
+
 export class PersistenceService {
   constructor(private env: Env) {}
+
+  async ensureRun(input: EnsureRunInput): Promise<RunRecord> {
+    return await withRunRepository(this.env, async (repository) => {
+      return await repository.ensureRun(input);
+    });
+  }
+
+  async updateRunStatus(runId: string, status: RunStatus, startedAt?: string, completedAt?: string): Promise<RunRecord> {
+    return await withRunRepository(this.env, async (repository) => {
+      return await repository.updateRunStatus({
+        id: runId,
+        status,
+        startedAt,
+        completedAt,
+      });
+    });
+  }
+
+  async appendRunEvent(input: {
+    runId: string;
+    sessionId: string;
+    eventType: string;
+    payload: JsonValue;
+    idempotencyKey?: string | null;
+  }): Promise<RunEventRecord> {
+    return await withRunRepository(this.env, async (repository) => {
+      return await repository.appendEvent(input);
+    });
+  }
+
+  async writeRunProjection(input: {
+    event: AppendRunEventInput;
+    step?: UpsertRunStepInput;
+    status?: UpdateRunStatusInput;
+  }): Promise<RunEventRecord> {
+    return await withRunRepository(this.env, async (repository) =>
+      repository.transaction(async (txRepository) => {
+        const event = await txRepository.appendEvent(input.event);
+        if (input.step) {
+          await txRepository.upsertStep(input.step);
+        }
+        if (input.status) {
+          await txRepository.updateRunStatus(input.status);
+        }
+        return event;
+      }),
+    );
+  }
 
   private async generateIdempotencyKey(
     sessionId: string,
