@@ -136,7 +136,6 @@ function createEnv(): Env {
     SECURE_API: {
       fetch: async () => new Response(JSON.stringify({ success: true })),
     } as Env["SECURE_API"],
-    BYOK_DB: {} as Env["BYOK_DB"],
     GITHUB_CLIENT_ID: "x",
     GITHUB_CLIENT_SECRET: "x",
     GITHUB_REDIRECT_URI: "x",

@@ -33,7 +33,7 @@ import { LLMGateway as LLMGatewayImpl } from "@shadowbox/execution-engine/runtim
 /**
  * Build LLM gateway and AI service for runtime execution.
  *
- * Uses D1-backed stores for provider configuration.
+ * Uses Postgres-backed stores for provider configuration.
  *
  * @param env - Cloudflare environment
  * @param providerScope - Scope for provider credential store keying

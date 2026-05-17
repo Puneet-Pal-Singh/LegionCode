@@ -2,7 +2,7 @@
  * Provider Store Interfaces
  *
  * Focused, single-responsibility interfaces for BYOK state management.
- * These interfaces are platform-agnostic and can be backed by D1, DO, or other storage.
+ * These interfaces are platform-agnostic; Brain wires them to Postgres.
  */
 
 export type {

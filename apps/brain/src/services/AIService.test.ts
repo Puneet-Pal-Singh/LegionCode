@@ -4,7 +4,6 @@ import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
 import { AIService } from "./AIService";
 import { ProviderConfigService } from "./providers";
-import { createTestByokD1Database } from "../test-utils/byokTestD1";
 
 const BASE_MESSAGES: CoreMessage[] = [{ role: "user", content: "hello" }];
 
@@ -81,8 +80,6 @@ function createFakeAdapter(provider: string): ProviderAdapter {
 }
 
 function createEnv(): Env {
-  const byokDb = createTestByokD1Database();
-
   return {
     AI: {} as Env["AI"],
     SECURE_API: {} as Env["SECURE_API"],
@@ -99,7 +96,6 @@ function createEnv(): Env {
     GROQ_API_KEY: "test-groq-key",
     AXIS_OPENROUTER_API_KEY: "sk-or-axis-managed-key",
     OPENAI_API_KEY: "sk-env-openai-key",
-    BYOK_DB: byokDb.database,
     BYOK_CREDENTIAL_ENCRYPTION_KEY: "test-master-key-32-chars-minimum",
   };
 }

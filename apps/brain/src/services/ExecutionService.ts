@@ -172,7 +172,7 @@ export class ExecutionService {
 
   /**
    * Fetch and decrypt GitHub token for a user
-   * Tokens are stored encrypted in KV storage
+   * Tokens are stored encrypted in the canonical identity repository.
    */
   private async getGitHubToken(userId: string): Promise<string | null> {
     const authState = await this.getGitHubAuthState(userId);
