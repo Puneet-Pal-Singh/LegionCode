@@ -1,40 +1,48 @@
-import type {
-  MemoryEvent,
-  MemorySnapshot,
+import {
+  MemoryEventSchema,
+  MemorySnapshotSchema,
+  type MemoryEvent,
+  type MemorySnapshot,
 } from "@shadowbox/execution-engine/runtime";
+import type { JsonValue } from "@repo/shared-types";
+import type { Env } from "../../types/ai";
+import { withContextRepository } from "../context/ContextPersistenceFactory";
+import { withMemoryEventRepository } from "./MemoryPersistenceFactory";
+
+const SESSION_MEMORY_SNAPSHOT_KIND = "session_memory";
 
 export interface SessionMemoryClientDependencies {
-  durableObjectId: string;
-  durableObjectStub: {
-    fetch: (request: Request) => Promise<Response>;
-  };
+  env: Env;
+  userId: string;
+  sessionId: string;
 }
 
 export class SessionMemoryClient {
-  private stub: {
-    fetch: (request: Request) => Promise<Response>;
-  };
-
-  constructor(deps: SessionMemoryClientDependencies) {
-    this.stub = deps.durableObjectStub;
-  }
+  constructor(private readonly deps: SessionMemoryClientDependencies) {}
 
   async appendSessionMemory(event: MemoryEvent): Promise<boolean> {
-    const response = await this.stub.fetch(
-      new Request("http://localhost/append", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event }),
-      }),
-    );
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to append session memory: ${error}`);
+    const validated = MemoryEventSchema.parse(event);
+    if (validated.scope !== "session") {
+      throw new Error("SessionMemoryClient only accepts session-scoped events");
+    }
+    if (validated.sessionId !== this.deps.sessionId) {
+      throw new Error("Session memory event session does not match client scope");
     }
 
-    const result = (await response.json()) as { success: boolean };
-    return result.success;
+    const result = await withMemoryEventRepository(
+      this.deps.env,
+      async (repository) =>
+        await repository.appendEventIfAbsent({
+          userId: this.deps.userId,
+          sessionId: validated.sessionId,
+          runId: validated.runId,
+          eventType: `${validated.scope}:${validated.kind}`,
+          payload: validated as JsonValue,
+          idempotencyKey: validated.idempotencyKey,
+        }),
+    );
+
+    return result.inserted;
   }
 
   async getSessionMemoryContext(
@@ -45,97 +53,123 @@ export class SessionMemoryClient {
     events: MemoryEvent[];
     snapshot?: MemorySnapshot;
   }> {
-    const response = await this.stub.fetch(
-      new Request("http://localhost/context", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, prompt, limit }),
-      }),
-    );
+    const [events, snapshot] = await Promise.all([
+      this.getSessionEvents(sessionId, prompt, limit),
+      this.getSessionSnapshot(sessionId),
+    ]);
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get session memory context: ${error}`);
-    }
-
-    return (await response.json()) as {
-      events: MemoryEvent[];
-      snapshot?: MemorySnapshot;
-    };
+    return { events, snapshot };
   }
 
   async getSessionSnapshot(
     sessionId: string,
   ): Promise<MemorySnapshot | undefined> {
-    const response = await this.stub.fetch(
-      new Request(
-        `http://localhost/snapshot?sessionId=${encodeURIComponent(sessionId)}`,
-        {
-          method: "GET",
-        },
-      ),
+    const snapshots = await withContextRepository(
+      this.deps.env,
+      async (repository) =>
+        await repository.listSnapshotsBySession(sessionId, this.deps.userId),
     );
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get session snapshot: ${error}`);
+    const snapshot = snapshots.find(
+      (record) => record.snapshotKind === SESSION_MEMORY_SNAPSHOT_KIND,
+    );
+    if (!snapshot?.continuityStateJson) {
+      return undefined;
     }
 
-    const result = (await response.json()) as { snapshot?: MemorySnapshot };
-    return result.snapshot;
+    const parsed = MemorySnapshotSchema.safeParse(snapshot.continuityStateJson);
+    return parsed.success ? parsed.data : undefined;
   }
 
   async upsertSessionSnapshot(snapshot: MemorySnapshot): Promise<void> {
-    const response = await this.stub.fetch(
-      new Request("http://localhost/snapshot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ snapshot }),
-      }),
-    );
+    const validated = MemorySnapshotSchema.parse(snapshot);
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to upsert session snapshot: ${error}`);
-    }
+    await withContextRepository(this.deps.env, async (repository) => {
+      await repository.createSnapshot({
+        userId: this.deps.userId,
+        sessionId: validated.sessionId,
+        runId: validated.runId ?? null,
+        snapshotKind: SESSION_MEMORY_SNAPSHOT_KIND,
+        payloadSizeBytes: byteLength(JSON.stringify(validated)),
+        tokenCount: estimateSnapshotTokens(validated),
+        triggerReason: "memory_compaction",
+        continuityStateJson: validated as JsonValue,
+      });
+    });
   }
 
   async getSessionMemoryStats(sessionId: string): Promise<{
     eventCount: number;
     hasSnapshot: boolean;
   }> {
-    const response = await this.stub.fetch(
-      new Request(
-        `http://localhost/stats?sessionId=${encodeURIComponent(sessionId)}`,
-        {
-          method: "GET",
-        },
-      ),
-    );
+    const [events, snapshot] = await Promise.all([
+      this.getSessionEvents(sessionId, "", undefined),
+      this.getSessionSnapshot(sessionId),
+    ]);
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get session memory stats: ${error}`);
-    }
-
-    return (await response.json()) as {
-      eventCount: number;
-      hasSnapshot: boolean;
+    return {
+      eventCount: events.length,
+      hasSnapshot: !!snapshot,
     };
   }
 
-  async clearSessionMemory(sessionId: string): Promise<void> {
-    const response = await this.stub.fetch(
-      new Request("http://localhost/clear", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      }),
+  async clearSessionMemory(): Promise<void> {
+    throw new Error("Session memory is append-only and cannot be cleared");
+  }
+
+  private async getSessionEvents(
+    sessionId: string,
+    prompt: string,
+    limit?: number,
+  ): Promise<MemoryEvent[]> {
+    const records = await withMemoryEventRepository(
+      this.deps.env,
+      async (repository) =>
+        await repository.listEventsBySession(sessionId, this.deps.userId),
     );
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to clear session memory: ${error}`);
+    return records
+      .map((record) => MemoryEventSchema.safeParse(record.payload))
+      .filter((result) => result.success)
+      .map((result) => result.data)
+      .sort((left, right) => scoreEvent(right, prompt) - scoreEvent(left, prompt))
+      .slice(0, limit);
+  }
+}
+
+function estimateSnapshotTokens(snapshot: MemorySnapshot): number {
+  return estimateTokens(
+    [
+      snapshot.summary,
+      ...snapshot.constraints,
+      ...snapshot.decisions,
+      ...snapshot.todos,
+    ].join("\n"),
+  );
+}
+
+function scoreEvent(event: MemoryEvent, prompt: string): number {
+  if (!prompt.trim()) {
+    return new Date(event.createdAt).getTime();
+  }
+
+  const contentWords = new Set(event.content.toLowerCase().split(/\s+/));
+  const promptWords = new Set(prompt.toLowerCase().split(/\s+/));
+  let matches = 0;
+
+  for (const word of promptWords) {
+    if (word.length > 3 && contentWords.has(word)) {
+      matches += 1;
     }
   }
+
+  return matches * 10 + event.confidence;
+}
+
+function estimateTokens(value: string): number {
+  return Math.ceil(value.length / 4);
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }

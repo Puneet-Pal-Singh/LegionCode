@@ -83,7 +83,9 @@ export function buildRuntimeDependencies(
   );
 
   // Build session memory client
-  const sessionMemoryClient = buildSessionMemoryClient(env, payload.sessionId);
+  const sessionMemoryClient = payload.userId
+    ? buildSessionMemoryClient(env, payload.userId, payload.sessionId)
+    : undefined;
   const workspaceBootstrapper = WorkspaceBootstrapService.fromEnv(
     env,
     payload.sessionId,

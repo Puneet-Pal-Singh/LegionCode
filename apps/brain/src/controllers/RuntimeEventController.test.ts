@@ -33,7 +33,7 @@ describe("RuntimeEventController", () => {
     await expect(response.json()).resolves.toMatchObject({
       accepted: true,
       inserted: true,
-      status: "received",
+      status: "processed",
     });
   });
 

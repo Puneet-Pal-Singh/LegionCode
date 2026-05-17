@@ -4,7 +4,6 @@ import { join } from "node:path";
 
 const DURABLE_OBJECT_RUNTIME_FILES = [
   join(process.cwd(), "src/runtime/RunEngineRuntime.ts"),
-  join(process.cwd(), "src/runtime/SessionMemoryRuntime.ts"),
 ];
 
 const FORBIDDEN_ALWAYS_AWAKE_PATTERNS = [

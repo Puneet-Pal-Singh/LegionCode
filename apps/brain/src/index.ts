@@ -13,7 +13,6 @@ import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
 import { RunEngineAgent } from "./runtime/RunEngineAgent";
-import { SessionMemoryRuntime } from "./runtime/SessionMemoryRuntime";
 import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArtifactRetentionService";
@@ -21,7 +20,6 @@ import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArti
 export {
   RunEngineRuntime,
   RunEngineAgent,
-  SessionMemoryRuntime,
   RunAdmissionLimiter,
 };
 

@@ -11,3 +11,6 @@ export {
 } from "./providers.js";
 export { tasks, sessions, messages, messageParts } from "./transcript.js";
 export { runs, runSteps, runEvents } from "./runs.js";
+export { memoryEvents } from "./memory.js";
+export { contextSnapshots, contextSnapshotSources } from "./context.js";
+export { permissionRequests, permissionDecisions } from "./permissions.js";
