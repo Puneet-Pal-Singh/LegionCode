@@ -26,6 +26,7 @@ export { providerStateBootstrapMigration } from "./migrations/0004-provider-stat
 export { transcriptBootstrapMigration } from "./migrations/0005-transcript-bootstrap.js";
 export { runBootstrapMigration } from "./migrations/0006-run-bootstrap.js";
 export { contextMemoryPermissionsBootstrapMigration } from "./migrations/0007-context-memory-permissions-bootstrap.js";
+export { artifactMetadataBootstrapMigration } from "./migrations/0008-artifact-metadata-bootstrap.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -55,6 +56,8 @@ export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
 export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
 export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";
 export { PostgresPermissionRepository } from "./permissions/PostgresPermissionRepository.js";
+export { MemoryArtifactRepository } from "./artifacts/MemoryArtifactRepository.js";
+export { PostgresArtifactRepository } from "./artifacts/PostgresArtifactRepository.js";
 export {
   PostgresCredentialStore,
   PostgresPreferenceStore,
@@ -194,6 +197,12 @@ export {
   PERMISSION_DECISION_KINDS,
 } from "./permissions/types.js";
 
+export type {
+  AppendArtifactEventInput,
+  ArtifactRepository,
+  UpdateArtifactStatusInput,
+} from "./artifacts/types.js";
+
 export {
   accounts,
   authSessions,
@@ -221,4 +230,7 @@ export {
   contextSnapshotSources,
   permissionRequests,
   permissionDecisions,
+  artifacts,
+  artifactEvents,
+  artifactChangedFiles,
 } from "./schema/index.js";
