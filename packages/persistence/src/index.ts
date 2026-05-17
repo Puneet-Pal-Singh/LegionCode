@@ -169,6 +169,7 @@ export type {
   MemoryEventRecord,
   MemoryEventRepository,
   AppendMemoryEventInput,
+  AppendMemoryEventResult,
 } from "./memory/types.js";
 
 export type {

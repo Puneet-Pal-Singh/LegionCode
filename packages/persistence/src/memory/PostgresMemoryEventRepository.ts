@@ -9,6 +9,7 @@ import {
 } from "../lib/rowMappers.js";
 import type {
   AppendMemoryEventInput,
+  AppendMemoryEventResult,
   MemoryEventRecord,
   MemoryEventRepository,
 } from "./types.js";
@@ -28,6 +29,13 @@ export class PostgresMemoryEventRepository implements MemoryEventRepository {
   ) {}
 
   async appendEvent(input: AppendMemoryEventInput): Promise<MemoryEventRecord> {
+    const result = await this.appendEventIfAbsent(input);
+    return result.record;
+  }
+
+  async appendEventIfAbsent(
+    input: AppendMemoryEventInput,
+  ): Promise<AppendMemoryEventResult> {
     const now = this.clock.now();
     const result = await this.client.query<MemoryEventRow>(
       APPEND_MEMORY_EVENT_SQL,
@@ -37,12 +45,16 @@ export class PostgresMemoryEventRepository implements MemoryEventRepository {
         input.runId ?? null,
         input.eventType,
         toJsonParam(input.payload),
-        input.idempotencyKey ?? null,
+        normalizeIdempotencyKey(input.idempotencyKey),
         now,
       ],
     );
 
-    return mapMemoryEventRow(requireRow(result.rows[0], "memory_events"));
+    const row = requireRow(result.rows[0], "memory_events");
+    return {
+      record: mapMemoryEventRow(row),
+      inserted: row.inserted === true,
+    };
   }
 
   async listEventsBySession(
@@ -69,6 +81,7 @@ export class PostgresMemoryEventRepository implements MemoryEventRepository {
 }
 
 interface MemoryEventRow extends SqlRow {
+  inserted?: boolean;
   id?: string;
   user_id?: string;
   session_id?: string;
@@ -77,6 +90,10 @@ interface MemoryEventRow extends SqlRow {
   payload_json?: JsonValue | string | null;
   idempotency_key?: string | null;
   created_at?: string | Date;
+}
+
+function normalizeIdempotencyKey(value: string | null | undefined): string | null {
+  return value ?? null;
 }
 
 function mapMemoryEventRow(row: MemoryEventRow): MemoryEventRecord {
@@ -105,8 +122,9 @@ const APPEND_MEMORY_EVENT_SQL = `
   VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
   ON CONFLICT (session_id, idempotency_key)
     WHERE idempotency_key IS NOT NULL
-  DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+  DO UPDATE SET idempotency_key = memory_events.idempotency_key
   RETURNING
+    (xmax = 0) AS inserted,
     id,
     user_id,
     session_id,

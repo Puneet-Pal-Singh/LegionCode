@@ -20,8 +20,16 @@ export interface AppendMemoryEventInput {
   idempotencyKey?: string | null;
 }
 
+export interface AppendMemoryEventResult {
+  record: MemoryEventRecord;
+  inserted: boolean;
+}
+
 export interface MemoryEventRepository {
   appendEvent(input: AppendMemoryEventInput): Promise<MemoryEventRecord>;
+  appendEventIfAbsent(
+    input: AppendMemoryEventInput,
+  ): Promise<AppendMemoryEventResult>;
   listEventsBySession(
     sessionId: string,
     userId?: string,
