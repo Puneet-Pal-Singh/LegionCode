@@ -313,7 +313,7 @@ describe("Portability Conformance", () => {
       const result = await runtime.executionPort.executeTask("session-1", {
         taskId: "task-1",
         action: "MockPlugin.execute",
-        params: { command: "echo hi", runId: "run-1" },
+        params: { action: "mock", command: "echo hi", runId: "run-1" },
       });
 
       expect(result.taskId).toBe("task-1");
@@ -385,7 +385,11 @@ describe("Portability Conformance", () => {
       const result = await defaultRuntime.executionPort.executeTask("session-1", {
         taskId: "task-default-backend",
         action: "MockPlugin.execute",
-        params: { command: "echo backend", runId: "run-default" },
+        params: {
+          action: "mock",
+          command: "echo backend",
+          runId: "run-default",
+        },
       });
 
       expect(result.status).toBe("success");
