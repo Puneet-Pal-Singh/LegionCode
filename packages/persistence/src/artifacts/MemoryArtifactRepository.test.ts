@@ -7,6 +7,7 @@ describe("MemoryArtifactRepository", () => {
     await repository.createPendingArtifact(baseArtifact({ userId: "user-1" }));
     const stored = await repository.updateStatus({
       artifactId: "artifact-1",
+      userId: "user-1",
       status: "stored",
       contentType: "text/x-patch",
       sizeBytes: 128,
@@ -36,6 +37,25 @@ describe("MemoryArtifactRepository", () => {
     );
 
     expect(stale.map((artifact) => artifact.id)).toEqual(["artifact-1"]);
+  });
+
+  it("rolls back writes when a transaction callback fails", async () => {
+    const repository = new MemoryArtifactRepository();
+
+    await expect(
+      repository.transaction(async (tx) => {
+        await tx.createPendingArtifact(baseArtifact({ userId: "user-1" }));
+        throw new Error("rollback");
+      }),
+    ).rejects.toThrow("rollback");
+
+    await expect(
+      repository.updateStatus({
+        artifactId: "artifact-1",
+        userId: "user-1",
+        status: "stored",
+      }),
+    ).rejects.toThrow("Artifact not found: artifact-1");
   });
 });
 

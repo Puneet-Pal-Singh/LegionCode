@@ -55,7 +55,7 @@ export class PostgresArtifactRepository implements ArtifactRepository {
       await replaceChangedFiles(tx, input);
     });
 
-    return await this.getArtifactById(input.id);
+    return await this.getArtifactById(input.id, input.userId);
   }
 
   async appendEvent(input: AppendArtifactEventInput): Promise<EditArtifactEvent> {
@@ -74,8 +74,9 @@ export class PostgresArtifactRepository implements ArtifactRepository {
   async updateStatus(
     input: UpdateArtifactStatusInput,
   ): Promise<EditArtifactRecord> {
-    await this.client.query(UPDATE_STATUS_SQL, [
+    const result = await this.client.query(UPDATE_STATUS_SQL, [
       input.artifactId,
+      input.userId,
       input.status,
       input.contentType ?? null,
       input.sizeBytes ?? null,
@@ -83,7 +84,10 @@ export class PostgresArtifactRepository implements ArtifactRepository {
       input.headCommitSha ?? null,
       this.clock.now(),
     ]);
-    return await this.getArtifactById(input.artifactId);
+    if (result.rowCount === 0) {
+      throw new Error(`Artifact not found: ${input.artifactId}`);
+    }
+    return await this.getArtifactById(input.artifactId, input.userId);
   }
 
   async getLatestRestorableArtifact(
@@ -118,9 +122,13 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     });
   }
 
-  private async getArtifactById(id: string): Promise<EditArtifactRecord> {
+  private async getArtifactById(
+    id: string,
+    userId: string,
+  ): Promise<EditArtifactRecord> {
     const result = await this.client.query<ArtifactRow>(GET_ARTIFACT_BY_ID_SQL, [
       id,
+      userId,
     ]);
     return mapArtifactRow(readReturnedRow(result.rows[0], "artifacts"));
   }
@@ -245,13 +253,14 @@ const INSERT_EVENT_SQL = `
 const UPDATE_STATUS_SQL = `
   UPDATE artifacts
   SET
-    status = $2,
-    content_type = COALESCE($3, content_type),
-    size_bytes = COALESCE($4, size_bytes),
-    sha256 = COALESCE($5, sha256),
-    head_commit_sha = COALESCE($6, head_commit_sha),
-    updated_at = $7
+    status = $3,
+    content_type = COALESCE($4, content_type),
+    size_bytes = COALESCE($5, size_bytes),
+    sha256 = COALESCE($6, sha256),
+    head_commit_sha = COALESCE($7, head_commit_sha),
+    updated_at = $8
   WHERE id = $1
+    AND user_id = $2
 `;
 
 const LATEST_RESTORABLE_ARTIFACT_SQL = `
@@ -261,6 +270,11 @@ const LATEST_RESTORABLE_ARTIFACT_SQL = `
   WHERE a.run_id = $1
     AND a.user_id = $2
     AND a.status IN ('stored', 'restore_failed', 'restore_in_progress')
+    AND EXISTS (
+      SELECT 1
+      FROM artifact_changed_files cf
+      WHERE cf.artifact_id = a.id
+    )
   GROUP BY ${ARTIFACT_GROUP_BY}
   ORDER BY a.updated_at DESC
   LIMIT 1
@@ -289,6 +303,7 @@ const GET_ARTIFACT_BY_ID_SQL = `
   FROM artifacts a
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.id = $1
+    AND a.user_id = $2
   GROUP BY ${ARTIFACT_GROUP_BY}
 `;
 

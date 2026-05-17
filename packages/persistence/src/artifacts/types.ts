@@ -18,6 +18,7 @@ export interface AppendArtifactEventInput {
 
 export interface UpdateArtifactStatusInput {
   artifactId: string;
+  userId: string;
   status: EditArtifactStatus;
   contentType?: string | null;
   sizeBytes?: number | null;

@@ -71,7 +71,7 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     input: UpdateArtifactStatusInput,
   ): Promise<EditArtifactRecord> {
     const existing = this.artifacts.get(input.artifactId);
-    if (!existing) {
+    if (!existing || existing.userId !== input.userId) {
       throw new Error(`Artifact not found: ${input.artifactId}`);
     }
     const record = EditArtifactRecordSchema.parse({
@@ -114,7 +114,26 @@ export class MemoryArtifactRepository implements ArtifactRepository {
   async transaction<T>(
     callback: (repository: ArtifactRepository) => Promise<T>,
   ): Promise<T> {
-    return await callback(this);
+    const artifactsSnapshot = new Map(this.artifacts);
+    const eventsSnapshot = new Map(
+      Array.from(this.events.entries()).map(([artifactId, events]) => [
+        artifactId,
+        [...events],
+      ]),
+    );
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.artifacts.clear();
+      this.events.clear();
+      for (const [artifactId, artifact] of artifactsSnapshot) {
+        this.artifacts.set(artifactId, artifact);
+      }
+      for (const [artifactId, events] of eventsSnapshot) {
+        this.events.set(artifactId, events);
+      }
+      throw error;
+    }
   }
 }
 
