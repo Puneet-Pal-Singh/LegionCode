@@ -40,8 +40,3 @@ export {
   MemoryCoordinator,
   type MemoryCoordinatorDependencies,
 } from "./MemoryCoordinator.js";
-
-export {
-  SessionMemoryStore,
-  type SessionMemoryStoreDependencies,
-} from "./SessionMemoryStore.js";

@@ -34,10 +34,6 @@
         "class_name": "RunEngineAgent",
       },
       {
-        "name": "SESSION_MEMORY_RUNTIME",
-        "class_name": "SessionMemoryRuntime",
-      },
-      {
         "name": "RUN_ADMISSION_LIMITER",
         "class_name": "RunAdmissionLimiter",
       },
@@ -48,10 +44,6 @@
     {
       "tag": "v1-run-engine-runtime",
       "new_classes": ["RunEngineRuntime"],
-    },
-    {
-      "tag": "v2-session-memory-runtime",
-      "new_classes": ["SessionMemoryRuntime"],
     },
     {
       "tag": "v3-run-engine-agent",
