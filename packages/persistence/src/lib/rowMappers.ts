@@ -26,7 +26,13 @@ export function requireString(value: unknown, columnName: string): string {
 
 export function toIsoString(value: string | Date | undefined): string {
   if (!value) throw new Error("Missing timestamp column");
-  return value instanceof Date ? value.toISOString() : value;
+  if (value instanceof Date) return value.toISOString();
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Invalid timestamp column");
+  }
+  return parsed.toISOString();
 }
 
 export function requireRow<Row extends SqlRow>(
