@@ -26,13 +26,12 @@ export async function withRunRepository<T>(
 
   const databaseConfig = readBrainDatabaseConfig(env);
 
-  return withPostgresSqlClient(
+  return await withPostgresSqlClient(
     databaseConfig.connectionString,
     async (client) => {
       await runAutomaticMigrations(databaseConfig.migrationsMode, client);
 
-      const repository = new PostgresRunRepository(client);
-      return callback(repository);
+      return await callback(new PostgresRunRepository(client));
     },
   );
 }
@@ -41,6 +40,10 @@ function readBrainDatabaseConfig(env: Env): WorkerDatabaseConfig {
   try {
     return readWorkerDatabaseConfig(env);
   } catch (error) {
+    if (error instanceof DatabaseConfigurationError) {
+      throw new DependencyError(error.message, error.code, false);
+    }
+
     throw new DependencyError(
       error instanceof Error ? error.message : "Database configuration error",
       "DATABASE_CONFIG_ERROR",

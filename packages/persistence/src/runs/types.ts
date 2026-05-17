@@ -1,5 +1,8 @@
 import type { JsonValue } from "@repo/shared-types";
-import { buildSqlList } from "../sessions/types.js";
+
+function buildSqlList(values: readonly string[]): string {
+  return values.map((value) => `'${value.replace(/'/g, "''")}'`).join(", ");
+}
 
 export const RUN_STATUSES = ["created", "running", "completed", "failed", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];

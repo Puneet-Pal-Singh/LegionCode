@@ -7,14 +7,30 @@ import type {
   UpdateRunStatusInput,
 } from "./types.js";
 
+interface Clock {
+  now(): Date;
+}
+
+const systemClock: Clock = {
+  now: () => new Date(),
+};
+
 export class MemoryRunRepository implements RunRepository {
-  private runs = new Map<string, RunRecord>();
-  private events = new Map<string, RunEventRecord[]>();
+  private readonly runs = new Map<string, RunRecord>();
+  private readonly events = new Map<string, RunEventRecord[]>();
+  private idCounter = 0;
+
+  constructor(private readonly clock: Clock = systemClock) {}
+
+  private nextId(prefix: string): string {
+    this.idCounter += 1;
+    return `${prefix}-${this.idCounter}`;
+  }
 
   async ensureRun(input: EnsureRunInput): Promise<RunRecord> {
     const existing = this.runs.get(input.id);
-    const now = new Date().toISOString();
-    const record: RunRecord = {
+    const now = this.clock.now().toISOString();
+    const record = {
       id: input.id,
       userId: input.userId,
       workspaceId: input.workspaceId ?? existing?.workspaceId ?? null,
@@ -31,7 +47,7 @@ export class MemoryRunRepository implements RunRepository {
       completedAt: existing?.completedAt ?? null,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-    };
+    } satisfies RunRecord;
     this.runs.set(input.id, record);
     return record;
   }
@@ -41,13 +57,13 @@ export class MemoryRunRepository implements RunRepository {
     if (!existing) {
       throw new Error(`Run not found: ${input.id}`);
     }
-    const record: RunRecord = {
+    const record = {
       ...existing,
       status: input.status,
       startedAt: input.startedAt ?? existing.startedAt,
       completedAt: input.completedAt ?? existing.completedAt,
-      updatedAt: new Date().toISOString(),
-    };
+      updatedAt: this.clock.now().toISOString(),
+    } satisfies RunRecord;
     this.runs.set(input.id, record);
     return record;
   }
@@ -65,16 +81,16 @@ export class MemoryRunRepository implements RunRepository {
     }
 
     const sequence = runEvents.length + 1;
-    const record: RunEventRecord = {
-      id: Math.random().toString(36).substring(7),
+    const record = {
+      id: this.nextId("event"),
       runId: input.runId,
       sessionId: input.sessionId,
       eventType: input.eventType,
       payload: input.payload,
       sequence,
       idempotencyKey: input.idempotencyKey ?? null,
-      createdAt: new Date().toISOString(),
-    };
+      createdAt: this.clock.now().toISOString(),
+    } satisfies RunEventRecord;
     runEvents.push(record);
     this.events.set(input.runId, runEvents);
     return record;

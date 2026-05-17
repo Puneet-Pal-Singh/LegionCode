@@ -65,39 +65,24 @@ export class PostgresRunRepository implements RunRepository {
 
   async appendEvent(input: AppendRunEventInput): Promise<RunEventRecord> {
     const now = this.clock.now();
-    return await this.client.transaction(async (tx) => {
-      // Serialize concurrent appends for this run
-      await tx.query("SELECT id FROM runs WHERE id = $1 FOR UPDATE", [input.runId]);
+    const result = await this.client.query<RunRow>(APPEND_RUN_EVENT_SQL, [
+      input.runId,
+      input.sessionId,
+      input.eventType,
+      JSON.stringify(input.payload),
+      input.idempotencyKey ?? null,
+      now,
+    ]);
 
-      // Get the next sequence number for this run
-      const seqResult = await tx.query<{ sequence: number | string }>(
-        "SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM run_events WHERE run_id = $1",
-        [input.runId],
-      );
-      const sequence = Number(seqResult.rows[0]?.sequence ?? 1);
-
-      const result = await tx.query<RunRow>(INSERT_RUN_EVENT_SQL, [
-        input.runId,
-        input.sessionId,
-        input.eventType,
-        JSON.stringify(input.payload),
-        sequence,
-        input.idempotencyKey ?? null,
-        now,
-      ]);
-
-      const row = result.rows[0];
-      if (!row) {
-        // If no row returned, it means idempotency key conflict.
-        // We should fetch the existing event.
-        if (!input.idempotencyKey) {
-          throw new Error("Failed to insert run event without idempotency key");
-        }
-        return await readEventByIdempotencyKey(tx, input.runId, input.idempotencyKey);
+    const row = result.rows[0];
+    if (!row) {
+      if (!input.idempotencyKey) {
+        throw new Error("Failed to insert run event without idempotency key");
       }
+      return await readEventByIdempotencyKey(this.client, input.runId, input.idempotencyKey);
+    }
 
-      return mapRunEventRow(row);
-    });
+    return mapRunEventRow(row);
   }
 
   async getRun(runId: string): Promise<RunRecord | null> {
@@ -319,17 +304,12 @@ const GET_RUN_SQL = `
   WHERE id = $1
 `;
 
-const INSERT_RUN_EVENT_SQL = `
-  INSERT INTO run_events (
-    run_id,
-    session_id,
-    event_type,
-    payload_json,
-    sequence,
-    idempotency_key,
-    created_at
+const APPEND_RUN_EVENT_SQL = `
+  WITH next_seq AS (
+    UPDATE runs SET last_sequence = last_sequence + 1 WHERE id = $1 RETURNING last_sequence
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7)
+  INSERT INTO run_events (run_id, session_id, event_type, payload_json, sequence, idempotency_key, created_at)
+  SELECT $1, $2, $3, $4, last_sequence, $5, $6 FROM next_seq
   ON CONFLICT (run_id, idempotency_key) DO NOTHING
   RETURNING
     id AS event_id,
