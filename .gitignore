@@ -52,7 +52,7 @@ dist/
 *.tsbuildinfo
 
 # Generated review artifacts
-scripts/
+scripts/review-script/review-findings/
 
 # Internal planning files
 local/

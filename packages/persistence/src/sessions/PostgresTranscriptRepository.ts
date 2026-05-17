@@ -16,7 +16,7 @@ import type {
   TranscriptMessageRole,
   TranscriptRepository,
 } from "./types.js";
-import { assertHasParts, firstSequence } from "./transcriptUtils.js";
+import { assertHasParts, firstSequence, lastSequence } from "./transcriptUtils.js";
 
 interface Clock {
   now(): Date;
@@ -63,11 +63,15 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
   constructor(
     private readonly client: SqlClient,
     private readonly clock: Clock = systemClock,
+    private readonly skipTxWrap = false,
   ) {}
 
   async ensureSession(
     input: EnsureTranscriptSessionInput,
   ): Promise<SessionRecord> {
+    if (this.skipTxWrap) {
+      return await ensureSessionWithClient(this.client, input, this.clock.now());
+    }
     return await this.client.transaction(async (tx) =>
       ensureSessionWithClient(tx, input, this.clock.now()),
     );
@@ -76,6 +80,10 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
   async appendMessage(
     input: AppendTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord> {
+    if (this.skipTxWrap) {
+      await ensureSessionWithClient(this.client, input, this.clock.now());
+      return await appendMessageWithClient(this.client, input, this.clock.now());
+    }
     return await this.client.transaction(async (tx) => {
       await ensureSessionWithClient(tx, input, this.clock.now());
       return await appendMessageWithClient(tx, input, this.clock.now());
@@ -85,6 +93,10 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
   async appendMessageToExistingSession(
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord> {
+    if (this.skipTxWrap) {
+      await assertSessionExists(this.client, input.sessionId);
+      return await appendMessageWithClient(this.client, input, this.clock.now());
+    }
     return await this.client.transaction(async (tx) => {
       await assertSessionExists(tx, input.sessionId);
       return await appendMessageWithClient(tx, input, this.clock.now());
@@ -102,13 +114,13 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
       input.userId ?? null,
     ]);
     const messages = groupMessages(result.rows);
-    const lastPart = result.rows[result.rows.length - 1];
+    const lastMessage = messages[messages.length - 1];
 
     return {
       messages,
       nextCursor:
-        result.rows.length >= (input.limit ?? 100) && lastPart
-          ? toNumber(lastPart.session_sequence)
+        messages.length >= (input.limit ?? 100) && lastMessage
+          ? lastSequence(lastMessage)
           : null,
     };
   }
@@ -130,7 +142,7 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     callback: (repository: TranscriptRepository) => Promise<T>,
   ): Promise<T> {
     return await this.client.transaction(async (tx) => {
-      return await callback(new PostgresTranscriptRepository(tx, this.clock));
+      return await callback(new PostgresTranscriptRepository(tx, this.clock, true));
     });
   }
 }
@@ -620,15 +632,22 @@ const INCREMENT_SESSION_SEQUENCE_SQL = `
 
 const LIST_TRANSCRIPT_SQL = `
   SELECT ${MESSAGE_COLUMNS}, ${PART_COLUMNS}
-  FROM message_parts p
-  JOIN messages m ON m.id = p.message_id
+  FROM messages m
+  JOIN message_parts p ON p.message_id = m.id
   JOIN sessions s ON s.id = p.session_id
-  WHERE p.session_id = $1
-    AND ($2::uuid IS NULL OR p.run_id = $2 OR m.run_id = $2)
-    AND p.session_sequence > $3
+  WHERE m.id IN (
+    SELECT m2.id
+    FROM messages m2
+    JOIN message_parts p2 ON p2.message_id = m2.id
+    WHERE p2.session_id = $1
+      AND ($2::uuid IS NULL OR p2.run_id = $2 OR m2.run_id = $2)
+      AND p2.session_sequence > $3
+    GROUP BY m2.id
+    ORDER BY MIN(p2.session_sequence) ASC
+    LIMIT $4
+  )
     AND ($5::uuid IS NULL OR s.user_id = $5)
   ORDER BY p.session_sequence ASC
-  LIMIT $4
 `;
 
 const LIST_SESSIONS_SQL = `
