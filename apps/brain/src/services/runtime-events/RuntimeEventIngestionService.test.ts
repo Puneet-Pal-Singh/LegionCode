@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryRuntimeEventInboxRepository } from "@repo/persistence";
 import {
   INTERNAL_RUNTIME_EVENT_SIGNATURE_HEADER,
@@ -58,6 +58,40 @@ describe("RuntimeEventIngestionService", () => {
         headers,
       }),
     ).rejects.toMatchObject({ code: "INVALID_RUNTIME_EVENT_SIGNATURE" });
+  });
+
+  it("retries accepted inbox entries that failed projection", async () => {
+    const repository = new MemoryRuntimeEventInboxRepository();
+    const verifier = new RuntimeEventSignatureVerifier(SECRET, () => NOW);
+    const processor = {
+      process: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("projection unavailable"))
+        .mockResolvedValueOnce(undefined),
+    };
+    const service = new RuntimeEventIngestionService(
+      repository,
+      verifier,
+      createMockEnv(),
+      processor,
+    );
+    const rawBody = JSON.stringify({
+      source: "secure-agent-api",
+      eventType: "tool.completed",
+      idempotencyKey: "run-1:tool-1:retry-completed",
+      payloadSchemaVersion: 1,
+      payload: { runId: "run-1" },
+    });
+    const headers = await signHeaders(verifier, rawBody);
+
+    await expect(service.accept({ rawBody, headers })).rejects.toThrow(
+      "Failed to process runtime event: projection unavailable",
+    );
+    const retried = await service.accept({ rawBody, headers });
+
+    expect(retried.inserted).toBe(false);
+    expect(retried.entry.status).toBe("processed");
+    expect(processor.process).toHaveBeenCalledTimes(2);
   });
 });
 

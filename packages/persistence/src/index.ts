@@ -147,6 +147,7 @@ export type {
   EnsureRunInput,
   UpdateRunStatusInput,
   AppendRunEventInput,
+  UpsertRunStepInput,
   RunRepository,
 } from "./runs/types.js";
 

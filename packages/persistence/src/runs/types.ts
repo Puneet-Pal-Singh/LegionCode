@@ -91,11 +91,23 @@ export interface AppendRunEventInput {
   idempotencyKey?: string | null;
 }
 
+export interface UpsertRunStepInput {
+  runId: string;
+  stepIndex: number;
+  stepType: string;
+  status: RunStepStatus;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  payload: JsonValue;
+}
+
 export interface RunRepository {
   ensureRun(input: EnsureRunInput): Promise<RunRecord>;
   updateRunStatus(input: UpdateRunStatusInput): Promise<RunRecord>;
   appendEvent(input: AppendRunEventInput): Promise<RunEventRecord>;
-  getRun(runId: string): Promise<RunRecord | null>;
-  listRunEvents(runId: string): Promise<RunEventRecord[]>;
+  upsertStep(input: UpsertRunStepInput): Promise<RunStepRecord>;
+  getRun(runId: string, userId?: string): Promise<RunRecord | null>;
+  listRunEvents(runId: string, userId?: string): Promise<RunEventRecord[]>;
+  listRunSteps(runId: string, userId?: string): Promise<RunStepRecord[]>;
   transaction<T>(callback: (repository: RunRepository) => Promise<T>): Promise<T>;
 }

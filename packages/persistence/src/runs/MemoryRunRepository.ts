@@ -4,7 +4,9 @@ import type {
   RunEventRecord,
   RunRecord,
   RunRepository,
+  RunStepRecord,
   UpdateRunStatusInput,
+  UpsertRunStepInput,
 } from "./types.js";
 
 interface Clock {
@@ -18,6 +20,7 @@ const systemClock: Clock = {
 export class MemoryRunRepository implements RunRepository {
   private readonly runs = new Map<string, RunRecord>();
   private readonly events = new Map<string, RunEventRecord[]>();
+  private readonly steps = new Map<string, RunStepRecord[]>();
   private idCounter = 0;
 
   constructor(private readonly clock: Clock = systemClock) {}
@@ -96,12 +99,60 @@ export class MemoryRunRepository implements RunRepository {
     return record;
   }
 
-  async getRun(runId: string): Promise<RunRecord | null> {
-    return this.runs.get(runId) ?? null;
+  async upsertStep(input: UpsertRunStepInput): Promise<RunStepRecord> {
+    if (!this.runs.has(input.runId)) {
+      throw new Error(`Run not found: ${input.runId}`);
+    }
+
+    const runSteps = this.steps.get(input.runId) ?? [];
+    const existingIndex = runSteps.findIndex(
+      (step) => step.stepIndex === input.stepIndex,
+    );
+    const existing = existingIndex >= 0 ? runSteps[existingIndex] : null;
+    const now = this.clock.now().toISOString();
+    const record = {
+      id: existing?.id ?? this.nextId("step"),
+      runId: input.runId,
+      stepIndex: input.stepIndex,
+      stepType: input.stepType,
+      status: input.status,
+      startedAt: input.startedAt ?? existing?.startedAt ?? null,
+      completedAt: input.completedAt ?? existing?.completedAt ?? null,
+      payload: input.payload,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    } satisfies RunStepRecord;
+
+    if (existingIndex >= 0) {
+      runSteps[existingIndex] = record;
+    } else {
+      runSteps.push(record);
+      runSteps.sort((left, right) => left.stepIndex - right.stepIndex);
+    }
+    this.steps.set(input.runId, runSteps);
+    return record;
   }
 
-  async listRunEvents(runId: string): Promise<RunEventRecord[]> {
+  async getRun(runId: string, userId?: string): Promise<RunRecord | null> {
+    const run = this.runs.get(runId) ?? null;
+    if (!run || (userId && run.userId !== userId)) {
+      return null;
+    }
+    return run;
+  }
+
+  async listRunEvents(runId: string, userId?: string): Promise<RunEventRecord[]> {
+    if (!(await this.getRun(runId, userId))) {
+      return [];
+    }
     return this.events.get(runId) ?? [];
+  }
+
+  async listRunSteps(runId: string, userId?: string): Promise<RunStepRecord[]> {
+    if (!(await this.getRun(runId, userId))) {
+      return [];
+    }
+    return this.steps.get(runId) ?? [];
   }
 
   async transaction<T>(callback: (repository: RunRepository) => Promise<T>): Promise<T> {

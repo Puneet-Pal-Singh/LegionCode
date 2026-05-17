@@ -39,6 +39,11 @@ export interface RuntimeEventInboxRepository {
   accept(
     event: InternalRuntimeEventRequest,
   ): Promise<RuntimeEventInboxAcceptResult>;
+  markProcessed(entryId: string, processedAt: string): Promise<RuntimeEventInboxEntry>;
+  markFailed(
+    entryId: string,
+    errorMessage: string,
+  ): Promise<RuntimeEventInboxEntry>;
 }
 
 export function buildRuntimeEventInboxStatusSqlList(): string {

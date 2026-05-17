@@ -43,6 +43,13 @@
       "when": 1778866794447,
       "tag": "0005_transcript_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779020720547,
+      "tag": "0006_run_bootstrap",
+      "breakpoints": true
     }
   ]
 }

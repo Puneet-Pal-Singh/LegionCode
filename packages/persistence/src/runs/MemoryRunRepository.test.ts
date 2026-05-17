@@ -60,6 +60,54 @@ describe("MemoryRunRepository", () => {
     expect(events[0]?.payload).toEqual({ foo: "bar" });
   });
 
+  it("can upsert and list steps for a run", async () => {
+    const repo = new MemoryRunRepository();
+    const runId = "run-steps";
+    await repo.ensureRun({
+      id: runId,
+      userId: "user-1",
+      sessionId: "session-1",
+      taskId: "task-1",
+    });
+
+    const first = await repo.upsertStep({
+      runId,
+      stepIndex: 1,
+      stepType: "tool.started",
+      status: "running",
+      startedAt: "2026-05-13T00:00:00.000Z",
+      payload: { toolName: "read_file" },
+    });
+    const retried = await repo.upsertStep({
+      runId,
+      stepIndex: 1,
+      stepType: "tool.completed",
+      status: "completed",
+      completedAt: "2026-05-13T00:00:01.000Z",
+      payload: { toolName: "read_file" },
+    });
+
+    expect(retried.id).toBe(first.id);
+    expect(retried.status).toBe("completed");
+    expect(retried.startedAt).toBe(first.startedAt);
+    await expect(repo.listRunSteps(runId, "user-1")).resolves.toHaveLength(1);
+  });
+
+  it("scopes run reads by user", async () => {
+    const repo = new MemoryRunRepository();
+    await repo.ensureRun({
+      id: "run-owned",
+      userId: "user-owner",
+      sessionId: "session-1",
+      taskId: "task-1",
+    });
+
+    await expect(repo.getRun("run-owned", "other-user")).resolves.toBeNull();
+    await expect(repo.listRunEvents("run-owned", "other-user")).resolves.toEqual(
+      [],
+    );
+  });
+
   it("supports transactional operations", async () => {
     const repo = new MemoryRunRepository();
     const runId = "run-tx";

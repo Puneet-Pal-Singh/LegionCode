@@ -1,10 +1,23 @@
-import type { InternalRuntimeEventRequest, RunEvent, JsonValue, RunEventType } from "@repo/shared-types";
+import type {
+  InternalRuntimeEventRequest,
+  JsonValue,
+  RunEvent,
+} from "@repo/shared-types";
 import { RUN_EVENT_TYPES, isRunEvent } from "@repo/shared-types";
-import { PersistenceService } from "../PersistenceService";
+import type {
+  RunStatus,
+  RunStepStatus,
+  UpdateRunStatusInput,
+  UpsertRunStepInput,
+} from "@repo/persistence";
 import type { Env } from "../../types/ai";
-import type { RunStatus } from "@repo/persistence";
+import { PersistenceService } from "../PersistenceService";
 
-export class RuntimeEventProcessor {
+export interface RuntimeEventProcessorPort {
+  process(event: InternalRuntimeEventRequest): Promise<void>;
+}
+
+export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
   private persistenceService: PersistenceService;
 
   constructor(private env: Env) {
@@ -14,84 +27,111 @@ export class RuntimeEventProcessor {
   async process(event: InternalRuntimeEventRequest): Promise<void> {
     const { payload, eventType, idempotencyKey } = event;
 
-    if (isRunEvent(payload)) {
-      await this.processRunEvent(payload, idempotencyKey);
-    } else {
+    if (!isRunEvent(payload)) {
       console.log(`[RuntimeEventProcessor] Unhandled event type: ${eventType}`);
+      return;
     }
+
+    await this.processRunEvent(payload, idempotencyKey);
   }
 
   private async processRunEvent(
     event: RunEvent,
     idempotencyKey: string,
   ): Promise<void> {
-    this.validateRunEvent(event);
-    await this.persistRunEvent(event, idempotencyKey);
-    await this.handleStatusTransition(event);
-  }
+    assertSessionScopedRunEvent(event);
+    const eventRecord = await this.persistenceService.writeRunProjection({
+      event: {
+        runId: event.runId,
+        sessionId: event.sessionId,
+        eventType: event.type,
+        payload: event.payload as unknown as JsonValue,
+        idempotencyKey,
+      },
+      status: buildRunStatusUpdate(event),
+    });
 
-  private validateRunEvent(event: RunEvent): void {
-    if (!event.sessionId) {
-      throw new Error(`Missing sessionId for run event: ${event.runId}`);
+    const step = buildRunStep(event, eventRecord.sequence);
+    if (!step) {
+      return;
     }
-  }
 
-  private async persistRunEvent(
-    event: RunEvent,
-    idempotencyKey: string,
-  ): Promise<void> {
-    await this.persistenceService.appendRunEvent({
-      runId: event.runId,
-      sessionId: event.sessionId as string,
-      eventType: event.type,
-      payload: event.payload as unknown as JsonValue,
-      idempotencyKey,
+    await this.persistenceService.writeRunProjection({
+      event: {
+        runId: event.runId,
+        sessionId: event.sessionId,
+        eventType: event.type,
+        payload: event.payload as unknown as JsonValue,
+        idempotencyKey,
+      },
+      step,
     });
   }
+}
 
-  private async handleStatusTransition(event: RunEvent): Promise<void> {
-    const { runId, type, payload, timestamp } = event;
-
-    switch (type) {
-      case RUN_EVENT_TYPES.RUN_STARTED:
-        await this.persistenceService.updateRunStatus(
-          runId,
-          "running",
-          timestamp,
-        );
-        break;
-
-      case RUN_EVENT_TYPES.RUN_COMPLETED:
-        await this.persistenceService.updateRunStatus(
-          runId,
-          "completed",
-          undefined,
-          timestamp,
-        );
-        break;
-
-      case RUN_EVENT_TYPES.RUN_FAILED:
-        await this.persistenceService.updateRunStatus(
-          runId,
-          "failed",
-          undefined,
-          timestamp,
-        );
-        break;
-
-      case RUN_EVENT_TYPES.RUN_STATUS_CHANGED: {
-        const statusPayload = payload as { newStatus: string };
-        const newStatus = mapRunStatus(statusPayload.newStatus);
-        if (newStatus) {
-          await this.persistenceService.updateRunStatus(runId, newStatus);
-        }
-        break;
-      }
-
-      default:
-        break;
-    }
+function assertSessionScopedRunEvent(
+  event: RunEvent,
+): asserts event is RunEvent & { sessionId: string } {
+  if (!event.sessionId) {
+    throw new Error(`Missing sessionId for run event: ${event.runId}`);
   }
+}
+
+function buildRunStatusUpdate(
+  event: RunEvent,
+): UpdateRunStatusInput | undefined {
+  const { runId, type, payload, timestamp } = event;
+
+  switch (type) {
+    case RUN_EVENT_TYPES.RUN_STARTED:
+      return { id: runId, status: "running", startedAt: timestamp };
+    case RUN_EVENT_TYPES.RUN_COMPLETED:
+      return { id: runId, status: "completed", completedAt: timestamp };
+    case RUN_EVENT_TYPES.RUN_FAILED:
+      return { id: runId, status: "failed", completedAt: timestamp };
+    case RUN_EVENT_TYPES.RUN_STATUS_CHANGED:
+      return buildStatusChangedUpdate(runId, payload.newStatus, timestamp);
+    default:
+      return undefined;
+  }
+}
+
+function buildStatusChangedUpdate(
+  runId: string,
+  status: string,
+  timestamp: string,
+): UpdateRunStatusInput | undefined {
+  const mappedStatus = mapRunStatus(status);
+  if (!mappedStatus) {
+    return undefined;
+  }
+
+  return {
+    id: runId,
+    status: mappedStatus,
+    startedAt: mappedStatus === "running" ? timestamp : undefined,
+    completedAt: isTerminalRunStatus(mappedStatus) ? timestamp : undefined,
+  };
+}
+
+function buildRunStep(
+  event: RunEvent & { sessionId: string },
+  sequence: number,
+): UpsertRunStepInput | undefined {
+  const status = mapRunStepStatus(event);
+  if (!status) {
+    return undefined;
+  }
+
+  return {
+    runId: event.runId,
+    stepIndex: sequence,
+    stepType: event.type,
+    status,
+    startedAt: status === "running" ? event.timestamp : undefined,
+    completedAt: isTerminalStepStatus(status) ? event.timestamp : undefined,
+    payload: event.payload as unknown as JsonValue,
+  };
 }
 
 function mapRunStatus(status: string): RunStatus | null {
@@ -111,4 +151,31 @@ function mapRunStatus(status: string): RunStatus | null {
     default:
       return null;
   }
+}
+
+function mapRunStepStatus(event: RunEvent): RunStepStatus | null {
+  switch (event.type) {
+    case RUN_EVENT_TYPES.RUN_PROGRESS:
+      return event.payload.status === "completed" ? "completed" : "running";
+    case RUN_EVENT_TYPES.APPROVAL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_REQUESTED:
+      return "pending";
+    case RUN_EVENT_TYPES.APPROVAL_RESOLVED:
+    case RUN_EVENT_TYPES.TOOL_COMPLETED:
+      return "completed";
+    case RUN_EVENT_TYPES.TOOL_STARTED:
+      return "running";
+    case RUN_EVENT_TYPES.TOOL_FAILED:
+      return "failed";
+    default:
+      return null;
+  }
+}
+
+function isTerminalRunStatus(status: RunStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function isTerminalStepStatus(status: RunStepStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }

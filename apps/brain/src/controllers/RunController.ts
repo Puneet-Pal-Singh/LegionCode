@@ -9,7 +9,11 @@ import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
-import type { RunEventRecord } from "@repo/persistence";
+import {
+  getAuthenticatedUserSession,
+  isSessionStoreUnavailableError,
+} from "../services/AuthService";
+import type { RunEventRecord, RunRecord, RunStepRecord } from "@repo/persistence";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
@@ -51,56 +55,45 @@ export class RunController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      // PR6: Hydrate summary from Postgres
-      let runRecord: { id: string; status: string } | null = null;
-      try {
-        runRecord = await withRunRepository(env, async (repo) => {
-          const run = await repo.getRun(runId);
-          return run ? { id: run.id, status: run.status } : null;
-        });
-      } catch (error) {
-        console.warn(
-          "[RunController:getSummary] Postgres fetch failed, falling back to runtime:",
-          extractErrorMessage(error),
-        );
+      const auth = await getAuthenticatedUserSession(req, env);
+      if (!auth) {
+        return errorResponse(req, env, "Unauthorized", 401);
       }
 
-      // If we have a Postgres record, overlay runtime task counts
-      if (runRecord) {
-        const runtimeSummary: RunSummaryResponse | null = await fetchRunSummaryFromRuntimeBestEffort(
-          env, runId, requestedBackend,
+      const summary = await withRunRepository(env, async (repo) => {
+        const run = await repo.getRun(runId, auth.userId);
+        if (!run) {
+          return null;
+        }
+        const [events, steps] = await Promise.all([
+          repo.listRunEvents(runId, auth.userId),
+          repo.listRunSteps(runId, auth.userId),
+        ]);
+        return buildPostgresRunSummary(run, events, steps);
+      });
+
+      if (!summary) {
+        return errorResponse(req, env, "Run not found", 404);
+      }
+
+      if (requestedBackend === "cloudflare_agents") {
+        const runtimeSummary = await fetchRunSummaryFromRuntimeBestEffort(
+          env,
+          runId,
+          requestedBackend,
         );
         return jsonResponse(req, env, {
-          runId: runRecord.id,
-          status: runRecord.status,
-          totalTasks: runtimeSummary?.totalTasks ?? 0,
-          completedTasks: runtimeSummary?.completedTasks ?? 0,
-          failedTasks: runtimeSummary?.failedTasks ?? 0,
-          runningTasks: runtimeSummary?.runningTasks ?? 0,
-          pendingTasks: runtimeSummary?.pendingTasks ?? 0,
-          cancelledTasks: runtimeSummary?.cancelledTasks ?? 0,
+          ...summary,
+          permissionContext: runtimeSummary?.permissionContext,
+          pendingApproval: runtimeSummary?.pendingApproval,
         });
       }
 
-      const response = await fetchRunSummaryFromRuntime(
-        env,
-        runId,
-        requestedBackend,
-      );
-      if (!response.ok) {
-        const details = await readErrorPreview(response);
-        const suffix = details ? `: ${details}` : "";
-        return errorResponse(
-          req,
-          env,
-          `Failed to fetch run summary${suffix}`,
-          response.status,
-        );
-      }
-
-      const payload = (await response.json()) as RunSummaryResponse;
-      return jsonResponse(req, env, payload);
+      return jsonResponse(req, env, summary);
     } catch (error) {
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(req, env, error.message, 503);
+      }
       console.error("[RunController:getSummary] Error:", error);
       return errorResponse(
         req,
@@ -187,41 +180,27 @@ export class RunController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      // PR6: Fetch events from Postgres
-      let events: RunEventRecord[] = [];
-      try {
-        events = await withRunRepository(env, async (repo) => {
-          return await repo.listRunEvents(runId);
-        });
-      } catch (error) {
-        console.warn(
-          "[RunController:getEvents] Postgres fetch failed, falling back to runtime:",
-          extractErrorMessage(error),
-        );
+      const auth = await getAuthenticatedUserSession(req, env);
+      if (!auth) {
+        return errorResponse(req, env, "Unauthorized", 401);
       }
 
-      if (events.length > 0) {
-        return jsonResponse(req, env, events);
-      }
+      const result = await withRunRepository(env, async (repo) => {
+        const run = await repo.getRun(runId, auth.userId);
+        if (!run) {
+          return null;
+        }
+        return await repo.listRunEvents(runId, auth.userId);
+      });
 
-      const response = await fetchRunEventsFromRuntime(
-        env,
-        runId,
-        requestedBackend,
-      );
-      if (!response.ok) {
-        const details = await readErrorPreview(response);
-        const suffix = details ? `: ${details}` : "";
-        return errorResponse(
-          req,
-          env,
-          `Failed to fetch run events${suffix}`,
-          response.status,
-        );
+      if (!result) {
+        return errorResponse(req, env, "Run not found", 404);
       }
-
-      return proxyResponse(req, env, response);
+      return jsonResponse(req, env, result);
     } catch (error) {
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(req, env, error.message, 503);
+      }
       console.error("[RunController:getEvents] Error:", error);
       return errorResponse(
         req,
@@ -314,6 +293,32 @@ export class RunController {
   }
 }
 
+function buildPostgresRunSummary(
+  run: RunRecord,
+  events: RunEventRecord[],
+  steps: RunStepRecord[],
+): RunSummaryResponse {
+  return {
+    runId: run.id,
+    status: run.status,
+    totalTasks: steps.length,
+    completedTasks: countStepsByStatus(steps, "completed"),
+    failedTasks: countStepsByStatus(steps, "failed"),
+    runningTasks: countStepsByStatus(steps, "running"),
+    pendingTasks: countStepsByStatus(steps, "pending"),
+    cancelledTasks: countStepsByStatus(steps, "cancelled"),
+    eventCount: events.length,
+    lastEventType: events.at(-1)?.eventType ?? null,
+  };
+}
+
+function countStepsByStatus(
+  steps: RunStepRecord[],
+  status: RunStepRecord["status"],
+): number {
+  return steps.filter((step) => step.status === status).length;
+}
+
 async function fetchRunSummaryFromRuntime(
   env: Env,
   runId: string,
@@ -334,7 +339,11 @@ async function fetchRunSummaryFromRuntimeBestEffort(
     const response = await fetchRunSummaryFromRuntime(env, runId, requestedBackend);
     if (!response.ok) return null;
     return (await response.json()) as RunSummaryResponse;
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[RunController:getSummary] Runtime summary overlay failed:",
+      extractErrorMessage(error),
+    );
     return null;
   }
 }
@@ -456,17 +465,6 @@ function extractErrorMessage(error: unknown): string {
     }
   }
   return "";
-}
-
-async function fetchRunEventsFromRuntime(
-  env: Env,
-  runId: string,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<Response> {
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
-    method: "GET",
-    path: `/events?runId=${encodeURIComponent(runId)}`,
-  });
 }
 
 async function fetchRunEventsStreamFromRuntime(

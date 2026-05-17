@@ -1,14 +1,21 @@
-import type { JsonValue } from "@repo/shared-types";
-import type { SqlClient, SqlRow } from "../sql.js";
+import type { SqlClient } from "../sql.js";
 import type {
   AppendRunEventInput,
   EnsureRunInput,
   RunEventRecord,
   RunRecord,
   RunRepository,
+  RunStepRecord,
   UpdateRunStatusInput,
-  RunStatus,
+  UpsertRunStepInput,
 } from "./types.js";
+import {
+  type RunRow,
+  mapRunRow,
+  mapRunEventRow,
+  mapRunStepRow,
+  readReturnedRow,
+} from "./runMappers.js";
 
 interface Clock {
   now(): Date;
@@ -76,24 +83,51 @@ export class PostgresRunRepository implements RunRepository {
 
     const row = result.rows[0];
     if (!row) {
-      if (!input.idempotencyKey) {
-        throw new Error("Failed to insert run event without idempotency key");
-      }
-      return await readEventByIdempotencyKey(this.client, input.runId, input.idempotencyKey);
+      throw new Error(`Run event append returned no row for run: ${input.runId}`);
     }
 
     return mapRunEventRow(row);
   }
 
-  async getRun(runId: string): Promise<RunRecord | null> {
-    const result = await this.client.query<RunRow>(GET_RUN_SQL, [runId]);
+  async upsertStep(input: UpsertRunStepInput): Promise<RunStepRecord> {
+    const now = this.clock.now();
+    const result = await this.client.query<RunRow>(UPSERT_RUN_STEP_SQL, [
+      input.runId,
+      input.stepIndex,
+      input.stepType,
+      input.status,
+      input.startedAt ? new Date(input.startedAt) : null,
+      input.completedAt ? new Date(input.completedAt) : null,
+      JSON.stringify(input.payload),
+      now,
+    ]);
+
+    return mapRunStepRow(readReturnedRow(result.rows[0], "run_steps"));
+  }
+
+  async getRun(runId: string, userId?: string): Promise<RunRecord | null> {
+    const result = await this.client.query<RunRow>(GET_RUN_SQL, [
+      runId,
+      userId ?? null,
+    ]);
     const row = result.rows[0];
     return row ? mapRunRow(row) : null;
   }
 
-  async listRunEvents(runId: string): Promise<RunEventRecord[]> {
-    const result = await this.client.query<RunRow>(LIST_RUN_EVENTS_SQL, [runId]);
+  async listRunEvents(runId: string, userId?: string): Promise<RunEventRecord[]> {
+    const result = await this.client.query<RunRow>(LIST_RUN_EVENTS_SQL, [
+      runId,
+      userId ?? null,
+    ]);
     return result.rows.map(mapRunEventRow);
+  }
+
+  async listRunSteps(runId: string, userId?: string): Promise<RunStepRecord[]> {
+    const result = await this.client.query<RunRow>(LIST_RUN_STEPS_SQL, [
+      runId,
+      userId ?? null,
+    ]);
+    return result.rows.map(mapRunStepRow);
   }
 
   async transaction<T>(
@@ -103,138 +137,6 @@ export class PostgresRunRepository implements RunRepository {
       return await callback(new PostgresRunRepository(tx, this.clock));
     });
   }
-}
-
-interface RunRow extends SqlRow {
-  id?: string;
-  user_id?: string;
-  workspace_id?: string | null;
-  session_id?: string;
-  task_id?: string;
-  status?: string;
-  mode?: string;
-  provider_id?: string | null;
-  model_id?: string | null;
-  branch?: string | null;
-  base_commit_sha?: string | null;
-  head_commit_sha?: string | null;
-  started_at?: string | Date | null;
-  completed_at?: string | Date | null;
-  created_at?: string | Date;
-  updated_at?: string | Date;
-  event_id: string;
-  event_type: string;
-  payload_json: JsonValue | string;
-  sequence: number | string;
-  idempotency_key: string | null;
-}
-
-function mapRunRow(row: RunRow): RunRecord {
-  return {
-    id: requireString(row.id, "id"),
-    userId: requireString(row.user_id, "user_id"),
-    workspaceId: row.workspace_id ?? null,
-    sessionId: requireString(row.session_id, "session_id"),
-    taskId: requireString(row.task_id, "task_id"),
-    status: mapRunStatus(requireString(row.status, "status")),
-    mode: requireString(row.mode, "mode"),
-    providerId: row.provider_id ?? null,
-    modelId: row.model_id ?? null,
-    branch: row.branch ?? null,
-    baseCommitSha: row.base_commit_sha ?? null,
-    headCommitSha: row.head_commit_sha ?? null,
-    startedAt: row.started_at ? toIsoString(row.started_at) : null,
-    completedAt: row.completed_at ? toIsoString(row.completed_at) : null,
-    createdAt: toIsoString(row.created_at),
-    updatedAt: toIsoString(row.updated_at),
-  };
-}
-
-function mapRunEventRow(row: RunRow): RunEventRecord {
-  return {
-    id: requireString(row.event_id, "event_id"),
-    runId: requireString(row.run_id, "run_id"),
-    sessionId: requireString(row.session_id, "session_id"),
-    eventType: requireString(row.event_type, "event_type"),
-    payload: parsePayloadJson(row.payload_json, row.event_id),
-    sequence: toNumber(row.sequence),
-    idempotencyKey: row.idempotency_key ?? null,
-    createdAt: toIsoString(row.created_at),
-  };
-}
-
-function parsePayloadJson(value: JsonValue | string | undefined, eventId: unknown): JsonValue {
-  if (typeof value !== "string") {
-    return value ?? null;
-  }
-
-  try {
-    return JSON.parse(value) as JsonValue;
-  } catch (error) {
-    throw new Error(`Invalid payload_json for run_event ${String(eventId)}`, {
-      cause: error,
-    });
-  }
-}
-
-function mapRunStatus(status: string): RunStatus {
-  if (
-    status === "created" ||
-    status === "running" ||
-    status === "completed" ||
-    status === "failed" ||
-    status === "cancelled"
-  ) {
-    return status;
-  }
-  throw new Error(`Unsupported run status: ${status}`);
-}
-
-async function readEventByIdempotencyKey(
-  client: SqlClient,
-  runId: string,
-  idempotencyKey: string,
-): Promise<RunEventRecord> {
-  const result = await client.query<RunRow>(FIND_EVENT_BY_IDEMPOTENCY_SQL, [
-    runId,
-    idempotencyKey,
-  ]);
-  const row = result.rows[0];
-  if (!row) {
-    throw new Error(`Run event not found for idempotency key: ${idempotencyKey}`);
-  }
-  return mapRunEventRow(row);
-}
-
-function readReturnedRow(row: RunRow | undefined, tableName: string): RunRow {
-  if (!row) {
-    throw new Error(`${tableName} statement returned no row`);
-  }
-  return row;
-}
-
-function requireString(value: unknown, columnName: string): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  throw new Error(`Expected ${columnName} to be a string`);
-}
-
-function toIsoString(value: string | Date | undefined): string {
-  if (!value) {
-    throw new Error("Missing timestamp column");
-  }
-  return value instanceof Date ? value.toISOString() : value;
-}
-
-function toNumber(value: number | string | undefined): number {
-  if (typeof value === "number") {
-    return value;
-  }
-  if (typeof value === "string") {
-    return Number(value);
-  }
-  throw new Error("Missing numeric column");
 }
 
 const RUN_COLUMNS = `
@@ -302,51 +204,108 @@ const GET_RUN_SQL = `
   SELECT ${RUN_COLUMNS}
   FROM runs
   WHERE id = $1
+    AND ($2::uuid IS NULL OR user_id = $2::uuid)
 `;
 
 const APPEND_RUN_EVENT_SQL = `
-  WITH next_seq AS (
-    UPDATE runs SET last_sequence = last_sequence + 1 WHERE id = $1 RETURNING last_sequence
+  WITH existing AS (
+    SELECT
+      id AS event_id,
+      run_id,
+      session_id,
+      event_type,
+      payload_json,
+      sequence,
+      idempotency_key,
+      created_at
+    FROM run_events
+    WHERE run_id = $1 AND $5 IS NOT NULL AND idempotency_key = $5
+  ),
+  next_seq AS (
+    UPDATE runs
+    SET last_sequence = last_sequence + 1
+    WHERE id = $1
+      AND NOT EXISTS (SELECT 1 FROM existing)
+    RETURNING last_sequence
+  ),
+  inserted AS (
+    INSERT INTO run_events (run_id, session_id, event_type, payload_json, sequence, idempotency_key, created_at)
+    SELECT $1, $2, $3, $4, last_sequence, $5, $6 FROM next_seq
+    ON CONFLICT (run_id, idempotency_key) DO NOTHING
+    RETURNING
+      id AS event_id,
+      run_id,
+      session_id,
+      event_type,
+      payload_json,
+      sequence,
+      idempotency_key,
+      created_at
   )
-  INSERT INTO run_events (run_id, session_id, event_type, payload_json, sequence, idempotency_key, created_at)
-  SELECT $1, $2, $3, $4, last_sequence, $5, $6 FROM next_seq
-  ON CONFLICT (run_id, idempotency_key) DO NOTHING
-  RETURNING
-    id AS event_id,
-    run_id,
-    session_id,
-    event_type,
-    payload_json,
-    sequence,
-    idempotency_key,
-    created_at
-`;
-
-const FIND_EVENT_BY_IDEMPOTENCY_SQL = `
-  SELECT
-    id AS event_id,
-    run_id,
-    session_id,
-    event_type,
-    payload_json,
-    sequence,
-    idempotency_key,
-    created_at
-  FROM run_events
-  WHERE run_id = $1 AND idempotency_key = $2
+  SELECT * FROM existing
+  UNION ALL
+  SELECT * FROM inserted
 `;
 
 const LIST_RUN_EVENTS_SQL = `
   SELECT
-    id AS event_id,
+    e.id AS event_id,
+    e.run_id,
+    e.session_id,
+    e.event_type,
+    e.payload_json,
+    e.sequence,
+    e.idempotency_key,
+    e.created_at
+  FROM run_events e
+  JOIN runs r ON r.id = e.run_id
+  WHERE e.run_id = $1
+    AND ($2::uuid IS NULL OR r.user_id = $2::uuid)
+  ORDER BY e.sequence ASC
+`;
+
+const RUN_STEP_COLUMNS = `
+  id AS step_id,
+  run_id,
+  step_index,
+  step_type,
+  status AS step_status,
+  started_at AS step_started_at,
+  completed_at AS step_completed_at,
+  payload_json AS step_payload_json,
+  created_at AS step_created_at,
+  updated_at AS step_updated_at
+`;
+
+const UPSERT_RUN_STEP_SQL = `
+  INSERT INTO run_steps (
     run_id,
-    session_id,
-    event_type,
+    step_index,
+    step_type,
+    status,
+    started_at,
+    completed_at,
     payload_json,
-    sequence,
-    idempotency_key,
-    created_at
-  FROM run_events
-  WHERE run_id = $1
-  ORDER BY sequence ASC
+    created_at,
+    updated_at
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $8)
+  ON CONFLICT (run_id, step_index)
+  DO UPDATE SET
+    step_type = EXCLUDED.step_type,
+    status = EXCLUDED.status,
+    started_at = COALESCE(EXCLUDED.started_at, run_steps.started_at),
+    completed_at = COALESCE(EXCLUDED.completed_at, run_steps.completed_at),
+    payload_json = EXCLUDED.payload_json,
+    updated_at = EXCLUDED.updated_at
+  RETURNING ${RUN_STEP_COLUMNS}
+`;
+
+const LIST_RUN_STEPS_SQL = `
+  SELECT ${RUN_STEP_COLUMNS}
+  FROM run_steps s
+  JOIN runs r ON r.id = s.run_id
+  WHERE s.run_id = $1
+    AND ($2::uuid IS NULL OR r.user_id = $2::uuid)
+  ORDER BY s.step_index ASC
 `;

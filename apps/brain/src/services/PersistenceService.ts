@@ -1,6 +1,15 @@
 import type { CoreMessage } from "ai";
 import type { JsonValue } from "@repo/shared-types";
-import type { TranscriptRepository, RunRepository, RunStatus, RunRecord, RunEventRecord } from "@repo/persistence";
+import type {
+  AppendRunEventInput,
+  RunEventRecord,
+  RunRecord,
+  RunRepository,
+  RunStatus,
+  TranscriptRepository,
+  UpdateRunStatusInput,
+  UpsertRunStepInput,
+} from "@repo/persistence";
 import { pruneToolResults } from "@shadowbox/context-pruner";
 import { Env } from "../types/ai";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
@@ -58,6 +67,25 @@ export class PersistenceService {
     return await withRunRepository(this.env, async (repository) => {
       return await repository.appendEvent(input);
     });
+  }
+
+  async writeRunProjection(input: {
+    event: AppendRunEventInput;
+    step?: UpsertRunStepInput;
+    status?: UpdateRunStatusInput;
+  }): Promise<RunEventRecord> {
+    return await withRunRepository(this.env, async (repository) =>
+      repository.transaction(async (txRepository) => {
+        const event = await txRepository.appendEvent(input.event);
+        if (input.step) {
+          await txRepository.upsertStep(input.step);
+        }
+        if (input.status) {
+          await txRepository.updateRunStatus(input.status);
+        }
+        return event;
+      }),
+    );
   }
 
   private async generateIdempotencyKey(

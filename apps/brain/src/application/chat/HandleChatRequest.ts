@@ -195,9 +195,12 @@ export class HandleChatRequest {
             branch: repositoryBranch ?? null,
           });
         } catch (ensureError) {
+          const message =
+            ensureError instanceof Error
+              ? ensureError.message
+              : "Unknown error";
           console.warn(
-            `[chat/usecase] ${correlationId}: Failed to ensure run:`,
-            ensureError,
+            `[chat/usecase] ${correlationId}: Failed to ensure run: ${message}`,
           );
           // Don't fail the request if persistence fails
         }
