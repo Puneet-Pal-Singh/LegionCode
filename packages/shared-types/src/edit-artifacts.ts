@@ -36,8 +36,8 @@ export const EditArtifactEventTypeSchema = z.enum(EDIT_ARTIFACT_EVENT_TYPES);
 export const EditArtifactChangedFileSchema = z.object({
   path: z.string().min(1),
   status: z.string().min(1),
-  additions: z.number().int().nonnegative().optional(),
-  deletions: z.number().int().nonnegative().optional(),
+  additions: z.number().int().nonnegative().optional().nullable(),
+  deletions: z.number().int().nonnegative().optional().nullable(),
   isStaged: z.boolean().optional().nullable(),
 });
 
