@@ -18,7 +18,7 @@ export const EDIT_ARTIFACT_STATUSES = [
 export const EDIT_ARTIFACT_EVENT_TYPES = [
   "capture_started",
   "r2_write_succeeded",
-  "d1_commit_succeeded",
+  "metadata_commit_succeeded",
   "capture_failed",
   "restore_attempted",
   "restored",
@@ -43,6 +43,7 @@ export const EditArtifactChangedFileSchema = z.object({
 
 export const EditArtifactRecordSchema = z.object({
   id: z.string().min(1),
+  userId: z.string().min(1),
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   workspaceId: z.string().min(1),
@@ -54,6 +55,9 @@ export const EditArtifactRecordSchema = z.object({
   headCommitSha: z.string().min(1).nullable(),
   artifactKind: EditArtifactKindSchema,
   r2ObjectKey: z.string().min(1),
+  contentType: z.string().min(1).nullable(),
+  sizeBytes: z.number().int().nonnegative().nullable(),
+  sha256: z.string().min(1).nullable(),
   changedFileCount: z.number().int().nonnegative(),
   changedFiles: z.array(EditArtifactChangedFileSchema),
   status: EditArtifactStatusSchema,
@@ -74,6 +78,7 @@ export const EditArtifactEventSchema = z.object({
 
 export const CreateEditArtifactInputSchema = z.object({
   id: z.string().min(1),
+  userId: z.string().min(1),
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   workspaceId: z.string().min(1),
@@ -91,6 +96,7 @@ export const CreateEditArtifactInputSchema = z.object({
 export const EditArtifactPatchObjectMetadataSchema = z.object({
   schemaVersion: z.literal(1),
   artifactId: z.string().min(1),
+  userId: z.string().min(1),
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   workspaceId: z.string().min(1),
