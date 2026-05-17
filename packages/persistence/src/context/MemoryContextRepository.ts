@@ -52,7 +52,7 @@ export class MemoryContextRepository implements ContextRepository {
     } satisfies ContextSnapshotRecord;
 
     this.snapshots.push(record);
-    return record;
+    return cloneSnapshot(record);
   }
 
   async addSource(
@@ -72,7 +72,7 @@ export class MemoryContextRepository implements ContextRepository {
     } satisfies ContextSnapshotSourceRecord;
 
     this.sources.push(record);
-    return record;
+    return cloneSource(record);
   }
 
   async listSnapshotsBySession(
@@ -89,7 +89,8 @@ export class MemoryContextRepository implements ContextRepository {
         (left, right) =>
           new Date(right.createdAt).getTime() -
           new Date(left.createdAt).getTime(),
-      );
+      )
+      .map(cloneSnapshot);
   }
 
   async listSourcesBySnapshot(
@@ -101,14 +102,56 @@ export class MemoryContextRepository implements ContextRepository {
       return [];
     }
 
-    return this.sources.filter(
-      (s) => s.contextSnapshotId === snapshotId,
-    );
+    return this.sources
+      .filter((s) => s.contextSnapshotId === snapshotId)
+      .map(cloneSource);
   }
 
   async transaction<T>(
     callback: (repository: ContextRepository) => Promise<T>,
   ): Promise<T> {
-    return await callback(this);
+    const snapshotsBefore = this.snapshots.map(cloneSnapshot);
+    const sourcesBefore = this.sources.map(cloneSource);
+    const idCounterBefore = this.idCounter;
+
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.snapshots.length = 0;
+      this.snapshots.push(...snapshotsBefore);
+      this.sources.length = 0;
+      this.sources.push(...sourcesBefore);
+      this.idCounter = idCounterBefore;
+      throw error;
+    }
   }
+}
+
+function cloneSnapshot(record: ContextSnapshotRecord): ContextSnapshotRecord {
+  return {
+    ...record,
+    sourceMessageRangeJson: cloneJson(record.sourceMessageRangeJson),
+    usageBeforeJson: cloneJson(record.usageBeforeJson),
+    usageAfterJson: cloneJson(record.usageAfterJson),
+    validationJson: cloneJson(record.validationJson),
+    modelInfoJson: cloneJson(record.modelInfoJson),
+    mediaArtifactsJson: cloneJson(record.mediaArtifactsJson),
+    continuityStateJson: cloneJson(record.continuityStateJson),
+  };
+}
+
+function cloneSource(
+  record: ContextSnapshotSourceRecord,
+): ContextSnapshotSourceRecord {
+  return {
+    ...record,
+    sourceRangeJson: cloneJson(record.sourceRangeJson),
+  };
+}
+
+function cloneJson<T>(value: T): T {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
 }

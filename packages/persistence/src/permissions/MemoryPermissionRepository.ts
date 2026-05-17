@@ -58,7 +58,7 @@ export class MemoryPermissionRepository implements PermissionRepository {
     } satisfies PermissionRequestRecord;
 
     this.requests.push(record);
-    return record;
+    return cloneRequest(record);
   }
 
   async createDecision(
@@ -95,16 +95,16 @@ export class MemoryPermissionRepository implements PermissionRepository {
       resolvedAt: now,
     };
 
-    return record;
+    return cloneDecision(record);
   }
 
   async listRequestsByRun(
     runId: string,
     userId?: string,
   ): Promise<PermissionRequestRecord[]> {
-    return this.requests.filter(
-      (r) => r.runId === runId && (!userId || r.userId === userId),
-    );
+    return this.requests
+      .filter((r) => r.runId === runId && (!userId || r.userId === userId))
+      .map(cloneRequest);
   }
 
   async listDecisionsByRequest(
@@ -116,14 +116,50 @@ export class MemoryPermissionRepository implements PermissionRepository {
       return [];
     }
 
-    return this.decisions.filter(
-      (d) => d.permissionRequestId === requestId,
-    );
+    return this.decisions
+      .filter((d) => d.permissionRequestId === requestId)
+      .map(cloneDecision);
   }
 
   async transaction<T>(
     callback: (repository: PermissionRepository) => Promise<T>,
   ): Promise<T> {
-    return await callback(this);
+    const requestsBefore = this.requests.map(cloneRequest);
+    const decisionsBefore = this.decisions.map(cloneDecision);
+    const idCounterBefore = this.idCounter;
+
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.requests.length = 0;
+      this.requests.push(...requestsBefore);
+      this.decisions.length = 0;
+      this.decisions.push(...decisionsBefore);
+      this.idCounter = idCounterBefore;
+      throw error;
+    }
   }
+}
+
+function cloneRequest(record: PermissionRequestRecord): PermissionRequestRecord {
+  return {
+    ...record,
+    payload: cloneJson(record.payload),
+  };
+}
+
+function cloneDecision(
+  record: PermissionDecisionRecord,
+): PermissionDecisionRecord {
+  return {
+    ...record,
+    payload: cloneJson(record.payload),
+  };
+}
+
+function cloneJson<T>(value: T): T {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
 }

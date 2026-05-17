@@ -110,6 +110,54 @@ describe("MemoryPermissionRepository", () => {
     ).rejects.toThrow(`Permission request not found: ${request.id}`);
   });
 
+  it("should not expose mutable request or decision state", async () => {
+    const repo = new MemoryPermissionRepository(mockClock);
+
+    const request = await repo.createRequest({
+      userId: "user-1",
+      sessionId: "session-1",
+      runId: "run-1",
+      requestType: "shell_command",
+      payload: { command: "pnpm test" },
+    });
+    const decision = await repo.createDecision({
+      permissionRequestId: request.id,
+      userId: "user-1",
+      decision: "allow_once",
+      payload: { reason: "test" },
+    });
+
+    request.requestType = "mutated";
+    request.payload = { command: "rm -rf" };
+    decision.decision = "deny";
+    decision.payload = { reason: "mutated" };
+
+    const requests = await repo.listRequestsByRun("run-1");
+    const decisions = await repo.listDecisionsByRequest(request.id);
+    expect(requests[0]?.requestType).toBe("shell_command");
+    expect(requests[0]?.payload).toEqual({ command: "pnpm test" });
+    expect(decisions[0]?.decision).toBe("allow_once");
+    expect(decisions[0]?.payload).toEqual({ reason: "test" });
+  });
+
+  it("should roll back in-memory transaction changes on failure", async () => {
+    const repo = new MemoryPermissionRepository(mockClock);
+
+    await expect(
+      repo.transaction(async (txRepo) => {
+        await txRepo.createRequest({
+          userId: "user-1",
+          sessionId: "session-1",
+          runId: "run-1",
+          requestType: "shell_command",
+        });
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    expect(await repo.listRequestsByRun("run-1")).toHaveLength(0);
+  });
+
   it("should support transaction", async () => {
     const repo = new MemoryPermissionRepository(mockClock);
 

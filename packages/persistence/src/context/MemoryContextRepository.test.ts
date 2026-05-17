@@ -82,6 +82,52 @@ describe("MemoryContextRepository", () => {
     ).rejects.toThrow("Context snapshot not found: missing");
   });
 
+  it("should not expose mutable snapshot or source state", async () => {
+    const repo = new MemoryContextRepository(mockClock);
+
+    const snapshot = await repo.createSnapshot({
+      userId: "user-1",
+      sessionId: "session-1",
+      snapshotKind: "checkpoint",
+      usageBeforeJson: { tokens: 100 },
+    });
+    const source = await repo.addSource({
+      contextSnapshotId: snapshot.id,
+      sourceType: "message",
+      sourceId: "msg-1",
+      sourceRangeJson: { start: 1 },
+    });
+
+    snapshot.snapshotKind = "mutated";
+    snapshot.usageBeforeJson = { tokens: 1 };
+    source.sourceType = "mutated";
+    source.sourceRangeJson = { start: 9 };
+
+    const snapshots = await repo.listSnapshotsBySession("session-1");
+    const sources = await repo.listSourcesBySnapshot(snapshot.id);
+    expect(snapshots[0]?.snapshotKind).toBe("checkpoint");
+    expect(snapshots[0]?.usageBeforeJson).toEqual({ tokens: 100 });
+    expect(sources[0]?.sourceType).toBe("message");
+    expect(sources[0]?.sourceRangeJson).toEqual({ start: 1 });
+  });
+
+  it("should roll back in-memory transaction changes on failure", async () => {
+    const repo = new MemoryContextRepository(mockClock);
+
+    await expect(
+      repo.transaction(async (txRepo) => {
+        await txRepo.createSnapshot({
+          userId: "user-1",
+          sessionId: "session-1",
+          snapshotKind: "checkpoint",
+        });
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    expect(await repo.listSnapshotsBySession("session-1")).toHaveLength(0);
+  });
+
   it("should support transaction", async () => {
     const repo = new MemoryContextRepository(mockClock);
 

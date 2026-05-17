@@ -45,20 +45,22 @@ describe("InMemoryEventRepository", () => {
   it("should return the existing event for duplicate idempotency keys in a session", async () => {
     const repo = new InMemoryEventRepository(mockClock);
 
-    const first = await repo.appendEvent({
+    const firstResult = await repo.appendEventIfAbsent({
       userId: "user-1",
       sessionId: "session-1",
       eventType: "memory_update",
       idempotencyKey: "idem-1",
     });
-    const duplicate = await repo.appendEvent({
+    const duplicateResult = await repo.appendEventIfAbsent({
       userId: "user-1",
       sessionId: "session-1",
       eventType: "memory_update",
       idempotencyKey: "idem-1",
     });
 
-    expect(duplicate.id).toBe(first.id);
+    expect(firstResult.inserted).toBe(true);
+    expect(duplicateResult.inserted).toBe(false);
+    expect(duplicateResult.record.id).toBe(firstResult.record.id);
     await repo.appendEvent({
       userId: "user-1",
       sessionId: "session-2",
@@ -67,5 +69,60 @@ describe("InMemoryEventRepository", () => {
     });
     expect(await repo.listEventsBySession("session-1")).toHaveLength(1);
     expect(await repo.listEventsBySession("session-2")).toHaveLength(1);
+  });
+
+  it("should treat blank idempotency keys as concrete dedupe keys", async () => {
+    const repo = new InMemoryEventRepository(mockClock);
+
+    const first = await repo.appendEventIfAbsent({
+      userId: "user-1",
+      sessionId: "session-1",
+      eventType: "memory_update",
+      idempotencyKey: "",
+    });
+    const duplicate = await repo.appendEventIfAbsent({
+      userId: "user-1",
+      sessionId: "session-1",
+      eventType: "memory_update",
+      idempotencyKey: "",
+    });
+
+    expect(first.inserted).toBe(true);
+    expect(duplicate.inserted).toBe(false);
+    expect(await repo.listEventsBySession("session-1")).toHaveLength(1);
+  });
+
+  it("should not expose mutable event state", async () => {
+    const repo = new InMemoryEventRepository(mockClock);
+
+    const event = await repo.appendEvent({
+      userId: "user-1",
+      sessionId: "session-1",
+      eventType: "memory_update",
+      payload: { value: "original" },
+    });
+    event.eventType = "mutated";
+    event.payload = { value: "mutated" };
+
+    const events = await repo.listEventsBySession("session-1");
+    expect(events[0]?.eventType).toBe("memory_update");
+    expect(events[0]?.payload).toEqual({ value: "original" });
+  });
+
+  it("should roll back in-memory transaction changes on failure", async () => {
+    const repo = new InMemoryEventRepository(mockClock);
+
+    await expect(
+      repo.transaction(async (txRepo) => {
+        await txRepo.appendEvent({
+          userId: "user-1",
+          sessionId: "session-1",
+          eventType: "memory_update",
+        });
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    expect(await repo.listEventsBySession("session-1")).toHaveLength(0);
   });
 });
