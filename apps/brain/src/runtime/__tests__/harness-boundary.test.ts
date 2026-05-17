@@ -10,12 +10,10 @@ import * as path from "path";
  *
  * Blocking list: Files that should NEVER import harness-specific modules.
  * - RunEngineRuntime (orchestration)
- * - SessionMemoryRuntime (session management)
  */
 describe("HarnessAdapterPort Boundary", () => {
   const coreModules = [
     "./RunEngineRuntime.ts",
-    "./SessionMemoryRuntime.ts",
   ];
 
   const forbiddenImports = [

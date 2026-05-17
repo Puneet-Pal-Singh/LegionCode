@@ -214,7 +214,6 @@ function createTestEnv(): Env {
     RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
     RUN_ENGINE_AGENT: undefined,
     RUN_ADMISSION_LIMITER: undefined,
-    SESSION_MEMORY_RUNTIME: undefined,
     NODE_ENV: "test",
     ENVIRONMENT: "development",
   };
