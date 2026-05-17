@@ -59,6 +59,8 @@ export const runBootstrapMigration: SqlMigration = {
         started_at TIMESTAMPTZ,
         completed_at TIMESTAMPTZ,
         payload_json JSONB NOT NULL DEFAULT '{}',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT run_steps_status_check
           CHECK (status IN (${RUN_STEP_STATUS_SQL_LIST}))
       )

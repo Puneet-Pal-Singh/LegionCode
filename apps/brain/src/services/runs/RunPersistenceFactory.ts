@@ -1,4 +1,5 @@
 import {
+  DatabaseConfigurationError,
   persistenceMigrations,
   PostgresMigrationLedger,
   PostgresMigrationRunner,
@@ -13,21 +14,22 @@ import {
 import { DependencyError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
 
-let migrationPromise: Promise<void> | null = null;
+let autoMigrationRun: Promise<void> | null = null;
 
 export async function withRunRepository<T>(
   env: Env,
   callback: (repository: RunRepository) => Promise<T>,
 ): Promise<T> {
+  if (env.AUTH_RUN_REPOSITORY) {
+    return await callback(env.AUTH_RUN_REPOSITORY);
+  }
+
   const databaseConfig = readBrainDatabaseConfig(env);
 
   return withPostgresSqlClient(
     databaseConfig.connectionString,
     async (client) => {
-      if (!migrationPromise) {
-        migrationPromise = runAutomaticMigrations(databaseConfig.migrationsMode, client);
-      }
-      await migrationPromise;
+      await runAutomaticMigrations(databaseConfig.migrationsMode, client);
 
       const repository = new PostgresRunRepository(client);
       return callback(repository);
@@ -55,6 +57,14 @@ async function runAutomaticMigrations(
     return;
   }
 
+  autoMigrationRun ??= runPendingMigrations(client).catch((error: unknown) => {
+    autoMigrationRun = null;
+    throw error;
+  });
+  await autoMigrationRun;
+}
+
+async function runPendingMigrations(client: SqlClient): Promise<void> {
   const runner = new PostgresMigrationRunner(
     client,
     new PostgresMigrationLedger(),

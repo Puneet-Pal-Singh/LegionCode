@@ -6,15 +6,22 @@ import {
 } from "@repo/shared-types";
 import { RuntimeEventIngestionService } from "./RuntimeEventIngestionService";
 import { RuntimeEventSignatureVerifier } from "./RuntimeEventSignatureVerifier";
+import type { Env } from "../../types/ai";
 
 const NOW = 1778630400000;
 const SECRET = "runtime-event-secret";
+
+function createMockEnv(): Env {
+  return {
+    INTERNAL_RUNTIME_EVENT_SECRET: SECRET,
+  } as Env;
+}
 
 describe("RuntimeEventIngestionService", () => {
   it("verifies, validates, and dedupes signed runtime events", async () => {
     const repository = new MemoryRuntimeEventInboxRepository();
     const verifier = new RuntimeEventSignatureVerifier(SECRET, () => NOW);
-    const service = new RuntimeEventIngestionService(repository, verifier);
+    const service = new RuntimeEventIngestionService(repository, verifier, createMockEnv());
     const rawBody = JSON.stringify({
       source: "secure-agent-api",
       eventType: "tool.completed",
@@ -35,7 +42,7 @@ describe("RuntimeEventIngestionService", () => {
   it("rejects unsigned body tampering", async () => {
     const repository = new MemoryRuntimeEventInboxRepository();
     const verifier = new RuntimeEventSignatureVerifier(SECRET, () => NOW);
-    const service = new RuntimeEventIngestionService(repository, verifier);
+    const service = new RuntimeEventIngestionService(repository, verifier, createMockEnv());
     const rawBody = JSON.stringify({
       source: "secure-agent-api",
       eventType: "tool.completed",

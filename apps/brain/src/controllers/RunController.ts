@@ -9,6 +9,7 @@ import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
+import type { RunEventRecord } from "@repo/persistence";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
@@ -60,6 +61,7 @@ export class RunController {
           return {
             runId: run.id,
             status: run.status,
+            // TODO: Hydrate step counts — requires RunRepository.countStepsByStatus method
             totalTasks: 0,
             completedTasks: 0,
             failedTasks: 0,
@@ -182,7 +184,7 @@ export class RunController {
       }
 
       // PR6: Fetch events from Postgres
-      let events: unknown[] = [];
+      let events: RunEventRecord[] = [];
       try {
         events = await withRunRepository(env, async (repo) => {
           return await repo.listRunEvents(runId);

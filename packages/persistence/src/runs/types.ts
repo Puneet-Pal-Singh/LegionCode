@@ -1,14 +1,11 @@
 import type { JsonValue } from "@repo/shared-types";
+import { buildSqlList } from "../sessions/types.js";
 
 export const RUN_STATUSES = ["created", "running", "completed", "failed", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 export const RUN_STEP_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
 export type RunStepStatus = (typeof RUN_STEP_STATUSES)[number];
-
-export function buildSqlList(values: readonly string[]): string {
-  return values.map((value) => `'${value.replace(/'/g, "''")}'`).join(", ");
-}
 
 export function buildRunStatusSqlList(): string {
   return buildSqlList(RUN_STATUSES);
@@ -46,6 +43,8 @@ export interface RunStepRecord {
   startedAt: string | null;
   completedAt: string | null;
   payload: JsonValue;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RunEventRecord {

@@ -60,10 +60,37 @@ describe("MemoryRunRepository", () => {
     expect(events[0]?.payload).toEqual({ foo: "bar" });
   });
 
+  it("supports transactional operations", async () => {
+    const repo = new MemoryRunRepository();
+    const runId = "run-tx";
+
+    const result = await repo.transaction(async (txRepo) => {
+      const run = await txRepo.ensureRun({
+        id: runId,
+        userId: "user-tx",
+        sessionId: "session-tx",
+        taskId: "task-tx",
+      });
+      return run.id;
+    });
+
+    expect(result).toBe(runId);
+    const fetched = await repo.getRun(runId);
+    expect(fetched).not.toBeNull();
+    expect(fetched?.id).toBe(runId);
+  });
+
   it("handles idempotency keys for events", async () => {
     const repo = new MemoryRunRepository();
     const runId = "run-3";
     const idempotencyKey = "key-123";
+
+    await repo.ensureRun({
+      id: runId,
+      userId: "user-1",
+      sessionId: "session-1",
+      taskId: "task-1",
+    });
 
     const event1 = await repo.appendEvent({
       runId,

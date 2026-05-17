@@ -117,7 +117,6 @@ export type {
   TaskStatus,
   TranscriptMessagePartRecord,
   TranscriptMessagePartType,
-  TranscriptMessagePartType as MessagePartType,
   TranscriptMessageRecord,
   TranscriptMessageRole,
   TranscriptRepository,

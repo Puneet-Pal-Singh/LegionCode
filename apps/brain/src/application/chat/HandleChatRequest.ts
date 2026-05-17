@@ -171,9 +171,17 @@ export class HandleChatRequest {
                 : undefined,
           },
         );
+      } catch (persistError) {
+        console.warn(
+          `[chat/usecase] ${correlationId}: Failed to persist user message:`,
+          persistError,
+        );
+        // Don't fail the request if persistence fails
+      }
 
-        // PR6: Ensure run record exists
-        if (userId) {
+      // PR6: Ensure run record exists
+      if (userId) {
+        try {
           await this.persistenceService.ensureRun({
             id: runId,
             userId,
@@ -185,13 +193,13 @@ export class HandleChatRequest {
             modelId: input.modelId ?? null,
             branch: repositoryBranch ?? null,
           });
+        } catch (ensureError) {
+          console.warn(
+            `[chat/usecase] ${correlationId}: Failed to ensure run:`,
+            ensureError,
+          );
+          // Don't fail the request if persistence fails
         }
-      } catch (persistError) {
-        console.warn(
-          `[chat/usecase] ${correlationId}: Failed to persist initial state:`,
-          persistError,
-        );
-        // Don't fail the request if persistence fails
       }
 
       // Build execution payload with repository context

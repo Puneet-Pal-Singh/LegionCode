@@ -1,5 +1,5 @@
 import type { JsonValue } from "@repo/shared-types";
-import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
+import type { SqlClient, SqlRow } from "../sql.js";
 import type {
   AppendRunEventInput,
   EnsureRunInput,
@@ -137,11 +137,11 @@ interface RunRow extends SqlRow {
   completed_at?: string | Date | null;
   created_at?: string | Date;
   updated_at?: string | Date;
-  event_id?: string;
-  event_type?: string;
-  payload_json?: JsonValue | string;
-  sequence?: number | string;
-  idempotency_key?: string | null;
+  event_id: string;
+  event_type: string;
+  payload_json: JsonValue | string;
+  sequence: number | string;
+  idempotency_key: string | null;
 }
 
 function mapRunRow(row: RunRow): RunRecord {
@@ -167,11 +167,11 @@ function mapRunRow(row: RunRow): RunRecord {
 
 function mapRunEventRow(row: RunRow): RunEventRecord {
   return {
-    id: requireString(row.event_id ?? row.id, "id"),
-    runId: requireString(row.run_id ?? row.runId, "run_id"),
+    id: requireString(row.event_id, "event_id"),
+    runId: requireString(row.run_id, "run_id"),
     sessionId: requireString(row.session_id, "session_id"),
     eventType: requireString(row.event_type, "event_type"),
-    payload: parsePayloadJson(row.payload_json, row.event_id ?? row.id),
+    payload: parsePayloadJson(row.payload_json, row.event_id),
     sequence: toNumber(row.sequence),
     idempotencyKey: row.idempotency_key ?? null,
     createdAt: toIsoString(row.created_at),
