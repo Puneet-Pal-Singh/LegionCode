@@ -8,6 +8,7 @@ import type {
   R2Bucket,
 } from "@cloudflare/workers-types";
 import type {
+  ArtifactRepository,
   ContextRepository,
   IdentitySessionRepository,
   MemoryEventRepository,
@@ -38,6 +39,7 @@ export interface Env {
   AUTH_MEMORY_EVENT_REPOSITORY?: MemoryEventRepository;
   AUTH_CONTEXT_REPOSITORY?: ContextRepository;
   AUTH_PERMISSION_REPOSITORY?: PermissionRepository;
+  AUTH_ARTIFACT_REPOSITORY?: ArtifactRepository;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK
