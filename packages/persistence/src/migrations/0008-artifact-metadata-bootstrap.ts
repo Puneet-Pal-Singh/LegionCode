@@ -1,13 +1,35 @@
-import {
-  EDIT_ARTIFACT_EVENT_TYPES,
-  EDIT_ARTIFACT_KINDS,
-  EDIT_ARTIFACT_STATUSES,
-} from "@repo/shared-types";
 import type { SqlMigration } from "./types.js";
 
-const ARTIFACT_KIND_SQL_LIST = buildSqlList(EDIT_ARTIFACT_KINDS);
-const ARTIFACT_STATUS_SQL_LIST = buildSqlList(EDIT_ARTIFACT_STATUSES);
-const ARTIFACT_EVENT_TYPE_SQL_LIST = buildSqlList(EDIT_ARTIFACT_EVENT_TYPES);
+const ARTIFACT_KINDS_0008 = ["git_patch", "file_snapshot"] as const;
+const ARTIFACT_STATUSES_0008 = [
+  "pending",
+  "stored",
+  "capture_failed",
+  "restore_in_progress",
+  "restored",
+  "anchored",
+  "discarded",
+  "expired",
+  "restore_failed",
+  "requires_user_resolution",
+] as const;
+const ARTIFACT_EVENT_TYPES_0008 = [
+  "capture_started",
+  "r2_write_succeeded",
+  "metadata_commit_succeeded",
+  "capture_failed",
+  "restore_attempted",
+  "restored",
+  "restore_failed",
+  "requires_user_resolution",
+  "anchored",
+  "discarded",
+  "expired",
+] as const;
+
+const ARTIFACT_KIND_SQL_LIST = buildSqlList(ARTIFACT_KINDS_0008);
+const ARTIFACT_STATUS_SQL_LIST = buildSqlList(ARTIFACT_STATUSES_0008);
+const ARTIFACT_EVENT_TYPE_SQL_LIST = buildSqlList(ARTIFACT_EVENT_TYPES_0008);
 
 export const artifactMetadataBootstrapMigration: SqlMigration = {
   id: "0008_artifact_metadata_bootstrap",
@@ -47,11 +69,11 @@ export const artifactMetadataBootstrapMigration: SqlMigration = {
     `,
     `
       CREATE INDEX IF NOT EXISTS artifacts_user_workspace_updated_idx
-        ON artifacts (user_id, workspace_id, updated_at DESC)
+        ON artifacts (user_id, workspace_id, updated_at)
     `,
     `
       CREATE INDEX IF NOT EXISTS artifacts_run_status_updated_idx
-        ON artifacts (run_id, status, updated_at DESC)
+        ON artifacts (run_id, status, updated_at)
     `,
     `
       CREATE INDEX IF NOT EXISTS artifacts_expiry_status_idx
@@ -72,11 +94,11 @@ export const artifactMetadataBootstrapMigration: SqlMigration = {
     `,
     `
       CREATE INDEX IF NOT EXISTS artifact_events_artifact_created_idx
-        ON artifact_events (artifact_id, created_at DESC)
+        ON artifact_events (artifact_id, created_at)
     `,
     `
       CREATE INDEX IF NOT EXISTS artifact_events_run_created_idx
-        ON artifact_events (run_id, created_at DESC)
+        ON artifact_events (run_id, created_at)
     `,
     `
       CREATE TABLE IF NOT EXISTS artifact_changed_files (
