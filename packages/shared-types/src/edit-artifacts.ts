@@ -38,7 +38,7 @@ export const EditArtifactChangedFileSchema = z.object({
   status: z.string().min(1),
   additions: z.number().int().nonnegative().optional(),
   deletions: z.number().int().nonnegative().optional(),
-  isStaged: z.boolean().optional(),
+  isStaged: z.boolean().optional().nullable(),
 });
 
 export const EditArtifactRecordSchema = z.object({
