@@ -504,6 +504,7 @@ export class GitController {
 
       if (result.status === "ready" && canRestoreEditArtifacts(env)) {
         await restoreLatestEditArtifactIfNeeded(
+          req,
           env,
           muscleSession,
           normalizedRunId,
@@ -632,14 +633,20 @@ async function getCurrentGitStatus(
 }
 
 async function restoreLatestEditArtifactIfNeeded(
+  request: Request,
   env: Env,
   muscleSession: string,
   runId: string,
 ): Promise<void> {
   try {
+    const authenticatedSession = await getAuthenticatedUserSession(request, env);
+    if (!authenticatedSession) {
+      return;
+    }
     const currentStatus = await getCurrentGitStatus(env, muscleSession, runId);
     const restoreService = new EditArtifactRestoreService(env);
     const result = await restoreService.restoreLatestIfWorkspaceIsEmpty({
+      userId: authenticatedSession.userId,
       runId,
       muscleSession,
       currentStatus,
