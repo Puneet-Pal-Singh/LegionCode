@@ -12,7 +12,7 @@ import {
 import { DependencyError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
 
-let autoMigrationRun: Promise<void> | null = null;
+const autoMigrationRuns = new Map<string, Promise<void>>();
 
 export async function withBrainPersistenceRepository<T, Repository>(
   env: Env,
@@ -29,7 +29,11 @@ export async function withBrainPersistenceRepository<T, Repository>(
   return await withPostgresSqlClient(
     databaseConfig.connectionString,
     async (client) => {
-      await runAutomaticMigrations(databaseConfig.migrationsMode, client);
+      await runAutomaticMigrations(
+        databaseConfig.connectionString,
+        databaseConfig.migrationsMode,
+        client,
+      );
       return await callback(createRepository(client));
     },
   );
@@ -52,6 +56,7 @@ function readBrainDatabaseConfig(env: Env): WorkerDatabaseConfig {
 }
 
 async function runAutomaticMigrations(
+  connectionString: string,
   migrationsMode: DatabaseMigrationsMode,
   client: SqlClient,
 ): Promise<void> {
@@ -59,11 +64,14 @@ async function runAutomaticMigrations(
     return;
   }
 
-  autoMigrationRun ??= runPendingMigrations(client).catch((error: unknown) => {
-    autoMigrationRun = null;
-    throw error;
-  });
-  await autoMigrationRun;
+  const inFlight =
+    autoMigrationRuns.get(connectionString) ??
+    runPendingMigrations(client).catch((error: unknown) => {
+      autoMigrationRuns.delete(connectionString);
+      throw error;
+    });
+  autoMigrationRuns.set(connectionString, inFlight);
+  await inFlight;
 }
 
 async function runPendingMigrations(client: SqlClient): Promise<void> {
