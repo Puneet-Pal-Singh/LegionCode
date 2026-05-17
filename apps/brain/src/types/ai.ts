@@ -8,7 +8,10 @@ import type {
   R2Bucket,
 } from "@cloudflare/workers-types";
 import type {
+  ContextRepository,
   IdentitySessionRepository,
+  MemoryEventRepository,
+  PermissionRepository,
   RunRepository,
   TranscriptRepository,
   WorkspaceRepository,
@@ -32,6 +35,9 @@ export interface Env {
   AUTH_WORKSPACE_REPOSITORY?: WorkspaceRepository;
   AUTH_TRANSCRIPT_REPOSITORY?: TranscriptRepository;
   AUTH_RUN_REPOSITORY?: RunRepository;
+  AUTH_MEMORY_EVENT_REPOSITORY?: MemoryEventRepository;
+  AUTH_CONTEXT_REPOSITORY?: ContextRepository;
+  AUTH_PERMISSION_REPOSITORY?: PermissionRepository;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK
@@ -99,9 +105,6 @@ export interface Env {
   RUN_ENGINE_RUNTIME: DurableObjectNamespace;
   RUN_ENGINE_AGENT?: DurableObjectNamespace;
   RUN_ADMISSION_LIMITER?: DurableObjectNamespace;
-
-  // Session Memory Runtime for cross-run memory storage (optional)
-  SESSION_MEMORY_RUNTIME?: DurableObjectNamespace;
 
   // Environment
   NODE_ENV?: string;
