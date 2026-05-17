@@ -1,4 +1,4 @@
-import type { InternalRuntimeEventRequest, RunEvent, JsonValue } from "@repo/shared-types";
+import type { InternalRuntimeEventRequest, RunEvent, JsonValue, RunEventType } from "@repo/shared-types";
 import { RUN_EVENT_TYPES, isRunEvent } from "@repo/shared-types";
 import { PersistenceService } from "../PersistenceService";
 import type { Env } from "../../types/ai";
@@ -25,22 +25,33 @@ export class RuntimeEventProcessor {
     event: RunEvent,
     idempotencyKey: string,
   ): Promise<void> {
-    const { runId, sessionId, type, payload, timestamp } = event;
+    this.validateRunEvent(event);
+    await this.persistRunEvent(event, idempotencyKey);
+    await this.handleStatusTransition(event);
+  }
 
-    // Canonical run event append
-    if (!sessionId) {
-      throw new Error(`Missing sessionId for run event: ${runId}`);
+  private validateRunEvent(event: RunEvent): void {
+    if (!event.sessionId) {
+      throw new Error(`Missing sessionId for run event: ${event.runId}`);
     }
+  }
 
+  private async persistRunEvent(
+    event: RunEvent,
+    idempotencyKey: string,
+  ): Promise<void> {
     await this.persistenceService.appendRunEvent({
-      runId,
-      sessionId,
-      eventType: type,
-      payload: payload as JsonValue,
+      runId: event.runId,
+      sessionId: event.sessionId as string,
+      eventType: event.type,
+      payload: event.payload as unknown as JsonValue,
       idempotencyKey,
     });
+  }
 
-    // Status transitions
+  private async handleStatusTransition(event: RunEvent): Promise<void> {
+    const { runId, type, payload, timestamp } = event;
+
     switch (type) {
       case RUN_EVENT_TYPES.RUN_STARTED:
         await this.persistenceService.updateRunStatus(
@@ -68,16 +79,16 @@ export class RuntimeEventProcessor {
         );
         break;
 
-      case RUN_EVENT_TYPES.RUN_STATUS_CHANGED:
+      case RUN_EVENT_TYPES.RUN_STATUS_CHANGED: {
         const statusPayload = payload as { newStatus: string };
         const newStatus = mapRunStatus(statusPayload.newStatus);
         if (newStatus) {
           await this.persistenceService.updateRunStatus(runId, newStatus);
         }
         break;
+      }
 
       default:
-        // Other events are just recorded in run_events (handled above)
         break;
     }
   }

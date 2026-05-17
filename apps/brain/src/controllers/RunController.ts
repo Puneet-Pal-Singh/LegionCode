@@ -52,30 +52,34 @@ export class RunController {
       }
 
       // PR6: Hydrate summary from Postgres
-      let summary: RunSummaryResponse | null = null;
+      let runRecord: { id: string; status: string } | null = null;
       try {
-        summary = await withRunRepository(env, async (repo) => {
+        runRecord = await withRunRepository(env, async (repo) => {
           const run = await repo.getRun(runId);
-          if (!run) return null;
-
-          return {
-            runId: run.id,
-            status: run.status,
-            // TODO: Hydrate step counts — requires RunRepository.countStepsByStatus method
-            totalTasks: 0,
-            completedTasks: 0,
-            failedTasks: 0,
-            runningTasks: 0,
-            pendingTasks: 0,
-            cancelledTasks: 0,
-          };
+          return run ? { id: run.id, status: run.status } : null;
         });
       } catch (error) {
-        console.warn("[RunController:getSummary] Postgres fetch failed, falling back to runtime:", error);
+        console.warn(
+          "[RunController:getSummary] Postgres fetch failed, falling back to runtime:",
+          extractErrorMessage(error),
+        );
       }
 
-      if (summary) {
-        return jsonResponse(req, env, summary);
+      // If we have a Postgres record, overlay runtime task counts
+      if (runRecord) {
+        const runtimeSummary: RunSummaryResponse | null = await fetchRunSummaryFromRuntimeBestEffort(
+          env, runId, requestedBackend,
+        );
+        return jsonResponse(req, env, {
+          runId: runRecord.id,
+          status: runRecord.status,
+          totalTasks: runtimeSummary?.totalTasks ?? 0,
+          completedTasks: runtimeSummary?.completedTasks ?? 0,
+          failedTasks: runtimeSummary?.failedTasks ?? 0,
+          runningTasks: runtimeSummary?.runningTasks ?? 0,
+          pendingTasks: runtimeSummary?.pendingTasks ?? 0,
+          cancelledTasks: runtimeSummary?.cancelledTasks ?? 0,
+        });
       }
 
       const response = await fetchRunSummaryFromRuntime(
@@ -190,7 +194,10 @@ export class RunController {
           return await repo.listRunEvents(runId);
         });
       } catch (error) {
-        console.warn("[RunController:getEvents] Postgres fetch failed, falling back to runtime:", error);
+        console.warn(
+          "[RunController:getEvents] Postgres fetch failed, falling back to runtime:",
+          extractErrorMessage(error),
+        );
       }
 
       if (events.length > 0) {
@@ -316,6 +323,20 @@ async function fetchRunSummaryFromRuntime(
     method: "GET",
     path: `/summary?runId=${encodeURIComponent(runId)}`,
   });
+}
+
+async function fetchRunSummaryFromRuntimeBestEffort(
+  env: Env,
+  runId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<RunSummaryResponse | null> {
+  try {
+    const response = await fetchRunSummaryFromRuntime(env, runId, requestedBackend);
+    if (!response.ok) return null;
+    return (await response.json()) as RunSummaryResponse;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchRunCancelFromRuntime(
