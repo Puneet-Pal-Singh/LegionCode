@@ -11,7 +11,7 @@ import { z } from "zod";
 /**
  * BYOKCredential - User's API key for a provider
  *
- * This is the internal entity stored in D1.
+ * This is the internal entity stored in canonical provider persistence.
  * Includes encrypted secret payload.
  */
 export const BYOKCredentialSchema = z.object({

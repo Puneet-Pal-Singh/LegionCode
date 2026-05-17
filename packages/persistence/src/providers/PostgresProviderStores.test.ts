@@ -49,7 +49,7 @@ class ScriptedSqlClient implements SqlClient {
 }
 
 describe("Postgres provider stores", () => {
-  it("stores and decrypts credentials without exposing D1", async () => {
+  it("stores and decrypts credentials without exposing plaintext", async () => {
     const encryption = new CredentialEncryptionService();
     const apiKey = "sk-test-provider-key-123456";
     const encrypted = await encryption.encrypt(apiKey, {

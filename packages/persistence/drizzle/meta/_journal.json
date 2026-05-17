@@ -64,6 +64,13 @@
       "when": 1779034469697,
       "tag": "0008_artifact_metadata_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1779043516060,
+      "tag": "0009_artifact_restore_lookup_index",
+      "breakpoints": true
     }
   ]
 }

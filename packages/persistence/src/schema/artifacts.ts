@@ -66,6 +66,12 @@ export const artifacts = pgTable(
       table.status,
       table.updatedAt,
     ),
+    index("artifacts_run_user_status_updated_idx").on(
+      table.runId,
+      table.userId,
+      table.status,
+      table.updatedAt,
+    ),
     index("artifacts_expiry_status_idx").on(table.expiresAt, table.status),
   ],
 );

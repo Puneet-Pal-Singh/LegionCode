@@ -617,7 +617,7 @@ describe("ModelPickerPopover", () => {
 
     it("closes popover immediately when selection persistence fails", async () => {
       const onSelectModel = vi.fn(async () => {
-        throw new Error("D1 unavailable");
+        throw new Error("Provider state unavailable");
       });
       const consoleErrorSpy = vi
         .spyOn(console, "error")

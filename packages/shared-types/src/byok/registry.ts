@@ -371,7 +371,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
  * Get builtin registry
  *
  * Returns the static provider registry for Phase 1.
- * In Phase 2+, this would be loaded from a persistent source (D1).
+ * Dynamic provider metadata is loaded from canonical Postgres-backed state.
  */
 export function getBuiltinRegistry(): ProviderRegistry {
   return {

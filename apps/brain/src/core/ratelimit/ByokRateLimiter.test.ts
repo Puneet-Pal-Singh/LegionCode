@@ -326,6 +326,9 @@ describe("ByokRateLimiter", () => {
 
   describe("global rate limiting", () => {
     it("should enforce global limit across all operations", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-01T00:00:00.000Z"));
+
       const freshLimiter = new ByokRateLimiter();
 
       // Consume 2000 global tokens (2000/min global)
