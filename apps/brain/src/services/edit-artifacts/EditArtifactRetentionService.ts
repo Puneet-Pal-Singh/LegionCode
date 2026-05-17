@@ -42,6 +42,7 @@ async function expireArtifacts(
       await objectStore.deletePatch(artifact.r2ObjectKey);
       await repository.updateStatus({
         artifactId: artifact.id,
+        userId: artifact.userId,
         status: "expired",
       });
       await repository.appendEvent({
@@ -76,6 +77,7 @@ async function repairStalePendingArtifacts(
     try {
       await repository.updateStatus({
         artifactId: artifact.id,
+        userId: artifact.userId,
         status: "capture_failed",
       });
       await repository.appendEvent({

@@ -34,21 +34,17 @@ export class EditArtifactRestoreService {
 
     const patch = await this.objectStore.readPatch(artifact.r2ObjectKey);
     if (!patch) {
-      await this.markRestoreFailed(
-        artifact.id,
-        input.runId,
-        "Patch object missing",
-      );
+      await this.markRestoreFailed(artifact, input.runId, "Patch object missing");
       return "requires-user-resolution";
     }
 
     try {
       await this.applyPatch(input, patch);
-      await this.markRestored(artifact.id, input.runId);
+      await this.markRestored(artifact, input.runId);
       return "restored";
     } catch (error) {
       const message = error instanceof Error ? error.message : "Restore failed";
-      await this.markRequiresResolution(artifact.id, input.runId, message);
+      await this.markRequiresResolution(artifact, input.runId, message);
       return "requires-user-resolution";
     }
   }
@@ -60,7 +56,7 @@ export class EditArtifactRestoreService {
     const artifact = await withArtifactRepository(this.env, async (repository) => {
       return await repository.getLatestRestorableArtifact(runId, userId);
     });
-    return artifact?.status === "requires_user_resolution" ? null : artifact;
+    return artifact;
   }
 
   private async markRestoreAttempted(
@@ -70,6 +66,7 @@ export class EditArtifactRestoreService {
     await withArtifactRepository(this.env, async (repository) => {
       await repository.updateStatus({
         artifactId: artifact.id,
+        userId: artifact.userId,
         status: "restore_in_progress",
       });
       await repository.appendEvent({
@@ -95,15 +92,19 @@ export class EditArtifactRestoreService {
     await gitClient.applyPatch(patch);
   }
 
-  private async markRestored(artifactId: string, runId: string): Promise<void> {
+  private async markRestored(
+    artifact: EditArtifactRecord,
+    runId: string,
+  ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
       await repository.updateStatus({
-        artifactId,
+        artifactId: artifact.id,
+        userId: artifact.userId,
         status: "restored",
       });
       await repository.appendEvent({
         id: crypto.randomUUID(),
-        artifactId,
+        artifactId: artifact.id,
         runId,
         eventType: "restored",
         message: "Saved edit artifact restored into workspace",
@@ -112,18 +113,19 @@ export class EditArtifactRestoreService {
   }
 
   private async markRestoreFailed(
-    artifactId: string,
+    artifact: EditArtifactRecord,
     runId: string,
     message: string,
   ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
       await repository.updateStatus({
-        artifactId,
+        artifactId: artifact.id,
+        userId: artifact.userId,
         status: "restore_failed",
       });
       await repository.appendEvent({
         id: crypto.randomUUID(),
-        artifactId,
+        artifactId: artifact.id,
         runId,
         eventType: "restore_failed",
         message,
@@ -132,18 +134,19 @@ export class EditArtifactRestoreService {
   }
 
   private async markRequiresResolution(
-    artifactId: string,
+    artifact: EditArtifactRecord,
     runId: string,
     message: string,
   ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
       await repository.updateStatus({
-        artifactId,
+        artifactId: artifact.id,
+        userId: artifact.userId,
         status: "requires_user_resolution",
       });
       await repository.appendEvent({
         id: crypto.randomUUID(),
-        artifactId,
+        artifactId: artifact.id,
         runId,
         eventType: "requires_user_resolution",
         message,

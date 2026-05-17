@@ -125,6 +125,7 @@ export class EditArtifactCaptureService {
     await this.markCaptureStored(
       repository,
       artifactId,
+      input.userId,
       input.runId,
       changedFiles.length,
       patchSha256,
@@ -218,6 +219,7 @@ export class EditArtifactCaptureService {
   private async markCaptureStored(
     repository: ArtifactRepository,
     artifactId: string,
+    userId: string,
     runId: string,
     changedFileCount: number,
     patchSha256: string,
@@ -225,6 +227,7 @@ export class EditArtifactCaptureService {
   ): Promise<void> {
     await repository.updateStatus({
       artifactId,
+      userId,
       status: "stored",
       contentType: "text/x-patch",
       sizeBytes: patchSizeBytes,
