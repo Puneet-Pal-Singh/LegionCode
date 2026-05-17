@@ -56,6 +56,7 @@ export interface HandleChatRequestInput {
   productMode?: ProductMode;
   workflowIntent?: WorkflowIntent;
   workflowEntrypoint?: WorkflowEntrypoint;
+  taskId?: string;
   // Phase 4: Repository context for workspace-aware operations
   repositoryOwner?: string;
   repositoryName?: string;
@@ -187,7 +188,7 @@ export class HandleChatRequest {
             userId,
             workspaceId: workspaceId ?? null,
             sessionId,
-            taskId: sessionId, // For now taskId is same as sessionId if not provided
+            taskId: input.taskId ?? sessionId,
             mode,
             providerId: input.providerId ?? null,
             modelId: input.modelId ?? null,
