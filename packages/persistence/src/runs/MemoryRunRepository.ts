@@ -53,6 +53,9 @@ export class MemoryRunRepository implements RunRepository {
   }
 
   async appendEvent(input: AppendRunEventInput): Promise<RunEventRecord> {
+    if (!this.runs.has(input.runId)) {
+      throw new Error(`Run not found: ${input.runId}`);
+    }
     const runEvents = this.events.get(input.runId) ?? [];
     if (input.idempotencyKey) {
       const existing = runEvents.find((e) => e.idempotencyKey === input.idempotencyKey);

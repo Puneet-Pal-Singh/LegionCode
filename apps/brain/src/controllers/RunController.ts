@@ -51,21 +51,26 @@ export class RunController {
       }
 
       // PR6: Hydrate summary from Postgres
-      const summary = await withRunRepository(env, async (repo) => {
-        const run = await repo.getRun(runId);
-        if (!run) return null;
+      let summary: RunSummaryResponse | null = null;
+      try {
+        summary = await withRunRepository(env, async (repo) => {
+          const run = await repo.getRun(runId);
+          if (!run) return null;
 
-        return {
-          runId: run.id,
-          status: run.status,
-          totalTasks: 0,
-          completedTasks: 0,
-          failedTasks: 0,
-          runningTasks: 0,
-          pendingTasks: 0,
-          cancelledTasks: 0,
-        };
-      });
+          return {
+            runId: run.id,
+            status: run.status,
+            totalTasks: 0,
+            completedTasks: 0,
+            failedTasks: 0,
+            runningTasks: 0,
+            pendingTasks: 0,
+            cancelledTasks: 0,
+          };
+        });
+      } catch (error) {
+        console.warn("[RunController:getSummary] Postgres fetch failed, falling back to runtime:", error);
+      }
 
       if (summary) {
         return jsonResponse(req, env, summary);
@@ -177,9 +182,14 @@ export class RunController {
       }
 
       // PR6: Fetch events from Postgres
-      const events = await withRunRepository(env, async (repo) => {
-        return await repo.listRunEvents(runId);
-      });
+      let events: unknown[] = [];
+      try {
+        events = await withRunRepository(env, async (repo) => {
+          return await repo.listRunEvents(runId);
+        });
+      } catch (error) {
+        console.warn("[RunController:getEvents] Postgres fetch failed, falling back to runtime:", error);
+      }
 
       if (events.length > 0) {
         return jsonResponse(req, env, events);

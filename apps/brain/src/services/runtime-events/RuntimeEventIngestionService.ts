@@ -44,8 +44,11 @@ export class RuntimeEventIngestionService {
         await this.processor.process(event);
       } catch (error) {
         console.error("[RuntimeEventIngestionService] Processing failed:", error);
-        // We still accepted it into the inbox, but domain persistence failed.
-        // In a real system, we'd have a background worker retrying this.
+        throw new Error(
+          `Failed to process runtime event: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
 

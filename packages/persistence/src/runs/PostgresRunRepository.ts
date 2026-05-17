@@ -32,8 +32,8 @@ export class PostgresRunRepository implements RunRepository {
       input.workspaceId ?? null,
       input.sessionId,
       input.taskId,
-      input.status ?? "created",
-      input.mode ?? "build",
+      input.status ?? null,
+      input.mode ?? null,
       input.providerId ?? null,
       input.modelId ?? null,
       input.branch ?? null,
@@ -66,6 +66,9 @@ export class PostgresRunRepository implements RunRepository {
   async appendEvent(input: AppendRunEventInput): Promise<RunEventRecord> {
     const now = this.clock.now();
     return await this.client.transaction(async (tx) => {
+      // Serialize concurrent appends for this run
+      await tx.query("SELECT id FROM runs WHERE id = $1 FOR UPDATE", [input.runId]);
+
       // Get the next sequence number for this run
       const seqResult = await tx.query<{ sequence: number | string }>(
         "SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM run_events WHERE run_id = $1",
@@ -288,8 +291,8 @@ const UPSERT_RUN_SQL = `
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
   ON CONFLICT (id)
   DO UPDATE SET
-    status = EXCLUDED.status,
-    mode = EXCLUDED.mode,
+    status = COALESCE(EXCLUDED.status, runs.status),
+    mode = COALESCE(EXCLUDED.mode, runs.mode),
     provider_id = COALESCE(EXCLUDED.provider_id, runs.provider_id),
     model_id = COALESCE(EXCLUDED.model_id, runs.model_id),
     branch = COALESCE(EXCLUDED.branch, runs.branch),

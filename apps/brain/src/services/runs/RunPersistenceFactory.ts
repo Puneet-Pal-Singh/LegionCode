@@ -13,6 +13,8 @@ import {
 import { DependencyError } from "../../domain/errors";
 import type { Env } from "../../types/ai";
 
+let migrationPromise: Promise<void> | null = null;
+
 export async function withRunRepository<T>(
   env: Env,
   callback: (repository: RunRepository) => Promise<T>,
@@ -22,7 +24,11 @@ export async function withRunRepository<T>(
   return withPostgresSqlClient(
     databaseConfig.connectionString,
     async (client) => {
-      await runAutomaticMigrations(databaseConfig.migrationsMode, client);
+      if (!migrationPromise) {
+        migrationPromise = runAutomaticMigrations(databaseConfig.migrationsMode, client);
+      }
+      await migrationPromise;
+
       const repository = new PostgresRunRepository(client);
       return callback(repository);
     },

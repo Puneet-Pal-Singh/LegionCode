@@ -28,15 +28,17 @@ export class RuntimeEventProcessor {
     const { runId, sessionId, type, payload, timestamp } = event;
 
     // Canonical run event append
-    if (sessionId) {
-      await this.persistenceService.appendRunEvent({
-        runId,
-        sessionId,
-        eventType: type,
-        payload: payload as JsonValue,
-        idempotencyKey,
-      });
+    if (!sessionId) {
+      throw new Error(`Missing sessionId for run event: ${runId}`);
     }
+
+    await this.persistenceService.appendRunEvent({
+      runId,
+      sessionId,
+      eventType: type,
+      payload: payload as JsonValue,
+      idempotencyKey,
+    });
 
     // Status transitions
     switch (type) {
