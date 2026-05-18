@@ -21,6 +21,10 @@ const SESSION_STATE_KEY_PREFIX = "session:state:";
 const SESSION_SNAPSHOT_KEY_PREFIX = "session:snapshot:";
 const SNAPSHOT_METADATA_KEY = "snapshot:metadata:";
 
+// RECONSTRUCTABILITY: This adapter keeps live session coordination and
+// short-lived execution snapshots in DO storage. Canonical transcript, run, and
+// artifact metadata must be reconstructable from Postgres/R2.
+
 /**
  * Snapshot metadata for tracking checkpoint progression.
  */

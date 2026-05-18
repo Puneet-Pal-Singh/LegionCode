@@ -98,9 +98,12 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
   async listSessions(userId: string): Promise<ListSessionsResult> {
     const tasks = Array.from(this.tasks.values())
       .filter((task) => task.userId === userId)
+      .filter((task) => task.archivedAt === null)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const visibleTaskIds = new Set(tasks.map((task) => task.id));
     const sessions = Array.from(this.sessions.values())
       .filter((session) => session.userId === userId)
+      .filter((session) => visibleTaskIds.has(session.taskId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
     return { tasks, sessions };

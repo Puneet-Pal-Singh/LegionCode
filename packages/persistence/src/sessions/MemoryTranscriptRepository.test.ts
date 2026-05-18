@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryTranscriptRepository } from "./MemoryTranscriptRepository.js";
+import type { TaskRecord } from "./types.js";
 
 describe("MemoryTranscriptRepository", () => {
   it("persists sessions and orders message parts by session sequence", async () => {
@@ -58,6 +59,25 @@ describe("MemoryTranscriptRepository", () => {
     expect(result.sessions[0]?.id).toBe("session-1");
   });
 
+  it("omits archived tasks and their sessions from session lists", async () => {
+    const repository = new MemoryTranscriptRepository({
+      now: () => new Date("2026-05-15T00:00:00.000Z"),
+    });
+
+    await repository.appendMessage(createMessageInput("active-message", "user"));
+    await repository.appendMessage({
+      ...createMessageInput("archived-message", "user"),
+      sessionId: "archived-session",
+      taskId: "archived-task",
+    });
+    markTaskArchived(repository, "archived-task", "2026-05-15T00:00:01.000Z");
+
+    const result = await repository.listSessions("user-1");
+
+    expect(result.tasks.map((task) => task.id)).toEqual(["session-1"]);
+    expect(result.sessions.map((session) => session.id)).toEqual(["session-1"]);
+  });
+
   it("does not hydrate another user's transcript", async () => {
     const repository = new MemoryTranscriptRepository();
 
@@ -87,4 +107,23 @@ function createMessageInput(dedupeKey: string, role: "user" | "assistant") {
     dedupeKey,
     parts: [{ type: "text" as const, content: { text: dedupeKey } }],
   };
+}
+
+function markTaskArchived(
+  repository: MemoryTranscriptRepository,
+  taskId: string,
+  archivedAt: string,
+): void {
+  const state = repository as unknown as {
+    tasks: Map<string, TaskRecord>;
+  };
+  const task = state.tasks.get(taskId);
+  if (!task) {
+    throw new Error(`Missing task in test setup: ${taskId}`);
+  }
+  state.tasks.set(taskId, {
+    ...task,
+    status: "archived",
+    archivedAt,
+  });
 }
