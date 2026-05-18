@@ -90,12 +90,5 @@ export const runBootstrapMigration: SqlMigration = {
       CREATE INDEX IF NOT EXISTS run_events_session_idx
         ON run_events (session_id)
     `,
-    `
-      ALTER TABLE sessions
-        ADD CONSTRAINT sessions_active_run_id_fk
-        FOREIGN KEY (active_run_id) REFERENCES runs(id)
-        ON DELETE SET NULL
-        NOT VALID
-    `,
   ],
 };

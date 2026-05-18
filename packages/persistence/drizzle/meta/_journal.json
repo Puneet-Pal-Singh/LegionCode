@@ -71,6 +71,13 @@
       "when": 1779043516060,
       "tag": "0009_artifact_restore_lookup_index",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779045000000,
+      "tag": "0010_sessions_active_run_fk",
+      "breakpoints": true
     }
   ]
 }

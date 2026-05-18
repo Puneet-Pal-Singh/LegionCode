@@ -3090,19 +3090,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "sessions_active_run_id_fk": {
-          "name": "sessions_active_run_id_fk",
-          "tableFrom": "sessions",
-          "tableTo": "runs",
-          "columnsFrom": [
-            "active_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
