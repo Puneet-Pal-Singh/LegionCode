@@ -208,7 +208,10 @@ const GET_RUN_SQL = `
 `;
 
 const APPEND_RUN_EVENT_SQL = `
-  WITH existing AS (
+  WITH locked AS (
+    SELECT id FROM runs WHERE id = $1 FOR UPDATE
+  ),
+  existing AS (
     SELECT
       id AS event_id,
       run_id,
@@ -219,12 +222,14 @@ const APPEND_RUN_EVENT_SQL = `
       idempotency_key,
       created_at
     FROM run_events
+    JOIN locked ON locked.id = run_events.run_id
     WHERE run_id = $1 AND $5 IS NOT NULL AND idempotency_key = $5
   ),
   next_seq AS (
     UPDATE runs
     SET last_sequence = last_sequence + 1
-    WHERE id = $1
+    FROM locked
+    WHERE runs.id = locked.id
       AND NOT EXISTS (SELECT 1 FROM existing)
     RETURNING last_sequence
   ),

@@ -615,8 +615,6 @@ function formatCommitIdentitySource(
   switch (source) {
     case "workspace_git_config":
       return "workspace git config";
-    case "persisted_preference":
-      return "saved LegionCode preference";
     case "github_profile":
       return "your GitHub profile";
     case "user_input":

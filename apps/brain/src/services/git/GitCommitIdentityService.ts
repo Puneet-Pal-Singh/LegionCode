@@ -12,17 +12,7 @@ import type {
 import type { Env } from "../../types/ai";
 import { getUserSessionByUserId, type UserSessionRecord } from "../AuthService";
 
-const USER_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
-const COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS = USER_SESSION_TTL_SECONDS;
-const COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX = "git_commit_identity_preference:";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-interface CommitIdentityPreferenceRecord {
-  authorName: string;
-  authorEmail: string;
-  verified: boolean;
-  updatedAt: number;
-}
 
 interface CommitIdentityContext {
   userId: string;
@@ -56,22 +46,6 @@ export async function readCommitIdentityStateForUser(
   env: Env,
   context: CommitIdentityContext,
 ): Promise<GitCommitIdentityState> {
-  const persistedPreference = await readPersistedCommitIdentityPreference(
-    env,
-    context.userId,
-  );
-  if (persistedPreference) {
-    return {
-      state: "ready",
-      identity: {
-        authorName: persistedPreference.authorName,
-        authorEmail: persistedPreference.authorEmail,
-        source: "persisted_preference",
-        verified: persistedPreference.verified,
-      },
-    };
-  }
-
   const session = await hydrateGitHubProfileDefaults(env, context);
   return buildGitHubCommitIdentityState(session);
 }
@@ -83,7 +57,7 @@ export async function resolveCommitIdentityForCommit(
 ): Promise<GitCommitIdentity | null> {
   const trimmedInput = trimExplicitInput(explicitInput);
   if (trimmedInput.authorName || trimmedInput.authorEmail) {
-    return await resolveExplicitCommitIdentity(env, context, trimmedInput);
+    return resolveExplicitCommitIdentity(trimmedInput);
   }
 
   if (!context) {
@@ -152,11 +126,9 @@ export async function resolveGitHubProfileIdentityFromOAuth(
   );
 }
 
-async function resolveExplicitCommitIdentity(
-  env: Env,
-  context: CommitIdentityContext | null,
+function resolveExplicitCommitIdentity(
   input: Required<ExplicitCommitIdentityInput>,
-): Promise<GitCommitIdentity> {
+): GitCommitIdentity {
   if (input.authorName.length === 0) {
     throw new CommitIdentityError(
       "COMMIT_IDENTITY_INCOMPLETE",
@@ -185,15 +157,6 @@ async function resolveExplicitCommitIdentity(
         },
       },
     );
-  }
-
-  if (context) {
-    await persistCommitIdentityPreference(env, context.userId, {
-      authorName: input.authorName,
-      authorEmail: input.authorEmail,
-      verified: false,
-      updatedAt: Date.now(),
-    });
   }
 
   return {
@@ -345,61 +308,4 @@ function buildGitHubNoreplyEmail(userId: string, login: string): string {
 
 function isGitHubNoreplyEmail(email: string): boolean {
   return email.endsWith("@users.noreply.github.com");
-}
-
-async function readPersistedCommitIdentityPreference(
-  env: Env,
-  userId: string,
-): Promise<CommitIdentityPreferenceRecord | null> {
-  const payload = await env.SESSIONS.get(buildPreferenceKey(userId));
-  if (!payload) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(payload) as unknown;
-    if (!isCommitIdentityPreferenceRecord(parsed)) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    console.warn(
-      `[git/commit-identity] Corrupted preference for user ${userId}, ignoring`,
-    );
-    return null;
-  }
-}
-
-async function persistCommitIdentityPreference(
-  env: Env,
-  userId: string,
-  preference: CommitIdentityPreferenceRecord,
-): Promise<void> {
-  await env.SESSIONS.put(
-    buildPreferenceKey(userId),
-    JSON.stringify(preference),
-    {
-      expirationTtl: COMMIT_IDENTITY_PREFERENCE_TTL_SECONDS,
-    },
-  );
-}
-
-function buildPreferenceKey(userId: string): string {
-  return `${COMMIT_IDENTITY_PREFERENCE_KEY_PREFIX}${userId}`;
-}
-
-function isCommitIdentityPreferenceRecord(
-  value: unknown,
-): value is CommitIdentityPreferenceRecord {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.authorName === "string" &&
-    typeof record.authorEmail === "string" &&
-    typeof record.verified === "boolean" &&
-    typeof record.updatedAt === "number"
-  );
 }

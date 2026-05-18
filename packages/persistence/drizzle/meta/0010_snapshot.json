@@ -1,6 +1,6 @@
 {
-  "id": "844a470c-1818-4def-a1b4-8d9a953648d0",
-  "prevId": "9190c11e-fdac-4e8f-bda7-ea9839ca3755",
+  "id": "29ca3492-8152-4f83-bd16-f765504fb397",
+  "prevId": "7c955b86-b46c-4d09-9943-90a459345abc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -517,6 +517,39 @@
           "columns": [
             {
               "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "artifacts_run_user_status_updated_idx": {
+          "name": "artifacts_run_user_status_updated_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3594,6 +3627,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "sessions_active_run_id_fk": {
+          "name": "sessions_active_run_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "runs",
+          "columnsFrom": [
+            "active_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

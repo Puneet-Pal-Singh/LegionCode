@@ -64,18 +64,20 @@ export class EditArtifactRestoreService {
     runId: string,
   ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
-      await repository.updateStatus({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        status: "restore_in_progress",
-      });
-      await repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId,
-        eventType: "restore_attempted",
-        message: "Applying latest saved edit artifact after workspace bootstrap",
-        metadata: { r2ObjectKey: artifact.r2ObjectKey },
+      await repository.transaction(async (txRepository) => {
+        await txRepository.updateStatus({
+          artifactId: artifact.id,
+          userId: artifact.userId,
+          status: "restore_in_progress",
+        });
+        await txRepository.appendEvent({
+          id: crypto.randomUUID(),
+          artifactId: artifact.id,
+          runId,
+          eventType: "restore_attempted",
+          message: "Applying latest saved edit artifact after workspace bootstrap",
+          metadata: { r2ObjectKey: artifact.r2ObjectKey },
+        });
       });
     });
   }
@@ -97,17 +99,19 @@ export class EditArtifactRestoreService {
     runId: string,
   ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
-      await repository.updateStatus({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        status: "restored",
-      });
-      await repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId,
-        eventType: "restored",
-        message: "Saved edit artifact restored into workspace",
+      await repository.transaction(async (txRepository) => {
+        await txRepository.updateStatus({
+          artifactId: artifact.id,
+          userId: artifact.userId,
+          status: "restored",
+        });
+        await txRepository.appendEvent({
+          id: crypto.randomUUID(),
+          artifactId: artifact.id,
+          runId,
+          eventType: "restored",
+          message: "Saved edit artifact restored into workspace",
+        });
       });
     });
   }
@@ -118,17 +122,19 @@ export class EditArtifactRestoreService {
     message: string,
   ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
-      await repository.updateStatus({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        status: "restore_failed",
-      });
-      await repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId,
-        eventType: "restore_failed",
-        message,
+      await repository.transaction(async (txRepository) => {
+        await txRepository.updateStatus({
+          artifactId: artifact.id,
+          userId: artifact.userId,
+          status: "restore_failed",
+        });
+        await txRepository.appendEvent({
+          id: crypto.randomUUID(),
+          artifactId: artifact.id,
+          runId,
+          eventType: "restore_failed",
+          message,
+        });
       });
     });
   }
@@ -139,17 +145,19 @@ export class EditArtifactRestoreService {
     message: string,
   ): Promise<void> {
     await withArtifactRepository(this.env, async (repository) => {
-      await repository.updateStatus({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        status: "requires_user_resolution",
-      });
-      await repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId,
-        eventType: "requires_user_resolution",
-        message,
+      await repository.transaction(async (txRepository) => {
+        await txRepository.updateStatus({
+          artifactId: artifact.id,
+          userId: artifact.userId,
+          status: "requires_user_resolution",
+        });
+        await txRepository.appendEvent({
+          id: crypto.randomUUID(),
+          artifactId: artifact.id,
+          runId,
+          eventType: "requires_user_resolution",
+          message,
+        });
       });
     });
   }

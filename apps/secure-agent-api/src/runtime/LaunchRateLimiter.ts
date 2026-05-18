@@ -21,6 +21,9 @@ interface WindowCounterState {
 
 const COUNTER_KEY_PREFIX = "launch:secure-api:rate-limit:v1:";
 
+// RECONSTRUCTABILITY: Launch limiter counters are runtime throttling hints only.
+// Losing this DO state can briefly reset launch throttles, but cannot delete or
+// corrupt canonical product data stored in Postgres/R2.
 export class LaunchRateLimiter extends DurableObject {
   private requestQueue: Promise<void> = Promise.resolve();
 

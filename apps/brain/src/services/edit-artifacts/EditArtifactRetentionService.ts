@@ -40,17 +40,19 @@ async function expireArtifacts(
   for (const artifact of expiredArtifacts) {
     try {
       await objectStore.deletePatch(artifact.r2ObjectKey);
-      await repository.updateStatus({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        status: "expired",
-      });
-      await repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId: artifact.runId,
-        eventType: "expired",
-        message: "Expired edit artifact payload removed from R2",
+      await repository.transaction(async (txRepository) => {
+        await txRepository.updateStatus({
+          artifactId: artifact.id,
+          userId: artifact.userId,
+          status: "expired",
+        });
+        await txRepository.appendEvent({
+          id: crypto.randomUUID(),
+          artifactId: artifact.id,
+          runId: artifact.runId,
+          eventType: "expired",
+          message: "Expired edit artifact payload removed from R2",
+        });
       });
       expiredCount += 1;
     } catch (error) {
@@ -75,17 +77,19 @@ async function repairStalePendingArtifacts(
   let repairedCount = 0;
   for (const artifact of staleArtifacts) {
     try {
-      await repository.updateStatus({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        status: "capture_failed",
-      });
-      await repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: artifact.id,
-        runId: artifact.runId,
-        eventType: "capture_failed",
-        message: "Pending edit artifact capture exceeded repair window",
+      await repository.transaction(async (txRepository) => {
+        await txRepository.updateStatus({
+          artifactId: artifact.id,
+          userId: artifact.userId,
+          status: "capture_failed",
+        });
+        await txRepository.appendEvent({
+          id: crypto.randomUUID(),
+          artifactId: artifact.id,
+          runId: artifact.runId,
+          eventType: "capture_failed",
+          message: "Pending edit artifact capture exceeded repair window",
+        });
       });
       repairedCount += 1;
     } catch (error) {

@@ -1,8 +1,8 @@
 /**
  * Cloud Credential Vault
  *
- * Provider-neutral credential vault using focused store interfaces.
- * Can be backed by D1CredentialStore or other implementations.
+ * Provider-neutral credential vault using the canonical provider credential
+ * repository interface.
  */
 
 import type { CredentialVault, ProviderId } from "@repo/shared-types";

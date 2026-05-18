@@ -1,6 +1,9 @@
 import { RUN_EVENT_TYPES, type RunEvent } from "@repo/shared-types";
 import type { RuntimeDurableObjectState } from "../types.js";
 
+// RECONSTRUCTABILITY: Run events are an ephemeral DO cache. The canonical
+// event history is in Postgres via PostgresRunRepository.appendEvent.
+// Deleting this DO storage loses only in-flight runtime coordination state.
 const RUN_EVENTS_KEY_PREFIX = "run_events:";
 
 export class RunEventRepository {

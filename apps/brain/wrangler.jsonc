@@ -97,17 +97,6 @@
     },
   ],
 
-  // 5. D1 Database for BYOK (Plan 81 - User-Global Credentials)
-  // Keep BYOK provider state local during wrangler dev. Remote D1 can return
-  // transient Cloudflare API errors that break localhost model resolution.
-  "d1_databases": [
-    {
-      "binding": "BYOK_DB",
-      "database_name": "shadowbox-byok",
-      "database_id": "73d62c9e-12ad-48a4-a9c5-1ac976d1bd2b",
-    },
-  ],
-
   "r2_buckets": [
     {
       "binding": "EDIT_ARTIFACTS",

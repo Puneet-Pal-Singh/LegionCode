@@ -144,7 +144,6 @@ const gitCommitIdentitySchema = z.object({
   authorEmail: z.string(),
   source: z.enum([
     "workspace_git_config",
-    "persisted_preference",
     "github_profile",
     "user_input",
   ]),

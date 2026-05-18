@@ -1,3 +1,10 @@
+// RECONSTRUCTABILITY: Permission approval state here is runtime-only:
+// pending requests, run allowances, risky-attempt counters, and in-run rule
+// matches. Approval requests and decisions are canonical in Postgres via
+// PostgresPermissionRepository. Values in this store are pruned by
+// withPrunedApprovals(); if DO storage is lost, the active run may require
+// re-approval, but audit history remains reconstructable from Postgres.
+
 import type { RuntimeDurableObjectState } from "../types.js";
 import type {
   ApprovalDecision,

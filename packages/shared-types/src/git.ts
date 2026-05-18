@@ -45,7 +45,6 @@ export interface DiffContent {
 
 export type GitCommitIdentitySource =
   | "workspace_git_config"
-  | "persisted_preference"
   | "github_profile"
   | "user_input";
 

@@ -1470,7 +1470,6 @@ function readGitCommitIdentitySource(
 ): GitCommitIdentitySource | undefined {
   if (
     value === "workspace_git_config" ||
-    value === "persisted_preference" ||
     value === "github_profile" ||
     value === "user_input"
   ) {

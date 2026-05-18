@@ -1,5 +1,8 @@
-// apps/brain/src/core/run/RunRepository.ts
-// Phase 3A: Run persistence layer using Durable Object storage
+// RECONSTRUCTABILITY: Run state in DO storage is the live runtime source of
+// truth during active execution. Completed run records are persisted to
+// Postgres via PostgresRunRepository. If DO storage is lost, active runs
+// will fail (expected), but completed runs can be reloaded from Postgres.
+// Session-run index can be rebuilt from Postgres RunRecord rows.
 
 import { Run } from "./Run.js";
 import type { RuntimeDurableObjectState, SerializedRun } from "../types.js";

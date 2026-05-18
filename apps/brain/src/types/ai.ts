@@ -4,7 +4,6 @@ import type {
   DurableObjectNamespace,
   Fetcher,
   KVNamespace,
-  D1Database,
   R2Bucket,
 } from "@cloudflare/workers-types";
 import type {
@@ -27,8 +26,6 @@ export interface Env {
   AI: Ai;
   SECURE_API: Fetcher;
 
-  // ✅ D1 Database for BYOK (Plan 81)
-  BYOK_DB: D1Database;
   EDIT_ARTIFACTS?: R2Bucket;
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";

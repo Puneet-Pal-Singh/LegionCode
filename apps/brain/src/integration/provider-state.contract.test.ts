@@ -153,7 +153,6 @@ function createTestEnv(): Env {
   return {
     AI: {} as Env["AI"],
     SECURE_API: {} as Env["SECURE_API"],
-    BYOK_DB: {} as Env["BYOK_DB"],
     EDIT_ARTIFACTS: undefined,
     HYPERDRIVE: undefined,
     DATABASE_MIGRATIONS_MODE: "manual",

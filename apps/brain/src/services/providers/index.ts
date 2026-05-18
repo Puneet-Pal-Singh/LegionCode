@@ -13,9 +13,6 @@ export { ProviderRegistryService } from "./ProviderRegistryService";
 export { ProviderRateLimitService } from "./ProviderRateLimitService";
 export { ProviderLiveValidationService } from "./ProviderLiveValidationService";
 
-// D1-backed services (Plan 81)
-export { D1AuditService } from "./D1AuditService";
-export { D1AxisQuotaService, type AxisQuotaStatus } from "./D1AxisQuotaService";
 export {
   AXIS_PROVIDER_ID,
   AXIS_DAILY_LIMIT,

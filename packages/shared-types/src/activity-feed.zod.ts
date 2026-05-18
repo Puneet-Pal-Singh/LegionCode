@@ -114,7 +114,6 @@ const GitToolMetadataSchema = z.object({
   commitIdentitySource: z
     .enum([
       "workspace_git_config",
-      "persisted_preference",
       "github_profile",
       "user_input",
     ])

@@ -10,20 +10,33 @@ interface ExecResult {
 
 interface SandboxMock {
   execCalls: string[];
+  execOptions: Array<{ cwd?: string; env?: Record<string, string | undefined> }>;
   writeFileCalls: Array<{ fileName: string; content: string }>;
-  exec: (command: string) => Promise<ExecResult>;
+  exec: (
+    command: string,
+    options?: { cwd?: string; env?: Record<string, string | undefined> },
+  ) => Promise<ExecResult>;
   writeFile: (fileName: string, content: string) => Promise<void>;
 }
 
 function createSandboxMock(responses: ExecResult[]): SandboxMock {
   const execCalls: string[] = [];
+  const execOptions: Array<{
+    cwd?: string;
+    env?: Record<string, string | undefined>;
+  }> = [];
   const writeFileCalls: Array<{ fileName: string; content: string }> = [];
 
   return {
     execCalls,
+    execOptions,
     writeFileCalls,
-    async exec(command: string): Promise<ExecResult> {
+    async exec(
+      command: string,
+      options?: { cwd?: string; env?: Record<string, string | undefined> },
+    ): Promise<ExecResult> {
       execCalls.push(command);
+      execOptions.push(options ?? {});
       return (
         responses.shift() ?? {
           exitCode: 0,
@@ -97,8 +110,7 @@ describe("PythonPlugin", () => {
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(
       "/home/sandbox/runs/run_py_2/main.py",
     );
-    expect(sandbox.execCalls[1]).toContain(
-      "cd '/home/sandbox/runs/run_py_2' && 'python3' 'main.py'",
-    );
+    expect(sandbox.execCalls[1]).toBe("'python3' 'main.py'");
+    expect(sandbox.execOptions[1]?.cwd).toBe("/home/sandbox/runs/run_py_2");
   });
 });

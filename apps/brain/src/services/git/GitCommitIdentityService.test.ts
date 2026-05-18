@@ -14,9 +14,6 @@ describe("GitCommitIdentityService", () => {
     const result = await resolveCommitIdentityForStoredUserSession(
       {
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository(null),
-        SESSIONS: {
-          get: async () => "{bad json",
-        },
       } as unknown as Env,
       "user-1",
     );
@@ -24,13 +21,9 @@ describe("GitCommitIdentityService", () => {
     expect(result).toBeNull();
   });
 
-  it("ignores malformed persisted identity preferences and falls back to hydrated session data", async () => {
+  it("resolves identity state from hydrated session data", async () => {
     const state = await readCommitIdentityStateForUser(
-      {
-        SESSIONS: {
-          get: async () => "{bad json",
-        },
-      } as unknown as Env,
+      {} as unknown as Env,
       {
         userId: "user-1",
         session: {
@@ -59,11 +52,7 @@ describe("GitCommitIdentityService", () => {
   it("rejects explicit commit identities that omit the author name", async () => {
     await expect(
       resolveCommitIdentityForCommit(
-        {
-          SESSIONS: {
-            put: async () => undefined,
-          },
-        } as unknown as Env,
+        {} as unknown as Env,
         null,
         {
           authorName: "   ",
@@ -81,7 +70,7 @@ describe("GitCommitIdentityService", () => {
     });
   });
 
-  it("resolves runtime commit identity from OAuth session even when a persisted preference exists", async () => {
+  it("resolves runtime commit identity from OAuth session", async () => {
     const identity = await resolveCommitIdentityForStoredOAuthSession(
       {
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository({
@@ -91,19 +80,6 @@ describe("GitCommitIdentityService", () => {
           email: "puneet@example.com",
           name: "Puneet Pal Singh",
         }),
-        SESSIONS: {
-          get: async (key: string) => {
-            if (key === "git_commit_identity_preference:user-1") {
-              return JSON.stringify({
-                authorName: "Random User",
-                authorEmail: "random@example.com",
-                verified: false,
-                updatedAt: Date.now(),
-              });
-            }
-            return null;
-          },
-        },
       } as unknown as Env,
       "user-1",
     );
