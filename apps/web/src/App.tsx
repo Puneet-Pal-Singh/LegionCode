@@ -24,6 +24,7 @@ import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStat
 import { resolveShellStartupState } from "./lib/startup-shell-state";
 import { getBrainHttpBase } from "./lib/platform-endpoints";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
+import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
@@ -657,8 +658,9 @@ function AppContent() {
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
 
-    // If no repo name provided, try to use the currently active repo
-    const targetRepo = repositoryName || repo?.full_name;
+    // If no repo name provided, try to use the currently active repo.
+    // Bare sidebar labels cannot load branches or bootstrap git safely.
+    const targetRepo = resolveTaskRepositoryFullName(repositoryName, repo);
 
     if (targetRepo) {
       console.log("[App] Creating new task for repo:", targetRepo);

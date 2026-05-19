@@ -42,3 +42,23 @@ function resolveSessionBranch(
 
   return DEFAULT_GIT_BRANCH;
 }
+
+export function resolveTaskRepositoryFullName(
+  repositoryName: string | undefined,
+  currentRepo: Repository | null,
+): string | null {
+  const requestedRepository = repositoryName?.trim();
+  if (!requestedRepository) {
+    return currentRepo?.full_name ?? null;
+  }
+
+  if (inferSessionGitHubContext(requestedRepository, currentRepo, "")) {
+    return requestedRepository;
+  }
+
+  if (currentRepo && requestedRepository === currentRepo.name) {
+    return currentRepo.full_name;
+  }
+
+  return null;
+}
