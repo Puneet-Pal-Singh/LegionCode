@@ -89,6 +89,62 @@ describe("HandleChatRequest", () => {
     );
   });
 
+  it("ensures authenticated sessions and runs before persisting transcript messages", async () => {
+    const ensureSessionSpy = vi
+      .spyOn(PersistenceService.prototype, "ensureTranscriptSession")
+      .mockResolvedValue();
+    const ensureRunSpy = vi
+      .spyOn(PersistenceService.prototype, "ensureRun")
+      .mockResolvedValue({} as Awaited<ReturnType<PersistenceService["ensureRun"]>>);
+    const persistSpy = vi
+      .spyOn(PersistenceService.prototype, "persistUserMessage")
+      .mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+
+    await useCase.execute({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      correlationId: "corr-order",
+      agentType: "coding",
+      prompt: "hello",
+      messages: [{ role: "user", content: "hello" }],
+      providerId: "openrouter",
+      modelId: "deepseek/deepseek-v4-flash:free",
+      repositoryOwner: "Puneet-Pal-Singh",
+      repositoryName: "career-crew",
+    });
+
+    expect(ensureSessionSpy).toHaveBeenCalledWith({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "hello",
+      repository: "Puneet-Pal-Singh/career-crew",
+    });
+    expect(ensureRunSpy).toHaveBeenCalledWith({
+      id: "123e4567-e89b-42d3-a456-426614174000",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      status: "created",
+      mode: "build",
+      providerId: "openrouter",
+      modelId: "deepseek/deepseek-v4-flash:free",
+      branch: null,
+    });
+    expect(ensureSessionSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      ensureRunSpy.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+    expect(ensureRunSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      persistSpy.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
   it("honors explicit runtime selection overrides in execution payload", async () => {
     vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
 
