@@ -32,6 +32,10 @@ import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
+import {
+  isTerminalRunStatus,
+  mapRunStatusToSessionStatus,
+} from "./lib/run-status";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -40,22 +44,9 @@ function buildOnboardingSeenKey(userId: string | null): string {
   return `shadowbox:startup-onboarding:seen:${userId}`;
 }
 
-const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
 interface RunSummaryStatusPayload {
   status?: string | null;
-}
-
-function mapRunSummaryStatusToSessionStatus(
-  runStatus: string | null | undefined,
-): "completed" | "error" | null {
-  if (runStatus === "COMPLETED") {
-    return "completed";
-  }
-  if (runStatus === "FAILED" || runStatus === "CANCELLED") {
-    return "error";
-  }
-  return null;
 }
 
 async function fetchRunSummaryStatus(runId: string): Promise<string | null> {
@@ -101,7 +92,7 @@ function AppContent() {
     renameRepository,
   } = useSessionManager();
 
-  const { isAuthenticated, isLoading, login, user } = useAuth();
+  const { isAuthenticated, isLoading, login, refreshSession, user } = useAuth();
   const { repo, branch, setContext, clearContext, saveSessionContext } =
     useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
@@ -192,9 +183,11 @@ function AppContent() {
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
-  const { credentials, reset: resetProviderStore } = useProviderStore(
-    isAuthenticated ? providerScopeRunId : undefined,
-  );
+  const {
+    bootstrap: bootstrapProviderStore,
+    credentials,
+    reset: resetProviderStore,
+  } = useProviderStore(isAuthenticated ? providerScopeRunId : undefined);
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
@@ -327,6 +320,72 @@ function AppContent() {
     }
   }, [activeSessionId, activeSession, repo, branch, setContext, clearContext]);
 
+  const lastPersistedWorkspaceSelectionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const selectedBranch = branch.trim();
+    if (
+      isLoading ||
+      !isAuthenticated ||
+      !user ||
+      !repo ||
+      selectedBranch.length === 0
+    ) {
+      return;
+    }
+
+    const selectionKey = `${user.id}:${repo.full_name}:${selectedBranch}`;
+    if (lastPersistedWorkspaceSelectionRef.current === selectionKey) {
+      return;
+    }
+
+    let cancelled = false;
+    lastPersistedWorkspaceSelectionRef.current = selectionKey;
+
+    const persistActiveWorkspaceSelection = async (): Promise<void> => {
+      try {
+        await GitHubService.selectWorkspace(repo, selectedBranch);
+        if (cancelled) {
+          return;
+        }
+        await refreshSession();
+        if (cancelled || !providerScopeRunId) {
+          return;
+        }
+        await bootstrapProviderStore();
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        lastPersistedWorkspaceSelectionRef.current = null;
+        console.error("[workspace/select] Failed to reconcile selection:", error);
+        window.dispatchEvent(
+          new CustomEvent("legioncode:workspace-selection-persist-failed", {
+            detail: {
+              repository: repo.full_name,
+              branch: selectedBranch,
+            },
+          }),
+        );
+      }
+    };
+
+    void persistActiveWorkspaceSelection();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bootstrapProviderStore,
+    branch,
+    isAuthenticated,
+    isLoading,
+    providerScopeRunId,
+    refreshSession,
+    repo,
+    user,
+  ]);
+
   const clearSetupSessionState = useCallback(() => {
     SessionStateService.clearSetupSession();
   }, []);
@@ -388,13 +447,13 @@ function AppContent() {
         runningSessions.map(async (session) => {
           try {
             const runStatus = await fetchRunSummaryStatus(session.activeRunId);
-            if (!runStatus || !TERMINAL_RUN_STATUSES.has(runStatus)) {
+            if (!isTerminalRunStatus(runStatus)) {
               return null;
             }
 
             return {
               sessionId: session.id,
-              status: mapRunSummaryStatusToSessionStatus(runStatus),
+              status: mapRunStatusToSessionStatus(runStatus),
             };
           } catch (error) {
             console.warn(
