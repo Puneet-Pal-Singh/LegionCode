@@ -56,7 +56,9 @@ export function useRunEvents(
         const requestId = requestIdRef.current + 1;
         requestIdRef.current = requestId;
 
-        const response = await fetch(runEventsPath(currentRunId));
+        const response = await fetch(runEventsPath(currentRunId), {
+          credentials: "include",
+        });
         if (!response.ok) {
           return;
         }
@@ -114,6 +116,7 @@ export function useRunEvents(
       try {
         const response = await fetch(runEventsStreamPath(currentRunId), {
           signal: abortController.signal,
+          credentials: "include",
         });
         if (!response.ok || !response.body) {
           return;
