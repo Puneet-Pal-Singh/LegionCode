@@ -40,6 +40,28 @@ export interface EnsureRunInput {
 export class PersistenceService {
   constructor(private env: Env) {}
 
+  async ensureTranscriptSession(input: {
+    sessionId: string;
+    userId: string;
+    workspaceId?: string | null;
+    taskId?: string | null;
+    title?: string | null;
+    repository?: string | null;
+  }): Promise<void> {
+    await withTranscriptRepository(this.env, async (repository) => {
+      await repository.ensureSession({
+        sessionId: input.sessionId,
+        userId: input.userId,
+        workspaceId: input.workspaceId ?? null,
+        taskId: input.taskId ?? input.sessionId,
+        title: input.title ?? "Untitled task",
+        repository: input.repository ?? null,
+        activeRunId: null,
+        status: "idle",
+      });
+    });
+  }
+
   async ensureRun(input: EnsureRunInput): Promise<RunRecord> {
     return await withRunRepository(this.env, async (repository) => {
       return await repository.ensureRun(input);
