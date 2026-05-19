@@ -39,8 +39,8 @@ export class PostgresRunRepository implements RunRepository {
       input.workspaceId ?? null,
       input.sessionId,
       input.taskId,
-      input.status ?? null,
-      input.mode ?? null,
+      input.status ?? "created",
+      input.mode ?? "build",
       input.providerId ?? null,
       input.modelId ?? null,
       input.branch ?? null,
@@ -282,6 +282,19 @@ const RUN_STEP_COLUMNS = `
   updated_at AS step_updated_at
 `;
 
+const RUN_STEP_SELECT_COLUMNS = `
+  s.id AS step_id,
+  s.run_id,
+  s.step_index,
+  s.step_type,
+  s.status AS step_status,
+  s.started_at AS step_started_at,
+  s.completed_at AS step_completed_at,
+  s.payload_json AS step_payload_json,
+  s.created_at AS step_created_at,
+  s.updated_at AS step_updated_at
+`;
+
 const UPSERT_RUN_STEP_SQL = `
   INSERT INTO run_steps (
     run_id,
@@ -307,7 +320,7 @@ const UPSERT_RUN_STEP_SQL = `
 `;
 
 const LIST_RUN_STEPS_SQL = `
-  SELECT ${RUN_STEP_COLUMNS}
+  SELECT ${RUN_STEP_SELECT_COLUMNS}
   FROM run_steps s
   JOIN runs r ON r.id = s.run_id
   WHERE s.run_id = $1
