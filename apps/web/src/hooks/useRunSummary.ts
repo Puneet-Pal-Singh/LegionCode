@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { isTerminalRunStatus } from "../lib/run-status.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import type {
   ApprovalRequest,
@@ -60,7 +61,6 @@ interface UseRunSummaryResult {
   summary: RunSummary | null;
 }
 
-const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
 const RUN_SUMMARY_POLL_INTERVAL_MS = 1_500;
@@ -95,6 +95,7 @@ export function useRunSummary(
       lastFetchAtRef.current = Date.now();
       const response = await fetch(
         `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+        { credentials: "include" },
       );
       if (!response.ok) {
         return;
@@ -141,9 +142,7 @@ export function useRunSummary(
         return;
       }
 
-      const isTerminal = Boolean(
-        summary?.status && TERMINAL_RUN_STATUSES.has(summary.status),
-      );
+      const isTerminal = isTerminalRunStatus(summary?.status);
       if ((!shouldPoll && isTerminal) || document.visibilityState !== "visible") {
         return;
       }
