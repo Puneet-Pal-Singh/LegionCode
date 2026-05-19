@@ -25,6 +25,7 @@ import {
   loadStoredProductMode,
   persistProductMode,
 } from "../../lib/product-mode-storage";
+import { isTerminalRunStatus, normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitCommitDialog } from "../git/GitCommitDialog";
@@ -138,12 +139,15 @@ export function Workspace({
   } = useGitStatus(activeRunId, sessionId);
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
   const canonicalRunStatus = runSummaryMatchesActiveRun
-    ? (runSummary.status?.trim().toUpperCase() ?? null)
+    ? normalizeRunStatus(runSummary.status)
     : null;
   const isCanonicalRunActive =
     canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
-  const isRunLoading = isLoading || isCanonicalRunActive;
-  const canStopRun = isRunLoading || isSessionRunning;
+  const isCanonicalRunTerminal = isTerminalRunStatus(canonicalRunStatus);
+  const isRunLoading =
+    (isLoading && !isCanonicalRunTerminal) || isCanonicalRunActive;
+  const canStopRun =
+    isRunLoading || (isSessionRunning && !isCanonicalRunTerminal);
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
