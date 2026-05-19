@@ -36,6 +36,7 @@ import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import { getBrainHttpBase, runApprovalPath } from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
+import { isTerminalRunStatus } from "../../lib/run-status.js";
 import { useGitReview } from "../git/GitReviewContext";
 import {
   buildReviewCommentPrompt,
@@ -45,7 +46,6 @@ import { getGitDiff } from "../../lib/git-client.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
-const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_once",
   "allow_for_run",
@@ -662,9 +662,7 @@ export function ChatInterface({
       if (summary.pendingApproval) {
         return summary.pendingApproval;
       }
-      const isTerminal = Boolean(
-        summary.status && TERMINAL_RUN_STATUSES.has(summary.status),
-      );
+      const isTerminal = isTerminalRunStatus(summary.status);
       return isTerminal ? null : pendingApprovalFromEvents;
     }
 
