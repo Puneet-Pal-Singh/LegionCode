@@ -30,7 +30,7 @@ export interface RunCompletionDependencies {
     role: "user" | "assistant",
   ) => Promise<void>;
   runEventRecorder: RunEventRecorder;
-  runRepo: Pick<RunRepository, "update">;
+  runRepo: Pick<RunRepository, "update"> & Partial<Pick<RunRepository, "getById">>;
   safeMemoryOperation: <T>(
     operation: () => Promise<T>,
   ) => Promise<T | undefined>;
@@ -62,6 +62,12 @@ export async function completeRunWithAssistantMessage(params: {
 }): Promise<Response> {
   const { run, text, metadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
+  if (await isRunCancelledInStore(run, deps)) {
+    console.log(
+      `[run/engine] Skipping assistant completion for cancelled run ${run.id}`,
+    );
+    return createStreamResponse("");
+  }
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
   recordLifecycleStep(run, "SYNTHESIS");
@@ -105,6 +111,12 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
 }): Promise<Response> {
   const { run, text, plannerError, metadata, errorMetadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
+  if (await isRunCancelledInStore(run, deps)) {
+    console.log(
+      `[run/engine] Skipping recovered completion for cancelled run ${run.id}`,
+    );
+    return createStreamResponse("");
+  }
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
@@ -138,6 +150,14 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
   return createStreamResponse(sanitizedText);
+}
+
+async function isRunCancelledInStore(
+  run: Run,
+  deps: RunCompletionDependencies,
+): Promise<boolean> {
+  const currentRun = await deps.runRepo.getById?.(run.id);
+  return currentRun?.status === "CANCELLED";
 }
 
 export async function tryHandlePlanningError(params: {
