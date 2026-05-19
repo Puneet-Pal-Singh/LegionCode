@@ -41,6 +41,8 @@ yarn-error.log*
 
 # Cloudflare/Wrangler local state
 .wrangler/
+apps/brain/wrangler.local.jsonc
+apps/secure-agent-api/wrangler.local.jsonc
 *.sqlite
 *.sqlite-journal
 
