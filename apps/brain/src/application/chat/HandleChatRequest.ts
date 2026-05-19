@@ -157,38 +157,31 @@ export class HandleChatRequest {
         );
       }
 
-      // Persist user message (side effect)
-      try {
-        await this.persistenceService.persistUserMessage(
-          sessionId,
-          runId,
-          lastUserMessage,
-          {
-            userId,
-            workspaceId,
-            repository:
-              repositoryOwner && repositoryName
-                ? `${repositoryOwner}/${repositoryName}`
-                : undefined,
-          },
-        );
-      } catch (persistError) {
-        console.warn(
-          `[chat/usecase] ${correlationId}: Failed to persist user message:`,
-          persistError,
-        );
-        // Don't fail the request if persistence fails
-      }
+      const repositorySlug =
+        repositoryOwner && repositoryName
+          ? `${repositoryOwner}/${repositoryName}`
+          : undefined;
+      const taskId = input.taskId ?? sessionId;
 
-      // PR6: Ensure run record exists
+      // Create the task/session first with no active run, then create the run,
+      // then persist the message and mark the run active on the session.
       if (userId) {
         try {
+          await this.persistenceService.ensureTranscriptSession({
+            sessionId,
+            userId,
+            workspaceId: workspaceId ?? null,
+            taskId,
+            title: prompt,
+            repository: repositorySlug ?? null,
+          });
           await this.persistenceService.ensureRun({
             id: runId,
             userId,
             workspaceId: workspaceId ?? null,
             sessionId,
-            taskId: input.taskId ?? sessionId,
+            taskId,
+            status: "created",
             mode,
             providerId: input.providerId ?? null,
             modelId: input.modelId ?? null,
@@ -204,6 +197,26 @@ export class HandleChatRequest {
           );
           throw ensureError;
         }
+      }
+
+      // Persist user message (side effect)
+      try {
+        await this.persistenceService.persistUserMessage(
+          sessionId,
+          runId,
+          lastUserMessage,
+          {
+            userId,
+            workspaceId,
+            repository: repositorySlug,
+          },
+        );
+      } catch (persistError) {
+        console.warn(
+          `[chat/usecase] ${correlationId}: Failed to persist user message:`,
+          persistError,
+        );
+        // Don't fail the request if persistence fails
       }
 
       // Build execution payload with repository context
