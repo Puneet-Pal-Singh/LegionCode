@@ -143,7 +143,7 @@ export function useRunSummary(
       }
 
       const isTerminal = isTerminalRunStatus(summary?.status);
-      if ((!shouldPoll && isTerminal) || document.visibilityState !== "visible") {
+      if (isTerminal || document.visibilityState !== "visible") {
         return;
       }
       void fetchSummary();
@@ -161,6 +161,9 @@ export function useRunSummary(
     }
 
     const intervalId = window.setInterval(() => {
+      if (isTerminalRunStatus(summary?.status)) {
+        return;
+      }
       if (document.visibilityState !== "visible") {
         return;
       }
@@ -170,7 +173,7 @@ export function useRunSummary(
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId, shouldPoll, summary?.status]);
 
   return { summary };
 }
