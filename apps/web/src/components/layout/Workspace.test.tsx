@@ -602,6 +602,29 @@ describe("Workspace", () => {
     );
   });
 
+  it("lets canonical completion clear stale local loading state", () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "completed" };
+    mockChatState.isLoading = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatProps: expect.objectContaining({
+          canStop: false,
+          isLoading: false,
+        }),
+      }),
+    );
+  });
+
   it("keeps the stop button available when local session state is still running", () => {
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
