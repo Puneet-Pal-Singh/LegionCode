@@ -29,6 +29,10 @@ const TranscriptQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+const ArchiveSessionParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+});
+
 export class TranscriptController {
   static async listSessions(request: Request, env: Env): Promise<Response> {
     try {
@@ -61,13 +65,37 @@ export class TranscriptController {
           workspaceId: body.workspaceId ?? null,
           title: body.title ?? "Untitled task",
           repository: body.repository ?? null,
-          activeRunId: body.runId ?? null,
+          activeRunId: null,
           mode: body.mode ?? "build",
           status: "idle",
         }),
       );
 
       return jsonResponse(request, env, { session }, { status: 201 });
+    } catch (error) {
+      return transcriptErrorResponse(request, env, error);
+    }
+  }
+
+  static async archiveSession(request: Request, env: Env): Promise<Response> {
+    try {
+      const auth = await getAuthenticatedUserSession(request, env);
+      if (!auth) {
+        return errorResponse(request, env, "Unauthorized", 401);
+      }
+
+      const { sessionId } = ArchiveSessionParamsSchema.parse(
+        readArchiveSessionParams(request.url),
+      );
+      const archived = await withTranscriptRepository(env, (repository) =>
+        repository.archiveSession(auth.userId, sessionId),
+      );
+
+      if (!archived) {
+        return errorResponse(request, env, "Session not found", 404);
+      }
+
+      return jsonResponse(request, env, { archived: true });
     } catch (error) {
       return transcriptErrorResponse(request, env, error);
     }
@@ -101,6 +129,11 @@ export class TranscriptController {
       return transcriptErrorResponse(request, env, error);
     }
   }
+}
+
+function readArchiveSessionParams(url: string): { sessionId: string | null } {
+  const match = new URL(url).pathname.match(/^\/api\/sessions\/([^/]+)\/archive$/);
+  return { sessionId: match?.[1] ?? null };
 }
 
 function toHydrationMessage(message: TranscriptMessageRecord): {
