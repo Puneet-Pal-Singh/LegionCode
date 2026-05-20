@@ -190,9 +190,7 @@ export const providerUserModelCache = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     providerId: text("provider_id").notNull(),
-    credentialId: uuid("credential_id")
-      .notNull()
-      .references(() => providerCredentials.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull(),
     modelsJson: jsonb("models_json").notNull(),
     sourceVersion: text("source_version").notNull(),
     fetchedAt: timestamp("fetched_at", {

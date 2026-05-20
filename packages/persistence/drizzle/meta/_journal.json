@@ -78,6 +78,13 @@
       "when": 1779045000000,
       "tag": "0010_sessions_active_run_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779295000000,
+      "tag": "0011_provider_user_model_cache_text_key",
+      "breakpoints": true
     }
   ]
 }
