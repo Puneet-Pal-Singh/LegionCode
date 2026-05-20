@@ -68,8 +68,46 @@ export interface WorkspaceSelection {
   workspaceId: string;
   repoId: string;
   selectedBranch: string;
+  repository: WorkspaceRepositoryRecord;
   workspaceName: string;
   updatedAt: string;
+}
+
+export interface WorkspaceRepositoryRecord {
+  id: string;
+  provider: string;
+  owner: string;
+  name: string;
+  fullName: string;
+  repoUrl: string;
+  defaultBranch: string;
+  providerRepoId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  userId: string;
+  repoId: string;
+  name: string;
+  defaultBranch: string;
+  lastSelectedBranch: string;
+  status: "active" | "archived";
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string;
+}
+
+export interface WorkspaceListItem {
+  repository: WorkspaceRepositoryRecord;
+  workspace: WorkspaceRecord;
+  selected: boolean;
+}
+
+export interface WorkspaceListResponse {
+  workspaces: WorkspaceListItem[];
+  selection: WorkspaceSelection | null;
 }
 
 const BRAIN_API_URL = getBrainHttpBase();
@@ -211,6 +249,19 @@ export async function selectWorkspace(
   return parseWorkspaceSelectionResponse(await response.json());
 }
 
+export async function listWorkspaces(): Promise<WorkspaceListResponse> {
+  const response = await fetch(
+    `${BRAIN_API_URL}/api/workspaces`,
+    getFetchOptions(),
+  );
+
+  if (!response.ok) {
+    throw await readWorkspaceSelectionError(response);
+  }
+
+  return parseWorkspaceListResponse(await response.json());
+}
+
 async function readWorkspaceSelectionError(response: Response): Promise<Error> {
   const payload = (await response.json().catch(() => null)) as
     | { error?: unknown }
@@ -233,14 +284,74 @@ function parseWorkspaceSelectionResponse(payload: unknown): WorkspaceSelection {
   return payload.selection;
 }
 
+function parseWorkspaceListResponse(payload: unknown): WorkspaceListResponse {
+  if (
+    !isRecord(payload) ||
+    !Array.isArray(payload.workspaces) ||
+    !payload.workspaces.every(isWorkspaceListItem) ||
+    !(payload.selection === null || isWorkspaceSelection(payload.selection))
+  ) {
+    throw new Error("Invalid workspace list response from server");
+  }
+
+  return {
+    workspaces: payload.workspaces,
+    selection: payload.selection,
+  };
+}
+
 function isWorkspaceSelection(value: unknown): value is WorkspaceSelection {
   return (
     isRecord(value) &&
     typeof value.workspaceId === "string" &&
     typeof value.repoId === "string" &&
     typeof value.selectedBranch === "string" &&
+    isWorkspaceRepositoryRecord(value.repository) &&
     typeof value.workspaceName === "string" &&
     typeof value.updatedAt === "string"
+  );
+}
+
+function isWorkspaceListItem(value: unknown): value is WorkspaceListItem {
+  return (
+    isRecord(value) &&
+    isWorkspaceRepositoryRecord(value.repository) &&
+    isWorkspaceRecord(value.workspace) &&
+    typeof value.selected === "boolean"
+  );
+}
+
+function isWorkspaceRepositoryRecord(
+  value: unknown,
+): value is WorkspaceRepositoryRecord {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.provider === "string" &&
+    typeof value.owner === "string" &&
+    typeof value.name === "string" &&
+    typeof value.fullName === "string" &&
+    typeof value.repoUrl === "string" &&
+    typeof value.defaultBranch === "string" &&
+    (value.providerRepoId === null || typeof value.providerRepoId === "string") &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isWorkspaceRecord(value: unknown): value is WorkspaceRecord {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.userId === "string" &&
+    typeof value.repoId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.defaultBranch === "string" &&
+    typeof value.lastSelectedBranch === "string" &&
+    (value.status === "active" || value.status === "archived") &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string" &&
+    typeof value.lastOpenedAt === "string"
   );
 }
 

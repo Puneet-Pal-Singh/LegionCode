@@ -193,6 +193,9 @@ export class GitController {
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
+      if (error instanceof Error && isNotGitRepositoryMessage(error.message)) {
+        return corsJsonResponse(req, env, getEmptyDiff());
+      }
       return handleGitControllerError(req, env, error, "getDiff");
     }
   }
@@ -952,6 +955,9 @@ function parseGitPayload<T>(payload: unknown, operation: "status" | "diff"): T {
       if (operation === "status" && isNotGitRepositoryMessage(details)) {
         return getRecoverableNotGitStatus() as unknown as T;
       }
+      if (operation === "diff" && isNotGitRepositoryMessage(details)) {
+        return getEmptyDiff() as unknown as T;
+      }
       throw new Error(`Git ${operation} failed: ${details}`);
     }
 
@@ -1011,6 +1017,17 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
     hasUnstaged: false,
     gitAvailable: false,
     recoverableCode: "NOT_A_GIT_REPOSITORY",
+  };
+}
+
+function getEmptyDiff(): DiffContent {
+  return {
+    oldPath: "",
+    newPath: "",
+    hunks: [],
+    isBinary: false,
+    isNewFile: false,
+    isDeleted: false,
   };
 }
 

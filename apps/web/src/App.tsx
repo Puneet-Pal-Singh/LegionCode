@@ -12,7 +12,12 @@ import {
   useGitHub,
 } from "./components/github/GitHubContextProvider";
 import { RepoPicker } from "./components/github/RepoPicker";
-import type { Repository } from "./services/GitHubService";
+import type {
+  Repository,
+  WorkspaceListItem,
+  WorkspaceListResponse,
+  WorkspaceRepositoryRecord,
+} from "./services/GitHubService";
 import * as GitHubService from "./services/GitHubService";
 import { Resizer } from "./components/ui/Resizer";
 import { uiShellStore } from "./store/uiShellStore";
@@ -60,6 +65,70 @@ async function fetchRunSummaryStatus(runId: string): Promise<string | null> {
   }
   const payload = (await response.json()) as RunSummaryStatusPayload;
   return payload.status ?? null;
+}
+
+function buildRepositoryFromWorkspace(
+  repository: WorkspaceRepositoryRecord,
+  selectedBranch: string,
+): Repository {
+  return {
+    id: Number(repository.providerRepoId ?? 0),
+    name: repository.name,
+    full_name: repository.fullName,
+    owner: {
+      login: repository.owner,
+      avatar_url: "",
+    },
+    description: null,
+    private: false,
+    html_url: repository.repoUrl,
+    clone_url: `${repository.repoUrl}.git`,
+    default_branch: selectedBranch || repository.defaultBranch,
+    stargazers_count: 0,
+    language: null,
+    updated_at: repository.updatedAt,
+  };
+}
+
+function findWorkspaceForRepository(
+  repository: string | null,
+  workspaceState: WorkspaceListResponse,
+): { repository: WorkspaceRepositoryRecord; branch: string } | null {
+  const expectedRepository = repository?.trim();
+  if (!expectedRepository) {
+    return null;
+  }
+
+  if (
+    workspaceState.selection &&
+    doesSessionContextMatchRepository(expectedRepository, {
+      fullName: workspaceState.selection.repository.fullName,
+      repoName: workspaceState.selection.repository.name,
+    })
+  ) {
+    return {
+      repository: workspaceState.selection.repository,
+      branch: workspaceState.selection.selectedBranch,
+    };
+  }
+
+  const workspace = workspaceState.workspaces.find((item: WorkspaceListItem) =>
+    doesSessionContextMatchRepository(expectedRepository, {
+      fullName: item.repository.fullName,
+      repoName: item.repository.name,
+    }),
+  );
+  if (!workspace) {
+    return null;
+  }
+
+  return {
+    repository: workspace.repository,
+    branch:
+      workspace.workspace.lastSelectedBranch ||
+      workspace.workspace.defaultBranch ||
+      workspace.repository.defaultBranch,
+  };
 }
 
 /**
@@ -310,14 +379,85 @@ function AppContent() {
         });
       }
     } else {
-      // No stored context for this session.
-      // If we have a lingering repo context, clear it to ensure isolation.
-      if (repo) {
-        console.log(
-          `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
-        );
-        clearContext();
+      const activeRepository = activeSession.repository?.trim() ?? "";
+
+      if (
+        repo &&
+        doesSessionContextMatchRepository(activeRepository, {
+          fullName: repo.full_name,
+          repoName: repo.name,
+        })
+      ) {
+        const repairedBranch = branch.trim() || repo.default_branch || "main";
+        SessionStateService.saveSessionGitHubContext(activeSessionId, {
+          repoOwner: repo.owner.login,
+          repoName: repo.name,
+          fullName: repo.full_name,
+          branch: repairedBranch,
+        });
+        if (!branch.trim()) {
+          setContext(repo, repairedBranch);
+        }
+        return;
       }
+
+      if (!activeRepository || activeRepository === "New Project") {
+        if (repo) {
+          console.log(
+            `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
+          );
+          clearContext();
+        }
+        return;
+      }
+
+      let cancelled = false;
+
+      const repairSessionContextFromWorkspace = async (): Promise<void> => {
+        try {
+          const workspaceState = await GitHubService.listWorkspaces();
+          if (cancelled) {
+            return;
+          }
+
+          const workspaceContext = findWorkspaceForRepository(
+            activeRepository,
+            workspaceState,
+          );
+          if (!workspaceContext) {
+            if (repo) {
+              clearContext();
+            }
+            return;
+          }
+
+          const repairedRepo = buildRepositoryFromWorkspace(
+            workspaceContext.repository,
+            workspaceContext.branch,
+          );
+          SessionStateService.saveSessionGitHubContext(activeSessionId, {
+            repoOwner: repairedRepo.owner.login,
+            repoName: repairedRepo.name,
+            fullName: repairedRepo.full_name,
+            branch: workspaceContext.branch,
+          });
+          setContext(repairedRepo, workspaceContext.branch);
+        } catch (error) {
+          console.warn(
+            "[App] Failed to repair session GitHub context from workspace state:",
+            error,
+          );
+          if (!cancelled && repo) {
+            clearContext();
+          }
+        }
+      };
+
+      void repairSessionContextFromWorkspace();
+
+      return () => {
+        cancelled = true;
+      };
     }
   }, [activeSessionId, activeSession, repo, branch, setContext, clearContext]);
 
@@ -845,7 +985,7 @@ function AppContent() {
 
         {/* Main Workspace Layer */}
         <div className="flex-1 flex overflow-hidden relative bg-black">
-          <AnimatePresence mode="wait">
+          <AnimatePresence initial={false} mode="wait">
             {shellStartupState === "shell_locked_unauthenticated" ? (
               <motion.div
                 key="locked-shell"
@@ -930,11 +1070,11 @@ function AppContent() {
               </motion.div>
             ) : showWorkspace ? (
               <motion.div
-                key={`workspace-${activeSessionId}`}
-                initial={{ opacity: 0 }}
+                key="workspace"
+                initial={false}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 1 }}
+                transition={{ duration: 0 }}
                 className="absolute inset-0 flex"
               >
                 <Workspace
