@@ -64,6 +64,7 @@ export function useChatCore(
     crypto.randomUUID(),
   );
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
   const lastLoggedStreamErrorRef = useRef<{
@@ -190,67 +191,73 @@ export function useChatCore(
         );
       }
       setError(null);
+      setIsSubmitting(true);
       setIsStopping(false);
-
-      let providerId =
-        selectedProviderId?.trim() || lastResolvedConfig?.providerId?.trim();
-      let modelId =
-        selectedModelId?.trim() || lastResolvedConfig?.modelId?.trim();
-      let credentialId =
-        selectedCredentialId?.trim() ||
-        lastResolvedConfig?.credentialId?.trim();
-      let configResolutionSource: "store_selection" | "provider_resolve_api" =
-        "store_selection";
-
-      if (!providerId || !modelId || !credentialId) {
-        const resolvedConfig = await resolveForChat();
-        providerId = resolvedConfig.providerId?.trim();
-        modelId = resolvedConfig.modelId?.trim();
-        credentialId = resolvedConfig.credentialId?.trim();
-        configResolutionSource = "provider_resolve_api";
-      }
-
-      if (!providerId || !modelId || !credentialId) {
-        throw new Error(
-          "Provider resolution failed: missing explicit provider/model credential selection.",
-        );
-      }
-
-      const resolvedHarnessId = resolveRuntimeHarnessId(sessionId);
-      const requestBody: ChatRequestBody = {
-        sessionId,
-        runId,
-        mode,
-        productMode,
-        harnessId: resolvedHarnessId,
-        providerId,
-        modelId,
-        ...loadRepositoryContextFields(sessionId),
-      };
-
-      pushDebugEvent({
-        phase: "request",
-        summary: `POST ${apiPath}`,
-        payload: {
-          endpoint: apiPath,
-          requestBody,
-          userMessage: content,
-          resolvedConfig: {
-            providerId,
-            modelId,
-            credentialId,
-            source: configResolutionSource,
-          },
-        },
-      });
       dispatchRunSummaryRefresh(runId);
 
-      await append(
-        { role: "user", content },
-        {
-          body: requestBody,
-        },
-      );
+      try {
+        let providerId =
+          selectedProviderId?.trim() || lastResolvedConfig?.providerId?.trim();
+        let modelId =
+          selectedModelId?.trim() || lastResolvedConfig?.modelId?.trim();
+        let credentialId =
+          selectedCredentialId?.trim() ||
+          lastResolvedConfig?.credentialId?.trim();
+        let configResolutionSource: "store_selection" | "provider_resolve_api" =
+          "store_selection";
+
+        if (!providerId || !modelId || !credentialId) {
+          const resolvedConfig = await resolveForChat();
+          providerId = resolvedConfig.providerId?.trim();
+          modelId = resolvedConfig.modelId?.trim();
+          credentialId = resolvedConfig.credentialId?.trim();
+          configResolutionSource = "provider_resolve_api";
+        }
+
+        if (!providerId || !modelId || !credentialId) {
+          throw new Error(
+            "Provider resolution failed: missing explicit provider/model credential selection.",
+          );
+        }
+
+        const resolvedHarnessId = resolveRuntimeHarnessId(sessionId);
+        const requestBody: ChatRequestBody = {
+          sessionId,
+          runId,
+          mode,
+          productMode,
+          harnessId: resolvedHarnessId,
+          providerId,
+          modelId,
+          ...loadRepositoryContextFields(sessionId),
+        };
+
+        pushDebugEvent({
+          phase: "request",
+          summary: `POST ${apiPath}`,
+          payload: {
+            endpoint: apiPath,
+            requestBody,
+            userMessage: content,
+            resolvedConfig: {
+              providerId,
+              modelId,
+              credentialId,
+              source: configResolutionSource,
+            },
+          },
+        });
+        dispatchRunSummaryRefresh(runId);
+
+        await append(
+          { role: "user", content },
+          {
+            body: requestBody,
+          },
+        );
+      } finally {
+        setIsSubmitting(false);
+      }
     },
     [
       append,
@@ -274,7 +281,9 @@ export function useChatCore(
       e?.preventDefault();
       const originalInput = input;
       const trimmedInput = input.trim();
-      if (!trimmedInput || isLoading || !isModelConfigReady) return;
+      if (!trimmedInput || isLoading || isSubmitting || !isModelConfigReady) {
+        return;
+      }
       const clearedInputEvent = {
         target: { value: "" },
       } as React.ChangeEvent<HTMLTextAreaElement>;
@@ -316,6 +325,7 @@ export function useChatCore(
       handleInputChange,
       input,
       isLoading,
+      isSubmitting,
       isModelConfigReady,
       sessionId,
       pushDebugEvent,
@@ -323,6 +333,7 @@ export function useChatCore(
   );
 
   const stop = useCallback(() => {
+    setIsSubmitting(false);
     setIsStopping(true);
     stopStream();
     dispatchRunSummaryRefresh(runId);
@@ -359,7 +370,7 @@ export function useChatCore(
     handleInputChange,
     handleSubmit,
     append: appendWithResolution,
-    isLoading: isLoading || isStopping,
+    isLoading: isLoading || isSubmitting || isStopping,
     stop,
     setMessages,
     runId,

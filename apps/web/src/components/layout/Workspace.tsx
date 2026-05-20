@@ -141,13 +141,27 @@ export function Workspace({
   const canonicalRunStatus = runSummaryMatchesActiveRun
     ? normalizeRunStatus(runSummary.status)
     : null;
+  const lastMessage = messages[messages.length - 1];
+  const hasLocalAssistantCompletion =
+    !isLoading &&
+    lastMessage?.role === "assistant" &&
+    typeof lastMessage.content === "string" &&
+    lastMessage.content.trim().length > 0 &&
+    !(runSummaryMatchesActiveRun && runSummary?.pendingApproval);
   const isCanonicalRunActive =
     canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
   const isCanonicalRunTerminal = isTerminalRunStatus(canonicalRunStatus);
+  const isStaleCanonicalActiveRun =
+    isCanonicalRunActive && hasLocalAssistantCompletion;
+  const isEffectiveCanonicalRunActive =
+    isCanonicalRunActive && !isStaleCanonicalActiveRun;
   const isRunLoading =
-    (isLoading && !isCanonicalRunTerminal) || isCanonicalRunActive;
+    (isLoading && !isCanonicalRunTerminal) || isEffectiveCanonicalRunActive;
   const canStopRun =
-    isRunLoading || (isSessionRunning && !isCanonicalRunTerminal);
+    isRunLoading ||
+    (isSessionRunning &&
+      !isCanonicalRunTerminal &&
+      !isStaleCanonicalActiveRun);
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -251,6 +265,25 @@ export function Workspace({
       return;
     }
 
+    if (isStaleCanonicalActiveRun) {
+      const localCompletionStatus = "LOCAL_COMPLETED";
+      const lastApplied = lastAppliedCanonicalStatusRef.current;
+      if (
+        lastApplied &&
+        lastApplied.runId === activeRunId &&
+        lastApplied.status === localCompletionStatus
+      ) {
+        return;
+      }
+      lastAppliedCanonicalStatusRef.current = {
+        runId: activeRunId,
+        status: localCompletionStatus,
+      };
+      onSessionStatusChange?.("completed");
+      void refetchGitStatus(true);
+      return;
+    }
+
     const lastApplied = lastAppliedCanonicalStatusRef.current;
     if (
       lastApplied &&
@@ -285,12 +318,13 @@ export function Workspace({
   }, [
     activeRunId,
     canonicalRunStatus,
+    isStaleCanonicalActiveRun,
     onSessionStatusChange,
     refetchGitStatus,
   ]);
 
   useEffect(() => {
-    if (!chatError || isLoading || isCanonicalRunActive) {
+    if (!chatError || isLoading || isEffectiveCanonicalRunActive) {
       return;
     }
 
@@ -311,7 +345,7 @@ export function Workspace({
   }, [
     activeRunId,
     chatError,
-    isCanonicalRunActive,
+    isEffectiveCanonicalRunActive,
     isLoading,
     onSessionStatusChange,
   ]);
@@ -476,53 +510,42 @@ export function Workspace({
         <div className="ui-center-surface flex-1 flex overflow-hidden relative">
           {/* Chat Area */}
           <main className="ui-center-surface flex-1 flex flex-col min-w-0 relative">
-            {isHydrating ? (
-              <div className="flex-1 flex items-center justify-center bg-background">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-xs font-mono text-zinc-500 uppercase tracking-widest">
-                    Hydrating History...
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <ChatInterface
-                chatProps={{
-                  messages,
-                  runId: activeRunId,
-                  input,
-                  handleInputChange,
-                  handleSubmit,
-                  append,
-                  stop: handleStopRun,
-                  canStop: canStopRun,
-                  isLoading: isRunLoading,
-                  error: chatError,
-                  debugEvents,
-                }}
-                sessionId={sessionId}
-                mode={mode}
-                onModeChange={onModeChange}
-                permissionMode={productMode}
-                onPermissionModeChange={setProductMode}
-                onPendingApprovalChange={onPendingApprovalStateChange}
-                repoTree={repoTree}
-                isLoadingRepoTree={isLoadingTree}
-                onArtifactOpen={(path, content) => {
-                  setSelectedFile({ path, content });
-                  setIsViewingContent(true);
-                  setIsRightSidebarOpen?.(true);
-                  setActiveTab("files");
-                }}
-                onReviewOpen={() => {
-                  setIsRightSidebarOpen?.(true);
-                  setActiveTab("review");
-                  setIsViewingContent(false);
-                  setSelectedFile(null);
-                  setSelectedDiff(null);
-                }}
-              />
-            )}
+            <ChatInterface
+              chatProps={{
+                messages,
+                runId: activeRunId,
+                input,
+                handleInputChange,
+                handleSubmit,
+                append,
+                stop: handleStopRun,
+                canStop: canStopRun,
+                isLoading: isRunLoading,
+                error: chatError,
+                debugEvents,
+              }}
+              sessionId={sessionId}
+              mode={mode}
+              onModeChange={onModeChange}
+              permissionMode={productMode}
+              onPermissionModeChange={setProductMode}
+              onPendingApprovalChange={onPendingApprovalStateChange}
+              repoTree={repoTree}
+              isLoadingRepoTree={isLoadingTree || isHydrating}
+              onArtifactOpen={(path, content) => {
+                setSelectedFile({ path, content });
+                setIsViewingContent(true);
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("files");
+              }}
+              onReviewOpen={() => {
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("review");
+                setIsViewingContent(false);
+                setSelectedFile(null);
+                setSelectedDiff(null);
+              }}
+            />
           </main>
 
           {/* Combined Sidebar */}

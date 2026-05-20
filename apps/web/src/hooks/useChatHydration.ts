@@ -24,6 +24,7 @@ export function useChatHydration(
   // Reset hydration flag when runId changes
   useEffect(() => {
     hasHydratedRef.current = false;
+    setIsHydrating(false);
   }, [runId]);
 
   // Perform hydration
@@ -31,12 +32,22 @@ export function useChatHydration(
     if (hasHydratedRef.current) return;
     if (messagesLength > 0) return;
 
+    let cancelled = false;
+    const loadingTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setIsHydrating(true);
+      }
+    }, 150);
+
     async function hydrate() {
-      setIsHydrating(true);
       const result = await hydrationServiceRef.current.hydrateMessages(
         sessionId,
         runId,
       );
+
+      if (cancelled) {
+        return;
+      }
 
       if (result.error) {
         console.error("🧬 [LegionCode] Hydration failed:", result.error);
@@ -44,11 +55,17 @@ export function useChatHydration(
         setMessages(result.messages);
       }
 
+      window.clearTimeout(loadingTimer);
       setIsHydrating(false);
       hasHydratedRef.current = true;
     }
 
-    hydrate();
+    void hydrate();
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(loadingTimer);
+    };
   }, [sessionId, runId, messagesLength, setMessages]);
 
   return { isHydrating };

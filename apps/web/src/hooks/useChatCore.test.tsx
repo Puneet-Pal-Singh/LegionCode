@@ -194,6 +194,33 @@ describe("useChatCore", () => {
     );
   });
 
+  it("marks chat loading immediately while append setup is in flight", async () => {
+    let resolveAppend: (() => void) | null = null;
+    appendSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    act(() => {
+      void result.current.append({
+        role: "user",
+        content: "Start the next task",
+      });
+    });
+
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => {
+      resolveAppend?.();
+      await Promise.resolve();
+    });
+
+    expect(result.current.isLoading).toBe(false);
+  });
+
   it("keeps stop active until the cancel request settles", async () => {
     let resolveFetch: ((value: Response) => void) | null = null;
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
