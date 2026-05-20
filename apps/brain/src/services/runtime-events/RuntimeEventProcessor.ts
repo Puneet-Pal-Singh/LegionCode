@@ -28,6 +28,9 @@ export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
     const { payload, eventType, idempotencyKey } = event;
 
     if (!isRunEvent(payload)) {
+      if (isInternalRuntimeLifecycleEvent(eventType)) {
+        return;
+      }
       console.log(`[RuntimeEventProcessor] Unhandled event type: ${eventType}`);
       return;
     }
@@ -67,6 +70,13 @@ export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
       step,
     });
   }
+}
+
+function isInternalRuntimeLifecycleEvent(eventType: string): boolean {
+  return (
+    eventType === "runtime.task.started" ||
+    eventType === "runtime.task.finished"
+  );
 }
 
 function assertSessionScopedRunEvent(

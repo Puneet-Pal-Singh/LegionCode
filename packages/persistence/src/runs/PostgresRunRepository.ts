@@ -213,17 +213,19 @@ const APPEND_RUN_EVENT_SQL = `
   ),
   existing AS (
     SELECT
-      id AS event_id,
-      run_id,
-      session_id,
-      event_type,
-      payload_json,
-      sequence,
-      idempotency_key,
-      created_at
+      run_events.id AS event_id,
+      run_events.run_id,
+      run_events.session_id,
+      run_events.event_type,
+      run_events.payload_json,
+      run_events.sequence,
+      run_events.idempotency_key,
+      run_events.created_at
     FROM run_events
     JOIN locked ON locked.id = run_events.run_id
-    WHERE run_id = $1 AND $5 IS NOT NULL AND idempotency_key = $5
+    WHERE run_events.run_id = $1
+      AND $5::text IS NOT NULL
+      AND run_events.idempotency_key = $5::text
   ),
   next_seq AS (
     UPDATE runs
@@ -235,7 +237,7 @@ const APPEND_RUN_EVENT_SQL = `
   ),
   inserted AS (
     INSERT INTO run_events (run_id, session_id, event_type, payload_json, sequence, idempotency_key, created_at)
-    SELECT $1, $2, $3, $4, last_sequence, $5, $6 FROM next_seq
+    SELECT $1, $2, $3, $4, last_sequence, $5::text, $6 FROM next_seq
     ON CONFLICT (run_id, idempotency_key) DO NOTHING
     RETURNING
       id AS event_id,

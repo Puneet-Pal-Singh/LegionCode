@@ -31,6 +31,24 @@ class CapturingSqlClient implements SqlClient {
       };
     }
 
+    if (statement.includes("INSERT INTO run_events")) {
+      return {
+        rows: [
+          {
+            event_id: "123e4567-e89b-42d3-a456-426614174005",
+            run_id: params[0],
+            session_id: params[1],
+            event_type: params[2],
+            payload_json: JSON.parse(String(params[3])),
+            sequence: 1,
+            idempotency_key: params[4],
+            created_at: params[5],
+          } satisfies SqlRow,
+        ] as Row[],
+        rowCount: 1,
+      };
+    }
+
     const now = params[12] instanceof Date ? params[12] : new Date();
     return {
       rows: [
@@ -92,5 +110,27 @@ describe("PostgresRunRepository", () => {
     expect(steps).toHaveLength(1);
     expect(client.queries[0]?.statement).toContain("s.id AS step_id");
     expect(client.queries[0]?.statement).toContain("JOIN runs r");
+  });
+
+  it("qualifies existing event columns when appending with the run lock CTE", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresRunRepository(client);
+
+    const event = await repository.appendEvent({
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      sessionId: "123e4567-e89b-42d3-a456-426614174002",
+      eventType: "runtime.tool.completed",
+      payload: { ok: true },
+      idempotencyKey: "runtime-tool-completed-1",
+    });
+
+    const statement = client.queries[0]?.statement ?? "";
+    expect(event.sequence).toBe(1);
+    expect(statement).toContain("SELECT id FROM runs WHERE id = $1 FOR UPDATE");
+    expect(statement).toContain("run_events.id AS event_id");
+    expect(statement).toContain("run_events.run_id = $1");
+    expect(statement).toContain("$5::text IS NOT NULL");
+    expect(statement).toContain("run_events.idempotency_key = $5::text");
+    expect(statement).toContain("$5::text, $6 FROM next_seq");
   });
 });
