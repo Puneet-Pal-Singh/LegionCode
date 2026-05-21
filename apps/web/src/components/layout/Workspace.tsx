@@ -155,8 +155,7 @@ export function Workspace({
     isCanonicalRunActive && hasLocalAssistantCompletion;
   const isEffectiveCanonicalRunActive =
     isCanonicalRunActive && !isStaleCanonicalActiveRun;
-  const isRunLoading =
-    (isLoading && !isCanonicalRunTerminal) || isEffectiveCanonicalRunActive;
+  const isRunLoading = isLoading || isEffectiveCanonicalRunActive;
   const canStopRun =
     isRunLoading ||
     (isSessionRunning &&
@@ -249,8 +248,18 @@ export function Workspace({
 
     if (!wasLoading && isLoading) {
       onSessionStatusChange?.("running");
+      return;
     }
-  }, [isLoading, onSessionStatusChange]);
+
+    if (wasLoading && !isLoading) {
+      if (chatError) {
+        onSessionStatusChange?.("error");
+      } else {
+        onSessionStatusChange?.("completed");
+      }
+      void refetchGitStatus(true);
+    }
+  }, [chatError, isLoading, onSessionStatusChange, refetchGitStatus]);
 
   const lastAppliedCanonicalStatusRef = useRef<{
     runId: string;

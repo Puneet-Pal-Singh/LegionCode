@@ -142,8 +142,9 @@ export function useRunSummary(
         return;
       }
 
-      const isTerminal = isTerminalRunStatus(summary?.status);
-      if (isTerminal || document.visibilityState !== "visible") {
+      const shouldSkipTerminalSummary =
+        !shouldPoll && isTerminalRunStatus(summary?.status);
+      if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
       void fetchSummary();
@@ -161,9 +162,6 @@ export function useRunSummary(
     }
 
     const intervalId = window.setInterval(() => {
-      if (isTerminalRunStatus(summary?.status)) {
-        return;
-      }
       if (document.visibilityState !== "visible") {
         return;
       }

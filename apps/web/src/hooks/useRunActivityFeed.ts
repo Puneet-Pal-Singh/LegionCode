@@ -13,9 +13,11 @@ interface UseRunActivityFeedResult {
 
 const ACTIVITY_FEED_ERROR_LOG_WINDOW_MS = 30_000;
 const ACTIVITY_FEED_MIN_FETCH_INTERVAL_MS = 800;
+const ACTIVITY_FEED_POLL_INTERVAL_MS = 1_000;
 
 export function useRunActivityFeed(
   runId: string,
+  shouldPoll = false,
 ): UseRunActivityFeedResult {
   const [feed, setFeed] = useState<ActivityFeedSnapshot | null>(null);
   const inFlightRef = useRef(false);
@@ -80,6 +82,23 @@ export function useRunActivityFeed(
 
     void fetchFeed({ force: true });
   }, [fetchFeed, runId]);
+
+  useEffect(() => {
+    if (!runId || !shouldPoll) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void fetchFeed({ force: true });
+    }, ACTIVITY_FEED_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [fetchFeed, runId, shouldPoll]);
 
   useEffect(() => {
     if (!runId) {

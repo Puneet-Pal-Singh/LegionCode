@@ -9,18 +9,21 @@ vi.mock("../lib/platform-endpoints.js", () => ({
 
 describe("useRunSummary", () => {
   beforeEach(() => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ runId: "run-1", status: "completed" }), {
-        status: 200,
-      }),
-    );
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({ runId: "run-1", status: "completed" }),
+        { status: 200 },
+      );
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("stops refresh fetches after a terminal summary", async () => {
+  it("continues refresh fetches while polling after a terminal summary", async () => {
+    let now = 2_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi.mocked(globalThis.fetch);
 
     const { result } = renderHook(() => useRunSummary("run-1", true));
@@ -30,6 +33,7 @@ describe("useRunSummary", () => {
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
+    now += 2_000;
     act(() => {
       window.dispatchEvent(
         new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
@@ -38,6 +42,8 @@ describe("useRunSummary", () => {
       );
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
   });
 });

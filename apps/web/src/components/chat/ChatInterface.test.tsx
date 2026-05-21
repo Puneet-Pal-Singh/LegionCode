@@ -265,6 +265,85 @@ describe("ChatInterface", () => {
     });
   });
 
+  it("attaches changed files that arrive after the assistant message settles", async () => {
+    const changedStatus: GitStatusResponse = {
+      files: [
+        {
+          path: "src/components/landing/hero/index.tsx",
+          status: "modified",
+          additions: 13,
+          deletions: 18,
+          isStaged: false,
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      branch: "main",
+      hasStaged: false,
+      hasUnstaged: true,
+      gitAvailable: true,
+    };
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "edit the hero" },
+      {
+        id: "assistant-final",
+        role: "assistant",
+        content: "I completed the requested update.",
+      },
+    ];
+    mockGitReviewState.status = {
+      ...changedStatus,
+      files: [],
+      hasUnstaged: false,
+    };
+
+    const { rerender } = render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    mockGitReviewState.status = changedStatus;
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
+      expect(screen.getByText("index.tsx")).toBeInTheDocument();
+      expect(screen.getByText("+13")).toBeInTheDocument();
+      expect(screen.getByText("-18")).toBeInTheDocument();
+    });
+  });
+
   it("shows only files changed during the current assistant turn", async () => {
     const footerStatus: GitStatusResponse = {
       files: [

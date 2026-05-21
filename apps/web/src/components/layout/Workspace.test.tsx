@@ -228,7 +228,7 @@ describe("Workspace", () => {
     mockGitHubTreeState.isContextMismatch = false;
   });
 
-  it("refreshes git status only when canonical run status reaches terminal", async () => {
+  it("refreshes git status when local chat loading settles", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -255,7 +255,6 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("running");
 
     mockChatState.isLoading = false;
-    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -265,8 +264,13 @@ describe("Workspace", () => {
       />,
     );
 
-    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
-    expect(mockRefetchGitStatus).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
+    });
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+
+    mockRefetchGitStatus.mockClear();
+    onSessionStatusChange.mockClear();
 
     mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     rerender(
@@ -633,7 +637,7 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
   });
 
-  it("lets canonical completion clear stale local loading state", () => {
+  it("lets local loading state override a stale terminal summary", () => {
     mockRunSummaryState.summary = { runId: "run-123", status: "completed" };
     mockChatState.isLoading = true;
 
@@ -649,8 +653,8 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: false,
-          isLoading: false,
+          canStop: true,
+          isLoading: true,
         }),
       }),
     );

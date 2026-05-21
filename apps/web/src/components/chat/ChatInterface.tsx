@@ -254,7 +254,7 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, isLoading);
-  const { feed } = useRunActivityFeed(runId);
+  const { feed } = useRunActivityFeed(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [approvalBusyDecision, setApprovalBusyDecision] =
@@ -372,7 +372,13 @@ export function ChatInterface({
       return;
     }
 
-    const changedFiles = pendingChangedFilesRef.current;
+    const changedFiles =
+      pendingChangedFilesRef.current.length > 0
+        ? pendingChangedFilesRef.current
+        : collectChangedFilesSinceBaseline(
+            gitStatus?.files ?? [],
+            turnBaselineFilesRef.current,
+          );
     if (changedFiles.length === 0) {
       return;
     }
@@ -386,7 +392,7 @@ export function ChatInterface({
         [latestAssistantMessageId]: cloneFileStatuses(changedFiles),
       };
     });
-  }, [isLoading, latestAssistantMessageId]);
+  }, [gitStatus?.files, isLoading, latestAssistantMessageId]);
 
   useEffect(() => {
     setExpandedActivityTurns({});
