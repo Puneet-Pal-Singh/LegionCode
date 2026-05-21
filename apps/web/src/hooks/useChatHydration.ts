@@ -20,12 +20,14 @@ export function useChatHydration(
   const [isHydrating, setIsHydrating] = useState(false);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
+  const scopeKey = `${sessionId}:${runId}`;
+  const activeScopeKeyRef = useRef(scopeKey);
 
-  // Reset hydration flag when runId changes
   useEffect(() => {
+    activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
     setIsHydrating(false);
-  }, [runId]);
+  }, [scopeKey]);
 
   // Perform hydration
   useEffect(() => {
@@ -33,31 +35,42 @@ export function useChatHydration(
     if (messagesLength > 0) return;
 
     let cancelled = false;
+    const requestScopeKey = scopeKey;
+    const isCurrentScope = () =>
+      !cancelled && activeScopeKeyRef.current === requestScopeKey;
     const loadingTimer = window.setTimeout(() => {
-      if (!cancelled) {
+      if (isCurrentScope()) {
         setIsHydrating(true);
       }
     }, 150);
 
     async function hydrate() {
-      const result = await hydrationServiceRef.current.hydrateMessages(
-        sessionId,
-        runId,
-      );
+      try {
+        const result = await hydrationServiceRef.current.hydrateMessages(
+          sessionId,
+          runId,
+        );
 
-      if (cancelled) {
-        return;
+        if (!isCurrentScope()) {
+          return;
+        }
+
+        if (result.error) {
+          console.error("🧬 [LegionCode] Hydration failed:", result.error);
+        } else if (result.messages.length > 0) {
+          setMessages(result.messages);
+        }
+      } catch (error) {
+        if (isCurrentScope()) {
+          console.error("🧬 [LegionCode] Hydration failed:", error);
+        }
+      } finally {
+        window.clearTimeout(loadingTimer);
+        if (isCurrentScope()) {
+          setIsHydrating(false);
+          hasHydratedRef.current = true;
+        }
       }
-
-      if (result.error) {
-        console.error("🧬 [LegionCode] Hydration failed:", result.error);
-      } else if (result.messages.length > 0) {
-        setMessages(result.messages);
-      }
-
-      window.clearTimeout(loadingTimer);
-      setIsHydrating(false);
-      hasHydratedRef.current = true;
     }
 
     void hydrate();
@@ -66,7 +79,7 @@ export function useChatHydration(
       cancelled = true;
       window.clearTimeout(loadingTimer);
     };
-  }, [sessionId, runId, messagesLength, setMessages]);
+  }, [sessionId, runId, scopeKey, messagesLength, setMessages]);
 
   return { isHydrating };
 }

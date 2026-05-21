@@ -125,6 +125,37 @@ describe("useChatCore", () => {
     );
   });
 
+  it("ignores stale stream callbacks after switching session scope", () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId, runId }) => useChatCore(sessionId, runId),
+      {
+        initialProps: {
+          sessionId: "session-1",
+          runId: "run-1",
+        },
+      },
+    );
+
+    const firstOptions = mockUseChat.mock.calls[0]?.[0] as {
+      onError?: (error: Error) => void;
+      onFinish?: (message: { content: string }, details: unknown) => void;
+      onResponse?: (response: Response) => void;
+    };
+
+    act(() => {
+      rerender({ sessionId: "session-2", runId: "run-2" });
+    });
+
+    act(() => {
+      firstOptions.onError?.(new Error("old stream failed"));
+      firstOptions.onResponse?.(new Response(null, { status: 500 }));
+      firstOptions.onFinish?.({ content: "old assistant reply" }, {});
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.debugEvents).toHaveLength(0);
+  });
+
   it("sends explicit plan mode in request overrides", async () => {
     const { result } = renderHook(() =>
       useChatCore("session-1", undefined, "plan"),

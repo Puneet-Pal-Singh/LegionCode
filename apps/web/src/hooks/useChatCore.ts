@@ -4,7 +4,14 @@ import {
   type ProductMode,
   type RunMode,
 } from "@repo/shared-types";
-import { useCallback, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
 import { useProviderStore } from "./useProviderStore.js";
@@ -73,6 +80,22 @@ export function useChatCore(
   } | null>(null);
   const runId = externalRunId || internalRunId;
   const apiPath = chatStreamPath();
+  const scopeKey = `${sessionId}:${runId}`;
+  const activeScopeKeyRef = useRef(scopeKey);
+  const isActiveScope = useCallback(
+    (candidateScopeKey: string) =>
+      activeScopeKeyRef.current === candidateScopeKey,
+    [],
+  );
+
+  useEffect(() => {
+    activeScopeKeyRef.current = scopeKey;
+    setError(null);
+    setIsSubmitting(false);
+    setIsStopping(false);
+    setDebugEvents([]);
+    lastLoggedStreamErrorRef.current = null;
+  }, [scopeKey]);
 
   const pushDebugEvent = useCallback(
     (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
@@ -129,6 +152,9 @@ export function useChatCore(
     initialMessages: [],
     id: instanceKey,
     onResponse: (response: Response) => {
+      if (!isActiveScope(scopeKey)) {
+        return;
+      }
       dispatchRunSummaryRefresh(runId);
       pushDebugEvent({
         phase: "response",
@@ -141,6 +167,9 @@ export function useChatCore(
       });
     },
     onFinish: (message, details) => {
+      if (!isActiveScope(scopeKey)) {
+        return;
+      }
       dispatchRunSummaryRefresh(runId);
       pushDebugEvent({
         phase: "finish",
@@ -152,6 +181,9 @@ export function useChatCore(
       });
     },
     onError: (error: Error) => {
+      if (!isActiveScope(scopeKey)) {
+        return;
+      }
       dispatchRunSummaryRefresh(runId);
       const message = normalizeChatErrorMessage(error);
       setError(message);
@@ -184,6 +216,7 @@ export function useChatCore(
 
   const appendWithResolution = useCallback(
     async (message: { role: "user"; content: string }): Promise<void> => {
+      const requestScopeKey = scopeKey;
       const content = message.content.trim();
       if (!content || status !== "ready") {
         throw new Error(
@@ -208,6 +241,9 @@ export function useChatCore(
 
         if (!providerId || !modelId || !credentialId) {
           const resolvedConfig = await resolveForChat();
+          if (!isActiveScope(requestScopeKey)) {
+            return;
+          }
           providerId = resolvedConfig.providerId?.trim();
           modelId = resolvedConfig.modelId?.trim();
           credentialId = resolvedConfig.credentialId?.trim();
@@ -218,6 +254,10 @@ export function useChatCore(
           throw new Error(
             "Provider resolution failed: missing explicit provider/model credential selection.",
           );
+        }
+
+        if (!isActiveScope(requestScopeKey)) {
+          return;
         }
 
         const resolvedHarnessId = resolveRuntimeHarnessId(sessionId);
@@ -256,13 +296,17 @@ export function useChatCore(
           },
         );
       } finally {
-        setIsSubmitting(false);
+        if (isActiveScope(requestScopeKey)) {
+          setIsSubmitting(false);
+        }
       }
     },
     [
       append,
+      isActiveScope,
       resolveForChat,
       runId,
+      scopeKey,
       sessionId,
       status,
       selectedProviderId,
@@ -279,6 +323,7 @@ export function useChatCore(
   const handleSubmit = useCallback(
     (e?: FormEvent) => {
       e?.preventDefault();
+      const requestScopeKey = scopeKey;
       const originalInput = input;
       const trimmedInput = input.trim();
       if (!trimmedInput || isLoading || isSubmitting || !isModelConfigReady) {
@@ -293,6 +338,9 @@ export function useChatCore(
         try {
           await appendWithResolution({ role: "user", content: trimmedInput });
         } catch (error) {
+          if (!isActiveScope(requestScopeKey)) {
+            return;
+          }
           const restoreInputEvent = {
             target: { value: originalInput },
           } as React.ChangeEvent<HTMLTextAreaElement>;
@@ -324,19 +372,23 @@ export function useChatCore(
       appendWithResolution,
       handleInputChange,
       input,
+      isActiveScope,
       isLoading,
       isSubmitting,
       isModelConfigReady,
+      scopeKey,
       sessionId,
       pushDebugEvent,
     ],
   );
 
   const stop = useCallback(() => {
+    const requestRunId = runId;
+    const requestScopeKey = scopeKey;
     setIsSubmitting(false);
     setIsStopping(true);
     stopStream();
-    dispatchRunSummaryRefresh(runId);
+    dispatchRunSummaryRefresh(requestRunId);
 
     const cancelRun = async (): Promise<void> => {
       try {
@@ -347,22 +399,27 @@ export function useChatCore(
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ runId }),
+            body: JSON.stringify({ runId: requestRunId }),
           },
         );
         if (!response.ok) {
           throw new Error(`Cancel failed with HTTP ${response.status}`);
         }
-        dispatchRunSummaryRefresh(runId);
+        dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
-        console.warn("[chat/stop] Failed to cancel run", { runId, error });
+        console.warn("[chat/stop] Failed to cancel run", {
+          runId: requestRunId,
+          error,
+        });
       } finally {
-        setIsStopping(false);
+        if (isActiveScope(requestScopeKey)) {
+          setIsStopping(false);
+        }
       }
     };
 
     void cancelRun();
-  }, [authenticatedChatFetch, runId, stopStream]);
+  }, [authenticatedChatFetch, isActiveScope, runId, scopeKey, stopStream]);
 
   return {
     messages,
