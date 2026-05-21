@@ -728,6 +728,29 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
+  it("does not subscribe to live run events from the chat render path", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-local-polling",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", false);
+  });
+
   it("shows event-based pending approval when summary is temporarily stale during an active run", () => {
     const pendingApprovalEvent: RunEvent = {
       version: 1,
@@ -1722,6 +1745,72 @@ describe("ChatInterface", () => {
     expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
       text.indexOf("second reply"),
     );
+  });
+
+  it("does not attach uncorrelated workflow activity to the latest user query", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-1",
+        status: "RUNNING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "RUNNING",
+        items: [
+          {
+            id: "orphan-tool",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-orphan",
+            kind: "tool",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:04.000Z",
+            source: "brain",
+            toolId: "tool-orphan",
+            toolName: "read_file",
+            status: "completed",
+            metadata: {
+              family: "read",
+              count: 1,
+              truncated: false,
+              loadedPaths: ["README.md"],
+              path: "README.md",
+            },
+          },
+        ],
+      },
+    });
+
+    const { container } = render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "second chat prompt" },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(container.textContent ?? "").not.toContain("Worked for 3s");
+    expect(container.textContent ?? "").not.toContain("Read README.md");
   });
 
   it("attaches a recycled run's turn-1 workflow to the latest matching user query", () => {

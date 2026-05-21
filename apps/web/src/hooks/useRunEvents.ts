@@ -71,7 +71,7 @@ export function useRunEvents(
           return;
         }
 
-        const parsedEvents = parseNdjsonEvents(body, currentRunId);
+        const parsedEvents = parseRunEventsBody(body, currentRunId);
         setEvents((current) => mergeRunEvents(current, parsedEvents));
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
@@ -202,11 +202,32 @@ export function useRunEvents(
   return { events };
 }
 
-function parseNdjsonEvents(body: string, runId: string): RunEvent[] {
-  if (!body.trim()) {
+function parseRunEventsBody(body: string, runId: string): RunEvent[] {
+  const trimmedBody = body.trim();
+  if (!trimmedBody) {
     return [];
   }
 
+  const parsedJson = tryParseJson(trimmedBody);
+  if (parsedJson.ok) {
+    return parseRunEventsPayload(parsedJson.value, runId);
+  }
+
+  return parseNdjsonEvents(trimmedBody, runId);
+}
+
+function parseRunEventsPayload(payload: unknown, runId: string): RunEvent[] {
+  if (Array.isArray(payload)) {
+    return payload
+      .map((event) => parseRunEventPayload(event, runId))
+      .filter((event): event is RunEvent => event !== null);
+  }
+
+  const event = parseRunEventPayload(payload, runId);
+  return event ? [event] : [];
+}
+
+function parseNdjsonEvents(body: string, runId: string): RunEvent[] {
   const events: RunEvent[] = [];
   for (const line of body.split("\n")) {
     const event = parseRunEventLine(line, runId);
@@ -224,7 +245,19 @@ function parseRunEventLine(line: string, runId: string): RunEvent | null {
     return null;
   }
 
-  const result = safeParseRunEvent(JSON.parse(trimmedLine) as unknown);
+  const parsedJson = tryParseJson(trimmedLine);
+  if (!parsedJson.ok) {
+    console.warn(
+      `[run/events] dropped invalid JSON event for runId=${runId}: ${parsedJson.error.message}`,
+    );
+    return null;
+  }
+
+  return parseRunEventPayload(parsedJson.value, runId);
+}
+
+function parseRunEventPayload(payload: unknown, runId: string): RunEvent | null {
+  const result = safeParseRunEvent(payload);
   if (!result.success) {
     console.warn(
       `[run/events] dropped invalid event for runId=${runId}: ${result.error}`,
@@ -232,7 +265,27 @@ function parseRunEventLine(line: string, runId: string): RunEvent | null {
     return null;
   }
 
+  if (result.data.runId !== runId) {
+    console.warn(
+      `[run/events] dropped event for mismatched runId=${result.data.runId}; active runId=${runId}`,
+    );
+    return null;
+  }
+
   return result.data;
+}
+
+function tryParseJson(
+  value: string,
+): { ok: true; value: unknown } | { ok: false; error: Error } {
+  try {
+    return { ok: true, value: JSON.parse(value) as unknown };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
 }
 
 function mergeRunEvents(current: RunEvent[], incoming: RunEvent[]): RunEvent[] {

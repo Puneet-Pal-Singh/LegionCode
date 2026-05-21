@@ -253,7 +253,7 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, isLoading);
+  const { events } = useRunEvents(runId, false);
   const { feed } = useRunActivityFeed(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
@@ -1255,8 +1255,7 @@ function correlateActivityTurnsToMessages(
         conversationUserTurns,
         availableConversationTurnIndexes,
         activityTurn.userPrompt,
-      ) ??
-      findLatestAvailableConversationTurnIndex(availableConversationTurnIndexes);
+      );
     if (matchedIndex === null) {
       console.warn(
         "[chat/transcript] Activity turn could not be correlated to a user message.",
@@ -1310,17 +1309,6 @@ function findMatchingConversationTurnIndex(
   }
 
   return null;
-}
-
-function findLatestAvailableConversationTurnIndex(
-  availableConversationTurnIndexes: Set<number>,
-): number | null {
-  const indexes = Array.from(availableConversationTurnIndexes);
-  if (indexes.length === 0) {
-    return null;
-  }
-
-  return Math.max(...indexes);
 }
 
 function normalizePromptForMatching(content: string | null | undefined): string {
