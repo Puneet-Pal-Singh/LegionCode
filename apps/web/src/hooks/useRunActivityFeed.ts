@@ -20,7 +20,9 @@ export function useRunActivityFeed(
   shouldPoll = false,
 ): UseRunActivityFeedResult {
   const [feed, setFeed] = useState<ActivityFeedSnapshot | null>(null);
+  const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
+  const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
   const missedRefreshRef = useRef(false);
   const lastErrorLogRef = useRef<{
@@ -48,11 +50,15 @@ export function useRunActivityFeed(
 
       try {
         inFlightRef.current = true;
+        inFlightRunIdRef.current = currentRunId;
         lastFetchAtRef.current = now;
         const response = await fetch(runActivityPath(currentRunId));
+        if (activeRunIdRef.current !== currentRunId) {
+          return;
+        }
         if (!response.ok) {
           logActivityFeedWarning(
-            runId,
+            currentRunId,
             new Error(`HTTP ${response.status}: ${response.statusText}`),
             lastErrorLogRef,
           );
@@ -60,23 +66,37 @@ export function useRunActivityFeed(
         }
 
         const payload = parseActivityFeedSnapshot(await response.json());
+        if (activeRunIdRef.current !== currentRunId) {
+          return;
+        }
+        if (payload.runId !== currentRunId) {
+          return;
+        }
         setFeed(payload);
       } catch (error) {
-        logActivityFeedWarning(runId, error, lastErrorLogRef);
+        if (activeRunIdRef.current === currentRunId) {
+          logActivityFeedWarning(currentRunId, error, lastErrorLogRef);
+        }
       } finally {
-        inFlightRef.current = false;
+        if (inFlightRunIdRef.current === currentRunId) {
+          inFlightRef.current = false;
+          inFlightRunIdRef.current = null;
+        }
       }
     },
     [runId],
   );
 
   useEffect(() => {
+    activeRunIdRef.current = runId;
+    inFlightRef.current = false;
+    inFlightRunIdRef.current = null;
     lastFetchAtRef.current = 0;
     missedRefreshRef.current = false;
     lastErrorLogRef.current = null;
+    setFeed(null);
 
     if (!runId) {
-      setFeed(null);
       return;
     }
 
