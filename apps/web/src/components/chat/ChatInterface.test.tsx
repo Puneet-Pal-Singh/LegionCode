@@ -1318,6 +1318,111 @@ describe("ChatInterface", () => {
     );
   });
 
+  it("matches workflow turns when persisted prompts normalize file mentions", async () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-1",
+        status: "COMPLETED",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        items: [
+          {
+            id: "turn-1-user",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "lets upgrade our footer Footer.tsx",
+          },
+          {
+            id: "turn-1-tool",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "tool",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:05.000Z",
+            source: "brain",
+            toolId: "tool-1",
+            toolName: "create_code_artifact",
+            status: "completed",
+            metadata: {
+              family: "edit",
+              filePath: "src/components/layout/Footer.tsx",
+              additions: 126,
+              deletions: 102,
+            },
+          },
+        ],
+      },
+    });
+
+    const { container } = render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "lets upgrade our footer @Footer.tsx",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Footer updated.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
+      text.indexOf("lets upgrade our footer"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /worked for 5s/i }));
+    expect(
+      screen.getByText("Edit src/components/layout/Footer.tsx"),
+    ).toBeInTheDocument();
+    expect(
+      (container.textContent ?? "").indexOf(
+        "Edit src/components/layout/Footer.tsx",
+      ),
+    ).toBeGreaterThan(
+      (container.textContent ?? "").indexOf("lets upgrade our footer"),
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
+      expect(screen.getByText("Footer.tsx")).toBeInTheDocument();
+      expect(screen.getByText("+126")).toBeInTheDocument();
+      expect(screen.getByText("-102")).toBeInTheDocument();
+    });
+  });
+
   it("suppresses intermediary assistant chatter and keeps the latest assistant reply for the turn", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
