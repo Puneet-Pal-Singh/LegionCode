@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
 import { getGitDiff } from "../lib/git-client.js";
@@ -17,11 +17,23 @@ export function useGitDiff(
   const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
   const runId = explicitRunId ?? contextRunId;
   const sessionId = explicitSessionId ?? contextSessionId;
+  const scopeKey = runId && sessionId ? `${sessionId}:${runId}` : null;
   const [diff, setDiff] = useState<DiffContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeScopeKeyRef = useRef(scopeKey);
+  const latestRequestIdRef = useRef(0);
 
-  const fetchDiff = async (path: string, staged = false) => {
+  useEffect(() => {
+    activeScopeKeyRef.current = scopeKey;
+    setDiff(null);
+    setLoading(false);
+    setError(null);
+  }, [scopeKey]);
+
+  const fetchDiff = useCallback(async (path: string, staged = false) => {
+    const requestId = ++latestRequestIdRef.current;
+    const requestScopeKey = scopeKey;
     if (!runId || !sessionId) {
       setError(!runId ? "No run context available" : "No session context available");
       return;
@@ -38,15 +50,23 @@ export function useGitDiff(
         staged,
       };
       const data = (await getGitDiff(params)) as DiffContent;
+      if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
+        return;
+      }
       setDiff(data);
     } catch (err) {
+      if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
+        return;
+      }
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
       console.error("[useGitDiff] Error:", err);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestIdRef.current && activeScopeKeyRef.current === requestScopeKey) {
+        setLoading(false);
+      }
     }
-  };
+  }, [runId, scopeKey, sessionId]);
 
   return { diff, loading, error, fetch: fetchDiff };
 }

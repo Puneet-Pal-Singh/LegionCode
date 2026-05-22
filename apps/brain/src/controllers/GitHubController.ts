@@ -202,25 +202,15 @@ export class GitHubController {
         );
       }
 
-      const tree = await client.getTree(owner, repo, sha);
+      const treeResult = await getTreeWithDefaultBranchFallback(
+        client,
+        owner,
+        repo,
+        sha,
+      );
 
-      return envJsonResponse(request, env, { tree });
+      return envJsonResponse(request, env, treeResult);
     } catch (error) {
-      if (isGitHubApiStatus(error, 404)) {
-        const requestUrl = new URL(request.url);
-        console.warn("[GitHub] Tree ref unavailable:", {
-          owner: requestUrl.searchParams.get("owner"),
-          repo: requestUrl.searchParams.get("repo"),
-          sha: requestUrl.searchParams.get("sha") || "HEAD",
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return envJsonResponse(request, env, {
-          tree: [],
-          unavailable: true,
-          reason: "ref_not_found",
-        });
-      }
-
       return handleGitHubControllerError(
         request,
         env,
@@ -394,6 +384,57 @@ export class GitHubController {
         resolvedError.status,
       );
     }
+  }
+}
+
+type GitHubTreeClient = {
+  getTree(
+    owner: string,
+    repo: string,
+    sha?: string,
+  ): Promise<Array<{ path: string; type: string; sha: string; size?: number }>>;
+  getRepository(
+    owner: string,
+    repo: string,
+  ): Promise<{ default_branch: string }>;
+};
+
+async function getTreeWithDefaultBranchFallback(
+  client: GitHubTreeClient,
+  owner: string,
+  repo: string,
+  sha: string,
+): Promise<{
+  tree: Array<{ path: string; type: string; sha: string; size?: number }>;
+  requestedRefUnavailable?: boolean;
+  resolvedRef?: string;
+}> {
+  try {
+    return { tree: await client.getTree(owner, repo, sha) };
+  } catch (error) {
+    if (!isGitHubApiStatus(error, 404)) {
+      throw error;
+    }
+
+    const repository = await client.getRepository(owner, repo);
+    const defaultBranch = repository.default_branch;
+    if (!defaultBranch || defaultBranch === sha) {
+      throw error;
+    }
+
+    console.warn("[GitHub] Tree ref unavailable; using default branch tree:", {
+      owner,
+      repo,
+      sha,
+      defaultBranch,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      tree: await client.getTree(owner, repo, defaultBranch),
+      requestedRefUnavailable: true,
+      resolvedRef: defaultBranch,
+    };
   }
 }
 

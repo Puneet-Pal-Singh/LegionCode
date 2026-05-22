@@ -8,6 +8,7 @@ import { contextMemoryPermissionsBootstrapMigration } from "./0007-context-memor
 import { artifactMetadataBootstrapMigration } from "./0008-artifact-metadata-bootstrap.js";
 import { artifactRestoreLookupIndexMigration } from "./0009-artifact-restore-lookup-index.js";
 import { sessionsActiveRunForeignKeyMigration } from "./0010-sessions-active-run-fk.js";
+import { providerUserModelCacheTextKeyMigration } from "./0011-provider-user-model-cache-text-key.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -60,4 +61,5 @@ export const persistenceMigrations = [
   artifactMetadataBootstrapMigration,
   artifactRestoreLookupIndexMigration,
   sessionsActiveRunForeignKeyMigration,
+  providerUserModelCacheTextKeyMigration,
 ] as const;

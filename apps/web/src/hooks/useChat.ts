@@ -55,7 +55,7 @@ export function useChat(
   } = useChatCore(sessionId, runId, mode, productMode);
 
   // Handle message hydration
-  const { isHydrating } = useChatHydration(
+  const { isHydrating, hasHydrated } = useChatHydration(
     sessionId,
     activeRunId,
     messages.length,
@@ -69,6 +69,7 @@ export function useChat(
     messages,
     messagesLength: messages.length,
     isLoading,
+    hasHydrated,
     append,
     isModelConfigReady,
   });

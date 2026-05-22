@@ -15,7 +15,7 @@
  */
 
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
-import { sessionsPath } from "../lib/platform-endpoints";
+import { sessionArchivePath, sessionsPath } from "../lib/platform-endpoints";
 import type {
   AgentSession,
   SessionStatus,
@@ -149,7 +149,6 @@ export class SessionStateService {
       },
       body: JSON.stringify({
         sessionId: session.id,
-        runId: session.activeRunId,
         title: session.name,
         repository: session.repository,
         mode: session.mode,
@@ -158,6 +157,17 @@ export class SessionStateService {
 
     if (!response.ok) {
       throw new Error(`Session persistence failed: ${response.status}`);
+    }
+  }
+
+  static async archiveSession(sessionId: string): Promise<void> {
+    const response = await fetch(sessionArchivePath(sessionId), {
+      method: "POST",
+      credentials: "include",
+    });
+
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Session archive failed: ${response.status}`);
     }
   }
 

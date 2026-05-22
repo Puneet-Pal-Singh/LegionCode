@@ -78,6 +78,20 @@ describe("MemoryTranscriptRepository", () => {
     expect(result.sessions.map((session) => session.id)).toEqual(["session-1"]);
   });
 
+  it("archives sessions through the repository contract", async () => {
+    const repository = new MemoryTranscriptRepository({
+      now: () => new Date("2026-05-15T00:00:01.000Z"),
+    });
+    await repository.appendMessage(createMessageInput("active-message", "user"));
+
+    const archived = await repository.archiveSession("user-1", "session-1");
+    const result = await repository.listSessions("user-1");
+
+    expect(archived).toBe(true);
+    expect(result.tasks).toHaveLength(0);
+    expect(result.sessions).toHaveLength(0);
+  });
+
   it("does not hydrate another user's transcript", async () => {
     const repository = new MemoryTranscriptRepository();
 

@@ -265,6 +265,85 @@ describe("ChatInterface", () => {
     });
   });
 
+  it("attaches changed files that arrive after the assistant message settles", async () => {
+    const changedStatus: GitStatusResponse = {
+      files: [
+        {
+          path: "src/components/landing/hero/index.tsx",
+          status: "modified",
+          additions: 13,
+          deletions: 18,
+          isStaged: false,
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      branch: "main",
+      hasStaged: false,
+      hasUnstaged: true,
+      gitAvailable: true,
+    };
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "edit the hero" },
+      {
+        id: "assistant-final",
+        role: "assistant",
+        content: "I completed the requested update.",
+      },
+    ];
+    mockGitReviewState.status = {
+      ...changedStatus,
+      files: [],
+      hasUnstaged: false,
+    };
+
+    const { rerender } = render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    mockGitReviewState.status = changedStatus;
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
+      expect(screen.getByText("index.tsx")).toBeInTheDocument();
+      expect(screen.getByText("+13")).toBeInTheDocument();
+      expect(screen.getByText("-18")).toBeInTheDocument();
+    });
+  });
+
   it("shows only files changed during the current assistant turn", async () => {
     const footerStatus: GitStatusResponse = {
       files: [
@@ -647,6 +726,29 @@ describe("ChatInterface", () => {
       screen.queryByRole("button", { name: "Allow once" }),
     ).not.toBeInTheDocument();
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+  });
+
+  it("does not subscribe to live run events from the chat render path", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-local-polling",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", false);
   });
 
   it("shows event-based pending approval when summary is temporarily stale during an active run", () => {
@@ -1216,6 +1318,111 @@ describe("ChatInterface", () => {
     );
   });
 
+  it("matches workflow turns when persisted prompts normalize file mentions", async () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-1",
+        status: "COMPLETED",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        items: [
+          {
+            id: "turn-1-user",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "lets upgrade our footer Footer.tsx",
+          },
+          {
+            id: "turn-1-tool",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "tool",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:05.000Z",
+            source: "brain",
+            toolId: "tool-1",
+            toolName: "create_code_artifact",
+            status: "completed",
+            metadata: {
+              family: "edit",
+              filePath: "src/components/layout/Footer.tsx",
+              additions: 126,
+              deletions: 102,
+            },
+          },
+        ],
+      },
+    });
+
+    const { container } = render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "lets upgrade our footer @Footer.tsx",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Footer updated.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
+      text.indexOf("lets upgrade our footer"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /worked for 5s/i }));
+    expect(
+      screen.getByText("Edit src/components/layout/Footer.tsx"),
+    ).toBeInTheDocument();
+    expect(
+      (container.textContent ?? "").indexOf(
+        "Edit src/components/layout/Footer.tsx",
+      ),
+    ).toBeGreaterThan(
+      (container.textContent ?? "").indexOf("lets upgrade our footer"),
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
+      expect(screen.getByText("Footer.tsx")).toBeInTheDocument();
+      expect(screen.getByText("+126")).toBeInTheDocument();
+      expect(screen.getByText("-102")).toBeInTheDocument();
+    });
+  });
+
   it("suppresses intermediary assistant chatter and keeps the latest assistant reply for the turn", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
@@ -1643,6 +1850,72 @@ describe("ChatInterface", () => {
     expect(text.indexOf("Worked for 5s")).toBeGreaterThan(
       text.indexOf("second reply"),
     );
+  });
+
+  it("does not attach uncorrelated workflow activity to the latest user query", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-1",
+        status: "RUNNING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "RUNNING",
+        items: [
+          {
+            id: "orphan-tool",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-orphan",
+            kind: "tool",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:04.000Z",
+            source: "brain",
+            toolId: "tool-orphan",
+            toolName: "read_file",
+            status: "completed",
+            metadata: {
+              family: "read",
+              count: 1,
+              truncated: false,
+              loadedPaths: ["README.md"],
+              path: "README.md",
+            },
+          },
+        ],
+      },
+    });
+
+    const { container } = render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "second chat prompt" },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(container.textContent ?? "").not.toContain("Worked for 3s");
+    expect(container.textContent ?? "").not.toContain("Read README.md");
   });
 
   it("attaches a recycled run's turn-1 workflow to the latest matching user query", () => {

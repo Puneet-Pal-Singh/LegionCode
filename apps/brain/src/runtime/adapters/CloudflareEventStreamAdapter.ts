@@ -8,6 +8,11 @@
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { StreamEvent, RealtimeEventPort } from "../ports";
 
+interface StreamSubscriber {
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  nextEventIndex: number;
+}
+
 /**
  * Cloudflare Workers-backed implementation of event streaming.
  *
@@ -18,13 +23,7 @@ import type { StreamEvent, RealtimeEventPort } from "../ports";
  */
 export class CloudflareEventStreamAdapter implements RealtimeEventPort {
   private events: Map<string, StreamEvent[]> = new Map();
-  private subscribers = new Map<
-    string,
-    Set<{
-      controller: ReadableStreamDefaultController<Uint8Array>;
-      nextEventIndex: number;
-    }>
-  >();
+  private subscribers = new Map<string, Set<StreamSubscriber>>();
   private completed: Set<string> = new Set();
 
   emit(event: StreamEvent): void {
@@ -53,7 +52,7 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
     const subscribers = this.subscribers.get(runId);
     if (subscribers) {
       for (const subscriber of subscribers) {
-        subscriber.controller.close();
+        this.closeSubscriber(runId, subscriber);
       }
     }
     // Clean up per-run state to prevent memory accumulation in long-lived workers
@@ -88,12 +87,7 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
   }
 
   getStream(runId: string): ReadableStream<Uint8Array> {
-    let activeSubscriber:
-      | {
-          controller: ReadableStreamDefaultController<Uint8Array>;
-          nextEventIndex: number;
-        }
-      | undefined;
+    let activeSubscriber: StreamSubscriber | undefined;
 
     return new ReadableStream<Uint8Array>({
       start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
@@ -110,18 +104,10 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
         this.flushToSubscriber(runId, subscriber);
       },
       cancel: () => {
-        // Clean up on cancel
         if (!activeSubscriber) {
           return;
         }
-        const subscribers = this.subscribers.get(runId);
-        if (!subscribers) {
-          return;
-        }
-        subscribers.delete(activeSubscriber);
-        if (subscribers.size === 0) {
-          this.subscribers.delete(runId);
-        }
+        this.removeSubscriber(runId, activeSubscriber);
       },
     });
   }
@@ -132,18 +118,18 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
       return;
     }
 
-    for (const subscriber of subscribers) {
-      this.flushToSubscriber(runId, subscriber);
+    for (const subscriber of Array.from(subscribers)) {
+      const flushed = this.flushToSubscriber(runId, subscriber);
+      if (!flushed) {
+        this.removeSubscriber(runId, subscriber);
+      }
     }
   }
 
   private flushToSubscriber(
     runId: string,
-    subscriber: {
-      controller: ReadableStreamDefaultController<Uint8Array>;
-      nextEventIndex: number;
-    },
-  ): void {
+    subscriber: StreamSubscriber,
+  ): boolean {
     const events = this.events.get(runId) || [];
     while (subscriber.nextEventIndex < events.length) {
       const event = events[subscriber.nextEventIndex]!;
@@ -158,8 +144,36 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
           `[event-stream] Failed to enqueue event for ${runId}:`,
           e,
         );
-        break; // Stop flushing on error
+        return false;
       }
+    }
+
+    return true;
+  }
+
+  private closeSubscriber(
+    runId: string,
+    subscriber: StreamSubscriber,
+  ): void {
+    try {
+      subscriber.controller.close();
+    } catch (e) {
+      console.warn(`[event-stream] Failed to close stream for ${runId}:`, e);
+    }
+    this.removeSubscriber(runId, subscriber);
+  }
+
+  private removeSubscriber(
+    runId: string,
+    subscriber: StreamSubscriber,
+  ): void {
+    const subscribers = this.subscribers.get(runId);
+    if (!subscribers) {
+      return;
+    }
+    subscribers.delete(subscriber);
+    if (subscribers.size === 0) {
+      this.subscribers.delete(runId);
     }
   }
 }

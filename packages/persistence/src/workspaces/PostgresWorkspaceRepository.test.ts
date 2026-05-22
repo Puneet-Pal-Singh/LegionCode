@@ -95,8 +95,16 @@ describe("PostgresWorkspaceRepository", () => {
 
     const selected = await repository.findWorkspaceSelection("user-1");
     const workspaces = await repository.listWorkspaces("user-1");
+    const selectionQuery = findQuery(client, "FROM workspace_selections");
+    const workspaceListQuery = findQuery(client, "FROM workspaces");
 
     expect(selected?.workspace.id).toBe("workspace-1");
+    expect(selectionQuery.statement).toContain("repos.id AS repo_id");
+    expect(selectionQuery.statement).toContain("workspaces.id AS workspace_id");
+    expect(workspaceListQuery.statement).toContain("repos.id AS repo_id");
+    expect(workspaceListQuery.statement).toContain(
+      "workspaces.id AS workspace_id",
+    );
     expect(workspaces).toHaveLength(1);
     expect(workspaces[0]?.selected).toBe(true);
   });

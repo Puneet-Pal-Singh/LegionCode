@@ -12,7 +12,6 @@ import {
   type UserSessionRecord,
 } from "../../services/AuthService";
 
-const DEFAULT_WORKSPACE_ID = "default";
 const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
   .string()
@@ -187,10 +186,6 @@ function collectWorkspaceIds(
   );
   if (defaultWorkspace) {
     scoped.add(defaultWorkspace);
-  }
-
-  if (scoped.size === 0) {
-    scoped.add(DEFAULT_WORKSPACE_ID);
   }
 
   return Array.from(scoped);
