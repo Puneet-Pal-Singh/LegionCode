@@ -83,6 +83,7 @@ export function useChatCore(
   const apiPath = chatStreamPath();
   const scopeKey = `${sessionId}:${runId}`;
   const activeScopeKeyRef = useRef(scopeKey);
+  const clearedScopeRef = useRef<string | null>(null);
   const isActiveScope = useCallback(
     (candidateScopeKey: string) =>
       activeScopeKeyRef.current === candidateScopeKey,
@@ -209,6 +210,8 @@ export function useChatCore(
   });
 
   useLayoutEffect(() => {
+    if (clearedScopeRef.current === scopeKey) return;
+    clearedScopeRef.current = scopeKey;
     setMessages([]);
   }, [scopeKey, setMessages]);
 

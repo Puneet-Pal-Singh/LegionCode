@@ -64,9 +64,15 @@ export function useChatHydration(
 
         if (result.error) {
           console.error("🧬 [LegionCode] Hydration failed:", result.error);
-        } else if (result.messages.length > 0) {
+          return;
+        }
+
+        if (result.messages.length > 0) {
           setMessages(result.messages);
         }
+
+        hasHydratedRef.current = true;
+        setHasHydrated(true);
       } catch (error) {
         if (isCurrentScope()) {
           console.error("🧬 [LegionCode] Hydration failed:", error);
@@ -75,8 +81,6 @@ export function useChatHydration(
         window.clearTimeout(loadingTimer);
         if (isCurrentScope()) {
           setIsHydrating(false);
-          hasHydratedRef.current = true;
-          setHasHydrated(true);
         }
       }
     }
