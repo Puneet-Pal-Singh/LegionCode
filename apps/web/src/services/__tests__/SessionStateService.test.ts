@@ -93,7 +93,27 @@ describe("SessionStateService", () => {
         expect.objectContaining({
           method: "POST",
           credentials: "include",
+          body: expect.not.stringContaining("runId"),
         }),
+      );
+    });
+
+    it("archives sessions through Brain", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await SessionStateService.archiveSession(
+        "550e8400-e29b-41d4-a716-446655440000",
+      );
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/api/sessions/550e8400-e29b-41d4-a716-446655440000/archive",
+        ),
+        {
+          method: "POST",
+          credentials: "include",
+        },
       );
     });
   });

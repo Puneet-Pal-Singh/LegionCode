@@ -5,7 +5,7 @@ import { Workspace } from "./Workspace";
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
 const mockBootstrapGitWorkspace = vi.hoisted(() => vi.fn());
 const mockChatState = vi.hoisted(() => ({
-  messages: [],
+  messages: [] as Array<{ role: "user" | "assistant"; content: string }>,
   input: "",
   handleInputChange: vi.fn(),
   handleSubmit: vi.fn(),
@@ -208,6 +208,7 @@ describe("Workspace", () => {
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
+    mockChatState.messages = [];
     mockChatState.runId = "run-123";
     mockChatState.error = null;
     mockRunSummaryState.summary = null;
@@ -227,7 +228,7 @@ describe("Workspace", () => {
     mockGitHubTreeState.isContextMismatch = false;
   });
 
-  it("refreshes git status only when canonical run status reaches terminal", async () => {
+  it("refreshes git status when local chat loading settles", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -254,7 +255,6 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("running");
 
     mockChatState.isLoading = false;
-    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -264,8 +264,13 @@ describe("Workspace", () => {
       />,
     );
 
-    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
-    expect(mockRefetchGitStatus).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mockRefetchGitStatus).toHaveBeenCalledWith(true);
+    });
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+
+    mockRefetchGitStatus.mockClear();
+    onSessionStatusChange.mockClear();
 
     mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     rerender(
@@ -589,6 +594,59 @@ describe("Workspace", () => {
         sessionId="session-123"
         runId="run-123"
         repository="career-crew"
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatProps: expect.objectContaining({
+          canStop: true,
+          isLoading: true,
+        }),
+      }),
+    );
+  });
+
+  it("clears loading when a stale active summary follows a finished assistant response", () => {
+    const onSessionStatusChange = vi.fn();
+    mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
+    mockChatState.isLoading = false;
+    mockChatState.messages = [
+      { role: "user", content: "hey" },
+      { role: "assistant", content: "Hello!" },
+    ];
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatProps: expect.objectContaining({
+          canStop: false,
+          isLoading: false,
+        }),
+      }),
+    );
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+  });
+
+  it("lets local loading state override a stale terminal summary", () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "completed" };
+    mockChatState.isLoading = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
       />,
     );
 

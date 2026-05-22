@@ -124,6 +124,50 @@ describe("GitController", () => {
     });
   });
 
+  it("returns an empty diff while workspace bootstrap is still preparing git", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-diff",
+            token: "tok-git-diff",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "git-diff-task",
+            status: "failure",
+            error: {
+              code: "PLUGIN_EXECUTION_FAILED",
+              message: "fatal: not a git repository",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const response = await GitController.getDiff(
+      new Request(
+        "https://brain.local/api/git/diff?runId=run-1&sessionId=session-1&path=src%2Fmain.ts",
+      ),
+      {
+        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
+        NODE_ENV: "test",
+      } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      oldPath: "",
+      newPath: "",
+      hunks: [],
+    });
+  });
+
   it("retries transient git status failures and eventually succeeds", async () => {
     fetchMock
       .mockResolvedValueOnce(

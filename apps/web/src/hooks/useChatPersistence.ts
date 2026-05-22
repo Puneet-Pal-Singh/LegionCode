@@ -9,6 +9,7 @@ interface UseChatPersistenceProps {
   messages: Message[];
   messagesLength: number;
   isLoading: boolean;
+  hasHydrated: boolean;
   isModelConfigReady: boolean;
   append: (message: { role: "user"; content: string }) => Promise<void>;
 }
@@ -24,11 +25,19 @@ export function useChatPersistence({
   messages,
   messagesLength,
   isLoading,
+  hasHydrated,
   isModelConfigReady,
   append,
 }: UseChatPersistenceProps): void {
   const persistenceService = useMemo(() => new ChatPersistenceService(), []);
   const attemptedRestoreKeyRef = useRef<string | null>(null);
+  const scopeKey = `${sessionId}:${runId}`;
+  const activeScopeKeyRef = useRef(scopeKey);
+
+  useEffect(() => {
+    activeScopeKeyRef.current = scopeKey;
+    attemptedRestoreKeyRef.current = null;
+  }, [scopeKey]);
 
   // Sync messages to global store
   useEffect(() => {
@@ -45,21 +54,34 @@ export function useChatPersistence({
     if (!isModelConfigReady) {
       return;
     }
+    if (!hasHydrated) {
+      return;
+    }
     if (!persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)) {
       return;
     }
-    const restoreKey = `${sessionId}:${pendingQuery}`;
+    const restoreKey = `${sessionId}:${runId}:${pendingQuery}`;
     if (attemptedRestoreKeyRef.current === restoreKey) {
       return;
     }
     attemptedRestoreKeyRef.current = restoreKey;
+    let cancelled = false;
+    const requestScopeKey = scopeKey;
+    const isCurrentScope = () =>
+      !cancelled && activeScopeKeyRef.current === requestScopeKey;
 
     const restorePendingQuery = async (): Promise<void> => {
       try {
         await append({ role: "user", content: pendingQuery });
+        if (!isCurrentScope()) {
+          return;
+        }
         persistenceService.clearPendingQuery(sessionId);
         attemptedRestoreKeyRef.current = null;
       } catch (error) {
+        if (!isCurrentScope()) {
+          return;
+        }
         if (shouldDropPendingQuery(error)) {
           persistenceService.clearPendingQuery(sessionId);
           attemptedRestoreKeyRef.current = null;
@@ -74,10 +96,17 @@ export function useChatPersistence({
     };
 
     void restorePendingQuery();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     sessionId,
+    runId,
+    scopeKey,
     messagesLength,
     isLoading,
+    hasHydrated,
     isModelConfigReady,
     append,
     persistenceService,

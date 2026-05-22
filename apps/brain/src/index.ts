@@ -118,6 +118,11 @@ function createRouter(): Router {
   );
   router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
   router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
+  router.add(
+    /^\/api\/sessions\/[^/]+\/archive$/,
+    TranscriptController.archiveSession,
+    "POST",
+  );
 
   // Git local routes (for sidebar)
   router.add(/\/api\/git\/status/, GitController.getStatus);

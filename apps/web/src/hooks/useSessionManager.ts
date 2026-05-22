@@ -243,6 +243,9 @@ export function useSessionManager() {
    */
   const removeSession = useCallback(
     (id: string) => {
+      void SessionStateService.archiveSession(id).catch((error) => {
+        console.warn("[useSessionManager] Failed to archive session:", error);
+      });
       setSessions((prev) => {
         const sessionToRemove = prev.find((s) => s.id === id);
         if (sessionToRemove) {

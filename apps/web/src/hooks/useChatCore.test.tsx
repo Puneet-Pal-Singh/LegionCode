@@ -47,6 +47,7 @@ vi.mock("../services/SessionStateService", () => ({
 describe("useChatCore", () => {
   let appendSpy: ReturnType<typeof vi.fn>;
   let stopStreamSpy: ReturnType<typeof vi.fn>;
+  let setMessagesSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -54,13 +55,14 @@ describe("useChatCore", () => {
     mockUseChat.mockReset();
     appendSpy = vi.fn();
     stopStreamSpy = vi.fn();
+    setMessagesSpy = vi.fn();
     mockUseChat.mockReturnValue({
       messages: [],
       input: "",
       handleInputChange: vi.fn(),
       isLoading: false,
       stop: stopStreamSpy,
-      setMessages: vi.fn(),
+      setMessages: setMessagesSpy,
       append: appendSpy,
     });
     localStorage.clear();
@@ -123,6 +125,57 @@ describe("useChatCore", () => {
     expect(result.current.error).toBe(
       "Your session is missing or expired. Log in again and retry.",
     );
+  });
+
+  it("ignores stale stream callbacks after switching session scope", () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId, runId }) => useChatCore(sessionId, runId),
+      {
+        initialProps: {
+          sessionId: "session-1",
+          runId: "run-1",
+        },
+      },
+    );
+
+    const firstOptions = mockUseChat.mock.calls[0]?.[0] as {
+      onError?: (error: Error) => void;
+      onFinish?: (message: { content: string }, details: unknown) => void;
+      onResponse?: (response: Response) => void;
+    };
+
+    act(() => {
+      rerender({ sessionId: "session-2", runId: "run-2" });
+    });
+
+    act(() => {
+      firstOptions.onError?.(new Error("old stream failed"));
+      firstOptions.onResponse?.(new Response(null, { status: 500 }));
+      firstOptions.onFinish?.({ content: "old assistant reply" }, {});
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.debugEvents).toHaveLength(0);
+  });
+
+  it("clears local chat messages when switching run scope", () => {
+    const { rerender } = renderHook(
+      ({ sessionId, runId }) => useChatCore(sessionId, runId),
+      {
+        initialProps: {
+          sessionId: "session-1",
+          runId: "run-1",
+        },
+      },
+    );
+
+    setMessagesSpy.mockClear();
+
+    act(() => {
+      rerender({ sessionId: "session-1", runId: "run-2" });
+    });
+
+    expect(setMessagesSpy).toHaveBeenCalledWith([]);
   });
 
   it("sends explicit plan mode in request overrides", async () => {
@@ -192,6 +245,33 @@ describe("useChatCore", () => {
         }),
       }),
     );
+  });
+
+  it("marks chat loading immediately while append setup is in flight", async () => {
+    let resolveAppend: (() => void) | null = null;
+    appendSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    act(() => {
+      void result.current.append({
+        role: "user",
+        content: "Start the next task",
+      });
+    });
+
+    expect(result.current.isLoading).toBe(true);
+
+    await act(async () => {
+      resolveAppend?.();
+      await Promise.resolve();
+    });
+
+    expect(result.current.isLoading).toBe(false);
   });
 
   it("keeps stop active until the cancel request settles", async () => {

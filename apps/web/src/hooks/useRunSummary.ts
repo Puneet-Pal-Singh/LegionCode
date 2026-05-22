@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { isTerminalRunStatus } from "../lib/run-status.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import type {
   ApprovalRequest,
@@ -60,7 +61,6 @@ interface UseRunSummaryResult {
   summary: RunSummary | null;
 }
 
-const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
 const RUN_SUMMARY_POLL_INTERVAL_MS = 1_500;
@@ -70,15 +70,26 @@ export function useRunSummary(
   shouldPoll: boolean,
 ): UseRunSummaryResult {
   const [summary, setSummary] = useState<RunSummary | null>(null);
+  const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
+  const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
   const lastSummaryErrorLogRef = useRef<{
     timestamp: number;
     message: string;
   } | null>(null);
 
+  useEffect(() => {
+    activeRunIdRef.current = runId;
+    inFlightRef.current = false;
+    inFlightRunIdRef.current = null;
+    lastFetchAtRef.current = 0;
+    setSummary(null);
+  }, [runId]);
+
   const fetchSummary = useCallback(async () => {
-    if (!runId) {
+    const currentRunId = runId.trim();
+    if (!currentRunId) {
       setSummary(null);
       return;
     }
@@ -92,43 +103,59 @@ export function useRunSummary(
 
     try {
       inFlightRef.current = true;
-      lastFetchAtRef.current = Date.now();
+      inFlightRunIdRef.current = currentRunId;
+      lastFetchAtRef.current = now;
       const response = await fetch(
-        `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+        `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(currentRunId)}`,
+        { credentials: "include" },
       );
+      if (activeRunIdRef.current !== currentRunId) {
+        return;
+      }
       if (!response.ok) {
         return;
       }
       const payload = (await response.json()) as RunSummary;
+      if (activeRunIdRef.current !== currentRunId) {
+        return;
+      }
+      if (payload.runId !== currentRunId) {
+        return;
+      }
       setSummary(payload);
     } catch (error) {
+      if (activeRunIdRef.current !== currentRunId) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
-      const now = Date.now();
       const previous = lastSummaryErrorLogRef.current;
       const shouldLog =
         !previous ||
         previous.message !== message ||
-        now - previous.timestamp >= SUMMARY_ERROR_LOG_WINDOW_MS;
+        Date.now() - previous.timestamp >= SUMMARY_ERROR_LOG_WINDOW_MS;
       if (shouldLog) {
         console.warn(
-          `[run/summary] failed to fetch summary for runId=${runId}: ${message}`,
+          `[run/summary] failed to fetch summary for runId=${currentRunId}: ${message}`,
         );
         lastSummaryErrorLogRef.current = {
-          timestamp: now,
+          timestamp: Date.now(),
           message,
         };
       }
     } finally {
-      inFlightRef.current = false;
+      if (inFlightRunIdRef.current === currentRunId) {
+        inFlightRef.current = false;
+        inFlightRunIdRef.current = null;
+      }
     }
   }, [runId]);
 
   useEffect(() => {
-    if (!runId || !shouldPoll) {
+    if (!runId) {
       return;
     }
     void fetchSummary();
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId]);
 
   useEffect(() => {
     if (!runId) {
@@ -141,10 +168,9 @@ export function useRunSummary(
         return;
       }
 
-      const isTerminal = Boolean(
-        summary?.status && TERMINAL_RUN_STATUSES.has(summary.status),
-      );
-      if ((!shouldPoll && isTerminal) || document.visibilityState !== "visible") {
+      const shouldSkipTerminalSummary =
+        !shouldPoll && isTerminalRunStatus(summary?.status);
+      if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
       void fetchSummary();
@@ -171,7 +197,7 @@ export function useRunSummary(
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId, shouldPoll, summary?.status]);
 
   return { summary };
 }

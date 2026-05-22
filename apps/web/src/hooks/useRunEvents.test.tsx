@@ -58,6 +58,39 @@ describe("useRunEvents", () => {
     expect(result.current.events[0]?.eventId).toBe("evt-b");
   });
 
+  it("accepts canonical JSON array event responses from Brain", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      createEventsJsonResponse(
+        createMessageEvent("run-json", "evt-json", "JSON event"),
+      ),
+    );
+
+    const { result } = renderHook(() => useRunEvents("run-json"));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(1);
+    });
+
+    expect(result.current.events[0]?.eventId).toBe("evt-json");
+  });
+
+  it("drops parsed events that belong to a different runId", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      createEventsJsonResponse(
+        createMessageEvent("run-other", "evt-other", "Wrong run"),
+        createMessageEvent("run-current", "evt-current", "Current run"),
+      ),
+    );
+
+    const { result } = renderHook(() => useRunEvents("run-current"));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(1);
+    });
+
+    expect(result.current.events[0]?.eventId).toBe("evt-current");
+  });
+
   it("catches up hidden-tab refreshes when the document becomes visible again", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -127,6 +160,17 @@ function createEventsResponse(
 ): Response {
   return new Response(events.map((event) => JSON.stringify(event)).join("\n"), {
     status: 200,
+  });
+}
+
+function createEventsJsonResponse(
+  ...events: Array<Record<string, unknown>>
+): Response {
+  return new Response(JSON.stringify(events), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+    },
   });
 }
 

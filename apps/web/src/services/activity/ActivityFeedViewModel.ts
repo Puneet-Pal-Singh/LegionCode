@@ -3,6 +3,7 @@ import {
   TOOL_ACTIVITY_FAMILIES,
   type ActivityFeedSnapshot,
   type ActivityPart,
+  type FileStatus,
   type ToolActivityPart,
 } from "@repo/shared-types";
 import {
@@ -65,6 +66,7 @@ export interface ActivityToolRowViewModel {
   key: string;
   toolName: string;
   family: ToolActivityPart["metadata"]["family"];
+  changedFile?: FileStatus;
   pluginLabel?: string;
   title: string;
   summary: string;
@@ -618,6 +620,7 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
     key: item.id,
     toolName: item.toolName,
     family: item.metadata.family,
+    changedFile: buildChangedFileStatus(item),
     pluginLabel: readToolPluginLabel(item),
     title: getToolTitle(item),
     summary: getToolSummary(item),
@@ -628,6 +631,20 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
       item.metadata.family !== TOOL_ACTIVITY_FAMILIES.EDIT &&
       item.status === "completed",
     details: getToolDetails(item),
+  };
+}
+
+function buildChangedFileStatus(item: ToolActivityPart): FileStatus | undefined {
+  if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.EDIT) {
+    return undefined;
+  }
+
+  return {
+    path: item.metadata.filePath,
+    status: "modified",
+    additions: item.metadata.additions,
+    deletions: item.metadata.deletions,
+    isStaged: false,
   };
 }
 

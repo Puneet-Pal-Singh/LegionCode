@@ -36,9 +36,30 @@ describe("TranscriptController", () => {
         {
           id: TEST_SESSION_ID,
           userId: TEST_USER_ID,
-          activeRunId: TEST_RUN_ID,
+          activeRunId: null,
         },
       ],
+    });
+  });
+
+  it("archives sessions so they no longer hydrate", async () => {
+    await TranscriptController.createSession(createSessionRequest(), env);
+
+    const archiveResponse = await TranscriptController.archiveSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/archive`,
+        { method: "POST" },
+      ),
+      env,
+    );
+    const listResponse = await TranscriptController.listSessions(
+      authenticatedRequest("https://brain.local/api/sessions"),
+      env,
+    );
+
+    expect(archiveResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({
+      sessions: [],
     });
   });
 

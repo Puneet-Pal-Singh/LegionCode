@@ -210,7 +210,7 @@ describe("Postgres provider stores", () => {
     expect(cached?.source).toBe("cache");
 
     await store.setUserModelCache(
-      { providerId: "openrouter", credentialId: "cred-1" },
+      { providerId: "openrouter", credentialId: "openrouter:cache-key" },
       {
         providerId: "openrouter",
         models: [
@@ -227,12 +227,13 @@ describe("Postgres provider stores", () => {
     );
     const userCached = await store.getUserModelCache({
       providerId: "openrouter",
-      credentialId: "cred-1",
+      credentialId: "openrouter:cache-key",
     });
     expect(userCached?.models[0]?.id).toBe("gpt-4o-mini");
+    expect(client.queries.at(-2)?.params[2]).toBe("openrouter:cache-key");
     await expect(
       store.setUserModelCache(
-        { providerId: "openrouter", credentialId: "cred-1" },
+        { providerId: "openrouter", credentialId: "openrouter:cache-key" },
         {
           providerId: "openai",
           models: [],

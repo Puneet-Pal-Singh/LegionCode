@@ -76,20 +76,16 @@ export class RunController {
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      if (requestedBackend === "cloudflare_agents") {
-        const runtimeSummary = await fetchRunSummaryFromRuntimeBestEffort(
-          env,
-          runId,
-          requestedBackend,
-        );
-        return jsonResponse(req, env, {
-          ...summary,
-          permissionContext: runtimeSummary?.permissionContext,
-          pendingApproval: runtimeSummary?.pendingApproval,
-        });
-      }
-
-      return jsonResponse(req, env, summary);
+      const runtimeSummary = await fetchRunSummaryFromRuntimeBestEffort(
+        env,
+        runId,
+        requestedBackend,
+      );
+      return jsonResponse(
+        req,
+        env,
+        mergeRunSummary(summary, runtimeSummary),
+      );
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
         return errorResponse(req, env, error.message, 503);
@@ -317,6 +313,54 @@ function countStepsByStatus(
   status: RunStepRecord["status"],
 ): number {
   return steps.filter((step) => step.status === status).length;
+}
+
+function mergeRunSummary(
+  postgresSummary: RunSummaryResponse,
+  runtimeSummary: RunSummaryResponse | null,
+): RunSummaryResponse {
+  if (!runtimeSummary) {
+    return postgresSummary;
+  }
+
+  if (
+    isTerminalSummaryStatus(postgresSummary.status) &&
+    !isTerminalSummaryStatus(runtimeSummary.status)
+  ) {
+    return {
+      ...postgresSummary,
+      permissionContext: runtimeSummary.permissionContext,
+      pendingApproval: runtimeSummary.pendingApproval,
+    };
+  }
+
+  return {
+    ...postgresSummary,
+    status: runtimeSummary.status ?? postgresSummary.status,
+    totalTasks: runtimeSummary.totalTasks ?? postgresSummary.totalTasks,
+    completedTasks:
+      runtimeSummary.completedTasks ?? postgresSummary.completedTasks,
+    failedTasks: runtimeSummary.failedTasks ?? postgresSummary.failedTasks,
+    runningTasks: runtimeSummary.runningTasks ?? postgresSummary.runningTasks,
+    pendingTasks: runtimeSummary.pendingTasks ?? postgresSummary.pendingTasks,
+    cancelledTasks:
+      runtimeSummary.cancelledTasks ?? postgresSummary.cancelledTasks,
+    eventCount: runtimeSummary.eventCount ?? postgresSummary.eventCount,
+    lastEventType:
+      runtimeSummary.lastEventType ?? postgresSummary.lastEventType,
+    permissionContext: runtimeSummary.permissionContext,
+    pendingApproval: runtimeSummary.pendingApproval,
+  };
+}
+
+function isTerminalSummaryStatus(status: string | null): boolean {
+  const normalized = status?.trim().toLowerCase();
+  return (
+    normalized === "completed" ||
+    normalized === "complete" ||
+    normalized === "failed" ||
+    normalized === "cancelled"
+  );
 }
 
 async function fetchRunSummaryFromRuntime(

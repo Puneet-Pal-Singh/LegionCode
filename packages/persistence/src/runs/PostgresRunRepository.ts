@@ -213,17 +213,19 @@ const APPEND_RUN_EVENT_SQL = `
   ),
   existing AS (
     SELECT
-      id AS event_id,
-      run_id,
-      session_id,
-      event_type,
-      payload_json,
-      sequence,
-      idempotency_key,
-      created_at
+      run_events.id AS event_id,
+      run_events.run_id,
+      run_events.session_id,
+      run_events.event_type,
+      run_events.payload_json,
+      run_events.sequence,
+      run_events.idempotency_key,
+      run_events.created_at
     FROM run_events
     JOIN locked ON locked.id = run_events.run_id
-    WHERE run_id = $1 AND $5 IS NOT NULL AND idempotency_key = $5
+    WHERE run_events.run_id = $1
+      AND $5::text IS NOT NULL
+      AND run_events.idempotency_key = $5::text
   ),
   next_seq AS (
     UPDATE runs
@@ -235,7 +237,7 @@ const APPEND_RUN_EVENT_SQL = `
   ),
   inserted AS (
     INSERT INTO run_events (run_id, session_id, event_type, payload_json, sequence, idempotency_key, created_at)
-    SELECT $1, $2, $3, $4, last_sequence, $5, $6 FROM next_seq
+    SELECT $1, $2, $3, $4, last_sequence, $5::text, $6 FROM next_seq
     ON CONFLICT (run_id, idempotency_key) DO NOTHING
     RETURNING
       id AS event_id,
@@ -282,6 +284,19 @@ const RUN_STEP_COLUMNS = `
   updated_at AS step_updated_at
 `;
 
+const RUN_STEP_SELECT_COLUMNS = `
+  s.id AS step_id,
+  s.run_id,
+  s.step_index,
+  s.step_type,
+  s.status AS step_status,
+  s.started_at AS step_started_at,
+  s.completed_at AS step_completed_at,
+  s.payload_json AS step_payload_json,
+  s.created_at AS step_created_at,
+  s.updated_at AS step_updated_at
+`;
+
 const UPSERT_RUN_STEP_SQL = `
   INSERT INTO run_steps (
     run_id,
@@ -307,7 +322,7 @@ const UPSERT_RUN_STEP_SQL = `
 `;
 
 const LIST_RUN_STEPS_SQL = `
-  SELECT ${RUN_STEP_COLUMNS}
+  SELECT ${RUN_STEP_SELECT_COLUMNS}
   FROM run_steps s
   JOIN runs r ON r.id = s.run_id
   WHERE s.run_id = $1

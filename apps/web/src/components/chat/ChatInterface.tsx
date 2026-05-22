@@ -36,6 +36,7 @@ import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import { getBrainHttpBase, runApprovalPath } from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
+import { isTerminalRunStatus } from "../../lib/run-status.js";
 import { useGitReview } from "../git/GitReviewContext";
 import {
   buildReviewCommentPrompt,
@@ -45,7 +46,6 @@ import { getGitDiff } from "../../lib/git-client.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
-const TERMINAL_RUN_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
   "allow_once",
   "allow_for_run",
@@ -253,8 +253,8 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, isLoading);
-  const { feed } = useRunActivityFeed(runId);
+  const { events } = useRunEvents(runId, false);
+  const { feed } = useRunActivityFeed(runId, isLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [approvalBusyDecision, setApprovalBusyDecision] =
@@ -278,6 +278,7 @@ export function ChatInterface({
   );
   const [changedFilesByAssistantMessageId, setChangedFilesByAssistantMessageId] =
     useState<Record<string, FileStatus[]>>({});
+  const previousScrollScopeKeyRef = useRef<string | null>(null);
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -298,6 +299,25 @@ export function ChatInterface({
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
     [messages],
+  );
+  const activityChangedFilesByAssistantMessageId = useMemo(
+    () => {
+      if (feed?.runId !== runId) {
+        return {};
+      }
+      return deriveActivityChangedFilesByAssistantMessageId(
+        conversationTurns,
+        activityViewModel.turns,
+      );
+    },
+    [activityViewModel.turns, conversationTurns, feed?.runId, runId],
+  );
+  const changedFileSnapshotsByAssistantMessageId = useMemo(
+    () => ({
+      ...activityChangedFilesByAssistantMessageId,
+      ...changedFilesByAssistantMessageId,
+    }),
+    [activityChangedFilesByAssistantMessageId, changedFilesByAssistantMessageId],
   );
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -372,7 +392,13 @@ export function ChatInterface({
       return;
     }
 
-    const changedFiles = pendingChangedFilesRef.current;
+    const changedFiles =
+      pendingChangedFilesRef.current.length > 0
+        ? pendingChangedFilesRef.current
+        : collectChangedFilesSinceBaseline(
+            gitStatus?.files ?? [],
+            turnBaselineFilesRef.current,
+          );
     if (changedFiles.length === 0) {
       return;
     }
@@ -386,7 +412,7 @@ export function ChatInterface({
         [latestAssistantMessageId]: cloneFileStatuses(changedFiles),
       };
     });
-  }, [isLoading, latestAssistantMessageId]);
+  }, [gitStatus?.files, isLoading, latestAssistantMessageId]);
 
   useEffect(() => {
     setExpandedActivityTurns({});
@@ -662,9 +688,7 @@ export function ChatInterface({
       if (summary.pendingApproval) {
         return summary.pendingApproval;
       }
-      const isTerminal = Boolean(
-        summary.status && TERMINAL_RUN_STATUSES.has(summary.status),
-      );
+      const isTerminal = isTerminalRunStatus(summary.status);
       return isTerminal ? null : pendingApprovalFromEvents;
     }
 
@@ -817,11 +841,21 @@ export function ChatInterface({
 
   // Auto-scroll to bottom on new messages and live activity updates.
   useEffect(() => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    const scrollScopeKey = `${sessionId}:${runId}`;
+    const isInitialScopeScroll =
+      previousScrollScopeKeyRef.current !== scrollScopeKey;
+    previousScrollScopeKeyRef.current = scrollScopeKey;
+
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior: isInitialScopeScroll ? "auto" : "smooth",
     });
-  }, [activityScrollSignal, isLoading, messages]);
+  }, [activityScrollSignal, isLoading, messages, runId, sessionId]);
 
   return (
     <div className="flex flex-col h-full bg-black">
@@ -888,7 +922,7 @@ export function ChatInterface({
                     latestAssistantMessageId,
                     isLoading,
                     liveFiles: liveChangedFiles,
-                    snapshots: changedFilesByAssistantMessageId,
+                    snapshots: changedFileSnapshotsByAssistantMessageId,
                     loadFileDiff: loadChangedFileDiff,
                   })}
                 />
@@ -1227,7 +1261,9 @@ function buildChatEntries(
 function correlateActivityTurnsToMessages(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
+  options: { logUnmatched?: boolean } = {},
 ): Map<string, ActivityTurnViewModel[]> {
+  const logUnmatched = options.logUnmatched ?? true;
   const assignments = new Map<string, ActivityTurnViewModel[]>();
   const conversationUserTurns = conversationTurns.filter(
     (
@@ -1251,13 +1287,14 @@ function correlateActivityTurnsToMessages(
         conversationUserTurns,
         availableConversationTurnIndexes,
         activityTurn.userPrompt,
-      ) ??
-      findLatestAvailableConversationTurnIndex(availableConversationTurnIndexes);
-    if (matchedIndex === null) {
-      console.warn(
-        "[chat/transcript] Activity turn could not be correlated to a user message.",
-        { activityTurnKey: activityTurn.key },
       );
+    if (matchedIndex === null) {
+      if (logUnmatched) {
+        console.warn(
+          "[chat/transcript] Activity turn could not be correlated to a user message.",
+          { activityTurnKey: activityTurn.key },
+        );
+      }
       continue;
     }
 
@@ -1281,6 +1318,70 @@ function correlateActivityTurnsToMessages(
   return assignments;
 }
 
+function deriveActivityChangedFilesByAssistantMessageId(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+  turns: ActivityTurnViewModel[],
+): Record<string, FileStatus[]> {
+  const assignments = correlateActivityTurnsToMessages(conversationTurns, turns, {
+    logUnmatched: false,
+  });
+  const snapshots: Record<string, FileStatus[]> = {};
+
+  for (const conversationTurn of conversationTurns) {
+    if (!conversationTurn.userMessage || !conversationTurn.assistantMessage) {
+      continue;
+    }
+
+    const activityTurns = assignments.get(conversationTurn.userMessage.id) ?? [];
+    const changedFiles = collectActivityChangedFiles(activityTurns);
+    if (changedFiles.length > 0) {
+      snapshots[conversationTurn.assistantMessage.id] = changedFiles;
+    }
+  }
+
+  return snapshots;
+}
+
+function collectActivityChangedFiles(
+  turns: ActivityTurnViewModel[],
+): FileStatus[] {
+  const filesByPath = new Map<string, FileStatus>();
+  for (const turn of turns) {
+    for (const row of turn.rows) {
+      collectChangedFilesFromActivityRow(row, filesByPath);
+    }
+  }
+  return [...filesByPath.values()];
+}
+
+function collectChangedFilesFromActivityRow(
+  row: ActivityTurnViewModel["rows"][number],
+  filesByPath: Map<string, FileStatus>,
+): void {
+  if (row.kind === "group") {
+    for (const childRow of row.rows) {
+      collectChangedFilesFromActivityRow(childRow, filesByPath);
+    }
+    return;
+  }
+
+  if (row.kind !== "tool" || !row.changedFile) {
+    return;
+  }
+
+  const existing = filesByPath.get(row.changedFile.path);
+  if (!existing) {
+    filesByPath.set(row.changedFile.path, { ...row.changedFile });
+    return;
+  }
+
+  filesByPath.set(row.changedFile.path, {
+    ...existing,
+    additions: existing.additions + row.changedFile.additions,
+    deletions: existing.deletions + row.changedFile.deletions,
+  });
+}
+
 function findMatchingConversationTurnIndex(
   conversationTurns: Array<
     ReturnType<typeof buildConversationTurns>[number] & { userMessage: Message }
@@ -1293,6 +1394,7 @@ function findMatchingConversationTurnIndex(
     return null;
   }
 
+  const fuzzyMatches: number[] = [];
   for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
     if (!availableConversationTurnIndexes.has(index)) {
       continue;
@@ -1303,20 +1405,18 @@ function findMatchingConversationTurnIndex(
     if (conversationPrompt === normalizedUserPrompt) {
       return index;
     }
+    if (arePromptsFuzzyMatch(conversationPrompt, normalizedUserPrompt)) {
+      fuzzyMatches.push(index);
+    }
   }
 
-  return null;
-}
-
-function findLatestAvailableConversationTurnIndex(
-  availableConversationTurnIndexes: Set<number>,
-): number | null {
-  const indexes = Array.from(availableConversationTurnIndexes);
-  if (indexes.length === 0) {
+  if (fuzzyMatches.length === 0) {
     return null;
   }
 
-  return Math.max(...indexes);
+  return fuzzyMatches.sort(
+    (a, b) => Math.abs(a - conversationTurns.length) - Math.abs(b - conversationTurns.length),
+  )[0] ?? null;
 }
 
 function normalizePromptForMatching(content: string | null | undefined): string {
@@ -1324,7 +1424,47 @@ function normalizePromptForMatching(content: string | null | undefined): string 
     return "";
   }
 
-  return content.trim();
+  return content
+    .trim()
+    .toLowerCase()
+    .replace(/[`*_~]/g, "")
+    .replace(/@(?=[\w./-])/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function arePromptsFuzzyMatch(left: string, right: string): boolean {
+  if (left.length < 12 || right.length < 12) {
+    return false;
+  }
+  if (left.includes(right) || right.includes(left)) {
+    return true;
+  }
+
+  const leftTokens = tokenizePrompt(left);
+  const rightTokens = tokenizePrompt(right);
+  if (leftTokens.size < 3 || rightTokens.size < 3) {
+    return false;
+  }
+
+  let sharedTokenCount = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      sharedTokenCount += 1;
+    }
+  }
+
+  const overlapRatio =
+    sharedTokenCount / Math.max(leftTokens.size, rightTokens.size);
+  return overlapRatio >= 0.8;
+}
+
+function tokenizePrompt(prompt: string): Set<string> {
+  return new Set(
+    prompt
+      .split(/[^a-z0-9./-]+/i)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 1),
+  );
 }
 
 function resolveModelLabel(

@@ -207,29 +207,29 @@ function toIsoString(value: string | Date): string {
 }
 
 const REPOSITORY_COLUMNS = `
-  id AS repo_id,
-  provider,
-  owner,
-  name AS repo_name,
-  full_name,
-  repo_url,
-  default_branch AS repo_default_branch,
-  provider_repo_id,
-  created_at AS repo_created_at,
-  updated_at AS repo_updated_at
+  repos.id AS repo_id,
+  repos.provider,
+  repos.owner,
+  repos.name AS repo_name,
+  repos.full_name,
+  repos.repo_url,
+  repos.default_branch AS repo_default_branch,
+  repos.provider_repo_id,
+  repos.created_at AS repo_created_at,
+  repos.updated_at AS repo_updated_at
 `;
 
 const WORKSPACE_COLUMNS = `
-  id AS workspace_id,
-  user_id,
-  repo_id,
-  name AS workspace_name,
-  default_branch AS workspace_default_branch,
-  last_selected_branch,
-  status,
-  created_at AS workspace_created_at,
-  updated_at AS workspace_updated_at,
-  last_opened_at
+  workspaces.id AS workspace_id,
+  workspaces.user_id,
+  workspaces.repo_id,
+  workspaces.name AS workspace_name,
+  workspaces.default_branch AS workspace_default_branch,
+  workspaces.last_selected_branch,
+  workspaces.status,
+  workspaces.created_at AS workspace_created_at,
+  workspaces.updated_at AS workspace_updated_at,
+  workspaces.last_opened_at
 `;
 
 const UPSERT_REPOSITORY_SQL = `
@@ -295,11 +295,11 @@ const UPSERT_WORKSPACE_SELECTION_SQL = `
     selected_branch = EXCLUDED.selected_branch,
     updated_at = EXCLUDED.updated_at
   RETURNING
-    user_id,
-    selected_workspace_id,
-    selected_repo_id,
-    selected_branch,
-    updated_at AS selection_updated_at
+    workspace_selections.user_id,
+    workspace_selections.selected_workspace_id,
+    workspace_selections.selected_repo_id,
+    workspace_selections.selected_branch,
+    workspace_selections.updated_at AS selection_updated_at
 `;
 
 const FIND_WORKSPACE_SELECTION_SQL = `

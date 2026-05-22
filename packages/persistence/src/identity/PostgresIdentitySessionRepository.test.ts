@@ -69,8 +69,12 @@ describe("PostgresIdentitySessionRepository", () => {
     const oauthInsert = findQuery(client, "INSERT INTO oauth_tokens");
     const authSessionInsert = findQuery(client, "INSERT INTO auth_sessions");
     const orphanCleanup = findQuery(client, "DELETE FROM users");
+    const accountUpsert = findQuery(client, "INSERT INTO accounts");
 
     expect(session.userId).toBe("canonical-user");
+    expect(accountUpsert.statement).toContain(
+      "RETURNING accounts.id AS id, accounts.user_id AS user_id",
+    );
     expect(oauthInsert.params[0]).toBe("canonical-user");
     expect(authSessionInsert.params[0]).toBe("canonical-user");
     expect(orphanCleanup.params[0]).toBe("tentative-user");
