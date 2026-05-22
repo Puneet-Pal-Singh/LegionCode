@@ -86,6 +86,7 @@ export async function completeRunWithAssistantMessage(params: {
     );
     return createStreamResponse("");
   }
+  recordPhaseSelectionSnapshot(run, "synthesis");
   await deps.runEventRecorder.recordRunStatusChanged(
     previousStatus,
     run.status,
@@ -145,6 +146,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     );
     return createStreamResponse("");
   }
+  recordPhaseSelectionSnapshot(run, "synthesis");
   await deps.runEventRecorder.recordRunStatusChanged(
     previousStatus,
     run.status,
@@ -251,7 +253,6 @@ async function persistSynthesisArtifacts(params: {
     }),
   );
 
-  recordPhaseSelectionSnapshot(run, "synthesis");
 }
 
 function buildPlannerRecoveryMetadata(error: unknown): string {

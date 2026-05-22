@@ -156,7 +156,11 @@ describe("RunEngine", () => {
         ): Promise<boolean>;
       };
       runEventRecorder: {
-        recordRunStatusChanged(): Promise<void>;
+        recordRunStatusChanged(
+          previousStatus: string,
+          currentStatus: string,
+          step: string,
+        ): Promise<void>;
         recordMessageEmitted(
           role: "user" | "assistant" | "system",
           content: string,
@@ -185,12 +189,18 @@ describe("RunEngine", () => {
     vi.spyOn(
       privateApi.runEventRecorder,
       "recordRunStatusChanged",
-    ).mockImplementation(async (_previousStatus, currentStatus) => {
-      if (currentStatus === "COMPLETED") {
-        callOrder.push("update");
-      }
-      return originalRecordRunStatusChanged();
-    });
+    ).mockImplementation(
+      async (previousStatus: string, currentStatus: string, step: string) => {
+        if (currentStatus === "COMPLETED") {
+          callOrder.push("update");
+        }
+        return originalRecordRunStatusChanged(
+          previousStatus,
+          currentStatus,
+          step,
+        );
+      },
+    );
     vi.spyOn(
       privateApi.runEventRecorder,
       "recordMessageEmitted",
@@ -714,7 +724,11 @@ describe("RunEngine", () => {
         ): Promise<boolean>;
       };
       runEventRecorder: {
-        recordRunStatusChanged(): Promise<void>;
+        recordRunStatusChanged(
+          previousStatus: string,
+          currentStatus: string,
+          step: string,
+        ): Promise<void>;
         recordMessageEmitted(
           role: "user" | "assistant" | "system",
           content: string,
@@ -743,12 +757,18 @@ describe("RunEngine", () => {
     vi.spyOn(
       privateApi.runEventRecorder,
       "recordRunStatusChanged",
-    ).mockImplementation(async (_previousStatus, currentStatus) => {
-      if (currentStatus === "COMPLETED") {
-        callOrder.push("update");
-      }
-      return originalRecordRunStatusChanged();
-    });
+    ).mockImplementation(
+      async (previousStatus: string, currentStatus: string, step: string) => {
+        if (currentStatus === "COMPLETED") {
+          callOrder.push("update");
+        }
+        return originalRecordRunStatusChanged(
+          previousStatus,
+          currentStatus,
+          step,
+        );
+      },
+    );
     vi.spyOn(
       privateApi.runEventRecorder,
       "recordMessageEmitted",
