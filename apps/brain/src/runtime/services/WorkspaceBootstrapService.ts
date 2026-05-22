@@ -331,7 +331,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     mode: WorkspaceBootstrapMode,
     clonedDuringBootstrap: boolean,
   ): Promise<WorkspaceBootstrapResult> {
-    const shouldFetch = mode !== "read_only" && !clonedDuringBootstrap;
+    const shouldFetch = mode !== "read_only";
     const shouldPull = mode === "git_write" && !clonedDuringBootstrap;
     let branchExistsOnRemote: boolean | null = null;
 

@@ -301,12 +301,16 @@ export function ChatInterface({
     [messages],
   );
   const activityChangedFilesByAssistantMessageId = useMemo(
-    () =>
-      deriveActivityChangedFilesByAssistantMessageId(
+    () => {
+      if (feed?.runId !== runId) {
+        return {};
+      }
+      return deriveActivityChangedFilesByAssistantMessageId(
         conversationTurns,
         activityViewModel.turns,
-      ),
-    [activityViewModel.turns, conversationTurns],
+      );
+    },
+    [activityViewModel.turns, conversationTurns, feed?.runId, runId],
   );
   const changedFileSnapshotsByAssistantMessageId = useMemo(
     () => ({
@@ -1406,11 +1410,13 @@ function findMatchingConversationTurnIndex(
     }
   }
 
-  if (fuzzyMatches.length === 1) {
-    return fuzzyMatches[0] ?? null;
+  if (fuzzyMatches.length === 0) {
+    return null;
   }
 
-  return null;
+  return fuzzyMatches.sort(
+    (a, b) => Math.abs(a - conversationTurns.length) - Math.abs(b - conversationTurns.length),
+  )[0] ?? null;
 }
 
 function normalizePromptForMatching(content: string | null | undefined): string {

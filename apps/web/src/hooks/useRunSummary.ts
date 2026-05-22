@@ -151,11 +151,11 @@ export function useRunSummary(
   }, [runId]);
 
   useEffect(() => {
-    if (!runId || !shouldPoll) {
+    if (!runId) {
       return;
     }
     void fetchSummary();
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId]);
 
   useEffect(() => {
     if (!runId) {

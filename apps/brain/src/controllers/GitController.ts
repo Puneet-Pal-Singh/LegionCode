@@ -128,6 +128,7 @@ type GitControllerAction =
   | "unstage"
   | "commit"
   | "push"
+  | "git_fetch"
   | "git_branch_create"
   | "git_branch_switch";
 
@@ -784,6 +785,31 @@ async function ensureLocalBranch(
   const switchError = readPluginErrorMessage(switchPayload);
   if (!isMissingBranchMessage(switchError)) {
     throw new Error(`Git createBranch failed: ${switchError}`);
+  }
+
+  try {
+    await executeGitViaCanonicalApi(
+      env,
+      muscleSession,
+      runId,
+      "git_fetch",
+      { remote: "origin" },
+      MUSCLE_GIT_TIMEOUT_MS,
+    );
+  } catch {
+    // Non-fatal — continue to retry switch / create branch
+  }
+
+  const retrySwitchPayload = await executeGitViaCanonicalApi(
+    env,
+    muscleSession,
+    runId,
+    "git_branch_switch",
+    { branch },
+    MUSCLE_GIT_TIMEOUT_MS,
+  );
+  if (!isPluginErrorPayload(retrySwitchPayload)) {
+    return;
   }
 
   const createPayload = await executeGitViaCanonicalApi(
