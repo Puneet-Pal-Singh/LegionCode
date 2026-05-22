@@ -15,16 +15,14 @@ describe("GitHubController", () => {
     mockGetGitHubClient.mockReset();
   });
 
-  it("uses the default branch tree when a local-only task branch is not on GitHub", async () => {
+  it("treats missing remote tree refs as unavailable metadata instead of server failure", async () => {
     const getTree = vi
       .fn()
-      .mockRejectedValueOnce(
+      .mockRejectedValue(
         new Error('GitHub API error (404): {"message":"Not Found"}'),
-      )
-      .mockResolvedValueOnce([{ path: "README.md", type: "blob", sha: "1" }]);
-    const getRepository = vi.fn().mockResolvedValue({ default_branch: "main" });
+      );
     mockGetGitHubClient.mockResolvedValue({
-      client: { getTree, getRepository },
+      client: { getTree },
       userId: "user-1",
       session: {},
     });
@@ -38,23 +36,10 @@ describe("GitHubController", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      tree: [{ path: "README.md", type: "blob", sha: "1" }],
-      requestedRefUnavailable: true,
-      resolvedRef: "main",
+      tree: [],
+      unavailable: true,
+      reason: "ref_not_found",
     });
-    expect(getRepository).toHaveBeenCalledWith("shadowbox", "shadowbox");
-    expect(getTree).toHaveBeenNthCalledWith(
-      1,
-      "shadowbox",
-      "shadowbox",
-      "feat/local-only",
-    );
-    expect(getTree).toHaveBeenNthCalledWith(
-      2,
-      "shadowbox",
-      "shadowbox",
-      "main",
-    );
   });
 });
 

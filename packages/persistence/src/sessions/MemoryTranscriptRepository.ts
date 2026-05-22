@@ -60,31 +60,6 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return session;
   }
 
-  async archiveSession(userId: string, sessionId: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.userId !== userId) {
-      return false;
-    }
-
-    const task = this.tasks.get(session.taskId);
-    if (!task || task.userId !== userId) {
-      return false;
-    }
-
-    const now = this.clock.now().toISOString();
-    this.tasks.set(task.id, {
-      ...task,
-      status: "archived",
-      updatedAt: now,
-      archivedAt: now,
-    });
-    this.sessions.set(session.id, {
-      ...session,
-      updatedAt: now,
-    });
-    return true;
-  }
-
   async appendMessage(
     input: AppendTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord> {

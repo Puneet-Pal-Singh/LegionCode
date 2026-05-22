@@ -140,7 +140,6 @@ export interface ListSessionsResult {
 
 export interface TranscriptRepository {
   ensureSession(input: EnsureTranscriptSessionInput): Promise<SessionRecord>;
-  archiveSession(userId: string, sessionId: string): Promise<boolean>;
   appendMessage(input: AppendTranscriptMessageInput): Promise<TranscriptMessageRecord>;
   appendMessageToExistingSession(
     input: AppendExistingTranscriptMessageInput,

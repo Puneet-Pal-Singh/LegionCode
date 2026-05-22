@@ -13,16 +13,12 @@ interface UseRunActivityFeedResult {
 
 const ACTIVITY_FEED_ERROR_LOG_WINDOW_MS = 30_000;
 const ACTIVITY_FEED_MIN_FETCH_INTERVAL_MS = 800;
-const ACTIVITY_FEED_POLL_INTERVAL_MS = 1_000;
 
 export function useRunActivityFeed(
   runId: string,
-  shouldPoll = false,
 ): UseRunActivityFeedResult {
   const [feed, setFeed] = useState<ActivityFeedSnapshot | null>(null);
-  const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
-  const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
   const missedRefreshRef = useRef(false);
   const lastErrorLogRef = useRef<{
@@ -50,15 +46,11 @@ export function useRunActivityFeed(
 
       try {
         inFlightRef.current = true;
-        inFlightRunIdRef.current = currentRunId;
         lastFetchAtRef.current = now;
         const response = await fetch(runActivityPath(currentRunId));
-        if (activeRunIdRef.current !== currentRunId) {
-          return;
-        }
         if (!response.ok) {
           logActivityFeedWarning(
-            currentRunId,
+            runId,
             new Error(`HTTP ${response.status}: ${response.statusText}`),
             lastErrorLogRef,
           );
@@ -66,59 +58,28 @@ export function useRunActivityFeed(
         }
 
         const payload = parseActivityFeedSnapshot(await response.json());
-        if (activeRunIdRef.current !== currentRunId) {
-          return;
-        }
-        if (payload.runId !== currentRunId) {
-          return;
-        }
         setFeed(payload);
       } catch (error) {
-        if (activeRunIdRef.current === currentRunId) {
-          logActivityFeedWarning(currentRunId, error, lastErrorLogRef);
-        }
+        logActivityFeedWarning(runId, error, lastErrorLogRef);
       } finally {
-        if (inFlightRunIdRef.current === currentRunId) {
-          inFlightRef.current = false;
-          inFlightRunIdRef.current = null;
-        }
+        inFlightRef.current = false;
       }
     },
     [runId],
   );
 
   useEffect(() => {
-    activeRunIdRef.current = runId;
-    inFlightRef.current = false;
-    inFlightRunIdRef.current = null;
     lastFetchAtRef.current = 0;
     missedRefreshRef.current = false;
     lastErrorLogRef.current = null;
-    setFeed(null);
 
     if (!runId) {
+      setFeed(null);
       return;
     }
 
     void fetchFeed({ force: true });
   }, [fetchFeed, runId]);
-
-  useEffect(() => {
-    if (!runId || !shouldPoll) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      void fetchFeed({ force: true });
-    }, ACTIVITY_FEED_POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [fetchFeed, runId, shouldPoll]);
 
   useEffect(() => {
     if (!runId) {

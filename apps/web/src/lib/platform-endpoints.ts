@@ -176,15 +176,6 @@ export function sessionsPath(): string {
 }
 
 /**
- * Build the canonical session archive endpoint URL.
- * Used when removing a sidebar task so it stays hidden after hydration.
- * Path: /api/sessions/:sessionId/archive
- */
-export function sessionArchivePath(sessionId: string): string {
-  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/archive`;
-}
-
-/**
  * Build the canonical git status endpoint URL through Brain.
  * Used for fetching current git status for a run-scoped workspace.
  * Path: /api/git/status?runId=<runId>&sessionId=<sessionId?>

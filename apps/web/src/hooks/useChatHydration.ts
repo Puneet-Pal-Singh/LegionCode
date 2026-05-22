@@ -4,7 +4,6 @@ import { ChatHydrationService } from "../services/ChatHydrationService";
 
 interface UseChatHydrationResult {
   isHydrating: boolean;
-  hasHydrated: boolean;
 }
 
 /**
@@ -19,79 +18,38 @@ export function useChatHydration(
   setMessages: (messages: Message[]) => void,
 ): UseChatHydrationResult {
   const [isHydrating, setIsHydrating] = useState(false);
-  const [hasHydrated, setHasHydrated] = useState(false);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
-  const scopeKey = `${sessionId}:${runId}`;
-  const activeScopeKeyRef = useRef(scopeKey);
 
+  // Reset hydration flag when runId changes
   useEffect(() => {
-    activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
-    setHasHydrated(false);
-    setIsHydrating(false);
-  }, [scopeKey]);
+  }, [runId]);
 
   // Perform hydration
   useEffect(() => {
     if (hasHydratedRef.current) return;
-    if (messagesLength > 0) {
-      hasHydratedRef.current = true;
-      setHasHydrated(true);
-      return;
-    }
-
-    let cancelled = false;
-    const requestScopeKey = scopeKey;
-    const isCurrentScope = () =>
-      !cancelled && activeScopeKeyRef.current === requestScopeKey;
-    const loadingTimer = window.setTimeout(() => {
-      if (isCurrentScope()) {
-        setIsHydrating(true);
-      }
-    }, 150);
+    if (messagesLength > 0) return;
 
     async function hydrate() {
-      try {
-        const result = await hydrationServiceRef.current.hydrateMessages(
-          sessionId,
-          runId,
-        );
+      setIsHydrating(true);
+      const result = await hydrationServiceRef.current.hydrateMessages(
+        sessionId,
+        runId,
+      );
 
-        if (!isCurrentScope()) {
-          return;
-        }
-
-        if (result.error) {
-          console.error("🧬 [LegionCode] Hydration failed:", result.error);
-          return;
-        }
-
-        if (result.messages.length > 0) {
-          setMessages(result.messages);
-        }
-
-        hasHydratedRef.current = true;
-        setHasHydrated(true);
-      } catch (error) {
-        if (isCurrentScope()) {
-          console.error("🧬 [LegionCode] Hydration failed:", error);
-        }
-      } finally {
-        window.clearTimeout(loadingTimer);
-        if (isCurrentScope()) {
-          setIsHydrating(false);
-        }
+      if (result.error) {
+        console.error("🧬 [LegionCode] Hydration failed:", result.error);
+      } else if (result.messages.length > 0) {
+        setMessages(result.messages);
       }
+
+      setIsHydrating(false);
+      hasHydratedRef.current = true;
     }
 
-    void hydrate();
+    hydrate();
+  }, [sessionId, runId, messagesLength, setMessages]);
 
-    return () => {
-      cancelled = true;
-      window.clearTimeout(loadingTimer);
-    };
-  }, [sessionId, runId, scopeKey, messagesLength, setMessages]);
-
-  return { isHydrating, hasHydrated };
+  return { isHydrating };
 }

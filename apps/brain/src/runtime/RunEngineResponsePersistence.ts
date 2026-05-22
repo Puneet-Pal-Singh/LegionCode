@@ -25,51 +25,35 @@ export async function persistAssistantMessageFromRunResponse(
     runId,
     correlationId,
   );
-  await persistTerminalRunStatusFromRuntime(ctx, env, runId, correlationId);
   if (persistedOutput) {
     return;
   }
 
-  await persistAssistantMessageFromTextResponse(
-    env,
-    sessionId,
-    runId,
-    correlationId,
-    response,
-  );
-}
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  if (!contentType.includes("text/plain")) {
+    return;
+  }
 
-async function persistTerminalRunStatusFromRuntime(
-  ctx: DurableObjectState,
-  env: Env,
-  runId: string,
-  correlationId: string,
-): Promise<void> {
+  let assistantText = "";
   try {
-    const runtimeState = tagRuntimeStateSemantics(
-      ctx as unknown as LegacyDurableObjectState,
-      "do",
-    );
-    const runRepository = new RunRepository(runtimeState);
-    const run = await runRepository.getById(runId);
-    const status = mapRuntimeTerminalStatus(run?.status);
-    if (!status) {
-      return;
-    }
-
-    const persistenceService = new PersistenceService(env);
-    await persistenceService.updateRunStatus(
-      runId,
-      status,
-      run?.metadata?.startedAt,
-      run?.metadata?.completedAt ?? new Date().toISOString(),
-    );
+    assistantText = (await response.clone().text()).trim();
   } catch (error) {
     console.warn(
-      `[run/engine-runtime] ${correlationId}: Failed to persist terminal run status`,
+      `[run/engine-runtime] ${correlationId}: Failed to capture assistant stream for history persistence`,
       error,
     );
+    return;
   }
+
+  if (!assistantText) {
+    return;
+  }
+
+  const persistenceService = new PersistenceService(env);
+  await persistenceService.persistUserMessage(sessionId, runId, {
+    role: "assistant",
+    content: assistantText,
+  });
 }
 
 async function persistAssistantMessageFromRunOutput(
@@ -104,51 +88,5 @@ async function persistAssistantMessageFromRunOutput(
       error,
     );
     return false;
-  }
-}
-
-async function persistAssistantMessageFromTextResponse(
-  env: Env,
-  sessionId: string,
-  runId: string,
-  correlationId: string,
-  response: Response,
-): Promise<void> {
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/plain")) {
-    return;
-  }
-
-  try {
-    const assistantText = (await response.clone().text()).trim();
-    if (!assistantText) {
-      return;
-    }
-
-    const persistenceService = new PersistenceService(env);
-    await persistenceService.persistUserMessage(sessionId, runId, {
-      role: "assistant",
-      content: assistantText,
-    });
-  } catch (error) {
-    console.warn(
-      `[run/engine-runtime] ${correlationId}: Failed to capture assistant stream for history persistence`,
-      error,
-    );
-  }
-}
-
-function mapRuntimeTerminalStatus(
-  status: string | null | undefined,
-): "completed" | "failed" | "cancelled" | null {
-  switch (status) {
-    case "COMPLETED":
-      return "completed";
-    case "FAILED":
-      return "failed";
-    case "CANCELLED":
-      return "cancelled";
-    default:
-      return null;
   }
 }

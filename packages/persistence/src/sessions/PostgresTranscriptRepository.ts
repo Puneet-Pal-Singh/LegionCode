@@ -90,15 +90,6 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     });
   }
 
-  async archiveSession(userId: string, sessionId: string): Promise<boolean> {
-    const result = await this.client.query<TranscriptRow>(ARCHIVE_SESSION_SQL, [
-      userId,
-      sessionId,
-      this.clock.now(),
-    ]);
-    return Boolean(result.rows[0]);
-  }
-
   async appendMessageToExistingSession(
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord> {
@@ -601,29 +592,6 @@ const FIND_SESSION_SQL = `
   SELECT ${SESSION_COLUMNS}
   FROM sessions
   WHERE id = $1
-`;
-
-const ARCHIVE_SESSION_SQL = `
-  WITH archived_task AS (
-    UPDATE tasks
-    SET
-      status = 'archived',
-      archived_at = $3,
-      updated_at = $3
-    FROM sessions
-    WHERE sessions.id = $2
-      AND sessions.user_id = $1
-      AND sessions.task_id = tasks.id
-      AND tasks.user_id = $1
-      AND tasks.archived_at IS NULL
-    RETURNING tasks.id
-  )
-  UPDATE sessions
-  SET updated_at = $3
-  WHERE id = $2
-    AND user_id = $1
-    AND task_id IN (SELECT id FROM archived_task)
-  RETURNING id AS session_id
 `;
 
 const INSERT_MESSAGE_SQL = `

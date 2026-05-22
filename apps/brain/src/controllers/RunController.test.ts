@@ -29,9 +29,6 @@ import { RunController } from "./RunController";
 describe("RunController", () => {
   beforeEach(() => {
     runtimeHelpers.fetchRunRuntimeRoute.mockReset();
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValue(
-      new Response("Not Found", { status: 404 }),
-    );
     runtimeHelpers.withRunRepository.mockImplementation((_env, callback) =>
       callback({
         getRun: vi.fn().mockResolvedValue(null),
@@ -116,15 +113,7 @@ describe("RunController", () => {
       env,
     );
 
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      run.id,
-      "execution-engine-v1",
-      {
-        method: "GET",
-        path: `/summary?runId=${encodeURIComponent(run.id)}`,
-      },
-    );
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       runId: run.id,
       status: "completed",
@@ -134,95 +123,6 @@ describe("RunController", () => {
       pendingTasks: 1,
       eventCount: 2,
       lastEventType: "tool.completed",
-    });
-  });
-
-  it("overlays default run summary with live runtime terminal status", async () => {
-    const env = {} as Env;
-    const run = {
-      id: "123e4567-e89b-42d3-a456-426614174100",
-      status: "running",
-    };
-    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
-      callback({
-        getRun: vi.fn().mockResolvedValue(run),
-        listRunEvents: vi.fn().mockResolvedValue([]),
-        listRunSteps: vi.fn().mockResolvedValue([{ status: "running" }]),
-      }),
-    );
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          runId: run.id,
-          status: "COMPLETED",
-          totalTasks: 1,
-          completedTasks: 1,
-          failedTasks: 0,
-          runningTasks: 0,
-          pendingTasks: 0,
-          cancelledTasks: 0,
-          eventCount: 3,
-          lastEventType: "run.completed",
-        }),
-        { status: 200 },
-      ),
-    );
-
-    const response = await RunController.getSummary(
-      new Request(
-        "https://brain.local/api/run/summary?runId=123e4567-e89b-42d3-a456-426614174100",
-      ),
-      env,
-    );
-
-    await expect(response.json()).resolves.toMatchObject({
-      runId: run.id,
-      status: "COMPLETED",
-      completedTasks: 1,
-      runningTasks: 0,
-      lastEventType: "run.completed",
-    });
-  });
-
-  it("does not revive a terminal Postgres run with stale active runtime status", async () => {
-    const env = {} as Env;
-    const run = {
-      id: "123e4567-e89b-42d3-a456-426614174100",
-      status: "completed",
-    };
-    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
-      callback({
-        getRun: vi.fn().mockResolvedValue(run),
-        listRunEvents: vi.fn().mockResolvedValue([]),
-        listRunSteps: vi.fn().mockResolvedValue([{ status: "completed" }]),
-      }),
-    );
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          runId: run.id,
-          status: "RUNNING",
-          totalTasks: 1,
-          completedTasks: 0,
-          failedTasks: 0,
-          runningTasks: 1,
-          pendingTasks: 0,
-          cancelledTasks: 0,
-        }),
-        { status: 200 },
-      ),
-    );
-
-    const response = await RunController.getSummary(
-      new Request(
-        "https://brain.local/api/run/summary?runId=123e4567-e89b-42d3-a456-426614174100",
-      ),
-      env,
-    );
-
-    await expect(response.json()).resolves.toMatchObject({
-      runId: run.id,
-      status: "completed",
     });
   });
 

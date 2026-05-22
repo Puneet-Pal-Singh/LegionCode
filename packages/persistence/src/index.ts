@@ -27,9 +27,6 @@ export { transcriptBootstrapMigration } from "./migrations/0005-transcript-boots
 export { runBootstrapMigration } from "./migrations/0006-run-bootstrap.js";
 export { contextMemoryPermissionsBootstrapMigration } from "./migrations/0007-context-memory-permissions-bootstrap.js";
 export { artifactMetadataBootstrapMigration } from "./migrations/0008-artifact-metadata-bootstrap.js";
-export { artifactRestoreLookupIndexMigration } from "./migrations/0009-artifact-restore-lookup-index.js";
-export { sessionsActiveRunForeignKeyMigration } from "./migrations/0010-sessions-active-run-fk.js";
-export { providerUserModelCacheTextKeyMigration } from "./migrations/0011-provider-user-model-cache-text-key.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,

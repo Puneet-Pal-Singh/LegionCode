@@ -56,9 +56,7 @@ export function useRunEvents(
         const requestId = requestIdRef.current + 1;
         requestIdRef.current = requestId;
 
-        const response = await fetch(runEventsPath(currentRunId), {
-          credentials: "include",
-        });
+        const response = await fetch(runEventsPath(currentRunId));
         if (!response.ok) {
           return;
         }
@@ -71,7 +69,7 @@ export function useRunEvents(
           return;
         }
 
-        const parsedEvents = parseRunEventsBody(body, currentRunId);
+        const parsedEvents = parseNdjsonEvents(body, currentRunId);
         setEvents((current) => mergeRunEvents(current, parsedEvents));
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
@@ -116,7 +114,6 @@ export function useRunEvents(
       try {
         const response = await fetch(runEventsStreamPath(currentRunId), {
           signal: abortController.signal,
-          credentials: "include",
         });
         if (!response.ok || !response.body) {
           return;
@@ -202,32 +199,11 @@ export function useRunEvents(
   return { events };
 }
 
-function parseRunEventsBody(body: string, runId: string): RunEvent[] {
-  const trimmedBody = body.trim();
-  if (!trimmedBody) {
+function parseNdjsonEvents(body: string, runId: string): RunEvent[] {
+  if (!body.trim()) {
     return [];
   }
 
-  const parsedJson = tryParseJson(trimmedBody);
-  if (parsedJson.ok) {
-    return parseRunEventsPayload(parsedJson.value, runId);
-  }
-
-  return parseNdjsonEvents(trimmedBody, runId);
-}
-
-function parseRunEventsPayload(payload: unknown, runId: string): RunEvent[] {
-  if (Array.isArray(payload)) {
-    return payload
-      .map((event) => parseRunEventPayload(event, runId))
-      .filter((event): event is RunEvent => event !== null);
-  }
-
-  const event = parseRunEventPayload(payload, runId);
-  return event ? [event] : [];
-}
-
-function parseNdjsonEvents(body: string, runId: string): RunEvent[] {
   const events: RunEvent[] = [];
   for (const line of body.split("\n")) {
     const event = parseRunEventLine(line, runId);
@@ -245,19 +221,7 @@ function parseRunEventLine(line: string, runId: string): RunEvent | null {
     return null;
   }
 
-  const parsedJson = tryParseJson(trimmedLine);
-  if (!parsedJson.ok) {
-    console.warn(
-      `[run/events] dropped invalid JSON event for runId=${runId}: ${parsedJson.error.message}`,
-    );
-    return null;
-  }
-
-  return parseRunEventPayload(parsedJson.value, runId);
-}
-
-function parseRunEventPayload(payload: unknown, runId: string): RunEvent | null {
-  const result = safeParseRunEvent(payload);
+  const result = safeParseRunEvent(JSON.parse(trimmedLine) as unknown);
   if (!result.success) {
     console.warn(
       `[run/events] dropped invalid event for runId=${runId}: ${result.error}`,
@@ -265,27 +229,7 @@ function parseRunEventPayload(payload: unknown, runId: string): RunEvent | null 
     return null;
   }
 
-  if (result.data.runId !== runId) {
-    console.warn(
-      `[run/events] dropped event for mismatched runId=${result.data.runId}; active runId=${runId}`,
-    );
-    return null;
-  }
-
   return result.data;
-}
-
-function tryParseJson(
-  value: string,
-): { ok: true; value: unknown } | { ok: false; error: Error } {
-  try {
-    return { ok: true, value: JSON.parse(value) as unknown };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error : new Error(String(error)),
-    };
-  }
 }
 
 function mergeRunEvents(current: RunEvent[], incoming: RunEvent[]): RunEvent[] {

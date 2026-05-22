@@ -283,7 +283,7 @@ export class ProviderController {
         correlationId,
       );
 
-      await configureDefaultPreferenceWhenAvailable(
+      await ensureDefaultPreferenceConfigured(
         req,
         env,
         scope,
@@ -1818,7 +1818,7 @@ function extractCredentialIdFromPath(
   return decodeURIComponent(match[1]);
 }
 
-async function configureDefaultPreferenceWhenAvailable(
+async function ensureDefaultPreferenceConfigured(
   req: Request,
   env: Env,
   scope: AuthorizedProviderScope,
@@ -1836,14 +1836,7 @@ async function configureDefaultPreferenceWhenAvailable(
   }
 
   const catalog = await fetchRuntimeCatalog(req, env, scope, correlationId);
-  const defaultModel = resolveOptionalDefaultModel(providerId, catalog);
-  if (!defaultModel) {
-    console.warn(
-      `[provider/byok] ${correlationId} ${providerId}: connected without default model; catalog returned no selectable models`,
-    );
-    return;
-  }
-
+  const defaultModel = resolveDefaultModel(providerId, catalog, correlationId);
   await proxyByokOperation(
     req,
     env,
@@ -1859,16 +1852,6 @@ async function configureDefaultPreferenceWhenAvailable(
     BYOKPreferencesSchema,
     correlationId,
   );
-}
-
-function resolveOptionalDefaultModel(
-  providerId: string,
-  catalog: ProviderCatalogResponse,
-): string | null {
-  const provider = catalog.providers.find(
-    (entry) => entry.providerId === providerId,
-  );
-  return provider?.models[0]?.id ?? null;
 }
 
 async function persistCredentialLabel(

@@ -7,7 +7,7 @@
  * @module hooks/__tests__/useSessionManager.test
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { AgentSession } from "../../types/session";
 import { useSessionManager } from "../useSessionManager";
@@ -16,13 +16,9 @@ import { SessionStateService } from "../../services/SessionStateService";
 describe("useSessionManager", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.spyOn(SessionStateService, "hydrateSessionsFromServer").mockResolvedValue({});
-    vi.spyOn(SessionStateService, "persistSession").mockResolvedValue(undefined);
-    vi.spyOn(SessionStateService, "archiveSession").mockResolvedValue(undefined);
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
     localStorage.clear();
   });
 
@@ -122,7 +118,7 @@ describe("useSessionManager", () => {
     it("should remove session", () => {
       const { result } = renderHook(() => useSessionManager());
 
-      let sessionId = "";
+      let sessionId: string;
       act(() => {
         sessionId = result.current.createSession("Task", "repo");
       });
@@ -134,7 +130,6 @@ describe("useSessionManager", () => {
       });
 
       expect(result.current.sessions).toHaveLength(0);
-      expect(SessionStateService.archiveSession).toHaveBeenCalledWith(sessionId);
     });
 
     it("should clear active session if removed session is active", () => {

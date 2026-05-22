@@ -128,7 +128,6 @@ type GitControllerAction =
   | "unstage"
   | "commit"
   | "push"
-  | "git_fetch"
   | "git_branch_create"
   | "git_branch_switch";
 
@@ -152,20 +151,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
-      let data = await getCurrentGitStatus(env, muscleSession, runId);
-      if (canRestoreEditArtifacts(env)) {
-        const restoreResult = await restoreLatestEditArtifactIfNeeded(
-          req,
-          env,
-          muscleSession,
-          runId,
-          data,
-          "status",
-        );
-        if (restoreResult === "restored") {
-          data = await getCurrentGitStatus(env, muscleSession, runId);
-        }
-      }
+      const data = await getCurrentGitStatus(env, muscleSession, runId);
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -207,9 +193,6 @@ export class GitController {
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
-      if (error instanceof Error && isNotGitRepositoryMessage(error.message)) {
-        return corsJsonResponse(req, env, getEmptyDiff());
-      }
       return handleGitControllerError(req, env, error, "getDiff");
     }
   }
@@ -520,18 +503,11 @@ export class GitController {
       }
 
       if (result.status === "ready" && canRestoreEditArtifacts(env)) {
-        const currentStatus = await getCurrentGitStatus(
-          env,
-          muscleSession,
-          normalizedRunId,
-        );
         await restoreLatestEditArtifactIfNeeded(
           req,
           env,
           muscleSession,
           normalizedRunId,
-          currentStatus,
-          "bootstrap",
         );
       }
 
@@ -661,14 +637,13 @@ async function restoreLatestEditArtifactIfNeeded(
   env: Env,
   muscleSession: string,
   runId: string,
-  currentStatus: GitStatusResponse,
-  logScope: "bootstrap" | "status",
-): Promise<"not-needed" | "restored" | "requires-user-resolution"> {
+): Promise<void> {
   try {
     const authenticatedSession = await getAuthenticatedUserSession(request, env);
     if (!authenticatedSession) {
-      return "not-needed";
+      return;
     }
+    const currentStatus = await getCurrentGitStatus(env, muscleSession, runId);
     const restoreService = new EditArtifactRestoreService(env);
     const result = await restoreService.restoreLatestIfWorkspaceIsEmpty({
       userId: authenticatedSession.userId,
@@ -678,21 +653,19 @@ async function restoreLatestEditArtifactIfNeeded(
     });
     if (result === "restored") {
       logWarnRateLimited(
-        `GitController:${logScope}:artifact-restored:${runId}`,
-        `[GitController:${logScope}] Restored saved edit artifact into workspace`,
+        `GitController:bootstrap:artifact-restored:${runId}`,
+        "[GitController:bootstrap] Restored saved edit artifact after workspace bootstrap",
         undefined,
         ERROR_LOG_WINDOW_MS,
       );
     }
-    return result;
   } catch (error) {
     logWarnRateLimited(
-      `GitController:${logScope}:artifact-restore-failed:${runId}`,
-      `[GitController:${logScope}] Edit artifact restore did not complete`,
+      `GitController:bootstrap:artifact-restore-failed:${runId}`,
+      "[GitController:bootstrap] Edit artifact restore did not complete",
       { error: sanitizeUnknownError(error) },
       ERROR_LOG_WINDOW_MS,
     );
-    return "requires-user-resolution";
   }
 }
 
@@ -785,31 +758,6 @@ async function ensureLocalBranch(
   const switchError = readPluginErrorMessage(switchPayload);
   if (!isMissingBranchMessage(switchError)) {
     throw new Error(`Git createBranch failed: ${switchError}`);
-  }
-
-  try {
-    await executeGitViaCanonicalApi(
-      env,
-      muscleSession,
-      runId,
-      "git_fetch",
-      { remote: "origin" },
-      MUSCLE_GIT_TIMEOUT_MS,
-    );
-  } catch {
-    // Non-fatal — continue to retry switch / create branch
-  }
-
-  const retrySwitchPayload = await executeGitViaCanonicalApi(
-    env,
-    muscleSession,
-    runId,
-    "git_branch_switch",
-    { branch },
-    MUSCLE_GIT_TIMEOUT_MS,
-  );
-  if (!isPluginErrorPayload(retrySwitchPayload)) {
-    return;
   }
 
   const createPayload = await executeGitViaCanonicalApi(
@@ -1004,9 +952,6 @@ function parseGitPayload<T>(payload: unknown, operation: "status" | "diff"): T {
       if (operation === "status" && isNotGitRepositoryMessage(details)) {
         return getRecoverableNotGitStatus() as unknown as T;
       }
-      if (operation === "diff" && isNotGitRepositoryMessage(details)) {
-        return getEmptyDiff() as unknown as T;
-      }
       throw new Error(`Git ${operation} failed: ${details}`);
     }
 
@@ -1066,17 +1011,6 @@ function getRecoverableNotGitStatus(): GitStatusResponse {
     hasUnstaged: false,
     gitAvailable: false,
     recoverableCode: "NOT_A_GIT_REPOSITORY",
-  };
-}
-
-function getEmptyDiff(): DiffContent {
-  return {
-    oldPath: "",
-    newPath: "",
-    hunks: [],
-    isBinary: false,
-    isNewFile: false,
-    isDeleted: false,
   };
 }
 

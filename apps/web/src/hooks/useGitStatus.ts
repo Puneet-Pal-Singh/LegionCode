@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
 import { useRunContext } from "./useRunContext";
 import { getGitStatus } from "../lib/git-client.js";
@@ -37,12 +37,6 @@ export function useGitStatus(
   const [gitAvailable, setGitAvailable] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const activeCacheKeyRef = useRef(cacheKey);
-  const isActiveCacheKey = useCallback(
-    (candidateCacheKey: string | null) =>
-      activeCacheKeyRef.current === candidateCacheKey,
-    [],
-  );
   const applyStatusSnapshot = useCallback(
     (nextStatus: GitStatusResponse | null) => {
       setStatus(nextStatus);
@@ -52,17 +46,8 @@ export function useGitStatus(
     [],
   );
 
-  useEffect(() => {
-    activeCacheKeyRef.current = cacheKey;
-    setStatus(null);
-    setGitAvailable(true);
-    setLoading(false);
-    setError(null);
-  }, [cacheKey]);
-
   const fetchStatus = useCallback(
     async (force = false) => {
-      const requestCacheKey = cacheKey;
       if (!runId || !sessionId || !cacheKey) {
         setLoading(false);
         applyStatusSnapshot(null);
@@ -71,9 +56,6 @@ export function useGitStatus(
       }
 
       const cached = readCachedStatus(cacheKey, force);
-      if (!isActiveCacheKey(requestCacheKey)) {
-        return;
-      }
       applyStatusSnapshot(cached.status);
       if (cached.isFresh) {
         setLoading(false);
@@ -92,27 +74,19 @@ export function useGitStatus(
           runId,
           sessionId,
         );
-        if (!isActiveCacheKey(requestCacheKey)) {
-          return;
-        }
 
         updateCachedStatus(cacheKey, data);
         retryAfterByRunId.delete(cacheKey);
         applyStatusSnapshot(data);
       } catch (err) {
-        if (!isActiveCacheKey(requestCacheKey)) {
-          return;
-        }
         const message = recordGitStatusFailure(cacheKey, err);
         applyStatusSnapshot(null);
         setError(message);
       } finally {
-        if (isActiveCacheKey(requestCacheKey)) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     },
-    [applyStatusSnapshot, cacheKey, isActiveCacheKey, runId, sessionId],
+    [applyStatusSnapshot, cacheKey, runId, sessionId],
   );
 
   useEffect(() => {
@@ -121,9 +95,6 @@ export function useGitStatus(
     }
 
     const listener = (nextStatus: GitStatusResponse | null): void => {
-      if (!isActiveCacheKey(cacheKey)) {
-        return;
-      }
       applyStatusSnapshot(nextStatus);
     };
 
@@ -141,7 +112,7 @@ export function useGitStatus(
         listenersByRunId.delete(cacheKey);
       }
     };
-  }, [applyStatusSnapshot, cacheKey, isActiveCacheKey]);
+  }, [applyStatusSnapshot, cacheKey]);
 
   useEffect(() => {
     void fetchStatus();

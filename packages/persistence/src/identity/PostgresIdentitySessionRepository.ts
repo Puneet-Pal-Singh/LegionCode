@@ -206,7 +206,7 @@ async function upsertGitHubAccount(
         provider_email = EXCLUDED.provider_email,
         avatar_url = EXCLUDED.avatar_url,
         updated_at = EXCLUDED.updated_at
-      RETURNING accounts.id AS id, accounts.user_id AS user_id
+      RETURNING id, user_id
     `,
     [
       userId,

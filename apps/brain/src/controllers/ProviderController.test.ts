@@ -5,7 +5,7 @@ import type { ProviderId } from "@repo/shared-types";
 
 const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174111";
+const TEST_WORKSPACE_ID = "default";
 const TEST_SESSION_SECRET = "test-session-secret";
 const TEST_SESSION_TOKEN = "test-session-token";
 
@@ -14,10 +14,8 @@ function createMockEnv(options?: {
   catalogError?: boolean;
   connectionsError?: boolean;
   failedConnectionProviders?: ProviderId[];
-  emptyCatalogProviders?: ProviderId[];
   preferencesError?: boolean;
   sessionsGetError?: boolean;
-  omitWorkspaceClaims?: boolean;
   environment?: "production" | "staging" | "development";
 }): Env {
   const axisConnected = options?.axisConnected ?? true;
@@ -62,9 +60,6 @@ function createMockEnv(options?: {
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
     groq: [{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" }],
   };
-  for (const providerId of options?.emptyCatalogProviders ?? []) {
-    catalog[providerId] = [];
-  }
   const namespace = {
     idFromName: (name: string) => name,
     get: (id: string) => ({
@@ -404,17 +399,13 @@ function createMockEnv(options?: {
         if (options?.sessionsGetError) {
           throw new Error("database unavailable");
         }
-        return createIdentitySessionRecord({
-          omitWorkspaceClaims: options?.omitWorkspaceClaims,
-        });
+        return createIdentitySessionRecord();
       },
       findLatestGitHubSessionByUserId: async () => {
         if (options?.sessionsGetError) {
           throw new Error("database unavailable");
         }
-        return createIdentitySessionRecord({
-          omitWorkspaceClaims: options?.omitWorkspaceClaims,
-        });
+        return createIdentitySessionRecord();
       },
       revokeSession: async () => undefined,
     },
@@ -450,10 +441,8 @@ async function withByokHeaders(
   };
 }
 
-function createIdentitySessionRecord(
-  options: { omitWorkspaceClaims?: boolean } = {},
-) {
-  const record = {
+function createIdentitySessionRecord() {
+  return {
     authSessionId: "session-1",
     userId: TEST_USER_ID,
     login: "puneet",
@@ -468,19 +457,7 @@ function createIdentitySessionRecord(
     },
     createdAt: Date.now(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    workspaceId: TEST_WORKSPACE_ID,
-    defaultWorkspaceId: TEST_WORKSPACE_ID,
-    workspaceIds: [TEST_WORKSPACE_ID],
   };
-  if (options.omitWorkspaceClaims) {
-    return {
-      ...record,
-      workspaceId: undefined,
-      defaultWorkspaceId: undefined,
-      workspaceIds: undefined,
-    };
-  }
-  return record;
 }
 
 function jsonOk(data: unknown): Response {
@@ -596,24 +573,6 @@ describe("ProviderController", () => {
 
       expect(response.status).toBe(403);
       expect(data.error.code).toBe("AUTH_FAILED");
-    });
-
-    it("rejects provider requests without a persisted workspace claim", async () => {
-      const env = createMockEnv({ omitWorkspaceClaims: true });
-      const request = new Request(
-        "http://localhost/api/byok/providers/catalog",
-        {
-          method: "GET",
-          headers: await withByokHeaders(env),
-        },
-      );
-
-      const response = await ProviderController.byokCatalog(request, env);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.error.code).toBe("VALIDATION_ERROR");
-      expect(data.error.message).toBe("Missing default workspace claim.");
     });
 
     it("rejects legacy query scope parameters", async () => {
@@ -1035,27 +994,6 @@ describe("ProviderController", () => {
       expect(resolveData.providerId).toBe("openai");
       expect(resolveData.credentialId).toBe(connectData.credentialId);
       expect(resolveData.modelId).toBe("gpt-4o");
-    });
-
-    it("connects credential when model discovery returns no selectable models", async () => {
-      const env = createMockEnv({ emptyCatalogProviders: ["openrouter"] });
-      const connectResponse = await ProviderController.byokConnectCredential(
-        new Request("http://localhost/api/byok/credentials", {
-          method: "POST",
-          headers: await withByokHeaders(env),
-          body: JSON.stringify({
-            providerId: "openrouter",
-            secret: "sk-or-test-NOT-A-REAL-KEY-1234567890",
-            label: "OpenRouter",
-          }),
-        }),
-        env,
-      );
-      const connectData = await connectResponse.json();
-
-      expect(connectResponse.status).toBe(200);
-      expect(connectData.providerId).toBe("openrouter");
-      expect(connectData.label).toBe("OpenRouter");
     });
 
     it("resolves axis platform defaults when no BYOK credential is selected in staging", async () => {
