@@ -52,8 +52,13 @@ export function resolveTaskRepositoryFullName(
     return currentRepo?.full_name ?? null;
   }
 
-  if (inferSessionGitHubContext(requestedRepository, currentRepo, "")) {
-    return requestedRepository;
+  const inferredRepository = inferSessionGitHubContext(
+    requestedRepository,
+    currentRepo,
+    "",
+  );
+  if (inferredRepository) {
+    return inferredRepository.fullName;
   }
 
   if (currentRepo && requestedRepository === currentRepo.name) {

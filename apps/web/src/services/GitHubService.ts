@@ -256,7 +256,7 @@ export async function listWorkspaces(): Promise<WorkspaceListResponse> {
   );
 
   if (!response.ok) {
-    throw await readWorkspaceSelectionError(response);
+    throw await readWorkspaceListError(response);
   }
 
   return parseWorkspaceListResponse(await response.json());
@@ -273,6 +273,20 @@ async function readWorkspaceSelectionError(response: Response): Promise<Error> {
 
   return new Error(
     `Failed to persist workspace selection (HTTP ${response.status})${serverMessage}`,
+  );
+}
+
+async function readWorkspaceListError(response: Response): Promise<Error> {
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: unknown }
+    | null;
+  const serverMessage =
+    typeof payload?.error === "string" && payload.error.trim().length > 0
+      ? `: ${payload.error}`
+      : "";
+
+  return new Error(
+    `Failed to list workspaces (HTTP ${response.status})${serverMessage}`,
   );
 }
 

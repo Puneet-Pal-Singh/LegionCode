@@ -22,6 +22,7 @@ export function useGitDiff(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeScopeKeyRef = useRef(scopeKey);
+  const latestRequestIdRef = useRef(0);
 
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
@@ -31,6 +32,7 @@ export function useGitDiff(
   }, [scopeKey]);
 
   const fetchDiff = useCallback(async (path: string, staged = false) => {
+    const requestId = ++latestRequestIdRef.current;
     const requestScopeKey = scopeKey;
     if (!runId || !sessionId) {
       setError(!runId ? "No run context available" : "No session context available");
@@ -48,19 +50,19 @@ export function useGitDiff(
         staged,
       };
       const data = (await getGitDiff(params)) as DiffContent;
-      if (activeScopeKeyRef.current !== requestScopeKey) {
+      if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
         return;
       }
       setDiff(data);
     } catch (err) {
-      if (activeScopeKeyRef.current !== requestScopeKey) {
+      if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
         return;
       }
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
       console.error("[useGitDiff] Error:", err);
     } finally {
-      if (activeScopeKeyRef.current === requestScopeKey) {
+      if (requestId === latestRequestIdRef.current && activeScopeKeyRef.current === requestScopeKey) {
         setLoading(false);
       }
     }

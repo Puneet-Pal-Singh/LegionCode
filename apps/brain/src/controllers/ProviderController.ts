@@ -1839,7 +1839,7 @@ async function configureDefaultPreferenceWhenAvailable(
   const defaultModel = resolveOptionalDefaultModel(providerId, catalog);
   if (!defaultModel) {
     console.warn(
-      `[provider/byok] ${providerId}: connected without default model; catalog returned no selectable models`,
+      `[provider/byok] ${correlationId} ${providerId}: connected without default model; catalog returned no selectable models`,
     );
     return;
   }

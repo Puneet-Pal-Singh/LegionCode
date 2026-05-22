@@ -61,8 +61,8 @@ async function persistTerminalRunStatusFromRuntime(
     await persistenceService.updateRunStatus(
       runId,
       status,
-      run?.metadata.startedAt,
-      run?.metadata.completedAt ?? new Date().toISOString(),
+      run?.metadata?.startedAt,
+      run?.metadata?.completedAt ?? new Date().toISOString(),
     );
   } catch (error) {
     console.warn(

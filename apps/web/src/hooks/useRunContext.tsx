@@ -6,13 +6,14 @@ interface RunContextValue {
   sessionId: string | null;
 }
 
-const RunContext = createContext<RunContextValue>({
-  runId: null,
-  sessionId: null,
-});
+const RunContext = createContext<RunContextValue | undefined>(undefined);
 
 export function useRunContext(): RunContextValue {
-  return useContext(RunContext);
+  const context = useContext(RunContext);
+  if (!context) {
+    throw new Error("useRunContext must be used within RunContextProvider");
+  }
+  return context;
 }
 
 export function RunContextProvider({
