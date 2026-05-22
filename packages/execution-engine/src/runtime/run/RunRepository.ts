@@ -5,13 +5,18 @@
 // Session-run index can be rebuilt from Postgres RunRecord rows.
 
 import { Run } from "./Run.js";
-import type { RuntimeDurableObjectState, SerializedRun } from "../types.js";
+import type {
+  RunStatus,
+  RuntimeDurableObjectState,
+  SerializedRun,
+} from "../types.js";
 
 export interface IRunRepository {
   create(run: Run): Promise<void>;
   getById(runId: string): Promise<Run | null>;
   getBySession(sessionId: string): Promise<Run[]>;
   update(run: Run): Promise<void>;
+  updateUnlessStatus(run: Run, blockedStatuses: RunStatus[]): Promise<boolean>;
   listActiveRuns(): Promise<Run[]>;
 }
 
@@ -85,6 +90,28 @@ export class RunRepository implements IRunRepository {
     });
 
     console.log(`[run/repo] Updated run ${run.id} to status ${run.status}`);
+  }
+
+  async updateUnlessStatus(
+    run: Run,
+    blockedStatuses: RunStatus[],
+  ): Promise<boolean> {
+    const runKey = this.getRunKey(run.id);
+    let didUpdate = false;
+
+    await this.ctx.blockConcurrencyWhile(async () => {
+      const current = await this.ctx.storage.get<SerializedRun>(runKey);
+      if (current && blockedStatuses.includes(current.status)) {
+        return;
+      }
+      await this.ctx.storage.put(runKey, run.toJSON());
+      didUpdate = true;
+    });
+
+    if (didUpdate) {
+      console.log(`[run/repo] Updated run ${run.id} to status ${run.status}`);
+    }
+    return didUpdate;
   }
 
   async listActiveRuns(): Promise<Run[]> {

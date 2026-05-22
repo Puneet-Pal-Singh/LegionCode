@@ -30,7 +30,7 @@ export interface RunCompletionDependencies {
     role: "user" | "assistant",
   ) => Promise<void>;
   runEventRecorder: RunEventRecorder;
-  runRepo: Pick<RunRepository, "update"> & Partial<Pick<RunRepository, "getById">>;
+  runRepo: Pick<RunRepository, "getById" | "updateUnlessStatus">;
   safeMemoryOperation: <T>(
     operation: () => Promise<T>,
   ) => Promise<T | undefined>;
@@ -62,6 +62,7 @@ export async function completeRunWithAssistantMessage(params: {
 }): Promise<Response> {
   const { run, text, metadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
+  const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
     console.log(
       `[run/engine] Skipping assistant completion for cancelled run ${run.id}`,
@@ -71,13 +72,6 @@ export async function completeRunWithAssistantMessage(params: {
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
   recordLifecycleStep(run, "SYNTHESIS");
-  await deps.runEventRecorder.recordRunStatusChanged(
-    run.status,
-    run.status,
-    RUN_WORKFLOW_STEPS.SYNTHESIS,
-  );
-
-  await persistSynthesisArtifacts({ run, sanitizedText, deps });
   transitionRunToCompleted(run, run.id);
   recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
   recordOrchestrationTerminal(run);
@@ -86,7 +80,18 @@ export async function completeRunWithAssistantMessage(params: {
     finalSummary: sanitizedText,
   };
   run.metadata.terminalState = terminalState;
-  await deps.runRepo.update(run);
+  if (!(await updateCompletedRunIfActive(run, deps))) {
+    console.log(
+      `[run/engine] Skipping assistant completion for terminal run ${run.id}`,
+    );
+    return createStreamResponse("");
+  }
+  await deps.runEventRecorder.recordRunStatusChanged(
+    previousStatus,
+    run.status,
+    RUN_WORKFLOW_STEPS.SYNTHESIS,
+  );
+  await persistSynthesisArtifacts({ run, sanitizedText, deps });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
     sanitizedText,
@@ -111,6 +116,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
 }): Promise<Response> {
   const { run, text, plannerError, metadata, errorMetadata, deps } = params;
   const sanitizedText = sanitizeUserFacingOutput(text);
+  const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
     console.log(
       `[run/engine] Skipping recovered completion for cancelled run ${run.id}`,
@@ -120,13 +126,6 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
-  await deps.runEventRecorder.recordRunStatusChanged(
-    run.status,
-    run.status,
-    RUN_WORKFLOW_STEPS.SYNTHESIS,
-  );
-
-  await persistSynthesisArtifacts({ run, sanitizedText, deps });
   transitionRunToCompleted(run, run.id);
   if (plannerError !== undefined) {
     run.metadata.error = buildPlannerRecoveryMetadata(plannerError);
@@ -140,7 +139,18 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     finalSummary: sanitizedText,
   };
   run.metadata.terminalState = terminalState;
-  await deps.runRepo.update(run);
+  if (!(await updateCompletedRunIfActive(run, deps))) {
+    console.log(
+      `[run/engine] Skipping recovered completion for terminal run ${run.id}`,
+    );
+    return createStreamResponse("");
+  }
+  await deps.runEventRecorder.recordRunStatusChanged(
+    previousStatus,
+    run.status,
+    RUN_WORKFLOW_STEPS.SYNTHESIS,
+  );
+  await persistSynthesisArtifacts({ run, sanitizedText, deps });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
     sanitizedText,
@@ -156,8 +166,19 @@ async function isRunCancelledInStore(
   run: Run,
   deps: RunCompletionDependencies,
 ): Promise<boolean> {
-  const currentRun = await deps.runRepo.getById?.(run.id);
+  const currentRun = await deps.runRepo.getById(run.id);
   return currentRun?.status === "CANCELLED";
+}
+
+async function updateCompletedRunIfActive(
+  run: Run,
+  deps: RunCompletionDependencies,
+): Promise<boolean> {
+  return await deps.runRepo.updateUnlessStatus(run, [
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+  ]);
 }
 
 export async function tryHandlePlanningError(params: {
