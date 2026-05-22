@@ -199,25 +199,16 @@ export class HandleChatRequest {
         }
       }
 
-      // Persist user message (side effect)
-      try {
-        await this.persistenceService.persistUserMessage(
-          sessionId,
-          runId,
-          lastUserMessage,
-          {
-            userId,
-            workspaceId,
-            repository: repositorySlug,
-          },
-        );
-      } catch (persistError) {
-        console.warn(
-          `[chat/usecase] ${correlationId}: Failed to persist user message:`,
-          persistError,
-        );
-        // Don't fail the request if persistence fails
-      }
+      await this.persistenceService.persistUserMessage(
+        sessionId,
+        runId,
+        lastUserMessage,
+        {
+          userId,
+          workspaceId,
+          repository: repositorySlug,
+        },
+      );
 
       // Build execution payload with repository context
       const executionPayload = {
