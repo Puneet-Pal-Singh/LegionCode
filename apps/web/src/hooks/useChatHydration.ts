@@ -4,6 +4,7 @@ import { ChatHydrationService } from "../services/ChatHydrationService";
 
 interface UseChatHydrationResult {
   isHydrating: boolean;
+  hasHydrated: boolean;
 }
 
 /**
@@ -18,6 +19,7 @@ export function useChatHydration(
   setMessages: (messages: Message[]) => void,
 ): UseChatHydrationResult {
   const [isHydrating, setIsHydrating] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeKey = `${sessionId}:${runId}`;
@@ -26,13 +28,18 @@ export function useChatHydration(
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
+    setHasHydrated(false);
     setIsHydrating(false);
   }, [scopeKey]);
 
   // Perform hydration
   useEffect(() => {
     if (hasHydratedRef.current) return;
-    if (messagesLength > 0) return;
+    if (messagesLength > 0) {
+      hasHydratedRef.current = true;
+      setHasHydrated(true);
+      return;
+    }
 
     let cancelled = false;
     const requestScopeKey = scopeKey;
@@ -69,6 +76,7 @@ export function useChatHydration(
         if (isCurrentScope()) {
           setIsHydrating(false);
           hasHydratedRef.current = true;
+          setHasHydrated(true);
         }
       }
     }
@@ -81,5 +89,5 @@ export function useChatHydration(
     };
   }, [sessionId, runId, scopeKey, messagesLength, setMessages]);
 
-  return { isHydrating };
+  return { isHydrating, hasHydrated };
 }

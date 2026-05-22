@@ -9,6 +9,7 @@ interface UseChatPersistenceProps {
   messages: Message[];
   messagesLength: number;
   isLoading: boolean;
+  hasHydrated: boolean;
   isModelConfigReady: boolean;
   append: (message: { role: "user"; content: string }) => Promise<void>;
 }
@@ -24,6 +25,7 @@ export function useChatPersistence({
   messages,
   messagesLength,
   isLoading,
+  hasHydrated,
   isModelConfigReady,
   append,
 }: UseChatPersistenceProps): void {
@@ -50,6 +52,9 @@ export function useChatPersistence({
       return;
     }
     if (!isModelConfigReady) {
+      return;
+    }
+    if (!hasHydrated) {
       return;
     }
     if (!persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)) {
@@ -101,6 +106,7 @@ export function useChatPersistence({
     scopeKey,
     messagesLength,
     isLoading,
+    hasHydrated,
     isModelConfigReady,
     append,
     persistenceService,
