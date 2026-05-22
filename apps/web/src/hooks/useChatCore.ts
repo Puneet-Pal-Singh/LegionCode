@@ -7,6 +7,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -206,6 +207,10 @@ export function useChatCore(
     credentials: "include",
     fetch: authenticatedChatFetch,
   });
+
+  useLayoutEffect(() => {
+    setMessages([]);
+  }, [scopeKey, setMessages]);
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {

@@ -47,6 +47,7 @@ vi.mock("../services/SessionStateService", () => ({
 describe("useChatCore", () => {
   let appendSpy: ReturnType<typeof vi.fn>;
   let stopStreamSpy: ReturnType<typeof vi.fn>;
+  let setMessagesSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -54,13 +55,14 @@ describe("useChatCore", () => {
     mockUseChat.mockReset();
     appendSpy = vi.fn();
     stopStreamSpy = vi.fn();
+    setMessagesSpy = vi.fn();
     mockUseChat.mockReturnValue({
       messages: [],
       input: "",
       handleInputChange: vi.fn(),
       isLoading: false,
       stop: stopStreamSpy,
-      setMessages: vi.fn(),
+      setMessages: setMessagesSpy,
       append: appendSpy,
     });
     localStorage.clear();
@@ -154,6 +156,26 @@ describe("useChatCore", () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.debugEvents).toHaveLength(0);
+  });
+
+  it("clears local chat messages when switching run scope", () => {
+    const { rerender } = renderHook(
+      ({ sessionId, runId }) => useChatCore(sessionId, runId),
+      {
+        initialProps: {
+          sessionId: "session-1",
+          runId: "run-1",
+        },
+      },
+    );
+
+    setMessagesSpy.mockClear();
+
+    act(() => {
+      rerender({ sessionId: "session-1", runId: "run-2" });
+    });
+
+    expect(setMessagesSpy).toHaveBeenCalledWith([]);
   });
 
   it("sends explicit plan mode in request overrides", async () => {
