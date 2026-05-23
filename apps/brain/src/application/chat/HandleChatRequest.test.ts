@@ -306,6 +306,47 @@ describe("HandleChatRequest", () => {
     });
   });
 
+  it("rejects stale history that does not end with the submitted prompt", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+
+    await expect(
+      useCase.execute({
+        sessionId: "session-1",
+        runId: "123e4567-e89b-42d3-a456-426614174000",
+        correlationId: "corr-stale-history",
+        agentType: "coding",
+        prompt: "fresh prompt",
+        messages: [
+          { role: "user", content: "fresh prompt" },
+          { role: "assistant", content: "stale answer" },
+        ],
+      }),
+    ).rejects.toMatchObject<Partial<ValidationError>>({
+      code: "LATEST_MESSAGE_NOT_USER",
+    });
+  });
+
+  it("rejects prompts that do not match the latest user message", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+
+    const useCase = new HandleChatRequest(createEnv());
+
+    await expect(
+      useCase.execute({
+        sessionId: "session-1",
+        runId: "123e4567-e89b-42d3-a456-426614174000",
+        correlationId: "corr-mismatched-prompt",
+        agentType: "coding",
+        prompt: "different prompt",
+        messages: [{ role: "user", content: "latest user prompt" }],
+      }),
+    ).rejects.toMatchObject<Partial<ValidationError>>({
+      code: "PROMPT_MESSAGE_MISMATCH",
+    });
+  });
+
   it("fails fast when the canonical user message cannot be persisted", async () => {
     const persistSpy = vi
       .spyOn(PersistenceService.prototype, "persistUserMessage")
