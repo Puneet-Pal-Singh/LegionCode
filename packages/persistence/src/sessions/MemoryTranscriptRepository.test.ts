@@ -92,6 +92,42 @@ describe("MemoryTranscriptRepository", () => {
     expect(result.sessions).toHaveLength(0);
   });
 
+  it("preserves omitted nullable metadata and clears explicit nulls", async () => {
+    const repository = new MemoryTranscriptRepository();
+
+    await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      title: "Original title",
+      repository: "acme/legioncode",
+      activeRunId: "run-1",
+    });
+
+    const preserved = await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+    });
+
+    expect(preserved.workspaceId).toBe("workspace-1");
+    expect(preserved.repository).toBe("acme/legioncode");
+    expect(preserved.activeRunId).toBe("run-1");
+    expect(preserved.title).toBe("Original title");
+
+    const cleared = await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      workspaceId: null,
+      repository: null,
+      activeRunId: null,
+    });
+
+    expect(cleared.workspaceId).toBeNull();
+    expect(cleared.repository).toBeNull();
+    expect(cleared.activeRunId).toBeNull();
+    expect(cleared.title).toBe("Original title");
+  });
+
   it("does not hydrate another user's transcript", async () => {
     const repository = new MemoryTranscriptRepository();
 
