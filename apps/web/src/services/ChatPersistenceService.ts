@@ -23,9 +23,7 @@ export class ChatPersistenceService {
    * Key: shadowbox:run:{runId}:messages
    */
   syncToStore(runId: string, messages: Message[]): void {
-    if (messages.length > 0) {
-      agentStore.setMessages(runId, messages);
-    }
+    agentStore.setMessages(runId, messages);
   }
 
   /**
