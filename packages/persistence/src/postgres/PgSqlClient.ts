@@ -14,6 +14,9 @@ export interface PgConnection {
 }
 
 export class PgSqlClient implements SqlClient {
+  private transactionDepth = 0;
+  private savepointSequence = 0;
+
   constructor(private readonly connection: PgConnection) {}
 
   async query<Row extends SqlRow = SqlRow>(
@@ -33,18 +36,50 @@ export class PgSqlClient implements SqlClient {
   async transaction<T>(
     callback: (client: SqlClient) => Promise<T>,
   ): Promise<T> {
-    await this.query("BEGIN");
+    const scope = this.createTransactionScope();
+    await this.query(scope.begin);
+    this.transactionDepth += 1;
     try {
       const result = await callback(this);
-      await this.query("COMMIT");
+      await this.query(scope.commit);
       return result;
     } catch (error) {
-      try {
-        await this.query("ROLLBACK");
-      } catch (rollbackError) {
-        attachRollbackError(error, rollbackError);
-      }
+      await this.rollbackTransactionScope(scope.rollback, error);
       throw error;
+    } finally {
+      this.transactionDepth -= 1;
+    }
+  }
+
+  private createTransactionScope(): {
+    begin: string;
+    commit: string;
+    rollback: string;
+  } {
+    if (this.transactionDepth === 0) {
+      return {
+        begin: "BEGIN",
+        commit: "COMMIT",
+        rollback: "ROLLBACK",
+      };
+    }
+
+    const savepoint = `shadowbox_sp_${(this.savepointSequence += 1)}`;
+    return {
+      begin: `SAVEPOINT ${savepoint}`,
+      commit: `RELEASE SAVEPOINT ${savepoint}`,
+      rollback: `ROLLBACK TO SAVEPOINT ${savepoint}`,
+    };
+  }
+
+  private async rollbackTransactionScope(
+    statement: string,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await this.query(statement);
+    } catch (rollbackError) {
+      attachRollbackError(error, rollbackError);
     }
   }
 }
