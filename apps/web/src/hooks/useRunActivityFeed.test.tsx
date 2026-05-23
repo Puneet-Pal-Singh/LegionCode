@@ -25,23 +25,12 @@ describe("useRunActivityFeed", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
-        createResponse([
-          {
-            id: "text-1",
-            runId: "run-1",
-            sessionId: "session-1",
-            turnId: "turn-1",
-            kind: ACTIVITY_PART_KINDS.TEXT,
-            createdAt: "2026-03-24T10:00:00.000Z",
-            updatedAt: "2026-03-24T10:00:00.000Z",
-            source: "brain",
-            role: "user",
-            content: "Inspect the app.",
-          },
+        createResponse("run-1", [
+          createTextPart("run-1", "Inspect the app."),
         ]),
       )
       .mockResolvedValueOnce(
-        createResponse([
+        createResponse("run-1", [
           {
             id: "text-1",
             runId: "run-1",
@@ -91,12 +80,51 @@ describe("useRunActivityFeed", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
+
+  it("does not expose the previous run feed during a run switch", async () => {
+    let resolveRunTwoFetch: ((response: Response) => void) | null = null;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        createResponse("run-1", [createTextPart("run-1", "Old run")]),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveRunTwoFetch = resolve;
+          }),
+      );
+
+    const { result, rerender } = renderHook(
+      ({ runId }) => useRunActivityFeed(runId),
+      {
+        initialProps: { runId: "run-1" },
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.feed?.runId).toBe("run-1");
+    });
+
+    rerender({ runId: "run-2" });
+
+    expect(result.current.feed).toBeNull();
+
+    act(() => {
+      resolveRunTwoFetch?.(
+        createResponse("run-2", [createTextPart("run-2", "New run")]),
+      );
+    });
+
+    await waitFor(() => {
+      expect(result.current.feed?.runId).toBe("run-2");
+    });
+  });
 });
 
-function createResponse(items: unknown[]): Response {
+function createResponse(runId: string, items: unknown[]): Response {
   return new Response(
     JSON.stringify({
-      runId: "run-1",
+      runId,
       sessionId: "session-1",
       status: "RUNNING",
       items,
@@ -110,4 +138,19 @@ function setVisibilityState(state: DocumentVisibilityState): void {
     configurable: true,
     value: state,
   });
+}
+
+function createTextPart(runId: string, content: string): unknown {
+  return {
+    id: `${runId}-text-1`,
+    runId,
+    sessionId: "session-1",
+    turnId: `${runId}-turn-1`,
+    kind: ACTIVITY_PART_KINDS.TEXT,
+    createdAt: "2026-03-24T10:00:00.000Z",
+    updatedAt: "2026-03-24T10:00:00.000Z",
+    source: "brain",
+    role: "user",
+    content,
+  };
 }

@@ -153,7 +153,7 @@ export function useRunActivityFeed(
     };
   }, [fetchFeed, runId]);
 
-  return { feed };
+  return { feed: feed?.runId === runId.trim() ? feed : null };
 }
 
 function logActivityFeedWarning(

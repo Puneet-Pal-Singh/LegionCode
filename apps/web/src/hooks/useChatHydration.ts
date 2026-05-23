@@ -7,6 +7,9 @@ interface UseChatHydrationResult {
   hasHydrated: boolean;
 }
 
+const MAX_HYDRATION_ATTEMPTS = 3;
+const HYDRATION_RETRY_DELAY_MS = 300;
+
 /**
  * useChatHydration
  * Handles message hydration from server
@@ -20,7 +23,9 @@ export function useChatHydration(
 ): UseChatHydrationResult {
   const [isHydrating, setIsHydrating] = useState(false);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [retrySignal, setRetrySignal] = useState(0);
   const hasHydratedRef = useRef(false);
+  const attemptCountRef = useRef(0);
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeKey = `${sessionId}:${runId}`;
   const activeScopeKeyRef = useRef(scopeKey);
@@ -28,6 +33,7 @@ export function useChatHydration(
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
+    attemptCountRef.current = 0;
     setHasHydrated(false);
     setIsHydrating(false);
   }, [scopeKey]);
@@ -37,11 +43,13 @@ export function useChatHydration(
     if (hasHydratedRef.current) return;
     if (messagesLength > 0) {
       hasHydratedRef.current = true;
+      attemptCountRef.current = 0;
       setHasHydrated(true);
       return;
     }
 
     let cancelled = false;
+    let retryTimer: number | null = null;
     const requestScopeKey = scopeKey;
     const isCurrentScope = () =>
       !cancelled && activeScopeKeyRef.current === requestScopeKey;
@@ -51,7 +59,21 @@ export function useChatHydration(
       }
     }, 150);
 
+    const scheduleRetry = (error: unknown): void => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("🧬 [LegionCode] Hydration failed:", message);
+      if (attemptCountRef.current >= MAX_HYDRATION_ATTEMPTS) {
+        return;
+      }
+      retryTimer = window.setTimeout(() => {
+        if (isCurrentScope()) {
+          setRetrySignal((current) => current + 1);
+        }
+      }, HYDRATION_RETRY_DELAY_MS);
+    };
+
     async function hydrate() {
+      attemptCountRef.current += 1;
       try {
         const result = await hydrationServiceRef.current.hydrateMessages(
           sessionId,
@@ -63,7 +85,7 @@ export function useChatHydration(
         }
 
         if (result.error) {
-          console.error("🧬 [LegionCode] Hydration failed:", result.error);
+          scheduleRetry(result.error);
           return;
         }
 
@@ -72,10 +94,11 @@ export function useChatHydration(
         }
 
         hasHydratedRef.current = true;
+        attemptCountRef.current = 0;
         setHasHydrated(true);
       } catch (error) {
         if (isCurrentScope()) {
-          console.error("🧬 [LegionCode] Hydration failed:", error);
+          scheduleRetry(error);
         }
       } finally {
         window.clearTimeout(loadingTimer);
@@ -90,8 +113,11 @@ export function useChatHydration(
     return () => {
       cancelled = true;
       window.clearTimeout(loadingTimer);
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
     };
-  }, [sessionId, runId, scopeKey, messagesLength, setMessages]);
+  }, [sessionId, runId, scopeKey, messagesLength, retrySignal, setMessages]);
 
   return { isHydrating, hasHydrated };
 }

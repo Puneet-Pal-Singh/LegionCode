@@ -292,9 +292,10 @@ export function ChatInterface({
     () => derivePendingApprovalFromEvents(events),
     [events],
   );
+  const scopedFeed = feed?.runId === runId ? feed : null;
   const activityViewModel = useMemo(
-    () => buildActivityFeedViewModel(feed, activityNowMs),
-    [feed, activityNowMs],
+    () => buildActivityFeedViewModel(scopedFeed, activityNowMs),
+    [scopedFeed, activityNowMs],
   );
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
@@ -302,7 +303,7 @@ export function ChatInterface({
   );
   const activityChangedFilesByAssistantMessageId = useMemo(
     () => {
-      if (feed?.runId !== runId) {
+      if (!scopedFeed) {
         return {};
       }
       return deriveActivityChangedFilesByAssistantMessageId(
@@ -310,7 +311,7 @@ export function ChatInterface({
         activityViewModel.turns,
       );
     },
-    [activityViewModel.turns, conversationTurns, feed?.runId, runId],
+    [activityViewModel.turns, conversationTurns, scopedFeed],
   );
   const changedFileSnapshotsByAssistantMessageId = useMemo(
     () => ({
@@ -420,7 +421,7 @@ export function ChatInterface({
   }, [runId]);
 
   useEffect(() => {
-    if (feed?.status !== "RUNNING") {
+    if (scopedFeed?.status !== "RUNNING") {
       return;
     }
 
@@ -431,7 +432,7 @@ export function ChatInterface({
     return () => {
       window.clearInterval(timerId);
     };
-  }, [feed?.status]);
+  }, [runId, scopedFeed?.status]);
 
   const handleInputChangeWrapper = useCallback(
     (value: string) => {
