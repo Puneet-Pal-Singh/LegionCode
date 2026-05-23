@@ -783,7 +783,14 @@ export class RunEngine implements IRunEngine {
     run.transition("CANCELLED");
     recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
     recordOrchestrationTerminal(run);
-    await this.runRepo.update(run);
+    const cancelled = await this.runRepo.updateUnlessStatus(run, [
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED",
+    ]);
+    if (!cancelled) {
+      return false;
+    }
     await this.runEventRecorder.recordRunStatusChanged(
       previousStatus,
       run.status,

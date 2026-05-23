@@ -150,8 +150,17 @@ describe("RunEngine", () => {
     const privateApi = runEngine as unknown as {
       runRepo: {
         update(run: Run): Promise<void>;
+        updateUnlessStatus(
+          run: Run,
+          blockedStatuses: string[],
+        ): Promise<boolean>;
       };
       runEventRecorder: {
+        recordRunStatusChanged(
+          previousStatus: string,
+          currentStatus: string,
+          step: string,
+        ): Promise<void>;
         recordMessageEmitted(
           role: "user" | "assistant" | "system",
           content: string,
@@ -164,7 +173,10 @@ describe("RunEngine", () => {
       };
     };
     const callOrder: string[] = [];
-    const originalUpdate = privateApi.runRepo.update.bind(privateApi.runRepo);
+    const originalRecordRunStatusChanged =
+      privateApi.runEventRecorder.recordRunStatusChanged.bind(
+        privateApi.runEventRecorder,
+      );
     const originalRecordMessageEmitted =
       privateApi.runEventRecorder.recordMessageEmitted.bind(
         privateApi.runEventRecorder,
@@ -174,12 +186,21 @@ describe("RunEngine", () => {
         privateApi.runEventRecorder,
       );
 
-    vi.spyOn(privateApi.runRepo, "update").mockImplementation(async (run) => {
-      if (run.status === "COMPLETED") {
-        callOrder.push("update");
-      }
-      return originalUpdate(run);
-    });
+    vi.spyOn(
+      privateApi.runEventRecorder,
+      "recordRunStatusChanged",
+    ).mockImplementation(
+      async (previousStatus: string, currentStatus: string, step: string) => {
+        if (currentStatus === "COMPLETED") {
+          callOrder.push("update");
+        }
+        return originalRecordRunStatusChanged(
+          previousStatus,
+          currentStatus,
+          step,
+        );
+      },
+    );
     vi.spyOn(
       privateApi.runEventRecorder,
       "recordMessageEmitted",
@@ -697,8 +718,17 @@ describe("RunEngine", () => {
     const privateApi = runEngine as unknown as {
       runRepo: {
         update(run: Run): Promise<void>;
+        updateUnlessStatus(
+          run: Run,
+          blockedStatuses: string[],
+        ): Promise<boolean>;
       };
       runEventRecorder: {
+        recordRunStatusChanged(
+          previousStatus: string,
+          currentStatus: string,
+          step: string,
+        ): Promise<void>;
         recordMessageEmitted(
           role: "user" | "assistant" | "system",
           content: string,
@@ -711,7 +741,10 @@ describe("RunEngine", () => {
       };
     };
     const callOrder: string[] = [];
-    const originalUpdate = privateApi.runRepo.update.bind(privateApi.runRepo);
+    const originalRecordRunStatusChanged =
+      privateApi.runEventRecorder.recordRunStatusChanged.bind(
+        privateApi.runEventRecorder,
+      );
     const originalRecordMessageEmitted =
       privateApi.runEventRecorder.recordMessageEmitted.bind(
         privateApi.runEventRecorder,
@@ -721,12 +754,21 @@ describe("RunEngine", () => {
         privateApi.runEventRecorder,
       );
 
-    vi.spyOn(privateApi.runRepo, "update").mockImplementation(async (run) => {
-      if (run.status === "COMPLETED") {
-        callOrder.push("update");
-      }
-      return originalUpdate(run);
-    });
+    vi.spyOn(
+      privateApi.runEventRecorder,
+      "recordRunStatusChanged",
+    ).mockImplementation(
+      async (previousStatus: string, currentStatus: string, step: string) => {
+        if (currentStatus === "COMPLETED") {
+          callOrder.push("update");
+        }
+        return originalRecordRunStatusChanged(
+          previousStatus,
+          currentStatus,
+          step,
+        );
+      },
+    );
     vi.spyOn(
       privateApi.runEventRecorder,
       "recordMessageEmitted",
