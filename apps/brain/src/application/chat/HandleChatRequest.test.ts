@@ -307,25 +307,24 @@ describe("HandleChatRequest", () => {
     });
   });
 
-  it("continues when persistence fails and still returns execution payload", async () => {
+  it("fails fast when the canonical user message cannot be persisted", async () => {
     const persistSpy = vi
       .spyOn(PersistenceService.prototype, "persistUserMessage")
       .mockRejectedValue(new Error("storage unavailable"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const useCase = new HandleChatRequest(createEnv());
-    const result = await useCase.execute({
-      sessionId: "session-1",
-      runId: "123e4567-e89b-42d3-a456-426614174000",
-      correlationId: "corr-4",
-      agentType: "coding",
-      prompt: "hello",
-      messages: [{ role: "user", content: "hello" }],
-    });
+    await expect(
+      useCase.execute({
+        sessionId: "session-1",
+        runId: "123e4567-e89b-42d3-a456-426614174000",
+        correlationId: "corr-4",
+        agentType: "coding",
+        prompt: "hello",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    ).rejects.toThrow("storage unavailable");
 
-    expect(result.success).toBe(true);
     expect(persistSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalled();
   });
 });
 

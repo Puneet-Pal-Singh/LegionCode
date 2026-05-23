@@ -12,6 +12,7 @@ import type {
 } from "@repo/persistence";
 import { pruneToolResults } from "@shadowbox/context-pruner";
 import { Env } from "../types/ai";
+import { DomainError } from "../domain/errors";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
 import { withRunRepository } from "./runs/RunPersistenceFactory";
 
@@ -20,6 +21,29 @@ interface PersistMessageContext {
   workspaceId?: string;
   title?: string;
   repository?: string;
+}
+
+type TranscriptPersistenceOperation =
+  | "persistUserMessage"
+  | "persistConversation";
+
+export class TranscriptPersistenceError extends DomainError {
+  constructor(
+    operation: TranscriptPersistenceOperation,
+    _cause: unknown,
+    correlationId?: string,
+  ) {
+    super(
+      "TRANSCRIPT_PERSISTENCE_FAILED",
+      "Transcript persistence failed",
+      503,
+      true,
+      correlationId,
+      {
+        operation,
+      },
+    );
+  }
 }
 
 export interface EnsureRunInput {
@@ -150,8 +174,9 @@ export class PersistenceService {
         context,
       });
       console.log(`[Brain] Persisted ${message.role} message for run ${runId}`);
-    } catch (e) {
-      console.error("[Brain] Persist user message failed", e);
+    } catch (error) {
+      console.error("[Brain] Persist user message failed", error);
+      throw new TranscriptPersistenceError("persistUserMessage", error);
     }
   }
 
@@ -177,8 +202,13 @@ export class PersistenceService {
         await this.persistPrunedHistory(sessionId, runId, prunedHistory);
         console.log(`[Brain:${correlationId}] History Sync Successful`);
       }
-    } catch (e) {
-      console.error(`[Brain:${correlationId}] History Sync Failed:`, e);
+    } catch (error) {
+      console.error(`[Brain:${correlationId}] History Sync Failed:`, error);
+      throw new TranscriptPersistenceError(
+        "persistConversation",
+        error,
+        correlationId,
+      );
     }
   }
 
@@ -317,3 +347,5 @@ function readClientMessageId(message: CoreMessage): string | null {
 function toJsonValue(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
+
+
