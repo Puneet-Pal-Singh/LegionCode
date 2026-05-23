@@ -197,8 +197,13 @@ export class PersistenceService {
         `[Brain:${correlationId}] Pruned for context sync: ${prunedHistory.length} messages`,
       );
 
-      if (prunedHistory.length > 0) {
-        await this.persistPrunedHistory(sessionId, runId, prunedHistory);
+      const latestMessage = prunedHistory.at(-1);
+      if (latestMessage) {
+        await this.persistLatestConversationMessage(
+          sessionId,
+          runId,
+          latestMessage,
+        );
         console.log(`[Brain:${correlationId}] History Sync Successful`);
       }
     } catch (error) {
@@ -211,35 +216,33 @@ export class PersistenceService {
     }
   }
 
-  private async persistPrunedHistory(
+  private async persistLatestConversationMessage(
     sessionId: string,
     runId: string,
-    messages: CoreMessage[],
+    message: CoreMessage,
   ): Promise<void> {
     await withTranscriptRepository(this.env, async (repository) => {
       await repository.transaction(async (txRepo) => {
-        for (const message of messages) {
-          const content =
-            typeof message.content === "string"
-              ? message.content
-              : JSON.stringify(message.content);
-          const idempotencyKey = await this.generateMessageIdempotencyKey(
+        const content =
+          typeof message.content === "string"
+            ? message.content
+            : JSON.stringify(message.content);
+        const idempotencyKey = await this.generateMessageIdempotencyKey(
+          sessionId,
+          runId,
+          message,
+          content,
+        );
+        await this.persistMessage(
+          {
             sessionId,
             runId,
             message,
-            content,
-          );
-          await this.persistMessage(
-            {
-              sessionId,
-              runId,
-              message,
-              idempotencyKey,
-              context: {},
-            },
-            txRepo,
-          );
-        }
+            idempotencyKey,
+            context: {},
+          },
+          txRepo,
+        );
       });
     });
   }

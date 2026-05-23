@@ -116,6 +116,37 @@ describe("PersistenceService", () => {
       status: 503,
     });
   });
+
+  it("does not replay prior conversation history under the current run", async () => {
+    const repository = createTransactionalTranscriptRepository();
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    await service.persistConversation(
+      "123e4567-e89b-42d3-a456-426614174001",
+      "123e4567-e89b-42d3-a456-426614174000",
+      [
+        { role: "user", content: "old prompt" },
+        { role: "assistant", content: "old answer" },
+        { role: "user", content: "current prompt" },
+      ],
+      "corr-history-sync",
+    );
+
+    expect(repository.appendMessageToExistingSession).toHaveBeenCalledTimes(1);
+    expect(repository.appendMessageToExistingSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "user",
+        runId: "123e4567-e89b-42d3-a456-426614174000",
+        parts: [{ type: "text", content: { text: "current prompt" } }],
+      }),
+    );
+  });
 });
 
 function createEnv(): Env {
@@ -143,4 +174,17 @@ function createTranscriptMessageRecord(): TranscriptMessageRecord {
     createdAt: "2026-05-23T00:00:00.000Z",
     parts: [],
   };
+}
+
+function createTransactionalTranscriptRepository(): TranscriptRepository {
+  const repository = {} as Partial<TranscriptRepository> as TranscriptRepository;
+  repository.appendMessageToExistingSession = vi.fn(async () =>
+    createTranscriptMessageRecord(),
+  );
+  repository.transaction = vi.fn(
+    async (callback: (repository: TranscriptRepository) => Promise<unknown>) =>
+      callback(repository),
+  );
+
+  return repository;
 }
