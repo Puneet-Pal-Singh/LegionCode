@@ -4,7 +4,7 @@
  * Verifies that Cloudflare adapters implement port contracts correctly.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import { CloudflareEventStreamAdapter } from "./CloudflareEventStreamAdapter";
 import type { StreamEvent } from "../ports";
@@ -86,7 +86,7 @@ describe("Runtime Adapters", () => {
       expect(stream instanceof ReadableStream).toBe(true);
     });
 
-    it("should reopen completed runs when a recycled lifecycle emits again", async () => {
+    it("should keep completed run lifecycles closed", async () => {
       const event: StreamEvent = {
         version: 1,
         eventId: "evt-1",
@@ -97,15 +97,18 @@ describe("Runtime Adapters", () => {
         payload: { content: "hello", role: "assistant" },
       };
 
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       adapter.complete("test-run");
       const stream = adapter.getStream("test-run");
-      expect(() => adapter.emit(event)).not.toThrow();
-
-      adapter.complete("test-run");
+      adapter.emit(event);
 
       const events = await readStreamEvents(stream);
-      expect(events).toHaveLength(1);
-      expect(events[0]?.eventId).toBe("evt-1");
+
+      expect(events).toHaveLength(0);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[event-stream] Ignoring event for completed run test-run",
+      );
+      warnSpy.mockRestore();
     });
 
     it("should stream NDJSON envelopes in emitted order", async () => {

@@ -28,8 +28,10 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
 
   emit(event: StreamEvent): void {
     if (this.completed.has(event.runId)) {
-      // Runs can be recycled across turns, so a new event means a new lifecycle.
-      this.completed.delete(event.runId);
+      console.warn(
+        `[event-stream] Ignoring event for completed run ${event.runId}`,
+      );
+      return;
     }
 
     const key = event.runId;
@@ -91,12 +93,16 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
 
     return new ReadableStream<Uint8Array>({
       start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
+        if (this.completed.has(runId)) {
+          controller.close();
+          return;
+        }
+
         const subscriber = {
           controller,
           nextEventIndex: 0,
         };
         activeSubscriber = subscriber;
-        this.completed.delete(runId);
         const subscribers = this.subscribers.get(runId) ?? new Set();
         subscribers.add(subscriber);
         this.subscribers.set(runId, subscribers);
