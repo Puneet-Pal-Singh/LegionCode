@@ -6,7 +6,7 @@ import {
   Rows3,
   SquareSplitHorizontal,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useGitReview } from "../git/GitReviewContext";
@@ -60,7 +60,7 @@ export function ChangesPanel({
   };
 
   const showChangesList = mode === "sidebar" || layout !== "stacked";
-  const files = status?.files ?? [];
+  const files = useMemo(() => status?.files ?? [], [status?.files]);
 
   useEffect(() => {
     if (showChangesList || selectedFile || files.length === 0) {
