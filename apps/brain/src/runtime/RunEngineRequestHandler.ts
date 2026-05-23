@@ -53,7 +53,7 @@ const ApprovalDecisionRequestSchema = z.object({
 });
 
 export interface RunEngineRequestLock {
-  <T>(operation: () => Promise<T>): Promise<T>;
+  <T>(runId: string, operation: () => Promise<T>): Promise<T>;
 }
 
 export interface RunEngineExecuteResult {
@@ -449,7 +449,7 @@ export class RunEngineRequestHandler {
     }
 
     try {
-      return await this.withExecutionLock(async () => {
+      return await this.withExecutionLock(payload.runId, async () => {
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
           this.ctx,
