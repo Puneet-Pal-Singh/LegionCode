@@ -5,6 +5,10 @@ import { SecureGitArtifactClient } from "./SecureGitArtifactClient";
 import { changedFilesFromStatus } from "./EditArtifactCaptureService";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
 
+type RestoreResult = "not-needed" | "restored" | "requires-user-resolution";
+
+const restoreRequestsByRun = new Map<string, Promise<RestoreResult>>();
+
 export class EditArtifactRestoreService {
   private readonly objectStore: EditArtifactObjectStore;
 
@@ -20,7 +24,30 @@ export class EditArtifactRestoreService {
     runId: string;
     muscleSession: string;
     currentStatus: GitStatusResponse;
-  }): Promise<"not-needed" | "restored" | "requires-user-resolution"> {
+  }): Promise<RestoreResult> {
+    const restoreKey = `${input.userId}:${input.runId}`;
+    const existingRequest = restoreRequestsByRun.get(restoreKey);
+    if (existingRequest) {
+      return await existingRequest;
+    }
+
+    const restoreRequest = this.restoreLatestIfWorkspaceIsEmptyOnce(input);
+    restoreRequestsByRun.set(restoreKey, restoreRequest);
+    try {
+      return await restoreRequest;
+    } finally {
+      if (restoreRequestsByRun.get(restoreKey) === restoreRequest) {
+        restoreRequestsByRun.delete(restoreKey);
+      }
+    }
+  }
+
+  private async restoreLatestIfWorkspaceIsEmptyOnce(input: {
+    userId: string;
+    runId: string;
+    muscleSession: string;
+    currentStatus: GitStatusResponse;
+  }): Promise<RestoreResult> {
     if (!shouldRestore(input.currentStatus)) {
       return "not-needed";
     }

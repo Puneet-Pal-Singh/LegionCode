@@ -97,6 +97,7 @@ type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
 const bootstrapRequestsByRun = new Map<string, Promise<GitBootstrapResult>>();
+const statusRestoreAttemptsByRun = new Set<string>();
 const ERROR_LOG_WINDOW_MS = 30_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_ATTEMPTS = 3;
@@ -153,7 +154,7 @@ export class GitController {
 
       const muscleSession = resolveMuscleSessionId(runId, sessionId);
       let data = await getCurrentGitStatus(env, muscleSession, runId);
-      if (canRestoreEditArtifacts(env)) {
+      if (canRestoreEditArtifacts(env) && shouldAttemptStatusRestore(runId, data)) {
         const restoreResult = await restoreLatestEditArtifactIfNeeded(
           req,
           env,
@@ -540,6 +541,20 @@ export class GitController {
       return handleGitControllerError(req, env, error, "bootstrap");
     }
   }
+}
+
+function shouldAttemptStatusRestore(
+  runId: string,
+  status: GitStatusResponse,
+): boolean {
+  if (!status.gitAvailable || status.files.length > 0) {
+    return false;
+  }
+  if (statusRestoreAttemptsByRun.has(runId)) {
+    return false;
+  }
+  statusRestoreAttemptsByRun.add(runId);
+  return true;
 }
 
 async function parseGitBootstrapRequestBody(
