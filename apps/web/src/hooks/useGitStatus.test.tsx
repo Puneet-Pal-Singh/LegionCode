@@ -109,6 +109,18 @@ describe("useGitStatus", () => {
     expect(result.result.current.gitAvailable).toBe(true);
   });
 
+  it("does not surface an error while session context is still hydrating", async () => {
+    const getGitStatusMock = vi.mocked(getGitStatus);
+
+    const result = renderHook(() => useGitStatus("run-1", undefined));
+
+    await waitFor(() => {
+      expect(result.result.current.loading).toBe(false);
+    });
+    expect(result.result.current.error).toBeNull();
+    expect(getGitStatusMock).not.toHaveBeenCalled();
+  });
+
   it("invalidates cached status when the brain runtime boot id changes", async () => {
     const getGitStatusMock = vi.mocked(getGitStatus);
     getGitStatusMock

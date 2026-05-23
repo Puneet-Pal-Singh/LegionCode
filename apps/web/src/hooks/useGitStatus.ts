@@ -66,7 +66,6 @@ export function useGitStatus(
       if (!runId || !sessionId || !cacheKey) {
         setLoading(false);
         applyStatusSnapshot(null);
-        setError(!runId ? null : "No session context available");
         return;
       }
 
