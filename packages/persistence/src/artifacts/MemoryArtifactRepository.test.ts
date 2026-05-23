@@ -26,6 +26,21 @@ describe("MemoryArtifactRepository", () => {
     expect(otherUser).toBeNull();
   });
 
+  it("can resolve a restorable artifact by run without an auth user", async () => {
+    const repository = new MemoryArtifactRepository();
+    await repository.createPendingArtifact(baseArtifact({ userId: "user-1" }));
+    await repository.updateStatus({
+      artifactId: "artifact-1",
+      userId: "user-1",
+      status: "stored",
+    });
+
+    const artifact = await repository.getLatestRestorableArtifactForRun("run-1");
+
+    expect(artifact?.id).toBe("artifact-1");
+    expect(artifact?.userId).toBe("user-1");
+  });
+
   it("returns stale pending artifacts for retention repair", async () => {
     const repository = new MemoryArtifactRepository({
       now: () => new Date("2026-05-10T00:00:00.000Z"),

@@ -183,10 +183,13 @@ export async function getGitHubClient(
 export async function getAuthenticatedUserSession(
   request: Request,
   env: Env,
+  options: { warnOnMissingCookie?: boolean } = {},
 ): Promise<{ userId: string; session: UserSessionRecord } | null> {
   const sessionToken = extractSessionToken(request);
   if (!sessionToken) {
-    console.warn("[auth/session] missing session cookie on request");
+    if (options.warnOnMissingCookie ?? true) {
+      console.warn("[auth/session] missing session cookie on request");
+    }
     return null;
   }
 

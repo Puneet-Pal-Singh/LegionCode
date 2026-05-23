@@ -97,6 +97,15 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     return matches[0] ?? null;
   }
 
+  async getLatestRestorableArtifactForRun(
+    runId: string,
+  ): Promise<EditArtifactRecord | null> {
+    const matches = Array.from(this.artifacts.values())
+      .filter((artifact) => isRestorableForRun(artifact, runId))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return matches[0] ?? null;
+  }
+
   async listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]> {
     return Array.from(this.artifacts.values()).filter(
       (artifact) =>
@@ -143,8 +152,17 @@ function isRestorable(
   userId: string,
 ): boolean {
   return (
+    isRestorableForRun(artifact, runId) &&
+    artifact.userId === userId
+  );
+}
+
+function isRestorableForRun(
+  artifact: EditArtifactRecord,
+  runId: string,
+): boolean {
+  return (
     artifact.runId === runId &&
-    artifact.userId === userId &&
     ["stored", "restore_failed", "restore_in_progress"].includes(
       artifact.status,
     ) &&

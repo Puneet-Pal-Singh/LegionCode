@@ -20,12 +20,12 @@ export class EditArtifactRestoreService {
   }
 
   async restoreLatestIfWorkspaceIsEmpty(input: {
-    userId: string;
+    userId?: string;
     runId: string;
     muscleSession: string;
     currentStatus: GitStatusResponse;
   }): Promise<RestoreResult> {
-    const restoreKey = `${input.userId}:${input.runId}`;
+    const restoreKey = `${input.userId ?? "run"}:${input.runId}`;
     const existingRequest = restoreRequestsByRun.get(restoreKey);
     if (existingRequest) {
       return await existingRequest;
@@ -43,7 +43,7 @@ export class EditArtifactRestoreService {
   }
 
   private async restoreLatestIfWorkspaceIsEmptyOnce(input: {
-    userId: string;
+    userId?: string;
     runId: string;
     muscleSession: string;
     currentStatus: GitStatusResponse;
@@ -52,7 +52,10 @@ export class EditArtifactRestoreService {
       return "not-needed";
     }
 
-    const artifact = await this.loadRestorableArtifact(input.runId, input.userId);
+    const artifact = await this.loadRestorableArtifact(
+      input.runId,
+      input.userId,
+    );
     if (!artifact) {
       return "not-needed";
     }
@@ -78,9 +81,12 @@ export class EditArtifactRestoreService {
 
   private async loadRestorableArtifact(
     runId: string,
-    userId: string,
+    userId?: string,
   ): Promise<EditArtifactRecord | null> {
     const artifact = await withArtifactRepository(this.env, async (repository) => {
+      if (!userId) {
+        return await repository.getLatestRestorableArtifactForRun(runId);
+      }
       return await repository.getLatestRestorableArtifact(runId, userId);
     });
     return artifact;
