@@ -39,6 +39,7 @@ import {
 import { createCloudflareEventStreamPort } from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
+import { RunExecutionLock } from "./RunExecutionLock";
 
 const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
@@ -55,7 +56,7 @@ const CredentialLabelMutationRequestSchema = z.object({
 });
 
 export class RunEngineRuntime extends DurableObject {
-  private executionQueue: Promise<void> = Promise.resolve();
+  private readonly executionLock = new RunExecutionLock();
   private readonly eventStreamPort = createCloudflareEventStreamPort();
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -456,19 +457,11 @@ export class RunEngineRuntime extends DurableObject {
     );
   }
 
-  private async withExecutionLock<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = this.executionQueue;
-    let release: () => void = () => {};
-    this.executionQueue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-    }
+  private async withExecutionLock<T>(
+    runId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return await this.executionLock.run(runId, operation);
   }
 
   private createRequestHandler(): RunEngineRequestHandler {
