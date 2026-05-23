@@ -172,7 +172,6 @@ export class HandleChatRequest {
             userId,
             workspaceId,
             taskId,
-            title: prompt,
             repository: repositorySlug,
           });
           await this.persistenceService.ensureRun({
