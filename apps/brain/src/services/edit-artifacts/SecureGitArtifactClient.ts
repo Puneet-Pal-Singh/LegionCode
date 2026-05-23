@@ -6,6 +6,10 @@ interface SecureMuscleSession {
   token: string;
 }
 
+interface SecureGitArtifactClientOptions {
+  sessionTimeoutMs?: number;
+}
+
 interface PluginSuccessPayload {
   success: true;
   output?: unknown;
@@ -60,9 +64,13 @@ export interface CapturedGitPatch {
   branch: string | null;
 }
 
+const SECURE_SESSION_TIMEOUT_MS = 10_000;
+
 type CanonicalExecutionResponse = z.infer<
   typeof CanonicalExecutionResponseSchema
 >;
+type SecureApiResponse = Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>;
+type SecureApiRequestInit = Parameters<Env["SECURE_API"]["fetch"]>[1];
 export type CapturedGitStatus = z.infer<typeof GitStatusPayloadSchema>;
 
 export class SecureGitArtifactClient {
@@ -70,7 +78,13 @@ export class SecureGitArtifactClient {
     private readonly env: Env,
     private readonly muscleSession: string,
     private readonly runId: string,
-  ) {}
+    options: SecureGitArtifactClientOptions = {},
+  ) {
+    this.sessionTimeoutMs =
+      options.sessionTimeoutMs ?? SECURE_SESSION_TIMEOUT_MS;
+  }
+
+  private readonly sessionTimeoutMs: number;
 
   async capturePatch(): Promise<CapturedGitPatch | null> {
     const payload = await this.executeGitAction("git_patch_capture", {});
@@ -139,7 +153,8 @@ export class SecureGitArtifactClient {
   private async createSecureSession(
     action: string,
   ): Promise<SecureMuscleSession> {
-    const response = await this.env.SECURE_API.fetch(
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
       buildSecureApiUrl(this.muscleSession, "/api/v1/session"),
       {
         method: "POST",
@@ -150,6 +165,8 @@ export class SecureGitArtifactClient {
           repoPath: ".",
         }),
       },
+      this.sessionTimeoutMs,
+      `Git ${action} session creation`,
     );
 
     if (!response.ok) {
@@ -159,6 +176,28 @@ export class SecureGitArtifactClient {
     }
 
     return SecureMuscleSessionSchema.parse(await response.json());
+  }
+}
+
+async function fetchWithTimeout(
+  fetcher: Env["SECURE_API"],
+  url: string,
+  init: SecureApiRequestInit,
+  timeoutMs: number,
+  operation: string,
+): Promise<SecureApiResponse> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetcher.fetch(url, init), timeout]);
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
