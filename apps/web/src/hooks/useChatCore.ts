@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
 } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
@@ -23,7 +24,7 @@ import { doesSessionContextMatchRepository } from "../lib/repository-context-mat
 interface UseChatCoreResult {
   messages: Message[];
   input: string;
-  handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (e?: FormEvent) => void;
   append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
@@ -51,6 +52,16 @@ interface ChatRequestBody {
 }
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
+type ProviderConfigResolutionSource =
+  | "store_selection"
+  | "provider_resolve_api";
+
+interface ResolvedProviderConfig {
+  providerId: string;
+  modelId: string;
+  credentialId: string;
+  source: ProviderConfigResolutionSource;
+}
 
 const DEFAULT_RUNTIME_HARNESS: RuntimeHarnessId = "cloudflare-sandbox";
 const RUNTIME_HARNESS_QUERY_PARAM = "harness";
@@ -222,6 +233,90 @@ export function useChatCore(
     // setMessages will be called after the new instance is created via instanceKey change
   }, [externalRunId]);
 
+  const resolveSelectedProviderConfigForRequest = useCallback(
+    (): ResolvedProviderConfig | null =>
+      resolveSelectedProviderConfig({
+        selectedProviderId,
+        selectedModelId,
+        selectedCredentialId,
+        lastResolvedConfig,
+      }),
+    [
+      lastResolvedConfig,
+      selectedCredentialId,
+      selectedModelId,
+      selectedProviderId,
+    ],
+  );
+
+  const resolveProviderConfigFromApi = useCallback(
+    async (requestScopeKey: string): Promise<ResolvedProviderConfig | null> => {
+      const resolvedConfig = await resolveForChat();
+      if (!isActiveScope(requestScopeKey)) {
+        return null;
+      }
+
+      return requireResolvedProviderConfig({
+        providerId: resolvedConfig.providerId,
+        modelId: resolvedConfig.modelId,
+        credentialId: resolvedConfig.credentialId,
+        source: "provider_resolve_api",
+      });
+    },
+    [isActiveScope, resolveForChat],
+  );
+
+  const buildChatRequestBody = useCallback(
+    (config: ResolvedProviderConfig): ChatRequestBody => ({
+      sessionId,
+      runId,
+      mode,
+      productMode,
+      harnessId: resolveRuntimeHarnessId(sessionId),
+      providerId: config.providerId,
+      modelId: config.modelId,
+      ...loadRepositoryContextFields(sessionId),
+    }),
+    [mode, productMode, runId, sessionId],
+  );
+
+  const pushChatRequestDebugEvent = useCallback(
+    (
+      content: string,
+      requestBody: ChatRequestBody,
+      config: ResolvedProviderConfig,
+    ) => {
+      pushDebugEvent({
+        phase: "request",
+        summary: `POST ${apiPath}`,
+        payload: {
+          endpoint: apiPath,
+          requestBody,
+          userMessage: content,
+          resolvedConfig: {
+            providerId: config.providerId,
+            modelId: config.modelId,
+            credentialId: config.credentialId,
+            source: config.source,
+          },
+        },
+      });
+    },
+    [apiPath, pushDebugEvent],
+  );
+
+  const submitResolvedMessage = useCallback(
+    async (content: string, requestBody: ChatRequestBody): Promise<void> => {
+      await append(
+        { role: "user", content },
+        {
+          body: requestBody,
+        },
+      );
+    },
+    [append],
+  );
+
   const appendWithResolution = useCallback(
     async (message: { role: "user"; content: string }): Promise<void> => {
       const requestScopeKey = scopeKey;
@@ -237,72 +332,18 @@ export function useChatCore(
       dispatchRunSummaryRefresh(runId);
 
       try {
-        let providerId =
-          selectedProviderId?.trim() || lastResolvedConfig?.providerId?.trim();
-        let modelId =
-          selectedModelId?.trim() || lastResolvedConfig?.modelId?.trim();
-        let credentialId =
-          selectedCredentialId?.trim() ||
-          lastResolvedConfig?.credentialId?.trim();
-        let configResolutionSource: "store_selection" | "provider_resolve_api" =
-          "store_selection";
-
-        if (!providerId || !modelId || !credentialId) {
-          const resolvedConfig = await resolveForChat();
-          if (!isActiveScope(requestScopeKey)) {
-            return;
-          }
-          providerId = resolvedConfig.providerId?.trim();
-          modelId = resolvedConfig.modelId?.trim();
-          credentialId = resolvedConfig.credentialId?.trim();
-          configResolutionSource = "provider_resolve_api";
-        }
-
-        if (!providerId || !modelId || !credentialId) {
-          throw new Error(
-            "Provider resolution failed: missing explicit provider/model credential selection.",
-          );
-        }
-
+        const providerConfig =
+          resolveSelectedProviderConfigForRequest() ??
+          (await resolveProviderConfigFromApi(requestScopeKey));
+        if (!providerConfig) return;
         if (!isActiveScope(requestScopeKey)) {
           return;
         }
 
-        const resolvedHarnessId = resolveRuntimeHarnessId(sessionId);
-        const requestBody: ChatRequestBody = {
-          sessionId,
-          runId,
-          mode,
-          productMode,
-          harnessId: resolvedHarnessId,
-          providerId,
-          modelId,
-          ...loadRepositoryContextFields(sessionId),
-        };
-
-        pushDebugEvent({
-          phase: "request",
-          summary: `POST ${apiPath}`,
-          payload: {
-            endpoint: apiPath,
-            requestBody,
-            userMessage: content,
-            resolvedConfig: {
-              providerId,
-              modelId,
-              credentialId,
-              source: configResolutionSource,
-            },
-          },
-        });
+        const requestBody = buildChatRequestBody(providerConfig);
+        pushChatRequestDebugEvent(content, requestBody, providerConfig);
         dispatchRunSummaryRefresh(runId);
-
-        await append(
-          { role: "user", content },
-          {
-            body: requestBody,
-          },
-        );
+        await submitResolvedMessage(content, requestBody);
       } finally {
         if (isActiveScope(requestScopeKey)) {
           setIsSubmitting(false);
@@ -310,22 +351,75 @@ export function useChatCore(
       }
     },
     [
-      append,
+      buildChatRequestBody,
       isActiveScope,
-      resolveForChat,
+      pushChatRequestDebugEvent,
+      resolveProviderConfigFromApi,
+      resolveSelectedProviderConfigForRequest,
       runId,
       scopeKey,
-      sessionId,
       status,
-      selectedProviderId,
-      selectedCredentialId,
-      selectedModelId,
-      lastResolvedConfig,
-      mode,
-      productMode,
-      pushDebugEvent,
-      apiPath,
+      submitResolvedMessage,
     ],
+  );
+
+  const shouldBlockSubmit = useCallback(
+    (content: string) =>
+      !content || isLoading || isSubmitting || !isModelConfigReady,
+    [isLoading, isModelConfigReady, isSubmitting],
+  );
+
+  const clearChatInput = useCallback(() => {
+    updateChatInput("", handleInputChange);
+  }, [handleInputChange]);
+
+  const restoreChatInput = useCallback(
+    (value: string) => {
+      updateChatInput(value, handleInputChange);
+    },
+    [handleInputChange],
+  );
+
+  const handleSubmitFailure = useCallback(
+    (error: unknown, requestScopeKey: string, originalInput: string) => {
+      if (!isActiveScope(requestScopeKey)) {
+        return;
+      }
+      restoreChatInput(originalInput);
+      const message =
+        error instanceof Error
+          ? normalizeChatErrorMessage(error)
+          : "Failed to send message.";
+      setError(message);
+      pushDebugEvent({
+        phase: "error",
+        summary: message,
+        payload: {
+          source: "appendWithResolution",
+          error: error instanceof Error ? error.message : "Unknown append error",
+        },
+      });
+      console.error(
+        `[useChatCore] Failed to append resolved message for session ${sessionId}`,
+        error,
+      );
+    },
+    [isActiveScope, pushDebugEvent, restoreChatInput, sessionId],
+  );
+
+  const submitPreparedInput = useCallback(
+    async (
+      content: string,
+      requestScopeKey: string,
+      originalInput: string,
+    ): Promise<void> => {
+      try {
+        await appendWithResolution({ role: "user", content });
+      } catch (error) {
+        handleSubmitFailure(error, requestScopeKey, originalInput);
+      }
+    },
+    [appendWithResolution, handleSubmitFailure],
   );
 
   const handleSubmit = useCallback(
@@ -334,59 +428,18 @@ export function useChatCore(
       const requestScopeKey = scopeKey;
       const originalInput = input;
       const trimmedInput = input.trim();
-      if (!trimmedInput || isLoading || isSubmitting || !isModelConfigReady) {
+      if (shouldBlockSubmit(trimmedInput)) {
         return;
       }
-      const clearedInputEvent = {
-        target: { value: "" },
-      } as React.ChangeEvent<HTMLTextAreaElement>;
-      handleInputChange(clearedInputEvent);
-
-      const submitWithResolution = async (): Promise<void> => {
-        try {
-          await appendWithResolution({ role: "user", content: trimmedInput });
-        } catch (error) {
-          if (!isActiveScope(requestScopeKey)) {
-            return;
-          }
-          const restoreInputEvent = {
-            target: { value: originalInput },
-          } as React.ChangeEvent<HTMLTextAreaElement>;
-          handleInputChange(restoreInputEvent);
-          const message =
-            error instanceof Error
-              ? normalizeChatErrorMessage(error)
-              : "Failed to send message.";
-          setError(message);
-          pushDebugEvent({
-            phase: "error",
-            summary: message,
-            payload: {
-              source: "appendWithResolution",
-              error:
-                error instanceof Error ? error.message : "Unknown append error",
-            },
-          });
-          console.error(
-            `[useChatCore] Failed to append resolved message for session ${sessionId}`,
-            error,
-          );
-        }
-      };
-
-      void submitWithResolution();
+      clearChatInput();
+      void submitPreparedInput(trimmedInput, requestScopeKey, originalInput);
     },
     [
-      appendWithResolution,
-      handleInputChange,
+      clearChatInput,
       input,
-      isActiveScope,
-      isLoading,
-      isSubmitting,
-      isModelConfigReady,
       scopeKey,
-      sessionId,
-      pushDebugEvent,
+      shouldBlockSubmit,
+      submitPreparedInput,
     ],
   );
 
@@ -462,6 +515,70 @@ function pickDebugHeaders(headers: Headers): Record<string, string> {
     }
   }
   return picked;
+}
+
+function resolveSelectedProviderConfig(input: {
+  selectedProviderId?: string | null;
+  selectedModelId?: string | null;
+  selectedCredentialId?: string | null;
+  lastResolvedConfig?: {
+    providerId?: string | null;
+    modelId?: string | null;
+    credentialId?: string | null;
+  } | null;
+}): ResolvedProviderConfig | null {
+  const providerId =
+    input.selectedProviderId?.trim() ||
+    input.lastResolvedConfig?.providerId?.trim();
+  const modelId =
+    input.selectedModelId?.trim() || input.lastResolvedConfig?.modelId?.trim();
+  const credentialId =
+    input.selectedCredentialId?.trim() ||
+    input.lastResolvedConfig?.credentialId?.trim();
+
+  if (!providerId || !modelId || !credentialId) {
+    return null;
+  }
+
+  return {
+    providerId,
+    modelId,
+    credentialId,
+    source: "store_selection",
+  };
+}
+
+function requireResolvedProviderConfig(input: {
+  providerId?: string | null;
+  modelId?: string | null;
+  credentialId?: string | null;
+  source: ProviderConfigResolutionSource;
+}): ResolvedProviderConfig {
+  const providerId = input.providerId?.trim();
+  const modelId = input.modelId?.trim();
+  const credentialId = input.credentialId?.trim();
+
+  if (!providerId || !modelId || !credentialId) {
+    throw new Error(
+      "Provider resolution failed: missing explicit provider/model credential selection.",
+    );
+  }
+
+  return {
+    providerId,
+    modelId,
+    credentialId,
+    source: input.source,
+  };
+}
+
+function updateChatInput(
+  value: string,
+  handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void,
+): void {
+  handleInputChange({
+    target: { value },
+  } as ChangeEvent<HTMLTextAreaElement>);
 }
 
 function normalizeChatErrorMessage(error: Error): string {

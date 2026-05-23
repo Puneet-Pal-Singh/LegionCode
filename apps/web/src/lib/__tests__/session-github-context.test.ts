@@ -65,6 +65,12 @@ describe("resolveTaskRepositoryFullName", () => {
     );
   });
 
+  it("normalizes spaced owner/name repositories", () => {
+    expect(resolveTaskRepositoryFullName("owner / repo", currentRepo)).toBe(
+      "owner/repo",
+    );
+  });
+
   it("resolves the active repository name to the canonical full name", () => {
     expect(resolveTaskRepositoryFullName("repo", currentRepo)).toBe(
       "owner/repo",
