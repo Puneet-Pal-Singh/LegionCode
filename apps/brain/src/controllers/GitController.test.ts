@@ -14,7 +14,7 @@ describe("GitController", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes git status through the canonical session-authenticated API", async () => {
+  it("routes git status through a run-scoped canonical session", async () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -62,7 +62,7 @@ describe("GitController", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
-    expect(sessionUrl).toBe("http://internal/api/v1/session?session=session-1");
+    expect(sessionUrl).toBe("http://internal/api/v1/session?session=run-1");
     expect(sessionInit?.method).toBe("POST");
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-1",
@@ -71,7 +71,7 @@ describe("GitController", () => {
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
-    expect(executeUrl).toBe("http://internal/api/v1/execute?session=session-1");
+    expect(executeUrl).toBe("http://internal/api/v1/execute?session=run-1");
     expect(executeInit?.headers).toMatchObject({
       Authorization: "Bearer tok-git-1",
       "Content-Type": "application/json",

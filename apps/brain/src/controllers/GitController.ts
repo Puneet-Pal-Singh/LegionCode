@@ -145,13 +145,12 @@ export class GitController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
-      const sessionId = url.searchParams.get("sessionId");
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const muscleSession = resolveMuscleSessionId(runId);
       let data = await getCurrentGitStatus(env, muscleSession, runId);
       if (canRestoreEditArtifacts(env)) {
         const restoreResult = await restoreLatestEditArtifactIfNeeded(
@@ -183,7 +182,6 @@ export class GitController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId");
-      const sessionId = url.searchParams.get("sessionId");
       const filePath = url.searchParams.get("path");
       const staged = url.searchParams.get("staged") === "true";
 
@@ -191,7 +189,7 @@ export class GitController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
-      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const muscleSession = resolveMuscleSessionId(runId);
       const rawPayload = await executeGitViaCanonicalApi(
         env,
         muscleSession,
@@ -223,7 +221,7 @@ export class GitController {
         runId: string;
         sessionId?: string;
       };
-      const { runId, sessionId, files, unstage = false } = body;
+      const { runId, files, unstage = false } = body;
 
       if (!runId || !files || !Array.isArray(files)) {
         return errorResponse(
@@ -234,7 +232,7 @@ export class GitController {
         );
       }
 
-      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const muscleSession = resolveMuscleSessionId(runId);
       const rawPayload = await executeGitViaCanonicalApi(
         env,
         muscleSession,
@@ -257,7 +255,7 @@ export class GitController {
   static async commit(req: Request, env: Env): Promise<Response> {
     try {
       const body = GitCommitRequestBodySchema.parse(await req.json());
-      const { runId, sessionId, message, files, authorName, authorEmail } =
+      const { runId, message, files, authorName, authorEmail } =
         body;
       const authenticatedSession = await getAuthenticatedUserSession(req, env);
       const commitIdentity = await resolveCommitIdentityForCommit(
@@ -266,7 +264,7 @@ export class GitController {
         { authorName, authorEmail },
       );
 
-      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const muscleSession = resolveMuscleSessionId(runId);
       const rawPayload = await executeGitViaCanonicalApi(
         env,
         muscleSession,
@@ -294,8 +292,8 @@ export class GitController {
   static async createBranch(req: Request, env: Env): Promise<Response> {
     try {
       const body = GitCreateBranchRequestBodySchema.parse(await req.json());
-      const { runId, sessionId, branch } = body;
-      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const { runId, branch } = body;
+      const muscleSession = resolveMuscleSessionId(runId);
       const normalizedBranch = branch.trim();
       const currentBranch = await getCurrentGitBranch(
         env,
@@ -332,7 +330,7 @@ export class GitController {
   static async push(req: Request, env: Env): Promise<Response> {
     try {
       const body = GitPushRequestBodySchema.parse(await req.json());
-      const { runId, sessionId } = body;
+      const { runId } = body;
       const remote = body.remote?.trim() || "origin";
       const authenticatedSession = await getAuthenticatedUserSession(req, env);
 
@@ -351,7 +349,7 @@ export class GitController {
         authenticatedSession.session.encryptedToken,
         env.GITHUB_TOKEN_ENCRYPTION_KEY,
       );
-      const muscleSession = resolveMuscleSessionId(runId, sessionId);
+      const muscleSession = resolveMuscleSessionId(runId);
       const branch =
         body.branch?.trim() ||
         (await getCurrentGitBranch(env, muscleSession, runId));
@@ -405,7 +403,7 @@ export class GitController {
         );
       }
 
-      const muscleSession = resolveMuscleSessionId(body.runId, body.sessionId);
+      const muscleSession = resolveMuscleSessionId(body.runId);
       const status = await getCurrentGitStatus(env, muscleSession, body.runId);
       assertPullRequestWorkspaceBinding(status, body.owner, body.repo);
       const head = status.branch.trim();
@@ -464,7 +462,6 @@ export class GitController {
       }
       const {
         runId,
-        sessionId,
         repositoryOwner,
         repositoryName,
         repositoryBranch,
@@ -486,7 +483,7 @@ export class GitController {
         );
       }
 
-      const muscleSession = resolveMuscleSessionId(normalizedRunId, sessionId);
+      const muscleSession = resolveMuscleSessionId(normalizedRunId);
       const existingRequest = bootstrapRequestsByRun.get(normalizedRunId);
       if (existingRequest) {
         const result = await existingRequest;
@@ -581,14 +578,7 @@ interface PluginSuccessPayload {
   output?: unknown;
 }
 
-function resolveMuscleSessionId(
-  runId: string,
-  sessionId?: string | null,
-): string {
-  const normalizedSessionId = sessionId?.trim();
-  if (normalizedSessionId && normalizedSessionId.length > 0) {
-    return normalizedSessionId;
-  }
+function resolveMuscleSessionId(runId: string): string {
   return runId;
 }
 
