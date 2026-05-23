@@ -68,6 +68,54 @@ describe("PgSqlClient", () => {
     ]);
   });
 
+  it("uses savepoints for nested transactions", async () => {
+    const connection = new RecordingPgConnection();
+    const client = new PgSqlClient(connection);
+
+    await client.transaction(async (tx) => {
+      await tx.query("SELECT outer before");
+      await tx.transaction(async (nestedTx) => {
+        await nestedTx.query("SELECT nested");
+      });
+      await tx.query("SELECT outer after");
+    });
+
+    expect(connection.statements).toEqual([
+      "BEGIN",
+      "SELECT outer before",
+      "SAVEPOINT shadowbox_sp_1",
+      "SELECT nested",
+      "RELEASE SAVEPOINT shadowbox_sp_1",
+      "SELECT outer after",
+      "COMMIT",
+    ]);
+  });
+
+  it("rolls back only the nested savepoint on nested transaction failure", async () => {
+    const connection = new RecordingPgConnection();
+    const client = new PgSqlClient(connection);
+    const nestedError = new Error("nested failed");
+
+    await client.transaction(async (tx) => {
+      await expect(
+        tx.transaction(async (nestedTx) => {
+          await nestedTx.query("SELECT nested");
+          throw nestedError;
+        }),
+      ).rejects.toBe(nestedError);
+      await tx.query("SELECT outer still works");
+    });
+
+    expect(connection.statements).toEqual([
+      "BEGIN",
+      "SAVEPOINT shadowbox_sp_1",
+      "SELECT nested",
+      "ROLLBACK TO SAVEPOINT shadowbox_sp_1",
+      "SELECT outer still works",
+      "COMMIT",
+    ]);
+  });
+
   it("preserves the original transaction error when rollback fails", async () => {
     const connection = new RecordingPgConnection("ROLLBACK");
     const client = new PgSqlClient(connection);
