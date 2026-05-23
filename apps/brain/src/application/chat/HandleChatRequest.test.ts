@@ -122,7 +122,6 @@ describe("HandleChatRequest", () => {
       userId: "123e4567-e89b-42d3-a456-426614174002",
       workspaceId: "123e4567-e89b-42d3-a456-426614174003",
       taskId: "123e4567-e89b-42d3-a456-426614174001",
-      title: "hello",
       repository: "Puneet-Pal-Singh/career-crew",
     });
     expect(ensureRunSpy).toHaveBeenCalledWith({

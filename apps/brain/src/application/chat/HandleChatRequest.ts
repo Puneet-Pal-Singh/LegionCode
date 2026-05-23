@@ -170,10 +170,9 @@ export class HandleChatRequest {
           await this.persistenceService.ensureTranscriptSession({
             sessionId,
             userId,
-            workspaceId: workspaceId ?? null,
+            workspaceId,
             taskId,
-            title: prompt,
-            repository: repositorySlug ?? null,
+            repository: repositorySlug,
           });
           await this.persistenceService.ensureRun({
             id: runId,

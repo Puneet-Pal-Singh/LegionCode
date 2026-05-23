@@ -76,11 +76,10 @@ export class PersistenceService {
       await repository.ensureSession({
         sessionId: input.sessionId,
         userId: input.userId,
-        workspaceId: input.workspaceId ?? null,
+        workspaceId: input.workspaceId,
         taskId: input.taskId ?? input.sessionId,
-        title: input.title ?? "Untitled task",
-        repository: input.repository ?? null,
-        activeRunId: null,
+        title: input.title,
+        repository: input.repository,
         status: "idle",
       });
     });
@@ -281,9 +280,9 @@ export class PersistenceService {
         sessionId: input.sessionId,
         runId: input.runId,
         userId: input.context.userId,
-        workspaceId: input.context.workspaceId ?? null,
-        title: input.context.title ?? buildTitle(input.message),
-        repository: input.context.repository ?? null,
+        workspaceId: input.context.workspaceId,
+        title: input.context.title,
+        repository: input.context.repository,
         activeRunId: input.runId,
         status: "running",
         role: input.message.role,
@@ -330,15 +329,6 @@ function coreMessageToTranscriptParts(message: CoreMessage): Array<{
   return [{ type: "raw", content: toJsonValue(message.content) }];
 }
 
-function buildTitle(message: CoreMessage): string {
-  const content =
-    typeof message.content === "string"
-      ? message.content.trim()
-      : JSON.stringify(message.content);
-  const title = content.replace(/\s+/g, " ").slice(0, 80).trim();
-  return title || "Untitled task";
-}
-
 function readClientMessageId(message: CoreMessage): string | null {
   const candidate = message as { id?: unknown };
   return typeof candidate.id === "string" ? candidate.id : null;
@@ -347,5 +337,3 @@ function readClientMessageId(message: CoreMessage): string | null {
 function toJsonValue(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
-
-

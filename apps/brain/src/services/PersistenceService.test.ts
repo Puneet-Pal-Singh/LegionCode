@@ -1,5 +1,5 @@
 import type { CoreMessage } from "ai";
-import type { TranscriptRepository } from "@repo/persistence";
+import type { TranscriptMessageRecord, TranscriptRepository } from "@repo/persistence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/ai";
 import {
@@ -22,6 +22,67 @@ vi.mock("./runs/RunPersistenceFactory", () => ({
 describe("PersistenceService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("does not clear transcript metadata when ensure input omits it", async () => {
+    const repository = {
+      ensureSession: vi.fn(),
+    } as Partial<TranscriptRepository> as TranscriptRepository;
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+
+    await service.ensureTranscriptSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      title: "Build transcript",
+    });
+
+    expect(repository.ensureSession).toHaveBeenCalledWith({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId: undefined,
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "Build transcript",
+      repository: undefined,
+      status: "idle",
+    });
+  });
+
+  it("does not derive a replacement session title from every persisted message", async () => {
+    const repository = {
+      appendMessage: vi.fn(async () => createTranscriptMessageRecord()),
+    } as Partial<TranscriptRepository> as TranscriptRepository;
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+
+    await service.persistUserMessage(
+      "123e4567-e89b-42d3-a456-426614174001",
+      "123e4567-e89b-42d3-a456-426614174000",
+      { role: "user", content: "latest prompt" },
+      {
+        userId: "123e4567-e89b-42d3-a456-426614174002",
+      },
+    );
+
+    expect(repository.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: undefined,
+        repository: undefined,
+        workspaceId: undefined,
+      }),
+    );
   });
 
   it("throws a typed retryable error when transcript append fails", async () => {
@@ -69,5 +130,17 @@ function createEnv(): Env {
     FRONTEND_URL: "x",
     SESSIONS: {} as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: {} as Env["RUN_ENGINE_RUNTIME"],
+  };
+}
+
+function createTranscriptMessageRecord(): TranscriptMessageRecord {
+  return {
+    id: "message-1",
+    sessionId: "123e4567-e89b-42d3-a456-426614174001",
+    runId: "123e4567-e89b-42d3-a456-426614174000",
+    role: "user",
+    clientMessageId: null,
+    createdAt: "2026-05-23T00:00:00.000Z",
+    parts: [],
   };
 }

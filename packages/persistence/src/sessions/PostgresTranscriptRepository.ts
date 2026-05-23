@@ -162,6 +162,11 @@ async function ensureSessionWithClient(
   now: Date,
 ): Promise<SessionRecord> {
   const task = await upsertTask(client, input, now);
+  const workspaceProvided = input.workspaceId !== undefined;
+  const taskIdProvided = input.taskId !== undefined && input.taskId !== null;
+  const titleProvided = input.title !== undefined && input.title !== null;
+  const repositoryProvided = input.repository !== undefined;
+  const activeRunIdProvided = input.activeRunId !== undefined;
   const result = await client.query<TranscriptRow>(UPSERT_SESSION_SQL, [
     input.sessionId,
     input.userId,
@@ -173,6 +178,11 @@ async function ensureSessionWithClient(
     input.mode ?? "build",
     input.status ?? "idle",
     now,
+    workspaceProvided,
+    taskIdProvided,
+    titleProvided,
+    repositoryProvided,
+    activeRunIdProvided,
   ]);
 
   return mapSessionRow(readReturnedRow(result.rows[0], "sessions"));
@@ -183,12 +193,16 @@ async function upsertTask(
   input: EnsureTranscriptSessionInput,
   now: Date,
 ): Promise<TaskRecord> {
+  const workspaceProvided = input.workspaceId !== undefined;
+  const titleProvided = input.title !== undefined && input.title !== null;
   const result = await client.query<TranscriptRow>(UPSERT_TASK_SQL, [
     input.taskId ?? input.sessionId,
     input.userId,
     input.workspaceId ?? null,
     input.title ?? "Untitled task",
     now,
+    workspaceProvided,
+    titleProvided,
   ]);
 
   return mapTaskRow(readReturnedRow(result.rows[0], "tasks"));
@@ -561,8 +575,14 @@ const UPSERT_TASK_SQL = `
   VALUES ($1, $2, $3, $4, $5, $5)
   ON CONFLICT (id)
   DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id,
-    title = EXCLUDED.title,
+    workspace_id = CASE
+      WHEN $6::boolean THEN EXCLUDED.workspace_id
+      ELSE tasks.workspace_id
+    END,
+    title = CASE
+      WHEN $7::boolean THEN EXCLUDED.title
+      ELSE tasks.title
+    END,
     updated_at = EXCLUDED.updated_at
   WHERE tasks.user_id = EXCLUDED.user_id
   RETURNING ${TASK_COLUMNS}
@@ -585,11 +605,26 @@ const UPSERT_SESSION_SQL = `
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
   ON CONFLICT (id)
   DO UPDATE SET
-    workspace_id = EXCLUDED.workspace_id,
-    task_id = EXCLUDED.task_id,
-    title = EXCLUDED.title,
-    repository = COALESCE(EXCLUDED.repository, sessions.repository),
-    active_run_id = COALESCE(EXCLUDED.active_run_id, sessions.active_run_id),
+    workspace_id = CASE
+      WHEN $11::boolean THEN EXCLUDED.workspace_id
+      ELSE sessions.workspace_id
+    END,
+    task_id = CASE
+      WHEN $12::boolean THEN EXCLUDED.task_id
+      ELSE sessions.task_id
+    END,
+    title = CASE
+      WHEN $13::boolean THEN EXCLUDED.title
+      ELSE sessions.title
+    END,
+    repository = CASE
+      WHEN $14::boolean THEN EXCLUDED.repository
+      ELSE sessions.repository
+    END,
+    active_run_id = CASE
+      WHEN $15::boolean THEN EXCLUDED.active_run_id
+      ELSE sessions.active_run_id
+    END,
     mode = EXCLUDED.mode,
     status = EXCLUDED.status,
     updated_at = EXCLUDED.updated_at
@@ -671,15 +706,19 @@ const LIST_TRANSCRIPT_SQL = `
     SELECT m2.id
     FROM messages m2
     JOIN message_parts p2 ON p2.message_id = m2.id
+    JOIN sessions s2 ON s2.id = p2.session_id
     WHERE p2.session_id = $1
       AND ($2::uuid IS NULL OR p2.run_id = $2 OR m2.run_id = $2)
       AND p2.session_sequence > $3
+      AND ($5::uuid IS NULL OR s2.user_id = $5)
     GROUP BY m2.id
-    ORDER BY MIN(p2.session_sequence) ASC
+    ORDER BY MIN(p2.session_sequence) ASC, m2.id ASC
     LIMIT $4
   )
+    AND p.session_id = $1
+    AND ($2::uuid IS NULL OR p.run_id = $2 OR m.run_id = $2)
     AND ($5::uuid IS NULL OR s.user_id = $5)
-  ORDER BY p.session_sequence ASC
+  ORDER BY p.session_sequence ASC, p.id ASC
 `;
 
 const LIST_SESSIONS_SQL = `

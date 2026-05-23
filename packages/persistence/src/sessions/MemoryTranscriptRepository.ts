@@ -45,11 +45,11 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const session = {
       id: input.sessionId,
       userId: input.userId,
-      workspaceId: input.workspaceId ?? existing?.workspaceId ?? null,
+      workspaceId: readNullableInput(input.workspaceId, existing?.workspaceId ?? null),
       taskId: task.id,
       title: input.title ?? existing?.title ?? task.title,
-      repository: input.repository ?? existing?.repository ?? null,
-      activeRunId: input.activeRunId ?? existing?.activeRunId ?? null,
+      repository: readNullableInput(input.repository, existing?.repository ?? null),
+      activeRunId: readNullableInput(input.activeRunId, existing?.activeRunId ?? null),
       mode: input.mode ?? existing?.mode ?? "build",
       status: input.status ?? existing?.status ?? "idle",
       createdAt: existing?.createdAt ?? now,
@@ -149,7 +149,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const task = {
       id: taskId,
       userId: input.userId,
-      workspaceId: input.workspaceId ?? existing?.workspaceId ?? null,
+      workspaceId: readNullableInput(input.workspaceId, existing?.workspaceId ?? null),
       title: input.title ?? existing?.title ?? "Untitled task",
       status: existing?.status ?? "active",
       createdAt: existing?.createdAt ?? now,
@@ -240,4 +240,8 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     this.messageIdByDedupeKeyBySessionId.set(sessionId, created);
     return created;
   }
+}
+
+function readNullableInput<T>(value: T | null | undefined, fallback: T | null): T | null {
+  return value === undefined ? fallback : value;
 }
