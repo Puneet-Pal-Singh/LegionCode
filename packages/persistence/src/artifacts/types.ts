@@ -36,6 +36,9 @@ export interface ArtifactRepository {
     runId: string,
     userId: string,
   ): Promise<EditArtifactRecord | null>;
+  getLatestRestorableArtifactForRun(
+    runId: string,
+  ): Promise<EditArtifactRecord | null>;
   listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]>;
   listStalePendingArtifacts(cutoff: string): Promise<EditArtifactRecord[]>;
   transaction<T>(
