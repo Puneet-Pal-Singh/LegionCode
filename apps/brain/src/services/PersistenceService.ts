@@ -30,19 +30,17 @@ type TranscriptPersistenceOperation =
 export class TranscriptPersistenceError extends DomainError {
   constructor(
     operation: TranscriptPersistenceOperation,
-    cause: unknown,
+    _cause: unknown,
     correlationId?: string,
   ) {
-    const causeMessage = readErrorMessage(cause);
     super(
       "TRANSCRIPT_PERSISTENCE_FAILED",
-      `Transcript persistence failed during ${operation}: ${causeMessage}`,
+      "Transcript persistence failed",
       503,
       true,
       correlationId,
       {
         operation,
-        cause: causeMessage,
       },
     );
   }
@@ -350,12 +348,4 @@ function toJsonValue(value: unknown): JsonValue {
   return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 
-function readErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim().length > 0) {
-    return error;
-  }
-  return "Unknown transcript persistence error";
-}
+
