@@ -71,6 +71,37 @@ describe("EditArtifactRestoreService", () => {
     ]);
     expect(repository.updateStatus).toHaveBeenCalledTimes(2);
   });
+
+  it("restores by run when no authenticated user is available", async () => {
+    const artifact = createArtifact();
+    const repository = createRepository(artifact);
+    artifactFactory.withArtifactRepository.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: ArtifactRepository) => Promise<unknown>,
+      ) => await callback(repository),
+    );
+    gitClientMocks.applyPatch.mockResolvedValue(undefined);
+
+    const service = new EditArtifactRestoreService(createEnv());
+    const result = await service.restoreLatestIfWorkspaceIsEmpty({
+      runId: "run-1",
+      muscleSession: "muscle-run-1",
+      currentStatus: createEmptyGitStatus(),
+    });
+
+    expect(result).toBe("restored");
+    expect(repository.getLatestRestorableArtifactForRun).toHaveBeenCalledWith(
+      "run-1",
+    );
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactId: "artifact-1",
+        userId: "user-1",
+        status: "restore_in_progress",
+      }),
+    );
+  });
 });
 
 function createEnv(): Env {
@@ -96,6 +127,7 @@ function createRepository(artifact: EditArtifactRecord): ArtifactRepository {
       status: input.status,
     })),
     getLatestRestorableArtifact: vi.fn(async () => artifact),
+    getLatestRestorableArtifactForRun: vi.fn(async () => artifact),
     listExpiredArtifacts: vi.fn(async () => []),
     listStalePendingArtifacts: vi.fn(async () => []),
     transaction: vi.fn(),

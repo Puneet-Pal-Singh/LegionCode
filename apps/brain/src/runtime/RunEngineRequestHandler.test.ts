@@ -30,7 +30,7 @@ describe("RunEngineRequestHandler", () => {
       {
         RUNTIME_GIT_SHA: "run-engine-sha",
       } as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleRuntimeDebugRequest(
@@ -122,7 +122,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleSummaryRequest(
@@ -185,7 +185,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleSummaryRequest(
@@ -245,7 +245,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleEventsRequest(
@@ -275,7 +275,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
       eventStream,
     );
 
@@ -317,7 +317,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
       eventStream,
     );
 
@@ -353,9 +353,7 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
 
-    const withExecutionLock = vi.fn(async (operation: () => Promise<Response>) =>
-      operation(),
-    );
+    const withExecutionLock = vi.fn(runImmediately);
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
@@ -439,7 +437,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleActivityRequest(
@@ -498,7 +496,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleApprovalRequest(
@@ -551,7 +549,7 @@ describe("RunEngineRequestHandler", () => {
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
-      async (operation) => operation(),
+      runImmediately,
     );
 
     const response = await handler.handleApprovalRequest(
@@ -602,7 +600,7 @@ describe("RunEngineRequestHandler", () => {
       const handler = new RunEngineRequestHandler(
         ctx as unknown as DurableObjectState,
         {} as Env,
-        async (operation) => operation(),
+        runImmediately,
       );
 
       const response = await handler.handleApprovalRequest(
@@ -633,6 +631,13 @@ describe("RunEngineRequestHandler", () => {
     }
   });
 });
+
+async function runImmediately<T>(
+  _runId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return await operation();
+}
 
 class InMemoryStorage implements RuntimeStorage {
   private readonly values = new Map<string, unknown>();

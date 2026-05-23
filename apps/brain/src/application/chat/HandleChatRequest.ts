@@ -77,7 +77,7 @@ export interface HandleChatRequestOutput {
     sessionId: string;
     correlationId: string;
     requestOrigin?: string;
-  input: {
+    input: {
       mode: RunMode;
       agentType: AgentType;
       prompt: string;
@@ -138,24 +138,11 @@ export class HandleChatRequest {
     const mode = input.mode ?? DEFAULT_RUN_MODE;
 
     try {
-      // Validate messages
-      if (!messages || messages.length === 0) {
-        throw new ValidationError(
-          "No messages provided",
-          "NO_MESSAGES",
-          correlationId,
-        );
-      }
-
-      // Extract last user message for logging
-      const lastUserMessage = messages.filter((m) => m.role === "user").pop();
-      if (!lastUserMessage) {
-        throw new ValidationError(
-          "No user message found",
-          "NO_USER_MESSAGE",
-          correlationId,
-        );
-      }
+      const lastUserMessage = validateSubmittedMessages(
+        messages,
+        prompt,
+        correlationId,
+      );
 
       const repositorySlug =
         repositoryOwner && repositoryName
@@ -323,4 +310,78 @@ export class HandleChatRequest {
     const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
+}
+
+function validateSubmittedMessages(
+  messages: CoreMessage[],
+  prompt: string,
+  correlationId: string,
+): CoreMessage {
+  if (!messages || messages.length === 0) {
+    throw new ValidationError(
+      "No messages provided",
+      "NO_MESSAGES",
+      correlationId,
+    );
+  }
+
+  const lastUserMessage = messages.filter((m) => m.role === "user").pop();
+  if (!lastUserMessage) {
+    throw new ValidationError(
+      "No user message found",
+      "NO_USER_MESSAGE",
+      correlationId,
+    );
+  }
+
+  if (messages[messages.length - 1] !== lastUserMessage) {
+    throw new ValidationError(
+      "Latest chat message must be the submitted user prompt",
+      "LATEST_MESSAGE_NOT_USER",
+      correlationId,
+    );
+  }
+
+  if (extractMessageText(lastUserMessage.content).trim() !== prompt.trim()) {
+    throw new ValidationError(
+      "Prompt does not match the latest user message",
+      "PROMPT_MESSAGE_MISMATCH",
+      correlationId,
+    );
+  }
+
+  return lastUserMessage;
+}
+
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content.map(extractTextPart).filter(Boolean).join("\n");
+  }
+
+  return extractTextPart(content);
+}
+
+function extractTextPart(part: unknown): string {
+  if (typeof part === "string") {
+    return part;
+  }
+
+  if (!part || typeof part !== "object") {
+    return "";
+  }
+
+  const record = part as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    return record.text;
+  }
+
+  if (record.type === "text" && typeof record.content === "string") {
+    return record.content;
+  }
+
+  return "";
 }

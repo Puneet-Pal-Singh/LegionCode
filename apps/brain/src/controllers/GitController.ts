@@ -670,13 +670,14 @@ async function restoreLatestEditArtifactIfNeeded(
   logScope: "bootstrap" | "status",
 ): Promise<"not-needed" | "restored" | "requires-user-resolution"> {
   try {
-    const authenticatedSession = await getAuthenticatedUserSession(request, env);
-    if (!authenticatedSession) {
-      return "not-needed";
-    }
+    const authenticatedSession = await getAuthenticatedUserSession(
+      request,
+      env,
+      { warnOnMissingCookie: false },
+    );
     const restoreService = new EditArtifactRestoreService(env);
     const result = await restoreService.restoreLatestIfWorkspaceIsEmpty({
-      userId: authenticatedSession.userId,
+      userId: authenticatedSession?.userId,
       runId,
       muscleSession,
       currentStatus,
