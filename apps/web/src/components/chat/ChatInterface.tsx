@@ -737,8 +737,8 @@ export function ChatInterface({
     return [...preferredDecisions, ...remainingDecisions];
   }, [pendingApproval]);
   const chatEntries = useMemo(
-    () => buildChatEntries(conversationTurns, activityViewModel.turns),
-    [activityViewModel.turns, conversationTurns],
+    () => buildChatEntries(conversationTurns, activityViewModel.turns, runId),
+    [activityViewModel.turns, conversationTurns, runId],
   );
   const hasUserMessage = useMemo(
     () =>
@@ -1225,11 +1225,13 @@ type ChatInterfaceEntry =
 function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
+  runId: string,
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
   const activityTurnsByMessageId = correlateActivityTurnsToMessages(
     conversationTurns,
     turns,
+    { runId },
   );
 
   for (const conversationTurn of conversationTurns) {
@@ -1262,7 +1264,7 @@ function buildChatEntries(
 function correlateActivityTurnsToMessages(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
-  options: { logUnmatched?: boolean } = {},
+  options: { logUnmatched?: boolean; runId?: string } = {},
 ): Map<string, ActivityTurnViewModel[]> {
   const logUnmatched = options.logUnmatched ?? true;
   const assignments = new Map<string, ActivityTurnViewModel[]>();
@@ -1291,10 +1293,7 @@ function correlateActivityTurnsToMessages(
       );
     if (matchedIndex === null) {
       if (logUnmatched) {
-        console.warn(
-          "[chat/transcript] Activity turn could not be correlated to a user message.",
-          { activityTurnKey: activityTurn.key },
-        );
+        warnUnmatchedActivityTurn(options.runId, activityTurn.key);
       }
       continue;
     }
@@ -1303,7 +1302,11 @@ function correlateActivityTurnsToMessages(
     if (!matchedConversationTurn) {
       console.warn(
         "[chat/transcript] Activity turn matched an unavailable user message index.",
-        { activityTurnKey: activityTurn.key, matchedIndex },
+        {
+          activityTurnKey: activityTurn.key,
+          matchedIndex,
+          runId: options.runId,
+        },
       );
       availableConversationTurnIndexes.delete(matchedIndex);
       continue;
@@ -1317,6 +1320,29 @@ function correlateActivityTurnsToMessages(
   }
 
   return assignments;
+}
+
+const unmatchedActivityWarningKeys = new Set<string>();
+const MAX_UNMATCHED_ACTIVITY_WARNING_KEYS = 500;
+
+function warnUnmatchedActivityTurn(
+  runId: string | undefined,
+  activityTurnKey: string,
+): void {
+  const warningKey = `${runId ?? "unknown"}:${activityTurnKey}`;
+  if (unmatchedActivityWarningKeys.has(warningKey)) {
+    return;
+  }
+
+  if (unmatchedActivityWarningKeys.size >= MAX_UNMATCHED_ACTIVITY_WARNING_KEYS) {
+    unmatchedActivityWarningKeys.clear();
+  }
+  unmatchedActivityWarningKeys.add(warningKey);
+
+  console.warn(
+    "[chat/transcript] Activity turn could not be correlated to a user message.",
+    { activityTurnKey, runId },
+  );
 }
 
 function deriveActivityChangedFilesByAssistantMessageId(

@@ -182,7 +182,7 @@ export function buildStaticActivityFeedViewModel(
   return {
     summary: buildStaticFeedSummary(feed),
     turns: turnGroups.flatMap((turn, index) => {
-      const turnKey = resolveActivityTurnKey(turn.turnId, index);
+      const turnKey = resolveActivityTurnKey(feed.runId, turn.turnId, index);
       if (!turnKey) {
         return [];
       }
@@ -247,13 +247,14 @@ export function withActivityFeedElapsedLabels(
 }
 
 function resolveActivityTurnKey(
+  runId: string,
   turnId: string | undefined,
   index: number,
 ): string | null {
   if (!turnId) {
     console.warn(
       "[activity/feed] Skipping activity turn without canonical turnId.",
-      { index },
+      { index, runId },
     );
     return null;
   }

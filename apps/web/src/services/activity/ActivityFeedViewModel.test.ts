@@ -912,7 +912,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns).toHaveLength(0);
     expect(warnSpy).toHaveBeenCalledWith(
       "[activity/feed] Skipping activity turn without canonical turnId.",
-      { index: 0 },
+      { index: 0, runId: "run-invalid" },
     );
 
     warnSpy.mockRestore();
