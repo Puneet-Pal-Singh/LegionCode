@@ -13,8 +13,8 @@ interface UseChatPersistenceProps {
   messages: Message[];
   messagesLength: number;
   isLoading: boolean;
-  hasHydrated: boolean;
   isModelConfigReady: boolean;
+  allowPendingQueryRestore: boolean;
   append: (message: { role: "user"; content: string }) => Promise<void>;
 }
 
@@ -29,12 +29,13 @@ export function useChatPersistence({
   messages,
   messagesLength,
   isLoading,
-  hasHydrated,
   isModelConfigReady,
+  allowPendingQueryRestore,
   append,
 }: UseChatPersistenceProps): void {
   const persistenceService = useMemo(() => new ChatPersistenceService(), []);
   const attemptedRestoreKeyRef = useRef<string | null>(null);
+  const claimedPendingQueryRef = useRef<string | null>(null);
   const scopeKey = `${sessionId}:${runId}`;
   const activeScopeKeyRef = useRef(scopeKey);
 
@@ -47,6 +48,7 @@ export function useChatPersistence({
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     attemptedRestoreKeyRef.current = null;
+    claimedPendingQueryRef.current = null;
     resetRestoreRetry();
   }, [scopeKey, resetRestoreRetry]);
 
@@ -55,17 +57,32 @@ export function useChatPersistence({
     persistenceService.syncToStore(runId, messages);
   }, [messages, runId, persistenceService]);
 
+  useEffect(() => {
+    if (messagesLength === 0) {
+      return;
+    }
+    persistenceService.clearPendingQuery(sessionId);
+    claimedPendingQueryRef.current = null;
+    attemptedRestoreKeyRef.current = null;
+    resetRestoreRetry();
+  }, [messagesLength, persistenceService, resetRestoreRetry, sessionId]);
+
   // Restore pending query from localStorage
   useEffect(() => {
-    const pendingQuery = persistenceService.getPendingQuery(sessionId);
+    const storedPendingQuery = persistenceService.getPendingQuery(sessionId);
+    const pendingQuery = claimedPendingQueryRef.current ?? storedPendingQuery;
     if (!pendingQuery) {
       attemptedRestoreKeyRef.current = null;
       return;
     }
-    if (!isModelConfigReady) {
+    if (!allowPendingQueryRestore) {
+      persistenceService.clearPendingQuery(sessionId);
+      claimedPendingQueryRef.current = null;
+      attemptedRestoreKeyRef.current = null;
+      resetRestoreRetry();
       return;
     }
-    if (!hasHydrated) {
+    if (!isModelConfigReady) {
       return;
     }
     if (!persistenceService.shouldRestorePendingQuery(messagesLength, isLoading)) {
@@ -76,6 +93,10 @@ export function useChatPersistence({
       return;
     }
     attemptedRestoreKeyRef.current = restoreKey;
+    if (storedPendingQuery === pendingQuery) {
+      claimedPendingQueryRef.current = pendingQuery;
+      persistenceService.clearPendingQuery(sessionId);
+    }
     let cancelled = false;
     const requestScopeKey = scopeKey;
     const isCurrentScope = () =>
@@ -87,7 +108,7 @@ export function useChatPersistence({
         if (!isCurrentScope()) {
           return;
         }
-        persistenceService.clearPendingQuery(sessionId);
+        claimedPendingQueryRef.current = null;
         attemptedRestoreKeyRef.current = null;
         resetRestoreRetry();
       } catch (error) {
@@ -95,7 +116,7 @@ export function useChatPersistence({
           return;
         }
         if (shouldDropPendingQuery(error)) {
-          persistenceService.clearPendingQuery(sessionId);
+          claimedPendingQueryRef.current = null;
           attemptedRestoreKeyRef.current = null;
           resetRestoreRetry();
           console.warn(
@@ -121,8 +142,8 @@ export function useChatPersistence({
     scopeKey,
     messagesLength,
     isLoading,
-    hasHydrated,
     isModelConfigReady,
+    allowPendingQueryRestore,
     append,
     persistenceService,
     restoreRetrySignal,
