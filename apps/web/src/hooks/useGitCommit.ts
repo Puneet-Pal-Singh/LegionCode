@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { CommitPayload } from "@repo/shared-types";
-import { useRunContext } from "./useRunContext";
+import { useOptionalRunContext } from "./useRunContext";
 import { GitMutationError, commitGitChanges } from "../lib/git-client.js";
 import type { GitMutationErrorCode, GitMutationErrorMetadata } from "@repo/shared-types";
 
@@ -20,7 +20,8 @@ export function useGitCommit(
   explicitRunId?: string,
   explicitSessionId?: string,
 ): UseGitCommitResult {
-  const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
+  const { runId: contextRunId, sessionId: contextSessionId } =
+    useOptionalRunContext();
   const runId = explicitRunId ?? contextRunId;
   const sessionId = explicitSessionId ?? contextSessionId;
   const [committing, setCommitting] = useState(false);
