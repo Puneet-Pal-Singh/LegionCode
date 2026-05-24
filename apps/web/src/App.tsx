@@ -1086,6 +1086,11 @@ function AppContent() {
                   repository={activeSession?.repository || ""}
                   mode={activeSession?.mode}
                   isSessionRunning={activeSession?.status === "running"}
+                  hasStartedSession={isSessionStarted}
+                  allowPendingQueryRestore={
+                    activeSession?.status !== "completed" &&
+                    activeSession?.status !== "error"
+                  }
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }
