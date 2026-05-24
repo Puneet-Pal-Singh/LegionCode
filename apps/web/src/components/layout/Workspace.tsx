@@ -38,6 +38,8 @@ interface WorkspaceProps {
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   isSessionRunning?: boolean;
+  hasStartedSession?: boolean;
+  allowPendingQueryRestore?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
@@ -55,6 +57,8 @@ export function Workspace({
   mode = "build",
   onModeChange,
   isSessionRunning = false,
+  hasStartedSession = false,
+  allowPendingQueryRestore = true,
   onSessionStatusChange,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
@@ -119,6 +123,7 @@ export function Workspace({
     stop,
     isLoading,
     isHydrating,
+    hasHydrated,
     runId: activeRunId,
     error: chatError,
     debugEvents,
@@ -130,6 +135,7 @@ export function Workspace({
     },
     mode,
     productMode,
+    allowPendingQueryRestore,
   );
   const { summary: runSummary } = useRunSummary(activeRunId, true);
   const {
@@ -530,10 +536,12 @@ export function Workspace({
                 stop: handleStopRun,
                 canStop: canStopRun,
                 isLoading: isRunLoading,
+                hasHydrated,
                 error: chatError,
                 debugEvents,
               }}
               sessionId={sessionId}
+              hasStartedSession={hasStartedSession}
               mode={mode}
               onModeChange={onModeChange}
               permissionMode={productMode}
