@@ -97,7 +97,8 @@ type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
 const bootstrapRequestsByRun = new Map<string, Promise<GitBootstrapResult>>();
-const statusRestoreAttemptsByRun = new Set<string>();
+const statusRestoreAttemptsByRun = new Map<string, number>();
+const STATUS_RESTORE_TTL_MS = 30_000;
 const ERROR_LOG_WINDOW_MS = 30_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_ATTEMPTS = 3;
@@ -547,11 +548,21 @@ function shouldAttemptStatusRestore(
   if (!status.gitAvailable || status.files.length > 0) {
     return false;
   }
+  evictExpiredStatusRestoreAttempts();
   if (statusRestoreAttemptsByRun.has(runId)) {
     return false;
   }
-  statusRestoreAttemptsByRun.add(runId);
+  statusRestoreAttemptsByRun.set(runId, Date.now());
   return true;
+}
+
+function evictExpiredStatusRestoreAttempts(): void {
+  const cutoff = Date.now() - STATUS_RESTORE_TTL_MS;
+  for (const [runId, timestamp] of statusRestoreAttemptsByRun) {
+    if (timestamp < cutoff) {
+      statusRestoreAttemptsByRun.delete(runId);
+    }
+  }
 }
 
 async function parseGitBootstrapRequestBody(

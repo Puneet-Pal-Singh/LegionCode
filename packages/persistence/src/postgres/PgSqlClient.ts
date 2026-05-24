@@ -57,6 +57,7 @@ export class PgSqlClient implements SqlClient {
     rollback: string;
   } {
     if (this.transactionDepth === 0) {
+      this.savepointSequence = 0;
       return {
         begin: "BEGIN",
         commit: "COMMIT",

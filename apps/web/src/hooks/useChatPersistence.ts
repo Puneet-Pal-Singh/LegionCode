@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { Message } from "@ai-sdk/react";
 import { ChatPersistenceService } from "../services/ChatPersistenceService";
 import { ProviderApiError } from "../services/api/providerClient.js";
+import { useRetry } from "./useRetry";
 
 const MAX_PENDING_RESTORE_ATTEMPTS = 3;
 const PENDING_RESTORE_RETRY_DELAY_MS = 500;
@@ -34,16 +35,20 @@ export function useChatPersistence({
 }: UseChatPersistenceProps): void {
   const persistenceService = useMemo(() => new ChatPersistenceService(), []);
   const attemptedRestoreKeyRef = useRef<string | null>(null);
-  const restoreAttemptsRef = useRef(new Map<string, number>());
-  const [restoreRetrySignal, setRestoreRetrySignal] = useState(0);
   const scopeKey = `${sessionId}:${runId}`;
   const activeScopeKeyRef = useRef(scopeKey);
+
+  const { signal: restoreRetrySignal, schedule: scheduleRestoreRetry, reset: resetRestoreRetry } = useRetry({
+    delayMs: PENDING_RESTORE_RETRY_DELAY_MS,
+    maxAttempts: MAX_PENDING_RESTORE_ATTEMPTS,
+    scopeKey,
+  });
 
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     attemptedRestoreKeyRef.current = null;
-    restoreAttemptsRef.current.clear();
-  }, [scopeKey]);
+    resetRestoreRetry();
+  }, [scopeKey, resetRestoreRetry]);
 
   // Sync messages to global store
   useEffect(() => {
@@ -72,25 +77,9 @@ export function useChatPersistence({
     }
     attemptedRestoreKeyRef.current = restoreKey;
     let cancelled = false;
-    let retryTimer: number | null = null;
     const requestScopeKey = scopeKey;
     const isCurrentScope = () =>
       !cancelled && activeScopeKeyRef.current === requestScopeKey;
-
-    const retryRestore = (error: unknown): void => {
-      const nextAttempt = (restoreAttemptsRef.current.get(restoreKey) ?? 0) + 1;
-      restoreAttemptsRef.current.set(restoreKey, nextAttempt);
-      attemptedRestoreKeyRef.current = null;
-      console.error("[useChatPersistence] Failed to restore pending query", error);
-      if (nextAttempt >= MAX_PENDING_RESTORE_ATTEMPTS) {
-        return;
-      }
-      retryTimer = window.setTimeout(() => {
-        if (isCurrentScope()) {
-          setRestoreRetrySignal((current) => current + 1);
-        }
-      }, PENDING_RESTORE_RETRY_DELAY_MS);
-    };
 
     const restorePendingQuery = async (): Promise<void> => {
       try {
@@ -100,7 +89,7 @@ export function useChatPersistence({
         }
         persistenceService.clearPendingQuery(sessionId);
         attemptedRestoreKeyRef.current = null;
-        restoreAttemptsRef.current.delete(restoreKey);
+        resetRestoreRetry();
       } catch (error) {
         if (!isCurrentScope()) {
           return;
@@ -108,14 +97,16 @@ export function useChatPersistence({
         if (shouldDropPendingQuery(error)) {
           persistenceService.clearPendingQuery(sessionId);
           attemptedRestoreKeyRef.current = null;
-          restoreAttemptsRef.current.delete(restoreKey);
+          resetRestoreRetry();
           console.warn(
             "[useChatPersistence] Dropping stale pending query after non-retryable restore error",
             error,
           );
           return;
         }
-        retryRestore(error);
+        console.error("[useChatPersistence] Failed to restore pending query", error);
+        attemptedRestoreKeyRef.current = null;
+        scheduleRestoreRetry();
       }
     };
 
@@ -123,9 +114,6 @@ export function useChatPersistence({
 
     return () => {
       cancelled = true;
-      if (retryTimer !== null) {
-        window.clearTimeout(retryTimer);
-      }
     };
   }, [
     sessionId,
@@ -138,6 +126,8 @@ export function useChatPersistence({
     append,
     persistenceService,
     restoreRetrySignal,
+    scheduleRestoreRetry,
+    resetRestoreRetry,
   ]);
 }
 
