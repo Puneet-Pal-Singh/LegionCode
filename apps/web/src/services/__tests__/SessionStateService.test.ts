@@ -88,14 +88,19 @@ describe("SessionStateService", () => {
 
       await SessionStateService.persistSession(session);
 
+      const [, requestInit] = fetchMock.mock.calls[0] ?? [];
+      const body = JSON.parse(String(requestInit?.body));
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/api/sessions"),
         expect.objectContaining({
           method: "POST",
           credentials: "include",
-          body: expect.not.stringContaining("runId"),
         }),
       );
+      expect(body).toMatchObject({
+        sessionId: session.id,
+        runId: session.activeRunId,
+      });
     });
 
     it("archives sessions through Brain", async () => {
