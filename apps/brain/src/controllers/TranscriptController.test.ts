@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { MemoryTranscriptRepository } from "@repo/persistence";
+import { MemoryRunRepository, MemoryTranscriptRepository } from "@repo/persistence";
 import { TranscriptController } from "./TranscriptController";
 import type { Env } from "../types/ai";
 
@@ -9,13 +9,17 @@ const TEST_RUN_ID = "550e8400-e29b-41d4-a716-446655440002";
 
 describe("TranscriptController", () => {
   let repository: MemoryTranscriptRepository;
+  let runRepository: MemoryRunRepository;
   let env: Env;
 
   beforeEach(() => {
     repository = new MemoryTranscriptRepository({
       now: () => new Date("2026-05-15T00:00:00.000Z"),
     });
-    env = createEnv(repository);
+    runRepository = new MemoryRunRepository({
+      now: () => new Date("2026-05-15T00:00:00.000Z"),
+    });
+    env = createEnv(repository, runRepository);
   });
 
   it("creates and lists authenticated sessions from the transcript repository", async () => {
@@ -30,13 +34,20 @@ describe("TranscriptController", () => {
     );
 
     expect(createResponse.status).toBe(201);
+    await expect(runRepository.getRun(TEST_RUN_ID, TEST_USER_ID)).resolves.toMatchObject({
+      id: TEST_RUN_ID,
+      userId: TEST_USER_ID,
+      sessionId: TEST_SESSION_ID,
+      taskId: TEST_SESSION_ID,
+      status: "created",
+    });
     expect(listResponse.status).toBe(200);
     await expect(listResponse.json()).resolves.toMatchObject({
       sessions: [
         {
           id: TEST_SESSION_ID,
           userId: TEST_USER_ID,
-          activeRunId: null,
+          activeRunId: TEST_RUN_ID,
         },
       ],
     });
@@ -121,10 +132,14 @@ function authenticatedRequest(
   });
 }
 
-function createEnv(repository: MemoryTranscriptRepository): Env {
+function createEnv(
+  repository: MemoryTranscriptRepository,
+  runRepository: MemoryRunRepository,
+): Env {
   return {
     AI: {} as Env["AI"],
     AUTH_TRANSCRIPT_REPOSITORY: repository,
+    AUTH_RUN_REPOSITORY: runRepository,
     AUTH_IDENTITY_REPOSITORY: {
       createGitHubSession: async () => {
         throw new Error("not used");
