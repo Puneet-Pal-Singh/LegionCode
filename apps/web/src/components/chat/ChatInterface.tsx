@@ -190,10 +190,12 @@ interface ChatInterfaceProps {
     stop: () => void;
     canStop?: boolean;
     isLoading: boolean;
+    hasHydrated?: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
   };
   sessionId: string;
+  hasStartedSession?: boolean;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   permissionMode?: ProductMode;
@@ -209,6 +211,7 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   chatProps,
   sessionId,
+  hasStartedSession = false,
   mode = "build",
   onModeChange,
   permissionMode,
@@ -230,6 +233,7 @@ export function ChatInterface({
     stop,
     canStop,
     isLoading,
+    hasHydrated = true,
     error,
     debugEvents = [],
   } = chatProps;
@@ -750,8 +754,22 @@ export function ChatInterface({
       ),
     [messages],
   );
+  const hasConversationSignal = hasUserMessage || chatEntries.length > 0;
   const showHeroComposer =
-    !hasUserMessage && !isLoading && !pendingApproval;
+    hasHydrated &&
+    !hasConversationSignal &&
+    !isLoading &&
+    !pendingApproval &&
+    !hasStartedSession;
+  const isTranscriptHydrating =
+    !hasHydrated &&
+    !hasConversationSignal &&
+    !pendingApproval;
+  const showTranscriptUnavailable =
+    hasHydrated &&
+    hasStartedSession &&
+    !hasConversationSignal &&
+    !pendingApproval;
   const activityScrollSignal = useMemo(
     () =>
       activityViewModel.turns
@@ -820,7 +838,7 @@ export function ChatInterface({
           reviewCommentError={reviewCommentError}
           onStop={stop}
           canStop={canStop ?? isLoading}
-          isLoading={isLoading}
+          isLoading={isLoading || isTranscriptHydrating}
           sessionId={sessionId}
           mode={mode}
           onModeChange={onModeChange}
@@ -835,7 +853,7 @@ export function ChatInterface({
         layout={layout}
         permissionMode={permissionMode}
         onPermissionModeChange={onPermissionModeChange}
-        isLoading={isLoading}
+        isLoading={isLoading || isTranscriptHydrating}
       />
     </>
   );
@@ -869,6 +887,20 @@ export function ChatInterface({
                 What should we build?
               </h1>
               {renderComposerControls("hero")}
+            </div>
+          </div>
+        ) : isTranscriptHydrating ? (
+          <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
+            <div className="text-sm font-medium text-zinc-500">
+              <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
+                Loading conversation
+              </span>
+            </div>
+          </div>
+        ) : showTranscriptUnavailable ? (
+          <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
+            <div className="text-sm font-medium text-zinc-500">
+              Conversation unavailable
             </div>
           </div>
         ) : (
@@ -1231,8 +1263,9 @@ function buildChatEntries(
   const activityTurnsByMessageId = correlateActivityTurnsToMessages(
     conversationTurns,
     turns,
-    { runId },
+    { logUnmatched: false, runId },
   );
+  const assignedActivityTurnKeys = new Set<string>();
 
   for (const conversationTurn of conversationTurns) {
     if (conversationTurn.userMessage) {
@@ -1245,6 +1278,7 @@ function buildChatEntries(
         activityTurnsByMessageId.get(conversationTurn.userMessage.id) ?? [];
       for (const activityTurn of matchedActivityTurns) {
         if (activityTurn.hasVisibleRows) {
+          assignedActivityTurnKeys.add(activityTurn.key);
           entries.push({ kind: "turn", turn: activityTurn });
         }
       }
@@ -1258,7 +1292,35 @@ function buildChatEntries(
     }
   }
 
+  if (entries.length === 0) {
+    appendUnmatchedActivityTurns(entries, turns, assignedActivityTurnKeys);
+  }
   return entries;
+}
+
+function appendUnmatchedActivityTurns(
+  entries: ChatInterfaceEntry[],
+  turns: ActivityTurnViewModel[],
+  assignedActivityTurnKeys: Set<string>,
+): void {
+  for (const turn of turns) {
+    if (!turn.hasVisibleRows || assignedActivityTurnKeys.has(turn.key)) {
+      continue;
+    }
+
+    const prompt = turn.userPrompt?.trim();
+    if (prompt) {
+      entries.push({
+        kind: "message",
+        message: {
+          id: `activity:${turn.key}:user`,
+          role: "user",
+          content: prompt,
+        },
+      });
+    }
+    entries.push({ kind: "turn", turn });
+  }
 }
 
 function correlateActivityTurnsToMessages(
