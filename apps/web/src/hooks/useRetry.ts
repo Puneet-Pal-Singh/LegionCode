@@ -33,6 +33,9 @@ export function useRetry({
     if (attemptsRef.current >= maxAttempts) {
       return false;
     }
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+    }
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       setSignal((current) => current + 1);
