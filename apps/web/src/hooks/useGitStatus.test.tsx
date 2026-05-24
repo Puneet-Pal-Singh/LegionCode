@@ -8,7 +8,7 @@ import {
 } from "../lib/runtime-boot-monitor";
 
 vi.mock("./useRunContext", () => ({
-  useRunContext: () => ({
+  useOptionalRunContext: () => ({
     runId: null,
     sessionId: null,
   }),
