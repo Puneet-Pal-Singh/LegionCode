@@ -11,6 +11,7 @@ import {
   getAuthenticatedUserSession,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
+import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
 
 const SessionCreateRequestSchema = z.object({
@@ -58,6 +59,10 @@ export class TranscriptController {
       }
 
       const body = SessionCreateRequestSchema.parse(await request.json());
+      if (body.runId) {
+        await ensureSessionRun(body, body.runId, auth.userId, env);
+      }
+
       const session = await withTranscriptRepository(env, (repository) =>
         repository.ensureSession({
           sessionId: body.sessionId,
@@ -65,7 +70,7 @@ export class TranscriptController {
           workspaceId: body.workspaceId ?? null,
           title: body.title ?? "Untitled task",
           repository: body.repository ?? null,
-          activeRunId: null,
+          activeRunId: body.runId ?? null,
           mode: body.mode ?? "build",
           status: "idle",
         }),
@@ -129,6 +134,25 @@ export class TranscriptController {
       return transcriptErrorResponse(request, env, error);
     }
   }
+}
+
+async function ensureSessionRun(
+  body: z.infer<typeof SessionCreateRequestSchema>,
+  runId: string,
+  userId: string,
+  env: Env,
+): Promise<void> {
+  await withRunRepository(env, async (repository) => {
+    await repository.ensureRun({
+      id: runId,
+      userId,
+      workspaceId: body.workspaceId ?? null,
+      sessionId: body.sessionId,
+      taskId: body.sessionId,
+      status: "created",
+      mode: body.mode ?? "build",
+    });
+  });
 }
 
 function readArchiveSessionParams(url: string): { sessionId: string | null } {
