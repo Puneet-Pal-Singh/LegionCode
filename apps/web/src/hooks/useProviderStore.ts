@@ -30,7 +30,7 @@ import type {
   ProviderModelDiscoveryView,
   ProviderModelOption,
 } from "../services/api/providerClient.js";
-import { useRunContext } from "./useRunContext";
+import { useOptionalRunContext } from "./useRunContext";
 
 const SESSION_RUN_ID_KEY = "currentRunId";
 
@@ -81,7 +81,7 @@ export function useProviderStore(
   runIdOverride?: string,
 ): UseProviderStoreResult {
   const store = ProviderStore.getInstance();
-  const { runId: contextRunId } = useRunContext();
+  const { runId: contextRunId } = useOptionalRunContext();
   const runId = runIdOverride ?? contextRunId;
   const [state, setState] = useState<ProviderStoreState>(store.getState());
 
