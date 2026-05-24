@@ -48,6 +48,7 @@ export function useChatHydration(
     if (messagesLength > 0) {
       hasHydratedRef.current = true;
       resetRetry();
+      setIsHydrating(false);
       setHasHydrated(true);
       return;
     }

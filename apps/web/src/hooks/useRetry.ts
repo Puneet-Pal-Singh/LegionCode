@@ -21,12 +21,20 @@ export function useRetry({
   const attemptsRef = useRef(0);
   const timerRef = useRef<number | null>(null);
 
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
   const schedule = useCallback(() => {
     attemptsRef.current += 1;
     if (attemptsRef.current >= maxAttempts) {
       return false;
     }
     timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
       setSignal((current) => current + 1);
     }, delayMs);
     return true;
@@ -34,7 +42,8 @@ export function useRetry({
 
   const reset = useCallback(() => {
     attemptsRef.current = 0;
-  }, []);
+    clearTimer();
+  }, [clearTimer]);
 
   useEffect(() => {
     reset();
@@ -42,12 +51,9 @@ export function useRetry({
 
   useEffect(() => {
     return () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
+      clearTimer();
     };
-  }, []);
+  }, [clearTimer]);
 
   return { signal, schedule, reset };
 }
