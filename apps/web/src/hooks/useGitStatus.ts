@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GitStatusResponse } from "@repo/shared-types";
-import { useRunContext } from "./useRunContext";
+import { useOptionalRunContext } from "./useRunContext";
 import { getGitStatus } from "../lib/git-client.js";
 import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
 
@@ -29,7 +29,8 @@ export function useGitStatus(
   explicitRunId?: string,
   explicitSessionId?: string,
 ): UseGitStatusResult {
-  const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
+  const { runId: contextRunId, sessionId: contextSessionId } =
+    useOptionalRunContext();
   const runId = explicitRunId ?? contextRunId;
   const sessionId = explicitSessionId ?? contextSessionId;
   const cacheKey = runId && sessionId ? `${sessionId}:${runId}` : null;
