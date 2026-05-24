@@ -16,6 +16,11 @@ export function useRunContext(): RunContextValue {
   return context;
 }
 
+export function useOptionalRunContext(): RunContextValue {
+  const context = useContext(RunContext);
+  return context ?? { runId: null, sessionId: null };
+}
+
 export function RunContextProvider({
   children,
   runId,
