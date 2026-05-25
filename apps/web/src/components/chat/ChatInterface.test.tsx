@@ -208,7 +208,9 @@ describe("ChatInterface", () => {
       screen.getByRole("status", { name: "Loading conversation" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
-    expect(screen.queryByText("Conversation unavailable")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Conversation unavailable"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
@@ -239,7 +241,9 @@ describe("ChatInterface", () => {
     expect(
       screen.getByRole("status", { name: "Loading conversation" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Conversation unavailable")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Conversation unavailable"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
@@ -434,6 +438,111 @@ describe("ChatInterface", () => {
     });
   });
 
+  it("prefers grounded activity edit stats over live zero-count git status", async () => {
+    mockGitReviewState.status = {
+      files: [
+        {
+          path: "src/components/landing/hero/index.tsx",
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+          isStaged: false,
+        },
+      ],
+      ahead: 0,
+      behind: 0,
+      branch: "main",
+      hasStaged: false,
+      hasUnstaged: true,
+      gitAvailable: true,
+    };
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        items: [
+          {
+            id: "user-activity",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "text",
+            createdAt: "2026-03-24T10:00:00.000Z",
+            updatedAt: "2026-03-24T10:00:00.000Z",
+            source: "brain",
+            role: "user",
+            content: "edit the hero",
+          },
+          {
+            id: "edit-activity",
+            runId: "run-1",
+            sessionId: "session-1",
+            turnId: "turn-1",
+            kind: "tool",
+            createdAt: "2026-03-24T10:00:01.000Z",
+            updatedAt: "2026-03-24T10:00:02.000Z",
+            source: "brain",
+            toolId: "tool-1",
+            toolName: "write_file",
+            status: "completed",
+            metadata: {
+              family: "edit",
+              filePath: "src/components/landing/hero/index.tsx",
+              additions: 84,
+              deletions: 74,
+              diffPreview: "+ const heroTitle = 'Career Crew';",
+            },
+          },
+        ],
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "edit the hero" },
+            {
+              id: "assistant-final",
+              role: "assistant",
+              content: "I completed the requested update.",
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
+      expect(screen.getByText("+84")).toBeInTheDocument();
+      expect(screen.getByText("-74")).toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /expand changes for src\/components\/landing\/hero\/index\.tsx/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("+ const heroTitle = 'Career Crew';"),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("shows only files changed during the current assistant turn", async () => {
     const footerStatus: GitStatusResponse = {
       files: [
@@ -541,7 +650,9 @@ describe("ChatInterface", () => {
   it("renders backend-provided approval decisions and resolves the selected decision", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
@@ -573,7 +684,7 @@ describe("ChatInterface", () => {
           title: "LegionCode wants to commit repository changes",
           reason: "Git mutation actions can change repository history.",
           actionFingerprint: "git_mutation:git_commit:{}",
-          command: "git commit -m \"feat: update\"",
+          command: 'git commit -m "feat: update"',
           availableDecisions: ["allow_once", "deny"],
           createdAt: "2026-01-01T00:00:00.000Z",
         },
@@ -606,7 +717,9 @@ describe("ChatInterface", () => {
       screen.getByRole("button", { name: "Permission mode" }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Allow once" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Allow for this session" }),
@@ -630,9 +743,12 @@ describe("ChatInterface", () => {
 
   it("treats stale approval requests as already resolved", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: "No pending approval request found." }), {
-        status: 409,
-      }),
+      new Response(
+        JSON.stringify({ error: "No pending approval request found." }),
+        {
+          status: 409,
+        },
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
     vi.mocked(useRunSummary).mockReturnValue({
@@ -651,7 +767,7 @@ describe("ChatInterface", () => {
           title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
           command: "pnpm test",
           availableDecisions: ["allow_once", "deny"],
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -713,7 +829,7 @@ describe("ChatInterface", () => {
           title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
           command: "pnpm test",
           availableDecisions: [
             "allow_once",
@@ -770,7 +886,7 @@ describe("ChatInterface", () => {
           title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
           command: "pnpm test",
           availableDecisions: ["allow_once", "deny"],
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -858,7 +974,7 @@ describe("ChatInterface", () => {
           title: "LegionCode wants to run a shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
           command: "pnpm test",
           availableDecisions: ["allow_once", "deny"],
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -903,7 +1019,9 @@ describe("ChatInterface", () => {
     expect(
       screen.getByText("Do you want me to run a shell command?"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Allow once" }),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
@@ -924,7 +1042,7 @@ describe("ChatInterface", () => {
           title: "Run shell command",
           reason:
             "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: "shell_command:bash:{\"command\":\"pnpm test\"}",
+          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
           command: "pnpm test",
           availableDecisions: ["allow_once", "deny"],
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -1170,7 +1288,8 @@ describe("ChatInterface", () => {
           append: vi.fn(),
           stop: vi.fn(),
           isLoading: false,
-          error: "Provider rate limit reached. Retry after cooldown or switch to another connected provider.",
+          error:
+            "Provider rate limit reached. Retry after cooldown or switch to another connected provider.",
           debugEvents: [],
         }}
         sessionId="session-1"
@@ -1178,11 +1297,17 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getByText("Provider rate limit was reached.")).toBeInTheDocument();
     expect(
-      screen.getByText("Switch to another connected provider or retry after rate limits reset."),
+      screen.getByText("Provider rate limit was reached."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Switch Provider" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Switch to another connected provider or retry after rate limits reset.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Switch Provider" }),
+    ).toBeInTheDocument();
   });
 
   it("routes expired app-session recovery to login instead of provider setup", async () => {
@@ -1211,7 +1336,9 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getByText("Your login session is missing or expired.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Your login session is missing or expired."),
+    ).toBeInTheDocument();
     await waitFor(() => {
       expect(mockRefreshSession).toHaveBeenCalledTimes(1);
     });
@@ -1607,7 +1734,9 @@ describe("ChatInterface", () => {
       screen.queryByText("I've narrowed it down to the workflow lane."),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("I updated the workflow UI to match the compact design."),
+      screen.getByText(
+        "I updated the workflow UI to match the compact design.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("Thinking")).toBeInTheDocument();
     expect(screen.queryByText(/Thinking \d+:\d{2}/)).not.toBeInTheDocument();
