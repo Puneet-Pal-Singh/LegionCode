@@ -75,6 +75,7 @@ const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
 const WRITE_GIT_AUTHOR_ERROR =
   "Git commit author could not be written to this workspace before committing.";
+const PATCH_WORK_DIR = ".shadowbox";
 
 type CommitIdentityResolutionResult =
   | { success: true; identity: GitCommitIdentity }
@@ -610,6 +611,162 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
+    const patchPath = await this.createTemporaryPatchPath(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+      "git.patch_capture.prepare",
+    );
+    try {
+      const diffResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: [
+            "-C",
+            worktree,
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "--find-renames",
+            `--output=${patchPath}`,
+          ],
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.patch_capture.diff",
+      );
+      if (diffResult.exitCode !== 0) {
+        return { success: false, error: diffResult.stderr };
+      }
+
+      return await this.readTemporaryPatch(sandbox, patchPath);
+    } finally {
+      await this.deleteTemporaryPatch(
+        sandbox,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    }
+  }
+
+  private async createTemporaryPatchPath(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    operation: string,
+  ): Promise<string> {
+    const patchPath = `${worktree}/${PATCH_WORK_DIR}/edit-artifact-${crypto.randomUUID()}.patch`;
+    await this.prepareTemporaryPatchDirectory(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+      operation,
+    );
+    return patchPath;
+  }
+
+  private async prepareTemporaryPatchDirectory(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    operation: string,
+  ): Promise<void> {
+    await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "mkdir",
+        args: ["-p", `${worktree}/${PATCH_WORK_DIR}`],
+        runId,
+      },
+      ["mkdir"],
+      toolboxContext,
+      operation,
+    );
+  }
+
+  private async readTemporaryPatch(
+    sandbox: Sandbox,
+    patchPath: string,
+  ): Promise<PluginResult> {
+    const result = await sandbox.readFile(patchPath, { encoding: "utf-8" });
+    if (!result.success) {
+      return {
+        success: false,
+        error: `Failed to read captured patch file: ${patchPath}`,
+      };
+    }
+    return { success: true, output: result.content };
+  }
+
+  private async captureUntrackedFilePatch(
+    sandbox: Sandbox,
+    worktree: string,
+    safePath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const patchPath = await this.createTemporaryPatchPath(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+      "git.patch_capture.untracked_prepare",
+    );
+    try {
+      const diffResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: [
+            "diff",
+            "--binary",
+            "--no-index",
+            `--output=${patchPath}`,
+            "--",
+            "/dev/null",
+            safePath,
+          ],
+          cwd: worktree,
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.patch_capture.untracked_diff",
+      );
+      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
+        return { success: false, error: diffResult.stderr };
+      }
+
+      return await this.readTemporaryPatch(sandbox, patchPath);
+    } finally {
+      await this.deleteTemporaryPatch(
+        sandbox,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    }
+  }
+
+  private isInternalPatchFile(safePath: string): boolean {
+    return (
+      safePath === PATCH_WORK_DIR || safePath.startsWith(`${PATCH_WORK_DIR}/`)
+    );
+  }
+
+  private async captureUntrackedPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
     const diffResult = await this.runToolboxCommand(
       sandbox,
       {
@@ -617,20 +774,46 @@ export class GitPlugin implements IPlugin {
         args: [
           "-C",
           worktree,
-          "diff",
-          "--binary",
-          "--no-ext-diff",
-          "--find-renames",
+          "ls-files",
+          "-z",
+          "--others",
+          "--exclude-standard",
         ],
         runId,
       },
       ["git"],
       toolboxContext,
-      "git.patch_capture.diff",
+      "git.patch_capture.untracked_list",
     );
-    return diffResult.exitCode === 0
-      ? { success: true, output: diffResult.stdout }
-      : { success: false, error: diffResult.stderr };
+    if (diffResult.exitCode !== 0) {
+      return { success: false, error: diffResult.stderr };
+    }
+
+    const patches: string[] = [];
+    for (const filePath of splitNullTerminatedPaths(diffResult.stdout)) {
+      const safePath = validateRepoRelativePath(filePath);
+      if (this.isInternalPatchFile(safePath)) {
+        continue;
+      }
+
+      const patch = await this.captureUntrackedFilePatch(
+        sandbox,
+        worktree,
+        safePath,
+        toolboxContext,
+        runId,
+      );
+      if (!patch.success) {
+        return patch;
+      }
+
+      const output = getPatchOutput(patch);
+      if (hasPatchContent(output)) {
+        patches.push(output);
+      }
+    }
+
+    return { success: true, output: patches.join("\n") };
   }
 
   private async capturePatchMetadata(
@@ -653,60 +836,6 @@ export class GitPlugin implements IPlugin {
     );
 
     return { baseCommitSha, branch };
-  }
-
-  private async captureUntrackedPatch(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<PluginResult> {
-    const listResult = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: [
-          "-C",
-          worktree,
-          "ls-files",
-          "-z",
-          "--others",
-          "--exclude-standard",
-        ],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.untracked_list",
-    );
-    if (listResult.exitCode !== 0) {
-      return { success: false, error: listResult.stderr };
-    }
-
-    const patches: string[] = [];
-    for (const filePath of splitNullTerminatedPaths(listResult.stdout)) {
-      const safePath = validateRepoRelativePath(filePath);
-      const diffResult = await this.runToolboxCommand(
-        sandbox,
-        {
-          command: "git",
-          args: ["diff", "--binary", "--no-index", "--", "/dev/null", safePath],
-          cwd: worktree,
-          runId,
-        },
-        ["git"],
-        toolboxContext,
-        "git.patch_capture.untracked_diff",
-      );
-      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
-        return { success: false, error: diffResult.stderr };
-      }
-      if (diffResult.stdout.trim().length > 0) {
-        patches.push(diffResult.stdout);
-      }
-    }
-
-    return { success: true, output: patches.join("\n") };
   }
 
   private async applyPatch(
@@ -765,12 +894,11 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<string> {
-    const patchPath = `${worktree}/.shadowbox/edit-artifact-${crypto.randomUUID()}.patch`;
-    await this.runToolboxCommand(
+    const patchPath = await this.createTemporaryPatchPath(
       sandbox,
-      { command: "mkdir", args: ["-p", `${worktree}/.shadowbox`], runId },
-      ["mkdir"],
+      worktree,
       toolboxContext,
+      runId,
       "git.patch_apply.prepare",
     );
     await sandbox.writeFile(patchPath, patch);
