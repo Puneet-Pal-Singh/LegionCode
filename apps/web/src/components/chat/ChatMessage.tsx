@@ -196,7 +196,9 @@ export function ChatMessage({
               </div>
             )}
 
-            {displayContent && <MarkdownMessageContent content={displayContent} />}
+            {displayContent && (
+              <MarkdownMessageContent content={displayContent} />
+            )}
           </div>
         )}
 
@@ -232,13 +234,15 @@ export function ChatMessage({
             return null;
           })}
 
-        {!isUser && changedFilesSummary && changedFilesSummary.files.length > 0 && (
-          <ChangedFilesCard
-            files={changedFilesSummary.files}
-            loadFileDiff={changedFilesSummary.loadFileDiff}
-            onReviewOpen={onReviewOpen}
-          />
-        )}
+        {!isUser &&
+          changedFilesSummary &&
+          changedFilesSummary.files.length > 0 && (
+            <ChangedFilesCard
+              files={changedFilesSummary.files}
+              loadFileDiff={changedFilesSummary.loadFileDiff}
+              onReviewOpen={onReviewOpen}
+            />
+          )}
 
         {metadataText && (
           <div
@@ -305,13 +309,21 @@ function ChangedFilesCard({
   return (
     <div className="mt-5 overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
       {/* Header */}
-      <div className={cn("flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/30 px-4 py-2.5", !isExpanded && "border-b-0")}>
+      <div
+        className={cn(
+          "flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/30 px-4 py-2.5",
+          !isExpanded && "border-b-0",
+        )}
+      >
         <div className="flex items-center gap-3 text-sm font-semibold text-zinc-100">
           <span>
             {files.length} {fileCountLabel}
           </span>
           {files.length > 1 && (
-            <ChangeStats additions={totals.additions} deletions={totals.deletions} />
+            <ChangeStats
+              additions={totals.additions}
+              deletions={totals.deletions}
+            />
           )}
         </div>
         <div className="flex items-center gap-4">
@@ -449,7 +461,9 @@ function ChangedFileRow({
       >
         <span className="min-w-0 flex-1 truncate font-mono text-sm text-zinc-400">
           {fileNameParts.directory}
-          <span className="font-semibold text-zinc-100">{fileNameParts.name}</span>
+          <span className="font-semibold text-zinc-100">
+            {fileNameParts.name}
+          </span>
         </span>
         <ChangeStats additions={stats.additions} deletions={stats.deletions} />
         <span className="text-zinc-600" aria-hidden="true">
@@ -582,7 +596,9 @@ function buildInlineDiffRows(
 
   return sortedSegments.flatMap((segment, index) => {
     const separator: InlineDiffRow[] =
-      index === 0 ? [] : [{ kind: "separator", key: `separator-${segment.key}` }];
+      index === 0
+        ? []
+        : [{ kind: "separator", key: `separator-${segment.key}` }];
     const lines = segment.lines.map<InlineDiffRow>((line) => ({
       kind: "line",
       key: line.key,
@@ -602,7 +618,11 @@ function buildInlineDiffSegments(
     const ranges = buildContextRanges(hunk.lines, contextLineCount);
     ranges.forEach((range, rangeIndex) => {
       const segmentLines: InlineDiffSegment["lines"] = [];
-      for (let lineIndex = range.start; lineIndex <= range.end; lineIndex += 1) {
+      for (
+        let lineIndex = range.start;
+        lineIndex <= range.end;
+        lineIndex += 1
+      ) {
         const line = hunk.lines[lineIndex];
         if (!line) {
           continue;
@@ -706,16 +726,19 @@ function buildContextRanges(
     end: Math.min(lines.length - 1, index + contextLineCount),
   }));
 
-  return ranges.reduce<Array<{ start: number; end: number }>>((merged, range) => {
-    const previous = merged[merged.length - 1];
-    if (!previous || range.start > previous.end + 1) {
-      merged.push({ ...range });
-      return merged;
-    }
+  return ranges.reduce<Array<{ start: number; end: number }>>(
+    (merged, range) => {
+      const previous = merged[merged.length - 1];
+      if (!previous || range.start > previous.end + 1) {
+        merged.push({ ...range });
+        return merged;
+      }
 
-    previous.end = Math.max(previous.end, range.end);
-    return merged;
-  }, []);
+      previous.end = Math.max(previous.end, range.end);
+      return merged;
+    },
+    [],
+  );
 }
 
 function ChangeStats({
@@ -759,6 +782,10 @@ function getFileStats(
   file: FileStatus,
   diffState?: ChangedFileDiffState,
 ): ChangeLineStats {
+  if (hasKnownLineStats(file)) {
+    return { additions: file.additions, deletions: file.deletions };
+  }
+
   if (diffState?.diff) {
     return calculateDiffStats(diffState.diff);
   }
@@ -772,6 +799,10 @@ function getFileStats(
   }
 
   return calculateDiffStats(diffState.diff);
+}
+
+function hasKnownLineStats(file: FileStatus): boolean {
+  return file.additions > 0 || file.deletions > 0;
 }
 
 function calculateDiffStats(diff: DiffContent): ChangeLineStats {
@@ -814,7 +845,10 @@ function getInlineDiffLineStyle(lineType: DiffLine["type"]): {
   };
 }
 
-function splitPathForDisplay(path: string): { directory: string; name: string } {
+function splitPathForDisplay(path: string): {
+  directory: string;
+  name: string;
+} {
   const lastSlashIndex = path.lastIndexOf("/");
   if (lastSlashIndex < 0) {
     return { directory: "", name: path };
@@ -842,11 +876,7 @@ function formatMetadataText(
     return metadata.timeLabel ?? "";
   }
 
-  return [
-    metadata.modeLabel,
-    metadata.modelLabel,
-    metadata.timeLabel,
-  ]
+  return [metadata.modeLabel, metadata.modelLabel, metadata.timeLabel]
     .filter((value): value is string => Boolean(value?.trim()))
     .join(" · ");
 }
@@ -986,7 +1016,7 @@ function shortenTextMentions(content: string): string {
 }
 
 function unescapeMentionToken(token: string): string {
-  return token.replace(/\\"/g, "\"").replace(/\\\\/g, "\\");
+  return token.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
 function parseThinkingTags(content: string): {
