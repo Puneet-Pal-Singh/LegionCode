@@ -14,8 +14,14 @@ describe("MemoryArtifactRepository", () => {
       sha256: "sha256",
     });
 
-    const owned = await repository.getLatestRestorableArtifact("run-1", "user-1");
-    const otherUser = await repository.getLatestRestorableArtifact("run-1", "user-2");
+    const owned = await repository.getLatestRestorableArtifact(
+      "run-1",
+      "user-1",
+    );
+    const otherUser = await repository.getLatestRestorableArtifact(
+      "run-1",
+      "user-2",
+    );
 
     expect(stored).toMatchObject({
       contentType: "text/x-patch",
@@ -35,10 +41,27 @@ describe("MemoryArtifactRepository", () => {
       status: "stored",
     });
 
-    const artifact = await repository.getLatestRestorableArtifactForRun("run-1");
+    const artifact =
+      await repository.getLatestRestorableArtifactForRun("run-1");
 
     expect(artifact?.id).toBe("artifact-1");
     expect(artifact?.userId).toBe("user-1");
+  });
+
+  it("keeps restored artifacts restorable after a workspace re-clone", async () => {
+    const repository = new MemoryArtifactRepository();
+    await repository.createPendingArtifact(baseArtifact({ userId: "user-1" }));
+    await repository.updateStatus({
+      artifactId: "artifact-1",
+      userId: "user-1",
+      status: "restored",
+    });
+
+    const artifact =
+      await repository.getLatestRestorableArtifactForRun("run-1");
+
+    expect(artifact?.id).toBe("artifact-1");
+    expect(artifact?.status).toBe("restored");
   });
 
   it("returns stale pending artifacts for retention repair", async () => {
@@ -87,7 +110,8 @@ function baseArtifact(input: { userId: string }) {
     branch: "main",
     baseCommitSha: "abc123",
     artifactKind: "git_patch" as const,
-    r2ObjectKey: "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
+    r2ObjectKey:
+      "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
     changedFiles: [{ path: "src/main.ts", status: "modified" }],
     expiresAt: "2999-01-01T00:00:00.000Z",
   };
