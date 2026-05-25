@@ -79,9 +79,15 @@ export class EditArtifactCaptureService {
     input: CaptureAfterRunInput,
     gitClient: SecureGitArtifactClient,
   ): Promise<EditArtifactChangedFile[]> {
-    return input.changedFiles.length > 0
-      ? input.changedFiles
-      : await this.loadChangedFilesFromGit(gitClient);
+    const gitChangedFiles = await this.loadChangedFilesFromGit(gitClient);
+    if (input.changedFiles.length === 0) {
+      return gitChangedFiles;
+    }
+
+    return mergePromptChangedFilesWithGitStats(
+      input.changedFiles,
+      gitChangedFiles,
+    );
   }
 
   private async persistCapturedArtifact(
@@ -306,14 +312,11 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
       return;
     }
 
-    const filePath = extractFilePathFromToolResult(event.payload.result);
-    if (!filePath) {
+    const changedFile = extractChangedFileFromToolResult(event.payload.result);
+    if (!changedFile) {
       return;
     }
-    this.changedFiles.set(filePath, {
-      path: filePath,
-      status: "modified",
-    });
+    this.changedFiles.set(changedFile.path, changedFile);
   }
 
   private async capture(): Promise<void> {
@@ -347,7 +350,7 @@ export function createEditArtifactCoordinator(input: {
       runId: input.runId,
       sessionId: input.sessionId,
       workspaceId: input.workspaceId,
-      muscleSession: input.sessionId || input.runId,
+      muscleSession: input.runId,
       repoOwner: input.repositoryContext?.owner ?? null,
       repoName: input.repositoryContext?.repo ?? null,
       repoUrl: input.repositoryContext?.baseUrl ?? null,
@@ -422,13 +425,70 @@ function buildPatchMetadata(
   };
 }
 
-function extractFilePathFromToolResult(result: unknown): string | undefined {
-  const output = getObjectProperty(result, "output");
-  const metadata = getObjectProperty(output, "metadata");
-  const activity = getObjectProperty(metadata, "activity");
+export function mergePromptChangedFilesWithGitStats(
+  promptFiles: EditArtifactChangedFile[],
+  gitFiles: EditArtifactChangedFile[],
+): EditArtifactChangedFile[] {
+  const gitFilesByPath = new Map(gitFiles.map((file) => [file.path, file]));
+  return promptFiles.map((file) => ({
+    ...file,
+    ...readGitStatsForPromptFile(file, gitFilesByPath.get(file.path)),
+  }));
+}
+
+function readGitStatsForPromptFile(
+  promptFile: EditArtifactChangedFile,
+  gitFile: EditArtifactChangedFile | undefined,
+): Pick<
+  EditArtifactChangedFile,
+  "status" | "additions" | "deletions" | "isStaged"
+> {
+  return {
+    status: gitFile?.status ?? promptFile.status,
+    additions: gitFile?.additions ?? promptFile.additions,
+    deletions: gitFile?.deletions ?? promptFile.deletions,
+    isStaged: gitFile?.isStaged ?? promptFile.isStaged,
+  };
+}
+
+export function extractChangedFileFromToolResult(
+  result: unknown,
+): EditArtifactChangedFile | undefined {
+  const activity = extractActivityMetadata(result);
   const filePath = getObjectProperty(activity, "filePath");
-  return typeof filePath === "string" && filePath.trim().length > 0
-    ? filePath
+  if (typeof filePath !== "string" || filePath.trim().length === 0) {
+    return undefined;
+  }
+
+  return {
+    path: filePath,
+    status: "modified",
+    additions: readNonNegativeInteger(activity, "additions"),
+    deletions: readNonNegativeInteger(activity, "deletions"),
+  };
+}
+
+function extractActivityMetadata(result: unknown): unknown {
+  const metadata = getObjectProperty(result, "metadata");
+  const activity = getObjectProperty(metadata, "activity");
+  if (activity) {
+    return activity;
+  }
+
+  const output = getObjectProperty(result, "output");
+  const outputMetadata = getObjectProperty(output, "metadata");
+  return getObjectProperty(outputMetadata, "activity");
+}
+
+function readNonNegativeInteger<K extends string>(
+  value: unknown,
+  key: K,
+): number | undefined {
+  const rawValue = getObjectProperty(value, key);
+  return typeof rawValue === "number" &&
+    Number.isInteger(rawValue) &&
+    rawValue >= 0
+    ? rawValue
     : undefined;
 }
 
