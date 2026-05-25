@@ -6,9 +6,11 @@ const mockSelectFile = vi.hoisted(() => vi.fn());
 const mockSetReviewScope = vi.hoisted(() => vi.fn());
 const mockOpenReview = vi.hoisted(() => vi.fn());
 const mockGitReviewState = vi.hoisted(() => ({
+  hasStatus: true,
   gitAvailable: true,
   statusLoading: false,
   isGitWorkspaceRecovering: false,
+  statusError: null as string | null,
 }));
 const mockStatusFiles = vi.hoisted(() => [
   {
@@ -32,14 +34,16 @@ function buildChangedFile() {
 
 vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
-    status: {
-      branch: "main",
-      files: mockStatusFiles,
-    },
+    status: mockGitReviewState.hasStatus
+      ? {
+          branch: "main",
+          files: mockStatusFiles,
+        }
+      : null,
     gitAvailable: mockGitReviewState.gitAvailable,
     statusLoading: mockGitReviewState.statusLoading,
     isGitWorkspaceRecovering: mockGitReviewState.isGitWorkspaceRecovering,
-    statusError: null,
+    statusError: mockGitReviewState.statusError,
     diff: null,
     diffLoading: false,
     diffError: null,
@@ -125,9 +129,11 @@ vi.mock("../diff/DiffViewer", () => ({
 describe("ChangesPanel", () => {
   beforeEach(() => {
     mockStatusFiles.splice(0, mockStatusFiles.length, buildChangedFile());
+    mockGitReviewState.hasStatus = true;
     mockGitReviewState.gitAvailable = true;
     mockGitReviewState.statusLoading = false;
     mockGitReviewState.isGitWorkspaceRecovering = false;
+    mockGitReviewState.statusError = null;
     mockSelectFile.mockClear();
     mockSetReviewScope.mockClear();
     mockOpenReview.mockClear();
@@ -191,12 +197,17 @@ describe("ChangesPanel", () => {
   it("shows a recovery state while git availability is being refreshed", () => {
     mockGitReviewState.gitAvailable = false;
     mockGitReviewState.isGitWorkspaceRecovering = true;
+    mockGitReviewState.statusError = "Git service is temporarily unavailable.";
+    mockGitReviewState.hasStatus = false;
 
     render(<ChangesPanel />);
 
     expect(
       screen.getByText("Recovering workspace after restart..."),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Git service is temporarily unavailable/),
+    ).toBeNull();
     expect(
       screen.queryByText(/Git is not available for this workspace yet/),
     ).not.toBeInTheDocument();
