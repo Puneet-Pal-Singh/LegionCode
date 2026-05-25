@@ -73,17 +73,23 @@ export function ChangesPanel({
     }
   }, [files, selectFile, selectedFile, showChangesList]);
 
-  if (statusLoading && !status) {
+  if ((statusLoading || isGitWorkspaceRecovering) && !status) {
     return (
       <div
         className={`flex items-center justify-center h-full bg-transparent ${className}`}
       >
-        <LoaderCircle className="animate-spin text-zinc-400" size={24} />
+        {isGitWorkspaceRecovering ? (
+          <div className="p-4 text-zinc-400 text-sm">
+            Recovering workspace after restart...
+          </div>
+        ) : (
+          <LoaderCircle className="animate-spin text-zinc-400" size={24} />
+        )}
       </div>
     );
   }
 
-  if (statusError) {
+  if (statusError && !status) {
     return (
       <div className={`p-4 text-red-400 text-sm bg-transparent ${className}`}>
         Error: {statusError}
@@ -94,7 +100,9 @@ export function ChangesPanel({
   if (!gitAvailable) {
     if (statusLoading || isGitWorkspaceRecovering) {
       return (
-        <div className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}>
+        <div
+          className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}
+        >
           Recovering workspace after restart...
         </div>
       );
@@ -109,7 +117,9 @@ export function ChangesPanel({
   }
 
   return (
-    <div className={`flex flex-col h-full gap-4 p-4 bg-transparent ${className}`}>
+    <div
+      className={`flex flex-col h-full gap-4 p-4 bg-transparent ${className}`}
+    >
       {mode === "modal" && showToolbar ? (
         <ReviewDiffToolbar
           reviewScope={reviewScope}
@@ -131,9 +141,7 @@ export function ChangesPanel({
       ) : null}
       <div
         className={`flex-1 flex min-h-0 overflow-hidden ${
-          mode === "modal" && layout === "stacked"
-            ? "flex-col gap-3"
-            : "gap-4"
+          mode === "modal" && layout === "stacked" ? "flex-col gap-3" : "gap-4"
         }`}
       >
         {showChangesList ? (
@@ -176,7 +184,7 @@ export function ChangesPanel({
                 {selectedFile
                   ? diffLoading
                     ? "Loading diff..."
-                    : diffError ?? "No diff available"
+                    : (diffError ?? "No diff available")
                   : files.length > 0
                     ? "Loading diff..."
                     : "No changes"}
@@ -212,10 +220,7 @@ function ReviewDiffToolbar({
 
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
-      <ReviewScopeDropdown
-        value={reviewScope}
-        onChange={onReviewScopeChange}
-      />
+      <ReviewScopeDropdown value={reviewScope} onChange={onReviewScopeChange} />
       <div className="flex items-center gap-2">
         <div className="relative">
           <button
