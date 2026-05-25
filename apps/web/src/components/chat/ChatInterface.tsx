@@ -60,6 +60,18 @@ const RunSummaryPendingApprovalSchema = z.object({
 });
 type ComposerLayout = "docked" | "hero";
 
+function ChatLoadingIndicator() {
+  return (
+    <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
+      <div
+        role="status"
+        aria-label="Loading conversation"
+        className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-800 border-t-zinc-300"
+      />
+    </div>
+  );
+}
+
 function ChatErrorNotice({
   message,
   remediation,
@@ -765,11 +777,13 @@ export function ChatInterface({
     !hasHydrated &&
     !hasConversationSignal &&
     !pendingApproval;
-  const showTranscriptUnavailable =
-    hasHydrated &&
-    hasStartedSession &&
-    !hasConversationSignal &&
-    !pendingApproval;
+  const showSessionPlaceholder =
+    isTranscriptHydrating ||
+    (hasStartedSession &&
+      hasHydrated &&
+      !hasConversationSignal &&
+      !pendingApproval &&
+      !showHeroComposer);
   const activityScrollSignal = useMemo(
     () =>
       activityViewModel.turns
@@ -889,20 +903,8 @@ export function ChatInterface({
               {renderComposerControls("hero")}
             </div>
           </div>
-        ) : isTranscriptHydrating ? (
-          <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
-            <div className="text-sm font-medium text-zinc-500">
-              <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
-                Loading conversation
-              </span>
-            </div>
-          </div>
-        ) : showTranscriptUnavailable ? (
-          <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
-            <div className="text-sm font-medium text-zinc-500">
-              Conversation unavailable
-            </div>
-          </div>
+        ) : showSessionPlaceholder ? (
+          <ChatLoadingIndicator />
         ) : (
           <div className="max-w-4xl mx-auto space-y-6">
             {showDebugPanel && (
