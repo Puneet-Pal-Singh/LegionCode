@@ -22,7 +22,7 @@ import type { Env } from "../../types/ai";
  *
  * @param env - Cloudflare environment
  * @param llmGateway - LLM gateway for agent initialization
- * @param sessionId - Session ID for execution service
+ * @param _sessionId - Chat/session ID. Execution itself is scoped by runId.
  * @param runId - Run ID for execution service
  * @param userId - Authenticated user scope for token injection
  * @param requestedAgentType - Requested agent type from payload
@@ -33,13 +33,13 @@ import type { Env } from "../../types/ai";
 export function resolveAgent(
   env: Env,
   llmGateway: LLMGateway,
-  sessionId: string,
+  _sessionId: string,
   runId: string,
   userId: string | undefined,
   requestedAgentType: AgentType,
   options: { strict?: boolean; correlationId?: string } = {},
 ): IAgent | undefined {
-  const executionService = new ExecutionService(env, sessionId, runId, userId);
+  const executionService = new ExecutionService(env, runId, runId, userId);
 
   const runtimeExecutionService = {
     execute: (
