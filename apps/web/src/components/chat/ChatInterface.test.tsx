@@ -204,11 +204,15 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getByText("Loading conversation")).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "Loading conversation" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Conversation unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
-  it("does not keep loading forever for a started session with no hydrated transcript", () => {
+  it("uses an icon-only placeholder for a started session with no hydrated transcript", () => {
     vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
 
     render(
@@ -232,7 +236,10 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getByText("Conversation unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: "Loading conversation" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Conversation unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
