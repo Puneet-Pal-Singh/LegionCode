@@ -94,6 +94,56 @@ describe("RunActivityFeedProjector", () => {
     ).toBe(false);
   });
 
+  it("projects nested edit activity metadata from completed tool results", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "update hero",
+          role: "user",
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_REQUESTED, {
+          toolId: "tool-1",
+          toolName: "write_file",
+          arguments: {
+            path: "src/hero.tsx",
+            content: "new content",
+          },
+        }),
+        createEvent(RUN_EVENT_TYPES.TOOL_COMPLETED, {
+          toolId: "tool-1",
+          toolName: "write_file",
+          executionTimeMs: 100,
+          result: {
+            output: {
+              metadata: {
+                activity: {
+                  family: "edit",
+                  filePath: "src/hero.tsx",
+                  additions: 9,
+                  deletions: 2,
+                },
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const tool = snapshot.items.find(
+      (item) => item.kind === ACTIVITY_PART_KINDS.TOOL,
+    );
+
+    expect(tool?.kind).toBe("tool");
+    if (tool?.kind !== "tool" || tool.metadata.family !== "edit") {
+      throw new Error("Expected edit tool activity part");
+    }
+
+    expect(tool.metadata.additions).toBe(9);
+    expect(tool.metadata.deletions).toBe(2);
+  });
+
   it("appends bounded shell output deltas onto the same bash row", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
