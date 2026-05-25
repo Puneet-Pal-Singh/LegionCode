@@ -286,7 +286,7 @@ export function ChatInterface({
   const turnBaselineFilesRef = useRef<FileStatus[]>([]);
   const lastSettledFilesRef = useRef<FileStatus[]>([]);
   const previousIsLoadingRef = useRef(isLoading);
-  const diffSnapshotByPathRef = useRef<Record<string, DiffContent>>({});
+  const diffSnapshotsByMessageRef = useRef<Record<string, DiffContent>>({});
   const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(
@@ -346,8 +346,9 @@ export function ChatInterface({
     return null;
   }, [messages]);
   const loadChangedFileDiff = useCallback(
-    async (file: FileStatus): Promise<DiffContent> => {
-      const cachedDiff = diffSnapshotByPathRef.current[file.path];
+    async (messageId: string, file: FileStatus): Promise<DiffContent> => {
+      const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
+      const cachedDiff = diffSnapshotsByMessageRef.current[cacheKey];
       if (cachedDiff) {
         return cachedDiff;
       }
@@ -358,7 +359,7 @@ export function ChatInterface({
         path: file.path,
         staged: file.isStaged,
       });
-      diffSnapshotByPathRef.current[file.path] = diff;
+      diffSnapshotsByMessageRef.current[cacheKey] = diff;
       return diff;
     },
     [runId, sessionId],
@@ -374,7 +375,7 @@ export function ChatInterface({
     pendingChangedFilesRef.current = [];
     turnBaselineFilesRef.current = [];
     lastSettledFilesRef.current = [];
-    diffSnapshotByPathRef.current = {};
+    diffSnapshotsByMessageRef.current = {};
     previousIsLoadingRef.current = false;
     setChangedFilesByAssistantMessageId({});
   }, [runId]);
@@ -385,7 +386,7 @@ export function ChatInterface({
         lastSettledFilesRef.current,
       );
       pendingChangedFilesRef.current = [];
-      diffSnapshotByPathRef.current = {};
+      diffSnapshotsByMessageRef.current = {};
     }
     previousIsLoadingRef.current = isLoading;
   }, [isLoading]);
@@ -958,7 +959,8 @@ export function ChatInterface({
                     isLoading,
                     liveFiles: liveChangedFiles,
                     snapshots: changedFileSnapshotsByAssistantMessageId,
-                    loadFileDiff: loadChangedFileDiff,
+                    loadFileDiff: (file) =>
+                      loadChangedFileDiff(entry.message.id, file),
                   })}
                 />
               ) : (
@@ -1056,6 +1058,13 @@ function resolveChangedFilesSummary(input: {
     files,
     loadFileDiff: input.loadFileDiff,
   };
+}
+
+function buildChangedFileDiffCacheKey(
+  messageId: string,
+  file: FileStatus,
+): string {
+  return `${messageId}:${file.path}:${file.isStaged ? "staged" : "unstaged"}`;
 }
 
 function collectChangedFilesSinceBaseline(
