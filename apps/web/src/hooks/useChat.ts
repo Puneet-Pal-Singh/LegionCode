@@ -16,6 +16,7 @@ interface UseChatResult {
   append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
   isHydrating: boolean;
+  hasHydrated: boolean;
   stop: () => void;
   artifactState: ArtifactState;
   runId: string;
@@ -36,6 +37,7 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
+  allowPendingQueryRestore = true,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -69,9 +71,9 @@ export function useChat(
     messages,
     messagesLength: messages.length,
     isLoading,
-    hasHydrated,
     append,
     isModelConfigReady,
+    allowPendingQueryRestore,
   });
 
   // Handle artifact state
@@ -88,6 +90,7 @@ export function useChat(
     append,
     isLoading,
     isHydrating,
+    hasHydrated,
     stop,
     artifactState,
     runId: activeRunId,

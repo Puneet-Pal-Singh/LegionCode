@@ -143,6 +143,7 @@ export function ChatInputBar({
   const canSubmit = hasInput || hasReviewComments;
   const shouldShowStop = canStop && onStop !== undefined;
   const isComposerActiveRun = isLoading || canStop || shouldShowStop;
+  const canSendMessage = canSubmit && !isComposerActiveRun;
   const effectivePlaceholder =
     placeholder ?? (mode === "plan" ? PLAN_PLACEHOLDER : BUILD_PLACEHOLDER);
   const suggestionEntries = useMemo(
@@ -285,7 +286,7 @@ export function ChatInputBar({
       if (isComposerActiveRun) {
         return;
       }
-      if (canSubmit) {
+      if (canSendMessage) {
         onSubmit();
       }
     }
@@ -462,7 +463,7 @@ export function ChatInputBar({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (canSubmit) {
+          if (canSendMessage) {
             onSubmit();
           }
         }}
@@ -780,7 +781,7 @@ export function ChatInputBar({
               <motion.button
                 type="button"
                 onClick={shouldShowStop ? onStop : onSubmit}
-                disabled={shouldShowStop ? false : !canSubmit}
+                disabled={shouldShowStop ? false : !canSendMessage}
                 aria-label={shouldShowStop ? "Stop generation" : "Send message"}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

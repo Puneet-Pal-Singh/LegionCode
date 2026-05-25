@@ -13,6 +13,7 @@ const mockChatState = vi.hoisted(() => ({
   stop: vi.fn(),
   isLoading: false,
   isHydrating: false,
+  hasHydrated: true,
   runId: "run-123",
   error: null as string | null,
   debugEvents: [],

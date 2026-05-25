@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
-import { useRunContext } from "./useRunContext";
+import { useOptionalRunContext } from "./useRunContext";
 import { getGitDiff } from "../lib/git-client.js";
 
 interface UseGitDiffResult {
@@ -14,7 +14,8 @@ export function useGitDiff(
   explicitRunId?: string,
   explicitSessionId?: string,
 ): UseGitDiffResult {
-  const { runId: contextRunId, sessionId: contextSessionId } = useRunContext();
+  const { runId: contextRunId, sessionId: contextSessionId } =
+    useOptionalRunContext();
   const runId = explicitRunId ?? contextRunId;
   const sessionId = explicitSessionId ?? contextSessionId;
   const scopeKey = runId && sessionId ? `${sessionId}:${runId}` : null;

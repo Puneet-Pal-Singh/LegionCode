@@ -181,6 +181,96 @@ describe("ChatInterface", () => {
     });
   });
 
+  it("keeps the welcome composer hidden while transcript hydration is pending", () => {
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByRole("status", { name: "Loading conversation" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Conversation unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
+  });
+
+  it("uses an icon-only placeholder for a started session with no hydrated transcript", () => {
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByRole("status", { name: "Loading conversation" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Conversation unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
+    expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
+  });
+
+  it("renders activity-only turns when transcript messages are missing", () => {
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(screen.getByText("Plan this repository.")).toBeInTheDocument();
+    expect(screen.getByText(/Worked for/)).toBeInTheDocument();
+    expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
+  });
+
   it("keeps changed files on the final assistant message after git status becomes clean", async () => {
     const changedStatus: GitStatusResponse = {
       files: [

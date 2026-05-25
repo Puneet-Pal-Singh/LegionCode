@@ -149,6 +149,7 @@ export class SessionStateService {
       },
       body: JSON.stringify({
         sessionId: session.id,
+        runId: session.activeRunId,
         title: session.name,
         repository: session.repository,
         mode: session.mode,

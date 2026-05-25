@@ -228,18 +228,18 @@ describe("RunController", () => {
 
   it("proxies the live run events stream through the brain worker route", async () => {
     const env = {} as Env;
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      new Response('{"eventId":"evt-live"}\n', {
-        status: 200,
-        headers: {
-          "Content-Type": "application/x-ndjson; charset=utf-8",
-        },
-      }),
-    );
+    const runtimeResponse = new Response('{"eventId":"evt-live"}\n', {
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+      },
+    });
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(runtimeResponse);
 
     const response = await RunController.getEventsStream(
       new Request(
         "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
+        { headers: { Origin: "http://localhost:5173" } },
       ),
       env,
     );
@@ -251,8 +251,10 @@ describe("RunController", () => {
       {
         method: "GET",
         path: "/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
+        headers: { Origin: "http://localhost:5173" },
       },
     );
+    expect(response).toBe(runtimeResponse);
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toContain("evt-live");
   });

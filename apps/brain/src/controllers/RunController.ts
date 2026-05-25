@@ -220,6 +220,7 @@ export class RunController {
       }
 
       const response = await fetchRunEventsStreamFromRuntime(
+        req,
         env,
         runId,
         requestedBackend,
@@ -235,7 +236,7 @@ export class RunController {
         );
       }
 
-      return proxyResponse(req, env, response);
+      return response;
     } catch (error) {
       console.error("[RunController:getEventsStream] Error:", error);
       return errorResponse(
@@ -512,14 +513,25 @@ function extractErrorMessage(error: unknown): string {
 }
 
 async function fetchRunEventsStreamFromRuntime(
+  req: Request,
   env: Env,
   runId: string,
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<Response> {
+  const headers = buildRuntimeForwardHeaders(req);
   return fetchRunRuntimeRoute(env, runId, requestedBackend, {
     method: "GET",
     path: `/events/stream?runId=${encodeURIComponent(runId)}`,
+    ...(headers ? { headers } : {}),
   });
+}
+
+function buildRuntimeForwardHeaders(req: Request): Record<string, string> | null {
+  const origin = req.headers.get("Origin");
+  if (!origin) {
+    return null;
+  }
+  return { Origin: origin };
 }
 
 async function fetchRunActivityFromRuntime(
@@ -552,21 +564,6 @@ function jsonResponse(
     status,
     headers: {
       "Content-Type": "application/json",
-      ...getBrainRuntimeHeaders(env),
-      ...getCorsHeaders(req, env),
-    },
-  });
-}
-
-function proxyResponse(req: Request, env: Env, response: Response): Response {
-  const contentType =
-    response.headers.get("Content-Type") ??
-    "application/x-ndjson; charset=utf-8";
-
-  return new Response(response.body, {
-    status: response.status,
-    headers: {
-      "Content-Type": contentType,
       ...getBrainRuntimeHeaders(env),
       ...getCorsHeaders(req, env),
     },
