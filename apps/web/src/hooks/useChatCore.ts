@@ -16,6 +16,7 @@ import {
 } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
+import { agentStore } from "../store/agentStore";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import {
@@ -207,8 +208,8 @@ export function useChatCore(
   useLayoutEffect(() => {
     if (clearedScopeRef.current === scopeKey) return;
     clearedScopeRef.current = scopeKey;
-    setMessages([]);
-  }, [scopeKey, setMessages]);
+    setMessages(agentStore.getMessages(runId));
+  }, [runId, scopeKey, setMessages]);
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {
