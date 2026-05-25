@@ -35,6 +35,7 @@ describe("WorkspaceBootstrapService", () => {
         error: "fatal: not a git repository",
       })
       .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true });
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
@@ -54,10 +55,13 @@ describe("WorkspaceBootstrapService", () => {
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
     });
-    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
+    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_fetch", {
+      remote: "origin",
+    });
+    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_branch_switch", {
       branch: "dev",
     });
-    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute).toHaveBeenCalledTimes(4);
   });
 
   it("retries transient git status failures before continuing bootstrap", async () => {
@@ -101,7 +105,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({
         success: false,
         error:
-          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
       })
       .mockResolvedValueOnce({
         success: true,
@@ -134,17 +138,17 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({
         success: false,
         error:
-          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
       })
       .mockResolvedValueOnce({
         success: false,
         error:
-          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
       })
       .mockResolvedValueOnce({
         success: false,
         error:
-          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
       });
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
@@ -197,6 +201,7 @@ describe("WorkspaceBootstrapService", () => {
           "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
       })
       .mockResolvedValueOnce({ success: true }) // forced clone
+      .mockResolvedValueOnce({ success: true }) // fetch
       .mockResolvedValueOnce({ success: true }); // switch
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
@@ -219,10 +224,13 @@ describe("WorkspaceBootstrapService", () => {
       url: "https://github.com/sourcegraph/shadowbox.git",
       replaceExisting: true,
     });
-    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_branch_switch", {
+    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_fetch", {
+      remote: "origin",
+    });
+    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_branch_switch", {
       branch: "dev",
     });
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(5);
   });
 
   it("returns a friendly sync failure when replace clone still fails", async () => {
@@ -273,10 +281,7 @@ describe("WorkspaceBootstrapService", () => {
       }) // switch
       .mockResolvedValueOnce({
         success: true,
-        output: [
-          "* main",
-          "  remotes/origin/main",
-        ].join("\n"),
+        output: ["* main", "  remotes/origin/main"].join("\n"),
       }) // branch list (branch missing on local+remote)
       .mockResolvedValueOnce({ success: true }) // create branch
       .mockResolvedValueOnce({ success: true }); // pull (unused because no remote branch)
@@ -308,7 +313,11 @@ describe("WorkspaceBootstrapService", () => {
       }) // first status
       .mockResolvedValueOnce({ success: true }) // first fetch
       .mockResolvedValueOnce({ success: true }) // first switch
-      .mockResolvedValueOnce({ success: true }); // first pull
+      .mockResolvedValueOnce({ success: true }) // first pull
+      .mockResolvedValueOnce({
+        success: true,
+        output: CLEAN_GIT_STATUS_OUTPUT,
+      }); // second status
     const service = new WorkspaceBootstrapService({ execute }, 60_000);
     const request = {
       runId: "run-cache-test",
@@ -316,7 +325,7 @@ describe("WorkspaceBootstrapService", () => {
       repositoryContext: {
         owner: "sourcegraph",
         repo: "shadowbox",
-        branch: "dev",
+        branch: "main",
       },
     } as const;
 
@@ -325,17 +334,58 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(firstResult.status).toBe("ready");
     expect(secondResult.status).toBe("ready");
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(5);
     expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
       remote: "origin",
     });
     expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
-      branch: "dev",
+      branch: "main",
     });
     expect(execute).toHaveBeenNthCalledWith(4, "git", "git_pull", {
       remote: "origin",
-      branch: "dev",
+      branch: "main",
+    });
+    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_status", {});
+  });
+
+  it("does not use a fresh sync cache when the workspace is no longer a git repository", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        output: CLEAN_GIT_STATUS_OUTPUT,
+      }) // first status
+      .mockResolvedValueOnce({ success: true }) // first fetch
+      .mockResolvedValueOnce({ success: true }) // first switch
+      .mockResolvedValueOnce({ success: true }) // first pull
+      .mockResolvedValueOnce({
+        success: false,
+        error: "fatal: not a git repository",
+      }) // second status
+      .mockResolvedValueOnce({ success: true }) // clone after stale cache detected
+      .mockResolvedValueOnce({ success: true }) // fetch after clone
+      .mockResolvedValueOnce({ success: true }); // switch after clone
+    const service = new WorkspaceBootstrapService({ execute }, 60_000);
+    const request = {
+      runId: "run-cache-revalidates-repo",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    } as const;
+
+    const firstResult = await service.bootstrap(request);
+    const secondResult = await service.bootstrap(request);
+
+    expect(firstResult.status).toBe("ready");
+    expect(secondResult.status).toBe("ready");
+    expect(secondResult.clonedDuringBootstrap).toBe(true);
+    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(6, "git", "git_clone", {
+      url: "https://github.com/sourcegraph/shadowbox.git",
     });
   });
 
@@ -345,7 +395,11 @@ describe("WorkspaceBootstrapService", () => {
       releaseStatusCheck = resolve;
     });
     const execute = vi.fn(
-      async (_plugin: string, action: string, _payload: Record<string, unknown>) => {
+      async (
+        _plugin: string,
+        action: string,
+        _payload: Record<string, unknown>,
+      ) => {
         if (action === "git_status") {
           await statusGate;
           return {
@@ -400,7 +454,11 @@ describe("WorkspaceBootstrapService", () => {
       releaseStatusCheck = resolve;
     });
     const execute = vi.fn(
-      async (_plugin: string, action: string, _payload: Record<string, unknown>) => {
+      async (
+        _plugin: string,
+        action: string,
+        _payload: Record<string, unknown>,
+      ) => {
         if (action === "git_status") {
           await statusGate;
           return {
@@ -451,7 +509,11 @@ describe("WorkspaceBootstrapService", () => {
       releaseStatusCheck = resolve;
     });
     const execute = vi.fn(
-      async (_plugin: string, action: string, _payload: Record<string, unknown>) => {
+      async (
+        _plugin: string,
+        action: string,
+        _payload: Record<string, unknown>,
+      ) => {
         if (action === "git_status") {
           await statusGate;
           return {
@@ -492,11 +554,8 @@ describe("WorkspaceBootstrapService", () => {
     expect(execute).toHaveBeenCalledTimes(2);
     releaseStatusCheck?.();
 
-    const [mutationResultA, gitWriteResult, mutationResultB] = await Promise.all([
-      firstMutation,
-      firstGitWrite,
-      secondMutation,
-    ]);
+    const [mutationResultA, gitWriteResult, mutationResultB] =
+      await Promise.all([firstMutation, firstGitWrite, secondMutation]);
     expect(mutationResultA.status).toBe("ready");
     expect(gitWriteResult.status).toBe("ready");
     expect(mutationResultB.status).toBe("ready");
