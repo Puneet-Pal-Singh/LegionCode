@@ -37,14 +37,17 @@ describe("ChatMessage", () => {
     const message = {
       id: "user-mention",
       role: "user",
-      content: "add logging to @src/components/dashboard/admin/pending-approvals/PendingJobCard.tsx",
+      content:
+        "add logging to @src/components/dashboard/admin/pending-approvals/PendingJobCard.tsx",
     } as Message;
 
     render(<ChatMessage message={message} />);
 
     expect(screen.getByText(/@PendingJobCard\.tsx/)).toBeInTheDocument();
     expect(
-      screen.queryByText(/@src\/components\/dashboard\/admin\/pending-approvals\/PendingJobCard\.tsx/),
+      screen.queryByText(
+        /@src\/components\/dashboard\/admin\/pending-approvals\/PendingJobCard\.tsx/,
+      ),
     ).not.toBeInTheDocument();
   });
 
@@ -228,10 +231,27 @@ describe("ChatMessage", () => {
             newLines: 3,
             header: "@@ -1,2 +1,3 @@",
             lines: [
-              { type: "unchanged", content: " const value = 1", oldLineNumber: 1, newLineNumber: 1 },
-              { type: "deleted", content: "-const oldValue = 2", oldLineNumber: 2 },
-              { type: "added", content: "+const newValue = 2", newLineNumber: 2 },
-              { type: "added", content: "+const anotherValue = 3", newLineNumber: 3 },
+              {
+                type: "unchanged",
+                content: " const value = 1",
+                oldLineNumber: 1,
+                newLineNumber: 1,
+              },
+              {
+                type: "deleted",
+                content: "-const oldValue = 2",
+                oldLineNumber: 2,
+              },
+              {
+                type: "added",
+                content: "+const newValue = 2",
+                newLineNumber: 2,
+              },
+              {
+                type: "added",
+                content: "+const anotherValue = 3",
+                newLineNumber: 3,
+              },
             ],
           },
         ],
@@ -248,6 +268,45 @@ describe("ChatMessage", () => {
     await waitFor(() => {
       expect(screen.getAllByText("+2").length).toBeGreaterThan(0);
       expect(screen.getAllByText("-1").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("does not let an empty loaded diff erase known changed file stats", async () => {
+    const message = {
+      id: "assistant-changes-known-stats",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/components/landing/hero/index.tsx",
+        status: "modified",
+        additions: 84,
+        deletions: 74,
+        isStaged: false,
+      },
+    ];
+    const loadFileDiff = vi.fn(async (): Promise<DiffContent> => {
+      return {
+        oldPath: "src/components/landing/hero/index.tsx",
+        newPath: "src/components/landing/hero/index.tsx",
+        isBinary: false,
+        isNewFile: false,
+        isDeleted: false,
+        hunks: [],
+      };
+    });
+
+    render(
+      <ChatMessage
+        message={message}
+        changedFilesSummary={{ files, loadFileDiff }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("+84")).toBeInTheDocument();
+      expect(screen.getByText("-74")).toBeInTheDocument();
     });
   });
 
@@ -321,45 +380,92 @@ describe("ChatMessage", () => {
         isStaged: false,
       },
     ];
-    const loadFileDiff = vi.fn(async (): Promise<DiffContent> => ({
-      oldPath: "src/index.tsx",
-      newPath: "src/index.tsx",
-      isBinary: false,
-      isNewFile: false,
-      isDeleted: false,
-      hunks: [
-        {
-          oldStart: 1,
-          oldLines: 7,
-          newStart: 1,
-          newLines: 7,
-          header: "@@ -1,7 +1,7 @@",
-          lines: [
-            { type: "unchanged", content: "line 1", oldLineNumber: 1, newLineNumber: 1 },
-            { type: "unchanged", content: "line 2", oldLineNumber: 2, newLineNumber: 2 },
-            { type: "unchanged", content: "line 3", oldLineNumber: 3, newLineNumber: 3 },
-            { type: "deleted", content: "-line 4 old", oldLineNumber: 4 },
-            { type: "added", content: "+line 4 new", newLineNumber: 4 },
-            { type: "unchanged", content: "line 5", oldLineNumber: 5, newLineNumber: 5 },
-            { type: "unchanged", content: "line 6", oldLineNumber: 6, newLineNumber: 6 },
-            { type: "unchanged", content: "line 7", oldLineNumber: 7, newLineNumber: 7 },
-          ],
-        },
-        {
-          oldStart: 111,
-          oldLines: 4,
-          newStart: 111,
-          newLines: 4,
-          header: "@@ -111,4 +111,4 @@",
-          lines: [
-            { type: "unchanged", content: "line 111", oldLineNumber: 111, newLineNumber: 111 },
-            { type: "unchanged", content: "line 112", oldLineNumber: 112, newLineNumber: 112 },
-            { type: "added", content: "+line 113 new", newLineNumber: 113 },
-            { type: "unchanged", content: "line 114", oldLineNumber: 114, newLineNumber: 114 },
-          ],
-        },
-      ],
-    }));
+    const loadFileDiff = vi.fn(
+      async (): Promise<DiffContent> => ({
+        oldPath: "src/index.tsx",
+        newPath: "src/index.tsx",
+        isBinary: false,
+        isNewFile: false,
+        isDeleted: false,
+        hunks: [
+          {
+            oldStart: 1,
+            oldLines: 7,
+            newStart: 1,
+            newLines: 7,
+            header: "@@ -1,7 +1,7 @@",
+            lines: [
+              {
+                type: "unchanged",
+                content: "line 1",
+                oldLineNumber: 1,
+                newLineNumber: 1,
+              },
+              {
+                type: "unchanged",
+                content: "line 2",
+                oldLineNumber: 2,
+                newLineNumber: 2,
+              },
+              {
+                type: "unchanged",
+                content: "line 3",
+                oldLineNumber: 3,
+                newLineNumber: 3,
+              },
+              { type: "deleted", content: "-line 4 old", oldLineNumber: 4 },
+              { type: "added", content: "+line 4 new", newLineNumber: 4 },
+              {
+                type: "unchanged",
+                content: "line 5",
+                oldLineNumber: 5,
+                newLineNumber: 5,
+              },
+              {
+                type: "unchanged",
+                content: "line 6",
+                oldLineNumber: 6,
+                newLineNumber: 6,
+              },
+              {
+                type: "unchanged",
+                content: "line 7",
+                oldLineNumber: 7,
+                newLineNumber: 7,
+              },
+            ],
+          },
+          {
+            oldStart: 111,
+            oldLines: 4,
+            newStart: 111,
+            newLines: 4,
+            header: "@@ -111,4 +111,4 @@",
+            lines: [
+              {
+                type: "unchanged",
+                content: "line 111",
+                oldLineNumber: 111,
+                newLineNumber: 111,
+              },
+              {
+                type: "unchanged",
+                content: "line 112",
+                oldLineNumber: 112,
+                newLineNumber: 112,
+              },
+              { type: "added", content: "+line 113 new", newLineNumber: 113 },
+              {
+                type: "unchanged",
+                content: "line 114",
+                oldLineNumber: 114,
+                newLineNumber: 114,
+              },
+            ],
+          },
+        ],
+      }),
+    );
 
     render(
       <ChatMessage
@@ -397,31 +503,33 @@ describe("ChatMessage", () => {
         isStaged: false,
       },
     ];
-    const loadFileDiff = vi.fn(async (): Promise<DiffContent> => ({
-      oldPath: "src/index.tsx",
-      newPath: "src/index.tsx",
-      isBinary: false,
-      isNewFile: false,
-      isDeleted: false,
-      hunks: [
-        {
-          oldStart: 243,
-          oldLines: 10,
-          newStart: 206,
-          newLines: 7,
-          header: "@@ -243,10 +206,7 @@",
-          lines: [
-            { type: "deleted", content: "old 251", oldLineNumber: 251 },
-            { type: "deleted", content: "old 252", oldLineNumber: 252 },
-            { type: "deleted", content: "old 253", oldLineNumber: 253 },
-            { type: "added", content: "new 206", newLineNumber: 206 },
-            { type: "added", content: "new 207", newLineNumber: 207 },
-            { type: "added", content: "new 208", newLineNumber: 208 },
-            { type: "added", content: "new 209", newLineNumber: 209 },
-          ],
-        },
-      ],
-    }));
+    const loadFileDiff = vi.fn(
+      async (): Promise<DiffContent> => ({
+        oldPath: "src/index.tsx",
+        newPath: "src/index.tsx",
+        isBinary: false,
+        isNewFile: false,
+        isDeleted: false,
+        hunks: [
+          {
+            oldStart: 243,
+            oldLines: 10,
+            newStart: 206,
+            newLines: 7,
+            header: "@@ -243,10 +206,7 @@",
+            lines: [
+              { type: "deleted", content: "old 251", oldLineNumber: 251 },
+              { type: "deleted", content: "old 252", oldLineNumber: 252 },
+              { type: "deleted", content: "old 253", oldLineNumber: 253 },
+              { type: "added", content: "new 206", newLineNumber: 206 },
+              { type: "added", content: "new 207", newLineNumber: 207 },
+              { type: "added", content: "new 208", newLineNumber: 208 },
+              { type: "added", content: "new 209", newLineNumber: 209 },
+            ],
+          },
+        ],
+      }),
+    );
 
     render(
       <ChatMessage
