@@ -58,7 +58,9 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     return await this.getArtifactById(input.id, input.userId);
   }
 
-  async appendEvent(input: AppendArtifactEventInput): Promise<EditArtifactEvent> {
+  async appendEvent(
+    input: AppendArtifactEventInput,
+  ): Promise<EditArtifactEvent> {
     const result = await this.client.query<ArtifactEventRow>(INSERT_EVENT_SQL, [
       input.id,
       input.artifactId,
@@ -68,7 +70,9 @@ export class PostgresArtifactRepository implements ArtifactRepository {
       JSON.stringify(input.metadata ?? null),
       input.createdAt ? new Date(input.createdAt) : this.clock.now(),
     ]);
-    return mapArtifactEventRow(readReturnedRow(result.rows[0], "artifact_events"));
+    return mapArtifactEventRow(
+      readReturnedRow(result.rows[0], "artifact_events"),
+    );
   }
 
   async updateStatus(
@@ -114,14 +118,19 @@ export class PostgresArtifactRepository implements ArtifactRepository {
   }
 
   async listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]> {
-    const result = await this.client.query<ArtifactRow>(LIST_EXPIRED_SQL, [now]);
+    const result = await this.client.query<ArtifactRow>(LIST_EXPIRED_SQL, [
+      now,
+    ]);
     return result.rows.map(mapArtifactRow);
   }
 
-  async listStalePendingArtifacts(cutoff: string): Promise<EditArtifactRecord[]> {
-    const result = await this.client.query<ArtifactRow>(LIST_STALE_PENDING_SQL, [
-      cutoff,
-    ]);
+  async listStalePendingArtifacts(
+    cutoff: string,
+  ): Promise<EditArtifactRecord[]> {
+    const result = await this.client.query<ArtifactRow>(
+      LIST_STALE_PENDING_SQL,
+      [cutoff],
+    );
     return result.rows.map(mapArtifactRow);
   }
 
@@ -137,10 +146,10 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     id: string,
     userId: string,
   ): Promise<EditArtifactRecord> {
-    const result = await this.client.query<ArtifactRow>(GET_ARTIFACT_BY_ID_SQL, [
-      id,
-      userId,
-    ]);
+    const result = await this.client.query<ArtifactRow>(
+      GET_ARTIFACT_BY_ID_SQL,
+      [id, userId],
+    );
     return mapArtifactRow(readReturnedRow(result.rows[0], "artifacts"));
   }
 }
@@ -280,7 +289,7 @@ const LATEST_RESTORABLE_ARTIFACT_SQL = `
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.run_id = $1
     AND a.user_id = $2
-    AND a.status IN ('stored', 'restore_failed', 'restore_in_progress')
+    AND a.status IN ('stored', 'restored', 'restore_failed', 'restore_in_progress')
     AND EXISTS (
       SELECT 1
       FROM artifact_changed_files cf
@@ -296,7 +305,7 @@ const LATEST_RESTORABLE_ARTIFACT_FOR_RUN_SQL = `
   FROM artifacts a
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.run_id = $1
-    AND a.status IN ('stored', 'restore_failed', 'restore_in_progress')
+    AND a.status IN ('stored', 'restored', 'restore_failed', 'restore_in_progress')
     AND EXISTS (
       SELECT 1
       FROM artifact_changed_files cf
