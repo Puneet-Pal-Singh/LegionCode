@@ -107,16 +107,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 
   static fromEnv(
     env: Env,
-    sessionId: string,
+    _sessionId: string,
     runId: string,
     userId?: string,
   ): WorkspaceBootstrapService {
-    const executionService = new ExecutionService(
-      env,
-      sessionId,
-      runId,
-      userId,
-    );
+    const executionService = new ExecutionService(env, runId, runId, userId);
     return new WorkspaceBootstrapService(executionService);
   }
 
