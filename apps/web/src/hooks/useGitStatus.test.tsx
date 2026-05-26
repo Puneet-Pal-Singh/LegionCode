@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { GitStatusReady, GitStatusResponse } from "@repo/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGitStatus, _resetGitStatusStateForTests } from "./useGitStatus";
 import {
@@ -109,6 +110,57 @@ describe("useGitStatus", () => {
     expect(result.result.current.gitAvailable).toBe(true);
   });
 
+  it("ignores stale status responses after a forced refetch starts", async () => {
+    const initialStatus = createDeferredStatus();
+    const forcedStatus = createDeferredStatus();
+    const getGitStatusMock = vi.mocked(getGitStatus);
+    getGitStatusMock
+      .mockReturnValueOnce(initialStatus.promise)
+      .mockReturnValueOnce(forcedStatus.promise);
+
+    const result = renderHook(() => useGitStatus("run-1", "session-1"));
+
+    await waitFor(() => {
+      expect(getGitStatusMock).toHaveBeenCalledTimes(1);
+    });
+
+    let refetchPromise!: Promise<void>;
+    act(() => {
+      refetchPromise = result.result.current.refetch(true);
+    });
+
+    await waitFor(() => {
+      expect(getGitStatusMock).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      forcedStatus.resolve(
+        buildGitStatus({
+          files: [
+            {
+              path: "src/app.ts",
+              status: "modified",
+              additions: 2,
+              deletions: 1,
+              isStaged: false,
+            },
+          ],
+          hasUnstaged: true,
+        }),
+      );
+      await refetchPromise;
+    });
+
+    expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
+
+    await act(async () => {
+      initialStatus.resolve(buildGitStatus());
+      await initialStatus.promise;
+    });
+
+    expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
+  });
+
   it("does not surface an error while session context is still hydrating", async () => {
     const getGitStatusMock = vi.mocked(getGitStatus);
 
@@ -149,6 +201,23 @@ describe("useGitStatus", () => {
         hasStaged: false,
         hasUnstaged: true,
         gitAvailable: true,
+      })
+      .mockResolvedValueOnce({
+        branch: "main",
+        files: [
+          {
+            path: "src/app.ts",
+            status: "modified",
+            additions: 2,
+            deletions: 1,
+            isStaged: false,
+          },
+        ],
+        ahead: 0,
+        behind: 0,
+        hasStaged: false,
+        hasUnstaged: true,
+        gitAvailable: true,
       });
 
     const result = renderHook(() => useGitStatus("run-1", "session-1"));
@@ -165,7 +234,7 @@ describe("useGitStatus", () => {
     await waitFor(() => {
       expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
     });
-    expect(getGitStatusMock).toHaveBeenCalledTimes(2);
+    expect(getGitStatusMock).toHaveBeenCalledTimes(3);
   });
 
   it("isolates runtime boot listener and localStorage failures", () => {
@@ -201,3 +270,29 @@ describe("useGitStatus", () => {
     consoleWarn.mockRestore();
   });
 });
+
+function buildGitStatus(
+  overrides: Partial<GitStatusReady> = {},
+): GitStatusReady {
+  return {
+    branch: "main",
+    files: [],
+    ahead: 0,
+    behind: 0,
+    hasStaged: false,
+    hasUnstaged: false,
+    gitAvailable: true,
+    ...overrides,
+  };
+}
+
+function createDeferredStatus(): {
+  promise: Promise<GitStatusResponse>;
+  resolve: (status: GitStatusResponse) => void;
+} {
+  let resolve: (status: GitStatusResponse) => void = () => {};
+  const promise = new Promise<GitStatusResponse>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
