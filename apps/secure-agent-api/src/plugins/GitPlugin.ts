@@ -507,7 +507,15 @@ export class GitPlugin implements IPlugin {
         continue;
       }
 
-      map.set(filePath, { additions, deletions });
+      const existing = map.get(filePath);
+      if (existing) {
+        map.set(filePath, {
+          additions: existing.additions + additions,
+          deletions: existing.deletions + deletions,
+        });
+      } else {
+        map.set(filePath, { additions, deletions });
+      }
     }
   }
 
@@ -1908,7 +1916,22 @@ function parseStatusLine(line: string): FileStatus[] {
 
   const stagedStatus = line[0];
   const unstagedStatus = line[1];
-  const filePath = line.substring(3).trim();
+  const isRenamed = stagedStatus === "R" || unstagedStatus === "R";
+
+  let rawPath = line.substring(3).trim();
+
+  if (isRenamed) {
+    const arrowIndex = rawPath.lastIndexOf(" -> ");
+    if (arrowIndex !== -1) {
+      rawPath = rawPath.substring(arrowIndex + 4).trim();
+    }
+  }
+
+  const filePath = stripGitQuotes(rawPath);
+
+  if (filePath.startsWith(".shadowbox") || filePath.includes("/.shadowbox")) {
+    return [];
+  }
 
   let status: FileStatus["status"] = "modified";
   let isStaged = stagedStatus !== " " && stagedStatus !== "?";
@@ -1917,7 +1940,7 @@ function parseStatusLine(line: string): FileStatus[] {
     status = "added";
   } else if (stagedStatus === "D" || unstagedStatus === "D") {
     status = "deleted";
-  } else if (stagedStatus === "R" || unstagedStatus === "R") {
+  } else if (isRenamed) {
     status = "renamed";
   } else if (stagedStatus === "?" || unstagedStatus === "?") {
     status = "untracked";
@@ -1933,6 +1956,13 @@ function parseStatusLine(line: string): FileStatus[] {
       isStaged,
     },
   ];
+}
+
+function stripGitQuotes(path: string): string {
+  if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+    return path.slice(1, -1);
+  }
+  return path;
 }
 
 function createDiffLine(
