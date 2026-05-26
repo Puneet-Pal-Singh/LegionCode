@@ -25,6 +25,7 @@ export function useRunActivityFeed(
   const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
   const missedRefreshRef = useRef(false);
+  const prevShouldPollRef = useRef(shouldPoll);
   const lastErrorLogRef = useRef<{
     timestamp: number;
     message: string;
@@ -152,6 +153,15 @@ export function useRunActivityFeed(
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [fetchFeed, runId]);
+
+  useEffect(() => {
+    const wasPolling = prevShouldPollRef.current;
+    prevShouldPollRef.current = shouldPoll;
+
+    if (wasPolling && !shouldPoll) {
+      void fetchFeed({ force: true });
+    }
+  }, [fetchFeed, shouldPoll]);
 
   return { feed: feed?.runId === runId.trim() ? feed : null };
 }
