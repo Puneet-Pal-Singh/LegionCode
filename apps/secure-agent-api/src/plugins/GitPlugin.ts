@@ -386,7 +386,129 @@ export class GitPlugin implements IPlugin {
       repoIdentity,
       commitIdentity,
     );
+
+    if (parsed.files.length > 0) {
+      const lineCounts = await this.loadFileChangeLineCounts(
+        sandbox,
+        worktree,
+        toolboxContext,
+        runId,
+        parsed.files,
+      );
+      for (const file of parsed.files) {
+        const counts = lineCounts.get(file.path);
+        if (counts) {
+          file.additions = counts.additions;
+          file.deletions = counts.deletions;
+        }
+      }
+    }
+
     return { success: true, output: JSON.stringify(parsed) };
+  }
+
+  private async loadFileChangeLineCounts(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    files: FileStatus[],
+  ): Promise<Map<string, { additions: number; deletions: number }>> {
+    const lineCounts = new Map<
+      string,
+      { additions: number; deletions: number }
+    >();
+
+    const numstatResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "diff", "--numstat"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.status.numstat",
+    );
+
+    if (numstatResult.exitCode === 0) {
+      this.mergeNumstatIntoMap(numstatResult.stdout, lineCounts);
+    }
+
+    const cachedNumstatResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "diff", "--cached", "--numstat"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.status.cached_numstat",
+    );
+
+    if (cachedNumstatResult.exitCode === 0) {
+      this.mergeNumstatIntoMap(cachedNumstatResult.stdout, lineCounts);
+    }
+
+    const untrackedFiles = files.filter((file) => file.status === "untracked");
+    for (const untracked of untrackedFiles) {
+      if (lineCounts.has(untracked.path)) {
+        continue;
+      }
+
+      const wcResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "wc",
+          args: ["-l", `${worktree}/${untracked.path}`],
+          runId,
+        },
+        ["wc"],
+        toolboxContext,
+        "git.status.wc",
+      );
+
+      if (wcResult.exitCode === 0) {
+        const match = wcResult.stdout.trim().match(/^(\d+)/);
+        if (match && match[1]) {
+          const lineCount = Number.parseInt(match[1], 10);
+          lineCounts.set(untracked.path, {
+            additions: lineCount,
+            deletions: 0,
+          });
+        }
+      }
+    }
+
+    return lineCounts;
+  }
+
+  private mergeNumstatIntoMap(
+    stdout: string,
+    map: Map<string, { additions: number; deletions: number }>,
+  ): void {
+    for (const line of stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const parts = trimmed.split("\t");
+      if (parts.length < 3) {
+        continue;
+      }
+
+      const additions = Number.parseInt(parts[0] ?? "0", 10);
+      const deletions = Number.parseInt(parts[1] ?? "0", 10);
+      const filePath = parts.slice(2).join("\t");
+
+      if (Number.isNaN(additions) || Number.isNaN(deletions) || !filePath) {
+        continue;
+      }
+
+      map.set(filePath, { additions, deletions });
+    }
   }
 
   private parseStatus(
