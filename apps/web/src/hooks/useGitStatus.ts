@@ -16,6 +16,7 @@ interface UseGitStatusResult {
 const statusCacheByRunId = new Map<string, GitStatusResponse>();
 const statusCacheTimestampByRunId = new Map<string, number>();
 const inflightByRunId = new Map<string, Promise<GitStatusResponse>>();
+const requestVersionByRunId = new Map<string, number>();
 const retryAfterByRunId = new Map<string, number>();
 const lastLoggedErrorByRunId = new Map<string, string>();
 const listenersByRunId = new Map<
@@ -86,14 +87,21 @@ export function useGitStatus(
 
       setLoading(true);
       setError(null);
+      const requestVersion = force
+        ? incrementGitStatusRequestVersion(cacheKey)
+        : getGitStatusRequestVersion(cacheKey);
 
       try {
         const data = await getOrCreateGitStatusRequest(
           cacheKey,
           runId,
           sessionId,
+          force,
         );
-        if (!isActiveCacheKey(requestCacheKey)) {
+        if (
+          !isActiveCacheKey(requestCacheKey) ||
+          requestVersion !== getGitStatusRequestVersion(cacheKey)
+        ) {
           return;
         }
 
@@ -101,7 +109,10 @@ export function useGitStatus(
         retryAfterByRunId.delete(cacheKey);
         applyStatusSnapshot(data);
       } catch (err) {
-        if (!isActiveCacheKey(requestCacheKey)) {
+        if (
+          !isActiveCacheKey(requestCacheKey) ||
+          requestVersion !== getGitStatusRequestVersion(cacheKey)
+        ) {
           return;
         }
         const message = recordGitStatusFailure(cacheKey, err);
@@ -178,17 +189,13 @@ export function useGitStatus(
 
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        clearGitStatusCache(cacheKey);
         void fetchStatus(true);
       }, 800);
     };
 
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
     return () => {
-      window.removeEventListener(
-        RUN_SUMMARY_REFRESH_EVENT,
-        handleRefreshEvent,
-      );
+      window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
@@ -220,7 +227,11 @@ async function getOrCreateGitStatusRequest(
   cacheKey: string,
   runId: string,
   sessionId: string,
+  force = false,
 ): Promise<GitStatusResponse> {
+  if (force) {
+    inflightByRunId.delete(cacheKey);
+  }
   const request =
     inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
   inflightByRunId.set(cacheKey, request);
@@ -255,6 +266,16 @@ function clearGitStatusCache(cacheKey: string): void {
   retryAfterByRunId.delete(cacheKey);
 }
 
+function getGitStatusRequestVersion(cacheKey: string): number {
+  return requestVersionByRunId.get(cacheKey) ?? 0;
+}
+
+function incrementGitStatusRequestVersion(cacheKey: string): number {
+  const nextVersion = getGitStatusRequestVersion(cacheKey) + 1;
+  requestVersionByRunId.set(cacheKey, nextVersion);
+  return nextVersion;
+}
+
 function updateCachedStatus(cacheKey: string, status: GitStatusResponse): void {
   statusCacheByRunId.set(cacheKey, status);
   statusCacheTimestampByRunId.set(cacheKey, Date.now());
@@ -265,6 +286,7 @@ export function _resetGitStatusStateForTests(): void {
   statusCacheByRunId.clear();
   statusCacheTimestampByRunId.clear();
   inflightByRunId.clear();
+  requestVersionByRunId.clear();
   retryAfterByRunId.clear();
   lastLoggedErrorByRunId.clear();
   listenersByRunId.clear();
