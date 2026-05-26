@@ -3,6 +3,7 @@ import type { GitStatusResponse } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
 import { getGitStatus } from "../lib/git-client.js";
 import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
+import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
@@ -157,6 +158,42 @@ export function useGitStatus(
       void fetchStatus(true);
     });
   }, [cacheKey, fetchStatus]);
+
+  useEffect(() => {
+    if (!cacheKey || !runId) {
+      return;
+    }
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleRefreshEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<{ runId?: string }>;
+      if (customEvent.detail?.runId !== runId) {
+        return;
+      }
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        clearGitStatusCache(cacheKey);
+        void fetchStatus(true);
+      }, 800);
+    };
+
+    window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+    return () => {
+      window.removeEventListener(
+        RUN_SUMMARY_REFRESH_EVENT,
+        handleRefreshEvent,
+      );
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+    };
+  }, [cacheKey, fetchStatus, runId]);
 
   return { status, gitAvailable, loading, error, refetch: fetchStatus };
 }
