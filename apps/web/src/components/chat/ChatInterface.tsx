@@ -1583,6 +1583,7 @@ function deriveActivityChangedFilesByAssistantMessageId(
   );
   const snapshots: Record<string, FileStatus[]> = {};
 
+  const matchedTurnKeys = new Set<string>();
   for (const conversationTurn of conversationTurns) {
     if (!conversationTurn.userMessage || !conversationTurn.assistantMessage) {
       continue;
@@ -1590,13 +1591,59 @@ function deriveActivityChangedFilesByAssistantMessageId(
 
     const activityTurns =
       assignments.get(conversationTurn.userMessage.id) ?? [];
+    for (const turn of activityTurns) {
+      matchedTurnKeys.add(turn.key);
+    }
+
     const changedFiles = collectActivityChangedFiles(activityTurns);
     if (changedFiles.length > 0) {
       snapshots[conversationTurn.assistantMessage.id] = changedFiles;
     }
   }
 
+  const unmatchedTurns = turns.filter(
+    (turn) => turn.hasVisibleRows && !matchedTurnKeys.has(turn.key),
+  );
+  const unmatchedFiles = collectActivityChangedFiles(unmatchedTurns);
+  if (unmatchedFiles.length > 0) {
+    const lastTurn = conversationTurns[conversationTurns.length - 1];
+    if (lastTurn?.assistantMessage) {
+      const existing = snapshots[lastTurn.assistantMessage.id];
+      if (existing) {
+        snapshots[lastTurn.assistantMessage.id] = mergeFileStatuses(
+          existing,
+          unmatchedFiles,
+        );
+      } else {
+        snapshots[lastTurn.assistantMessage.id] = unmatchedFiles;
+      }
+    }
+  }
+
   return snapshots;
+}
+
+function mergeFileStatuses(
+  existing: FileStatus[],
+  incoming: FileStatus[],
+): FileStatus[] {
+  const merged = new Map<string, FileStatus>();
+  for (const file of existing) {
+    merged.set(file.path, { ...file });
+  }
+  for (const file of incoming) {
+    const current = merged.get(file.path);
+    if (current) {
+      merged.set(file.path, {
+        ...current,
+        additions: current.additions + file.additions,
+        deletions: current.deletions + file.deletions,
+      });
+    } else {
+      merged.set(file.path, { ...file });
+    }
+  }
+  return [...merged.values()];
 }
 
 function collectActivityChangedFiles(
