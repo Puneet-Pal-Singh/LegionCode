@@ -1145,21 +1145,23 @@ function buildDiffLinesFromActivityPreview(
   let newLineNumber = 1;
   return diffPreview
     .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .map((line) => {
+    .flatMap((line) => {
+      if (line.length === 0) {
+        return [];
+      }
       if (line.startsWith("+")) {
-        return {
+        return [{
           type: "added" as const,
           content: line,
           newLineNumber: newLineNumber++,
-        };
+        }];
       }
       if (line.startsWith("-")) {
-        return {
+        return [{
           type: "deleted" as const,
           content: line,
           oldLineNumber: oldLineNumber++,
-        };
+        }];
       }
       const diffLine = {
         type: "unchanged" as const,
@@ -1169,7 +1171,7 @@ function buildDiffLinesFromActivityPreview(
       };
       oldLineNumber += 1;
       newLineNumber += 1;
-      return diffLine;
+      return [diffLine];
     });
 }
 

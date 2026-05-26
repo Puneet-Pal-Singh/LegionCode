@@ -461,7 +461,7 @@ export class GitPlugin implements IPlugin {
         sandbox,
         {
           command: "wc",
-          args: ["-l", `${worktree}/${untracked.path}`],
+          args: ["-l", "--", `${worktree}/${untracked.path}`],
           runId,
         },
         ["wc"],
