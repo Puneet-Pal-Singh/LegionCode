@@ -443,10 +443,17 @@ function readGitStatsForPromptFile(
   EditArtifactChangedFile,
   "status" | "additions" | "deletions" | "isStaged"
 > {
+  const hasRealGitStats =
+    gitFile &&
+    ((gitFile.additions ?? 0) > 0 ||
+      (gitFile.deletions ?? 0) > 0 ||
+      gitFile.status === "added" ||
+      gitFile.status === "deleted" ||
+      gitFile.status === "renamed");
   return {
     status: gitFile?.status ?? promptFile.status,
-    additions: gitFile?.additions ?? promptFile.additions,
-    deletions: gitFile?.deletions ?? promptFile.deletions,
+    additions: hasRealGitStats ? gitFile.additions : promptFile.additions,
+    deletions: hasRealGitStats ? gitFile.deletions : promptFile.deletions,
     isStaged: gitFile?.isStaged ?? promptFile.isStaged,
   };
 }
