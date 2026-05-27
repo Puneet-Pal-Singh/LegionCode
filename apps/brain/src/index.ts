@@ -9,6 +9,7 @@ import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
 import { TranscriptController } from "./controllers/TranscriptController";
+import { EditArtifactController } from "./controllers/EditArtifactController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -147,6 +148,26 @@ function createRouter(): Router {
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
   router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
+  router.add(
+    /^\/api\/edit-artifacts\/latest$/,
+    EditArtifactController.getLatest,
+    "GET",
+  );
+  router.add(
+    /^\/api\/edit-artifacts\/by-message$/,
+    EditArtifactController.getByMessage,
+    "GET",
+  );
+  router.add(
+    /^\/api\/edit-artifacts\/[^/]+\/files$/,
+    EditArtifactController.getFiles,
+    "GET",
+  );
+  router.add(
+    /^\/api\/edit-artifacts\/[^/]+\/diff$/,
+    EditArtifactController.getDiff,
+    "GET",
+  );
 
   // BYOK v3 routes
   router.add(

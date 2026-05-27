@@ -26,6 +26,22 @@ export interface UpdateArtifactStatusInput {
   headCommitSha?: string | null;
 }
 
+export interface UpdateArtifactReviewMetadataInput {
+  artifactId: string;
+  userId: string;
+  userMessageId?: string | null;
+  assistantMessageId?: string | null;
+  sourceTurnId?: string | null;
+  captureSequence?: number;
+  patchParseStatus?: string;
+  patchSha256?: string | null;
+  storageBackend?: "r2_postgres" | "cloudflare_artifacts";
+  cfArtifactRepo?: string | null;
+  cfArtifactCommitSha?: string | null;
+  cfArtifactPath?: string | null;
+  storageReconciliationStatus?: string | null;
+}
+
 export interface ArtifactRepository {
   createPendingArtifact(
     input: CreateEditArtifactInput,
@@ -39,6 +55,35 @@ export interface ArtifactRepository {
   getLatestRestorableArtifactForRun(
     runId: string,
   ): Promise<EditArtifactRecord | null>;
+  getArtifactById(
+    artifactId: string,
+    userId: string,
+  ): Promise<EditArtifactRecord | null>;
+  getArtifactByIdForRun(
+    artifactId: string,
+    runId: string,
+  ): Promise<EditArtifactRecord | null>;
+  getLatestReviewArtifact(input: {
+    runId: string;
+    userId: string;
+    sessionId?: string;
+  }): Promise<EditArtifactRecord | null>;
+  getLatestReviewArtifactForRun(input: {
+    runId: string;
+    sessionId?: string;
+  }): Promise<EditArtifactRecord | null>;
+  getReviewArtifactByMessage(input: {
+    runId: string;
+    userId: string;
+    assistantMessageId: string;
+  }): Promise<EditArtifactRecord | null>;
+  getReviewArtifactByMessageForRun(input: {
+    runId: string;
+    assistantMessageId: string;
+  }): Promise<EditArtifactRecord | null>;
+  updateReviewMetadata(
+    input: UpdateArtifactReviewMetadataInput,
+  ): Promise<EditArtifactRecord>;
   listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]>;
   listStalePendingArtifacts(cutoff: string): Promise<EditArtifactRecord[]>;
   transaction<T>(

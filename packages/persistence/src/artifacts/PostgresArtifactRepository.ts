@@ -14,6 +14,7 @@ import {
 import type {
   AppendArtifactEventInput,
   ArtifactRepository,
+  UpdateArtifactReviewMetadataInput,
   UpdateArtifactStatusInput,
 } from "./types.js";
 
@@ -49,13 +50,24 @@ export class PostgresArtifactRepository implements ArtifactRepository {
         input.baseCommitSha,
         input.artifactKind,
         input.r2ObjectKey,
+        input.userMessageId ?? null,
+        input.assistantMessageId ?? null,
+        input.sourceTurnId ?? null,
+        input.captureSequence ?? 0,
+        input.patchParseStatus ?? "unknown",
+        input.patchSha256 ?? null,
+        input.storageBackend ?? "r2_postgres",
+        input.cfArtifactRepo ?? null,
+        input.cfArtifactCommitSha ?? null,
+        input.cfArtifactPath ?? null,
+        input.storageReconciliationStatus ?? null,
         input.expiresAt,
         now,
       ]);
       await replaceChangedFiles(tx, input);
     });
 
-    return await this.getArtifactById(input.id, input.userId);
+    return await this.requireArtifactById(input.id, input.userId);
   }
 
   async appendEvent(
@@ -91,7 +103,7 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     if (result.rowCount === 0) {
       throw new Error(`Artifact not found: ${input.artifactId}`);
     }
-    return await this.getArtifactById(input.artifactId, input.userId);
+    return await this.requireArtifactById(input.artifactId, input.userId);
   }
 
   async getLatestRestorableArtifact(
@@ -115,6 +127,108 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     );
     const row = result.rows[0];
     return row ? mapArtifactRow(row) : null;
+  }
+
+  async getArtifactById(
+    artifactId: string,
+    userId: string,
+  ): Promise<EditArtifactRecord | null> {
+    const result = await this.client.query<ArtifactRow>(
+      GET_ARTIFACT_BY_ID_SQL,
+      [artifactId, userId],
+    );
+    const row = result.rows[0];
+    return row ? mapArtifactRow(row) : null;
+  }
+
+  async getArtifactByIdForRun(
+    artifactId: string,
+    runId: string,
+  ): Promise<EditArtifactRecord | null> {
+    const result = await this.client.query<ArtifactRow>(
+      GET_ARTIFACT_BY_ID_FOR_RUN_SQL,
+      [artifactId, runId],
+    );
+    const row = result.rows[0];
+    return row ? mapArtifactRow(row) : null;
+  }
+
+  async getLatestReviewArtifact(input: {
+    runId: string;
+    userId: string;
+    sessionId?: string;
+  }): Promise<EditArtifactRecord | null> {
+    const result = await this.client.query<ArtifactRow>(
+      LATEST_REVIEW_ARTIFACT_SQL,
+      [input.runId, input.userId, input.sessionId ?? null],
+    );
+    const row = result.rows[0];
+    return row ? mapArtifactRow(row) : null;
+  }
+
+  async getLatestReviewArtifactForRun(input: {
+    runId: string;
+    sessionId?: string;
+  }): Promise<EditArtifactRecord | null> {
+    const result = await this.client.query<ArtifactRow>(
+      LATEST_REVIEW_ARTIFACT_FOR_RUN_SQL,
+      [input.runId, input.sessionId ?? null],
+    );
+    const row = result.rows[0];
+    return row ? mapArtifactRow(row) : null;
+  }
+
+  async getReviewArtifactByMessage(input: {
+    runId: string;
+    userId: string;
+    assistantMessageId: string;
+  }): Promise<EditArtifactRecord | null> {
+    const result = await this.client.query<ArtifactRow>(
+      REVIEW_ARTIFACT_BY_MESSAGE_SQL,
+      [input.runId, input.userId, input.assistantMessageId],
+    );
+    const row = result.rows[0];
+    return row ? mapArtifactRow(row) : null;
+  }
+
+  async getReviewArtifactByMessageForRun(input: {
+    runId: string;
+    assistantMessageId: string;
+  }): Promise<EditArtifactRecord | null> {
+    const result = await this.client.query<ArtifactRow>(
+      REVIEW_ARTIFACT_BY_MESSAGE_FOR_RUN_SQL,
+      [input.runId, input.assistantMessageId],
+    );
+    const row = result.rows[0];
+    return row ? mapArtifactRow(row) : null;
+  }
+
+  async updateReviewMetadata(
+    input: UpdateArtifactReviewMetadataInput,
+  ): Promise<EditArtifactRecord> {
+    const result = await this.client.query(
+      UPDATE_REVIEW_METADATA_SQL,
+      [
+        input.artifactId,
+        input.userId,
+        input.userMessageId ?? null,
+        input.assistantMessageId ?? null,
+        input.sourceTurnId ?? null,
+        input.captureSequence ?? null,
+        input.patchParseStatus ?? null,
+        input.patchSha256 ?? null,
+        input.storageBackend ?? null,
+        input.cfArtifactRepo ?? null,
+        input.cfArtifactCommitSha ?? null,
+        input.cfArtifactPath ?? null,
+        input.storageReconciliationStatus ?? null,
+        this.clock.now(),
+      ],
+    );
+    if (result.rowCount === 0) {
+      throw new Error(`Artifact not found: ${input.artifactId}`);
+    }
+    return await this.requireArtifactById(input.artifactId, input.userId);
   }
 
   async listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]> {
@@ -142,15 +256,15 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     });
   }
 
-  private async getArtifactById(
+  private async requireArtifactById(
     id: string,
     userId: string,
   ): Promise<EditArtifactRecord> {
-    const result = await this.client.query<ArtifactRow>(
-      GET_ARTIFACT_BY_ID_SQL,
-      [id, userId],
-    );
-    return mapArtifactRow(readReturnedRow(result.rows[0], "artifacts"));
+    const artifact = await this.getArtifactById(id, userId);
+    if (!artifact) {
+      throw new Error(`Artifact not found: ${id}`);
+    }
+    return artifact;
   }
 }
 
@@ -188,6 +302,17 @@ const ARTIFACT_COLUMNS = `
   a.content_type,
   a.size_bytes,
   a.sha256,
+  a.user_message_id,
+  a.assistant_message_id,
+  a.source_turn_id,
+  a.capture_sequence,
+  a.patch_parse_status,
+  a.patch_sha256,
+  a.storage_backend,
+  a.cf_artifact_repo,
+  a.cf_artifact_commit_sha,
+  a.cf_artifact_path,
+  a.storage_reconciliation_status,
   a.status,
   COALESCE(
     jsonb_agg(
@@ -223,6 +348,17 @@ const ARTIFACT_GROUP_BY = `
   a.content_type,
   a.size_bytes,
   a.sha256,
+  a.user_message_id,
+  a.assistant_message_id,
+  a.source_turn_id,
+  a.capture_sequence,
+  a.patch_parse_status,
+  a.patch_sha256,
+  a.storage_backend,
+  a.cf_artifact_repo,
+  a.cf_artifact_commit_sha,
+  a.cf_artifact_path,
+  a.storage_reconciliation_status,
   a.status,
   a.created_at,
   a.updated_at,
@@ -243,15 +379,41 @@ const INSERT_ARTIFACT_SQL = `
     base_commit_sha,
     artifact_kind,
     r2_object_key,
+    user_message_id,
+    assistant_message_id,
+    source_turn_id,
+    capture_sequence,
+    patch_parse_status,
+    patch_sha256,
+    storage_backend,
+    cf_artifact_repo,
+    cf_artifact_commit_sha,
+    cf_artifact_path,
+    storage_reconciliation_status,
     status,
     expires_at,
     created_at,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, $14, $14)
+  VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+    $21, $22, $23, 'pending', $24, $25, $25
+  )
   ON CONFLICT (id)
   DO UPDATE SET
     r2_object_key = EXCLUDED.r2_object_key,
+    user_message_id = EXCLUDED.user_message_id,
+    assistant_message_id = EXCLUDED.assistant_message_id,
+    source_turn_id = EXCLUDED.source_turn_id,
+    capture_sequence = EXCLUDED.capture_sequence,
+    patch_parse_status = EXCLUDED.patch_parse_status,
+    patch_sha256 = EXCLUDED.patch_sha256,
+    storage_backend = EXCLUDED.storage_backend,
+    cf_artifact_repo = EXCLUDED.cf_artifact_repo,
+    cf_artifact_commit_sha = EXCLUDED.cf_artifact_commit_sha,
+    cf_artifact_path = EXCLUDED.cf_artifact_path,
+    storage_reconciliation_status = EXCLUDED.storage_reconciliation_status,
     expires_at = EXCLUDED.expires_at,
     updated_at = EXCLUDED.updated_at
 `;
@@ -341,6 +503,94 @@ const GET_ARTIFACT_BY_ID_SQL = `
   WHERE a.id = $1
     AND a.user_id = $2
   GROUP BY ${ARTIFACT_GROUP_BY}
+`;
+
+const GET_ARTIFACT_BY_ID_FOR_RUN_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.id = $1
+    AND a.run_id = $2
+  GROUP BY ${ARTIFACT_GROUP_BY}
+`;
+
+const LATEST_REVIEW_ARTIFACT_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.run_id = $1
+    AND a.user_id = $2
+    AND ($3::uuid IS NULL OR a.session_id = $3::uuid)
+    AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
+    AND EXISTS (
+      SELECT 1
+      FROM artifact_changed_files cf
+      WHERE cf.artifact_id = a.id
+    )
+  GROUP BY ${ARTIFACT_GROUP_BY}
+  ORDER BY a.created_at DESC
+  LIMIT 1
+`;
+
+const LATEST_REVIEW_ARTIFACT_FOR_RUN_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.run_id = $1
+    AND ($2::uuid IS NULL OR a.session_id = $2::uuid)
+    AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
+    AND EXISTS (
+      SELECT 1
+      FROM artifact_changed_files cf
+      WHERE cf.artifact_id = a.id
+    )
+  GROUP BY ${ARTIFACT_GROUP_BY}
+  ORDER BY a.created_at DESC
+  LIMIT 1
+`;
+
+const REVIEW_ARTIFACT_BY_MESSAGE_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.run_id = $1
+    AND a.user_id = $2
+    AND a.assistant_message_id = $3
+    AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
+  GROUP BY ${ARTIFACT_GROUP_BY}
+  ORDER BY a.capture_sequence DESC, a.created_at DESC
+  LIMIT 1
+`;
+
+const REVIEW_ARTIFACT_BY_MESSAGE_FOR_RUN_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.run_id = $1
+    AND a.assistant_message_id = $2
+    AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
+  GROUP BY ${ARTIFACT_GROUP_BY}
+  ORDER BY a.capture_sequence DESC, a.created_at DESC
+  LIMIT 1
+`;
+
+const UPDATE_REVIEW_METADATA_SQL = `
+  UPDATE artifacts
+  SET
+    user_message_id = COALESCE($3, user_message_id),
+    assistant_message_id = COALESCE($4, assistant_message_id),
+    source_turn_id = COALESCE($5, source_turn_id),
+    capture_sequence = COALESCE($6, capture_sequence),
+    patch_parse_status = COALESCE($7, patch_parse_status),
+    patch_sha256 = COALESCE($8, patch_sha256),
+    storage_backend = COALESCE($9, storage_backend),
+    cf_artifact_repo = COALESCE($10, cf_artifact_repo),
+    cf_artifact_commit_sha = COALESCE($11, cf_artifact_commit_sha),
+    cf_artifact_path = COALESCE($12, cf_artifact_path),
+    storage_reconciliation_status = COALESCE($13, storage_reconciliation_status),
+    updated_at = $14
+  WHERE id = $1
+    AND user_id = $2
 `;
 
 const DELETE_CHANGED_FILES_SQL = `

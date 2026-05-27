@@ -27,6 +27,10 @@ export interface Env {
   SECURE_API: Fetcher;
 
   EDIT_ARTIFACTS?: R2Bucket;
+  ARTIFACTS?: unknown;
+  EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE?: "true" | "false" | "1" | "0";
+  EDIT_ARTIFACTS_CF_ARTIFACTS_READ?: "true" | "false" | "1" | "0";
+  EDIT_ARTIFACTS_CF_ARTIFACTS_RECONCILE?: "true" | "false" | "1" | "0";
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;

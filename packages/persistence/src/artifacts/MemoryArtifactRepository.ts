@@ -41,6 +41,27 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       contentType: existing?.contentType ?? null,
       sizeBytes: existing?.sizeBytes ?? null,
       sha256: existing?.sha256 ?? null,
+      userMessageId: parsed.userMessageId ?? existing?.userMessageId ?? null,
+      assistantMessageId:
+        parsed.assistantMessageId ?? existing?.assistantMessageId ?? null,
+      sourceTurnId: parsed.sourceTurnId ?? existing?.sourceTurnId ?? null,
+      captureSequence:
+        parsed.captureSequence ?? existing?.captureSequence ?? 0,
+      patchParseStatus:
+        parsed.patchParseStatus ?? existing?.patchParseStatus ?? "unknown",
+      patchSha256: parsed.patchSha256 ?? existing?.patchSha256 ?? null,
+      storageBackend:
+        parsed.storageBackend ?? existing?.storageBackend ?? "r2_postgres",
+      cfArtifactRepo:
+        parsed.cfArtifactRepo ?? existing?.cfArtifactRepo ?? null,
+      cfArtifactCommitSha:
+        parsed.cfArtifactCommitSha ?? existing?.cfArtifactCommitSha ?? null,
+      cfArtifactPath:
+        parsed.cfArtifactPath ?? existing?.cfArtifactPath ?? null,
+      storageReconciliationStatus:
+        parsed.storageReconciliationStatus ??
+        existing?.storageReconciliationStatus ??
+        null,
       status: existing?.status ?? "pending",
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -106,6 +127,121 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     return matches[0] ?? null;
   }
 
+  async getArtifactById(
+    artifactId: string,
+    userId: string,
+  ): Promise<EditArtifactRecord | null> {
+    const artifact = this.artifacts.get(artifactId);
+    return artifact?.userId === userId ? artifact : null;
+  }
+
+  async getArtifactByIdForRun(
+    artifactId: string,
+    runId: string,
+  ): Promise<EditArtifactRecord | null> {
+    const artifact = this.artifacts.get(artifactId);
+    return artifact?.runId === runId ? artifact : null;
+  }
+
+  async getLatestReviewArtifact(input: {
+    runId: string;
+    userId: string;
+    sessionId?: string;
+  }): Promise<EditArtifactRecord | null> {
+    return this.findLatestReviewArtifact((artifact) => {
+      return (
+        artifact.runId === input.runId &&
+        artifact.userId === input.userId &&
+        (!input.sessionId || artifact.sessionId === input.sessionId)
+      );
+    });
+  }
+
+  async getLatestReviewArtifactForRun(input: {
+    runId: string;
+    sessionId?: string;
+  }): Promise<EditArtifactRecord | null> {
+    return this.findLatestReviewArtifact((artifact) => {
+      return (
+        artifact.runId === input.runId &&
+        (!input.sessionId || artifact.sessionId === input.sessionId)
+      );
+    });
+  }
+
+  async getReviewArtifactByMessage(input: {
+    runId: string;
+    userId: string;
+    assistantMessageId: string;
+  }): Promise<EditArtifactRecord | null> {
+    return this.findLatestReviewArtifact((artifact) => {
+      return (
+        artifact.runId === input.runId &&
+        artifact.userId === input.userId &&
+        artifact.assistantMessageId === input.assistantMessageId
+      );
+    });
+  }
+
+  async getReviewArtifactByMessageForRun(input: {
+    runId: string;
+    assistantMessageId: string;
+  }): Promise<EditArtifactRecord | null> {
+    return this.findLatestReviewArtifact((artifact) => {
+      return (
+        artifact.runId === input.runId &&
+        artifact.assistantMessageId === input.assistantMessageId
+      );
+    });
+  }
+
+  async updateReviewMetadata(input: {
+    artifactId: string;
+    userId: string;
+    userMessageId?: string | null;
+    assistantMessageId?: string | null;
+    sourceTurnId?: string | null;
+    captureSequence?: number;
+    patchParseStatus?: string;
+    patchSha256?: string | null;
+    storageBackend?: "r2_postgres" | "cloudflare_artifacts";
+    cfArtifactRepo?: string | null;
+    cfArtifactCommitSha?: string | null;
+    cfArtifactPath?: string | null;
+    storageReconciliationStatus?: string | null;
+  }): Promise<EditArtifactRecord> {
+    const existing = await this.getArtifactById(input.artifactId, input.userId);
+    if (!existing) {
+      throw new Error(`Artifact not found: ${input.artifactId}`);
+    }
+
+    const record = EditArtifactRecordSchema.parse({
+      ...existing,
+      userMessageId: input.userMessageId ?? existing.userMessageId ?? null,
+      assistantMessageId:
+        input.assistantMessageId ?? existing.assistantMessageId ?? null,
+      sourceTurnId: input.sourceTurnId ?? existing.sourceTurnId ?? null,
+      captureSequence:
+        input.captureSequence ?? existing.captureSequence ?? 0,
+      patchParseStatus:
+        input.patchParseStatus ?? existing.patchParseStatus ?? "unknown",
+      patchSha256: input.patchSha256 ?? existing.patchSha256 ?? null,
+      storageBackend:
+        input.storageBackend ?? existing.storageBackend ?? "r2_postgres",
+      cfArtifactRepo: input.cfArtifactRepo ?? existing.cfArtifactRepo ?? null,
+      cfArtifactCommitSha:
+        input.cfArtifactCommitSha ?? existing.cfArtifactCommitSha ?? null,
+      cfArtifactPath: input.cfArtifactPath ?? existing.cfArtifactPath ?? null,
+      storageReconciliationStatus:
+        input.storageReconciliationStatus ??
+        existing.storageReconciliationStatus ??
+        null,
+      updatedAt: this.clock.now().toISOString(),
+    });
+    this.artifacts.set(record.id, record);
+    return record;
+  }
+
   async listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]> {
     return Array.from(this.artifacts.values()).filter(
       (artifact) =>
@@ -148,6 +284,15 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       throw error;
     }
   }
+
+  private findLatestReviewArtifact(
+    predicate: (artifact: EditArtifactRecord) => boolean,
+  ): EditArtifactRecord | null {
+    const matches = Array.from(this.artifacts.values())
+      .filter((artifact) => predicate(artifact) && isReviewable(artifact))
+      .sort(compareReviewArtifacts);
+    return matches[0] ?? null;
+  }
 }
 
 function isRestorable(
@@ -173,4 +318,28 @@ function isRestorableForRun(
 
 function hasChangedFiles(changedFiles: EditArtifactChangedFile[]): boolean {
   return changedFiles.length > 0;
+}
+
+function isReviewable(artifact: EditArtifactRecord): boolean {
+  return (
+    [
+      "stored",
+      "stored_with_secondary",
+      "secondary_write_failed",
+      "restored",
+      "requires_user_resolution",
+    ].includes(artifact.status) && hasChangedFiles(artifact.changedFiles)
+  );
+}
+
+function compareReviewArtifacts(
+  left: EditArtifactRecord,
+  right: EditArtifactRecord,
+): number {
+  const sequenceDelta =
+    (right.captureSequence ?? 0) - (left.captureSequence ?? 0);
+  if (sequenceDelta !== 0) {
+    return sequenceDelta;
+  }
+  return right.createdAt.localeCompare(left.createdAt);
 }
