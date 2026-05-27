@@ -112,21 +112,22 @@ describe("RunCompletionPolicy", () => {
     );
   });
 
-  it("fails completion when final assistant transcript persistence fails", async () => {
+  it("handles final assistant transcript persistence failure gracefully", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
     const failure = new Error("transcript unavailable");
     vi.mocked(deps.persistConversationMessages).mockRejectedValueOnce(failure);
 
-    await expect(
-      completeRunWithAssistantMessage({
-        run,
-        text: "Done.",
-        deps,
-      }),
-    ).rejects.toThrow("transcript unavailable");
-    expect(deps.runEventRecorder.recordMessageEmitted).not.toHaveBeenCalled();
-    expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
+    const response = await completeRunWithAssistantMessage({
+      run,
+      text: "Done.",
+      deps,
+    });
+
+    await expect(response.text()).resolves.toBe("Done.");
+    expect(deps.safeMemoryOperation).toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordRunCompleted).toHaveBeenCalled();
   });
 });
 
@@ -180,6 +181,12 @@ function createDeps(
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
     },
-    safeMemoryOperation: vi.fn(async (operation) => operation()),
+    safeMemoryOperation: vi.fn(async (operation) => {
+      try {
+        return await operation();
+      } catch {
+        return undefined;
+      }
+    }),
   };
 }

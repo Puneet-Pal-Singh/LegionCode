@@ -262,11 +262,13 @@ async function persistSynthesisArtifacts(params: {
     }),
   );
 
-  await deps.persistConversationMessages(
-    run.id,
-    run.sessionId,
-    [{ role: "assistant", content: sanitizedText }],
-    "assistant",
+  await deps.safeMemoryOperation(() =>
+    deps.persistConversationMessages(
+      run.id,
+      run.sessionId,
+      [{ role: "assistant", content: sanitizedText }],
+      "assistant",
+    ),
   );
 
   await deps.safeMemoryOperation(() =>
