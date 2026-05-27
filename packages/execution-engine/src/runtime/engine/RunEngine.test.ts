@@ -559,7 +559,10 @@ describe("RunEngine", () => {
     expect(
       (assistantMessageEvent?.payload as { metadata?: unknown } | undefined)
         ?.metadata,
-    ).toEqual({ terminalState: "completed" });
+    ).toEqual({
+      terminalState: "completed",
+      finalMessageSource: "model",
+    });
   });
 
   it("recovers exhausted unusable-response retries without failing the run", async () => {

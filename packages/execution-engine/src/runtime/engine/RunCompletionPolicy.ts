@@ -13,6 +13,7 @@ import {
 } from "./RunMetadataPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import { transitionRunToCompleted } from "./RunStatusPolicy.js";
+import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
 
@@ -61,7 +62,6 @@ export async function completeRunWithAssistantMessage(params: {
   deps: RunCompletionDependencies;
 }): Promise<Response> {
   const { run, text, metadata, deps } = params;
-  const sanitizedText = sanitizeUserFacingOutput(text);
   const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
     console.log(
@@ -71,6 +71,13 @@ export async function completeRunWithAssistantMessage(params: {
   }
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
+  const finalMessage = buildFinalAssistantMessage({
+    run,
+    text,
+    metadata,
+    terminalState,
+  });
+  const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS");
   transitionRunToCompleted(run, run.id);
   recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
@@ -96,7 +103,7 @@ export async function completeRunWithAssistantMessage(params: {
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
     sanitizedText,
-    metadata,
+    finalMessage.metadata,
   );
   await deps.runEventRecorder.recordRunCompleted(
     getRunDurationMs(run),
@@ -116,7 +123,6 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   deps: RunCompletionDependencies;
 }): Promise<Response> {
   const { run, text, plannerError, metadata, errorMetadata, deps } = params;
-  const sanitizedText = sanitizeUserFacingOutput(text);
   const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
     console.log(
@@ -126,6 +132,13 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
+  const finalMessage = buildFinalAssistantMessage({
+    run,
+    text,
+    metadata,
+    terminalState,
+  });
+  const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
   transitionRunToCompleted(run, run.id);
   if (plannerError !== undefined) {
@@ -156,12 +169,27 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
     sanitizedText,
-    metadata,
+    finalMessage.metadata,
   );
   await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
   return createStreamResponse(sanitizedText);
+}
+
+function buildFinalAssistantMessage(input: {
+  run: Run;
+  text: string;
+  metadata?: Record<string, unknown>;
+  terminalState: RunTerminalState;
+}) {
+  return new FinalAssistantMessageService().build({
+    runId: input.run.id,
+    sessionId: input.run.sessionId,
+    terminalState: input.terminalState,
+    modelText: input.text,
+    metadata: input.metadata,
+  });
 }
 
 async function isRunCancelledInStore(
@@ -234,13 +262,11 @@ async function persistSynthesisArtifacts(params: {
     }),
   );
 
-  await deps.safeMemoryOperation(() =>
-    deps.persistConversationMessages(
-      run.id,
-      run.sessionId,
-      [{ role: "assistant", content: sanitizedText }],
-      "assistant",
-    ),
+  await deps.persistConversationMessages(
+    run.id,
+    run.sessionId,
+    [{ role: "assistant", content: sanitizedText }],
+    "assistant",
   );
 
   await deps.safeMemoryOperation(() =>
