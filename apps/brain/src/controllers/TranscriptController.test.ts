@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { MemoryRunRepository, MemoryTranscriptRepository } from "@repo/persistence";
+import {
+  MemoryRunRepository,
+  MemoryTranscriptRepository,
+} from "@repo/persistence";
 import { TranscriptController } from "./TranscriptController";
 import type { Env } from "../types/ai";
 
@@ -34,7 +37,9 @@ describe("TranscriptController", () => {
     );
 
     expect(createResponse.status).toBe(201);
-    await expect(runRepository.getRun(TEST_RUN_ID, TEST_USER_ID)).resolves.toMatchObject({
+    await expect(
+      runRepository.getRun(TEST_RUN_ID, TEST_USER_ID),
+    ).resolves.toMatchObject({
       id: TEST_RUN_ID,
       userId: TEST_USER_ID,
       sessionId: TEST_SESSION_ID,
@@ -71,6 +76,66 @@ describe("TranscriptController", () => {
     expect(archiveResponse.status).toBe(200);
     await expect(listResponse.json()).resolves.toMatchObject({
       sessions: [],
+    });
+  });
+
+  it("renames, pins, and unarchives session metadata", async () => {
+    await TranscriptController.createSession(createSessionRequest(), env);
+
+    const renameResponse = await TranscriptController.renameSessionTitle(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ title: "Custom Chat" }),
+        },
+      ),
+      env,
+    );
+    const pinResponse = await TranscriptController.pinSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/pin`,
+        { method: "POST" },
+      ),
+      env,
+    );
+    const archiveResponse = await TranscriptController.archiveSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/archive`,
+        { method: "POST" },
+      ),
+      env,
+    );
+    const archivedListResponse =
+      await TranscriptController.listArchivedSessions(
+        authenticatedRequest("https://brain.local/api/sessions/archived"),
+        env,
+      );
+    const unarchiveResponse = await TranscriptController.unarchiveSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/unarchive`,
+        { method: "POST" },
+      ),
+      env,
+    );
+
+    expect(renameResponse.status).toBe(200);
+    await expect(renameResponse.json()).resolves.toMatchObject({
+      session: { title: "Custom Chat", titleSource: "user" },
+    });
+    expect(pinResponse.status).toBe(200);
+    await expect(pinResponse.json()).resolves.toMatchObject({
+      session: { pinnedAt: "2026-05-15T00:00:00.000Z" },
+    });
+    expect(archiveResponse.status).toBe(200);
+    await expect(archivedListResponse.json()).resolves.toMatchObject({
+      sessions: [
+        { id: TEST_SESSION_ID, archivedAt: "2026-05-15T00:00:00.000Z" },
+      ],
+    });
+    expect(unarchiveResponse.status).toBe(200);
+    await expect(unarchiveResponse.json()).resolves.toMatchObject({
+      session: { archivedAt: null },
     });
   });
 
@@ -118,10 +183,7 @@ function createSessionRequest(): Request {
   });
 }
 
-function authenticatedRequest(
-  url: string,
-  init: RequestInit = {},
-): Request {
+function authenticatedRequest(url: string, init: RequestInit = {}): Request {
   return new Request(url, {
     ...init,
     headers: {

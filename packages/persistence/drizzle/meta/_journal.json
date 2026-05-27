@@ -85,6 +85,13 @@
       "when": 1779295000000,
       "tag": "0011_provider_user_model_cache_text_key",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779900000000,
+      "tag": "0012_session_organization_metadata",
+      "breakpoints": true
     }
   ]
 }

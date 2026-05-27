@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Archive } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { formatTimeAgo } from "../../../lib/timeFormat";
 import { cn } from "../../../lib/utils";
@@ -93,7 +93,10 @@ function StatusDot({ status }: { status: SidebarTaskStatus }) {
   const visual = STATUS_VISUALS[status];
 
   return (
-    <span className="inline-flex h-3.5 w-3.5 items-center justify-center" aria-hidden="true">
+    <span
+      className="inline-flex h-3.5 w-3.5 items-center justify-center"
+      aria-hidden="true"
+    >
       <span
         data-testid={`task-status-${status}`}
         data-status-kind={visual.kind}
@@ -170,7 +173,7 @@ export function TaskListRow({
                       ? "text-emerald-300"
                       : task.status === "needs_approval"
                         ? "text-amber-300"
-                      : "text-zinc-400",
+                        : "text-zinc-400",
                 )}
               >
                 {metricLabel}
@@ -187,7 +190,7 @@ export function TaskListRow({
         <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
           <button
             type="button"
-            aria-label={`Cancel deletion for ${task.title}`}
+            aria-label={`Cancel archive for ${task.title}`}
             onClick={(event) => {
               event.stopPropagation();
               setIsConfirmingDelete(false);
@@ -198,7 +201,7 @@ export function TaskListRow({
           </button>
           <button
             type="button"
-            aria-label={`Confirm deletion for ${task.title}`}
+            aria-label={`Confirm archive for ${task.title}`}
             onClick={(event) => {
               event.stopPropagation();
               setIsConfirmingDelete(false);
@@ -212,14 +215,14 @@ export function TaskListRow({
       ) : onRemove ? (
         <button
           type="button"
-          aria-label={`Remove ${task.title}`}
+          aria-label={`Archive ${task.title}`}
           onClick={(event) => {
             event.stopPropagation();
             setIsConfirmingDelete(true);
           }}
           className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 hover:bg-zinc-800 hover:text-red-300"
         >
-          <Trash2 size={12} aria-hidden="true" />
+          <Archive size={12} aria-hidden="true" />
         </button>
       ) : null}
     </li>

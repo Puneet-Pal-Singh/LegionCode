@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { JsonValue } from "@repo/shared-types";
+import { CHAT_TITLE_SOURCES, type JsonValue } from "@repo/shared-types";
 import type {
   SessionRecord,
   TranscriptMessagePartRecord,
@@ -19,6 +19,7 @@ const SessionCreateRequestSchema = z.object({
   runId: z.string().uuid().optional(),
   workspaceId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160).optional(),
+  titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
   repository: z.string().trim().min(1).max(240).optional(),
   mode: z.string().trim().min(1).max(64).optional(),
 });
@@ -32,6 +33,10 @@ const TranscriptQuerySchema = z.object({
 
 const ArchiveSessionParamsSchema = z.object({
   sessionId: z.string().uuid(),
+});
+
+const RenameSessionRequestSchema = z.object({
+  title: z.string().trim().min(1).max(80),
 });
 
 export class TranscriptController {
@@ -69,6 +74,7 @@ export class TranscriptController {
           userId: auth.userId,
           workspaceId: body.workspaceId ?? null,
           title: body.title ?? "Untitled task",
+          titleSource: body.titleSource ?? "generated",
           repository: body.repository ?? null,
           activeRunId: body.runId ?? null,
           mode: body.mode ?? "build",
@@ -82,6 +88,62 @@ export class TranscriptController {
     }
   }
 
+  static async renameSessionTitle(
+    request: Request,
+    env: Env,
+  ): Promise<Response> {
+    try {
+      const auth = await getAuthenticatedUserSession(request, env);
+      if (!auth) {
+        return errorResponse(request, env, "Unauthorized", 401);
+      }
+
+      const { sessionId } = SessionParamsSchema.parse(
+        readSessionParams(request.url),
+      );
+      const body = RenameSessionRequestSchema.parse(await request.json());
+      const session = await withTranscriptRepository(env, (repository) =>
+        repository.renameSessionTitle({
+          userId: auth.userId,
+          sessionId,
+          title: body.title,
+          titleSource: "user",
+        }),
+      );
+
+      if (!session) {
+        return errorResponse(request, env, "Session not found", 404);
+      }
+
+      console.log(
+        `[chat/title] renamed sessionId=${sessionId} titleLength=${body.title.length}`,
+      );
+      return jsonResponse(request, env, { session });
+    } catch (error) {
+      return transcriptErrorResponse(request, env, error);
+    }
+  }
+
+  static async pinSession(request: Request, env: Env): Promise<Response> {
+    return sessionMutationResponse(
+      request,
+      env,
+      "pin",
+      (repository, userId, sessionId) =>
+        repository.pinSession(userId, sessionId),
+    );
+  }
+
+  static async unpinSession(request: Request, env: Env): Promise<Response> {
+    return sessionMutationResponse(
+      request,
+      env,
+      "unpin",
+      (repository, userId, sessionId) =>
+        repository.unpinSession(userId, sessionId),
+    );
+  }
+
   static async archiveSession(request: Request, env: Env): Promise<Response> {
     try {
       const auth = await getAuthenticatedUserSession(request, env);
@@ -90,17 +152,47 @@ export class TranscriptController {
       }
 
       const { sessionId } = ArchiveSessionParamsSchema.parse(
-        readArchiveSessionParams(request.url),
+        readSessionParams(request.url),
       );
-      const archived = await withTranscriptRepository(env, (repository) =>
+      const session = await withTranscriptRepository(env, (repository) =>
         repository.archiveSession(auth.userId, sessionId),
       );
 
-      if (!archived) {
+      if (!session) {
         return errorResponse(request, env, "Session not found", 404);
       }
 
-      return jsonResponse(request, env, { archived: true });
+      console.log(`[chat/archive] archived sessionId=${sessionId}`);
+      return jsonResponse(request, env, { session });
+    } catch (error) {
+      return transcriptErrorResponse(request, env, error);
+    }
+  }
+
+  static async unarchiveSession(request: Request, env: Env): Promise<Response> {
+    return sessionMutationResponse(
+      request,
+      env,
+      "unarchive",
+      (repository, userId, sessionId) =>
+        repository.unarchiveSession(userId, sessionId),
+    );
+  }
+
+  static async listArchivedSessions(
+    request: Request,
+    env: Env,
+  ): Promise<Response> {
+    try {
+      const auth = await getAuthenticatedUserSession(request, env);
+      if (!auth) {
+        return errorResponse(request, env, "Unauthorized", 401);
+      }
+
+      const sessions = await withTranscriptRepository(env, (repository) =>
+        repository.listArchivedSessions(auth.userId),
+      );
+      return jsonResponse(request, env, { sessions });
     } catch (error) {
       return transcriptErrorResponse(request, env, error);
     }
@@ -155,8 +247,63 @@ async function ensureSessionRun(
   });
 }
 
-function readArchiveSessionParams(url: string): { sessionId: string | null } {
-  const match = new URL(url).pathname.match(/^\/api\/sessions\/([^/]+)\/archive$/);
+const SessionParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+});
+
+type TranscriptRepositoryForMutation = Parameters<
+  Parameters<typeof withTranscriptRepository>[1]
+>[0];
+
+async function sessionMutationResponse(
+  request: Request,
+  env: Env,
+  operation: "pin" | "unpin" | "unarchive",
+  mutate: (
+    repository: TranscriptRepositoryForMutation,
+    userId: string,
+    sessionId: string,
+  ) => Promise<SessionRecord | null>,
+): Promise<Response> {
+  try {
+    const auth = await getAuthenticatedUserSession(request, env);
+    if (!auth) {
+      return errorResponse(request, env, "Unauthorized", 401);
+    }
+
+    const { sessionId } = SessionParamsSchema.parse(
+      readSessionParams(request.url),
+    );
+    const session = await withTranscriptRepository(env, (repository) =>
+      mutate(repository, auth.userId, sessionId),
+    );
+
+    if (!session) {
+      return errorResponse(request, env, "Session not found", 404);
+    }
+
+    console.log(formatSessionMutationLog(operation, sessionId));
+    return jsonResponse(request, env, { session });
+  } catch (error) {
+    return transcriptErrorResponse(request, env, error);
+  }
+}
+
+function formatSessionMutationLog(
+  operation: "pin" | "unpin" | "unarchive",
+  sessionId: string,
+): string {
+  if (operation === "pin") {
+    return `[chat/pin] pinned sessionId=${sessionId}`;
+  }
+  if (operation === "unpin") {
+    return `[chat/pin] unpinned sessionId=${sessionId}`;
+  }
+  return `[chat/archive] unarchived sessionId=${sessionId}`;
+}
+
+function readSessionParams(url: string): { sessionId: string | null } {
+  const match = new URL(url).pathname.match(/^\/api\/sessions\/([^/]+)\//);
   return { sessionId: match?.[1] ?? null };
 }
 

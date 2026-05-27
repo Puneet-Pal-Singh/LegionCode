@@ -16,9 +16,17 @@ import { SessionStateService } from "../../services/SessionStateService";
 describe("useSessionManager", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.spyOn(SessionStateService, "hydrateSessionsFromServer").mockResolvedValue({});
-    vi.spyOn(SessionStateService, "persistSession").mockResolvedValue(undefined);
-    vi.spyOn(SessionStateService, "archiveSession").mockResolvedValue(undefined);
+    vi.spyOn(
+      SessionStateService,
+      "hydrateSessionsFromServer",
+    ).mockResolvedValue({});
+    vi.spyOn(SessionStateService, "persistSession").mockImplementation(
+      async (session) => session,
+    );
+    vi.spyOn(SessionStateService, "archiveSession").mockImplementation(
+      async (sessionId) =>
+        createArchivedServerSession(sessionId, "2026-05-15T00:00:00.000Z"),
+    );
   });
 
   afterEach(() => {
@@ -82,8 +90,12 @@ describe("useSessionManager", () => {
         sessionId2 = result.current.createSession("Task 2", "repo");
       });
 
-      const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
-      const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
+      const session1 = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId1,
+      );
+      const session2 = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId2,
+      );
 
       expect(session1?.activeRunId).not.toBe(session2?.activeRunId);
     });
@@ -119,7 +131,7 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Removal", () => {
-    it("should remove session", () => {
+    it("should archive session", () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
@@ -133,8 +145,11 @@ describe("useSessionManager", () => {
         result.current.removeSession(sessionId);
       });
 
-      expect(result.current.sessions).toHaveLength(0);
-      expect(SessionStateService.archiveSession).toHaveBeenCalledWith(sessionId);
+      expect(result.current.sessions).toHaveLength(1);
+      expect(result.current.sessions[0]?.archivedAt).not.toBeNull();
+      expect(SessionStateService.archiveSession).toHaveBeenCalledWith(
+        sessionId,
+      );
     });
 
     it("should clear active session if removed session is active", () => {
@@ -154,7 +169,7 @@ describe("useSessionManager", () => {
       expect(result.current.activeSessionId).toBeNull();
     });
 
-    it("should clear session GitHub context on removal", () => {
+    it("should preserve session GitHub context on archive", () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
@@ -176,12 +191,11 @@ describe("useSessionManager", () => {
         result.current.removeSession(sessionId);
       });
 
-      // Verify context is cleared
       const loaded = SessionStateService.loadSessionGitHubContext(sessionId);
-      expect(loaded).toBeNull();
+      expect(loaded).toEqual(context);
     });
 
-    it("should clear session pending query on removal", () => {
+    it("should preserve session pending query on archive", () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
@@ -197,9 +211,8 @@ describe("useSessionManager", () => {
         result.current.removeSession(sessionId);
       });
 
-      // Verify pending query is cleared
       const loaded = SessionStateService.loadSessionPendingQuery(sessionId);
-      expect(loaded).toBeNull();
+      expect(loaded).toBe("test query");
     });
   });
 
@@ -216,7 +229,9 @@ describe("useSessionManager", () => {
         result.current.updateSession(sessionId, { name: "Updated Task" });
       });
 
-      const session = result.current.sessions.find((s: AgentSession) => s.id === sessionId);
+      const session = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId,
+      );
       expect(session?.name).toBe("Updated Task");
     });
 
@@ -232,7 +247,9 @@ describe("useSessionManager", () => {
         result.current.updateSession(sessionId, { status: "running" });
       });
 
-      const session = result.current.sessions.find((s: AgentSession) => s.id === sessionId);
+      const session = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId,
+      );
       expect(session?.status).toBe("running");
     });
 
@@ -244,7 +261,9 @@ describe("useSessionManager", () => {
         sessionId = result.current.createSession("Task", "repo");
       });
 
-      const original = result.current.sessions.find((s: AgentSession) => s.id === sessionId);
+      const original = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId,
+      );
       expect(original).toBeDefined();
 
       act(() => {
@@ -303,8 +322,9 @@ describe("useSessionManager", () => {
         result.current.addRepository("repo");
       });
 
-      const repoCount = result.current.repositories.filter((r: string) => r === "repo")
-        .length;
+      const repoCount = result.current.repositories.filter(
+        (r: string) => r === "repo",
+      ).length;
       expect(repoCount).toBe(1);
     });
 
@@ -353,7 +373,9 @@ describe("useSessionManager", () => {
         result.current.renameRepository("old-repo", "new-repo");
       });
 
-      const session = result.current.sessions.find((s: AgentSession) => s.id === sessionId);
+      const session = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId,
+      );
       expect(session?.repository).toBe("new-repo");
       expect(result.current.repositories).toContain("new-repo");
       expect(result.current.repositories).not.toContain("old-repo");
@@ -376,7 +398,9 @@ describe("useSessionManager", () => {
     it("should restore sessions on mount", () => {
       // Create and persist sessions via first hook instance
       let sessionId = "";
-      const { result: result1, unmount } = renderHook(() => useSessionManager());
+      const { result: result1, unmount } = renderHook(() =>
+        useSessionManager(),
+      );
       act(() => {
         sessionId = result1.current.createSession("Task", "repo");
       });
@@ -413,8 +437,12 @@ describe("useSessionManager", () => {
         sessionId2 = result.current.createSession("Task 2", "repo2");
       });
 
-      const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
-      const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
+      const session1 = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId1,
+      );
+      const session2 = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId2,
+      );
 
       // Verify sessions have different properties
       expect(session1?.name).not.toBe(session2?.name);
@@ -433,8 +461,12 @@ describe("useSessionManager", () => {
         sessionId2 = result.current.createSession("Task 2", "repo");
       });
 
-      const session1 = result.current.sessions.find((s: AgentSession) => s.id === sessionId1);
-      const session2 = result.current.sessions.find((s: AgentSession) => s.id === sessionId2);
+      const session1 = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId1,
+      );
+      const session2 = result.current.sessions.find(
+        (s: AgentSession) => s.id === sessionId2,
+      );
 
       // Sessions should have distinct activeRunIds
       expect(session1?.activeRunId).toBeDefined();
@@ -489,3 +521,22 @@ describe("useSessionManager", () => {
     });
   });
 });
+
+function createArchivedServerSession(
+  sessionId: string,
+  archivedAt: string,
+): AgentSession {
+  return {
+    id: sessionId,
+    name: "Archived",
+    titleSource: "generated",
+    repository: "repo",
+    activeRunId: "run",
+    runIds: ["run"],
+    status: "idle",
+    mode: "build",
+    pinnedAt: null,
+    archivedAt,
+    updatedAt: archivedAt,
+  };
+}

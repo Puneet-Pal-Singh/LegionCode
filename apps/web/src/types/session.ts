@@ -1,4 +1,7 @@
 import type { RunMode } from "@repo/shared-types";
+import type { ChatTitleSource as SharedChatTitleSource } from "@repo/shared-types";
+
+export type ChatTitleSource = SharedChatTitleSource;
 
 /**
  * Session Type Definitions
@@ -34,6 +37,9 @@ export interface AgentSession {
   /** Session display name */
   name: string;
 
+  /** Whether the current title is generated or user-authored */
+  titleSource: ChatTitleSource;
+
   /** Repository this session is tied to, if one has been selected */
   repository: string | null;
 
@@ -45,6 +51,12 @@ export interface AgentSession {
 
   /** Current session status */
   status: SessionStatus;
+
+  /** ISO timestamp when this session was pinned */
+  pinnedAt: string | null;
+
+  /** ISO timestamp when this session was archived */
+  archivedAt: string | null;
 
   /** Explicit product mode selected for this session */
   mode: RunMode;
@@ -83,7 +95,7 @@ export interface SetupSessionState {
  */
 export interface SessionStorageSchema {
   /** Version identifier for migrations */
-  version: 2;
+  version: 3;
 
   /** All sessions keyed by session ID */
   sessions: Record<string, AgentSession>;

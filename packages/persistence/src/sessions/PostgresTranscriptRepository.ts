@@ -1,4 +1,4 @@
-import type { JsonValue } from "@repo/shared-types";
+import type { ChatTitleSource, JsonValue } from "@repo/shared-types";
 
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
 import type {
@@ -16,7 +16,11 @@ import type {
   TranscriptMessageRole,
   TranscriptRepository,
 } from "./types.js";
-import { assertHasParts, firstSequence, lastSequence } from "./transcriptUtils.js";
+import {
+  assertHasParts,
+  firstSequence,
+  lastSequence,
+} from "./transcriptUtils.js";
 
 interface Clock {
   now(): Date;
@@ -36,10 +40,13 @@ interface TranscriptRow extends SqlRow {
   session_workspace_id?: string | null;
   session_task_id?: string;
   session_title?: string;
+  title_source?: string;
   repository?: string | null;
   active_run_id?: string | null;
   mode?: string;
   session_status?: string;
+  pinned_at?: string | Date | null;
+  archived_at?: string | Date | null;
   session_created_at?: string | Date;
   session_updated_at?: string | Date;
   message_id?: string;
@@ -70,7 +77,11 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     input: EnsureTranscriptSessionInput,
   ): Promise<SessionRecord> {
     if (this.skipTxWrap) {
-      return await ensureSessionWithClient(this.client, input, this.clock.now());
+      return await ensureSessionWithClient(
+        this.client,
+        input,
+        this.clock.now(),
+      );
     }
     return await this.client.transaction(async (tx) =>
       ensureSessionWithClient(tx, input, this.clock.now()),
@@ -82,7 +93,11 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
   ): Promise<TranscriptMessageRecord> {
     if (this.skipTxWrap) {
       await ensureSessionWithClient(this.client, input, this.clock.now());
-      return await appendMessageWithClient(this.client, input, this.clock.now());
+      return await appendMessageWithClient(
+        this.client,
+        input,
+        this.clock.now(),
+      );
     }
     return await this.client.transaction(async (tx) => {
       await ensureSessionWithClient(tx, input, this.clock.now());
@@ -90,13 +105,74 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     });
   }
 
-  async archiveSession(userId: string, sessionId: string): Promise<boolean> {
-    const result = await this.client.query<TranscriptRow>(ARCHIVE_SESSION_SQL, [
+  async updateGeneratedSessionTitle(input: {
+    userId: string;
+    sessionId: string;
+    title: string;
+    titleSource: "generated";
+  }): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(
+      this.client,
+      UPDATE_GENERATED_SESSION_TITLE_SQL,
+      [input.userId, input.sessionId, input.title, this.clock.now()],
+    );
+  }
+
+  async renameSessionTitle(input: {
+    userId: string;
+    sessionId: string;
+    title: string;
+    titleSource: "user";
+  }): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(
+      this.client,
+      RENAME_SESSION_TITLE_SQL,
+      [input.userId, input.sessionId, input.title, this.clock.now()],
+    );
+  }
+
+  async pinSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(this.client, PIN_SESSION_SQL, [
       userId,
       sessionId,
       this.clock.now(),
     ]);
-    return Boolean(result.rows[0]);
+  }
+
+  async unpinSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(this.client, UNPIN_SESSION_SQL, [
+      userId,
+      sessionId,
+      this.clock.now(),
+    ]);
+  }
+
+  async archiveSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(this.client, ARCHIVE_SESSION_SQL, [
+      userId,
+      sessionId,
+      this.clock.now(),
+    ]);
+  }
+
+  async unarchiveSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(this.client, UNARCHIVE_SESSION_SQL, [
+      userId,
+      sessionId,
+      this.clock.now(),
+    ]);
   }
 
   async appendMessageToExistingSession(
@@ -104,7 +180,11 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
   ): Promise<TranscriptMessageRecord> {
     if (this.skipTxWrap) {
       await assertSessionExists(this.client, input.sessionId);
-      return await appendMessageWithClient(this.client, input, this.clock.now());
+      return await appendMessageWithClient(
+        this.client,
+        input,
+        this.clock.now(),
+      );
     }
     return await this.client.transaction(async (tx) => {
       await assertSessionExists(tx, input.sessionId);
@@ -147,11 +227,21 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     };
   }
 
+  async listArchivedSessions(userId: string): Promise<SessionRecord[]> {
+    const result = await this.client.query<TranscriptRow>(
+      LIST_ARCHIVED_SESSIONS_SQL,
+      [userId],
+    );
+    return result.rows.map((row) => mapSessionRow(row));
+  }
+
   async transaction<T>(
     callback: (repository: TranscriptRepository) => Promise<T>,
   ): Promise<T> {
     return await this.client.transaction(async (tx) => {
-      return await callback(new PostgresTranscriptRepository(tx, this.clock, true));
+      return await callback(
+        new PostgresTranscriptRepository(tx, this.clock, true),
+      );
     });
   }
 }
@@ -167,6 +257,7 @@ async function ensureSessionWithClient(
   const titleProvided = input.title !== undefined && input.title !== null;
   const repositoryProvided = input.repository !== undefined;
   const activeRunIdProvided = input.activeRunId !== undefined;
+  const titleSource = input.titleSource ?? "generated";
   const result = await client.query<TranscriptRow>(UPSERT_SESSION_SQL, [
     input.sessionId,
     input.userId,
@@ -177,6 +268,7 @@ async function ensureSessionWithClient(
     input.activeRunId ?? null,
     input.mode ?? "build",
     input.status ?? "idle",
+    titleSource,
     now,
     workspaceProvided,
     taskIdProvided,
@@ -208,6 +300,16 @@ async function upsertTask(
   return mapTaskRow(readReturnedRow(result.rows[0], "tasks"));
 }
 
+async function updateSessionWithClient(
+  client: SqlClient,
+  statement: string,
+  params: readonly SqlValue[],
+): Promise<SessionRecord | null> {
+  const result = await client.query<TranscriptRow>(statement, params);
+  const row = result.rows[0];
+  return row ? mapSessionRow(row) : null;
+}
+
 async function assertSessionExists(
   client: SqlClient,
   sessionId: string,
@@ -228,7 +330,11 @@ async function appendMessageWithClient(
   assertHasParts(input.parts);
   const inserted = await insertMessage(client, input, now);
   if (!inserted) {
-    return await readMessageByDedupeKey(client, input.sessionId, input.dedupeKey);
+    return await readMessageByDedupeKey(
+      client,
+      input.sessionId,
+      input.dedupeKey,
+    );
   }
 
   const lastSequence = await incrementSessionSequence(
@@ -278,7 +384,9 @@ async function readMessageByDedupeKey(
   const messages = groupMessages(result.rows);
   const message = messages[0];
   if (!message) {
-    throw new Error(`Transcript message not found for dedupe key: ${dedupeKey}`);
+    throw new Error(
+      `Transcript message not found for dedupe key: ${dedupeKey}`,
+    );
   }
   return message;
 }
@@ -289,11 +397,10 @@ async function incrementSessionSequence(
   increment: number,
   now: Date,
 ): Promise<number> {
-  const result = await client.query<TranscriptRow>(INCREMENT_SESSION_SEQUENCE_SQL, [
-    sessionId,
-    increment,
-    now,
-  ]);
+  const result = await client.query<TranscriptRow>(
+    INCREMENT_SESSION_SEQUENCE_SQL,
+    [sessionId, increment, now],
+  );
   return toNumber(readReturnedRow(result.rows[0], "sessions").last_sequence);
 }
 
@@ -396,16 +503,25 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     workspaceId: row.session_workspace_id ?? null,
     taskId: requireString(row.session_task_id, "session_task_id"),
     title: requireString(row.session_title, "session_title"),
+    titleSource: mapChatTitleSource(
+      requireString(row.title_source, "title_source"),
+    ),
     repository: row.repository ?? null,
     activeRunId: row.active_run_id ?? null,
     mode: requireString(row.mode, "mode"),
-    status: mapSessionStatus(requireString(row.session_status, "session_status")),
+    status: mapSessionStatus(
+      requireString(row.session_status, "session_status"),
+    ),
+    pinnedAt: row.pinned_at ? toIsoString(row.pinned_at) : null,
+    archivedAt: row.archived_at ? toIsoString(row.archived_at) : null,
     createdAt: toIsoString(row.session_created_at),
     updatedAt: toIsoString(row.session_updated_at),
   };
 }
 
-function mapMessageRow(row: TranscriptRow): Omit<TranscriptMessageRecord, "parts"> {
+function mapMessageRow(
+  row: TranscriptRow,
+): Omit<TranscriptMessageRecord, "parts"> {
   return {
     id: requireString(row.message_id, "message_id"),
     sessionId: requireString(row.session_id, "session_id"),
@@ -448,8 +564,20 @@ function mapSessionStatus(status: string): SessionRecord["status"] {
   throw new Error(`Unsupported session status: ${status}`);
 }
 
+function mapChatTitleSource(titleSource: string): ChatTitleSource {
+  if (titleSource === "generated" || titleSource === "user") {
+    return titleSource;
+  }
+  throw new Error(`Unsupported chat title source: ${titleSource}`);
+}
+
 function mapMessageRole(role: string): TranscriptMessageRole {
-  if (role === "system" || role === "user" || role === "assistant" || role === "tool") {
+  if (
+    role === "system" ||
+    role === "user" ||
+    role === "assistant" ||
+    role === "tool"
+  ) {
     return role;
   }
   throw new Error(`Unsupported transcript message role: ${role}`);
@@ -469,7 +597,10 @@ function mapPartType(type: string): TranscriptMessagePartType {
   throw new Error(`Unsupported transcript message part type: ${type}`);
 }
 
-function parseContentJson(value: JsonValue | string | undefined, partId: unknown): JsonValue {
+function parseContentJson(
+  value: JsonValue | string | undefined,
+  partId: unknown,
+): JsonValue {
   if (typeof value !== "string") {
     return value ?? null;
   }
@@ -545,10 +676,13 @@ const SESSION_COLUMNS = `
   workspace_id AS session_workspace_id,
   task_id AS session_task_id,
   title AS session_title,
+  title_source,
   repository,
   active_run_id,
   mode,
   status AS session_status,
+  pinned_at,
+  archived_at,
   created_at AS session_created_at,
   updated_at AS session_updated_at
 `;
@@ -595,6 +729,7 @@ const UPSERT_SESSION_SQL = `
     workspace_id,
     task_id,
     title,
+    title_source,
     repository,
     active_run_id,
     mode,
@@ -602,27 +737,33 @@ const UPSERT_SESSION_SQL = `
     created_at,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+  VALUES ($1, $2, $3, $4, $5, $10, $6, $7, $8, $9, $11, $11)
   ON CONFLICT (id)
   DO UPDATE SET
     workspace_id = CASE
-      WHEN $11::boolean THEN EXCLUDED.workspace_id
+      WHEN $12::boolean THEN EXCLUDED.workspace_id
       ELSE sessions.workspace_id
     END,
     task_id = CASE
-      WHEN $12::boolean THEN EXCLUDED.task_id
+      WHEN $13::boolean THEN EXCLUDED.task_id
       ELSE sessions.task_id
     END,
     title = CASE
-      WHEN $13::boolean THEN EXCLUDED.title
+      WHEN $14::boolean AND sessions.title_source = 'generated' AND EXCLUDED.title_source = 'generated'
+        THEN EXCLUDED.title
       ELSE sessions.title
     END,
+    title_source = CASE
+      WHEN $14::boolean AND sessions.title_source = 'generated' AND EXCLUDED.title_source = 'generated'
+        THEN EXCLUDED.title_source
+      ELSE sessions.title_source
+    END,
     repository = CASE
-      WHEN $14::boolean THEN EXCLUDED.repository
+      WHEN $15::boolean THEN EXCLUDED.repository
       ELSE sessions.repository
     END,
     active_run_id = CASE
-      WHEN $15::boolean THEN EXCLUDED.active_run_id
+      WHEN $16::boolean THEN EXCLUDED.active_run_id
       ELSE sessions.active_run_id
     END,
     mode = EXCLUDED.mode,
@@ -638,27 +779,66 @@ const FIND_SESSION_SQL = `
   WHERE id = $1
 `;
 
-const ARCHIVE_SESSION_SQL = `
-  WITH archived_task AS (
-    UPDATE tasks
-    SET
-      status = 'archived',
-      archived_at = $3,
-      updated_at = $3
-    FROM sessions
-    WHERE sessions.id = $2
-      AND sessions.user_id = $1
-      AND sessions.task_id = tasks.id
-      AND tasks.user_id = $1
-      AND tasks.archived_at IS NULL
-    RETURNING tasks.id
-  )
+const UPDATE_GENERATED_SESSION_TITLE_SQL = `
   UPDATE sessions
-  SET updated_at = $3
-  WHERE id = $2
-    AND user_id = $1
-    AND task_id IN (SELECT id FROM archived_task)
-  RETURNING id AS session_id
+  SET title = $3,
+      title_source = 'generated',
+      updated_at = $4
+  WHERE user_id = $1
+    AND id = $2
+    AND title_source = 'generated'
+    AND archived_at IS NULL
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const RENAME_SESSION_TITLE_SQL = `
+  UPDATE sessions
+  SET title = $3,
+      title_source = 'user',
+      updated_at = $4
+  WHERE user_id = $1
+    AND id = $2
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const PIN_SESSION_SQL = `
+  UPDATE sessions
+  SET pinned_at = $3,
+      updated_at = $3
+  WHERE user_id = $1
+    AND id = $2
+    AND archived_at IS NULL
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const UNPIN_SESSION_SQL = `
+  UPDATE sessions
+  SET pinned_at = NULL,
+      updated_at = $3
+  WHERE user_id = $1
+    AND id = $2
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const ARCHIVE_SESSION_SQL = `
+  UPDATE sessions
+  SET archived_at = $3,
+      pinned_at = NULL,
+      updated_at = $3
+  WHERE user_id = $1
+    AND id = $2
+    AND archived_at IS NULL
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const UNARCHIVE_SESSION_SQL = `
+  UPDATE sessions
+  SET archived_at = NULL,
+      updated_at = $3
+  WHERE user_id = $1
+    AND id = $2
+    AND archived_at IS NOT NULL
+  RETURNING ${SESSION_COLUMNS}
 `;
 
 const INSERT_MESSAGE_SQL = `
@@ -729,15 +909,42 @@ const LIST_SESSIONS_SQL = `
     s.workspace_id AS session_workspace_id,
     s.task_id AS session_task_id,
     s.title AS session_title,
+    s.title_source,
     s.repository,
     s.active_run_id,
     s.mode,
     s.status AS session_status,
+    s.pinned_at,
+    s.archived_at,
     s.created_at AS session_created_at,
     s.updated_at AS session_updated_at
   FROM tasks
-  LEFT JOIN sessions s ON s.task_id = tasks.id
+  LEFT JOIN sessions s ON s.task_id = tasks.id AND s.archived_at IS NULL
   WHERE tasks.user_id = $1
     AND tasks.archived_at IS NULL
   ORDER BY tasks.updated_at DESC, s.updated_at DESC
+`;
+
+const LIST_ARCHIVED_SESSIONS_SQL = `
+  SELECT
+    ${JOINED_TASK_COLUMNS},
+    s.id AS session_id,
+    s.user_id AS session_user_id,
+    s.workspace_id AS session_workspace_id,
+    s.task_id AS session_task_id,
+    s.title AS session_title,
+    s.title_source,
+    s.repository,
+    s.active_run_id,
+    s.mode,
+    s.status AS session_status,
+    s.pinned_at,
+    s.archived_at,
+    s.created_at AS session_created_at,
+    s.updated_at AS session_updated_at
+  FROM sessions s
+  JOIN tasks ON tasks.id = s.task_id
+  WHERE s.user_id = $1
+    AND s.archived_at IS NOT NULL
+  ORDER BY s.archived_at DESC
 `;

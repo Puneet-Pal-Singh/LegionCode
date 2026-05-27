@@ -1,9 +1,18 @@
-import type { JsonValue } from "@repo/shared-types";
+import {
+  CHAT_TITLE_SOURCES,
+  type ChatTitleSource,
+  type JsonValue,
+} from "@repo/shared-types";
 
 export const TASK_STATUSES = ["active", "archived"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export const SESSION_STATUSES = ["idle", "running", "completed", "failed"] as const;
+export const SESSION_STATUSES = [
+  "idle",
+  "running",
+  "completed",
+  "failed",
+] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export const MESSAGE_ROLES = ["system", "user", "assistant", "tool"] as const;
@@ -31,6 +40,10 @@ export function buildSessionStatusSqlList(): string {
   return buildSqlList(SESSION_STATUSES);
 }
 
+export function buildChatTitleSourceSqlList(): string {
+  return buildSqlList(CHAT_TITLE_SOURCES);
+}
+
 export function buildMessageRoleSqlList(): string {
   return buildSqlList(MESSAGE_ROLES);
 }
@@ -56,10 +69,13 @@ export interface SessionRecord {
   workspaceId: string | null;
   taskId: string;
   title: string;
+  titleSource: ChatTitleSource;
   repository: string | null;
   activeRunId: string | null;
   mode: string;
   status: SessionStatus;
+  pinnedAt: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -91,6 +107,7 @@ export interface EnsureTranscriptSessionInput {
   workspaceId?: string | null;
   taskId?: string | null;
   title?: string | null;
+  titleSource?: ChatTitleSource | null;
   repository?: string | null;
   activeRunId?: string | null;
   mode?: string | null;
@@ -140,13 +157,40 @@ export interface ListSessionsResult {
 
 export interface TranscriptRepository {
   ensureSession(input: EnsureTranscriptSessionInput): Promise<SessionRecord>;
-  archiveSession(userId: string, sessionId: string): Promise<boolean>;
-  appendMessage(input: AppendTranscriptMessageInput): Promise<TranscriptMessageRecord>;
+  updateGeneratedSessionTitle(input: {
+    userId: string;
+    sessionId: string;
+    title: string;
+    titleSource: "generated";
+  }): Promise<SessionRecord | null>;
+  renameSessionTitle(input: {
+    userId: string;
+    sessionId: string;
+    title: string;
+    titleSource: "user";
+  }): Promise<SessionRecord | null>;
+  pinSession(userId: string, sessionId: string): Promise<SessionRecord | null>;
+  unpinSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null>;
+  archiveSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null>;
+  unarchiveSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null>;
+  appendMessage(
+    input: AppendTranscriptMessageInput,
+  ): Promise<TranscriptMessageRecord>;
   appendMessageToExistingSession(
     input: AppendExistingTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord>;
   listTranscript(input: ListTranscriptInput): Promise<ListTranscriptResult>;
   listSessions(userId: string): Promise<ListSessionsResult>;
+  listArchivedSessions(userId: string): Promise<SessionRecord[]>;
   transaction<T>(
     callback: (repository: TranscriptRepository) => Promise<T>,
   ): Promise<T>;

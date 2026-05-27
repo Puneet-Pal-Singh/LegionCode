@@ -10,7 +10,11 @@ import type {
   TranscriptMessageRecord,
   TranscriptRepository,
 } from "./types.js";
-import { assertHasParts, firstSequence, lastSequence } from "./transcriptUtils.js";
+import {
+  assertHasParts,
+  firstSequence,
+  lastSequence,
+} from "./transcriptUtils.js";
 
 interface Clock {
   now(): Date;
@@ -42,16 +46,30 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const now = this.clock.now().toISOString();
     const task = this.upsertTask(input, now);
     const existing = this.sessions.get(input.sessionId);
+    const titleSource =
+      existing?.titleSource ?? input.titleSource ?? "generated";
     const session = {
       id: input.sessionId,
       userId: input.userId,
-      workspaceId: readNullableInput(input.workspaceId, existing?.workspaceId ?? null),
+      workspaceId: readNullableInput(
+        input.workspaceId,
+        existing?.workspaceId ?? null,
+      ),
       taskId: task.id,
-      title: input.title ?? existing?.title ?? task.title,
-      repository: readNullableInput(input.repository, existing?.repository ?? null),
-      activeRunId: readNullableInput(input.activeRunId, existing?.activeRunId ?? null),
+      title: resolveSessionTitle(input, existing, task.title),
+      titleSource,
+      repository: readNullableInput(
+        input.repository,
+        existing?.repository ?? null,
+      ),
+      activeRunId: readNullableInput(
+        input.activeRunId,
+        existing?.activeRunId ?? null,
+      ),
       mode: input.mode ?? existing?.mode ?? "build",
       status: input.status ?? existing?.status ?? "idle",
+      pinnedAt: existing?.pinnedAt ?? null,
+      archivedAt: existing?.archivedAt ?? null,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     } satisfies SessionRecord;
@@ -60,29 +78,79 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return session;
   }
 
-  async archiveSession(userId: string, sessionId: string): Promise<boolean> {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.userId !== userId) {
-      return false;
-    }
+  async updateGeneratedSessionTitle(input: {
+    userId: string;
+    sessionId: string;
+    title: string;
+    titleSource: "generated";
+  }): Promise<SessionRecord | null> {
+    return this.updateSessionTitle(input, "generated");
+  }
 
-    const task = this.tasks.get(session.taskId);
-    if (!task || task.userId !== userId) {
-      return false;
-    }
+  async renameSessionTitle(input: {
+    userId: string;
+    sessionId: string;
+    title: string;
+    titleSource: "user";
+  }): Promise<SessionRecord | null> {
+    return this.updateSessionTitle(input, "user");
+  }
 
+  async pinSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    const session = this.readUserSession(userId, sessionId);
+    if (!session || session.archivedAt) {
+      return null;
+    }
     const now = this.clock.now().toISOString();
-    this.tasks.set(task.id, {
-      ...task,
-      status: "archived",
-      updatedAt: now,
-      archivedAt: now,
-    });
-    this.sessions.set(session.id, {
+    return this.storeSession({
       ...session,
+      pinnedAt: now,
       updatedAt: now,
     });
-    return true;
+  }
+
+  async unpinSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    const session = this.readUserSession(userId, sessionId);
+    if (!session) {
+      return null;
+    }
+    const now = this.clock.now().toISOString();
+    return this.storeSession({ ...session, pinnedAt: null, updatedAt: now });
+  }
+
+  async archiveSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    const session = this.readUserSession(userId, sessionId);
+    if (!session || session.archivedAt) {
+      return null;
+    }
+    const now = this.clock.now().toISOString();
+    return this.storeSession({
+      ...session,
+      pinnedAt: null,
+      archivedAt: now,
+      updatedAt: now,
+    });
+  }
+
+  async unarchiveSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<SessionRecord | null> {
+    const session = this.readUserSession(userId, sessionId);
+    if (!session || !session.archivedAt) {
+      return null;
+    }
+    const now = this.clock.now().toISOString();
+    return this.storeSession({ ...session, archivedAt: null, updatedAt: now });
   }
 
   async appendMessage(
@@ -116,7 +184,10 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
 
     return {
       messages,
-      nextCursor: messages.length >= limit && lastMessage ? lastSequence(lastMessage) : null,
+      nextCursor:
+        messages.length >= limit && lastMessage
+          ? lastSequence(lastMessage)
+          : null,
     };
   }
 
@@ -128,10 +199,20 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const visibleTaskIds = new Set(tasks.map((task) => task.id));
     const sessions = Array.from(this.sessions.values())
       .filter((session) => session.userId === userId)
+      .filter((session) => session.archivedAt === null)
       .filter((session) => visibleTaskIds.has(session.taskId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
     return { tasks, sessions };
+  }
+
+  async listArchivedSessions(userId: string): Promise<SessionRecord[]> {
+    return Array.from(this.sessions.values())
+      .filter((session) => session.userId === userId)
+      .filter((session) => session.archivedAt !== null)
+      .sort((left, right) =>
+        (right.archivedAt ?? "").localeCompare(left.archivedAt ?? ""),
+      );
   }
 
   async transaction<T>(
@@ -149,7 +230,10 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const task = {
       id: taskId,
       userId: input.userId,
-      workspaceId: readNullableInput(input.workspaceId, existing?.workspaceId ?? null),
+      workspaceId: readNullableInput(
+        input.workspaceId,
+        existing?.workspaceId ?? null,
+      ),
       title: input.title ?? existing?.title ?? "Untitled task",
       status: existing?.status ?? "active",
       createdAt: existing?.createdAt ?? now,
@@ -161,6 +245,44 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return task;
   }
 
+  private updateSessionTitle(
+    input: {
+      userId: string;
+      sessionId: string;
+      title: string;
+      titleSource: SessionRecord["titleSource"];
+    },
+    titleSource: SessionRecord["titleSource"],
+  ): SessionRecord | null {
+    const session = this.readUserSession(input.userId, input.sessionId);
+    if (!session) {
+      return null;
+    }
+    if (titleSource === "generated" && session.titleSource !== "generated") {
+      return null;
+    }
+    const now = this.clock.now().toISOString();
+    return this.storeSession({
+      ...session,
+      title: input.title,
+      titleSource,
+      updatedAt: now,
+    });
+  }
+
+  private readUserSession(
+    userId: string,
+    sessionId: string,
+  ): SessionRecord | null {
+    const session = this.sessions.get(sessionId);
+    return session?.userId === userId ? session : null;
+  }
+
+  private storeSession(session: SessionRecord): SessionRecord {
+    this.sessions.set(session.id, session);
+    return session;
+  }
+
   private appendMessageToStore(
     input: AppendExistingTranscriptMessageInput,
   ): TranscriptMessageRecord {
@@ -169,9 +291,13 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const dedupeKeys = this.readDedupeKeys(input.sessionId);
     const existingMessageId = dedupeKeys.get(input.dedupeKey);
     if (existingMessageId) {
-      const existing = messages.find((message) => message.id === existingMessageId);
+      const existing = messages.find(
+        (message) => message.id === existingMessageId,
+      );
       if (!existing) {
-        throw new Error(`Transcript message not found for dedupe key: ${input.dedupeKey}`);
+        throw new Error(
+          `Transcript message not found for dedupe key: ${input.dedupeKey}`,
+        );
       }
       return existing;
     }
@@ -200,7 +326,10 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       ...message,
       parts: message.parts.map((part) => ({ ...part, messageId: message.id })),
     };
-    this.messagesBySessionId.set(input.sessionId, [...messages, hydratedMessage]);
+    this.messagesBySessionId.set(input.sessionId, [
+      ...messages,
+      hydratedMessage,
+    ]);
     dedupeKeys.set(input.dedupeKey, hydratedMessage.id);
     return hydratedMessage;
   }
@@ -242,6 +371,26 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
   }
 }
 
-function readNullableInput<T>(value: T | null | undefined, fallback: T | null): T | null {
+function readNullableInput<T>(
+  value: T | null | undefined,
+  fallback: T | null,
+): T | null {
   return value === undefined ? fallback : value;
+}
+
+function resolveSessionTitle(
+  input: EnsureTranscriptSessionInput,
+  existing: SessionRecord | undefined,
+  taskTitle: string,
+): string {
+  if (!input.title) {
+    return existing?.title ?? taskTitle;
+  }
+  if (!existing) {
+    return input.title;
+  }
+  if (existing.titleSource === "generated" && input.titleSource !== "user") {
+    return input.title;
+  }
+  return existing.title;
 }

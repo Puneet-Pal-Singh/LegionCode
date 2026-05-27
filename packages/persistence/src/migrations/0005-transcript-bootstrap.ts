@@ -1,6 +1,7 @@
 import {
   buildMessagePartTypeSqlList,
   buildMessageRoleSqlList,
+  buildChatTitleSourceSqlList,
   buildSessionStatusSqlList,
   buildTaskStatusSqlList,
 } from "../sessions/types.js";
@@ -8,12 +9,14 @@ import type { SqlMigration } from "./types.js";
 
 const TASK_STATUS_SQL_LIST = buildTaskStatusSqlList();
 const SESSION_STATUS_SQL_LIST = buildSessionStatusSqlList();
+const CHAT_TITLE_SOURCE_SQL_LIST = buildChatTitleSourceSqlList();
 const MESSAGE_ROLE_SQL_LIST = buildMessageRoleSqlList();
 const MESSAGE_PART_TYPE_SQL_LIST = buildMessagePartTypeSqlList();
 
 export const transcriptBootstrapMigration: SqlMigration = {
   id: "0005_transcript_bootstrap",
-  description: "Create canonical task, session, message, and message part tables",
+  description:
+    "Create canonical task, session, message, and message part tables",
   statements: [
     `
       CREATE TABLE IF NOT EXISTS tasks (
@@ -44,20 +47,34 @@ export const transcriptBootstrapMigration: SqlMigration = {
         workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
         task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
         title TEXT NOT NULL,
+        title_source TEXT NOT NULL DEFAULT 'generated',
         repository TEXT,
         active_run_id UUID,
         mode TEXT NOT NULL DEFAULT 'build',
         status TEXT NOT NULL DEFAULT 'idle',
         last_sequence BIGINT NOT NULL DEFAULT 0,
+        pinned_at TIMESTAMPTZ,
+        archived_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT sessions_status_check
-          CHECK (status IN (${SESSION_STATUS_SQL_LIST}))
+          CHECK (status IN (${SESSION_STATUS_SQL_LIST})),
+        CONSTRAINT sessions_title_source_check
+          CHECK (title_source IN (${CHAT_TITLE_SOURCE_SQL_LIST}))
       )
     `,
     `
       CREATE INDEX IF NOT EXISTS sessions_user_updated_idx
         ON sessions (user_id, updated_at)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS sessions_user_archived_updated_idx
+        ON sessions (user_id, archived_at, updated_at DESC)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS sessions_user_pinned_idx
+        ON sessions (user_id, pinned_at DESC)
+        WHERE pinned_at IS NOT NULL AND archived_at IS NULL
     `,
     `
       CREATE INDEX IF NOT EXISTS sessions_task_idx
