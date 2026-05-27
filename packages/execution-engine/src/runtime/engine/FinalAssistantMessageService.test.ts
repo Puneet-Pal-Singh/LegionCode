@@ -46,6 +46,15 @@ describe("FinalAssistantMessageService", () => {
     ).toBe(true);
   });
 
+  it("rejects tool-envelope JSON with descriptor keys as unusable", () => {
+    expect(
+      normalizeFinalAssistantText('{"tool":"bash","output":""}'),
+    ).toBe("");
+    expect(
+      isUnusableFinalAssistantText('{"tool":"bash","output":""}'),
+    ).toBe(true);
+  });
+
   it("rejects hidden internal markup as final assistant text", () => {
     expect(
       normalizeFinalAssistantText(

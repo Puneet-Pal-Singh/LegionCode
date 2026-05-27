@@ -192,8 +192,24 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
+const DESCRIPTOR_KEYS = new Set([
+  "tool",
+  "type",
+  "name",
+  "arguments",
+]);
+
 function isIgnorableEmptyJsonField(key: string, value: unknown): boolean {
   const normalizedKey = key.trim().toLowerCase();
+  if (DESCRIPTOR_KEYS.has(normalizedKey)) {
+    if (value === null) return true;
+    if (typeof value === "string") return true;
+    if (typeof value === "object") {
+      if (Array.isArray(value)) return value.length === 0;
+      return Object.keys(value as Record<string, unknown>).length === 0;
+    }
+    return true;
+  }
   if (normalizedKey === "success" && value === true) {
     return true;
   }
