@@ -3,6 +3,7 @@ import type { GitStatusResponse } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
 import { getGitStatus } from "../lib/git-client.js";
 import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
+import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
@@ -15,6 +16,7 @@ interface UseGitStatusResult {
 const statusCacheByRunId = new Map<string, GitStatusResponse>();
 const statusCacheTimestampByRunId = new Map<string, number>();
 const inflightByRunId = new Map<string, Promise<GitStatusResponse>>();
+const requestVersionByRunId = new Map<string, number>();
 const retryAfterByRunId = new Map<string, number>();
 const lastLoggedErrorByRunId = new Map<string, string>();
 const listenersByRunId = new Map<
@@ -85,14 +87,21 @@ export function useGitStatus(
 
       setLoading(true);
       setError(null);
+      const requestVersion = force
+        ? incrementGitStatusRequestVersion(cacheKey)
+        : getGitStatusRequestVersion(cacheKey);
 
       try {
         const data = await getOrCreateGitStatusRequest(
           cacheKey,
           runId,
           sessionId,
+          force,
         );
-        if (!isActiveCacheKey(requestCacheKey)) {
+        if (
+          !isActiveCacheKey(requestCacheKey) ||
+          requestVersion !== getGitStatusRequestVersion(cacheKey)
+        ) {
           return;
         }
 
@@ -100,7 +109,10 @@ export function useGitStatus(
         retryAfterByRunId.delete(cacheKey);
         applyStatusSnapshot(data);
       } catch (err) {
-        if (!isActiveCacheKey(requestCacheKey)) {
+        if (
+          !isActiveCacheKey(requestCacheKey) ||
+          requestVersion !== getGitStatusRequestVersion(cacheKey)
+        ) {
           return;
         }
         const message = recordGitStatusFailure(cacheKey, err);
@@ -158,6 +170,38 @@ export function useGitStatus(
     });
   }, [cacheKey, fetchStatus]);
 
+  useEffect(() => {
+    if (!cacheKey || !runId) {
+      return;
+    }
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleRefreshEvent = (event: Event) => {
+      const customEvent = event as CustomEvent<{ runId?: string }>;
+      if (customEvent.detail?.runId !== runId) {
+        return;
+      }
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void fetchStatus(true);
+      }, 800);
+    };
+
+    window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+    return () => {
+      window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+    };
+  }, [cacheKey, fetchStatus, runId]);
+
   return { status, gitAvailable, loading, error, refetch: fetchStatus };
 }
 
@@ -183,7 +227,11 @@ async function getOrCreateGitStatusRequest(
   cacheKey: string,
   runId: string,
   sessionId: string,
+  force = false,
 ): Promise<GitStatusResponse> {
+  if (force) {
+    inflightByRunId.delete(cacheKey);
+  }
   const request =
     inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
   inflightByRunId.set(cacheKey, request);
@@ -218,6 +266,16 @@ function clearGitStatusCache(cacheKey: string): void {
   retryAfterByRunId.delete(cacheKey);
 }
 
+function getGitStatusRequestVersion(cacheKey: string): number {
+  return requestVersionByRunId.get(cacheKey) ?? 0;
+}
+
+function incrementGitStatusRequestVersion(cacheKey: string): number {
+  const nextVersion = getGitStatusRequestVersion(cacheKey) + 1;
+  requestVersionByRunId.set(cacheKey, nextVersion);
+  return nextVersion;
+}
+
 function updateCachedStatus(cacheKey: string, status: GitStatusResponse): void {
   statusCacheByRunId.set(cacheKey, status);
   statusCacheTimestampByRunId.set(cacheKey, Date.now());
@@ -228,6 +286,7 @@ export function _resetGitStatusStateForTests(): void {
   statusCacheByRunId.clear();
   statusCacheTimestampByRunId.clear();
   inflightByRunId.clear();
+  requestVersionByRunId.clear();
   retryAfterByRunId.clear();
   lastLoggedErrorByRunId.clear();
   listenersByRunId.clear();

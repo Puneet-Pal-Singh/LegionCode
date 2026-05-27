@@ -239,7 +239,7 @@ export async function getGitStatus(
 
   if (!response.ok) {
     throw new Error(
-      await readGitErrorMessage(
+      await readGitErrorResponse(
         response,
         `Failed to fetch git status: HTTP ${response.status}`,
       ),
@@ -266,7 +266,7 @@ export async function getGitDiff(
 
   if (!response.ok) {
     throw new Error(
-      await readGitErrorMessage(
+      await readGitErrorResponse(
         response,
         `Failed to fetch diff: HTTP ${response.status}`,
       ),
@@ -293,7 +293,7 @@ export async function stageGitFiles(
 
   if (!response.ok) {
     throw new Error(
-      await readGitErrorMessage(
+      await readGitErrorResponse(
         response,
         `Failed to update staged files: HTTP ${response.status}`,
       ),
@@ -402,6 +402,18 @@ export async function createGitPullRequest(
   return gitPullRequestMutationResultSchema.parse(
     (await response.json()) as unknown,
   );
+}
+
+async function readGitErrorResponse(
+  response: Response,
+  fallbackMessage: string,
+): Promise<string> {
+  try {
+    const payload = (await response.json()) as unknown;
+    return readGitErrorMessage(payload, fallbackMessage);
+  } catch {
+    return fallbackMessage;
+  }
 }
 
 function readGitErrorMessage(

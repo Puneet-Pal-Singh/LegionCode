@@ -66,13 +66,17 @@ export interface ActivityToolRowViewModel {
   key: string;
   toolName: string;
   family: ToolActivityPart["metadata"]["family"];
-  changedFile?: FileStatus;
+  changedFile?: ActivityChangedFileStatus;
   pluginLabel?: string;
   title: string;
   summary: string;
   status: "requested" | "running" | "completed" | "failed";
   defaultCollapsed: boolean;
   details: string[];
+}
+
+export interface ActivityChangedFileStatus extends FileStatus {
+  diffPreview?: string;
 }
 
 export interface ActivityGroupRowViewModel {
@@ -635,7 +639,9 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
   };
 }
 
-function buildChangedFileStatus(item: ToolActivityPart): FileStatus | undefined {
+function buildChangedFileStatus(
+  item: ToolActivityPart,
+): ActivityChangedFileStatus | undefined {
   if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.EDIT) {
     return undefined;
   }
@@ -646,6 +652,7 @@ function buildChangedFileStatus(item: ToolActivityPart): FileStatus | undefined 
     additions: item.metadata.additions,
     deletions: item.metadata.deletions,
     isStaged: false,
+    diffPreview: item.metadata.diffPreview,
   };
 }
 

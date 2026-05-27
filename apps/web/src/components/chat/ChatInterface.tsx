@@ -34,7 +34,10 @@ import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeed
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
-import { getBrainHttpBase, runApprovalPath } from "../../lib/platform-endpoints.js";
+import {
+  getBrainHttpBase,
+  runApprovalPath,
+} from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
 import { isTerminalRunStatus } from "../../lib/run-status.js";
 import { useGitReview } from "../git/GitReviewContext";
@@ -286,14 +289,16 @@ export function ChatInterface({
   const turnBaselineFilesRef = useRef<FileStatus[]>([]);
   const lastSettledFilesRef = useRef<FileStatus[]>([]);
   const previousIsLoadingRef = useRef(isLoading);
-  const diffSnapshotByPathRef = useRef<Record<string, DiffContent>>({});
+  const diffSnapshotsByMessageRef = useRef<Record<string, DiffContent>>({});
   const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(
     null,
   );
-  const [changedFilesByAssistantMessageId, setChangedFilesByAssistantMessageId] =
-    useState<Record<string, FileStatus[]>>({});
+  const [
+    changedFilesByAssistantMessageId,
+    setChangedFilesByAssistantMessageId,
+  ] = useState<Record<string, FileStatus[]>>({});
   const previousScrollScopeKeyRef = useRef<string | null>(null);
 
   const messageMetadataById = useMemo(() => {
@@ -317,24 +322,25 @@ export function ChatInterface({
     () => buildConversationTurns(messages),
     [messages],
   );
-  const activityChangedFilesByAssistantMessageId = useMemo(
-    () => {
-      if (!scopedFeed) {
-        return {};
-      }
-      return deriveActivityChangedFilesByAssistantMessageId(
-        conversationTurns,
-        activityViewModel.turns,
-      );
-    },
-    [activityViewModel.turns, conversationTurns, scopedFeed],
-  );
+  const activityChangedFilesByAssistantMessageId = useMemo(() => {
+    if (!scopedFeed) {
+      return {};
+    }
+    return deriveActivityChangedFilesByAssistantMessageId(
+      conversationTurns,
+      activityViewModel.turns,
+    );
+  }, [activityViewModel.turns, conversationTurns, scopedFeed]);
   const changedFileSnapshotsByAssistantMessageId = useMemo(
-    () => ({
-      ...activityChangedFilesByAssistantMessageId,
-      ...changedFilesByAssistantMessageId,
-    }),
-    [activityChangedFilesByAssistantMessageId, changedFilesByAssistantMessageId],
+    () =>
+      mergeChangedFileSnapshots(
+        changedFilesByAssistantMessageId,
+        activityChangedFilesByAssistantMessageId,
+      ),
+    [
+      activityChangedFilesByAssistantMessageId,
+      changedFilesByAssistantMessageId,
+    ],
   );
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -346,20 +352,33 @@ export function ChatInterface({
     return null;
   }, [messages]);
   const loadChangedFileDiff = useCallback(
-    async (file: FileStatus): Promise<DiffContent> => {
-      const cachedDiff = diffSnapshotByPathRef.current[file.path];
+    async (messageId: string, file: FileStatus): Promise<DiffContent> => {
+      const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
+      const cachedDiff = diffSnapshotsByMessageRef.current[cacheKey];
       if (cachedDiff) {
         return cachedDiff;
       }
 
-      const diff = await getGitDiff({
-        runId,
-        sessionId,
-        path: file.path,
-        staged: file.isStaged,
-      });
-      diffSnapshotByPathRef.current[file.path] = diff;
-      return diff;
+      const activityPreviewDiff = buildDiffFromActivityPreview(file);
+      try {
+        const liveDiff = await getGitDiff({
+          runId,
+          sessionId,
+          path: file.path,
+          staged: file.isStaged,
+        });
+        const diff = shouldUseActivityPreviewDiff(liveDiff, activityPreviewDiff)
+          ? activityPreviewDiff
+          : liveDiff;
+        diffSnapshotsByMessageRef.current[cacheKey] = diff;
+        return diff;
+      } catch (error) {
+        if (activityPreviewDiff) {
+          diffSnapshotsByMessageRef.current[cacheKey] = activityPreviewDiff;
+          return activityPreviewDiff;
+        }
+        throw error;
+      }
     },
     [runId, sessionId],
   );
@@ -374,7 +393,7 @@ export function ChatInterface({
     pendingChangedFilesRef.current = [];
     turnBaselineFilesRef.current = [];
     lastSettledFilesRef.current = [];
-    diffSnapshotByPathRef.current = {};
+    diffSnapshotsByMessageRef.current = {};
     previousIsLoadingRef.current = false;
     setChangedFilesByAssistantMessageId({});
   }, [runId]);
@@ -385,7 +404,7 @@ export function ChatInterface({
         lastSettledFilesRef.current,
       );
       pendingChangedFilesRef.current = [];
-      diffSnapshotByPathRef.current = {};
+      diffSnapshotsByMessageRef.current = {};
     }
     previousIsLoadingRef.current = isLoading;
   }, [isLoading]);
@@ -421,12 +440,15 @@ export function ChatInterface({
     }
 
     setChangedFilesByAssistantMessageId((current) => {
-      if (current[latestAssistantMessageId]?.length) {
+      const nextFiles = cloneFileStatuses(changedFiles);
+      if (
+        areFileStatusListsEqual(current[latestAssistantMessageId], nextFiles)
+      ) {
         return current;
       }
       return {
         ...current,
-        [latestAssistantMessageId]: cloneFileStatuses(changedFiles),
+        [latestAssistantMessageId]: nextFiles,
       };
     });
   }, [gitStatus?.files, isLoading, latestAssistantMessageId]);
@@ -475,7 +497,10 @@ export function ChatInterface({
   );
 
   const handleSubmitWithReviewComments = useCallback(async () => {
-    const budgetResult = validateReviewPromptBudget(selectedReviewComments, input);
+    const budgetResult = validateReviewPromptBudget(
+      selectedReviewComments,
+      input,
+    );
     if (!budgetResult.ok) {
       setReviewCommentError(budgetResult.reason);
       return;
@@ -563,7 +588,9 @@ export function ChatInterface({
       return;
     }
     const latestAssistantMessageKey = `${runId}:${latestAssistantMessage.id}`;
-    if (lastAutoSwitchedPlanFailureKeyRef.current === latestAssistantMessageKey) {
+    if (
+      lastAutoSwitchedPlanFailureKeyRef.current === latestAssistantMessageKey
+    ) {
       return;
     }
 
@@ -596,10 +623,7 @@ export function ChatInterface({
   const resolveApprovalDecision = useCallback(
     async (decision: ApprovalDecisionKind) => {
       const pending = summary?.pendingApproval ?? pendingApprovalFromEvents;
-      if (
-        !pending ||
-        pending.requestId === dismissedApprovalRequestId
-      ) {
+      if (!pending || pending.requestId === dismissedApprovalRequestId) {
         return;
       }
       setApprovalBusyDecision(decision);
@@ -627,7 +651,8 @@ export function ChatInterface({
                 decision,
               });
               if (!retryResponse.ok) {
-                const retryMessage = await readApprovalErrorMessage(retryResponse);
+                const retryMessage =
+                  await readApprovalErrorMessage(retryResponse);
                 const isRetryStaleApproval =
                   retryResponse.status === 409 ||
                   isNoPendingApprovalError(retryMessage);
@@ -774,9 +799,7 @@ export function ChatInterface({
     !pendingApproval &&
     !hasStartedSession;
   const isTranscriptHydrating =
-    !hasHydrated &&
-    !hasConversationSignal &&
-    !pendingApproval;
+    !hasHydrated && !hasConversationSignal && !pendingApproval;
   const showSessionPlaceholder =
     isTranscriptHydrating ||
     (hasStartedSession &&
@@ -958,7 +981,8 @@ export function ChatInterface({
                     isLoading,
                     liveFiles: liveChangedFiles,
                     snapshots: changedFileSnapshotsByAssistantMessageId,
-                    loadFileDiff: loadChangedFileDiff,
+                    loadFileDiff: (file) =>
+                      loadChangedFileDiff(entry.message.id, file),
                   })}
                 />
               ) : (
@@ -1002,10 +1026,10 @@ export function ChatInterface({
       {/* Input Area - Centered */}
       {showHeroComposer ? null : (
         <div className="px-6 pb-4">
-        <div className="max-w-4xl mx-auto">
-          {renderComposerControls("docked")}
+          <div className="max-w-4xl mx-auto">
+            {renderComposerControls("docked")}
+          </div>
         </div>
-      </div>
       )}
     </div>
   );
@@ -1047,7 +1071,7 @@ function resolveChangedFilesSummary(input: {
     input.liveFiles?.length
       ? input.liveFiles
       : undefined;
-  const files = liveFiles ?? input.snapshots[input.messageId];
+  const files = input.snapshots[input.messageId] ?? liveFiles;
   if (!files?.length) {
     return undefined;
   }
@@ -1056,6 +1080,110 @@ function resolveChangedFilesSummary(input: {
     files,
     loadFileDiff: input.loadFileDiff,
   };
+}
+
+function mergeChangedFileSnapshots(
+  localSnapshots: Record<string, FileStatus[]>,
+  activitySnapshots: Record<string, FileStatus[]>,
+): Record<string, FileStatus[]> {
+  return {
+    ...localSnapshots,
+    ...activitySnapshots,
+  };
+}
+
+function buildChangedFileDiffCacheKey(
+  messageId: string,
+  file: FileStatus,
+): string {
+  return `${messageId}:${file.path}:${file.isStaged ? "staged" : "unstaged"}`;
+}
+
+function buildDiffFromActivityPreview(file: FileStatus): DiffContent | null {
+  const diffPreview = readActivityDiffPreview(file);
+  if (!diffPreview) {
+    return null;
+  }
+
+  const lines = buildDiffLinesFromActivityPreview(diffPreview);
+  if (!lines.some((line) => line.type === "added" || line.type === "deleted")) {
+    return null;
+  }
+
+  return {
+    oldPath: file.path,
+    newPath: file.path,
+    isBinary: false,
+    isNewFile: file.status === "added",
+    isDeleted: file.status === "deleted",
+    hunks: [
+      {
+        oldStart: 1,
+        oldLines: lines.filter((line) => line.type !== "added").length,
+        newStart: 1,
+        newLines: lines.filter((line) => line.type !== "deleted").length,
+        header: "Saved edit preview",
+        lines,
+      },
+    ],
+  };
+}
+
+function readActivityDiffPreview(file: FileStatus): string | null {
+  const candidate = file as FileStatus & { diffPreview?: unknown };
+  if (typeof candidate.diffPreview !== "string") {
+    return null;
+  }
+  const trimmed = candidate.diffPreview.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function buildDiffLinesFromActivityPreview(
+  diffPreview: string,
+): DiffContent["hunks"][number]["lines"] {
+  let oldLineNumber = 1;
+  let newLineNumber = 1;
+  return diffPreview
+    .split(/\r?\n/)
+    .filter((line) => line !== "")
+    .map((line) => {
+      if (line.startsWith("+")) {
+        return {
+          type: "added" as const,
+          content: line,
+          newLineNumber: newLineNumber++,
+        };
+      }
+      if (line.startsWith("-")) {
+        return {
+          type: "deleted" as const,
+          content: line,
+          oldLineNumber: oldLineNumber++,
+        };
+      }
+      const diffLine = {
+        type: "unchanged" as const,
+        content: line,
+        oldLineNumber,
+        newLineNumber,
+      };
+      oldLineNumber += 1;
+      newLineNumber += 1;
+      return diffLine;
+    });
+}
+
+function shouldUseActivityPreviewDiff(
+  liveDiff: DiffContent,
+  activityPreviewDiff: DiffContent | null,
+): activityPreviewDiff is DiffContent {
+  return Boolean(activityPreviewDiff) && !hasChangedDiffLines(liveDiff);
+}
+
+function hasChangedDiffLines(diff: DiffContent): boolean {
+  return diff.hunks.some((hunk) =>
+    hunk.lines.some((line) => line.type === "added" || line.type === "deleted"),
+  );
 }
 
 function collectChangedFilesSinceBaseline(
@@ -1070,7 +1198,9 @@ function collectChangedFilesSinceBaseline(
     baselineFiles.map((file) => [file.path, fileStatusSignature(file)]),
   );
   return files
-    .filter((file) => baselineByPath.get(file.path) !== fileStatusSignature(file))
+    .filter(
+      (file) => baselineByPath.get(file.path) !== fileStatusSignature(file),
+    )
     .map((file) => ({ ...file }));
 }
 
@@ -1081,6 +1211,24 @@ function fileStatusSignature(file: FileStatus): string {
     file.deletions,
     file.isStaged ? "staged" : "unstaged",
   ].join(":");
+}
+
+function areFileStatusListsEqual(
+  left: FileStatus[] | undefined,
+  right: FileStatus[],
+): boolean {
+  if (!left || left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((file, index) => {
+    const rightFile = right[index];
+    return (
+      rightFile !== undefined &&
+      file.path === rightFile.path &&
+      fileStatusSignature(file) === fileStatusSignature(rightFile)
+    );
+  });
 }
 
 function cloneFileStatuses(files: FileStatus[]): FileStatus[] {
@@ -1100,7 +1248,9 @@ async function fetchLatestPendingApproval(
     return null;
   }
 
-  const payload = RunSummaryPendingApprovalSchema.safeParse(await response.json());
+  const payload = RunSummaryPendingApprovalSchema.safeParse(
+    await response.json(),
+  );
   if (!payload.success) {
     console.warn(
       `[chat/interface] Invalid run summary payload while refreshing approval for runId=${runId}`,
@@ -1233,7 +1383,10 @@ function derivePendingApprovalFromEvents(
   const pendingByRequestId = new Map<string, ApprovalRequest>();
   for (const event of events) {
     if (event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED) {
-      pendingByRequestId.set(event.payload.request.requestId, event.payload.request);
+      pendingByRequestId.set(
+        event.payload.request.requestId,
+        event.payload.request,
+      );
       continue;
     }
     if (event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED) {
@@ -1343,18 +1496,21 @@ function correlateActivityTurnsToMessages(
     conversationUserTurns.map((_, index) => index),
   );
 
-  for (let activityIndex = turns.length - 1; activityIndex >= 0; activityIndex -= 1) {
+  for (
+    let activityIndex = turns.length - 1;
+    activityIndex >= 0;
+    activityIndex -= 1
+  ) {
     const activityTurn = turns[activityIndex];
     if (!activityTurn?.hasVisibleRows) {
       continue;
     }
 
-    const matchedIndex =
-      findMatchingConversationTurnIndex(
-        conversationUserTurns,
-        availableConversationTurnIndexes,
-        activityTurn.userPrompt,
-      );
+    const matchedIndex = findMatchingConversationTurnIndex(
+      conversationUserTurns,
+      availableConversationTurnIndexes,
+      activityTurn.userPrompt,
+    );
     if (matchedIndex === null) {
       if (logUnmatched) {
         warnUnmatchedActivityTurn(options.runId, activityTurn.key);
@@ -1380,7 +1536,10 @@ function correlateActivityTurnsToMessages(
     const existingAssignments =
       assignments.get(matchedConversationTurn.userMessage.id) ?? [];
     existingAssignments.unshift(activityTurn);
-    assignments.set(matchedConversationTurn.userMessage.id, existingAssignments);
+    assignments.set(
+      matchedConversationTurn.userMessage.id,
+      existingAssignments,
+    );
   }
 
   return assignments;
@@ -1398,7 +1557,9 @@ function warnUnmatchedActivityTurn(
     return;
   }
 
-  if (unmatchedActivityWarningKeys.size >= MAX_UNMATCHED_ACTIVITY_WARNING_KEYS) {
+  if (
+    unmatchedActivityWarningKeys.size >= MAX_UNMATCHED_ACTIVITY_WARNING_KEYS
+  ) {
     unmatchedActivityWarningKeys.clear();
   }
   unmatchedActivityWarningKeys.add(warningKey);
@@ -1413,9 +1574,13 @@ function deriveActivityChangedFilesByAssistantMessageId(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   turns: ActivityTurnViewModel[],
 ): Record<string, FileStatus[]> {
-  const assignments = correlateActivityTurnsToMessages(conversationTurns, turns, {
-    logUnmatched: false,
-  });
+  const assignments = correlateActivityTurnsToMessages(
+    conversationTurns,
+    turns,
+    {
+      logUnmatched: false,
+    },
+  );
   const snapshots: Record<string, FileStatus[]> = {};
 
   for (const conversationTurn of conversationTurns) {
@@ -1423,7 +1588,9 @@ function deriveActivityChangedFilesByAssistantMessageId(
       continue;
     }
 
-    const activityTurns = assignments.get(conversationTurn.userMessage.id) ?? [];
+    const activityTurns =
+      assignments.get(conversationTurn.userMessage.id) ?? [];
+
     const changedFiles = collectActivityChangedFiles(activityTurns);
     if (changedFiles.length > 0) {
       snapshots[conversationTurn.assistantMessage.id] = changedFiles;
@@ -1505,12 +1672,18 @@ function findMatchingConversationTurnIndex(
     return null;
   }
 
-  return fuzzyMatches.sort(
-    (a, b) => Math.abs(a - conversationTurns.length) - Math.abs(b - conversationTurns.length),
-  )[0] ?? null;
+  return (
+    fuzzyMatches.sort(
+      (a, b) =>
+        Math.abs(a - conversationTurns.length) -
+        Math.abs(b - conversationTurns.length),
+    )[0] ?? null
+  );
 }
 
-function normalizePromptForMatching(content: string | null | undefined): string {
+function normalizePromptForMatching(
+  content: string | null | undefined,
+): string {
   if (typeof content !== "string") {
     return "";
   }

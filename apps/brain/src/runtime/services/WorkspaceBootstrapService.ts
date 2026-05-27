@@ -107,16 +107,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 
   static fromEnv(
     env: Env,
-    sessionId: string,
+    _sessionId: string,
     runId: string,
     userId?: string,
   ): WorkspaceBootstrapService {
-    const executionService = new ExecutionService(
-      env,
-      sessionId,
-      runId,
-      userId,
-    );
+    const executionService = new ExecutionService(env, runId, runId, userId);
     return new WorkspaceBootstrapService(executionService);
   }
 
@@ -184,16 +179,6 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       normalized,
       bootstrapMode,
     );
-    if (isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs)) {
-      bootstrapResult = { status: "ready", clonedDuringBootstrap: false };
-      this.logBootstrapTiming(
-        request.runId,
-        bootstrapResult,
-        bootstrapStartedAt,
-      );
-      return bootstrapResult;
-    }
-
     const statusResult = await this.executeGitStatusWithRetry(request.runId);
     if (!statusResult.success) {
       const statusError = statusResult.error ?? "Unable to check git status.";
@@ -275,6 +260,19 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     }
 
     const workspaceStatus = parseWorkspaceGitStatus(statusResult.output);
+    if (
+      isWorkspaceSyncCacheFresh(cacheKey, this.syncTtlMs) &&
+      isMatchingWorkspaceStatus(workspaceStatus, normalized)
+    ) {
+      bootstrapResult = { status: "ready", clonedDuringBootstrap: false };
+      this.logBootstrapTiming(
+        request.runId,
+        bootstrapResult,
+        bootstrapStartedAt,
+      );
+      return bootstrapResult;
+    }
+
     if (isMatchingWorkspaceStatus(workspaceStatus, normalized)) {
       const hasLocalChanges =
         workspaceStatus.hasStaged ||
@@ -444,8 +442,15 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     branch: string,
     runId: string,
   ): Promise<BranchAvailability | null> {
-    const branchListResult = await this.executeGit("git_branch_list", {}, runId);
-    if (!branchListResult.success || typeof branchListResult.output !== "string") {
+    const branchListResult = await this.executeGit(
+      "git_branch_list",
+      {},
+      runId,
+    );
+    if (
+      !branchListResult.success ||
+      typeof branchListResult.output !== "string"
+    ) {
       return null;
     }
 
@@ -480,7 +485,9 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     }
   }
 
-  private async executeGitStatusWithRetry(runId: string): Promise<GitPluginResult> {
+  private async executeGitStatusWithRetry(
+    runId: string,
+  ): Promise<GitPluginResult> {
     let attempt = 1;
     let statusResult = await this.executeGit("git_status", {}, runId);
     while (

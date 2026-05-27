@@ -109,14 +109,18 @@ export class MemoryArtifactRepository implements ArtifactRepository {
   async listExpiredArtifacts(now: string): Promise<EditArtifactRecord[]> {
     return Array.from(this.artifacts.values()).filter(
       (artifact) =>
-        artifact.status === "stored" && artifact.expiresAt.localeCompare(now) <= 0,
+        artifact.status === "stored" &&
+        artifact.expiresAt.localeCompare(now) <= 0,
     );
   }
 
-  async listStalePendingArtifacts(cutoff: string): Promise<EditArtifactRecord[]> {
+  async listStalePendingArtifacts(
+    cutoff: string,
+  ): Promise<EditArtifactRecord[]> {
     return Array.from(this.artifacts.values()).filter(
       (artifact) =>
-        artifact.status === "pending" && artifact.createdAt.localeCompare(cutoff) <= 0,
+        artifact.status === "pending" &&
+        artifact.createdAt.localeCompare(cutoff) <= 0,
     );
   }
 
@@ -151,10 +155,7 @@ function isRestorable(
   runId: string,
   userId: string,
 ): boolean {
-  return (
-    isRestorableForRun(artifact, runId) &&
-    artifact.userId === userId
-  );
+  return isRestorableForRun(artifact, runId) && artifact.userId === userId;
 }
 
 function isRestorableForRun(
@@ -163,7 +164,7 @@ function isRestorableForRun(
 ): boolean {
   return (
     artifact.runId === runId &&
-    ["stored", "restore_failed", "restore_in_progress"].includes(
+    ["stored", "restored", "restore_failed", "restore_in_progress"].includes(
       artifact.status,
     ) &&
     hasChangedFiles(artifact.changedFiles)

@@ -75,6 +75,7 @@ const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
 const WRITE_GIT_AUTHOR_ERROR =
   "Git commit author could not be written to this workspace before committing.";
+const PATCH_WORK_DIR = ".shadowbox";
 
 type CommitIdentityResolutionResult =
   | { success: true; identity: GitCommitIdentity }
@@ -385,7 +386,137 @@ export class GitPlugin implements IPlugin {
       repoIdentity,
       commitIdentity,
     );
+
+    if (parsed.files.length > 0) {
+      const lineCounts = await this.loadFileChangeLineCounts(
+        sandbox,
+        worktree,
+        toolboxContext,
+        runId,
+        parsed.files,
+      );
+      for (const file of parsed.files) {
+        const counts = lineCounts.get(file.path);
+        if (counts) {
+          file.additions = counts.additions;
+          file.deletions = counts.deletions;
+        }
+      }
+    }
+
     return { success: true, output: JSON.stringify(parsed) };
+  }
+
+  private async loadFileChangeLineCounts(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    files: FileStatus[],
+  ): Promise<Map<string, { additions: number; deletions: number }>> {
+    const lineCounts = new Map<
+      string,
+      { additions: number; deletions: number }
+    >();
+
+    const numstatResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "diff", "--numstat"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.status.numstat",
+    );
+
+    if (numstatResult.exitCode === 0) {
+      this.mergeNumstatIntoMap(numstatResult.stdout, lineCounts);
+    }
+
+    const cachedNumstatResult = await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "git",
+        args: ["-C", worktree, "diff", "--cached", "--numstat"],
+        runId,
+      },
+      ["git"],
+      toolboxContext,
+      "git.status.cached_numstat",
+    );
+
+    if (cachedNumstatResult.exitCode === 0) {
+      this.mergeNumstatIntoMap(cachedNumstatResult.stdout, lineCounts);
+    }
+
+    const untrackedFiles = files.filter((file) => file.status === "untracked");
+    for (const untracked of untrackedFiles) {
+      if (lineCounts.has(untracked.path)) {
+        continue;
+      }
+
+      const wcResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "wc",
+          args: ["-l", "--", `${worktree}/${untracked.path}`],
+          runId,
+        },
+        ["wc"],
+        toolboxContext,
+        "git.status.wc",
+      );
+
+      if (wcResult.exitCode === 0) {
+        const match = wcResult.stdout.trim().match(/^(\d+)/);
+        if (match && match[1]) {
+          const lineCount = Number.parseInt(match[1], 10);
+          lineCounts.set(untracked.path, {
+            additions: lineCount,
+            deletions: 0,
+          });
+        }
+      }
+    }
+
+    return lineCounts;
+  }
+
+  private mergeNumstatIntoMap(
+    stdout: string,
+    map: Map<string, { additions: number; deletions: number }>,
+  ): void {
+    for (const line of stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const parts = trimmed.split("\t");
+      if (parts.length < 3) {
+        continue;
+      }
+
+      const additions = Number.parseInt(parts[0] ?? "0", 10);
+      const deletions = Number.parseInt(parts[1] ?? "0", 10);
+      const filePath = parts.slice(2).join("\t");
+
+      if (Number.isNaN(additions) || Number.isNaN(deletions) || !filePath) {
+        continue;
+      }
+
+      const existing = map.get(filePath);
+      if (existing) {
+        map.set(filePath, {
+          additions: existing.additions + additions,
+          deletions: existing.deletions + deletions,
+        });
+      } else {
+        map.set(filePath, { additions, deletions });
+      }
+    }
   }
 
   private parseStatus(
@@ -610,6 +741,162 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
+    const patchPath = await this.createTemporaryPatchPath(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+      "git.patch_capture.prepare",
+    );
+    try {
+      const diffResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: [
+            "-C",
+            worktree,
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "--find-renames",
+            `--output=${patchPath}`,
+          ],
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.patch_capture.diff",
+      );
+      if (diffResult.exitCode !== 0) {
+        return { success: false, error: diffResult.stderr };
+      }
+
+      return await this.readTemporaryPatch(sandbox, patchPath);
+    } finally {
+      await this.deleteTemporaryPatch(
+        sandbox,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    }
+  }
+
+  private async createTemporaryPatchPath(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    operation: string,
+  ): Promise<string> {
+    const patchPath = `${worktree}/${PATCH_WORK_DIR}/edit-artifact-${crypto.randomUUID()}.patch`;
+    await this.prepareTemporaryPatchDirectory(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+      operation,
+    );
+    return patchPath;
+  }
+
+  private async prepareTemporaryPatchDirectory(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    operation: string,
+  ): Promise<void> {
+    await this.runToolboxCommand(
+      sandbox,
+      {
+        command: "mkdir",
+        args: ["-p", `${worktree}/${PATCH_WORK_DIR}`],
+        runId,
+      },
+      ["mkdir"],
+      toolboxContext,
+      operation,
+    );
+  }
+
+  private async readTemporaryPatch(
+    sandbox: Sandbox,
+    patchPath: string,
+  ): Promise<PluginResult> {
+    const result = await sandbox.readFile(patchPath, { encoding: "utf-8" });
+    if (!result.success) {
+      return {
+        success: false,
+        error: `Failed to read captured patch file: ${patchPath}`,
+      };
+    }
+    return { success: true, output: result.content };
+  }
+
+  private async captureUntrackedFilePatch(
+    sandbox: Sandbox,
+    worktree: string,
+    safePath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
+    const patchPath = await this.createTemporaryPatchPath(
+      sandbox,
+      worktree,
+      toolboxContext,
+      runId,
+      "git.patch_capture.untracked_prepare",
+    );
+    try {
+      const diffResult = await this.runToolboxCommand(
+        sandbox,
+        {
+          command: "git",
+          args: [
+            "diff",
+            "--binary",
+            "--no-index",
+            `--output=${patchPath}`,
+            "--",
+            "/dev/null",
+            safePath,
+          ],
+          cwd: worktree,
+          runId,
+        },
+        ["git"],
+        toolboxContext,
+        "git.patch_capture.untracked_diff",
+      );
+      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
+        return { success: false, error: diffResult.stderr };
+      }
+
+      return await this.readTemporaryPatch(sandbox, patchPath);
+    } finally {
+      await this.deleteTemporaryPatch(
+        sandbox,
+        patchPath,
+        toolboxContext,
+        runId,
+      );
+    }
+  }
+
+  private isInternalPatchFile(safePath: string): boolean {
+    return (
+      safePath === PATCH_WORK_DIR || safePath.startsWith(`${PATCH_WORK_DIR}/`)
+    );
+  }
+
+  private async captureUntrackedPatch(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<PluginResult> {
     const diffResult = await this.runToolboxCommand(
       sandbox,
       {
@@ -617,20 +904,46 @@ export class GitPlugin implements IPlugin {
         args: [
           "-C",
           worktree,
-          "diff",
-          "--binary",
-          "--no-ext-diff",
-          "--find-renames",
+          "ls-files",
+          "-z",
+          "--others",
+          "--exclude-standard",
         ],
         runId,
       },
       ["git"],
       toolboxContext,
-      "git.patch_capture.diff",
+      "git.patch_capture.untracked_list",
     );
-    return diffResult.exitCode === 0
-      ? { success: true, output: diffResult.stdout }
-      : { success: false, error: diffResult.stderr };
+    if (diffResult.exitCode !== 0) {
+      return { success: false, error: diffResult.stderr };
+    }
+
+    const patches: string[] = [];
+    for (const filePath of splitNullTerminatedPaths(diffResult.stdout)) {
+      const safePath = validateRepoRelativePath(filePath);
+      if (this.isInternalPatchFile(safePath)) {
+        continue;
+      }
+
+      const patch = await this.captureUntrackedFilePatch(
+        sandbox,
+        worktree,
+        safePath,
+        toolboxContext,
+        runId,
+      );
+      if (!patch.success) {
+        return patch;
+      }
+
+      const output = getPatchOutput(patch);
+      if (hasPatchContent(output)) {
+        patches.push(output);
+      }
+    }
+
+    return { success: true, output: patches.join("\n") };
   }
 
   private async capturePatchMetadata(
@@ -653,60 +966,6 @@ export class GitPlugin implements IPlugin {
     );
 
     return { baseCommitSha, branch };
-  }
-
-  private async captureUntrackedPatch(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<PluginResult> {
-    const listResult = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: [
-          "-C",
-          worktree,
-          "ls-files",
-          "-z",
-          "--others",
-          "--exclude-standard",
-        ],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.untracked_list",
-    );
-    if (listResult.exitCode !== 0) {
-      return { success: false, error: listResult.stderr };
-    }
-
-    const patches: string[] = [];
-    for (const filePath of splitNullTerminatedPaths(listResult.stdout)) {
-      const safePath = validateRepoRelativePath(filePath);
-      const diffResult = await this.runToolboxCommand(
-        sandbox,
-        {
-          command: "git",
-          args: ["diff", "--binary", "--no-index", "--", "/dev/null", safePath],
-          cwd: worktree,
-          runId,
-        },
-        ["git"],
-        toolboxContext,
-        "git.patch_capture.untracked_diff",
-      );
-      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
-        return { success: false, error: diffResult.stderr };
-      }
-      if (diffResult.stdout.trim().length > 0) {
-        patches.push(diffResult.stdout);
-      }
-    }
-
-    return { success: true, output: patches.join("\n") };
   }
 
   private async applyPatch(
@@ -765,12 +1024,11 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<string> {
-    const patchPath = `${worktree}/.shadowbox/edit-artifact-${crypto.randomUUID()}.patch`;
-    await this.runToolboxCommand(
+    const patchPath = await this.createTemporaryPatchPath(
       sandbox,
-      { command: "mkdir", args: ["-p", `${worktree}/.shadowbox`], runId },
-      ["mkdir"],
+      worktree,
       toolboxContext,
+      runId,
       "git.patch_apply.prepare",
     );
     await sandbox.writeFile(patchPath, patch);
@@ -1658,7 +1916,22 @@ function parseStatusLine(line: string): FileStatus[] {
 
   const stagedStatus = line[0];
   const unstagedStatus = line[1];
-  const filePath = line.substring(3).trim();
+  const isRenamed = stagedStatus === "R" || unstagedStatus === "R";
+
+  let rawPath = line.substring(3).trim();
+
+  if (isRenamed) {
+    const arrowIndex = rawPath.lastIndexOf(" -> ");
+    if (arrowIndex !== -1) {
+      rawPath = rawPath.substring(arrowIndex + 4).trim();
+    }
+  }
+
+  const filePath = stripGitQuotes(rawPath);
+
+  if (filePath.startsWith(".shadowbox") || filePath.includes("/.shadowbox")) {
+    return [];
+  }
 
   let status: FileStatus["status"] = "modified";
   let isStaged = stagedStatus !== " " && stagedStatus !== "?";
@@ -1667,7 +1940,7 @@ function parseStatusLine(line: string): FileStatus[] {
     status = "added";
   } else if (stagedStatus === "D" || unstagedStatus === "D") {
     status = "deleted";
-  } else if (stagedStatus === "R" || unstagedStatus === "R") {
+  } else if (isRenamed) {
     status = "renamed";
   } else if (stagedStatus === "?" || unstagedStatus === "?") {
     status = "untracked";
@@ -1683,6 +1956,13 @@ function parseStatusLine(line: string): FileStatus[] {
       isStaged,
     },
   ];
+}
+
+function stripGitQuotes(path: string): string {
+  if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
+    return path.slice(1, -1);
+  }
+  return path;
 }
 
 function createDiffLine(

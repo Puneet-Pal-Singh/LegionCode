@@ -642,17 +642,28 @@ function mergeToolMetadata(
 function getStructuredActivityMetadata(
   result: unknown,
 ): ToolActivityMetadata | null {
-  if (!isRecord(result)) {
-    return null;
-  }
-  const metadata = isRecord(result.metadata) ? result.metadata : null;
-  const activity =
-    metadata && isRecord(metadata.activity) ? metadata.activity : null;
+  const activity = getActivityMetadata(result);
   const parsed = safeParseToolActivityMetadata(activity);
   if (!parsed.success) {
     return null;
   }
   return parsed.data;
+}
+
+function getActivityMetadata(result: unknown): unknown {
+  if (!isRecord(result)) {
+    return null;
+  }
+
+  const metadata = isRecord(result.metadata) ? result.metadata : null;
+  if (metadata && isRecord(metadata.activity)) {
+    return metadata.activity;
+  }
+
+  const output = isRecord(result.output) ? result.output : null;
+  const outputMetadata =
+    output && isRecord(output.metadata) ? output.metadata : null;
+  return outputMetadata?.activity ?? null;
 }
 
 function getResultContent(result: unknown): string {

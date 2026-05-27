@@ -24,9 +24,13 @@ export function useGitDiff(
   const [error, setError] = useState<string | null>(null);
   const activeScopeKeyRef = useRef(scopeKey);
   const latestRequestIdRef = useRef(0);
+  const diffRef = useRef<DiffContent | null>(null);
+  const previousDiffRef = useRef<DiffContent | null>(null);
 
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
+    previousDiffRef.current = null;
+    diffRef.current = null;
     setDiff(null);
     setLoading(false);
     setError(null);
@@ -40,6 +44,8 @@ export function useGitDiff(
       return;
     }
 
+    previousDiffRef.current = diffRef.current;
+    setDiff(null);
     setLoading(true);
     setError(null);
 
@@ -54,6 +60,7 @@ export function useGitDiff(
       if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
         return;
       }
+      diffRef.current = data;
       setDiff(data);
     } catch (err) {
       if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
@@ -61,6 +68,10 @@ export function useGitDiff(
       }
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
+      const previous = previousDiffRef.current;
+      previousDiffRef.current = null;
+      diffRef.current = previous;
+      setDiff(previous);
       console.error("[useGitDiff] Error:", err);
     } finally {
       if (requestId === latestRequestIdRef.current && activeScopeKeyRef.current === requestScopeKey) {
