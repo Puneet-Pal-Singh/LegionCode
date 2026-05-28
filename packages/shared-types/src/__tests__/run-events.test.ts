@@ -34,6 +34,7 @@ describe("RunStatus", () => {
     expect(isRunStatus(RUN_STATUSES.QUEUED)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.RUNNING)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.WAITING)).toBe(true);
+    expect(isRunStatus(RUN_STATUSES.PAUSED)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.FAILED)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.COMPLETE)).toBe(true);
   });

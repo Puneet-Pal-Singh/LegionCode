@@ -164,9 +164,7 @@ export function Workspace({
   const isRunLoading = isLoading || isEffectiveCanonicalRunActive;
   const canStopRun =
     isRunLoading ||
-    (isSessionRunning &&
-      !isCanonicalRunTerminal &&
-      !isStaleCanonicalActiveRun);
+    (isSessionRunning && !isCanonicalRunTerminal && !isStaleCanonicalActiveRun);
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -259,7 +257,7 @@ export function Workspace({
 
     if (wasLoading && !isLoading) {
       if (chatError) {
-        onSessionStatusChange?.("error");
+        onSessionStatusChange?.("failed");
       } else {
         onSessionStatusChange?.("completed");
       }
@@ -317,8 +315,14 @@ export function Workspace({
       return;
     }
 
+    if (canonicalRunStatus === "PAUSED") {
+      onSessionStatusChange?.("paused");
+      void refetchGitStatus(true);
+      return;
+    }
+
     if (canonicalRunStatus === "FAILED") {
-      onSessionStatusChange?.("error");
+      onSessionStatusChange?.("failed");
       void refetchGitStatus(true);
       return;
     }
@@ -356,7 +360,7 @@ export function Workspace({
       runId: activeRunId,
       error: chatError,
     };
-    onSessionStatusChange?.("error");
+    onSessionStatusChange?.("failed");
   }, [
     activeRunId,
     chatError,

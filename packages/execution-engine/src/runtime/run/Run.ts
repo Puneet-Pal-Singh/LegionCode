@@ -36,7 +36,7 @@ export class Run {
       this.metadata.startedAt = new Date().toISOString();
     }
 
-    if (["COMPLETED", "FAILED", "CANCELLED"].includes(newStatus)) {
+    if (["PAUSED", "COMPLETED", "FAILED", "CANCELLED"].includes(newStatus)) {
       this.metadata.completedAt = new Date().toISOString();
     }
   }

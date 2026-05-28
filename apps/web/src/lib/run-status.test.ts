@@ -12,8 +12,13 @@ describe("run status helpers", () => {
     expect(mapRunStatusToSessionStatus("completed")).toBe("completed");
   });
 
-  it("maps failure terminal statuses to an error session state", () => {
-    expect(mapRunStatusToSessionStatus("failed")).toBe("error");
-    expect(mapRunStatusToSessionStatus("cancelled")).toBe("error");
+  it("maps failure terminal statuses to a failed session state", () => {
+    expect(mapRunStatusToSessionStatus("failed")).toBe("failed");
+    expect(mapRunStatusToSessionStatus("cancelled")).toBe("failed");
+  });
+
+  it("treats paused as terminal without mapping it to failure", () => {
+    expect(isTerminalRunStatus("paused")).toBe(true);
+    expect(mapRunStatusToSessionStatus("paused")).toBe("paused");
   });
 });

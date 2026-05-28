@@ -33,11 +33,11 @@ export class RunStateMachine {
   }
 
   static isTerminalState(status: RunStatus): boolean {
-    return ["COMPLETED", "FAILED", "CANCELLED"].includes(status);
+    return ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"].includes(status);
   }
 
   static isActiveState(status: RunStatus): boolean {
-    return ["CREATED", "PLANNING", "RUNNING", "PAUSED"].includes(status);
+    return ["CREATED", "PLANNING", "RUNNING"].includes(status);
   }
 
   recordTransition(

@@ -74,7 +74,7 @@ describe("SessionStateService", () => {
 
       const session = sessions["550e8400-e29b-41d4-a716-446655440000"];
       expect(session?.name).toBe("Server Task");
-      expect(session?.status).toBe("error");
+      expect(session?.status).toBe("failed");
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/api/sessions"),
         { credentials: "include" },
@@ -404,6 +404,17 @@ describe("SessionStateService", () => {
 
       expect(updated.status).toBe("running");
       expect(updated.updatedAt).not.toBe(session.updatedAt);
+    });
+
+    it("accepts paused as a valid terminal session status", () => {
+      const session = SessionStateService.createSession("Test", "repo");
+      const updated = SessionStateService.updateSessionStatus(
+        session,
+        "paused",
+      );
+
+      expect(updated.status).toBe("paused");
+      expect(SessionStateService.validateSession(updated)).toBe(true);
     });
 
     it("should preserve other fields when updating status", () => {

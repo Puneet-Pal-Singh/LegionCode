@@ -956,12 +956,14 @@ export class RunEngine implements IRunEngine {
     text: string,
     metadata?: Record<string, unknown>,
     errorMetadata?: string,
+    terminalStatus?: "COMPLETED" | "PAUSED",
   ): Promise<Response> {
     return completeRunWithRecoveredAssistantMessagePolicy({
       run,
       text,
       metadata,
       errorMetadata,
+      terminalStatus,
       deps: this.getRunCompletionDependencies(),
     });
   }

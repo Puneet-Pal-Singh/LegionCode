@@ -205,7 +205,9 @@ describe("Workspace", () => {
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockChatState.stop.mockClear();
-    Object.values(mockWorkspaceStateSetters).forEach((setter) => setter.mockClear());
+    Object.values(mockWorkspaceStateSetters).forEach((setter) =>
+      setter.mockClear(),
+    );
     mockBootstrapGitWorkspace.mockReset();
     mockBootstrapGitWorkspace.mockResolvedValue({ status: "ready" });
     mockChatState.isLoading = false;
@@ -366,10 +368,10 @@ describe("Workspace", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockRefetchGitStatus).not.toHaveBeenCalled();
     expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
-    expect(onSessionStatusChange).not.toHaveBeenCalledWith("error");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("failed");
   });
 
-  it("marks session as error when canonical run status fails", async () => {
+  it("marks session as failed when canonical run status fails", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -402,11 +404,37 @@ describe("Workspace", () => {
     );
 
     await waitFor(() => {
-      expect(onSessionStatusChange).toHaveBeenCalledWith("error");
+      expect(onSessionStatusChange).toHaveBeenCalledWith("failed");
     });
   });
 
-  it("marks session as error when chat fails before a canonical run starts", async () => {
+  it("marks session as paused when canonical run status pauses", async () => {
+    const onSessionStatusChange = vi.fn();
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    mockRunSummaryState.summary = { runId: "run-123", status: "PAUSED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith("paused");
+    });
+  });
+
+  it("marks session as failed when chat fails before a canonical run starts", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -442,7 +470,7 @@ describe("Workspace", () => {
     );
 
     await waitFor(() => {
-      expect(onSessionStatusChange).toHaveBeenCalledWith("error");
+      expect(onSessionStatusChange).toHaveBeenCalledWith("failed");
     });
   });
 
@@ -699,7 +727,8 @@ describe("Workspace", () => {
       />,
     );
 
-    const lastCall = mockChatInterface.mock.calls[mockChatInterface.mock.calls.length - 1];
+    const lastCall =
+      mockChatInterface.mock.calls[mockChatInterface.mock.calls.length - 1];
     expect(lastCall).toBeDefined();
     const props = lastCall?.[0] as {
       chatProps: { stop: () => void };
@@ -736,6 +765,8 @@ describe("Workspace", () => {
     );
 
     expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
-    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith("review");
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
+      "review",
+    );
   });
 });

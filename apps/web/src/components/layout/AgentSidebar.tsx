@@ -80,7 +80,7 @@ function mapSessionStatus(
       ? "completed"
       : "idle";
   }
-  if (status === "error") return "failed";
+  if (status === "paused" || status === "failed") return "failed";
   return "idle";
 }
 

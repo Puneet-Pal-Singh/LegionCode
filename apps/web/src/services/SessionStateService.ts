@@ -51,7 +51,7 @@ interface ServerSessionRecord {
   repository: string | null;
   activeRunId: string | null;
   mode: RunMode;
-  status: "idle" | "running" | "completed" | "failed";
+  status: "idle" | "running" | "completed" | "paused" | "failed";
   pinnedAt?: string | null;
   archivedAt?: string | null;
   updatedAt: string;
@@ -578,7 +578,13 @@ export class SessionStateService {
    * Returns true if session is valid
    */
   static validateSession(session: AgentSession): boolean {
-    const validStatuses = ["idle", "running", "completed", "error"] as const;
+    const validStatuses = [
+      "idle",
+      "running",
+      "completed",
+      "paused",
+      "failed",
+    ] as const;
     const checks = [
       { name: "id", pass: !!session.id },
       { name: "name", pass: !!session.name },
@@ -657,9 +663,6 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
 }
 
 function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
-  if (status === "failed") {
-    return "error";
-  }
   return status;
 }
 

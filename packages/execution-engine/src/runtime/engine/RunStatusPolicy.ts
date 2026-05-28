@@ -68,6 +68,29 @@ export function transitionRunToCompleted(run: Run, runId: string): void {
   }
 }
 
+export function transitionRunToPaused(run: Run, runId: string): void {
+  if (run.status === "PAUSED" || run.status === "CANCELLED") {
+    return;
+  }
+
+  if (run.status === "COMPLETED" || run.status === "FAILED") {
+    console.warn(
+      `[run/engine] Preserving ${run.status} state for run ${runId} after recoverable pause`,
+    );
+    return;
+  }
+
+  ensureRunReadyForTerminalTransition(run);
+  if (run.status === "RUNNING") {
+    run.transition("PAUSED");
+    return;
+  }
+
+  console.warn(
+    `[run/engine] Unable to move run ${runId} to PAUSED from status ${run.status}`,
+  );
+}
+
 export function transitionRunToFailed(run: Run, runId: string): void {
   if (run.status === "FAILED" || run.status === "CANCELLED") {
     return;
