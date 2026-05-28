@@ -1,6 +1,7 @@
 import type {
   EffectivePermissionState,
   PermissionRuntimeLabel,
+  type ProviderModelTransport,
   RunMode,
   RunTerminalState,
   ToolActivityMetadata,
@@ -120,6 +121,9 @@ export interface RunInput {
   sessionId: string;
   providerId?: string;
   modelId?: string;
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
   harnessId?: RuntimeHarnessId;
   orchestratorBackend?: OrchestratorBackend;
   executionBackend?: RuntimeExecutionBackend;
@@ -202,6 +206,9 @@ export interface RunManifest {
   mode: RunMode;
   providerId: string | null;
   modelId: string | null;
+  runtimeModelId: string | null;
+  providerTransport: ProviderModelTransport | null;
+  providerEndpoint: string | null;
   harness: RuntimeHarnessId;
   /** Orchestrator backend identifier - determines which executor handles this run. */
   orchestratorBackend: OrchestratorBackend;
