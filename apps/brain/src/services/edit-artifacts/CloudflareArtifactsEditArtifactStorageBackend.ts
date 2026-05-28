@@ -5,26 +5,8 @@ import {
 } from "./EditArtifactStorageBackend";
 
 export interface ArtifactsBinding {
-  create(
-    name: string,
-    options?: {
-      description?: string;
-      readOnly?: boolean;
-      setDefaultBranch?: string;
-    },
-  ): Promise<ArtifactsRepoMetadata>;
-  get(name: string): Promise<ArtifactsRepoHandle>;
-}
-
-interface ArtifactsRepoMetadata {
-  name: string;
-  remote: string;
-  defaultBranch?: string;
-  token?: string;
-}
-
-interface ArtifactsRepoHandle {
-  createToken(scope: "read" | "write", expiresInSeconds: number): Promise<string>;
+  create(name: string, options?: Record<string, unknown>): Promise<unknown>;
+  get(name: string): Promise<unknown>;
 }
 
 export class CloudflareArtifactsWriteUnavailableError extends Error {

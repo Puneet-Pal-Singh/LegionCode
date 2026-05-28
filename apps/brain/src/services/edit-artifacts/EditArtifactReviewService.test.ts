@@ -96,23 +96,30 @@ describe("EditArtifactReviewService", () => {
 
   it("rejects artifacts outside the requesting user", async () => {
     const env = createEnv();
+    const artifact = createArtifact(await sha256Hex(PATCH));
     artifactFactory.withArtifactRepository.mockImplementation(
       async (
         _env: Env,
         callback: (repository: ArtifactRepository) => Promise<unknown>,
-      ) => await callback(createRepository(null)),
+      ) =>
+        await callback(
+          createRepository({
+            ...artifact,
+            userId: "owner-user",
+          }),
+        ),
     );
 
     const service = new EditArtifactReviewService(env);
     await expect(
       service.getArtifactFiles({
-        artifactId: "artifact-1",
+        artifactId: artifact.id,
         userId: "other-user",
       }),
     ).rejects.toBeInstanceOf(EditArtifactReviewError);
     await expect(
       service.getArtifactFiles({
-        artifactId: "artifact-1",
+        artifactId: artifact.id,
         userId: "other-user",
       }),
     ).rejects.toMatchObject({ code: "ARTIFACT_UNAUTHORIZED" });
@@ -230,8 +237,12 @@ function createRepository(artifact: EditArtifactRecord | null): ArtifactReposito
     updateStatus: vi.fn(),
     getLatestRestorableArtifact: vi.fn(async () => artifact),
     getLatestRestorableArtifactForRun: vi.fn(async () => artifact),
-    getArtifactById: vi.fn(async () => artifact),
-    getArtifactByIdForRun: vi.fn(async () => artifact),
+    getArtifactById: vi.fn(async (_artifactId, userId) =>
+      artifact?.userId === userId ? artifact : null,
+    ),
+    getArtifactByIdForRun: vi.fn(async (_artifactId, runId) =>
+      artifact?.runId === runId ? artifact : null,
+    ),
     getLatestReviewArtifact: vi.fn(async () => artifact),
     getLatestReviewArtifactForRun: vi.fn(async () => artifact),
     getReviewArtifactByMessage: vi.fn(async () => artifact),
