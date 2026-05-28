@@ -24,6 +24,7 @@ import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalog
 import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
 import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
 import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter";
+import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import type { OpenRouterRecommendationInput } from "./types";
@@ -691,6 +692,10 @@ function createAdapterForProvider(
 
   if (provider.providerId === "opencode-go") {
     return new OpenCodeGoModelCatalogAdapter();
+  }
+
+  if (provider.providerId === "opencode-zen") {
+    return new OpenCodeZenModelCatalogAdapter();
   }
 
   if (provider.adapterFamily === "google-native") {
