@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
+import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { PermissionModeControl } from "./PermissionModeControl";
 import type { Message } from "@ai-sdk/react";
@@ -200,7 +201,10 @@ interface ChatInterfaceProps {
     runId: string;
     input: string;
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-    handleSubmit: () => void;
+    handleSubmit: (
+      event?: React.FormEvent,
+      attachments?: ChatSubmitAttachments,
+    ) => Promise<void>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
     canStop?: boolean;
@@ -868,7 +872,7 @@ export function ChatInterface({
           onSubmit={
             selectedReviewComments.length > 0
               ? () => void handleSubmitWithReviewComments()
-              : handleSubmit
+              : (attachments) => void handleSubmit(undefined, attachments)
           }
           reviewComments={selectedReviewComments}
           onRemoveReviewComment={handleRemoveReviewComment}
