@@ -20,7 +20,6 @@ import {
   validateWithSchema,
 } from "../http/validation";
 import {
-  ValidationError,
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
@@ -38,6 +37,8 @@ import {
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { RunAdmissionService } from "../services/RunAdmissionService";
+import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
+import { validateMultimodalMessages } from "../services/chat/MultimodalMessageValidator";
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
@@ -80,6 +81,8 @@ interface ChatRequest {
   correlationId: string;
   sessionId: string;
   runId: string;
+  messages: CoreMessage[];
+  hasImages: boolean;
   userId?: string;
   workspaceId?: string;
 }
@@ -121,19 +124,19 @@ export class ChatController {
         correlationId,
       );
 
-      if (!Array.isArray(body.messages) || body.messages.length === 0) {
-        throw new ValidationError(
-          "Invalid messages: expected non-empty array",
-          "INVALID_MESSAGES",
-          correlationId,
-        );
-      }
+      const validatedMessages = validateMultimodalMessages(
+        body.messages,
+        body.mode ?? "build",
+        correlationId,
+      );
 
       const chatRequest: ChatRequest = {
         body,
         correlationId,
         sessionId: identifiers.sessionId,
         runId: identifiers.runId,
+        messages: validatedMessages.messages,
+        hasImages: validatedMessages.hasImages,
         ...(await resolveExecutionScope(
           req,
           env,
@@ -234,8 +237,7 @@ export class ChatController {
       ReturnType<RunAdmissionService["enforce"]>
     > | undefined;
 
-    const coreMessages: CoreMessage[] =
-      body.messages! as unknown as CoreMessage[];
+    const coreMessages = chatRequest.messages;
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
     const admissionInput = {
@@ -249,6 +251,15 @@ export class ChatController {
 
     try {
       admissionGrant = await admissionService.enforce(admissionInput, correlationId);
+      await enforceImageCapability({
+        env,
+        userId,
+        workspaceId,
+        providerId: body.providerId,
+        modelId: body.modelId,
+        hasImages: chatRequest.hasImages,
+        correlationId,
+      });
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
