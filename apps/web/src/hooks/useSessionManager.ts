@@ -28,7 +28,9 @@ function hasSessionUpdates(
   updates: Partial<Omit<AgentSession, "id">>,
 ): boolean {
   const keys = Object.keys(updates) as Array<keyof Omit<AgentSession, "id">>;
-  return keys.some((key) => updates[key] !== undefined && session[key] !== updates[key]);
+  return keys.some(
+    (key) => updates[key] !== undefined && session[key] !== updates[key],
+  );
 }
 
 function mergeSessions(
@@ -55,7 +57,32 @@ function mergeRepositories(
     (repository): repository is string =>
       repository !== null && repository.trim().length > 0,
   );
-  return Array.from(new Set([...currentRepositories, ...normalizedServerRepositories]));
+  return Array.from(
+    new Set([...currentRepositories, ...normalizedServerRepositories]),
+  );
+}
+
+function replaceSessionById(
+  sessions: AgentSession[],
+  updatedSession: AgentSession,
+): AgentSession[] {
+  return sessions.map((session) =>
+    session.id === updatedSession.id ? updatedSession : session,
+  );
+}
+
+function findNextVisibleSession(
+  sessions: AgentSession[],
+  archivedSessionId: string,
+): AgentSession | null {
+  return (
+    sessions
+      .filter((session) => session.id !== archivedSessionId)
+      .filter((session) => session.archivedAt === null)
+      .sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt),
+      )[0] ?? null
+  );
 }
 
 export function useSessionManager() {
@@ -110,7 +137,8 @@ export function useSessionManager() {
 
     async function hydrateServerSessions(): Promise<void> {
       try {
-        const serverSessions = await SessionStateService.hydrateSessionsFromServer();
+        const serverSessions =
+          await SessionStateService.hydrateSessionsFromServer();
         const serverSessionList = Object.values(serverSessions);
         if (cancelled || serverSessionList.length === 0) {
           return;
@@ -118,7 +146,10 @@ export function useSessionManager() {
 
         setSessions((current) => mergeSessions(current, serverSessionList));
         setRepositories((current) =>
-          mergeRepositories(current, serverSessionList.map((session) => session.repository)),
+          mergeRepositories(
+            current,
+            serverSessionList.map((session) => session.repository),
+          ),
         );
         if (!activeSessionIdRef.current) {
           setActiveSessionId(serverSessionList[0]?.id ?? null);
@@ -237,31 +268,147 @@ export function useSessionManager() {
   }, []);
 
   /**
-   * Remove a session and clean up its state
-   * Clears all runs associated with the session
-   * Clears GitHub context and pending query
+   * Archive a session so it leaves normal navigation without deleting run state.
    */
+  const archiveSession = useCallback(async (id: string) => {
+    const previousSessions = sessionsRef.current;
+    const archivedAt = new Date().toISOString();
+    const optimisticSessions = previousSessions.map((session) =>
+      session.id === id
+        ? { ...session, pinnedAt: null, archivedAt, updatedAt: archivedAt }
+        : session,
+    );
+    const nextActive = findNextVisibleSession(optimisticSessions, id);
+
+    sessionsRef.current = optimisticSessions;
+    setSessions(optimisticSessions);
+    if (activeSessionIdRef.current === id) {
+      setActiveSessionId(nextActive?.id ?? null);
+    }
+
+    try {
+      const serverSession = await SessionStateService.archiveSession(id);
+      setSessions((current) => {
+        const next = replaceSessionById(current, serverSession);
+        sessionsRef.current = next;
+        return next;
+      });
+    } catch (error) {
+      console.warn("[useSessionManager] Failed to archive session:", error);
+      sessionsRef.current = previousSessions;
+      setSessions(previousSessions);
+      if (activeSessionIdRef.current === nextActive?.id) {
+        setActiveSessionId(id);
+      }
+    }
+  }, []);
+
   const removeSession = useCallback(
     (id: string) => {
-      void SessionStateService.archiveSession(id).catch((error) => {
-        console.warn("[useSessionManager] Failed to archive session:", error);
-      });
-      setSessions((prev) => {
-        const sessionToRemove = prev.find((s) => s.id === id);
-        if (sessionToRemove) {
-          // Clear all runs for this session
-          for (const runId of sessionToRemove.runIds) {
-            agentStore.clearMessages(runId);
-          }
-          // Clear session-scoped storage
-          SessionStateService.clearSessionGitHubContext(id);
-          SessionStateService.clearSessionPendingQuery(id);
-        }
-        return prev.filter((s) => s.id !== id);
-      });
-      if (activeSessionId === id) setActiveSessionId(null);
+      void archiveSession(id);
     },
-    [activeSessionId],
+    [archiveSession],
+  );
+
+  const reconcileSessionMutation = useCallback(
+    async (
+      id: string,
+      optimisticUpdate: (session: AgentSession) => AgentSession,
+      persist: () => Promise<AgentSession>,
+    ): Promise<void> => {
+      const previousSessions = sessionsRef.current;
+      const optimisticSessions = previousSessions.map((session) =>
+        session.id === id ? optimisticUpdate(session) : session,
+      );
+
+      sessionsRef.current = optimisticSessions;
+      setSessions(optimisticSessions);
+
+      try {
+        const serverSession = await persist();
+        if (serverSession.id !== id) {
+          throw new Error("Session metadata response id mismatch");
+        }
+        setSessions((current) => {
+          const next = replaceSessionById(current, serverSession);
+          sessionsRef.current = next;
+          return next;
+        });
+      } catch (error) {
+        console.warn(
+          "[useSessionManager] Failed to update session metadata:",
+          error,
+        );
+        sessionsRef.current = previousSessions;
+        setSessions(previousSessions);
+      }
+    },
+    [],
+  );
+
+  const renameSession = useCallback(
+    async (id: string, title: string): Promise<void> => {
+      const trimmedTitle = title.trim().slice(0, 80);
+      if (!trimmedTitle) {
+        return;
+      }
+      await reconcileSessionMutation(
+        id,
+        (session) => ({
+          ...session,
+          name: trimmedTitle,
+          titleSource: "user",
+          updatedAt: new Date().toISOString(),
+        }),
+        () => SessionStateService.renameSessionTitle(id, trimmedTitle),
+      );
+    },
+    [reconcileSessionMutation],
+  );
+
+  const pinSession = useCallback(
+    async (id: string): Promise<void> => {
+      await reconcileSessionMutation(
+        id,
+        (session) => ({
+          ...session,
+          pinnedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }),
+        () => SessionStateService.pinSession(id),
+      );
+    },
+    [reconcileSessionMutation],
+  );
+
+  const unpinSession = useCallback(
+    async (id: string): Promise<void> => {
+      await reconcileSessionMutation(
+        id,
+        (session) => ({
+          ...session,
+          pinnedAt: null,
+          updatedAt: new Date().toISOString(),
+        }),
+        () => SessionStateService.unpinSession(id),
+      );
+    },
+    [reconcileSessionMutation],
+  );
+
+  const unarchiveSession = useCallback(
+    async (id: string): Promise<void> => {
+      await reconcileSessionMutation(
+        id,
+        (session) => ({
+          ...session,
+          archivedAt: null,
+          updatedAt: new Date().toISOString(),
+        }),
+        () => SessionStateService.unarchiveSession(id),
+      );
+    },
+    [reconcileSessionMutation],
   );
 
   /**
@@ -286,7 +433,11 @@ export function useSessionManager() {
           };
           // Validate session invariants
           if (!SessionStateService.validateSession(updated)) {
-            console.warn("[useSessionManager] Invalid session update:", id, updates);
+            console.warn(
+              "[useSessionManager] Invalid session update:",
+              id,
+              updates,
+            );
             return s;
           }
           return updated;
@@ -333,6 +484,11 @@ export function useSessionManager() {
     setActiveSessionId,
     createSession,
     removeSession,
+    renameSession,
+    pinSession,
+    unpinSession,
+    archiveSession,
+    unarchiveSession,
     updateSession,
     clearAllSessions,
     addRepository,

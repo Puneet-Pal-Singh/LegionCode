@@ -34,6 +34,7 @@ import { LockedShellCard } from "./components/startup/LockedShellCard";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { generateChatTitleFromPrompt } from "./lib/chat-title-generator";
 import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
@@ -156,6 +157,11 @@ function AppContent() {
     setActiveSessionId,
     createSession,
     removeSession,
+    renameSession,
+    pinSession,
+    unpinSession,
+    archiveSession,
+    unarchiveSession,
     updateSession,
     repositories,
     removeRepository,
@@ -234,10 +240,13 @@ function AppContent() {
   }, [user]);
   const lastSyncedGitHubSessionIdRef = useRef<string | null>(null);
 
-  const openSettingsDialog = useCallback((section: SettingsSection = "general") => {
-    setSettingsInitialSection(section);
-    setIsSettingsDialogOpen(true);
-  }, []);
+  const openSettingsDialog = useCallback(
+    (section: SettingsSection = "general") => {
+      setSettingsInitialSection(section);
+      setIsSettingsDialogOpen(true);
+    },
+    [],
+  );
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
   const setupSession = useMemo<SetupSessionState | null>(() => {
@@ -318,7 +327,8 @@ function AppContent() {
   useEffect(() => {
     if (!activeSessionId) return;
     if (!activeSession) return;
-    const sessionChanged = lastSyncedGitHubSessionIdRef.current !== activeSessionId;
+    const sessionChanged =
+      lastSyncedGitHubSessionIdRef.current !== activeSessionId;
     lastSyncedGitHubSessionIdRef.current = activeSessionId;
 
     const sessionContext =
@@ -499,7 +509,10 @@ function AppContent() {
           return;
         }
         lastPersistedWorkspaceSelectionRef.current = null;
-        console.error("[workspace/select] Failed to reconcile selection:", error);
+        console.error(
+          "[workspace/select] Failed to reconcile selection:",
+          error,
+        );
         window.dispatchEvent(
           new CustomEvent("legioncode:workspace-selection-persist-failed", {
             detail: {
@@ -760,6 +773,34 @@ function AppContent() {
   const taskTitle = activeSession?.name;
   const threadTitle = activeSession?.name;
 
+  const handleRenameActiveSession = useCallback(
+    async (title: string): Promise<void> => {
+      if (!activeSessionId) {
+        return;
+      }
+      await renameSession(activeSessionId, title);
+    },
+    [activeSessionId, renameSession],
+  );
+
+  const handlePinActiveSession = useCallback(async (): Promise<void> => {
+    if (activeSessionId) {
+      await pinSession(activeSessionId);
+    }
+  }, [activeSessionId, pinSession]);
+
+  const handleUnpinActiveSession = useCallback(async (): Promise<void> => {
+    if (activeSessionId) {
+      await unpinSession(activeSessionId);
+    }
+  }, [activeSessionId, unpinSession]);
+
+  const handleArchiveActiveSession = useCallback(async (): Promise<void> => {
+    if (activeSessionId) {
+      await archiveSession(activeSessionId);
+    }
+  }, [activeSessionId, archiveSession]);
+
   const handleOpenRepositoryPicker = () => {
     if (!isAuthenticated) {
       login();
@@ -982,6 +1023,11 @@ function AppContent() {
           onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
           taskTitle={taskTitle}
+          activeSession={activeSession}
+          onRenameSession={handleRenameActiveSession}
+          onPinSession={handlePinActiveSession}
+          onUnpinSession={handleUnpinActiveSession}
+          onArchiveSession={handleArchiveActiveSession}
           isAuthenticated={isAuthenticated}
           onConnectGitHub={login}
         />
@@ -1024,15 +1070,26 @@ function AppContent() {
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
                     onStart={(config) => {
-                      const name =
-                        config.task.length > 20
-                          ? config.task.substring(0, 20) + "..."
-                          : config.task;
+                      const name = generateChatTitleFromPrompt(config.task);
 
                       updateSession(activeSessionId, {
                         name,
+                        titleSource: "generated",
                         status: "running",
                         mode: config.mode,
+                      });
+                      void SessionStateService.persistSession({
+                        ...activeSession,
+                        name,
+                        titleSource: "generated",
+                        status: "running",
+                        mode: config.mode,
+                        updatedAt: new Date().toISOString(),
+                      }).catch((error) => {
+                        console.warn(
+                          "[App] Failed to persist generated title:",
+                          error,
+                        );
                       });
                       // Store pending query in session-scoped storage
                       SessionStateService.saveSessionPendingQuery(
@@ -1171,6 +1228,7 @@ function AppContent() {
             isOpen={isSettingsDialogOpen}
             runId={isAuthenticated ? providerScopeRunId : undefined}
             initialSection={settingsInitialSection}
+            onUnarchiveSession={unarchiveSession}
             onClose={() => setIsSettingsDialogOpen(false)}
           />
         </div>

@@ -17,11 +17,7 @@ import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArtifactRetentionService";
 
-export {
-  RunEngineRuntime,
-  RunEngineAgent,
-  RunAdmissionLimiter,
-};
+export { RunEngineRuntime, RunEngineAgent, RunAdmissionLimiter };
 
 /**
  * Route configuration type with HTTP method support
@@ -75,11 +71,7 @@ function createRouter(): Router {
     ChatController.handleLegacyRoute,
     "POST",
   );
-  router.add(
-    /^\/api\/chat\/history$/,
-    TranscriptController.getHistory,
-    "GET",
-  );
+  router.add(/^\/api\/chat\/history$/, TranscriptController.getHistory, "GET");
   router.add(/\/chat/, ChatController.handle, "POST");
   router.add(
     /^\/api\/debug\/runtime$/,
@@ -119,8 +111,33 @@ function createRouter(): Router {
   router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
   router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
   router.add(
+    /^\/api\/sessions\/archived$/,
+    TranscriptController.listArchivedSessions,
+    "GET",
+  );
+  router.add(
+    /^\/api\/sessions\/[^/]+\/title$/,
+    TranscriptController.renameSessionTitle,
+    "PATCH",
+  );
+  router.add(
+    /^\/api\/sessions\/[^/]+\/pin$/,
+    TranscriptController.pinSession,
+    "POST",
+  );
+  router.add(
+    /^\/api\/sessions\/[^/]+\/unpin$/,
+    TranscriptController.unpinSession,
+    "POST",
+  );
+  router.add(
     /^\/api\/sessions\/[^/]+\/archive$/,
     TranscriptController.archiveSession,
+    "POST",
+  );
+  router.add(
+    /^\/api\/sessions\/[^/]+\/unarchive$/,
+    TranscriptController.unarchiveSession,
     "POST",
   );
 

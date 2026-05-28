@@ -1,8 +1,20 @@
-import { Check, FolderPlus, ListFilter, Search, Settings } from "lucide-react";
+import {
+  Check,
+  FolderPlus,
+  ListFilter,
+  Pin,
+  Search,
+  Settings,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
+  groupSessionsByRepository,
+  selectPinnedSessions,
+} from "../../lib/session-sidebar-selectors";
+import {
   SidebarShell,
+  TaskList,
   WorkspaceSection,
   type SidebarTaskItem,
   type SidebarTaskStatus,
@@ -77,6 +89,9 @@ function normalizeSearch(value: string): string {
 }
 
 function getRepositoryLabel(repository: string): string {
+  if (repository === "No repository") {
+    return repository;
+  }
   const [, name] = repository.split("/");
   return name || repository;
 }
@@ -136,34 +151,47 @@ export function AgentSidebar({
     const combined = new Set<string>();
     repositories.forEach((repository) => combined.add(repository));
     sessions.forEach((session) => {
+      if (session.archivedAt !== null || session.pinnedAt !== null) {
+        return;
+      }
       const normalizedRepository = session.repository?.trim() ?? "";
       if (normalizedRepository.length > 0) {
         combined.add(normalizedRepository);
+      } else {
+        combined.add("No repository");
       }
     });
     return Array.from(combined);
   }, [repositories, sessions]);
 
   const repositorySections = useMemo(() => {
+    const groupedSessions = groupSessionsByRepository(sessions);
+    const sectionsByRepository = new Map(
+      groupedSessions.map((section) => [section.repository, section.sessions]),
+    );
+
     return repositorySource
       .map((repository) => {
-        const allTasks = sessions
-          .filter((session) => session.repository === repository)
-          .map<SidebarTaskItem>((session) => ({
-            id: session.id,
-            title: session.name,
-            status: approvalStatesBySessionId[session.id]
-              ? "needs_approval"
-              : mapSessionStatus(session, activeSessionId),
-            updatedAt: session.updatedAt,
-            isActive: session.id === activeSessionId,
-            metrics: approvalStatesBySessionId[session.id]
-              ? { label: "Awaiting approval" }
-              : undefined,
-          }));
+        const sectionSessions = sectionsByRepository.get(repository) ?? [];
+        const allTasks = sectionSessions.map<SidebarTaskItem>((session) => ({
+          id: session.id,
+          title: session.name,
+          status: approvalStatesBySessionId[session.id]
+            ? "needs_approval"
+            : mapSessionStatus(session, activeSessionId),
+          updatedAt: session.updatedAt,
+          isActive: session.id === activeSessionId,
+          metrics: approvalStatesBySessionId[session.id]
+            ? { label: "Awaiting approval" }
+            : undefined,
+        }));
 
         const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
-        const filteredTasks = filterTasks(allTasks, normalizedQuery, statusFilter);
+        const filteredTasks = filterTasks(
+          allTasks,
+          normalizedQuery,
+          statusFilter,
+        );
         const repoMatches = normalizedQuery
           ? matchesSearch(repository, normalizedQuery) ||
             matchesSearch(getRepositoryLabel(repository), normalizedQuery)
@@ -183,6 +211,31 @@ export function AgentSidebar({
     approvalStatesBySessionId,
     normalizedQuery,
     repositorySource,
+    sessions,
+    statusFilter,
+  ]);
+
+  const pinnedTasks = useMemo(() => {
+    return filterTasks(
+      selectPinnedSessions(sessions).map<SidebarTaskItem>((session) => ({
+        id: session.id,
+        title: session.name,
+        status: approvalStatesBySessionId[session.id]
+          ? "needs_approval"
+          : mapSessionStatus(session, activeSessionId),
+        updatedAt: session.pinnedAt ?? session.updatedAt,
+        isActive: session.id === activeSessionId,
+        metrics: approvalStatesBySessionId[session.id]
+          ? { label: "Awaiting approval" }
+          : undefined,
+      })),
+      normalizedQuery,
+      statusFilter,
+    );
+  }, [
+    activeSessionId,
+    approvalStatesBySessionId,
+    normalizedQuery,
     sessions,
     statusFilter,
   ]);
@@ -230,7 +283,9 @@ export function AgentSidebar({
               <ListFilter
                 size={14}
                 aria-hidden="true"
-                className={statusFilter !== "all" ? "text-emerald-300" : undefined}
+                className={
+                  statusFilter !== "all" ? "text-emerald-300" : undefined
+                }
               />
             </button>
 
@@ -290,8 +345,31 @@ export function AgentSidebar({
   );
 
   return (
-    <SidebarShell width={width} utility={utility} footer={footer} onClose={onClose}>
+    <SidebarShell
+      width={width}
+      utility={utility}
+      footer={footer}
+      onClose={onClose}
+    >
       <div className="space-y-3">
+        {pinnedTasks.length > 0 ? (
+          <section className="space-y-1.5">
+            <div className="flex items-center gap-2 px-1 py-0.5">
+              <Pin size={14} aria-hidden="true" className="text-zinc-500" />
+              <span className="text-sm font-semibold text-zinc-100">
+                Pinned
+              </span>
+            </div>
+            <div className="pl-5">
+              <TaskList
+                tasks={pinnedTasks}
+                onSelectTask={onSelect}
+                onRemoveTask={onRemove}
+              />
+            </div>
+          </section>
+        ) : null}
+
         {repositorySections.map((section) => (
           <WorkspaceSection
             key={section.repository}
@@ -301,12 +379,16 @@ export function AgentSidebar({
             onAddTask={() => onCreate(section.repository)}
             onRemoveTask={onRemove}
             onRemoveWorkspace={() => onRemoveRepository?.(section.repository)}
-            onRenameWorkspace={(newName) => onRenameRepository?.(section.repository, newName)}
+            onRenameWorkspace={(newName) =>
+              onRenameRepository?.(section.repository, newName)
+            }
           />
         ))}
 
         {repositorySections.length === 0 ? (
-          <p className="px-2 py-3 text-xs italic text-zinc-600">No matching tasks or workspaces</p>
+          <p className="px-2 py-3 text-xs italic text-zinc-600">
+            No matching tasks or workspaces
+          </p>
         ) : null}
       </div>
     </SidebarShell>

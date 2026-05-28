@@ -27,7 +27,9 @@ class CapturingSqlClient implements SqlClient {
     return { rows: [], rowCount: 0 };
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     return await callback(this);
   }
 }
@@ -35,7 +37,9 @@ class CapturingSqlClient implements SqlClient {
 describe("PostgresTranscriptRepository", () => {
   it("preserves omitted metadata and treats null as an explicit clear", async () => {
     const client = new CapturingSqlClient();
-    const repository = new PostgresTranscriptRepository(client, { now: () => NOW });
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
 
     await repository.ensureSession({
       sessionId: "123e4567-e89b-42d3-a456-426614174000",
@@ -53,7 +57,7 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([false, false]);
-    expect(client.queries[1]?.params.slice(10, 15)).toEqual([
+    expect(client.queries[1]?.params.slice(11, 16)).toEqual([
       false,
       false,
       false,
@@ -71,7 +75,7 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([true, false]);
-    expect(client.queries[1]?.params.slice(10, 15)).toEqual([
+    expect(client.queries[1]?.params.slice(11, 16)).toEqual([
       true,
       false,
       false,
@@ -80,9 +84,46 @@ describe("PostgresTranscriptRepository", () => {
     ]);
   });
 
+  it("uses session-level archive metadata", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.archiveSession(
+      "123e4567-e89b-42d3-a456-426614174001",
+      "123e4567-e89b-42d3-a456-426614174000",
+    );
+
+    const statement = client.queries[0]?.statement ?? "";
+    expect(statement).toContain("SET archived_at = $3");
+    expect(statement).toContain("pinned_at = NULL");
+    expect(statement).not.toContain("UPDATE tasks");
+  });
+
+  it("keeps generated title updates from overwriting user titles", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.ensureSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174000",
+      userId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "Generated",
+      titleSource: "generated",
+    });
+
+    const statement = client.queries[1]?.statement ?? "";
+    expect(statement).toContain("sessions.title_source = 'generated'");
+    expect(statement).toContain("EXCLUDED.title_source = 'generated'");
+  });
+
   it("keeps transcript list filters on the outer message part join", async () => {
     const client = new CapturingSqlClient();
-    const repository = new PostgresTranscriptRepository(client, { now: () => NOW });
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
 
     await repository.listTranscript({
       sessionId: "123e4567-e89b-42d3-a456-426614174000",
@@ -120,12 +161,15 @@ function createSessionRow(params: readonly SqlValue[]): SqlRow {
     session_workspace_id: params[2],
     session_task_id: params[3],
     session_title: params[4],
+    title_source: params[9] ?? "generated",
     repository: params[5],
     active_run_id: params[6],
     mode: params[7],
     session_status: params[8],
-    session_created_at: params[9],
-    session_updated_at: params[9],
+    pinned_at: null,
+    archived_at: null,
+    session_created_at: params[10],
+    session_updated_at: params[10],
   };
 }
 

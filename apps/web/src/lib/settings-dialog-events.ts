@@ -1,4 +1,4 @@
-export type SettingsSection = "general" | "connect" | "models";
+export type SettingsSection = "general" | "connect" | "models" | "archived";
 
 const OPEN_SETTINGS_EVENT = "shadowbox:open-settings";
 
@@ -6,7 +6,9 @@ interface OpenSettingsDetail {
   section?: SettingsSection;
 }
 
-export function dispatchOpenSettingsDialog(section: SettingsSection = "general"): void {
+export function dispatchOpenSettingsDialog(
+  section: SettingsSection = "general",
+): void {
   if (typeof window === "undefined") {
     return;
   }

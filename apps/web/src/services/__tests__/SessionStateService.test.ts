@@ -43,7 +43,7 @@ describe("SessionStateService", () => {
     });
 
     it("should handle corrupted localStorage gracefully", () => {
-      localStorage.setItem("shadowbox:sessions:v2", "invalid json");
+      localStorage.setItem("shadowbox:sessions:v3", "invalid json");
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
     });
@@ -82,7 +82,11 @@ describe("SessionStateService", () => {
     });
 
     it("persists created sessions to Brain", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 201 }));
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ session: createServerSession("Task") }), {
+          status: 201,
+        }),
+      );
       vi.stubGlobal("fetch", fetchMock);
       const session = SessionStateService.createSession("Task", "repo");
 
@@ -104,7 +108,11 @@ describe("SessionStateService", () => {
     });
 
     it("archives sessions through Brain", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ session: createServerSession("Task") }), {
+          status: 200,
+        }),
+      );
       vi.stubGlobal("fetch", fetchMock);
 
       await SessionStateService.archiveSession(
@@ -184,9 +192,14 @@ describe("SessionStateService", () => {
       const session = SessionStateService.createSession("Test Session", "repo");
       const setupSession = SessionStateService.createSetupSession();
 
-      SessionStateService.saveSessions({ [session.id]: session }, "missing-session");
-      SessionStateService.saveActiveSessionId(session.id, { [session.id]: session });
-      localStorage.setItem("shadowbox:active-session-id:v2", "missing-session");
+      SessionStateService.saveSessions(
+        { [session.id]: session },
+        "missing-session",
+      );
+      SessionStateService.saveActiveSessionId(session.id, {
+        [session.id]: session,
+      });
+      localStorage.setItem("shadowbox:active-session-id:v3", "missing-session");
       SessionStateService.saveSetupSession(setupSession);
 
       const runId = SessionStateService.loadActiveSessionRunId();
@@ -350,16 +363,20 @@ describe("SessionStateService", () => {
       expect(session.status).toBe("running");
     });
 
-    it("defaults legacy sessions without mode to build when loading", () => {
+    it("normalizes missing organization metadata when loading", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const { mode, ...legacySession } = session;
+      const { mode, titleSource, pinnedAt, archivedAt, ...storedSession } =
+        session;
       expect(mode).toBe("build");
+      expect(titleSource).toBe("generated");
+      expect(pinnedAt).toBeNull();
+      expect(archivedAt).toBeNull();
 
       localStorage.setItem(
-        "shadowbox:sessions:v2",
+        "shadowbox:sessions:v3",
         JSON.stringify({
-          version: 2,
-          sessions: { [session.id]: legacySession },
+          version: 3,
+          sessions: { [session.id]: storedSession },
           activeSessionId: session.id,
           lastModified: new Date().toISOString(),
         }),
@@ -367,6 +384,9 @@ describe("SessionStateService", () => {
 
       const loaded = SessionStateService.loadSessions();
       expect(loaded[session.id]?.mode).toBe("build");
+      expect(loaded[session.id]?.titleSource).toBe("generated");
+      expect(loaded[session.id]?.pinnedAt).toBeNull();
+      expect(loaded[session.id]?.archivedAt).toBeNull();
     });
   });
 
@@ -465,27 +485,27 @@ describe("SessionStateService", () => {
 
     it("should reject session with invalid status", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const invalid = { ...session, status: "invalid" as unknown as AgentSession["status"] };
+      const invalid = {
+        ...session,
+        status: "invalid" as unknown as AgentSession["status"],
+      };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
     });
 
     it("should reject session with non-array runIds", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const invalid = { ...session, runIds: "not an array" as unknown as string[] };
+      const invalid = {
+        ...session,
+        runIds: "not an array" as unknown as string[],
+      };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
     });
   });
 
   describe("Multi-Session Isolation", () => {
     it("should maintain separate state for multiple sessions", () => {
-      const session1 = SessionStateService.createSession(
-        "Session 1",
-        "repo1",
-      );
-      const session2 = SessionStateService.createSession(
-        "Session 2",
-        "repo2",
-      );
+      const session1 = SessionStateService.createSession("Session 1", "repo1");
+      const session2 = SessionStateService.createSession("Session 2", "repo2");
 
       // Save different contexts
       const context1 = {
@@ -528,3 +548,18 @@ describe("SessionStateService", () => {
     });
   });
 });
+
+function createServerSession(title: string) {
+  return {
+    id: "550e8400-e29b-41d4-a716-446655440000",
+    title,
+    titleSource: "generated",
+    repository: "repo",
+    activeRunId: "550e8400-e29b-41d4-a716-446655440001",
+    mode: "build",
+    status: "idle",
+    pinnedAt: null,
+    archivedAt: null,
+    updatedAt: "2026-05-15T00:00:00.000Z",
+  };
+}

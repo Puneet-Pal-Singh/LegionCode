@@ -139,6 +139,7 @@ export {
   MESSAGE_ROLES,
   SESSION_STATUSES,
   TASK_STATUSES,
+  buildChatTitleSourceSqlList,
   buildMessagePartTypeSqlList,
   buildMessageRoleSqlList,
   buildSessionStatusSqlList,
