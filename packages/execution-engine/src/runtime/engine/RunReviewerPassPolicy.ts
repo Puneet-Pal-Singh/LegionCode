@@ -75,6 +75,9 @@ async function generateReviewerDecision(
       schema: ReviewerDecisionSchema,
       model: run.input.modelId,
       providerId: run.input.providerId,
+      runtimeModelId: run.input.runtimeModelId,
+      providerTransport: run.input.providerTransport,
+      providerEndpoint: run.input.providerEndpoint,
       temperature: 0.1,
     });
     return {
@@ -122,7 +125,8 @@ function recordReviewerDecision(run: Run, decision: ReviewerDecision): void {
 }
 
 function recordReviewerPassFailure(run: Run, error: unknown): void {
-  const message = error instanceof Error ? error.message : "reviewer pass failed";
+  const message =
+    error instanceof Error ? error.message : "reviewer pass failed";
   run.metadata.reviewerPass = {
     enabled: true,
     verdict: "fail",
@@ -132,13 +136,17 @@ function recordReviewerPassFailure(run: Run, error: unknown): void {
     applied: false,
     error: message,
   };
-  console.warn(`[run/engine] Reviewer pass failed for run ${run.id}: ${message}`);
+  console.warn(
+    `[run/engine] Reviewer pass failed for run ${run.id}: ${message}`,
+  );
 }
 
 function formatReviewerSuffix(decision: ReviewerDecision): string {
   const issueLines =
     decision.issues.length > 0
-      ? decision.issues.map((issue, index) => `${index + 1}. ${issue}`).join("\n")
+      ? decision.issues
+          .map((issue, index) => `${index + 1}. ${issue}`)
+          .join("\n")
       : "1. No detailed issue list provided by reviewer.";
 
   return [

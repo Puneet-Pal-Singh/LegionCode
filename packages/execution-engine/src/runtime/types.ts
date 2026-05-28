@@ -400,6 +400,9 @@ export interface ExecutionContext {
   dependencies: TaskResult[];
   modelId?: string;
   providerId?: string;
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
 }
 
 export interface SynthesisContext {
@@ -409,6 +412,9 @@ export interface SynthesisContext {
   originalPrompt: string;
   modelId?: string;
   providerId?: string;
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
 }
 
 export interface RuntimeTask {

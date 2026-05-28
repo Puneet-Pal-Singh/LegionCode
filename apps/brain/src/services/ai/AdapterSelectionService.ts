@@ -15,6 +15,8 @@ import type { ProviderAdapter } from "../providers";
 import type { ProviderConfigService } from "../providers";
 import type { ModelSelection, RuntimeProvider } from "./ModelSelectionPolicy";
 import { getRuntimeProviderFromAdapter } from "./ModelSelectionPolicy";
+import type { ProviderTransportRoute } from "./ProviderTransportAdapterFactory";
+import { createTransportAdapter } from "./ProviderTransportAdapterFactory";
 import {
   createOpenAIAdapter,
   createAnthropicAdapter,
@@ -53,6 +55,7 @@ export async function selectAdapter(
   env: Env,
   providerConfigService?: ProviderConfigService,
   correlationId?: string,
+  route?: ProviderTransportRoute,
 ): Promise<ProviderAdapter> {
   // If fallback mode or same as default, use default
   if (selection.fallback) {
@@ -91,7 +94,10 @@ export async function selectAdapter(
     );
   }
 
-  // Create adapter with override key
+  if (route) {
+    return createTransportAdapter(route, env, overrideApiKey);
+  }
+
   return createAdapterForProvider(
     selection.providerId,
     selection.runtimeProvider,
