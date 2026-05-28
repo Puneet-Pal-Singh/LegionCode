@@ -43,6 +43,12 @@ interface CapturedPatchPayload {
   baseCommitSha: string | null;
 }
 
+interface CaptureArtifactMetadata {
+  artifactId: string;
+  capturedAt: string;
+  r2ObjectKey: string;
+}
+
 export class EditArtifactCaptureService {
   private readonly objectStore: EditArtifactObjectStore;
 
@@ -106,42 +112,83 @@ export class EditArtifactCaptureService {
     changedFiles: EditArtifactChangedFile[],
     capturedPatch: CapturedPatchPayload,
   ): Promise<void> {
+    const metadata = this.buildCaptureArtifactMetadata(input);
+    const artifact = await this.createAndRecordPendingArtifact(
+      repository,
+      input,
+      changedFiles,
+      capturedPatch,
+      metadata,
+    );
+    await this.writeAndFinalizeCapturedArtifact(
+      repository,
+      input,
+      changedFiles,
+      capturedPatch,
+      artifact,
+      metadata,
+    );
+  }
+
+  private buildCaptureArtifactMetadata(
+    input: CaptureAfterRunInput,
+  ): CaptureArtifactMetadata {
     const artifactId = crypto.randomUUID();
-    const capturedAt = new Date().toISOString();
-    const r2ObjectKey = this.buildPatchKey(input, artifactId);
-    const artifact = await this.createPendingArtifact(repository, {
+    return {
       artifactId,
-      capturedAt,
+      capturedAt: new Date().toISOString(),
+      r2ObjectKey: this.buildPatchKey(input, artifactId),
+    };
+  }
+
+  private async createAndRecordPendingArtifact(
+    repository: ArtifactRepository,
+    input: CaptureAfterRunInput,
+    changedFiles: EditArtifactChangedFile[],
+    capturedPatch: CapturedPatchPayload,
+    metadata: CaptureArtifactMetadata,
+  ): Promise<EditArtifactRecord> {
+    const artifact = await this.createPendingArtifact(repository, {
+      ...metadata,
       capturedPatch,
       changedFiles,
       input,
-      r2ObjectKey,
     });
     await this.recordCaptureStarted(
       repository,
-      artifactId,
+      metadata.artifactId,
       input.runId,
-      r2ObjectKey,
-      capturedAt,
+      metadata.r2ObjectKey,
+      metadata.capturedAt,
     );
+    return artifact;
+  }
 
+  private async writeAndFinalizeCapturedArtifact(
+    repository: ArtifactRepository,
+    input: CaptureAfterRunInput,
+    changedFiles: EditArtifactChangedFile[],
+    capturedPatch: CapturedPatchPayload,
+    artifact: EditArtifactRecord,
+    metadata: CaptureArtifactMetadata,
+  ): Promise<void> {
     const storedArtifact = await this.writePatch({
       repository,
       artifact: {
         branch: artifact.branch,
         baseCommitSha: artifact.baseCommitSha,
       },
-      artifactId,
-      capturedAt,
+      artifactId: metadata.artifactId,
+      capturedAt: metadata.capturedAt,
       changedFiles,
       input,
       patch: capturedPatch.patch,
-      r2ObjectKey,
+      r2ObjectKey: metadata.r2ObjectKey,
     });
     try {
       await this.markCaptureStored(
         repository,
-        artifactId,
+        metadata.artifactId,
         input.userId,
         input.runId,
         changedFiles.length,
@@ -152,7 +199,7 @@ export class EditArtifactCaptureService {
       await this.recordPatchParseStatus(
         repository,
         input,
-        artifactId,
+        metadata.artifactId,
         storedArtifact.patchSha256,
         capturedPatch.patch,
         changedFiles,
@@ -161,7 +208,7 @@ export class EditArtifactCaptureService {
     } catch (error) {
       await this.markCaptureFailed(
         repository,
-        artifactId,
+        metadata.artifactId,
         input.userId,
         input.runId,
         error,

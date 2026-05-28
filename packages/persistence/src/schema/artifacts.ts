@@ -86,12 +86,12 @@ export const artifacts = pgTable(
     index("artifacts_run_assistant_message_idx").on(
       table.runId,
       table.assistantMessageId,
-      table.createdAt,
+      table.createdAt.desc(),
     ),
     index("artifacts_run_session_created_idx").on(
       table.runId,
       table.sessionId,
-      table.createdAt,
+      table.createdAt.desc(),
     ),
     index("artifacts_storage_reconciliation_idx").on(
       table.storageReconciliationStatus,

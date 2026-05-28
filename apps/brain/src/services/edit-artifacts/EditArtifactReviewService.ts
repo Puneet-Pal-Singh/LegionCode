@@ -8,7 +8,10 @@ import type {
 import type { Env } from "../../types/ai";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
 import { createCanonicalEditArtifactStorageBackend } from "./EditArtifactStorageBackendFactory";
-import type { EditArtifactStorageBackend } from "./EditArtifactStorageBackend";
+import {
+  sha256Hex,
+  type EditArtifactStorageBackend,
+} from "./EditArtifactStorageBackend";
 import {
   EditArtifactPatchParseError,
   parsePatchFileDiff,
@@ -250,16 +253,6 @@ function normalizeReviewStatus(status: string): EditArtifactReviewFile["status"]
     return status;
   }
   return "modified";
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 export function parseArtifactPatchInventoryForReview(
