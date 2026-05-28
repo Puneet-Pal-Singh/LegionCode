@@ -1,7 +1,7 @@
 import type {
   EffectivePermissionState,
   PermissionRuntimeLabel,
-  type ProviderModelTransport,
+  ProviderModelTransport,
   RunMode,
   RunTerminalState,
   ToolActivityMetadata,
