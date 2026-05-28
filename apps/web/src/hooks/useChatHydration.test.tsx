@@ -122,6 +122,62 @@ describe("useChatHydration", () => {
     });
     expect(result.current.hasHydrated).toBe(true);
   });
+
+  it("preserves transcript activity parts on hydrated assistant messages", async () => {
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      createHistoryResponse([
+        {
+          id: "assistant-with-activity",
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "The selected model stopped responding.",
+            },
+            {
+              version: 1,
+              type: "turn_activity",
+              compacted: false,
+              events: [
+                {
+                  id: "activity-1",
+                  runId: "run-1",
+                  sessionId: "session-1",
+                  turnId: "run-1:turn-1",
+                  sequence: 1,
+                  kind: "provider_error",
+                  status: "paused",
+                  title: "Provider interruption",
+                  displayMode: "visible",
+                  createdAt: "2026-05-24T00:00:00.000Z",
+                  updatedAt: "2026-05-24T00:00:00.000Z",
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+
+    renderHook(() => useChatHydration("session-1", "run-1", 0, setMessages));
+
+    await waitFor(() => {
+      expect(setMessages).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: "assistant-with-activity",
+          content: "The selected model stopped responding.",
+          data: expect.objectContaining({
+            activityParts: [
+              expect.objectContaining({
+                type: "turn_activity",
+              }),
+            ],
+          }),
+        }),
+      ]);
+    });
+  });
 });
 
 function createHistoryResponse(messages: unknown[]): Response {

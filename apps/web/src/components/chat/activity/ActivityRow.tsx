@@ -5,6 +5,7 @@ import { TOOL_ACTIVITY_FAMILIES } from "@repo/shared-types";
 import { cn } from "../../../lib/utils.js";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 import { toCompactExplorationTitle } from "../workflow/explorationCopy.js";
+import { ProviderInterruptionRow } from "./ProviderInterruptionRow.js";
 
 interface ActivityRowProps {
   row: ActivityFeedRowViewModel;
@@ -43,6 +44,9 @@ export function ActivityRow({
         />
       );
     case "commentary":
+      if (isProviderInterruptionRow(row)) {
+        return <ProviderInterruptionRow row={row} />;
+      }
       return isRecoveryCommentaryRow(row) ? (
         <RecoveryCommentaryRow
           row={row}
@@ -115,6 +119,12 @@ export function ActivityRow({
   }
 }
 
+function isProviderInterruptionRow(
+  row: Extract<ActivityFeedRowViewModel, { kind: "commentary" }>,
+): boolean {
+  return row.metadata?.code === "PROVIDER_UNAVAILABLE";
+}
+
 function isRecoveryCommentaryRow(
   row: Extract<ActivityFeedRowViewModel, { kind: "commentary" }>,
 ): boolean {
@@ -130,6 +140,7 @@ function hasRecoveryMetadata(
 
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
   return (
+    code === "PROVIDER_UNAVAILABLE" ||
     code === "TOOL_EXECUTION_FAILED" ||
     code === "TASK_EXECUTION_TIMEOUT" ||
     code === "TASK_MODEL_NO_ACTION"
