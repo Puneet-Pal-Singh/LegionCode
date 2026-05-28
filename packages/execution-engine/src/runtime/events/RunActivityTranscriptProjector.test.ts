@@ -26,7 +26,18 @@ describe("RunActivityTranscriptProjector", () => {
           arguments: { command: "gh pr checks" },
           displayText: "Inspecting PR checks",
         }),
-        createEvent("event-4", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+        createEvent("event-4", RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Retrying model request",
+          summary: "Retrying once before pausing the run.",
+          status: "completed",
+          displayMode: "debug",
+          metadata: {
+            code: "MODEL_UNUSABLE_RESPONSE",
+            retryCount: 1,
+          },
+        }),
+        createEvent("event-5", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
           role: "assistant",
           content: "The selected model stopped responding.",
           metadata: {
@@ -46,9 +57,18 @@ describe("RunActivityTranscriptProjector", () => {
       type: "turn_activity",
       compacted: false,
     });
-    expect(part.events.map((event) => event.sequence)).toEqual([1, 2, 3]);
+    expect(part.events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
     expect(part.events).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          kind: "progress",
+          displayMode: "debug",
+          title: "Retrying model request",
+          metadata: expect.objectContaining({
+            code: "MODEL_UNUSABLE_RESPONSE",
+            retryCount: 1,
+          }),
+        }),
         expect.objectContaining({
           kind: "progress",
           status: "paused",

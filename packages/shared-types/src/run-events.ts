@@ -168,6 +168,8 @@ export interface RunProgressPayload {
   label: string;
   summary: string;
   status: "active" | "completed";
+  displayMode?: "visible" | "collapsed" | "debug";
+  metadata?: Record<string, unknown>;
 }
 
 export interface ApprovalRequestedPayload {

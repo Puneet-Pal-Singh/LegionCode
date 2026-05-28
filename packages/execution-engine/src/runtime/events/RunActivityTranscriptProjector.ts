@@ -116,8 +116,11 @@ function projectEvent(state: TranscriptBuilderState, event: RunEvent): void {
         status: event.payload.status === "active" ? "running" : "completed",
         title: event.payload.label,
         detail: event.payload.summary,
-        displayMode: "visible",
-        metadata: { phase: event.payload.phase },
+        displayMode: event.payload.displayMode ?? "visible",
+        metadata: {
+          phase: event.payload.phase,
+          ...event.payload.metadata,
+        },
         createdAt: event.timestamp,
         updatedAt: event.timestamp,
       });

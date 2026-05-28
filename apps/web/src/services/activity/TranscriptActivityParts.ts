@@ -110,7 +110,10 @@ function buildTurns(
     const sortedEvents = events.sort(
       (left, right) => left.sequence - right.sequence,
     );
-    const rows = sortedEvents.map(eventToRow);
+    const rows = sortedEvents.flatMap((event) => {
+      const row = eventToRow(event);
+      return row ? [row] : [];
+    });
     const hasProviderError = rows.some(
       (row) =>
         row.kind === "commentary" &&
@@ -129,7 +132,11 @@ function buildTurns(
   });
 }
 
-function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel {
+function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
+  if (event.displayMode === "debug") {
+    return null;
+  }
+
   if (event.kind === "provider_error") {
     return {
       kind: "commentary",
