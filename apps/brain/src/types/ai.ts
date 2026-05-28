@@ -28,9 +28,9 @@ export interface Env {
 
   EDIT_ARTIFACTS?: R2Bucket;
   ARTIFACTS?: unknown;
-  EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE?: "true" | "false" | "1" | "0";
-  EDIT_ARTIFACTS_CF_ARTIFACTS_READ?: "true" | "false" | "1" | "0";
-  EDIT_ARTIFACTS_CF_ARTIFACTS_RECONCILE?: "true" | "false" | "1" | "0";
+  EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE?: string;
+  EDIT_ARTIFACTS_CF_ARTIFACTS_READ?: string;
+  EDIT_ARTIFACTS_CF_ARTIFACTS_RECONCILE?: string;
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;

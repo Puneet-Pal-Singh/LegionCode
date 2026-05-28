@@ -281,6 +281,7 @@ export function GitReviewProvider({
 
   const openLiveGitReview = useCallback(() => {
     setReviewMode({ kind: "live_git" });
+    setSelectedFilePath(null);
     onReviewOpenChange(true);
   }, [onReviewOpenChange]);
 

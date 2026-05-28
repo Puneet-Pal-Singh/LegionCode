@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RUN_TERMINAL_STATES } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import { Run } from "../run/index.js";
@@ -62,14 +63,100 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordMessageEmitted).not.toHaveBeenCalled();
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
   });
+
+  it("emits deterministic runtime text when assistant completion text is empty", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await completeRunWithAssistantMessage({
+      run,
+      text: '{ "success": true, "output": "" }',
+      metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain(
+      "I finished the run, but the model did not produce a final response.",
+    );
+    expect(run.output?.finalSummary).toContain(
+      "I finished the run, but the model did not produce a final response.",
+    );
+    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
+      "assistant",
+      expect.stringContaining("I finished the run"),
+      expect.objectContaining({
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        finalMessageSource: "runtime",
+      }),
+    );
+  });
+
+  it("records terminal state metadata on model-authored final messages", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      text: "Done. I changed the requested files.",
+      metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
+      deps,
+    });
+
+    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
+      "assistant",
+      "Done. I changed the requested files.",
+      expect.objectContaining({
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        finalMessageSource: "model",
+      }),
+    );
+  });
+
+  it("handles final assistant transcript persistence failure gracefully", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+    const failure = new Error("transcript unavailable");
+    vi.mocked(deps.persistConversationMessages).mockRejectedValueOnce(failure);
+
+    const response = await completeRunWithAssistantMessage({
+      run,
+      text: "Done.",
+      deps,
+    });
+
+    await expect(response.text()).resolves.toBe("Done.");
+    expect(deps.safeMemoryOperation).toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordRunCompleted).toHaveBeenCalled();
+  });
 });
 
 function createRun(status: "RUNNING" | "CANCELLED"): Run {
-  return new Run("run-1", "session-1", status, "coding", {
-    agentType: "coding",
-    prompt: "hello",
-    sessionId: "session-1",
-  });
+  return new Run(
+    "run-1",
+    "session-1",
+    status,
+    "coding",
+    {
+      agentType: "coding",
+      prompt: "hello",
+      sessionId: "session-1",
+    },
+    undefined,
+    {
+      prompt: "hello",
+      manifest: {
+        mode: "build",
+        providerId: "openai",
+        modelId: "gpt-4o",
+        harness: "cloudflare-sandbox",
+        orchestratorBackend: "execution-engine-v1",
+        executionBackend: "cloudflare_sandbox",
+        harnessMode: "platform_owned",
+        authMode: "api_key",
+      },
+    },
+  );
 }
 
 function createDeps(
@@ -81,15 +168,25 @@ function createDeps(
     recordMessageEmitted: vi.fn(),
     recordRunCompleted: vi.fn(),
   } as unknown as RunEventRecorder;
+  const memoryCoordinator = {
+    extractAndPersist: vi.fn(),
+    createCheckpoint: vi.fn(),
+  } as unknown as MemoryCoordinator;
 
   return {
-    memoryCoordinator: {} as unknown as MemoryCoordinator,
+    memoryCoordinator,
     persistConversationMessages: vi.fn(),
     runEventRecorder,
     runRepo: {
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
     },
-    safeMemoryOperation: vi.fn(async (operation) => operation()),
+    safeMemoryOperation: vi.fn(async (operation) => {
+      try {
+        return await operation();
+      } catch {
+        return undefined;
+      }
+    }),
   };
 }

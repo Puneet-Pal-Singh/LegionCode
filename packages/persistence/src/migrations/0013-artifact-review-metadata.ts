@@ -1,14 +1,42 @@
-import {
-  EDIT_ARTIFACT_EVENT_TYPES,
-  EDIT_ARTIFACT_STATUSES,
-} from "@repo/shared-types";
 import type { SqlMigration } from "./types.js";
 
-const ARTIFACT_STATUS_SQL_LIST = buildSqlList(EDIT_ARTIFACT_STATUSES);
-const ARTIFACT_EVENT_TYPE_SQL_LIST = buildSqlList(EDIT_ARTIFACT_EVENT_TYPES);
+const ARTIFACT_STATUS_SQL_LIST = buildSqlList([
+  "pending",
+  "stored",
+  "stored_with_secondary",
+  "secondary_write_failed",
+  "capture_failed",
+  "restore_in_progress",
+  "restored",
+  "anchored",
+  "discarded",
+  "expired",
+  "restore_failed",
+  "requires_user_resolution",
+] as const);
+
+const ARTIFACT_EVENT_TYPE_SQL_LIST = buildSqlList([
+  "capture_started",
+  "r2_write_succeeded",
+  "patch_parse_succeeded",
+  "patch_parse_failed",
+  "cf_artifacts_write_succeeded",
+  "cf_artifacts_write_failed",
+  "reconciliation_succeeded",
+  "reconciliation_failed",
+  "metadata_commit_succeeded",
+  "capture_failed",
+  "restore_attempted",
+  "restored",
+  "restore_failed",
+  "requires_user_resolution",
+  "anchored",
+  "discarded",
+  "expired",
+] as const);
 
 export const artifactReviewMetadataMigration: SqlMigration = {
-  id: "0012_artifact_review_metadata",
+  id: "0013_artifact_review_metadata",
   description: "Add canonical edit artifact review metadata",
   statements: [
     `

@@ -2,10 +2,9 @@ import {
   sha256Hex,
   type EditArtifactStorageBackend,
   type StoredEditArtifact,
-  type WriteEditArtifactInput,
 } from "./EditArtifactStorageBackend";
 
-interface ArtifactsBinding {
+export interface ArtifactsBinding {
   create(
     name: string,
     options?: {
@@ -40,13 +39,7 @@ export class CloudflareArtifactsWriteUnavailableError extends Error {
 export class CloudflareArtifactsEditArtifactStorageBackend
   implements EditArtifactStorageBackend
 {
-  constructor(private readonly artifacts: ArtifactsBinding) {}
-
-  async writeArtifact(
-    input: WriteEditArtifactInput,
-  ): Promise<StoredEditArtifact> {
-    const repoName = buildRepoName(input.workspaceId);
-    await this.ensureRepo(repoName);
+  async writeArtifact(): Promise<StoredEditArtifact> {
     throw new CloudflareArtifactsWriteUnavailableError();
   }
 
@@ -58,18 +51,6 @@ export class CloudflareArtifactsEditArtifactStorageBackend
     return;
   }
 
-  private async ensureRepo(repoName: string): Promise<ArtifactsRepoMetadata> {
-    try {
-      await this.artifacts.get(repoName);
-      return { name: repoName, remote: "", defaultBranch: "main" };
-    } catch {
-      return await this.artifacts.create(repoName, {
-        description: "LegionCode edit artifacts",
-        readOnly: false,
-        setDefaultBranch: "main",
-      });
-    }
-  }
 }
 
 export function buildCloudflareArtifactPath(input: {
@@ -85,6 +66,6 @@ export async function buildCloudflareArtifactCommitSha(
   return await sha256Hex(patch);
 }
 
-function buildRepoName(workspaceId: string): string {
+export function buildRepoName(workspaceId: string): string {
   return `workspace-${workspaceId}`;
 }

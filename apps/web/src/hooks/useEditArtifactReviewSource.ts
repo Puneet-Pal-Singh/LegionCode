@@ -29,6 +29,7 @@ export function useEditArtifactReviewSource(
 
   const refetch = useCallback(async (): Promise<void> => {
     if (!input.enabled || !input.runId) {
+      requestIdRef.current += 1;
       setSource(null);
       setLoading(false);
       setError(null);

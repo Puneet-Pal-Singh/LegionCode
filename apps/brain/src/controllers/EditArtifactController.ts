@@ -22,7 +22,7 @@ const MessageArtifactQuerySchema = z.object({
 });
 
 const ArtifactPathParamsSchema = z.object({
-  artifactId: z.string().min(1),
+  artifactId: z.string().uuid(),
 });
 
 const ArtifactDiffQuerySchema = z.object({
@@ -125,7 +125,10 @@ async function resolveOptionalAuth(
   if (auth) {
     return { userId: auth.userId, canReadRunScopedArtifacts: true };
   }
-  return { canReadRunScopedArtifacts: env.NODE_ENV !== "production" };
+  return {
+    canReadRunScopedArtifacts:
+      env.NODE_ENV === "development" || env.NODE_ENV === "test",
+  };
 }
 
 async function requireUserId(
@@ -144,7 +147,14 @@ function readArtifactParams(request: Request): { artifactId: string | null } {
   const match = new URL(request.url).pathname.match(
     /^\/api\/edit-artifacts\/([^/]+)\/(?:files|diff)$/,
   );
-  return { artifactId: match?.[1] ? decodeURIComponent(match[1]) : null };
+  if (!match?.[1]) {
+    return { artifactId: null };
+  }
+  try {
+    return { artifactId: decodeURIComponent(match[1]) };
+  } catch {
+    return { artifactId: null };
+  }
 }
 
 function artifactNotFoundResponse(request: Request, env: Env): Response {

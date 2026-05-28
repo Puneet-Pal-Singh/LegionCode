@@ -1,5 +1,8 @@
 import type { Env } from "../../types/ai";
-import { CloudflareArtifactsEditArtifactStorageBackend } from "./CloudflareArtifactsEditArtifactStorageBackend";
+import {
+  CloudflareArtifactsEditArtifactStorageBackend,
+  type ArtifactsBinding,
+} from "./CloudflareArtifactsEditArtifactStorageBackend";
 import { CompositeEditArtifactStorageBackend } from "./CompositeEditArtifactStorageBackend";
 import type { EditArtifactStorageBackend } from "./EditArtifactStorageBackend";
 import { R2PostgresEditArtifactStorageBackend } from "./R2PostgresEditArtifactStorageBackend";
@@ -7,44 +10,41 @@ import { R2PostgresEditArtifactStorageBackend } from "./R2PostgresEditArtifactSt
 export function createEditArtifactStorageBackend(
   env: Env,
 ): EditArtifactStorageBackend {
-  if (!env.EDIT_ARTIFACTS) {
-    throw new Error("EDIT_ARTIFACTS binding is unavailable");
-  }
-
-  const primary = new R2PostgresEditArtifactStorageBackend(env.EDIT_ARTIFACTS);
+  const primary = createCanonicalEditArtifactStorageBackend(env);
   if (!isEnabled(env.EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE)) {
     return primary;
   }
 
-  const artifacts = readArtifactsBinding(env.ARTIFACTS);
-  if (!artifacts) {
-    throw new Error(
-      "ARTIFACTS binding is required when EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE is enabled",
-    );
-  }
-
+  assertArtifactsBinding(env.ARTIFACTS);
   return new CompositeEditArtifactStorageBackend(
     primary,
-    new CloudflareArtifactsEditArtifactStorageBackend(artifacts),
+    new CloudflareArtifactsEditArtifactStorageBackend(),
   );
 }
 
-function isEnabled(value: string | undefined): boolean {
-  return value === "true" || value === "1";
+export function createCanonicalEditArtifactStorageBackend(
+  env: Env,
+): EditArtifactStorageBackend {
+  if (!env.EDIT_ARTIFACTS) {
+    throw new Error("EDIT_ARTIFACTS binding is unavailable");
+  }
+  return new R2PostgresEditArtifactStorageBackend(env.EDIT_ARTIFACTS);
 }
 
-function readArtifactsBinding(value: unknown): ConstructorParameters<
-  typeof CloudflareArtifactsEditArtifactStorageBackend
->[0] | null {
+function isEnabled(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function assertArtifactsBinding(value: unknown): asserts value is ArtifactsBinding {
   if (
     typeof value !== "object" ||
     value === null ||
     !("create" in value) ||
     !("get" in value)
   ) {
-    return null;
+    throw new Error(
+      "ARTIFACTS binding is required when EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE is enabled",
+    );
   }
-  return value as ConstructorParameters<
-    typeof CloudflareArtifactsEditArtifactStorageBackend
-  >[0];
 }

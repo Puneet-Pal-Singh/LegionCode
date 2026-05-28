@@ -11,6 +11,7 @@ import type {
   AppendArtifactEventInput,
   ArtifactRepository,
   CreateEditArtifactInput,
+  UpdateArtifactReviewMetadataInput,
   UpdateArtifactStatusInput,
 } from "./types.js";
 
@@ -217,25 +218,35 @@ export class MemoryArtifactRepository implements ArtifactRepository {
 
     const record = EditArtifactRecordSchema.parse({
       ...existing,
-      userMessageId: input.userMessageId ?? existing.userMessageId ?? null,
-      assistantMessageId:
-        input.assistantMessageId ?? existing.assistantMessageId ?? null,
-      sourceTurnId: input.sourceTurnId ?? existing.sourceTurnId ?? null,
+      userMessageId: readReviewMetadataField(input, "userMessageId", existing),
+      assistantMessageId: readReviewMetadataField(
+        input,
+        "assistantMessageId",
+        existing,
+      ),
+      sourceTurnId: readReviewMetadataField(input, "sourceTurnId", existing),
       captureSequence:
-        input.captureSequence ?? existing.captureSequence ?? 0,
+        readReviewMetadataField(input, "captureSequence", existing) ?? 0,
       patchParseStatus:
-        input.patchParseStatus ?? existing.patchParseStatus ?? "unknown",
-      patchSha256: input.patchSha256 ?? existing.patchSha256 ?? null,
+        readReviewMetadataField(input, "patchParseStatus", existing) ??
+        "unknown",
+      patchSha256: readReviewMetadataField(input, "patchSha256", existing),
       storageBackend:
-        input.storageBackend ?? existing.storageBackend ?? "r2_postgres",
-      cfArtifactRepo: input.cfArtifactRepo ?? existing.cfArtifactRepo ?? null,
-      cfArtifactCommitSha:
-        input.cfArtifactCommitSha ?? existing.cfArtifactCommitSha ?? null,
-      cfArtifactPath: input.cfArtifactPath ?? existing.cfArtifactPath ?? null,
+        readReviewMetadataField(input, "storageBackend", existing) ??
+        "r2_postgres",
+      cfArtifactRepo: readReviewMetadataField(input, "cfArtifactRepo", existing),
+      cfArtifactCommitSha: readReviewMetadataField(
+        input,
+        "cfArtifactCommitSha",
+        existing,
+      ),
+      cfArtifactPath: readReviewMetadataField(input, "cfArtifactPath", existing),
       storageReconciliationStatus:
-        input.storageReconciliationStatus ??
-        existing.storageReconciliationStatus ??
-        null,
+        readReviewMetadataField(
+          input,
+          "storageReconciliationStatus",
+          existing,
+        ) ?? null,
       updatedAt: this.clock.now().toISOString(),
     });
     this.artifacts.set(record.id, record);
@@ -293,6 +304,21 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       .sort(compareReviewArtifacts);
     return matches[0] ?? null;
   }
+}
+
+type ReviewMetadataKey = Extract<
+  keyof UpdateArtifactReviewMetadataInput,
+  keyof EditArtifactRecord
+>;
+
+function readReviewMetadataField<K extends ReviewMetadataKey>(
+  input: UpdateArtifactReviewMetadataInput,
+  key: K,
+  existing: EditArtifactRecord,
+): UpdateArtifactReviewMetadataInput[K] | EditArtifactRecord[K] {
+  return Object.prototype.hasOwnProperty.call(input, key)
+    ? input[key]
+    : existing[key];
 }
 
 function isRestorable(

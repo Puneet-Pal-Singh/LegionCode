@@ -297,6 +297,7 @@ export function ChatInterface({
   const previousIsLoadingRef = useRef(isLoading);
   const diffSnapshotsByMessageRef = useRef<Record<string, DiffContent>>({});
   const artifactLookupMissesRef = useRef<Set<string>>(new Set());
+  const artifactLookupInFlightRef = useRef<Set<string>>(new Set());
   const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(
@@ -416,6 +417,7 @@ export function ChatInterface({
     lastSettledFilesRef.current = [];
     diffSnapshotsByMessageRef.current = {};
     artifactLookupMissesRef.current = new Set();
+    artifactLookupInFlightRef.current = new Set();
     previousIsLoadingRef.current = false;
     setChangedFilesByAssistantMessageId({});
     setArtifactSourcesByAssistantMessageId({});
@@ -428,55 +430,65 @@ export function ChatInterface({
       .filter(
         (messageId) =>
           !artifactSourcesByAssistantMessageId[messageId] &&
-          !artifactLookupMissesRef.current.has(messageId),
+          !artifactLookupMissesRef.current.has(messageId) &&
+          !artifactLookupInFlightRef.current.has(messageId),
       );
     if (!runId || assistantMessageIds.length === 0) {
       return;
     }
 
     let cancelled = false;
-    void Promise.all(
+    assistantMessageIds.forEach((messageId) =>
+      artifactLookupInFlightRef.current.add(messageId),
+    );
+    void Promise.allSettled(
       assistantMessageIds.map(async (assistantMessageId) => {
         const source = await getEditArtifactReviewSourceByMessage({
           runId,
           assistantMessageId,
         });
-        return source ? [assistantMessageId, source] : null;
+        return source ? ([assistantMessageId, source] as const) : null;
       }),
-    )
-      .then((entries) => {
-        if (cancelled) {
+    ).then((results) => {
+      assistantMessageIds.forEach((messageId) =>
+        artifactLookupInFlightRef.current.delete(messageId),
+      );
+      if (cancelled) {
+        return;
+      }
+
+      const nextEntries: Array<[string, PromptArtifactReviewSource]> = [];
+      results.forEach((result, index) => {
+        const assistantMessageId = assistantMessageIds[index];
+        if (!assistantMessageId) {
           return;
         }
-        const nextEntries = entries.filter(
-          (entry): entry is [string, PromptArtifactReviewSource] =>
-            entry !== null,
-        );
-        entries.forEach((entry, index) => {
-          if (entry === null) {
-            const assistantMessageId = assistantMessageIds[index];
-            if (assistantMessageId) {
-              artifactLookupMissesRef.current.add(assistantMessageId);
-            }
-          }
-        });
-        if (nextEntries.length === 0) {
+        if (result.status === "fulfilled" && result.value) {
+          nextEntries.push([result.value[0], result.value[1]]);
           return;
         }
-        setArtifactSourcesByAssistantMessageId((current) => ({
-          ...current,
-          ...Object.fromEntries(nextEntries),
-        }));
-      })
-      .catch((error) => {
-        assistantMessageIds.forEach((messageId) =>
-          artifactLookupMissesRef.current.add(messageId),
-        );
-        console.warn("[chat/artifacts] Failed to hydrate artifacts", error);
+        artifactLookupMissesRef.current.add(assistantMessageId);
+        if (result.status === "rejected") {
+          console.warn("[chat/artifacts] Failed to hydrate artifact", {
+            assistantMessageId,
+            error: result.reason,
+          });
+        }
       });
+      if (nextEntries.length === 0) {
+        return;
+      }
+      setArtifactSourcesByAssistantMessageId((current) => ({
+        ...current,
+        ...Object.fromEntries(nextEntries),
+      }));
+    });
 
     return () => {
       cancelled = true;
+      assistantMessageIds.forEach((messageId) => {
+        artifactLookupInFlightRef.current.delete(messageId);
+      });
     };
   }, [artifactSourcesByAssistantMessageId, messages, runId]);
 

@@ -211,16 +211,27 @@ export class PostgresArtifactRepository implements ArtifactRepository {
       [
         input.artifactId,
         input.userId,
+        hasOwn(input, "userMessageId"),
         input.userMessageId ?? null,
+        hasOwn(input, "assistantMessageId"),
         input.assistantMessageId ?? null,
+        hasOwn(input, "sourceTurnId"),
         input.sourceTurnId ?? null,
+        hasOwn(input, "captureSequence"),
         input.captureSequence ?? null,
+        hasOwn(input, "patchParseStatus"),
         input.patchParseStatus ?? null,
+        hasOwn(input, "patchSha256"),
         input.patchSha256 ?? null,
+        hasOwn(input, "storageBackend"),
         input.storageBackend ?? null,
+        hasOwn(input, "cfArtifactRepo"),
         input.cfArtifactRepo ?? null,
+        hasOwn(input, "cfArtifactCommitSha"),
         input.cfArtifactCommitSha ?? null,
+        hasOwn(input, "cfArtifactPath"),
         input.cfArtifactPath ?? null,
+        hasOwn(input, "storageReconciliationStatus"),
         input.storageReconciliationStatus ?? null,
         this.clock.now(),
       ],
@@ -528,7 +539,7 @@ const LATEST_REVIEW_ARTIFACT_SQL = `
       WHERE cf.artifact_id = a.id
     )
   GROUP BY ${ARTIFACT_GROUP_BY}
-  ORDER BY a.created_at DESC
+  ORDER BY a.capture_sequence DESC, a.created_at DESC
   LIMIT 1
 `;
 
@@ -545,7 +556,7 @@ const LATEST_REVIEW_ARTIFACT_FOR_RUN_SQL = `
       WHERE cf.artifact_id = a.id
     )
   GROUP BY ${ARTIFACT_GROUP_BY}
-  ORDER BY a.created_at DESC
+  ORDER BY a.capture_sequence DESC, a.created_at DESC
   LIMIT 1
 `;
 
@@ -577,21 +588,28 @@ const REVIEW_ARTIFACT_BY_MESSAGE_FOR_RUN_SQL = `
 const UPDATE_REVIEW_METADATA_SQL = `
   UPDATE artifacts
   SET
-    user_message_id = COALESCE($3, user_message_id),
-    assistant_message_id = COALESCE($4, assistant_message_id),
-    source_turn_id = COALESCE($5, source_turn_id),
-    capture_sequence = COALESCE($6, capture_sequence),
-    patch_parse_status = COALESCE($7, patch_parse_status),
-    patch_sha256 = COALESCE($8, patch_sha256),
-    storage_backend = COALESCE($9, storage_backend),
-    cf_artifact_repo = COALESCE($10, cf_artifact_repo),
-    cf_artifact_commit_sha = COALESCE($11, cf_artifact_commit_sha),
-    cf_artifact_path = COALESCE($12, cf_artifact_path),
-    storage_reconciliation_status = COALESCE($13, storage_reconciliation_status),
-    updated_at = $14
+    user_message_id = CASE WHEN $3::boolean THEN $4::text ELSE user_message_id END,
+    assistant_message_id = CASE WHEN $5::boolean THEN $6::text ELSE assistant_message_id END,
+    source_turn_id = CASE WHEN $7::boolean THEN $8::text ELSE source_turn_id END,
+    capture_sequence = CASE WHEN $9::boolean THEN $10::integer ELSE capture_sequence END,
+    patch_parse_status = CASE WHEN $11::boolean THEN $12::text ELSE patch_parse_status END,
+    patch_sha256 = CASE WHEN $13::boolean THEN $14::text ELSE patch_sha256 END,
+    storage_backend = CASE WHEN $15::boolean THEN $16::text ELSE storage_backend END,
+    cf_artifact_repo = CASE WHEN $17::boolean THEN $18::text ELSE cf_artifact_repo END,
+    cf_artifact_commit_sha = CASE WHEN $19::boolean THEN $20::text ELSE cf_artifact_commit_sha END,
+    cf_artifact_path = CASE WHEN $21::boolean THEN $22::text ELSE cf_artifact_path END,
+    storage_reconciliation_status = CASE WHEN $23::boolean THEN $24::text ELSE storage_reconciliation_status END,
+    updated_at = $25
   WHERE id = $1
     AND user_id = $2
 `;
+
+function hasOwn<T extends object, K extends PropertyKey>(
+  value: T,
+  key: K,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
 
 const DELETE_CHANGED_FILES_SQL = `
   DELETE FROM artifact_changed_files WHERE artifact_id = $1

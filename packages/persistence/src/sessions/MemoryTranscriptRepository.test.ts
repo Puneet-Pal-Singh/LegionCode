@@ -30,8 +30,12 @@ describe("MemoryTranscriptRepository", () => {
   it("dedupes repeated message appends without advancing sequence", async () => {
     const repository = new MemoryTranscriptRepository();
 
-    const first = await repository.appendMessage(createMessageInput("same", "user"));
-    const duplicate = await repository.appendMessage(createMessageInput("same", "user"));
+    const first = await repository.appendMessage(
+      createMessageInput("same", "user"),
+    );
+    const duplicate = await repository.appendMessage(
+      createMessageInput("same", "user"),
+    );
     const transcript = await repository.listTranscript({
       sessionId: "session-1",
       runId: "run-1",
@@ -45,7 +49,9 @@ describe("MemoryTranscriptRepository", () => {
   it("lists sessions scoped by user", async () => {
     const repository = new MemoryTranscriptRepository();
 
-    await repository.appendMessage(createMessageInput("user-1-message", "user"));
+    await repository.appendMessage(
+      createMessageInput("user-1-message", "user"),
+    );
     await repository.appendMessage({
       ...createMessageInput("user-2-message", "user"),
       sessionId: "session-2",
@@ -64,7 +70,9 @@ describe("MemoryTranscriptRepository", () => {
       now: () => new Date("2026-05-15T00:00:00.000Z"),
     });
 
-    await repository.appendMessage(createMessageInput("active-message", "user"));
+    await repository.appendMessage(
+      createMessageInput("active-message", "user"),
+    );
     await repository.appendMessage({
       ...createMessageInput("archived-message", "user"),
       sessionId: "archived-session",
@@ -82,14 +90,66 @@ describe("MemoryTranscriptRepository", () => {
     const repository = new MemoryTranscriptRepository({
       now: () => new Date("2026-05-15T00:00:01.000Z"),
     });
-    await repository.appendMessage(createMessageInput("active-message", "user"));
+    await repository.appendMessage(
+      createMessageInput("active-message", "user"),
+    );
 
     const archived = await repository.archiveSession("user-1", "session-1");
     const result = await repository.listSessions("user-1");
+    const archivedSessions = await repository.listArchivedSessions("user-1");
 
-    expect(archived).toBe(true);
-    expect(result.tasks).toHaveLength(0);
+    expect(archived?.archivedAt).toBe("2026-05-15T00:00:01.000Z");
+    expect(result.tasks).toHaveLength(1);
     expect(result.sessions).toHaveLength(0);
+    expect(archivedSessions.map((session) => session.id)).toEqual([
+      "session-1",
+    ]);
+  });
+
+  it("tracks title source and blocks generated overwrites after rename", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      title: "Generated Title",
+      titleSource: "generated",
+    });
+
+    const renamed = await repository.renameSessionTitle({
+      userId: "user-1",
+      sessionId: "session-1",
+      title: "My Custom Title",
+      titleSource: "user",
+    });
+    const generated = await repository.updateGeneratedSessionTitle({
+      userId: "user-1",
+      sessionId: "session-1",
+      title: "Ignored Title",
+      titleSource: "generated",
+    });
+    const result = await repository.listSessions("user-1");
+
+    expect(renamed?.titleSource).toBe("user");
+    expect(generated).toBeNull();
+    expect(result.sessions[0]?.title).toBe("My Custom Title");
+  });
+
+  it("orders pinned sessions and clears pin state when archived", async () => {
+    const repository = new MemoryTranscriptRepository({
+      now: () => new Date("2026-05-15T00:00:01.000Z"),
+    });
+    await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      title: "Pinned Title",
+    });
+
+    const pinned = await repository.pinSession("user-1", "session-1");
+    const archived = await repository.archiveSession("user-1", "session-1");
+
+    expect(pinned?.pinnedAt).toBe("2026-05-15T00:00:01.000Z");
+    expect(archived?.pinnedAt).toBeNull();
+    expect(archived?.archivedAt).toBe("2026-05-15T00:00:01.000Z");
   });
 
   it("preserves omitted nullable metadata and clears explicit nulls", async () => {
@@ -126,12 +186,15 @@ describe("MemoryTranscriptRepository", () => {
     expect(cleared.repository).toBeNull();
     expect(cleared.activeRunId).toBeNull();
     expect(cleared.title).toBe("Original title");
+    expect(cleared.titleSource).toBe("generated");
   });
 
   it("does not hydrate another user's transcript", async () => {
     const repository = new MemoryTranscriptRepository();
 
-    await repository.appendMessage(createMessageInput("user-1-message", "user"));
+    await repository.appendMessage(
+      createMessageInput("user-1-message", "user"),
+    );
 
     const transcript = await repository.listTranscript({
       sessionId: "session-1",

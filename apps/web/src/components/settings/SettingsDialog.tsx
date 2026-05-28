@@ -5,11 +5,19 @@ import {
   type BYOKCredential,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
-import { CheckCircle2, Plus, Settings2, Sparkles, X } from "lucide-react";
+import {
+  Archive,
+  CheckCircle2,
+  Plus,
+  Settings2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
+import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";
 import type { ProviderModelOption } from "../../services/api/providerClient.js";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
@@ -19,6 +27,7 @@ interface SettingsDialogProps {
   isOpen: boolean;
   runId?: string;
   initialSection?: SettingsSection;
+  onUnarchiveSession?: (sessionId: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -39,6 +48,7 @@ export function SettingsDialog({
   isOpen,
   runId,
   initialSection = "general",
+  onUnarchiveSession = async () => undefined,
   onClose,
 }: SettingsDialogProps): React.ReactElement | null {
   const {
@@ -56,17 +66,20 @@ export function SettingsDialog({
     setProviderVisibleModels,
   } = useProviderStore(runId);
 
-  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+  const [activeSection, setActiveSection] =
+    useState<SettingsSection>(initialSection);
   const [connectView, setConnectView] = useState<ConnectView>("overview");
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState<string | null>(null);
   const [selectedProviderIdForConnect, setSelectedProviderIdForConnect] =
     useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [disconnectingCredentialId, setDisconnectingCredentialId] = useState<string | null>(
-    null,
+  const [disconnectingCredentialId, setDisconnectingCredentialId] = useState<
+    string | null
+  >(null);
+  const [disconnectToasts, setDisconnectToasts] = useState<DisconnectToast[]>(
+    [],
   );
-  const [disconnectToasts, setDisconnectToasts] = useState<DisconnectToast[]>([]);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -195,7 +208,10 @@ export function SettingsDialog({
 
   const showDisconnectToast = useCallback((providerName: string): void => {
     const toastId = Date.now() + Math.floor(Math.random() * 1000);
-    setDisconnectToasts((previous) => [...previous, { id: toastId, providerName }]);
+    setDisconnectToasts((previous) => [
+      ...previous,
+      { id: toastId, providerName },
+    ]);
 
     window.setTimeout(() => {
       setDisconnectToasts((previous) =>
@@ -218,7 +234,11 @@ export function SettingsDialog({
   );
 
   const handleConnect = useCallback(
-    async (providerId: string, secret: string, label?: string): Promise<void> => {
+    async (
+      providerId: string,
+      secret: string,
+      label?: string,
+    ): Promise<void> => {
       setConnectError(null);
       setConnectSuccess(null);
       setIsConnecting(true);
@@ -245,7 +265,9 @@ export function SettingsDialog({
   );
 
   const dismissDisconnectToast = (toastId: number): void => {
-    setDisconnectToasts((previous) => previous.filter((toast) => toast.id !== toastId));
+    setDisconnectToasts((previous) =>
+      previous.filter((toast) => toast.id !== toastId),
+    );
   };
 
   if (!isOpen) {
@@ -272,12 +294,23 @@ export function SettingsDialog({
           onClick={(event) => event.stopPropagation()}
         >
           <aside className="ui-sidebar-surface relative z-10 flex w-72 shrink-0 flex-col border-r px-5 py-5">
-            <div className="mb-4 text-sm font-semibold text-zinc-200">Settings</div>
+            <div className="mb-4 text-sm font-semibold text-zinc-200">
+              Settings
+            </div>
             <nav className="space-y-5">
               <SettingsNavSection
                 label="Desktop"
                 items={[
-                  { id: "general", label: "General", icon: <Settings2 size={16} /> },
+                  {
+                    id: "general",
+                    label: "General",
+                    icon: <Settings2 size={16} />,
+                  },
+                  {
+                    id: "archived",
+                    label: "Archived",
+                    icon: <Archive size={16} />,
+                  },
                 ]}
                 activeSection={activeSection}
                 onSelect={handleSectionSelect}
@@ -286,7 +319,11 @@ export function SettingsDialog({
                 label="Server"
                 items={[
                   { id: "connect", label: "Connect", icon: <Plus size={16} /> },
-                  { id: "models", label: "Models", icon: <Sparkles size={16} /> },
+                  {
+                    id: "models",
+                    label: "Models",
+                    icon: <Sparkles size={16} />,
+                  },
                 ]}
                 activeSection={activeSection}
                 onSelect={handleSectionSelect}
@@ -296,12 +333,17 @@ export function SettingsDialog({
 
           <section className="relative z-10 flex min-w-0 flex-1 flex-col">
             <header className="flex items-center justify-between border-b ui-muted-divider px-6 py-4">
-              <h2 id="settings-dialog-title" className="text-xl font-semibold tracking-tight text-zinc-100">
+              <h2
+                id="settings-dialog-title"
+                className="text-xl font-semibold tracking-tight text-zinc-100"
+              >
                 {activeSection === "general"
                   ? "General"
-                  : activeSection === "connect"
-                    ? "Providers"
-                    : "Models"}
+                  : activeSection === "archived"
+                    ? "Archived"
+                    : activeSection === "connect"
+                      ? "Providers"
+                      : "Models"}
               </h2>
               <button
                 type="button"
@@ -320,8 +362,13 @@ export function SettingsDialog({
                 </div>
               ) : null}
 
-              {activeSection === "general" ? (
-                <SettingsGeneralPanel />
+              {activeSection === "general" ? <SettingsGeneralPanel /> : null}
+
+              {activeSection === "archived" ? (
+                <ArchivedChatsSettings
+                  isActive={activeSection === "archived"}
+                  onUnarchiveSession={onUnarchiveSession}
+                />
               ) : null}
 
               {activeSection === "connect" ? (
@@ -371,7 +418,9 @@ export function SettingsDialog({
                 <div className="flex items-start gap-2.5">
                   <CheckCircle2 className="mt-0.5 text-zinc-300" size={16} />
                   <div>
-                    <p className="text-lg font-medium leading-tight">{toast.providerName} disconnected</p>
+                    <p className="text-lg font-medium leading-tight">
+                      {toast.providerName} disconnected
+                    </p>
                     <p className="mt-1 text-sm text-zinc-300">
                       {toast.providerName} models are no longer available.
                     </p>
@@ -421,7 +470,9 @@ function SettingsNavSection({
             }`}
           >
             <span className="text-zinc-500">{item.icon}</span>
-            <span className="text-base font-medium leading-none">{item.label}</span>
+            <span className="text-base font-medium leading-none">
+              {item.label}
+            </span>
           </button>
         ))}
       </div>
@@ -502,15 +553,24 @@ function SettingsConnectPanel({
   selectedProviderIdForConnect: string | null;
   onOpenConnectView: (providerId?: string) => void;
   onBackToOverview: () => void;
-  onConnect: (providerId: string, secret: string, label?: string) => Promise<void>;
-  onDisconnect: (credential: BYOKCredential, providerName: string) => Promise<void>;
+  onConnect: (
+    providerId: string,
+    secret: string,
+    label?: string,
+  ) => Promise<void>;
+  onDisconnect: (
+    credential: BYOKCredential,
+    providerName: string,
+  ) => Promise<void>;
   onClearConnectError: () => void;
 }): React.ReactElement {
   if (connectView === "connect") {
     return (
       <div className="ui-surface-section p-4">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-zinc-100">Connect Provider</h3>
+          <h3 className="text-base font-semibold text-zinc-100">
+            Connect Provider
+          </h3>
           <button
             type="button"
             onClick={onBackToOverview}
@@ -538,10 +598,14 @@ function SettingsConnectPanel({
   return (
     <div className="space-y-6">
       <section>
-        <h3 className="mb-3 text-lg font-medium text-zinc-100">Connected providers</h3>
+        <h3 className="mb-3 text-lg font-medium text-zinc-100">
+          Connected providers
+        </h3>
         <div className="ui-surface-section">
           {connectedProviders.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-zinc-400">No provider keys connected yet.</div>
+            <div className="px-4 py-6 text-sm text-zinc-400">
+              No provider keys connected yet.
+            </div>
           ) : (
             connectedProviders.map((provider, index) => (
               <div
@@ -551,18 +615,26 @@ function SettingsConnectPanel({
                 }`}
               >
                 <div>
-                  <p className="text-lg font-medium text-zinc-100">{provider.displayName}</p>
+                  <p className="text-lg font-medium text-zinc-100">
+                    {provider.displayName}
+                  </p>
                   <span className="mt-1 inline-block rounded-md border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-300">
                     API key
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => onDisconnect(provider.credential, provider.displayName)}
-                  disabled={disconnectingCredentialId === provider.credential.credentialId}
+                  onClick={() =>
+                    onDisconnect(provider.credential, provider.displayName)
+                  }
+                  disabled={
+                    disconnectingCredentialId ===
+                    provider.credential.credentialId
+                  }
                   className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {disconnectingCredentialId === provider.credential.credentialId
+                  {disconnectingCredentialId ===
+                  provider.credential.credentialId
                     ? "Disconnecting..."
                     : "Disconnect"}
                 </button>
@@ -573,10 +645,14 @@ function SettingsConnectPanel({
       </section>
 
       <section>
-        <h3 className="mb-3 text-lg font-medium text-zinc-100">Popular providers</h3>
+        <h3 className="mb-3 text-lg font-medium text-zinc-100">
+          Popular providers
+        </h3>
         <div className="ui-surface-section">
           {availableProviders.length === 0 ? (
-            <div className="px-4 py-6 text-sm text-zinc-400">All available providers are already connected.</div>
+            <div className="px-4 py-6 text-sm text-zinc-400">
+              All available providers are already connected.
+            </div>
           ) : (
             availableProviders.map((provider, index) => (
               <div
@@ -586,9 +662,12 @@ function SettingsConnectPanel({
                 }`}
               >
                 <div>
-                  <p className="text-lg font-medium text-zinc-100">{provider.displayName}</p>
+                  <p className="text-lg font-medium text-zinc-100">
+                    {provider.displayName}
+                  </p>
                   <p className="mt-1 text-sm text-zinc-400">
-                    {provider.keyFormat?.description ?? "Connect using your API key"}
+                    {provider.keyFormat?.description ??
+                      "Connect using your API key"}
                   </p>
                 </div>
                 <button
@@ -623,7 +702,10 @@ function SettingsModelsPanel({
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
   loadingProviderModelIds: Record<string, boolean>;
-  onLoadProviderModels: (providerId: string, limit?: number) => Promise<ProviderModelOption[]>;
+  onLoadProviderModels: (
+    providerId: string,
+    limit?: number,
+  ) => Promise<ProviderModelOption[]>;
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
   onSetProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
 }): React.ReactElement {
@@ -671,7 +753,9 @@ function SettingsModelsPanel({
 
       {filteredGroups.length === 0 ? (
         <div className="ui-surface-section px-4 py-8 text-center text-sm text-zinc-400">
-          {searchQuery ? "No models match your search" : "No providers connected"}
+          {searchQuery
+            ? "No models match your search"
+            : "No providers connected"}
         </div>
       ) : (
         <div className="space-y-4">
@@ -684,13 +768,12 @@ function SettingsModelsPanel({
             const canToggleProviderVisibility = group.models.length > 0;
 
             return (
-              <section
-                key={group.providerId}
-                className="ui-surface-section"
-              >
+              <section key={group.providerId} className="ui-surface-section">
                 <div className="flex items-center justify-between px-4 py-3">
                   <div>
-                    <p className="text-lg font-semibold text-zinc-100">{group.displayName}</p>
+                    <p className="text-lg font-semibold text-zinc-100">
+                      {group.displayName}
+                    </p>
                     <p className="text-xs text-zinc-500">
                       {group.isModelListLoaded
                         ? `${group.models.length} models`
@@ -724,7 +807,9 @@ function SettingsModelsPanel({
                 </div>
 
                 {!group.isModelListLoaded ? (
-                  <div className="px-4 pb-4 text-sm text-zinc-500">Loading models...</div>
+                  <div className="px-4 pb-4 text-sm text-zinc-500">
+                    Loading models...
+                  </div>
                 ) : filteredModels.length === 0 ? (
                   <div className="px-4 pb-4 text-sm text-zinc-500">
                     {searchQuery
@@ -746,14 +831,19 @@ function SettingsModelsPanel({
                           }`}
                         >
                           <div>
-                            <p className="text-sm font-medium text-zinc-200">{model.name}</p>
+                            <p className="text-sm font-medium text-zinc-200">
+                              {model.name}
+                            </p>
                             <p className="text-xs text-zinc-500">{model.id}</p>
                           </div>
                           <input
                             type="checkbox"
                             checked={enabled}
                             onChange={() =>
-                              onToggleModelVisibility(group.providerId, model.id)
+                              onToggleModelVisibility(
+                                group.providerId,
+                                model.id,
+                              )
                             }
                             className="h-4 w-4 accent-blue-500"
                           />
@@ -786,7 +876,9 @@ function buildConnectedProviderRows(
   catalog: ProviderRegistryEntry[],
   credentials: BYOKCredential[],
 ): ConnectedProviderRow[] {
-  const catalogById = new Map(catalog.map((entry) => [entry.providerId, entry]));
+  const catalogById = new Map(
+    catalog.map((entry) => [entry.providerId, entry]),
+  );
   const firstCredentialByProvider = new Map<string, BYOKCredential>();
 
   for (const credential of credentials) {
@@ -806,7 +898,9 @@ function buildConnectedProviderRows(
     });
   }
 
-  return rows.sort((left, right) => left.displayName.localeCompare(right.displayName));
+  return rows.sort((left, right) =>
+    left.displayName.localeCompare(right.displayName),
+  );
 }
 
 function sortProviderModels(
@@ -854,8 +948,10 @@ function buildProviderGroupsForModels(
         providerModels[entry.providerId] ?? [],
       ),
       isModelListLoaded:
-        Object.prototype.hasOwnProperty.call(providerModels, entry.providerId) &&
-        !loadingProviderModelIds[entry.providerId],
+        Object.prototype.hasOwnProperty.call(
+          providerModels,
+          entry.providerId,
+        ) && !loadingProviderModelIds[entry.providerId],
     }));
 }
 

@@ -29,6 +29,7 @@ export function useEditArtifactDiff(
   const fetchDiff = useCallback(
     async (path: string): Promise<void> => {
       if (!artifactId) {
+        latestRequestIdRef.current += 1;
         setError("No edit artifact selected");
         return;
       }

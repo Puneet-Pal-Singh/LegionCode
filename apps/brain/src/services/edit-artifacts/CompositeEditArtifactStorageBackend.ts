@@ -44,7 +44,14 @@ export class CompositeEditArtifactStorageBackend
   ) {
     await this.primary.deleteArtifact(input);
     if (this.secondary) {
-      await this.secondary.deleteArtifact(input);
+      try {
+        await this.secondary.deleteArtifact(input);
+      } catch (error) {
+        console.warn("[edit-artifacts/storage] Secondary delete failed", {
+          artifactId: input.artifact.id,
+          error,
+        });
+      }
     }
   }
 }

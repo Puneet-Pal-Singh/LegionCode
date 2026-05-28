@@ -5,10 +5,10 @@ import type {
   EditArtifactDiffResponse,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import type { ArtifactRepository } from "@repo/persistence";
 import type { Env } from "../../types/ai";
-import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
+import { createCanonicalEditArtifactStorageBackend } from "./EditArtifactStorageBackendFactory";
+import type { EditArtifactStorageBackend } from "./EditArtifactStorageBackend";
 import {
   EditArtifactPatchParseError,
   parsePatchFileDiff,
@@ -52,45 +52,43 @@ interface ArtifactDiffInput extends ArtifactLookupInput {
 }
 
 export class EditArtifactReviewService {
-  private readonly objectStore: EditArtifactObjectStore;
+  private readonly patchReader: PatchIntegrityReader;
+  private readonly repositoryReader: ArtifactReviewRepositoryReader;
+  private readonly mapper = new ArtifactReviewMapper();
 
-  constructor(private readonly env: Env) {
-    if (!env.EDIT_ARTIFACTS) {
-      throw new Error("EDIT_ARTIFACTS binding is unavailable");
-    }
-    this.objectStore = new EditArtifactObjectStore(env.EDIT_ARTIFACTS);
+  constructor(env: Env) {
+    this.patchReader = new PatchIntegrityReader(
+      createCanonicalEditArtifactStorageBackend(env),
+    );
+    this.repositoryReader = new ArtifactReviewRepositoryReader(env);
   }
 
   async getLatestReviewSource(
     input: LatestArtifactInput,
   ): Promise<PromptArtifactReviewSource | null> {
-    const artifact = await withArtifactRepository(this.env, (repository) =>
-      this.loadLatestArtifact(repository, input),
-    );
-    return artifact ? this.toReviewSource(artifact) : null;
+    const artifact = await this.repositoryReader.loadLatestArtifact(input);
+    return artifact ? this.mapper.toReviewSource(artifact) : null;
   }
 
   async getReviewSourceByMessage(
     input: MessageArtifactInput,
   ): Promise<PromptArtifactReviewSource | null> {
-    const artifact = await withArtifactRepository(this.env, (repository) =>
-      this.loadMessageArtifact(repository, input),
-    );
-    return artifact ? this.toReviewSource(artifact) : null;
+    const artifact = await this.repositoryReader.loadMessageArtifact(input);
+    return artifact ? this.mapper.toReviewSource(artifact) : null;
   }
 
   async getArtifactFiles(
     input: ArtifactLookupInput,
   ): Promise<EditArtifactReviewFile[]> {
-    const artifact = await this.loadUserArtifact(input);
-    return this.toReviewFiles(artifact);
+    const artifact = await this.repositoryReader.loadUserArtifact(input);
+    return this.mapper.toReviewFiles(artifact);
   }
 
   async getArtifactDiff(
     input: ArtifactDiffInput,
   ): Promise<EditArtifactDiffResponse> {
-    const artifact = await this.loadUserArtifact(input);
-    const patch = await this.readVerifiedPatch(artifact);
+    const artifact = await this.repositoryReader.loadUserArtifact(input);
+    const patch = await this.patchReader.readVerifiedPatch(artifact);
     const diff = parseArtifactDiff(patch, input.path);
     return {
       artifactId: artifact.id,
@@ -99,42 +97,46 @@ export class EditArtifactReviewService {
       diff,
     };
   }
+}
 
-  private async loadLatestArtifact(
-    repository: ArtifactRepository,
+class ArtifactReviewRepositoryReader {
+  constructor(private readonly env: Env) {}
+
+  async loadLatestArtifact(
     input: LatestArtifactInput,
   ): Promise<EditArtifactRecord | null> {
-    if (input.userId) {
-      return await repository.getLatestReviewArtifact({
-        runId: input.runId,
-        userId: input.userId,
-        sessionId: input.sessionId,
-      });
-    }
-    return await repository.getLatestReviewArtifactForRun({
-      runId: input.runId,
-      sessionId: input.sessionId,
-    });
+    return await withArtifactRepository(this.env, (repository) =>
+      input.userId
+        ? repository.getLatestReviewArtifact({
+            runId: input.runId,
+            userId: input.userId,
+            sessionId: input.sessionId,
+          })
+        : repository.getLatestReviewArtifactForRun({
+            runId: input.runId,
+            sessionId: input.sessionId,
+          }),
+    );
   }
 
-  private async loadMessageArtifact(
-    repository: ArtifactRepository,
+  async loadMessageArtifact(
     input: MessageArtifactInput,
   ): Promise<EditArtifactRecord | null> {
-    if (input.userId) {
-      return await repository.getReviewArtifactByMessage({
-        runId: input.runId,
-        userId: input.userId,
-        assistantMessageId: input.assistantMessageId,
-      });
-    }
-    return await repository.getReviewArtifactByMessageForRun({
-      runId: input.runId,
-      assistantMessageId: input.assistantMessageId,
-    });
+    return await withArtifactRepository(this.env, (repository) =>
+      input.userId
+        ? repository.getReviewArtifactByMessage({
+            runId: input.runId,
+            userId: input.userId,
+            assistantMessageId: input.assistantMessageId,
+          })
+        : repository.getReviewArtifactByMessageForRun({
+            runId: input.runId,
+            assistantMessageId: input.assistantMessageId,
+          }),
+    );
   }
 
-  private async loadUserArtifact(
+  async loadUserArtifact(
     input: ArtifactLookupInput,
   ): Promise<EditArtifactRecord> {
     const artifact = await withArtifactRepository(this.env, (repository) =>
@@ -148,8 +150,10 @@ export class EditArtifactReviewService {
     }
     return artifact;
   }
+}
 
-  private toReviewSource(
+class ArtifactReviewMapper {
+  toReviewSource(
     artifact: EditArtifactRecord,
   ): PromptArtifactReviewSource {
     return {
@@ -168,7 +172,7 @@ export class EditArtifactReviewService {
     };
   }
 
-  private toReviewFiles(
+  toReviewFiles(
     artifact: EditArtifactRecord,
   ): EditArtifactReviewFile[] {
     return artifact.changedFiles.map((file) => ({
@@ -181,11 +185,15 @@ export class EditArtifactReviewService {
       artifactPath: file.path,
     }));
   }
+}
 
-  private async readVerifiedPatch(
+class PatchIntegrityReader {
+  constructor(private readonly storageBackend: EditArtifactStorageBackend) {}
+
+  async readVerifiedPatch(
     artifact: EditArtifactRecord,
   ): Promise<string> {
-    const patch = await this.objectStore.readPatch(artifact.r2ObjectKey);
+    const patch = await this.storageBackend.readPatch({ artifact });
     if (!patch) {
       throw new EditArtifactReviewError(
         "ARTIFACT_PATCH_MISSING",

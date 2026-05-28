@@ -138,24 +138,36 @@ export class EditArtifactCaptureService {
       patch: capturedPatch.patch,
       r2ObjectKey,
     });
-    await this.markCaptureStored(
-      repository,
-      artifactId,
-      input.userId,
-      input.runId,
-      changedFiles.length,
-      storedArtifact.patchSha256,
-      new TextEncoder().encode(capturedPatch.patch).byteLength,
-      storedArtifact,
-    );
-    await this.recordPatchParseStatus(
-      repository,
-      input,
-      artifactId,
-      storedArtifact.patchSha256,
-      capturedPatch.patch,
-      changedFiles,
-    );
+    try {
+      await this.markCaptureStored(
+        repository,
+        artifactId,
+        input.userId,
+        input.runId,
+        changedFiles.length,
+        storedArtifact.patchSha256,
+        new TextEncoder().encode(capturedPatch.patch).byteLength,
+        storedArtifact,
+      );
+      await this.recordPatchParseStatus(
+        repository,
+        input,
+        artifactId,
+        storedArtifact.patchSha256,
+        capturedPatch.patch,
+        changedFiles,
+        storedArtifact,
+      );
+    } catch (error) {
+      await this.markCaptureFailed(
+        repository,
+        artifactId,
+        input.userId,
+        input.runId,
+        error,
+      );
+      throw error;
+    }
   }
 
   private buildPatchKey(
@@ -259,6 +271,19 @@ export class EditArtifactCaptureService {
         message: "Cloudflare Artifacts secondary write failed",
         metadata: { error: storedArtifact.secondaryError },
       });
+    } else if (storedArtifact.secondary) {
+      await input.repository.appendEvent({
+        id: crypto.randomUUID(),
+        artifactId: input.artifactId,
+        runId: input.input.runId,
+        eventType: "cf_artifacts_write_succeeded",
+        message: "Cloudflare Artifacts secondary write succeeded",
+        metadata: {
+          cfArtifactRepo: storedArtifact.secondary.cfRepo ?? null,
+          cfArtifactCommitSha: storedArtifact.secondary.cfCommitSha ?? null,
+          cfArtifactPath: storedArtifact.secondary.cfPath ?? null,
+        },
+      });
     }
     return storedArtifact;
   }
@@ -305,6 +330,7 @@ export class EditArtifactCaptureService {
     patchSha256: string,
     patch: string,
     changedFiles: EditArtifactChangedFile[],
+    storedArtifact: CompositeEditArtifactStorageResult,
   ): Promise<void> {
     const parseStatus = resolvePatchParseStatus(patch, changedFiles);
     await repository.updateReviewMetadata({
@@ -316,7 +342,12 @@ export class EditArtifactCaptureService {
       captureSequence: input.captureSequence ?? 0,
       patchParseStatus: parseStatus,
       patchSha256,
-      storageBackend: "r2_postgres",
+      storageBackend: storedArtifact.secondary
+        ? "cloudflare_artifacts"
+        : "r2_postgres",
+      cfArtifactRepo: storedArtifact.secondary?.cfRepo ?? null,
+      cfArtifactCommitSha: storedArtifact.secondary?.cfCommitSha ?? null,
+      cfArtifactPath: storedArtifact.secondary?.cfPath ?? null,
     });
     await repository.appendEvent({
       id: crypto.randomUUID(),
@@ -327,9 +358,42 @@ export class EditArtifactCaptureService {
       message:
         parseStatus === "parsed"
           ? "Edit artifact patch parsed successfully"
-          : "Edit artifact patch inventory did not match captured files",
+          : parseStatus === "corrupt"
+            ? "Edit artifact patch could not be parsed"
+            : "Edit artifact patch inventory did not match captured files",
       metadata: { patchParseStatus: parseStatus },
     });
+  }
+
+  private async markCaptureFailed(
+    repository: ArtifactRepository,
+    artifactId: string,
+    userId: string,
+    runId: string,
+    error: unknown,
+  ): Promise<void> {
+    const message =
+      error instanceof Error ? error.message : "Unknown capture failure";
+    try {
+      await repository.updateStatus({
+        artifactId,
+        userId,
+        status: "capture_failed",
+      });
+      await repository.appendEvent({
+        id: crypto.randomUUID(),
+        artifactId,
+        runId,
+        eventType: "capture_failed",
+        message: "Edit artifact capture failed after patch write",
+        metadata: { error: message },
+      });
+    } catch (compensationError) {
+      console.warn("[edit-artifacts/capture] compensation failed", {
+        artifactId,
+        error: compensationError,
+      });
+    }
   }
 
   private async loadChangedFilesFromGit(
@@ -506,6 +570,12 @@ function buildPatchMetadata(
     branch: input.artifact.branch,
     baseCommitSha: input.artifact.baseCommitSha,
     patchSha256,
+    userMessageId: input.input.userMessageId ?? null,
+    assistantMessageId: input.input.assistantMessageId ?? null,
+    sourceTurnId: input.input.sourceTurnId ?? null,
+    captureSequence: input.input.captureSequence ?? 0,
+    patchParseStatus: "unknown",
+    storageBackend: "r2_postgres",
     changedFiles: input.changedFiles,
     capturedAt: input.capturedAt,
   };

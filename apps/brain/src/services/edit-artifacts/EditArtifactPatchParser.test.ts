@@ -73,4 +73,57 @@ describe("EditArtifactPatchParser", () => {
       },
     ]);
   });
+
+  it("parses quoted paths, deleted files, binary files, and pure renames", () => {
+    const patch = `diff --git "a/src/old name.ts" "b/src/new name.ts"
+similarity index 100%
+rename from src/old name.ts
+rename to src/new name.ts
+diff --git a/assets/logo.png b/assets/logo.png
+new file mode 100644
+index 0000000..1234567
+Binary files /dev/null and b/assets/logo.png differ
+diff --git a/src/removed.ts b/src/removed.ts
+deleted file mode 100644
+--- a/src/removed.ts
++++ /dev/null
+@@ -1 +0,0 @@
+-export const removed = true;
+`;
+
+    expect(parsePatchFileInventory(patch)).toEqual([
+      {
+        path: "src/new name.ts",
+        status: "renamed",
+        additions: 0,
+        deletions: 0,
+        diffAvailable: false,
+        artifactPath: "src/new name.ts",
+      },
+      {
+        path: "assets/logo.png",
+        status: "added",
+        additions: 0,
+        deletions: 0,
+        diffAvailable: false,
+        artifactPath: "assets/logo.png",
+      },
+      {
+        path: "src/removed.ts",
+        status: "deleted",
+        additions: 0,
+        deletions: 1,
+        diffAvailable: true,
+        artifactPath: "src/removed.ts",
+      },
+    ]);
+
+    expect(
+      parsePatchFileDiff({ patch, path: "assets/logo.png" }),
+    ).toMatchObject({
+      isBinary: true,
+      isNewFile: true,
+      hunks: [],
+    });
+  });
 });

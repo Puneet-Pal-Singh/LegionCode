@@ -3,7 +3,10 @@ import type { ArtifactRepository } from "@repo/persistence";
 import type { EditArtifactRecord } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
-import { EditArtifactReviewService } from "./EditArtifactReviewService";
+import {
+  EditArtifactReviewError,
+  EditArtifactReviewService,
+} from "./EditArtifactReviewService";
 import { sha256Hex } from "./EditArtifactStorageBackend";
 
 const artifactFactory = vi.hoisted(() => ({
@@ -70,6 +73,80 @@ describe("EditArtifactReviewService", () => {
       }),
     ).rejects.toMatchObject({ code: "ARTIFACT_PATCH_CORRUPT" });
   });
+
+  it("rejects missing saved patches", async () => {
+    const env = createEnv();
+    const artifact = createArtifact(await sha256Hex(PATCH));
+    artifactFactory.withArtifactRepository.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: ArtifactRepository) => Promise<unknown>,
+      ) => await callback(createRepository(artifact)),
+    );
+
+    const service = new EditArtifactReviewService(env);
+    await expect(
+      service.getArtifactDiff({
+        artifactId: artifact.id,
+        userId: artifact.userId,
+        path: "src/main.ts",
+      }),
+    ).rejects.toMatchObject({ code: "ARTIFACT_PATCH_MISSING" });
+  });
+
+  it("rejects artifacts outside the requesting user", async () => {
+    const env = createEnv();
+    artifactFactory.withArtifactRepository.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: ArtifactRepository) => Promise<unknown>,
+      ) => await callback(createRepository(null)),
+    );
+
+    const service = new EditArtifactReviewService(env);
+    await expect(
+      service.getArtifactFiles({
+        artifactId: "artifact-1",
+        userId: "other-user",
+      }),
+    ).rejects.toBeInstanceOf(EditArtifactReviewError);
+    await expect(
+      service.getArtifactFiles({
+        artifactId: "artifact-1",
+        userId: "other-user",
+      }),
+    ).rejects.toMatchObject({ code: "ARTIFACT_UNAUTHORIZED" });
+  });
+
+  it("maps review source metadata and normalizes unknown file statuses", async () => {
+    const env = createEnv();
+    const artifact = {
+      ...createArtifact(await sha256Hex(PATCH)),
+      status: "requires_user_resolution" as const,
+      changedFiles: [
+        { path: "src/main.ts", status: "unknown", additions: 2, deletions: 0 },
+      ],
+    };
+    artifactFactory.withArtifactRepository.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: ArtifactRepository) => Promise<unknown>,
+      ) => await callback(createRepository(artifact)),
+    );
+
+    await expect(
+      new EditArtifactReviewService(env).getLatestReviewSource({
+        runId: artifact.runId,
+        userId: artifact.userId,
+      }),
+    ).resolves.toMatchObject({
+      artifactId: artifact.id,
+      assistantMessageId: "assistant-message-1",
+      sourceTurnId: "turn-1",
+      status: "requires_user_resolution",
+      files: [{ path: "src/main.ts", status: "modified" }],
+    });
+  });
 });
 
 async function createStoredArtifact(
@@ -92,6 +169,12 @@ async function createStoredArtifact(
       branch: artifact.branch,
       baseCommitSha: artifact.baseCommitSha,
       patchSha256: artifact.patchSha256 ?? artifact.sha256 ?? "",
+      userMessageId: artifact.userMessageId ?? null,
+      assistantMessageId: artifact.assistantMessageId ?? null,
+      sourceTurnId: artifact.sourceTurnId ?? null,
+      captureSequence: artifact.captureSequence ?? 0,
+      patchParseStatus: artifact.patchParseStatus ?? "unknown",
+      storageBackend: artifact.storageBackend ?? "r2_postgres",
       changedFiles: artifact.changedFiles,
       capturedAt: artifact.createdAt,
     },
@@ -117,8 +200,17 @@ function createArtifact(sha256: string): EditArtifactRecord {
     contentType: "text/x-patch",
     sizeBytes: PATCH.length,
     sha256,
+    userMessageId: "user-message-1",
+    assistantMessageId: "assistant-message-1",
+    sourceTurnId: "turn-1",
+    captureSequence: 1,
+    patchParseStatus: "parsed",
     patchSha256: sha256,
     storageBackend: "r2_postgres",
+    cfArtifactRepo: null,
+    cfArtifactCommitSha: null,
+    cfArtifactPath: null,
+    storageReconciliationStatus: null,
     changedFileCount: 1,
     changedFiles: [
       { path: "src/main.ts", status: "modified", additions: 1, deletions: 1 },
@@ -130,7 +222,8 @@ function createArtifact(sha256: string): EditArtifactRecord {
   };
 }
 
-function createRepository(artifact: EditArtifactRecord): ArtifactRepository {
+function createRepository(artifact: EditArtifactRecord | null): ArtifactRepository {
+  const storedArtifact = artifact ?? createArtifact("sha256");
   return {
     createPendingArtifact: vi.fn(),
     appendEvent: vi.fn(),
@@ -143,7 +236,7 @@ function createRepository(artifact: EditArtifactRecord): ArtifactRepository {
     getLatestReviewArtifactForRun: vi.fn(async () => artifact),
     getReviewArtifactByMessage: vi.fn(async () => artifact),
     getReviewArtifactByMessageForRun: vi.fn(async () => artifact),
-    updateReviewMetadata: vi.fn(async () => artifact),
+    updateReviewMetadata: vi.fn(async () => storedArtifact),
     listExpiredArtifacts: vi.fn(async () => []),
     listStalePendingArtifacts: vi.fn(async () => []),
     transaction: vi.fn(),

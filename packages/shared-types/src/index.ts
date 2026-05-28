@@ -159,6 +159,11 @@ export {
 // Explicit build/plan mode contract
 export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
 export {
+  CHAT_TITLE_SOURCES,
+  type ChatTitleSource,
+  type SessionOrganizationMetadata,
+} from "./session-organization.js";
+export {
   PRODUCT_MODES,
   APPROVAL_POLICIES,
   EXECUTION_SCOPES,

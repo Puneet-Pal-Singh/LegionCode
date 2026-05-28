@@ -184,6 +184,26 @@ export function sessionArchivePath(sessionId: string): string {
   return `${sessionsPath()}/${encodeURIComponent(sessionId)}/archive`;
 }
 
+export function sessionTitlePath(sessionId: string): string {
+  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/title`;
+}
+
+export function sessionPinPath(sessionId: string): string {
+  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/pin`;
+}
+
+export function sessionUnpinPath(sessionId: string): string {
+  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/unpin`;
+}
+
+export function sessionUnarchivePath(sessionId: string): string {
+  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/unarchive`;
+}
+
+export function archivedSessionsPath(): string {
+  return `${sessionsPath()}/archived`;
+}
+
 /**
  * Build the canonical git status endpoint URL through Brain.
  * Used for fetching current git status for a run-scoped workspace.

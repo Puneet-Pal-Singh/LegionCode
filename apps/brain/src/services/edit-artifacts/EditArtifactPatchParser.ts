@@ -132,11 +132,14 @@ function pushBlock(blocks: PatchFileBlock[], lines: string[]): void {
 }
 
 function parseDiffHeaderPath(line: string): string | null {
-  const match = line.match(/^diff --git (.+) (.+)$/);
-  if (!match?.[2]) {
+  const match = line.match(
+    /^diff --git (?:"([^"]+)"|(\S+)) (?:"([^"]+)"|(\S+))$/,
+  );
+  const rightPath = match?.[3] ?? match?.[4];
+  if (!rightPath) {
     return null;
   }
-  return normalizePatchPath(match[2]);
+  return normalizePatchPath(rightPath);
 }
 
 function parsePathHeader(lines: string[], prefix: "--- " | "+++ "): string | null {

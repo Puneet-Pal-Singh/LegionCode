@@ -1,7 +1,7 @@
 import type { Env } from "../../types/ai";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
-import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 import { sha256Hex } from "./EditArtifactStorageBackend";
+import { createCanonicalEditArtifactStorageBackend } from "./EditArtifactStorageBackendFactory";
 
 export type ReconciliationStatus =
   | "reconciled"
@@ -26,13 +26,18 @@ export class EditArtifactStorageReconciliationService {
     const artifact = await withArtifactRepository(this.env, (repository) =>
       repository.getArtifactById(input.artifactId, input.userId),
     );
-    if (!artifact || !this.env.EDIT_ARTIFACTS) {
+    if (!artifact) {
       return this.unresolved(input.artifactId);
     }
 
-    const objectStore = new EditArtifactObjectStore(this.env.EDIT_ARTIFACTS);
-    const r2Patch = await objectStore.readPatch(artifact.r2ObjectKey);
+    const storageBackend = createCanonicalEditArtifactStorageBackend(this.env);
+    const r2Patch = await storageBackend.readPatch({ artifact });
     if (!r2Patch || !input.cloudflarePatch) {
+      await this.persistReconciliationStatus(
+        artifact.id,
+        artifact.userId,
+        "requires_user_resolution",
+      );
       return this.unresolved(input.artifactId);
     }
 
@@ -43,13 +48,7 @@ export class EditArtifactStorageReconciliationService {
         ? "reconciled"
         : "reconciliation_failed";
 
-    await withArtifactRepository(this.env, (repository) =>
-      repository.updateReviewMetadata({
-        artifactId: artifact.id,
-        userId: artifact.userId,
-        storageReconciliationStatus: status,
-      }),
-    );
+    await this.persistReconciliationStatus(artifact.id, artifact.userId, status);
 
     return {
       artifactId: artifact.id,
@@ -66,5 +65,19 @@ export class EditArtifactStorageReconciliationService {
       r2PatchSha256: null,
       cloudflarePatchSha256: null,
     };
+  }
+
+  private async persistReconciliationStatus(
+    artifactId: string,
+    userId: string,
+    status: ReconciliationStatus,
+  ): Promise<void> {
+    await withArtifactRepository(this.env, (repository) =>
+      repository.updateReviewMetadata({
+        artifactId,
+        userId,
+        storageReconciliationStatus: status,
+      }),
+    );
   }
 }

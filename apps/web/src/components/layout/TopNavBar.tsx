@@ -2,6 +2,8 @@ import { motion } from "framer-motion";
 import { FileDiff, PanelLeftOpen, PanelRight } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
+import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
+import type { AgentSession } from "../../types/session";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
@@ -12,6 +14,11 @@ interface TopNavBarProps {
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
   taskTitle?: string;
+  activeSession?: AgentSession | null;
+  onRenameSession?: (title: string) => Promise<void>;
+  onPinSession?: () => Promise<void>;
+  onUnpinSession?: () => Promise<void>;
+  onArchiveSession?: () => Promise<void>;
   isAuthenticated?: boolean;
   onConnectGitHub?: () => void;
 }
@@ -24,6 +31,11 @@ export function TopNavBar({
   isRightSidebarOpen = false,
   onToggleRightSidebar,
   taskTitle,
+  activeSession,
+  onRenameSession,
+  onPinSession,
+  onUnpinSession,
+  onArchiveSession,
   isAuthenticated = false,
   onConnectGitHub,
 }: TopNavBarProps) {
@@ -51,6 +63,13 @@ export function TopNavBar({
         {taskTitle && (
           <span className="text-sm font-medium text-white">{taskTitle}</span>
         )}
+        <ChatHeaderMenu
+          session={activeSession ?? null}
+          onRename={onRenameSession ?? (async () => undefined)}
+          onPin={onPinSession ?? (async () => undefined)}
+          onUnpin={onUnpinSession ?? (async () => undefined)}
+          onArchive={onArchiveSession ?? (async () => undefined)}
+        />
       </div>
 
       {/* Center Section - Spacer */}
@@ -78,7 +97,9 @@ export function TopNavBar({
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
             }`}
-            title={onReview ? "Open review panel" : "Review is not available yet"}
+            title={
+              onReview ? "Open review panel" : "Review is not available yet"
+            }
           >
             <FileDiff size={15} />
           </motion.button>

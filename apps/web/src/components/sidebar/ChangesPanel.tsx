@@ -202,11 +202,13 @@ export function ChangesPanel({
                   ? diffLoading
                     ? "Loading diff..."
                     : (diffError ?? "No diff available")
-                  : files.length > 0
-                    ? "Loading diff..."
-                    : isPromptArtifactMode
-                      ? reviewSourceError ?? "No saved artifact"
-                      : "No live Git changes"}
+                    : files.length > 0
+                      ? "Loading diff..."
+                      : isPromptArtifactMode
+                        ? reviewSourceLoading
+                          ? "Loading saved artifact..."
+                          : (reviewSourceError ?? "No saved artifact")
+                        : "No live Git changes"}
               </div>
             )}
           </div>

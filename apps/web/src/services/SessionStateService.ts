@@ -5,8 +5,8 @@
  * Enforces session-scoped storage keys and data model consistency.
  *
  * Storage Keys:
- * - shadowbox:sessions:v2 — Main session store
- * - shadowbox:active-session-id:v2 — Active session selector
+ * - shadowbox:sessions:v3 — Main session store
+ * - shadowbox:active-session-id:v3 — Active session selector
  * - shadowbox:session-context:{sessionId} — GitHub context per session
  * - shadowbox:pending-query:{sessionId} — Pending user input per session
  * - shadowbox:run:{runId}:messages — Messages per run
@@ -15,35 +15,54 @@
  */
 
 import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
-import { sessionArchivePath, sessionsPath } from "../lib/platform-endpoints";
+import {
+  archivedSessionsPath,
+  sessionArchivePath,
+  sessionPinPath,
+  sessionTitlePath,
+  sessionUnarchivePath,
+  sessionUnpinPath,
+  sessionsPath,
+} from "../lib/platform-endpoints";
 import type {
   AgentSession,
+  ChatTitleSource,
   SessionStatus,
   SessionStorageSchema,
   SessionGitHubContext,
   SetupSessionState,
 } from "../types/session";
 
-const SESSIONS_KEY = "shadowbox:sessions:v2";
-const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v2";
+const SESSIONS_KEY = "shadowbox:sessions:v3";
+const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v3";
 const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 
 type StoredAgentSession = Omit<AgentSession, "mode"> & {
   mode?: RunMode;
+  titleSource?: ChatTitleSource;
+  pinnedAt?: string | null;
+  archivedAt?: string | null;
 };
 
 interface ServerSessionRecord {
   id: string;
   title: string;
+  titleSource?: ChatTitleSource;
   repository: string | null;
   activeRunId: string | null;
   mode: RunMode;
   status: "idle" | "running" | "completed" | "failed";
+  pinnedAt?: string | null;
+  archivedAt?: string | null;
   updatedAt: string;
 }
 
 interface ServerSessionsResponse {
   sessions: ServerSessionRecord[];
+}
+
+interface ServerSessionResponse {
+  session: ServerSessionRecord;
 }
 
 function getSessionContextKey(sessionId: string): string {
@@ -71,7 +90,7 @@ export class SessionStateService {
       const parsed = JSON.parse(stored) as SessionStorageSchema;
 
       // Validate version (for future migrations)
-      if (parsed.version !== 2) {
+      if (parsed.version !== 3) {
         console.warn(
           "[SessionStateService] Unknown version, returning empty sessions",
         );
@@ -108,7 +127,7 @@ export class SessionStateService {
       activeSessionId !== null ? activeSessionId : this.loadActiveSessionId();
 
     const schema: SessionStorageSchema = {
-      version: 2,
+      version: 3,
       sessions,
       activeSessionId: currentActiveId,
       lastModified: new Date().toISOString(),
@@ -121,7 +140,9 @@ export class SessionStateService {
     }
   }
 
-  static async hydrateSessionsFromServer(): Promise<Record<string, AgentSession>> {
+  static async hydrateSessionsFromServer(): Promise<
+    Record<string, AgentSession>
+  > {
     const response = await fetch(sessionsPath(), { credentials: "include" });
     if (!response.ok) {
       throw new Error(`Session hydration failed: ${response.status}`);
@@ -140,7 +161,7 @@ export class SessionStateService {
     );
   }
 
-  static async persistSession(session: AgentSession): Promise<void> {
+  static async persistSession(session: AgentSession): Promise<AgentSession> {
     const response = await fetch(sessionsPath(), {
       method: "POST",
       credentials: "include",
@@ -151,6 +172,7 @@ export class SessionStateService {
         sessionId: session.id,
         runId: session.activeRunId,
         title: session.name,
+        titleSource: session.titleSource,
         repository: session.repository,
         mode: session.mode,
       }),
@@ -159,17 +181,64 @@ export class SessionStateService {
     if (!response.ok) {
       throw new Error(`Session persistence failed: ${response.status}`);
     }
+
+    return readServerSessionResponse(response);
   }
 
-  static async archiveSession(sessionId: string): Promise<void> {
+  static async renameSessionTitle(
+    sessionId: string,
+    title: string,
+  ): Promise<AgentSession> {
+    const response = await fetch(sessionTitlePath(sessionId), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title }),
+    });
+
+    return readMetadataMutationResponse(response, "Session rename");
+  }
+
+  static async pinSession(sessionId: string): Promise<AgentSession> {
+    return sendSessionMutation(sessionPinPath(sessionId), "Session pin");
+  }
+
+  static async unpinSession(sessionId: string): Promise<AgentSession> {
+    return sendSessionMutation(sessionUnpinPath(sessionId), "Session unpin");
+  }
+
+  static async archiveSession(sessionId: string): Promise<AgentSession> {
     const response = await fetch(sessionArchivePath(sessionId), {
       method: "POST",
       credentials: "include",
     });
 
-    if (!response.ok && response.status !== 404) {
-      throw new Error(`Session archive failed: ${response.status}`);
+    return readMetadataMutationResponse(response, "Session archive");
+  }
+
+  static async unarchiveSession(sessionId: string): Promise<AgentSession> {
+    return sendSessionMutation(
+      sessionUnarchivePath(sessionId),
+      "Session unarchive",
+    );
+  }
+
+  static async hydrateArchivedSessionsFromServer(): Promise<AgentSession[]> {
+    const response = await fetch(archivedSessionsPath(), {
+      credentials: "include",
+    });
+    if (!response.ok) {
+      throw new Error(`Archived session hydration failed: ${response.status}`);
     }
+    const payload = (await response.json()) as Partial<ServerSessionsResponse>;
+    if (!Array.isArray(payload.sessions)) {
+      throw new Error("Invalid archived session hydration response");
+    }
+    return payload.sessions
+      .map(mapServerSession)
+      .filter((session): session is AgentSession => session !== null);
   }
 
   /**
@@ -180,7 +249,10 @@ export class SessionStateService {
       const stored = localStorage.getItem(ACTIVE_SESSION_ID_KEY);
       return stored || null;
     } catch (e) {
-      console.error("[SessionStateService] Failed to load active session ID:", e);
+      console.error(
+        "[SessionStateService] Failed to load active session ID:",
+        e,
+      );
       return null;
     }
   }
@@ -284,7 +356,10 @@ export class SessionStateService {
         localStorage.removeItem(ACTIVE_SESSION_ID_KEY);
       }
     } catch (e) {
-      console.error("[SessionStateService] Failed to save active session ID:", e);
+      console.error(
+        "[SessionStateService] Failed to save active session ID:",
+        e,
+      );
     }
   }
 
@@ -429,10 +504,13 @@ export class SessionStateService {
     return {
       id: sessionId,
       name,
+      titleSource: "generated",
       repository,
       activeRunId: runId,
       runIds: [runId],
       status,
+      pinnedAt: null,
+      archivedAt: null,
       mode,
       updatedAt: new Date().toISOString(),
     };
@@ -504,11 +582,18 @@ export class SessionStateService {
     const checks = [
       { name: "id", pass: !!session.id },
       { name: "name", pass: !!session.name },
+      {
+        name: "titleSource",
+        pass:
+          session.titleSource === "generated" || session.titleSource === "user",
+      },
       { name: "activeRunId", pass: !!session.activeRunId },
       { name: "runIds", pass: Array.isArray(session.runIds) },
       {
         name: "status",
-        pass: validStatuses.includes(session.status as typeof validStatuses[number]),
+        pass: validStatuses.includes(
+          session.status as (typeof validStatuses)[number],
+        ),
       },
       {
         name: "mode",
@@ -520,7 +605,8 @@ export class SessionStateService {
       },
       {
         name: "repository",
-        pass: session.repository === null || session.repository.trim().length > 0,
+        pass:
+          session.repository === null || session.repository.trim().length > 0,
       },
       { name: "updatedAt", pass: !!session.updatedAt },
     ];
@@ -544,6 +630,9 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
   return {
     ...session,
     mode: session.mode ?? DEFAULT_RUN_MODE,
+    titleSource: session.titleSource ?? "generated",
+    pinnedAt: session.pinnedAt ?? null,
+    archivedAt: session.archivedAt ?? null,
   };
 }
 
@@ -555,11 +644,14 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
   return {
     id: session.id,
     name: session.title,
+    titleSource: session.titleSource ?? "generated",
     repository: session.repository,
     activeRunId: session.activeRunId,
     runIds: [session.activeRunId],
     status: mapServerStatus(session.status),
     mode: session.mode ?? DEFAULT_RUN_MODE,
+    pinnedAt: session.pinnedAt ?? null,
+    archivedAt: session.archivedAt ?? null,
     updatedAt: session.updatedAt,
   };
 }
@@ -569,4 +661,36 @@ function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
     return "error";
   }
   return status;
+}
+
+async function sendSessionMutation(
+  path: string,
+  operation: string,
+): Promise<AgentSession> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+  });
+  return readMetadataMutationResponse(response, operation);
+}
+
+async function readMetadataMutationResponse(
+  response: Response,
+  operation: string,
+): Promise<AgentSession> {
+  if (!response.ok) {
+    throw new Error(`${operation} failed: ${response.status}`);
+  }
+  return readServerSessionResponse(response);
+}
+
+async function readServerSessionResponse(
+  response: Response,
+): Promise<AgentSession> {
+  const payload = (await response.json()) as Partial<ServerSessionResponse>;
+  const session = payload.session ? mapServerSession(payload.session) : null;
+  if (!session) {
+    throw new Error("Invalid session response");
+  }
+  return session;
 }

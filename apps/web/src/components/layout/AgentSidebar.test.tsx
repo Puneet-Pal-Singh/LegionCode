@@ -7,11 +7,14 @@ function createSession(overrides?: Partial<AgentSession>): AgentSession {
   return {
     id: "session-1",
     name: "Draft task",
+    titleSource: "generated",
     repository: "shadowbox/shadowbox",
     activeRunId: "run-1",
     runIds: ["run-1"],
     status: "running",
     mode: "build",
+    pinnedAt: null,
+    archivedAt: null,
     updatedAt: "2026-04-14T12:00:00.000Z",
     ...overrides,
   };
@@ -56,7 +59,9 @@ describe("AgentSidebar", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
-    expect(screen.getByRole("menuitemradio", { name: "Awaiting approval" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitemradio", { name: "Awaiting approval" }),
+    ).toBeInTheDocument();
   });
 
   it("renders a spinner indicator for running sessions", () => {
