@@ -1,5 +1,7 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import {
+  projectRunActivityTranscript,
+  RunEventRepository,
   RunRepository,
   tagRuntimeStateSemantics,
 } from "@shadowbox/execution-engine/runtime";
@@ -85,6 +87,7 @@ async function persistAssistantMessageFromRunOutput(
       "do",
     );
     const runRepository = new RunRepository(runtimeState);
+    const runEventRepository = new RunEventRepository(runtimeState);
     const run = await runRepository.getById(runId);
     const outputContent = run?.output?.content?.trim();
 
@@ -93,9 +96,19 @@ async function persistAssistantMessageFromRunOutput(
     }
 
     const persistenceService = new PersistenceService(env);
-    await persistenceService.persistUserMessage(sessionId, runId, {
-      role: "assistant",
-      content: outputContent,
+    const events = await runEventRepository.getByRun(runId);
+    await persistenceService.persistAssistantTurn({
+      sessionId,
+      runId,
+      text: outputContent,
+      metadata: readTerminalAssistantMetadata(events),
+      activity: projectRunActivityTranscript({
+        runId,
+        sessionId,
+        events,
+        terminalStatus: mapRuntimeActivityTerminalStatus(run?.status),
+        terminalReason: readTerminalReason(run?.metadata?.error),
+      }),
     });
     return true;
   } catch (error) {
@@ -105,6 +118,38 @@ async function persistAssistantMessageFromRunOutput(
     );
     return false;
   }
+}
+
+function readTerminalAssistantMetadata(
+  events: Awaited<ReturnType<RunEventRepository["getByRun"]>>,
+): Record<string, unknown> | undefined {
+  const assistantEvents = events.filter(
+    (event) =>
+      event.type === "message.emitted" && event.payload.role === "assistant",
+  );
+  const latestMetadata = assistantEvents.at(-1)?.payload.metadata;
+  return latestMetadata && Object.keys(latestMetadata).length > 0
+    ? latestMetadata
+    : undefined;
+}
+
+function mapRuntimeActivityTerminalStatus(
+  status: string | null | undefined,
+): "completed" | "paused" | "failed" | "cancelled" {
+  switch (status) {
+    case "PAUSED":
+      return "paused";
+    case "FAILED":
+      return "failed";
+    case "CANCELLED":
+      return "cancelled";
+    default:
+      return "completed";
+  }
+}
+
+function readTerminalReason(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 async function persistAssistantMessageFromTextResponse(

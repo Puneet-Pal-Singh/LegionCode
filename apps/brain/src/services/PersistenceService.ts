@@ -1,5 +1,5 @@
 import type { CoreMessage } from "ai";
-import type { JsonValue } from "@repo/shared-types";
+import type { JsonValue, TurnActivityTranscriptPart } from "@repo/shared-types";
 import type {
   AppendRunEventInput,
   RunEventRecord,
@@ -25,6 +25,7 @@ interface PersistMessageContext {
 
 type TranscriptPersistenceOperation =
   | "persistUserMessage"
+  | "persistAssistantTurn"
   | "persistConversation";
 
 export class TranscriptPersistenceError extends DomainError {
@@ -91,7 +92,12 @@ export class PersistenceService {
     });
   }
 
-  async updateRunStatus(runId: string, status: RunStatus, startedAt?: string, completedAt?: string): Promise<RunRecord> {
+  async updateRunStatus(
+    runId: string,
+    status: RunStatus,
+    startedAt?: string,
+    completedAt?: string,
+  ): Promise<RunRecord> {
     return await withRunRepository(this.env, async (repository) => {
       return await repository.updateRunStatus({
         id: runId,
@@ -216,6 +222,37 @@ export class PersistenceService {
     }
   }
 
+  async persistAssistantTurn(input: {
+    sessionId: string;
+    runId: string;
+    text: string;
+    metadata?: Record<string, unknown>;
+    activity?: TurnActivityTranscriptPart | null;
+  }): Promise<void> {
+    try {
+      const idempotencyKey = await this.generateIdempotencyKey(
+        input.sessionId,
+        input.runId,
+        "assistant_turn",
+        input.text,
+      );
+
+      await withTranscriptRepository(this.env, async (repository) => {
+        await repository.appendMessageToExistingSession({
+          sessionId: input.sessionId,
+          runId: input.runId,
+          role: "assistant",
+          dedupeKey: idempotencyKey,
+          parts: buildAssistantTurnParts(input),
+        });
+      });
+      console.log(`[Brain] Persisted assistant turn for run ${input.runId}`);
+    } catch (error) {
+      console.error("[Brain] Persist assistant turn failed", error);
+      throw new TranscriptPersistenceError("persistAssistantTurn", error);
+    }
+  }
+
   private async persistLatestConversationMessage(
     sessionId: string,
     runId: string,
@@ -332,11 +369,53 @@ function coreMessageToTranscriptParts(message: CoreMessage): Array<{
   return [{ type: "raw", content: toJsonValue(message.content) }];
 }
 
-function readClientMessageId(message: CoreMessage): string | null {
-  const candidate = message as { id?: unknown };
-  return typeof candidate.id === "string" ? candidate.id : null;
+function buildAssistantTurnParts(input: {
+  text: string;
+  metadata?: Record<string, unknown>;
+  activity?: TurnActivityTranscriptPart | null;
+}): Array<{ type: "text" | "activity"; content: JsonValue }> {
+  const textContent = input.metadata
+    ? { text: input.text, metadata: toJsonValue(input.metadata) }
+    : { text: input.text };
+  const parts: Array<{ type: "text" | "activity"; content: JsonValue }> = [
+    { type: "text", content: textContent },
+  ];
+
+  if (input.activity && input.activity.events.length > 0) {
+    parts.push({ type: "activity", content: toJsonValue(input.activity) });
+  }
+
+  return parts;
 }
 
 function toJsonValue(value: unknown): JsonValue {
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return Number.isFinite(value) || typeof value !== "number" ? value : null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toJsonValue(item));
+  }
+
+  if (typeof value === "object") {
+    const output: Record<string, JsonValue> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (item !== undefined) {
+        output[key] = toJsonValue(item);
+      }
+    }
+    return output;
+  }
+
+  return null;
+}
+
+function readClientMessageId(message: CoreMessage): string | null {
+  const candidate = message as { id?: unknown };
+  return typeof candidate.id === "string" ? candidate.id : null;
 }
