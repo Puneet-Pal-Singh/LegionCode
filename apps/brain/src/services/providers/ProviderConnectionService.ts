@@ -3,7 +3,11 @@
  * Single Responsibility: Query provider connection status
  */
 
-import type { ProviderConnection, ProviderId } from "@repo/shared-types";
+import type {
+  ProviderConnection,
+  ProviderConnectionConfig,
+  ProviderId,
+} from "@repo/shared-types";
 import type { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 
@@ -57,11 +61,18 @@ export class ProviderConnectionService {
       : undefined;
     try {
       const isConnected = await this.credentialService.isConnected(providerId);
+      const config = isConnected
+        ? await readCredentialConnectionConfig(
+            this.credentialService,
+            providerId,
+          )
+        : undefined;
       return {
         providerId,
         status: isConnected ? "connected" : "disconnected",
         lastValidatedAt: isConnected ? new Date().toISOString() : undefined,
         capabilities,
+        config,
       };
     } catch (error) {
       console.warn(
@@ -78,4 +89,20 @@ export class ProviderConnectionService {
       };
     }
   }
+}
+
+async function readCredentialConnectionConfig(
+  credentialService: ProviderCredentialService,
+  providerId: ProviderId,
+): Promise<ProviderConnectionConfig | undefined> {
+  if (!("getConnectionConfig" in credentialService)) {
+    return undefined;
+  }
+  const reader = credentialService.getConnectionConfig;
+  if (typeof reader !== "function") {
+    return undefined;
+  }
+  return reader.call(credentialService, providerId) as Promise<
+    ProviderConnectionConfig | undefined
+  >;
 }

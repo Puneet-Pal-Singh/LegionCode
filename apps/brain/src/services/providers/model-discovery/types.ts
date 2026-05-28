@@ -2,12 +2,14 @@ import type {
   BYOKDiscoveredProviderModel,
   BYOKModelDiscoverySource,
   BYOKModelDiscoveryView,
+  ProviderConnectionConfig,
 } from "@repo/shared-types";
 
 export interface ProviderModelCredentialContext {
   userId?: string;
   workspaceId?: string;
   apiKey: string;
+  connectionConfig?: ProviderConnectionConfig;
 }
 
 export interface ProviderModelFetchPageInput {
@@ -80,4 +82,4 @@ export const OPENROUTER_DISCOVERY_CATEGORIES = [
 ] as const;
 
 export type OpenRouterDiscoveryCategory =
-  typeof OPENROUTER_DISCOVERY_CATEGORIES[number];
+  (typeof OPENROUTER_DISCOVERY_CATEGORIES)[number];
