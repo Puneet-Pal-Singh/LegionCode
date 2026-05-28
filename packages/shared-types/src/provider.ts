@@ -18,6 +18,9 @@ export const PROVIDER_IDS = [
   "cerebras",
   "mistral",
   "cohere",
+  "opencode-go",
+  "opencode-zen",
+  "cloudflare-ai",
 ] as const;
 
 export const ProviderIdSchema = z
@@ -94,6 +97,40 @@ export const ProviderErrorCodeSchema = z.enum([
 ]);
 export type ProviderErrorCode = z.infer<typeof ProviderErrorCodeSchema>;
 
+export const CloudflareAIConnectionConfigSchema = z.object({
+  providerId: z.literal("cloudflare-ai"),
+  accountId: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9_-]+$/),
+  gatewayId: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
+  routeMode: z.enum(["workers-ai-direct", "ai-gateway"]),
+});
+export type CloudflareAIConnectionConfig = z.infer<
+  typeof CloudflareAIConnectionConfigSchema
+>;
+
+export const EmptyProviderConnectionConfigSchema = z.object({
+  providerId: z.enum(["opencode-go", "opencode-zen"]),
+});
+export type EmptyProviderConnectionConfig = z.infer<
+  typeof EmptyProviderConnectionConfigSchema
+>;
+
+export const ProviderConnectionConfigSchema = z.discriminatedUnion(
+  "providerId",
+  [CloudflareAIConnectionConfigSchema, EmptyProviderConnectionConfigSchema],
+);
+export type ProviderConnectionConfig = z.infer<
+  typeof ProviderConnectionConfigSchema
+>;
+
 export const ProviderConnectionSchema = z.object({
   providerId: ProviderIdSchema,
   status: ProviderConnectionStateSchema,
@@ -102,6 +139,7 @@ export const ProviderConnectionSchema = z.object({
   errorCode: ProviderErrorCodeSchema.optional(),
   errorMessage: z.string().optional(),
   capabilities: ProviderCapabilityFlagsSchema.optional(),
+  config: ProviderConnectionConfigSchema.optional(),
 });
 export type ProviderConnection = z.infer<typeof ProviderConnectionSchema>;
 
@@ -112,10 +150,30 @@ export type ProviderConnectionsResponse = z.infer<
   typeof ProviderConnectionsResponseSchema
 >;
 
-export const BYOKConnectRequestSchema = z.object({
-  providerId: ProviderIdSchema,
-  apiKey: z.string().min(1).max(4096),
-});
+export const BYOKConnectRequestSchema = z
+  .object({
+    providerId: ProviderIdSchema,
+    apiKey: z.string().min(1).max(4096),
+    config: ProviderConnectionConfigSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.providerId === "cloudflare-ai" && !value.config) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Cloudflare AI requires connection config.",
+        path: ["config"],
+      });
+      return;
+    }
+
+    if (value.config && value.config.providerId !== value.providerId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Connection config providerId must match providerId.",
+        path: ["config", "providerId"],
+      });
+    }
+  });
 export type BYOKConnectRequest = z.infer<typeof BYOKConnectRequestSchema>;
 
 export const BYOKConnectResponseSchema = z.object({
