@@ -150,7 +150,10 @@ describe("ProviderModelDiscoveryService", () => {
           id: "openai/gpt-4.1",
           name: "GPT-4.1",
           providerId: "openrouter",
-          capabilities: { supportsTools: true, supportsStructuredOutputs: true },
+          capabilities: {
+            supportsTools: true,
+            supportsStructuredOutputs: true,
+          },
           contextWindow: 200_000,
         },
         {
@@ -180,7 +183,10 @@ describe("ProviderModelDiscoveryService", () => {
           name: "GPT-4.1",
           providerId: "openrouter",
           canonicalSlug: "gpt-4.1",
-          capabilities: { supportsTools: true, supportsStructuredOutputs: true },
+          capabilities: {
+            supportsTools: true,
+            supportsStructuredOutputs: true,
+          },
           contextWindow: 200_000,
         },
         {
@@ -260,5 +266,52 @@ describe("ProviderModelDiscoveryService", () => {
       service.getOpenRouterModels({ view: "all", limit: 50 }),
     ).rejects.toBeInstanceOf(ProviderModelDiscoveryAuthError);
     expect(adapter.fetchAll).not.toHaveBeenCalled();
+  });
+
+  it("filters unavailable models from picker surfaces", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "oc-test"),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        {
+          id: "kimi-k2.6",
+          name: "Kimi K2.6",
+          providerId: "opencode-go",
+          availability: "available",
+        },
+        {
+          id: "qwen3.6-plus",
+          name: "Qwen3.6 Plus",
+          providerId: "opencode-go",
+          availability: "unsupported_transport",
+        },
+      ]),
+      fetchPage: vi.fn(),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { "opencode-go": adapter },
+    );
+
+    const picker = await service.getDiscoveredModels("opencode-go", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+    const manage = await service.getDiscoveredModels("opencode-go", {
+      view: "all",
+      surface: "manage",
+      limit: 50,
+    });
+
+    expect(picker.models.map((model) => model.id)).toEqual(["kimi-k2.6"]);
+    expect(manage.models.map((model) => model.id)).toEqual([
+      "kimi-k2.6",
+      "qwen3.6-plus",
+    ]);
   });
 });
