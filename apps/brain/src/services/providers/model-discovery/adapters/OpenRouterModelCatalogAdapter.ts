@@ -2,6 +2,8 @@ import { z } from "zod";
 import type {
   BYOKDiscoveredProviderModel,
   BYOKModelCapability,
+  BYOKModelCapabilityMetadata,
+  BYOKModelInputModality,
   BYOKModelOutputModality,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
@@ -52,7 +54,9 @@ const OpenRouterModelsEnvelopeSchema = z.object({
       supported_parameters: z.array(z.string()).optional(),
       architecture: z
         .object({
+          input_modalities: z.array(z.string()).optional(),
           modality: z.union([z.string(), z.array(z.string())]).optional(),
+          output_modalities: z.array(z.string()).optional(),
         })
         .partial()
         .optional(),
@@ -193,8 +197,14 @@ function toDiscoveredModel(
     canonicalSlug: entry.slug,
     description: entry.description,
     supportedParameters: entry.supported_parameters,
-    outputModalities: toOutputModalities(entry.architecture?.modality),
-    capabilities: toCapabilities(entry.supported_parameters, entry.settings),
+    inputModalities: toInputModalities(entry.architecture),
+    outputModalities: toOutputModalities(entry.architecture),
+    capabilities: toCapabilities(
+      entry.supported_parameters,
+      entry.settings,
+      entry.architecture,
+    ),
+    capabilityMetadata: toCapabilityMetadata(entry.architecture),
     expirationDate: entry.expires_at,
   };
 }
@@ -207,22 +217,37 @@ function toCapabilities(
         reasoning?: boolean | undefined;
       }
     | undefined,
+  architecture:
+    | {
+        input_modalities?: string[] | undefined;
+        modality?: string | string[] | undefined;
+        output_modalities?: string[] | undefined;
+      }
+    | undefined,
 ): BYOKModelCapability | undefined {
-  if (!parameters?.length && !settings) {
+  if (!parameters?.length && !settings && !architecture) {
     return undefined;
   }
+  const inputModalities = toInputModalities(architecture);
   return {
     supportsTools: supportsTools(parameters),
-    supportsVision: undefined,
+    supportsVision: inputModalities?.image,
     supportsStructuredOutputs: settings?.structured_outputs,
     supportsReasoning: settings?.reasoning,
   };
 }
 
-function toOutputModalities(
-  modalities: string | string[] | undefined,
-): BYOKModelOutputModality | undefined {
-  const normalized = normalizeModalities(modalities);
+function toInputModalities(
+  architecture:
+    | {
+        input_modalities?: string[] | undefined;
+        modality?: string | string[] | undefined;
+      }
+    | undefined,
+): BYOKModelInputModality | undefined {
+  const normalized = normalizeModalities(
+    architecture?.input_modalities ?? architecture?.modality,
+  );
   if (normalized.length === 0) {
     return undefined;
   }
@@ -230,6 +255,54 @@ function toOutputModalities(
     text: normalized.includes("text"),
     image: normalized.includes("image"),
     audio: normalized.includes("audio"),
+    video: normalized.includes("video"),
+    file: normalized.includes("file"),
+  };
+}
+
+function toOutputModalities(
+  architecture:
+    | {
+        modality?: string | string[] | undefined;
+        output_modalities?: string[] | undefined;
+      }
+    | undefined,
+): BYOKModelOutputModality | undefined {
+  const normalized = normalizeModalities(
+    architecture?.output_modalities ?? architecture?.modality,
+  );
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return {
+    text: normalized.includes("text"),
+    image: normalized.includes("image"),
+    audio: normalized.includes("audio"),
+  };
+}
+
+function toCapabilityMetadata(
+  architecture:
+    | {
+        input_modalities?: string[] | undefined;
+        modality?: string | string[] | undefined;
+        output_modalities?: string[] | undefined;
+      }
+    | undefined,
+): BYOKModelCapabilityMetadata | undefined {
+  if (!architecture) {
+    return undefined;
+  }
+  const hasExplicitModalities =
+    architecture.input_modalities !== undefined ||
+    architecture.output_modalities !== undefined;
+  const hasLegacyModality = architecture.modality !== undefined;
+  if (!hasExplicitModalities && !hasLegacyModality) {
+    return undefined;
+  }
+  return {
+    source: "provider_api",
+    confidence: hasExplicitModalities ? "confirmed" : "declared",
   };
 }
 

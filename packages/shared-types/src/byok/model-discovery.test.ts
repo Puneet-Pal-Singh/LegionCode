@@ -35,14 +35,23 @@ describe("BYOK model discovery contracts", () => {
           canonicalSlug: "gpt-4o",
           description: "General-purpose multimodal model",
           supportedParameters: ["tools", "reasoning"],
-          outputModalities: {
+          inputModalities: {
             text: true,
             image: true,
           },
+          outputModalities: {
+            text: true,
+          },
           capabilities: {
             supportsTools: true,
+            supportsVision: true,
             supportsStructuredOutputs: true,
             supportsReasoning: true,
+          },
+          capabilityMetadata: {
+            source: "provider_api",
+            confidence: "confirmed",
+            fetchedAt: new Date().toISOString(),
           },
           pricing: {
             inputPer1M: 5,
@@ -73,6 +82,46 @@ describe("BYOK model discovery contracts", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it("distinguishes image input from image output", () => {
+    const result = BYOKDiscoveredProviderModelsResponseSchema.safeParse({
+      providerId: "openrouter",
+      view: "all",
+      models: [
+        {
+          id: "image-generator",
+          name: "Image Generator",
+          providerId: "openrouter",
+          inputModalities: { text: true },
+          outputModalities: { image: true },
+          capabilities: { supportsVision: false },
+          capabilityMetadata: {
+            source: "provider_api",
+            confidence: "confirmed",
+          },
+        },
+      ],
+      page: {
+        limit: 50,
+        hasMore: false,
+      },
+      metadata: {
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        source: "provider_api",
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    const [model] = result.data.models;
+    expect(model).toBeDefined();
+    expect(model?.inputModalities?.image).toBeUndefined();
+    expect(model?.outputModalities?.image).toBe(true);
+    expect(model?.capabilities?.supportsVision).toBe(false);
   });
 
   it("accepts refresh response envelope", () => {
