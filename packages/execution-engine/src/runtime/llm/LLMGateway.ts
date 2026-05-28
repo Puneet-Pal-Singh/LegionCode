@@ -17,6 +17,7 @@ import type {
 } from "./types.js";
 
 const TOKEN_CHAR_RATIO = 4;
+const DEFAULT_IMAGE_INPUT_TOKENS = 1_105;
 const DEFAULT_COMPLETION_TOKENS = 500;
 const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
 const FAST_TASK_TEXT_TIMEOUT_MS = 60_000;
@@ -371,7 +372,13 @@ export class LLMGateway implements ILLMGateway {
     if (typeof content === "string") {
       return content.length;
     }
-    return JSON.stringify(content).length;
+    if (Array.isArray(content)) {
+      return content.reduce(
+        (sum, part) => sum + getMessagePartLength(part),
+        0,
+      );
+    }
+    return getMessagePartLength(content);
   }
 
   private normalizeUsage(usage: LLMUsage, model?: string): LLMUsage {
@@ -721,4 +728,32 @@ function normalizeToolArgs(args: unknown): Record<string, unknown> {
     return {};
   }
   return args as Record<string, unknown>;
+}
+
+function getMessagePartLength(part: unknown): number {
+  if (typeof part === "string") {
+    return part.length;
+  }
+  if (!part || typeof part !== "object") {
+    return 0;
+  }
+  const record = part as Record<string, unknown>;
+  if (record.type === "image") {
+    return DEFAULT_IMAGE_INPUT_TOKENS * TOKEN_CHAR_RATIO;
+  }
+  if (typeof record.text === "string") {
+    return record.text.length;
+  }
+  if (typeof record.content === "string") {
+    return record.content.length;
+  }
+  return safeJsonLength(record);
+}
+
+function safeJsonLength(value: unknown): number {
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return 0;
+  }
 }

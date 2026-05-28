@@ -128,6 +128,47 @@ describe("LLMGateway provider capabilities", () => {
     );
   });
 
+  it("estimates image parts without counting base64 as prompt text", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const gateway = new LLMGateway(deps);
+    const largeDataUrl = `data:image/png;base64,${"a".repeat(20_000)}`;
+    const messages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "inspect" },
+          {
+            type: "image",
+            image: largeDataUrl,
+            mimeType: "image/png",
+          },
+        ],
+      },
+    ] as unknown as CoreMessage[];
+
+    await gateway.generateText({
+      ...baseRequest,
+      messages,
+    });
+
+    expect(deps.aiService.generateText).toHaveBeenCalledWith(
+      expect.objectContaining({ messages }),
+    );
+    const usage = deps.budgetPolicy.preflight.mock.calls[0]?.[1] as {
+      promptTokens: number;
+    };
+    expect(usage.promptTokens).toBeGreaterThan(1_000);
+    expect(usage.promptTokens).toBeLessThan(1_500);
+  });
+
   it("propagates normalized tool calls when provider returns tool calls", async () => {
     const deps = createDependencies({
       getCapabilities: () => ({
