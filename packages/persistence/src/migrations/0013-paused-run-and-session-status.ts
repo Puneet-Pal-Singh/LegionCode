@@ -1,4 +1,9 @@
 import type { SqlMigration } from "./types.js";
+import { buildRunStatusSqlList } from "../runs/types.js";
+import { buildSessionStatusSqlList } from "../sessions/types.js";
+
+const RUN_STATUS_SQL_LIST = buildRunStatusSqlList();
+const SESSION_STATUS_SQL_LIST = buildSessionStatusSqlList();
 
 export const pausedRunAndSessionStatusMigration: SqlMigration = {
   id: "0013_paused_run_and_session_status",
@@ -11,7 +16,7 @@ export const pausedRunAndSessionStatusMigration: SqlMigration = {
     `
       ALTER TABLE runs
         ADD CONSTRAINT runs_status_check
-          CHECK (status IN ('created', 'running', 'paused', 'completed', 'failed', 'cancelled'))
+          CHECK (status IN (${RUN_STATUS_SQL_LIST}))
     `,
     `
       ALTER TABLE sessions
@@ -20,7 +25,7 @@ export const pausedRunAndSessionStatusMigration: SqlMigration = {
     `
       ALTER TABLE sessions
         ADD CONSTRAINT sessions_status_check
-          CHECK (status IN ('idle', 'running', 'completed', 'paused', 'failed'))
+          CHECK (status IN (${SESSION_STATUS_SQL_LIST}))
     `,
   ],
 };
