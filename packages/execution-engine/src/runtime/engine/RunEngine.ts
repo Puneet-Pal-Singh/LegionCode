@@ -796,25 +796,23 @@ export class RunEngine implements IRunEngine {
 
   async cancel(runId: string): Promise<boolean> {
     const run = await this.runRepo.getById(runId);
-    if (
-      !run ||
-      run.status === "COMPLETED" ||
-      run.status === "FAILED" ||
-      run.status === "PAUSED" ||
-      run.status === "CANCELLED"
-    ) {
+    const terminalStatuses: RunStatus[] = [
+      "COMPLETED",
+      "FAILED",
+      "PAUSED",
+      "CANCELLED",
+    ];
+    if (!run || terminalStatuses.includes(run.status)) {
       return false;
     }
     const previousStatus = run.status;
     run.transition("CANCELLED");
     recordLifecycleStep(run, "TERMINAL", "status=CANCELLED");
     recordOrchestrationTerminal(run);
-    const cancelled = await this.runRepo.updateUnlessStatus(run, [
-      "COMPLETED",
-      "FAILED",
-      "PAUSED",
-      "CANCELLED",
-    ]);
+    const cancelled = await this.runRepo.updateUnlessStatus(
+      run,
+      terminalStatuses,
+    );
     if (!cancelled) {
       return false;
     }
