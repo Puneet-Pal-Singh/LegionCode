@@ -278,7 +278,7 @@ function buildProviderUnavailableMessage(input: {
   const lines = [
     "The selected model stopped responding, so I paused this run.",
     input.noFileChanged
-      ? "No files were changed. The provider returned an internal error after retrying."
+      ? "No files were changed. The provider became unavailable after retrying."
       : "Some workspace changes may already exist. Review the changed files before retrying.",
   ];
 

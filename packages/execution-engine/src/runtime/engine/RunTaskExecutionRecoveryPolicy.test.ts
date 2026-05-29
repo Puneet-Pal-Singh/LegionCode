@@ -271,7 +271,7 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       run,
       [
         "The selected model stopped responding, so I paused this run.",
-        "No files were changed. The provider returned an internal error after retrying.",
+        "No files were changed. The provider became unavailable after retrying.",
       ].join("\n"),
       expect.objectContaining({
         code: "PROVIDER_UNAVAILABLE",

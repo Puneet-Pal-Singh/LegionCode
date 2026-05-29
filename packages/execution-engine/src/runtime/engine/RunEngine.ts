@@ -800,6 +800,7 @@ export class RunEngine implements IRunEngine {
       !run ||
       run.status === "COMPLETED" ||
       run.status === "FAILED" ||
+      run.status === "PAUSED" ||
       run.status === "CANCELLED"
     ) {
       return false;
@@ -811,6 +812,7 @@ export class RunEngine implements IRunEngine {
     const cancelled = await this.runRepo.updateUnlessStatus(run, [
       "COMPLETED",
       "FAILED",
+      "PAUSED",
       "CANCELLED",
     ]);
     if (!cancelled) {

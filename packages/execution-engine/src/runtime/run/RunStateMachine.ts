@@ -18,7 +18,7 @@ export class RunStateMachine {
     CREATED: ["PLANNING", "RUNNING", "CANCELLED"],
     PLANNING: ["RUNNING", "FAILED", "CANCELLED"],
     RUNNING: ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"],
-    PAUSED: ["RUNNING", "CANCELLED"],
+    PAUSED: [],
     COMPLETED: [],
     FAILED: [],
     CANCELLED: [],
