@@ -452,16 +452,18 @@ describe("RunEngine", () => {
     expect(response.status).toBe(200);
     const output = await response.text();
     expect(output).toContain(
-      "The model provider became unavailable after repeated retries before the next action could be produced.",
+      "The selected model stopped responding, so I paused this run.",
     );
-    expect(output).toContain("Provider status code: 500.");
+    expect(output).toContain(
+      "No files were changed. The provider returned an internal error after retrying.",
+    );
 
     const persisted = await (
       runEngine as unknown as {
         getRun(runId: string): Promise<Run | null>;
       }
     ).getRun(TEST_RUN_ID);
-    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.status).toBe("PAUSED");
     expect(persisted?.metadata.error).toContain("PROVIDER_UNAVAILABLE:");
 
     const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
