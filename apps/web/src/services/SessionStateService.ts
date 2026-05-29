@@ -99,10 +99,13 @@ export class SessionStateService {
 
       const sessions = parsed.sessions || {};
       return Object.fromEntries(
-        Object.entries(sessions).map(([sessionId, session]) => [
-          sessionId,
-          normalizeSession(session as StoredAgentSession),
-        ]),
+        Object.entries(sessions).flatMap(([sessionId, session]) => {
+          const normalized = normalizeSession(session as StoredAgentSession);
+          if (!this.validateSession(normalized)) {
+            return [];
+          }
+          return [[sessionId, normalized]];
+        }),
       );
     } catch (e) {
       console.error("[SessionStateService] Failed to load sessions:", e);
