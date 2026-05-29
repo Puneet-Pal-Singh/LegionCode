@@ -47,6 +47,28 @@ describe("SessionStateService", () => {
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
     });
+
+    it("rejects sessions with invalid persisted statuses", () => {
+      const session = SessionStateService.createSession("Test", "repo");
+
+      localStorage.setItem(
+        "shadowbox:sessions:v3",
+        JSON.stringify({
+          version: 3,
+          sessions: {
+            [session.id]: {
+              ...session,
+              status: "error",
+            },
+          },
+          activeSessionId: session.id,
+          lastModified: new Date().toISOString(),
+        }),
+      );
+
+      const loaded = SessionStateService.loadSessions();
+      expect(loaded[session.id]).toBeUndefined();
+    });
   });
 
   describe("Server Session Hydration", () => {
