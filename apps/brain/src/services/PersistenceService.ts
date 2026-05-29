@@ -374,9 +374,10 @@ function buildAssistantTurnParts(input: {
   metadata?: Record<string, unknown>;
   activity?: TurnActivityTranscriptPart | null;
 }): Array<{ type: "text" | "activity"; content: JsonValue }> {
-  const textContent = input.metadata
-    ? { text: input.text, metadata: toJsonValue(input.metadata) }
-    : { text: input.text };
+  const textContent: Record<string, JsonValue> = { text: input.text };
+  if (input.metadata) {
+    textContent.metadata = toJsonValue(input.metadata);
+  }
   const parts: Array<{ type: "text" | "activity"; content: JsonValue }> = [
     { type: "text", content: textContent },
   ];

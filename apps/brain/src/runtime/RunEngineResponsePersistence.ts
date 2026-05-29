@@ -1,4 +1,6 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
+import type { MessageEmittedEvent, RunEvent } from "@repo/shared-types";
 import {
   projectRunActivityTranscript,
   RunEventRepository,
@@ -123,14 +125,20 @@ async function persistAssistantMessageFromRunOutput(
 function readTerminalAssistantMetadata(
   events: Awaited<ReturnType<RunEventRepository["getByRun"]>>,
 ): Record<string, unknown> | undefined {
-  const assistantEvents = events.filter(
-    (event) =>
-      event.type === "message.emitted" && event.payload.role === "assistant",
-  );
+  const assistantEvents = events.filter(isAssistantMessageEvent);
   const latestMetadata = assistantEvents.at(-1)?.payload.metadata;
   return latestMetadata && Object.keys(latestMetadata).length > 0
     ? latestMetadata
     : undefined;
+}
+
+function isAssistantMessageEvent(
+  event: RunEvent,
+): event is MessageEmittedEvent {
+  return (
+    event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED &&
+    event.payload.role === "assistant"
+  );
 }
 
 function mapRuntimeActivityTerminalStatus(
