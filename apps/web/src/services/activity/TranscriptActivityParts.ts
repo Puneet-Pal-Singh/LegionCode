@@ -106,7 +106,7 @@ function buildTurns(
     grouped.set(event.turnId, events);
   }
 
-  return [...grouped.entries()].map(([turnId, events]) => {
+  return [...grouped.entries()].flatMap(([turnId, events]) => {
     const sortedEvents = events.sort(
       (left, right) => left.sequence - right.sequence,
     );
@@ -114,21 +114,26 @@ function buildTurns(
       const row = eventToRow(event);
       return row ? [row] : [];
     });
+    if (rows.length === 0) {
+      return [];
+    }
     const hasProviderError = rows.some(
       (row) =>
         row.kind === "commentary" &&
         row.metadata?.code === "PROVIDER_UNAVAILABLE",
     );
-    return {
-      key: turnId,
-      userPrompt,
-      elapsedLabel: formatTurnElapsed(sortedEvents),
-      summaryLabel: buildSummaryLabel(rows),
-      defaultCollapsed: !hasProviderError,
-      isActiveTurn: false,
-      hasVisibleRows: rows.length > 0,
-      rows,
-    };
+    return [
+      {
+        key: turnId,
+        userPrompt,
+        elapsedLabel: formatTurnElapsed(sortedEvents),
+        summaryLabel: buildSummaryLabel(rows),
+        defaultCollapsed: !hasProviderError,
+        isActiveTurn: false,
+        hasVisibleRows: true,
+        rows,
+      },
+    ];
   });
 }
 

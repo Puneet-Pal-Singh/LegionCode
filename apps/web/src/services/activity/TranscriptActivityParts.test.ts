@@ -74,4 +74,45 @@ describe("TranscriptActivityParts", () => {
       },
     });
   });
+
+  it("drops turns that only contain debug activity", () => {
+    const turns = buildTranscriptActivityTurns([
+      {
+        id: "user-1",
+        role: "user",
+        content: "check CI",
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "Retry was recorded internally.",
+        data: {
+          activityParts: [
+            {
+              version: 1,
+              type: "turn_activity",
+              compacted: false,
+              events: [
+                {
+                  id: "retry-1",
+                  runId: "run-1",
+                  sessionId: "session-1",
+                  turnId: "run-1:turn-1",
+                  sequence: 1,
+                  kind: "progress",
+                  status: "completed",
+                  title: "Retrying model request",
+                  displayMode: "debug",
+                  createdAt: "2026-05-24T00:00:00.000Z",
+                  updatedAt: "2026-05-24T00:00:00.000Z",
+                },
+              ],
+            },
+          ],
+        },
+      } as Message,
+    ]);
+
+    expect(turns).toEqual([]);
+  });
 });
