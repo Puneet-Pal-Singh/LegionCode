@@ -204,7 +204,7 @@ interface ChatInterfaceProps {
     handleSubmit: (
       event?: React.FormEvent,
       attachments?: ChatSubmitAttachments,
-    ) => Promise<void>;
+    ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
     canStop?: boolean;
@@ -500,14 +500,14 @@ export function ChatInterface({
     [reviewCommentError, toggleReviewCommentSelected],
   );
 
-  const handleSubmitWithReviewComments = useCallback(async () => {
+  const handleSubmitWithReviewComments = useCallback(async (): Promise<boolean> => {
     const budgetResult = validateReviewPromptBudget(
       selectedReviewComments,
       input,
     );
     if (!budgetResult.ok) {
       setReviewCommentError(budgetResult.reason);
-      return;
+      return false;
     }
 
     const { prompt } = buildReviewCommentPrompt(selectedReviewComments, input);
@@ -520,6 +520,7 @@ export function ChatInterface({
       await append({ role: "user", content: prompt });
       markReviewCommentsDispatched(selectedIds);
       handleInputChangeWrapper("");
+      return true;
     } catch (submitError) {
       markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
       lastReviewDispatchIdsRef.current = [];
@@ -528,6 +529,7 @@ export function ChatInterface({
           ? submitError.message
           : "Failed to send review comments.";
       setReviewCommentError(message);
+      return false;
     }
   }, [
     append,
@@ -871,8 +873,8 @@ export function ChatInterface({
           onChange={handleInputChangeWrapper}
           onSubmit={
             selectedReviewComments.length > 0
-              ? () => void handleSubmitWithReviewComments()
-              : (attachments) => void handleSubmit(undefined, attachments)
+              ? () => handleSubmitWithReviewComments()
+              : (attachments) => handleSubmit(undefined, attachments)
           }
           reviewComments={selectedReviewComments}
           onRemoveReviewComment={handleRemoveReviewComment}

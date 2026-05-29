@@ -70,7 +70,7 @@ interface UseChatCoreResult {
   handleSubmit: (
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   append: (message: ChatAppendMessage) => Promise<void>;
   isLoading: boolean;
   stop: () => void;
@@ -440,28 +440,33 @@ export function useChatCore(
       message: ChatAppendMessage,
       requestScopeKey: string,
       originalInput: string,
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       try {
         await appendWithResolution(message);
+        return true;
       } catch (error) {
         handleSubmitFailure(error, requestScopeKey, originalInput);
+        return false;
       }
     },
     [appendWithResolution, handleSubmitFailure],
   );
 
   const handleSubmit = useCallback(
-    async (e?: FormEvent, attachments?: ChatSubmitAttachments) => {
+    async (
+      e?: FormEvent,
+      attachments?: ChatSubmitAttachments,
+    ): Promise<boolean> => {
       e?.preventDefault();
       const requestScopeKey = scopeKey;
       const originalInput = input;
       const trimmedInput = input.trim();
       const imageAttachments = attachments?.imageAttachments ?? [];
       if (shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)) {
-        return;
+        return false;
       }
       clearChatInput();
-      await submitPreparedInput(
+      return submitPreparedInput(
         buildChatAppendMessage(trimmedInput, imageAttachments),
         requestScopeKey,
         originalInput,
