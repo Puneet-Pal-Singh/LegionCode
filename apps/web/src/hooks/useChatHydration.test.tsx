@@ -119,8 +119,8 @@ describe("useChatHydration", () => {
           content: "hydrated on retry",
         }),
       ]);
+      expect(result.current.hasHydrated).toBe(true);
     });
-    expect(result.current.hasHydrated).toBe(true);
   });
 
   it("preserves transcript activity parts on hydrated assistant messages", async () => {
