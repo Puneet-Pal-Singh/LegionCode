@@ -1,4 +1,3 @@
-import type { CoreMessage } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
 import {
   ProductModeSchema,
@@ -36,9 +35,13 @@ import {
 } from "./chat-runtime-helpers";
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
-import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
-import { validateMultimodalMessages } from "../services/chat/MultimodalMessageValidator";
+import {
+  enforceChatImageInputPolicy,
+  validateChatImageInput,
+  type ChatImageInputState,
+} from "../services/chat/ChatImageInputPolicy";
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
@@ -81,8 +84,7 @@ interface ChatRequest {
   correlationId: string;
   sessionId: string;
   runId: string;
-  messages: CoreMessage[];
-  hasImages: boolean;
+  imageInput: ChatImageInputState;
   userId?: string;
   workspaceId?: string;
 }
@@ -124,19 +126,14 @@ export class ChatController {
         correlationId,
       );
 
-      const validatedMessages = validateMultimodalMessages(
-        body.messages,
-        body.mode ?? "build",
-        correlationId,
-      );
+      const imageInput = validateChatImageInput(body, correlationId);
 
       const chatRequest: ChatRequest = {
         body,
         correlationId,
         sessionId: identifiers.sessionId,
         runId: identifiers.runId,
-        messages: validatedMessages.messages,
-        hasImages: validatedMessages.hasImages,
+        imageInput,
         ...(await resolveExecutionScope(
           req,
           env,
@@ -237,7 +234,7 @@ export class ChatController {
       ReturnType<RunAdmissionService["enforce"]>
     > | undefined;
 
-    const coreMessages = chatRequest.messages;
+    const coreMessages = chatRequest.imageInput.messages;
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
     const admissionInput = {
@@ -251,13 +248,13 @@ export class ChatController {
 
     try {
       admissionGrant = await admissionService.enforce(admissionInput, correlationId);
-      await enforceImageCapability({
+      await enforceChatImageInputPolicy({
         env,
         userId,
         workspaceId,
         providerId: body.providerId,
         modelId: body.modelId,
-        hasImages: chatRequest.hasImages,
+        imageInput: chatRequest.imageInput,
         correlationId,
       });
 
@@ -330,29 +327,4 @@ function errorMessageKey(error: unknown): string {
     return error.message;
   }
   return "internal-server-error";
-}
-
-function buildAdmissionScopeFingerprint(request: Request): string {
-  const cfIp = request.headers.get("CF-Connecting-IP")?.trim() ?? "";
-  const forwarded = request.headers.get("X-Forwarded-For")?.trim() ?? "";
-  const userAgent = request.headers.get("User-Agent")?.trim().toLowerCase() ?? "";
-  const ip = firstForwardedIp(forwarded) || cfIp || "unknown-ip";
-  return hashScopeFingerprintSeed(`${ip}|${userAgent || "unknown-ua"}`);
-}
-
-function firstForwardedIp(forwarded: string): string {
-  if (forwarded.length === 0) {
-    return "";
-  }
-  const first = forwarded.split(",")[0]?.trim() ?? "";
-  return first;
-}
-
-function hashScopeFingerprintSeed(seed: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash ^= seed.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `fp-${(hash >>> 0).toString(36)}`;
 }
