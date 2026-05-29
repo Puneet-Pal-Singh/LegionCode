@@ -32,6 +32,7 @@ import {
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
+import { toOpenAICompatibleBaseURL } from "./ai/ProviderTransportAdapterFactory";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
 import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
 
@@ -181,12 +182,18 @@ export class AIService {
       selection.runtimeProvider,
       providerTransport,
     );
+    const structuredBaseURLOverride = resolveStructuredBaseURLOverride(
+      providerTransport,
+      providerEndpoint,
+    );
+    const structuredModel = runtimeModelId ?? selection.model;
     const sdkModelConfig = getSDKModelConfig(
-      runtimeModelId ?? selection.model,
+      structuredModel,
       structuredRuntimeProvider,
       this.env,
       overrideApiKey,
       selection.providerId,
+      structuredBaseURLOverride,
     );
 
     const sdkModel = this.createSDKModel(sdkModelConfig);
@@ -205,7 +212,7 @@ export class AIService {
         provider: selection.runtimeProvider,
         providerId: selection.providerId,
         baseURL: sdkModelConfig.baseURL,
-        model: selection.model,
+        model: structuredModel,
         usage: result.usage,
       }),
     };
@@ -318,12 +325,16 @@ function buildProviderTransportRoute(input: {
   providerTransport?: ProviderModelTransport;
   providerEndpoint?: string;
 }) {
-  if (
-    !input.providerId ||
-    !input.providerTransport ||
-    !input.providerEndpoint
-  ) {
+  const hasTransport = Boolean(input.providerTransport);
+  const hasEndpoint = Boolean(input.providerEndpoint);
+  if (!hasTransport && !hasEndpoint) {
     return undefined;
+  }
+  if (!input.providerId || !input.providerTransport || !input.providerEndpoint) {
+    throw new ValidationError(
+      "Provider route metadata requires providerId, providerTransport, and providerEndpoint.",
+      "INVALID_PROVIDER_SELECTION",
+    );
   }
   return {
     providerId: input.providerId,
@@ -346,6 +357,25 @@ function resolveStructuredRuntimeProvider(
     `Structured generation is not wired for provider transport "${providerTransport}".`,
     "UNKNOWN_PROVIDER",
   );
+}
+
+function resolveStructuredBaseURLOverride(
+  providerTransport: ProviderModelTransport | undefined,
+  providerEndpoint: string | undefined,
+): string | undefined {
+  if (!providerTransport) {
+    return undefined;
+  }
+  if (providerTransport !== "openai-chat-completions") {
+    return undefined;
+  }
+  if (!providerEndpoint) {
+    throw new ValidationError(
+      "OpenAI-compatible structured generation requires providerEndpoint.",
+      "INVALID_PROVIDER_SELECTION",
+    );
+  }
+  return toOpenAICompatibleBaseURL(providerEndpoint);
 }
 
 export type { GenerateTextResult };
