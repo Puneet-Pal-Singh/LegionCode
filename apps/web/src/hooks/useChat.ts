@@ -16,7 +16,7 @@ interface UseChatResult {
   handleSubmit: (
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
   isHydrating: boolean;

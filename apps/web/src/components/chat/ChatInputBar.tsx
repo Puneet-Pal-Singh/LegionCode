@@ -56,7 +56,9 @@ const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 interface ChatInputBarProps {
   input: string;
   onChange: (value: string) => void;
-  onSubmit: (attachments?: ChatSubmitAttachments) => void | Promise<void>;
+  onSubmit: (
+    attachments?: ChatSubmitAttachments,
+  ) => boolean | void | Promise<boolean | void>;
   reviewComments?: ReviewCommentDraft[];
   onRemoveReviewComment?: (commentId: string) => void;
   reviewCommentError?: string | null;
@@ -343,8 +345,16 @@ export function ChatInputBar({
       );
       return;
     }
-    await onSubmit(hasImageAttachments ? { imageAttachments } : undefined);
-    if (hasImageAttachments) {
+    if (hasImageAttachments && hasReviewComments) {
+      setImageAttachmentError(
+        "Remove image attachments before sending selected review comments.",
+      );
+      return;
+    }
+    const submitted = await onSubmit(
+      hasImageAttachments ? { imageAttachments } : undefined,
+    );
+    if (hasImageAttachments && submitted !== false) {
       clearImageAttachments();
     }
   };
@@ -733,31 +743,6 @@ export function ChatInputBar({
             </div>
           ) : null}
 
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => {
-              onChange(e.target.value);
-              setCursorPosition(e.target.selectionStart ?? e.target.value.length);
-              setDismissedMentionKey(null);
-            }}
-            onPaste={handlePaste}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            onClick={syncCursorPosition}
-            onKeyUp={syncCursorPosition}
-            onSelect={syncCursorPosition}
-            aria-autocomplete="list"
-            aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
-            aria-expanded={shouldShowFilePicker}
-            aria-activedescendant={activeSuggestionId}
-            placeholder={effectivePlaceholder}
-            rows={1}
-            className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
-            style={{ lineHeight: "1.5" }}
-          />
-
           {hasImageAttachments ? (
             <div className="mb-3 flex flex-wrap gap-2">
               {imageAttachments.map((attachment, index) => (
@@ -782,6 +767,31 @@ export function ChatInputBar({
               ))}
             </div>
           ) : null}
+
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setCursorPosition(e.target.selectionStart ?? e.target.value.length);
+              setDismissedMentionKey(null);
+            }}
+            onPaste={handlePaste}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            onClick={syncCursorPosition}
+            onKeyUp={syncCursorPosition}
+            onSelect={syncCursorPosition}
+            aria-autocomplete="list"
+            aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
+            aria-expanded={shouldShowFilePicker}
+            aria-activedescendant={activeSuggestionId}
+            placeholder={effectivePlaceholder}
+            rows={1}
+            className={`w-full bg-transparent text-sm text-white placeholder-zinc-500 focus:outline-none resize-none overflow-hidden min-h-[20px] ${hasInput ? "max-h-[200px]" : "max-h-[400px]"}`}
+            style={{ lineHeight: "1.5" }}
+          />
 
           {mode === "plan" ? (
             <div className="mt-3 rounded-xl border border-cyan-900/60 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-100">

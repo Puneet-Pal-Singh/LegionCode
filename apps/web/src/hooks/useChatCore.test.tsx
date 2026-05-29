@@ -247,6 +247,46 @@ describe("useChatCore", () => {
     );
   });
 
+  it("returns false when submit is blocked before append", async () => {
+    const { result } = renderHook(() => useChatCore("session-1"));
+    let submitted = true;
+
+    await act(async () => {
+      submitted = await result.current.handleSubmit();
+    });
+
+    expect(submitted).toBe(false);
+    expect(appendSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns true when submit appends the prepared message", async () => {
+    mockUseChat.mockReturnValue({
+      messages: [],
+      input: "Review the diff",
+      handleInputChange: vi.fn(),
+      isLoading: false,
+      stop: stopStreamSpy,
+      setMessages: setMessagesSpy,
+      append: appendSpy,
+    });
+    const { result } = renderHook(() => useChatCore("session-1"));
+    let submitted = false;
+
+    await act(async () => {
+      submitted = await result.current.handleSubmit();
+    });
+
+    expect(submitted).toBe(true);
+    expect(appendSpy).toHaveBeenCalledWith(
+      { role: "user", content: "Review the diff" },
+      expect.objectContaining({
+        body: expect.objectContaining({
+          sessionId: "session-1",
+        }),
+      }),
+    );
+  });
+
   it("marks chat loading immediately while append setup is in flight", async () => {
     let resolveAppend: (() => void) | null = null;
     appendSpy.mockImplementation(
