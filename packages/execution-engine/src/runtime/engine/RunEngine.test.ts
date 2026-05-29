@@ -455,7 +455,7 @@ describe("RunEngine", () => {
       "The selected model stopped responding, so I paused this run.",
     );
     expect(output).toContain(
-      "No files were changed. The provider returned an internal error after retrying.",
+      "No files were changed. The provider became unavailable after retrying.",
     );
 
     const persisted = await (
@@ -1404,6 +1404,36 @@ describe("RunEngine", () => {
     expect(assistantSummary?.payload.metadata).toMatchObject({
       terminalState: "interrupted",
     });
+  });
+
+  it("does not cancel a paused terminal run", async () => {
+    const state = new MockRuntimeState();
+    const runId = "f462a003-5c36-4c86-a95d-367b92bf4702";
+    const runtimeRunRepo = new RunRepository(state);
+    await runtimeRunRepo.create(
+      new Run(runId, "session-1", "PAUSED", "coding", {
+        agentType: "coding",
+        prompt: "resume later",
+        sessionId: "session-1",
+      }),
+    );
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId,
+      },
+      undefined,
+      undefined,
+      { llmGateway: createMockLLMGateway() },
+    );
+
+    const cancelled = await runEngine.cancel(runId);
+
+    expect(cancelled).toBe(false);
+    const run = await runtimeRunRepo.getById(runId);
+    expect(run?.status).toBe("PAUSED");
   });
 
   it("keeps build mode running when planner would fail, because planner is inactive", async () => {
