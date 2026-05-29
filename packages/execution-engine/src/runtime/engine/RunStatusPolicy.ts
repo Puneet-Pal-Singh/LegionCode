@@ -40,7 +40,11 @@ export function applyFinalRunStatus(
     return;
   }
 
-  if (run.status === "FAILED" || run.status === "COMPLETED") {
+  if (
+    run.status === "PAUSED" ||
+    run.status === "FAILED" ||
+    run.status === "COMPLETED"
+  ) {
     return;
   }
 
@@ -55,7 +59,11 @@ export function transitionRunToCompleted(run: Run, runId: string): void {
     return;
   }
 
-  if (run.status === "FAILED" || run.status === "CANCELLED") {
+  if (
+    run.status === "PAUSED" ||
+    run.status === "FAILED" ||
+    run.status === "CANCELLED"
+  ) {
     console.warn(
       `[run/engine] Skipping COMPLETED transition for run ${runId}; current status is ${run.status}`,
     );
@@ -92,7 +100,11 @@ export function transitionRunToPaused(run: Run, runId: string): void {
 }
 
 export function transitionRunToFailed(run: Run, runId: string): void {
-  if (run.status === "FAILED" || run.status === "CANCELLED") {
+  if (
+    run.status === "PAUSED" ||
+    run.status === "FAILED" ||
+    run.status === "CANCELLED"
+  ) {
     return;
   }
 
@@ -115,11 +127,7 @@ export function transitionRunToFailed(run: Run, runId: string): void {
 }
 
 export function ensureRunReadyForTerminalTransition(run: Run): void {
-  if (
-    run.status === "CREATED" ||
-    run.status === "PLANNING" ||
-    run.status === "PAUSED"
-  ) {
+  if (run.status === "CREATED" || run.status === "PLANNING") {
     run.transition("RUNNING");
   }
 }
