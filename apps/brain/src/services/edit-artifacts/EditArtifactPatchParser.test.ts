@@ -74,56 +74,82 @@ describe("EditArtifactPatchParser", () => {
     ]);
   });
 
-  it("parses quoted paths, deleted files, binary files, and pure renames", () => {
-    const patch = `diff --git "a/src/old name.ts" "b/src/new name.ts"
-similarity index 100%
-rename from src/old name.ts
-rename to src/new name.ts
-diff --git a/assets/logo.png b/assets/logo.png
+  it("parses a binary file without hunks", () => {
+    const binaryPatch = `diff --git a/logo.png b/logo.png
 new file mode 100644
-index 0000000..1234567
-Binary files /dev/null and b/assets/logo.png differ
-diff --git a/src/removed.ts b/src/removed.ts
-deleted file mode 100644
---- a/src/removed.ts
-+++ /dev/null
-@@ -1 +0,0 @@
--export const removed = true;
-`;
+index 0000000..abc1234
+Binary files /dev/null and b/logo.png differ`;
 
-    expect(parsePatchFileInventory(patch)).toEqual([
+    expect(parsePatchFileInventory(binaryPatch)).toEqual([
       {
-        path: "src/new name.ts",
-        status: "renamed",
-        additions: 0,
-        deletions: 0,
-        diffAvailable: false,
-        artifactPath: "src/new name.ts",
-      },
-      {
-        path: "assets/logo.png",
+        path: "logo.png",
         status: "added",
         additions: 0,
         deletions: 0,
         diffAvailable: false,
-        artifactPath: "assets/logo.png",
-      },
-      {
-        path: "src/removed.ts",
-        status: "deleted",
-        additions: 0,
-        deletions: 1,
-        diffAvailable: true,
-        artifactPath: "src/removed.ts",
+        artifactPath: "logo.png",
       },
     ]);
 
-    expect(
-      parsePatchFileDiff({ patch, path: "assets/logo.png" }),
-    ).toMatchObject({
-      isBinary: true,
-      isNewFile: true,
-      hunks: [],
-    });
+    const diff = parsePatchFileDiff({ patch: binaryPatch, path: "logo.png" });
+    expect(diff.isBinary).toBe(true);
+    expect(diff.isNewFile).toBe(true);
+    expect(diff.isDeleted).toBe(false);
+    expect(diff.hunks).toEqual([]);
+  });
+
+  it("parses a deleted file", () => {
+    const deletePatch = `diff --git a/old.ts b/old.ts
+deleted file mode 100644
+--- a/old.ts
++++ /dev/null
+@@ -1,2 +0,0 @@
+-export const kept = true;
+-export const removed = true;`;
+
+    expect(parsePatchFileInventory(deletePatch)).toEqual([
+      {
+        path: "old.ts",
+        status: "deleted",
+        additions: 0,
+        deletions: 2,
+        diffAvailable: true,
+        artifactPath: "old.ts",
+      },
+    ]);
+
+    const diff = parsePatchFileDiff({ patch: deletePatch, path: "old.ts" });
+    expect(diff.isDeleted).toBe(true);
+    expect(diff.isNewFile).toBe(false);
+    expect(diff.isBinary).toBe(false);
+  });
+
+  it("parses a pure rename without inline diff", () => {
+    const renamePatch = `diff --git a/src/old.ts b/src/new.ts
+similarity index 100%
+rename from src/old.ts
+rename to src/new.ts`;
+
+    expect(parsePatchFileInventory(renamePatch)).toEqual([
+      {
+        path: "src/new.ts",
+        status: "renamed",
+        additions: 0,
+        deletions: 0,
+        diffAvailable: false,
+        artifactPath: "src/new.ts",
+      },
+    ]);
+  });
+
+  it("throws on an empty patch", () => {
+    expect(() => parsePatchFileInventory("")).toThrow("Saved artifact patch is empty");
+    expect(() => parsePatchFileInventory("  ")).toThrow("Saved artifact patch is empty");
+  });
+
+  it("throws when file path not found in patch", () => {
+    expect(() =>
+      parsePatchFileDiff({ patch: PATCH, path: "nonexistent.ts" }),
+    ).toThrow("No saved patch block found for nonexistent.ts");
   });
 });

@@ -2,11 +2,30 @@ import {
   sha256Hex,
   type EditArtifactStorageBackend,
   type StoredEditArtifact,
+  type WriteEditArtifactInput,
 } from "./EditArtifactStorageBackend";
 
-export interface ArtifactsBinding {
-  create(name: string, options?: Record<string, unknown>): Promise<unknown>;
-  get(name: string): Promise<unknown>;
+interface ArtifactsBinding {
+  create(
+    name: string,
+    options?: {
+      description?: string;
+      readOnly?: boolean;
+      setDefaultBranch?: string;
+    },
+  ): Promise<ArtifactsRepoMetadata>;
+  get(name: string): Promise<ArtifactsRepoHandle>;
+}
+
+interface ArtifactsRepoMetadata {
+  name: string;
+  remote: string;
+  defaultBranch?: string;
+  token?: string;
+}
+
+interface ArtifactsRepoHandle {
+  createToken(scope: "read" | "write", expiresInSeconds: number): Promise<string>;
 }
 
 export class CloudflareArtifactsWriteUnavailableError extends Error {
@@ -21,6 +40,8 @@ export class CloudflareArtifactsWriteUnavailableError extends Error {
 export class CloudflareArtifactsEditArtifactStorageBackend
   implements EditArtifactStorageBackend
 {
+  constructor(private readonly artifacts: ArtifactsBinding) {}
+
   async writeArtifact(): Promise<StoredEditArtifact> {
     throw new CloudflareArtifactsWriteUnavailableError();
   }
@@ -33,6 +54,18 @@ export class CloudflareArtifactsEditArtifactStorageBackend
     return;
   }
 
+  private async ensureRepo(repoName: string): Promise<ArtifactsRepoMetadata> {
+    try {
+      await this.artifacts.get(repoName);
+      return { name: repoName, remote: "", defaultBranch: "main" };
+    } catch {
+      return await this.artifacts.create(repoName, {
+        description: "LegionCode edit artifacts",
+        readOnly: false,
+        setDefaultBranch: "main",
+      });
+    }
+  }
 }
 
 export function buildCloudflareArtifactPath(input: {
@@ -48,6 +81,6 @@ export async function buildCloudflareArtifactCommitSha(
   return await sha256Hex(patch);
 }
 
-export function buildRepoName(workspaceId: string): string {
+function buildRepoName(workspaceId: string): string {
   return `workspace-${workspaceId}`;
 }
