@@ -601,54 +601,9 @@ export class RunEngine implements IRunEngine {
         providerId: input.providerId,
         temperature: 0.2,
         onToolRequested: loopCallbacks.onToolRequested,
-        onProgress: async (progress) => {
-          if (!progress) return;
-          await this.runEventRecorder.recordRunProgress(
-            progress.phase,
-            progress.label,
-            progress.summary,
-            progress.status,
-          );
-        },
-        onProviderRetry: async (event) => {
-          await this.runEventRecorder.recordRunProgress(
-            RUN_WORKFLOW_STEPS.EXECUTION,
-            "Retrying model request",
-            "The provider returned an unusable response. Retrying once before pausing the run.",
-            "completed",
-            {
-              displayMode: "debug",
-              metadata: {
-                code: "MODEL_UNUSABLE_RESPONSE",
-                retryable: true,
-                providerId: event.providerId,
-                modelId: event.modelId,
-                anomalyCode: event.anomalyCode,
-                finishReason: event.finishReason,
-                statusCode: event.statusCode,
-                attempt: event.attempt,
-                nextAttempt: event.nextAttempt,
-                maxAttempts: event.maxAttempts,
-                retryCount: event.retryCount,
-              },
-            },
-          );
-        },
-        onAssistantMessage: async (content) => {
-          const sanitizedContent = sanitizeUserFacingOutput(content).trim();
-          if (!sanitizedContent) {
-            return;
-          }
-          await this.runEventRecorder.recordMessageEmitted(
-            "assistant",
-            sanitizedContent,
-            undefined,
-            {
-              phase: "commentary",
-              status: "completed",
-            },
-          );
-        },
+        onProgress: loopCallbacks.onProgress,
+        onProviderRetry: loopCallbacks.onProviderRetry,
+        onAssistantMessage: loopCallbacks.onAssistantMessage,
         onToolStarted: loopCallbacks.onToolStarted,
         onToolCompleted: loopCallbacks.onToolCompleted,
         onToolFailed: loopCallbacks.onToolFailed,

@@ -1,9 +1,13 @@
+import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import {
   isGoldenFlowToolName,
   type GoldenFlowToolName,
 } from "../contracts/CodingToolGateway.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
-import { AgenticLoopCancelledError } from "./AgenticLoop.js";
+import {
+  AgenticLoopCancelledError,
+  type AgenticLoopProviderRetryEvent,
+} from "./AgenticLoop.js";
 import { getToolPresentation } from "../lib/ToolPresentation.js";
 import type { Run } from "../run/index.js";
 import type { RunRepository } from "../run/index.js";
@@ -18,9 +22,8 @@ import {
   waitForApprovalDecision,
 } from "./RunApprovalWaitPolicy.js";
 import type { RunEngineEnv } from "./RunEngineTypes.js";
-import {
-  recordLifecycleStep,
-} from "./RunMetadataPolicy.js";
+import { recordLifecycleStep } from "./RunMetadataPolicy.js";
+import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
   classifyCurrentTurnIntent,
   classifyLocalDiffRelevance,
@@ -37,6 +40,9 @@ interface AgenticLoopToolCall {
 
 interface AgenticLoopCallbacks {
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
+  onAssistantMessage: (content: string) => Promise<void>;
+  onProgress: (progress: AgenticLoopProgress | null) => Promise<void>;
+  onProviderRetry: (event: AgenticLoopProviderRetryEvent) => Promise<void>;
   onToolRequested: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolStarted: (toolCall: AgenticLoopToolCall) => Promise<void>;
   onToolCompleted: (
@@ -49,6 +55,13 @@ interface AgenticLoopCallbacks {
     error: string,
     executionTimeMs: number,
   ) => Promise<void>;
+}
+
+interface AgenticLoopProgress {
+  phase: "planning" | "execution" | "synthesis";
+  label: string;
+  summary: string;
+  status: "active" | "completed";
 }
 
 export function buildAgenticLoopCallbacks(input: {
@@ -104,6 +117,56 @@ export function buildAgenticLoopCallbacks(input: {
           displayText: toolPresentation.displayText,
         },
       });
+    },
+    onProgress: async (progress) => {
+      if (!progress) {
+        return;
+      }
+      await input.runEventRecorder.recordRunProgress(
+        progress.phase,
+        progress.label,
+        progress.summary,
+        progress.status,
+      );
+    },
+    onProviderRetry: async (event) => {
+      await input.runEventRecorder.recordRunProgress(
+        RUN_WORKFLOW_STEPS.EXECUTION,
+        "Retrying model request",
+        "The provider returned an unusable response. Retrying once before pausing the run.",
+        "completed",
+        {
+          displayMode: "debug",
+          metadata: {
+            code: "MODEL_UNUSABLE_RESPONSE",
+            retryable: true,
+            providerId: event.providerId,
+            modelId: event.modelId,
+            anomalyCode: event.anomalyCode,
+            finishReason: event.finishReason,
+            statusCode: event.statusCode,
+            attempt: event.attempt,
+            nextAttempt: event.nextAttempt,
+            maxAttempts: event.maxAttempts,
+            retryCount: event.retryCount,
+          },
+        },
+      );
+    },
+    onAssistantMessage: async (content) => {
+      const sanitizedContent = sanitizeUserFacingOutput(content).trim();
+      if (!sanitizedContent) {
+        return;
+      }
+      await input.runEventRecorder.recordMessageEmitted(
+        "assistant",
+        sanitizedContent,
+        undefined,
+        {
+          phase: "commentary",
+          status: "completed",
+        },
+      );
     },
     onToolStarted: async (toolCall) => {
       await input.runEventRecorder.recordToolStarted({
@@ -227,7 +290,9 @@ async function executeDirectToolCall(input: {
       "APPROVAL_WAIT",
       "structured approval request emitted",
     );
-    await input.runEventRecorder.recordApprovalRequested(permissionResult.request);
+    await input.runEventRecorder.recordApprovalRequested(
+      permissionResult.request,
+    );
     const approvalOutcome = await waitForApprovalDecision({
       request: permissionResult.request,
       env: input.env,
@@ -353,8 +418,7 @@ async function detectWorkspaceMutationEvidence(
       probeFailed: false,
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.warn(
       `[agentic-loop/callbacks] git_status mutation probe failed: ${errorMessage}`,
     );
@@ -441,10 +505,10 @@ function buildLocalDiffScopePrompt(
   ].join(" ");
 }
 
-function buildMutationProbeFailureMessage(probeError: string | undefined): string {
-  const detail = probeError
-    ? ` git_status failed with: ${probeError}.`
-    : "";
+function buildMutationProbeFailureMessage(
+  probeError: string | undefined,
+): string {
+  const detail = probeError ? ` git_status failed with: ${probeError}.` : "";
   return [
     "I couldn't verify local workspace changes before staging/committing/pushing.",
     detail,
