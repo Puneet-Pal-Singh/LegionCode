@@ -64,23 +64,7 @@ export class TranscriptController {
       }
 
       const body = SessionCreateRequestSchema.parse(await request.json());
-      if (body.runId) {
-        await ensureSessionRun(body, body.runId, auth.userId, env);
-      }
-
-      const session = await withTranscriptRepository(env, (repository) =>
-        repository.ensureSession({
-          sessionId: body.sessionId,
-          userId: auth.userId,
-          workspaceId: body.workspaceId ?? null,
-          title: body.title ?? "Untitled task",
-          titleSource: body.titleSource ?? "generated",
-          repository: body.repository ?? null,
-          activeRunId: body.runId ?? null,
-          mode: body.mode ?? "build",
-          status: "idle",
-        }),
-      );
+      const session = await createPersistedSession(body, auth.userId, env);
 
       return jsonResponse(request, env, { session }, { status: 201 });
     } catch (error) {
@@ -226,6 +210,41 @@ export class TranscriptController {
       return transcriptErrorResponse(request, env, error);
     }
   }
+}
+
+async function createPersistedSession(
+  body: z.infer<typeof SessionCreateRequestSchema>,
+  userId: string,
+  env: Env,
+): Promise<SessionRecord> {
+  const session = await ensureTranscriptSession(body, userId, env, null);
+  if (!body.runId) {
+    return session;
+  }
+
+  await ensureSessionRun(body, body.runId, userId, env);
+  return await ensureTranscriptSession(body, userId, env, body.runId);
+}
+
+async function ensureTranscriptSession(
+  body: z.infer<typeof SessionCreateRequestSchema>,
+  userId: string,
+  env: Env,
+  activeRunId: string | null,
+): Promise<SessionRecord> {
+  return await withTranscriptRepository(env, (repository) =>
+    repository.ensureSession({
+      sessionId: body.sessionId,
+      userId,
+      workspaceId: body.workspaceId ?? null,
+      title: body.title ?? "Untitled task",
+      titleSource: body.titleSource ?? "generated",
+      repository: body.repository ?? null,
+      activeRunId,
+      mode: body.mode ?? "build",
+      status: "idle",
+    }),
+  );
 }
 
 async function ensureSessionRun(

@@ -326,9 +326,16 @@ export function ChatInterface({
     [events],
   );
   const scopedFeed = feed?.runId === runId ? feed : null;
+  const displayFeed = useMemo(
+    () =>
+      !isLoading && scopedFeed?.status === "RUNNING"
+        ? { ...scopedFeed, status: "CANCELLED" as const }
+        : scopedFeed,
+    [isLoading, scopedFeed],
+  );
   const activityViewModel = useMemo(
-    () => buildActivityFeedViewModel(scopedFeed, activityNowMs),
-    [scopedFeed, activityNowMs],
+    () => buildActivityFeedViewModel(displayFeed, activityNowMs),
+    [displayFeed, activityNowMs],
   );
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
