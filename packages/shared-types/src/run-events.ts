@@ -93,6 +93,24 @@ export interface TurnActivityTranscriptPart {
   compacted: boolean;
 }
 
+export function isTurnActivityTranscriptPart(
+  value: unknown,
+): value is TurnActivityTranscriptPart {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    value.version === 1 &&
+    value.type === "turn_activity" &&
+    Array.isArray(value.events)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
 export const MESSAGE_TRANSCRIPT_PHASES = {
   PROMPT: "prompt",
   COMMENTARY: "commentary",

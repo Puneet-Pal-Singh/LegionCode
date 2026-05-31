@@ -241,6 +241,7 @@ export {
   PROVIDER_FAILURE_CODES,
   TURN_ACTIVITY_EVENT_KINDS,
   TURN_ACTIVITY_EVENT_STATUSES,
+  isTurnActivityTranscriptPart,
   type EventSource,
   type MessageTranscriptPhase,
   type MessageTranscriptStatus,
