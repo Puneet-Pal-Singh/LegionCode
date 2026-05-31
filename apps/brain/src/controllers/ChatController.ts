@@ -37,8 +37,8 @@ import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
+import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
 import {
-  enforceChatImageInputPolicy,
   validateChatImageInput,
   type ChatImageInputState,
 } from "../services/chat/ChatImageInputPolicy";
@@ -95,7 +95,7 @@ interface ChatRequest {
  */
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
-    const correlationId = Math.random().toString(36).substring(7);
+    const correlationId = crypto.randomUUID();
     const requestStartedAt = Date.now();
     console.log(`[chat/request] ${correlationId} received`);
 
@@ -241,22 +241,22 @@ export class ChatController {
       userId,
       workspaceId,
       sessionId,
-      clientFingerprint: buildAdmissionScopeFingerprint(req),
+      clientFingerprint: await buildAdmissionScopeFingerprint(req),
       mode: body.mode,
       workflowIntent: body.workflowIntent,
     };
 
     try {
-      admissionGrant = await admissionService.enforce(admissionInput, correlationId);
-      await enforceChatImageInputPolicy({
+      await enforceImageCapability({
         env,
         userId,
         workspaceId,
         providerId: body.providerId,
         modelId: body.modelId,
-        imageInput: chatRequest.imageInput,
+        hasImages: chatRequest.imageInput.hasImages,
         correlationId,
       });
+      admissionGrant = await admissionService.enforce(admissionInput, correlationId);
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
@@ -316,7 +316,9 @@ export class ChatController {
       );
       throw error;
     } finally {
-      await admissionService.release(admissionGrant, admissionInput, correlationId);
+      if (admissionGrant) {
+        await admissionService.release(admissionGrant, admissionInput, correlationId);
+      }
     }
   }
 

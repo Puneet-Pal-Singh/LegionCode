@@ -1,4 +1,6 @@
-export function buildAdmissionScopeFingerprint(request: Request): string {
+export async function buildAdmissionScopeFingerprint(
+  request: Request,
+): Promise<string> {
   const cfIp = request.headers.get("CF-Connecting-IP")?.trim() ?? "";
   const forwarded = request.headers.get("X-Forwarded-For")?.trim() ?? "";
   const userAgent = request.headers.get("User-Agent")?.trim().toLowerCase() ?? "";
@@ -13,11 +15,11 @@ function firstForwardedIp(forwarded: string): string {
   return forwarded.split(",")[0]?.trim() ?? "";
 }
 
-function hashScopeFingerprintSeed(seed: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash ^= seed.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `fp-${(hash >>> 0).toString(36)}`;
+async function hashScopeFingerprintSeed(seed: string): Promise<string> {
+  const bytes = new TextEncoder().encode(seed);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `fp-${hex}`;
 }

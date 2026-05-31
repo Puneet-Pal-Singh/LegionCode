@@ -8,11 +8,12 @@ export const SUPPORTED_IMAGE_MIME_TYPES = [
 ] as const;
 
 export type SupportedImageMimeType = (typeof SUPPORTED_IMAGE_MIME_TYPES)[number];
+const SUPPORTED_IMAGE_MIME_TYPE_SET = new Set<string>(SUPPORTED_IMAGE_MIME_TYPES);
 
 export interface RedactedImageAttachmentMetadata {
   id: string;
   name?: string;
-  mediaType: SupportedImageMimeType;
+  mediaType: string;
   byteSize: number;
   width?: number;
   height?: number;
@@ -47,14 +48,18 @@ export function buildRedactedMessageText(message: CoreMessage): string {
     return "";
   }
 
-  const textParts = message.content
-    .map((part) => extractTextPart(part))
-    .filter((text) => text.length > 0);
-  const imageMarkers = extractImageParts(message.content).map((part, index) =>
-    formatImageMarker(part, index),
-  );
-  const text = textParts.join("\n").trim();
-  return [...(text ? [text] : []), ...imageMarkers].join("\n\n");
+  let imageIndex = 0;
+  return message.content
+    .map((part) => {
+      if (isImagePartLike(part)) {
+        const marker = formatImageMarker(part, imageIndex);
+        imageIndex += 1;
+        return marker;
+      }
+      return extractTextPart(part);
+    })
+    .filter((text) => text.length > 0)
+    .join("\n\n");
 }
 
 export function extractRedactedImageMetadata(
@@ -76,7 +81,7 @@ export function extractRedactedImageMetadata(
 export function isSupportedImageMimeType(
   value: string,
 ): value is SupportedImageMimeType {
-  return SUPPORTED_IMAGE_MIME_TYPES.includes(value as SupportedImageMimeType);
+  return SUPPORTED_IMAGE_MIME_TYPE_SET.has(value);
 }
 
 export function parseImageDataUrl(value: string): {
@@ -121,9 +126,6 @@ function extractTextPart(part: unknown): string {
   if (record.type === "text" && typeof record.text === "string") {
     return record.text;
   }
-  if (typeof record.text === "string") {
-    return record.text;
-  }
   if (typeof record.content === "string") {
     return record.content;
   }
@@ -137,11 +139,12 @@ function formatImageMarker(part: ImagePartLike, index: number): string {
   return `[Image attached: ${name}, ${mediaType}, ${byteSize}]`;
 }
 
-function normalizeImageMimeType(value: string | undefined): SupportedImageMimeType {
-  if (value && isSupportedImageMimeType(value)) {
-    return value;
+function normalizeImageMimeType(value: string | undefined): string {
+  const normalized = value?.toLowerCase();
+  if (normalized && isSupportedImageMimeType(normalized)) {
+    return normalized;
   }
-  return "image/png";
+  return normalized ?? "unknown";
 }
 
 function estimateDataUrlBytes(value: string): number {
