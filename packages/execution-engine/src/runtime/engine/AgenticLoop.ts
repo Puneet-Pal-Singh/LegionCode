@@ -256,7 +256,7 @@ export class AgenticLoop {
             temperature: context.temperature,
           },
           step,
-          context.onProviderRetry,
+          context,
         );
       } catch (error) {
         console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
@@ -542,7 +542,7 @@ export class AgenticLoop {
   private async generateLoopText(
     request: Parameters<ILLMGateway["generateText"]>[0],
     step: number,
-    onProviderRetry?: AgenticLoopHooks["onProviderRetry"],
+    hooks: Pick<AgenticLoopHooks, "onProviderRetry">,
   ): ReturnType<ILLMGateway["generateText"]> {
     const maxAttempts = 2;
 
@@ -583,7 +583,7 @@ export class AgenticLoop {
         }
 
         this.llmRetryCount++;
-        await onProviderRetry?.({
+        await hooks.onProviderRetry?.({
           providerId: error.providerId,
           modelId: error.modelId,
           anomalyCode: error.anomalyCode,
