@@ -144,6 +144,12 @@ export class EditArtifactReviewService {
         "Saved edit artifact is not available for this user.",
       );
     }
+    if (artifact.userId !== input.userId) {
+      throw new EditArtifactReviewError(
+        "ARTIFACT_UNAUTHORIZED",
+        "Saved edit artifact is not available for this user.",
+      );
+    }
     return artifact;
   }
 

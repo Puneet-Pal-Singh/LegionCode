@@ -442,30 +442,40 @@ export function ChatInterface({
     }
 
     let cancelled = false;
-    void Promise.all(
+    void Promise.allSettled(
       assistantMessageIds.map(async (assistantMessageId) => {
         const source = await getEditArtifactReviewSourceByMessage({
           runId,
           assistantMessageId,
         });
-        return source ? [assistantMessageId, source] : null;
+        return source ? ([assistantMessageId, source] as const) : null;
       }),
     )
-      .then((entries) => {
+      .then((results) => {
         if (cancelled) {
           return;
         }
-        const nextEntries = entries.filter(
-          (entry): entry is [string, PromptArtifactReviewSource] =>
-            entry !== null,
-        );
-        entries.forEach((entry, index) => {
+        const nextEntries: Array<[string, PromptArtifactReviewSource]> = [];
+        results.forEach((result, index) => {
           const assistantMessageId = assistantMessageIds[index];
           if (!assistantMessageId) {
             return;
           }
           inflightArtifactLookupsRef.current.delete(assistantMessageId);
-          if (entry === null) {
+          if (result.status === "fulfilled" && result.value) {
+            nextEntries.push([...result.value]);
+            return;
+          }
+          if (result.status === "rejected") {
+            console.warn("[chat/artifacts] Failed to hydrate artifact", {
+              assistantMessageId,
+              error: result.reason,
+            });
+          }
+          if (
+            result.status === "rejected" ||
+            (result.status === "fulfilled" && result.value === null)
+          ) {
             artifactLookupMissesRef.current.add(assistantMessageId);
           }
         });
@@ -476,13 +486,6 @@ export function ChatInterface({
           ...current,
           ...Object.fromEntries(nextEntries),
         }));
-      })
-      .catch((error) => {
-        assistantMessageIds.forEach((messageId) => {
-          inflightArtifactLookupsRef.current.delete(messageId);
-          artifactLookupMissesRef.current.add(messageId);
-        });
-        console.warn("[chat/artifacts] Failed to hydrate artifacts", error);
       });
 
     return () => {

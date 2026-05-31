@@ -7,11 +7,7 @@ import { R2PostgresEditArtifactStorageBackend } from "./R2PostgresEditArtifactSt
 export function createEditArtifactStorageBackend(
   env: Env,
 ): EditArtifactStorageBackend {
-  if (!env.EDIT_ARTIFACTS) {
-    throw new Error("EDIT_ARTIFACTS binding is unavailable");
-  }
-
-  const primary = new R2PostgresEditArtifactStorageBackend(env.EDIT_ARTIFACTS);
+  const primary = createCanonicalEditArtifactStorageBackend(env);
   if (!isEnabled(env.EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE)) {
     return primary;
   }
@@ -29,8 +25,19 @@ export function createEditArtifactStorageBackend(
   );
 }
 
+export function createCanonicalEditArtifactStorageBackend(
+  env: Env,
+): EditArtifactStorageBackend {
+  if (!env.EDIT_ARTIFACTS) {
+    throw new Error("EDIT_ARTIFACTS binding is unavailable");
+  }
+
+  return new R2PostgresEditArtifactStorageBackend(env.EDIT_ARTIFACTS);
+}
+
 function isEnabled(value: string | undefined): boolean {
-  return value?.toLowerCase() === "true" || value === "1";
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
 }
 
 function readArtifactsBinding(value: unknown): ConstructorParameters<

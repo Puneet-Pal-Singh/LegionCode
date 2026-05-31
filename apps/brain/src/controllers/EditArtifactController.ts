@@ -22,7 +22,7 @@ const MessageArtifactQuerySchema = z.object({
 });
 
 const ArtifactPathParamsSchema = z.object({
-  artifactId: z.string().min(1),
+  artifactId: z.string().uuid(),
 });
 
 const ArtifactDiffQuerySchema = z.object({
@@ -125,7 +125,10 @@ async function resolveOptionalAuth(
   if (auth) {
     return { userId: auth.userId, canReadRunScopedArtifacts: true };
   }
-  return { canReadRunScopedArtifacts: env.NODE_ENV !== "production" };
+  return {
+    canReadRunScopedArtifacts:
+      env.NODE_ENV === "development" || env.NODE_ENV === "test",
+  };
 }
 
 async function requireUserId(

@@ -2,30 +2,10 @@ import {
   sha256Hex,
   type EditArtifactStorageBackend,
   type StoredEditArtifact,
-  type WriteEditArtifactInput,
 } from "./EditArtifactStorageBackend";
 
 interface ArtifactsBinding {
-  create(
-    name: string,
-    options?: {
-      description?: string;
-      readOnly?: boolean;
-      setDefaultBranch?: string;
-    },
-  ): Promise<ArtifactsRepoMetadata>;
-  get(name: string): Promise<ArtifactsRepoHandle>;
-}
-
-interface ArtifactsRepoMetadata {
-  name: string;
-  remote: string;
-  defaultBranch?: string;
-  token?: string;
-}
-
-interface ArtifactsRepoHandle {
-  createToken(scope: "read" | "write", expiresInSeconds: number): Promise<string>;
+  get(name: string): Promise<unknown>;
 }
 
 export class CloudflareArtifactsWriteUnavailableError extends Error {
@@ -40,7 +20,7 @@ export class CloudflareArtifactsWriteUnavailableError extends Error {
 export class CloudflareArtifactsEditArtifactStorageBackend
   implements EditArtifactStorageBackend
 {
-  constructor(private readonly artifacts: ArtifactsBinding) {}
+  constructor(_artifacts: ArtifactsBinding) {}
 
   async writeArtifact(): Promise<StoredEditArtifact> {
     throw new CloudflareArtifactsWriteUnavailableError();
@@ -52,19 +32,6 @@ export class CloudflareArtifactsEditArtifactStorageBackend
 
   async deleteArtifact(): Promise<void> {
     return;
-  }
-
-  private async ensureRepo(repoName: string): Promise<ArtifactsRepoMetadata> {
-    try {
-      await this.artifacts.get(repoName);
-      return { name: repoName, remote: "", defaultBranch: "main" };
-    } catch {
-      return await this.artifacts.create(repoName, {
-        description: "LegionCode edit artifacts",
-        readOnly: false,
-        setDefaultBranch: "main",
-      });
-    }
   }
 }
 
@@ -79,8 +46,4 @@ export async function buildCloudflareArtifactCommitSha(
   patch: string,
 ): Promise<string> {
   return await sha256Hex(patch);
-}
-
-function buildRepoName(workspaceId: string): string {
-  return `workspace-${workspaceId}`;
 }

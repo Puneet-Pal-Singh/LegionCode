@@ -98,9 +98,13 @@ describe("EditArtifactReviewService", () => {
       async (
         _env: Env,
         callback: (repository: ArtifactRepository) => Promise<unknown>,
-      ) => await callback(
-        createRepository(null) as unknown as ArtifactRepository,
-      ),
+      ) =>
+        await callback(
+          createRepository({
+            ...artifact,
+            userId: "owner-user",
+          }),
+        ),
     );
 
     const service = new EditArtifactReviewService(env);
