@@ -287,6 +287,57 @@ describe("useChatCore", () => {
     );
   });
 
+  it("submits image-only messages with redacted debug metadata", async () => {
+    const { result } = renderHook(() => useChatCore("session-1"));
+    let submitted = false;
+
+    await act(async () => {
+      submitted = await result.current.handleSubmit(undefined, {
+        imageAttachments: [
+          {
+            id: "image-1",
+            name: "screen.png",
+            mediaType: "image/png",
+            dataUrl: "data:image/png;base64,aGVsbG8=",
+            previewUrl: "blob:preview",
+            byteSize: 5,
+            source: "paste",
+          },
+        ],
+      });
+    });
+
+    expect(submitted).toBe(true);
+    expect(appendSpy).toHaveBeenCalledWith(
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Analyze the attached image(s)." },
+          {
+            type: "image",
+            image: "data:image/png;base64,aGVsbG8=",
+            mimeType: "image/png",
+            name: "screen.png",
+          },
+        ],
+        imageMetadata: [
+          {
+            id: "image-1",
+            name: "screen.png",
+            mediaType: "image/png",
+            byteSize: 5,
+            source: "paste",
+          },
+        ],
+      },
+      expect.objectContaining({
+        body: expect.objectContaining({
+          sessionId: "session-1",
+        }),
+      }),
+    );
+  });
+
   it("marks chat loading immediately while append setup is in flight", async () => {
     let resolveAppend: (() => void) | null = null;
     appendSpy.mockImplementation(
