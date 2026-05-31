@@ -330,12 +330,11 @@ export function useChatCore(
       message: ChatAppendMessage,
       requestBody: ChatRequestBody,
     ): Promise<void> => {
-      await append(
-        message as unknown as Parameters<typeof append>[0],
-        {
-          body: requestBody,
-        },
-      );
+      const appendMultimodal = append as (
+        input: ChatAppendMessage,
+        options: { body: ChatRequestBody },
+      ) => Promise<string | null | undefined>;
+      await appendMultimodal(message, { body: requestBody });
     },
     [append],
   );

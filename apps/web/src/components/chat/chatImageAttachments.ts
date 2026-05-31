@@ -6,6 +6,7 @@ export const CHAT_IMAGE_MIME_TYPES = [
 ] as const;
 
 export type ChatImageMimeType = (typeof CHAT_IMAGE_MIME_TYPES)[number];
+const CHAT_IMAGE_MIME_TYPE_SET = new Set<string>(CHAT_IMAGE_MIME_TYPES);
 
 export interface ChatImageAttachment {
   id: string;
@@ -26,7 +27,7 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export function isChatImageMimeType(value: string): value is ChatImageMimeType {
-  return CHAT_IMAGE_MIME_TYPES.includes(value as ChatImageMimeType);
+  return CHAT_IMAGE_MIME_TYPE_SET.has(value);
 }
 
 export function validateNextImageAttachment(input: {
@@ -56,10 +57,13 @@ export async function createChatImageAttachment(
   file: File,
   source: "paste" | "upload",
 ): Promise<ChatImageAttachment> {
+  if (!isChatImageMimeType(file.type)) {
+    throw new Error("Only PNG, JPEG, WebP, and GIF images can be attached.");
+  }
   return {
     id: crypto.randomUUID(),
     name: file.name || "pasted-image",
-    mediaType: file.type as ChatImageMimeType,
+    mediaType: file.type,
     dataUrl: await readFileAsDataUrl(file),
     previewUrl: URL.createObjectURL(file),
     byteSize: file.size,
@@ -106,7 +110,10 @@ export function formatAttachmentSize(byteSize: number): string {
   if (byteSize < 1024 * 1024) {
     return `${Math.round(byteSize / 1024)} KB`;
   }
-  return `${(byteSize / (1024 * 1024)).toFixed(1)} MB`;
+  const megabytes = byteSize / (1024 * 1024);
+  return Number.isInteger(megabytes)
+    ? `${megabytes} MB`
+    : `${megabytes.toFixed(1)} MB`;
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -120,6 +127,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
       reject(new Error("Image attachment could not be read."));
     };
     reader.onerror = () => reject(new Error("Image attachment could not be read."));
+    reader.onabort = () => reject(new Error("Image attachment read was aborted."));
     reader.readAsDataURL(file);
   });
 }

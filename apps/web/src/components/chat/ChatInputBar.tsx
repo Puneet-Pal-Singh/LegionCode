@@ -470,23 +470,33 @@ export function ChatInputBar({
       return;
     }
 
-    let nextAttachments = imageAttachments;
+    let firstError: string | null = null;
+    let addedAttachment = false;
     for (const file of files) {
       const validationError = validateNextImageAttachment({
         file,
-        existingAttachments: nextAttachments,
+        existingAttachments: imageAttachmentsRef.current,
       });
       if (validationError) {
-        setImageAttachmentError(validationError);
+        firstError ??= validationError;
         continue;
       }
       const attachment = await createChatImageAttachment(file, source);
-      nextAttachments = [...nextAttachments, attachment];
+      const latestValidationError = validateNextImageAttachment({
+        file,
+        existingAttachments: imageAttachmentsRef.current,
+      });
+      if (latestValidationError) {
+        URL.revokeObjectURL(attachment.previewUrl);
+        firstError ??= latestValidationError;
+        continue;
+      }
+      const nextAttachments = [...imageAttachmentsRef.current, attachment];
+      imageAttachmentsRef.current = nextAttachments;
+      setImageAttachments(nextAttachments);
+      addedAttachment = true;
     }
-    setImageAttachments(nextAttachments);
-    if (nextAttachments.length !== imageAttachments.length) {
-      setImageAttachmentError(null);
-    }
+    setImageAttachmentError(firstError ?? (addedAttachment ? null : imageAttachmentError));
   };
 
   const removeImageAttachment = (attachmentId: string) => {
@@ -500,9 +510,10 @@ export function ChatInputBar({
   };
 
   const clearImageAttachments = () => {
-    for (const attachment of imageAttachments) {
+    for (const attachment of imageAttachmentsRef.current) {
       URL.revokeObjectURL(attachment.previewUrl);
     }
+    imageAttachmentsRef.current = [];
     setImageAttachments([]);
   };
 
