@@ -120,7 +120,9 @@ describe("useChatHydration", () => {
         }),
       ]);
     });
-    expect(result.current.hasHydrated).toBe(true);
+    await waitFor(() => {
+      expect(result.current.hasHydrated).toBe(true);
+    });
   });
 });
 
