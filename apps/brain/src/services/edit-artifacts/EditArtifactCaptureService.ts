@@ -10,8 +10,14 @@ import type { ArtifactRepository } from "@repo/persistence";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
+import { createEditArtifactStorageBackend } from "./EditArtifactStorageBackendFactory";
+import {
+  EditArtifactPatchParseError,
+  parsePatchFileInventory,
+} from "./EditArtifactPatchParser";
 import { SecureGitArtifactClient } from "./SecureGitArtifactClient";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
+import type { CompositeEditArtifactStorageResult } from "./CompositeEditArtifactStorageBackend";
 
 const EDIT_ARTIFACT_RETENTION_DAYS = 30;
 
@@ -25,12 +31,22 @@ interface CaptureAfterRunInput {
   repoName: string | null;
   repoUrl: string | null;
   changedFiles: EditArtifactChangedFile[];
+  userMessageId?: string;
+  assistantMessageId?: string;
+  sourceTurnId?: string;
+  captureSequence?: number;
 }
 
 interface CapturedPatchPayload {
   patch: string;
   branch: string | null;
   baseCommitSha: string | null;
+}
+
+interface CaptureArtifactMetadata {
+  artifactId: string;
+  capturedAt: string;
+  r2ObjectKey: string;
 }
 
 export class EditArtifactCaptureService {
@@ -96,47 +112,109 @@ export class EditArtifactCaptureService {
     changedFiles: EditArtifactChangedFile[],
     capturedPatch: CapturedPatchPayload,
   ): Promise<void> {
+    const metadata = this.buildCaptureArtifactMetadata(input);
+    const artifact = await this.createAndRecordPendingArtifact(
+      repository,
+      input,
+      changedFiles,
+      capturedPatch,
+      metadata,
+    );
+    await this.writeAndFinalizeCapturedArtifact(
+      repository,
+      input,
+      changedFiles,
+      capturedPatch,
+      artifact,
+      metadata,
+    );
+  }
+
+  private buildCaptureArtifactMetadata(
+    input: CaptureAfterRunInput,
+  ): CaptureArtifactMetadata {
     const artifactId = crypto.randomUUID();
-    const capturedAt = new Date().toISOString();
-    const r2ObjectKey = this.buildPatchKey(input, artifactId);
-    const artifact = await this.createPendingArtifact(repository, {
+    return {
       artifactId,
-      capturedAt,
+      capturedAt: new Date().toISOString(),
+      r2ObjectKey: this.buildPatchKey(input, artifactId),
+    };
+  }
+
+  private async createAndRecordPendingArtifact(
+    repository: ArtifactRepository,
+    input: CaptureAfterRunInput,
+    changedFiles: EditArtifactChangedFile[],
+    capturedPatch: CapturedPatchPayload,
+    metadata: CaptureArtifactMetadata,
+  ): Promise<EditArtifactRecord> {
+    const artifact = await this.createPendingArtifact(repository, {
+      ...metadata,
       capturedPatch,
       changedFiles,
       input,
-      r2ObjectKey,
     });
     await this.recordCaptureStarted(
       repository,
-      artifactId,
+      metadata.artifactId,
       input.runId,
-      r2ObjectKey,
-      capturedAt,
+      metadata.r2ObjectKey,
+      metadata.capturedAt,
     );
+    return artifact;
+  }
 
-    const patchSha256 = await this.writePatch({
+  private async writeAndFinalizeCapturedArtifact(
+    repository: ArtifactRepository,
+    input: CaptureAfterRunInput,
+    changedFiles: EditArtifactChangedFile[],
+    capturedPatch: CapturedPatchPayload,
+    artifact: EditArtifactRecord,
+    metadata: CaptureArtifactMetadata,
+  ): Promise<void> {
+    const storedArtifact = await this.writePatch({
       repository,
       artifact: {
         branch: artifact.branch,
         baseCommitSha: artifact.baseCommitSha,
       },
-      artifactId,
-      capturedAt,
+      artifactId: metadata.artifactId,
+      capturedAt: metadata.capturedAt,
       changedFiles,
       input,
       patch: capturedPatch.patch,
-      r2ObjectKey,
+      r2ObjectKey: metadata.r2ObjectKey,
     });
-    await this.markCaptureStored(
-      repository,
-      artifactId,
-      input.userId,
-      input.runId,
-      changedFiles.length,
-      patchSha256,
-      new TextEncoder().encode(capturedPatch.patch).byteLength,
-    );
+    try {
+      await this.markCaptureStored(
+        repository,
+        metadata.artifactId,
+        input.userId,
+        input.runId,
+        changedFiles.length,
+        storedArtifact.patchSha256,
+        new TextEncoder().encode(capturedPatch.patch).byteLength,
+        storedArtifact,
+      );
+      await this.recordPatchParseStatus(
+        repository,
+        input,
+        metadata.artifactId,
+        storedArtifact.patchSha256,
+        capturedPatch.patch,
+        changedFiles,
+        storedArtifact,
+      );
+    } catch (error) {
+      await this.markCaptureFailed(
+        repository,
+        metadata.artifactId,
+        input.userId,
+        input.runId,
+        error,
+      );
+      throw error;
+    }
   }
 
   private buildPatchKey(
@@ -173,6 +251,13 @@ export class EditArtifactCaptureService {
       artifactKind: "git_patch",
       r2ObjectKey: input.r2ObjectKey,
       changedFiles: input.changedFiles,
+      userMessageId: input.input.userMessageId ?? null,
+      assistantMessageId: input.input.assistantMessageId ?? null,
+      sourceTurnId: input.input.sourceTurnId ?? null,
+      captureSequence: input.input.captureSequence ?? 0,
+      patchParseStatus: "unknown",
+      patchSha256: null,
+      storageBackend: "r2_postgres",
       expiresAt: addDays(input.capturedAt, EDIT_ARTIFACT_RETENTION_DAYS),
     });
   }
@@ -204,22 +289,50 @@ export class EditArtifactCaptureService {
     input: CaptureAfterRunInput;
     patch: string;
     r2ObjectKey: string;
-  }): Promise<string> {
-    const patchSha256 = await sha256Hex(input.patch);
-    await this.objectStore.writePatch({
-      key: input.r2ObjectKey,
+  }): Promise<CompositeEditArtifactStorageResult> {
+    const storageBackend = createEditArtifactStorageBackend(this.env);
+    const storedArtifact = (await storageBackend.writeArtifact({
+      artifactId: input.artifactId,
+      userId: input.input.userId,
+      workspaceId: input.input.workspaceId,
+      runId: input.input.runId,
+      sessionId: input.input.sessionId,
+      objectKey: input.r2ObjectKey,
       patch: input.patch,
-      metadata: buildPatchMetadata(input, patchSha256),
-    });
+      metadata: buildPatchMetadata(input, await sha256Hex(input.patch)),
+    })) as CompositeEditArtifactStorageResult;
     await input.repository.appendEvent({
       id: crypto.randomUUID(),
       artifactId: input.artifactId,
       runId: input.input.runId,
       eventType: "r2_write_succeeded",
       message: "Edit artifact patch written to R2",
-      metadata: { patchSha256 },
+      metadata: { patchSha256: storedArtifact.patchSha256 },
     });
-    return patchSha256;
+    if (storedArtifact.secondaryError) {
+      await input.repository.appendEvent({
+        id: crypto.randomUUID(),
+        artifactId: input.artifactId,
+        runId: input.input.runId,
+        eventType: "cf_artifacts_write_failed",
+        message: "Cloudflare Artifacts secondary write failed",
+        metadata: { error: storedArtifact.secondaryError },
+      });
+    } else if (storedArtifact.secondary) {
+      await input.repository.appendEvent({
+        id: crypto.randomUUID(),
+        artifactId: input.artifactId,
+        runId: input.input.runId,
+        eventType: "cf_artifacts_write_succeeded",
+        message: "Cloudflare Artifacts secondary write succeeded",
+        metadata: {
+          cfArtifactRepo: storedArtifact.secondary.cfRepo ?? null,
+          cfArtifactCommitSha: storedArtifact.secondary.cfCommitSha ?? null,
+          cfArtifactPath: storedArtifact.secondary.cfPath ?? null,
+        },
+      });
+    }
+    return storedArtifact;
   }
 
   private async markCaptureStored(
@@ -230,11 +343,16 @@ export class EditArtifactCaptureService {
     changedFileCount: number,
     patchSha256: string,
     patchSizeBytes: number,
+    storedArtifact: CompositeEditArtifactStorageResult,
   ): Promise<void> {
     await repository.updateStatus({
       artifactId,
       userId,
-      status: "stored",
+      status: storedArtifact.secondaryError
+        ? "secondary_write_failed"
+        : storedArtifact.secondary
+          ? "stored_with_secondary"
+          : "stored",
       contentType: "text/x-patch",
       sizeBytes: patchSizeBytes,
       sha256: patchSha256,
@@ -245,8 +363,84 @@ export class EditArtifactCaptureService {
       runId,
       eventType: "metadata_commit_succeeded",
       message: "Edit artifact metadata committed",
-      metadata: { changedFileCount },
+      metadata: {
+        changedFileCount,
+        secondaryBackend: storedArtifact.secondary?.backend ?? null,
+      },
     });
+  }
+
+  private async recordPatchParseStatus(
+    repository: ArtifactRepository,
+    input: CaptureAfterRunInput,
+    artifactId: string,
+    patchSha256: string,
+    patch: string,
+    changedFiles: EditArtifactChangedFile[],
+    storedArtifact: CompositeEditArtifactStorageResult,
+  ): Promise<void> {
+    const parseStatus = resolvePatchParseStatus(patch, changedFiles);
+    await repository.updateReviewMetadata({
+      artifactId,
+      userId: input.userId,
+      userMessageId: input.userMessageId ?? null,
+      assistantMessageId: input.assistantMessageId ?? null,
+      sourceTurnId: input.sourceTurnId ?? null,
+      captureSequence: input.captureSequence ?? 0,
+      patchParseStatus: parseStatus,
+      patchSha256,
+      storageBackend: storedArtifact.secondary
+        ? "cloudflare_artifacts"
+        : "r2_postgres",
+      cfArtifactRepo: storedArtifact.secondary?.cfRepo ?? null,
+      cfArtifactCommitSha: storedArtifact.secondary?.cfCommitSha ?? null,
+      cfArtifactPath: storedArtifact.secondary?.cfPath ?? null,
+    });
+    await repository.appendEvent({
+      id: crypto.randomUUID(),
+      artifactId,
+      runId: input.runId,
+      eventType:
+        parseStatus === "parsed" ? "patch_parse_succeeded" : "patch_parse_failed",
+      message:
+        parseStatus === "parsed"
+          ? "Edit artifact patch parsed successfully"
+          : parseStatus === "corrupt"
+            ? "Edit artifact patch could not be parsed"
+            : "Edit artifact patch inventory did not match captured files",
+      metadata: { patchParseStatus: parseStatus },
+    });
+  }
+
+  private async markCaptureFailed(
+    repository: ArtifactRepository,
+    artifactId: string,
+    userId: string,
+    runId: string,
+    error: unknown,
+  ): Promise<void> {
+    const message =
+      error instanceof Error ? error.message : "Unknown capture failure";
+    try {
+      await repository.updateStatus({
+        artifactId,
+        userId,
+        status: "capture_failed",
+      });
+      await repository.appendEvent({
+        id: crypto.randomUUID(),
+        artifactId,
+        runId,
+        eventType: "capture_failed",
+        message: "Edit artifact capture failed after patch write",
+        metadata: { error: message },
+      });
+    } catch (compensationError) {
+      console.warn("[edit-artifacts/capture] compensation failed", {
+        artifactId,
+        error: compensationError,
+      });
+    }
   }
 
   private async loadChangedFilesFromGit(
@@ -274,6 +468,7 @@ interface EditArtifactCoordinator {
 export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinator {
   private readonly changedFiles = new Map<string, EditArtifactChangedFile>();
   private captureInFlight: Promise<void> = Promise.resolve();
+  private captureSequence = 0;
 
   constructor(
     private readonly service: EditArtifactCaptureService,
@@ -320,9 +515,11 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   }
 
   private async capture(): Promise<void> {
+    this.captureSequence += 1;
     await this.service.captureAfterRunMutation({
       ...this.context,
       changedFiles: Array.from(this.changedFiles.values()),
+      captureSequence: this.captureSequence,
     });
   }
 }
@@ -420,6 +617,12 @@ function buildPatchMetadata(
     branch: input.artifact.branch,
     baseCommitSha: input.artifact.baseCommitSha,
     patchSha256,
+    userMessageId: input.input.userMessageId ?? null,
+    assistantMessageId: input.input.assistantMessageId ?? null,
+    sourceTurnId: input.input.sourceTurnId ?? null,
+    captureSequence: input.input.captureSequence ?? 0,
+    patchParseStatus: "unknown",
+    storageBackend: "r2_postgres",
     changedFiles: input.changedFiles,
     capturedAt: input.capturedAt,
   };
@@ -456,6 +659,25 @@ function readGitStatsForPromptFile(
     deletions: hasRealGitStats ? gitFile.deletions : promptFile.deletions,
     isStaged: gitFile?.isStaged ?? promptFile.isStaged,
   };
+}
+
+function resolvePatchParseStatus(
+  patch: string,
+  changedFiles: EditArtifactChangedFile[],
+): "parsed" | "mismatch" | "corrupt" {
+  try {
+    const inventory = parsePatchFileInventory(patch);
+    const inventoryPaths = new Set(inventory.map((file) => file.path));
+    const hasAllCapturedFiles = changedFiles.every((file) =>
+      inventoryPaths.has(file.path),
+    );
+    return hasAllCapturedFiles ? "parsed" : "mismatch";
+  } catch (error) {
+    if (error instanceof EditArtifactPatchParseError) {
+      return "corrupt";
+    }
+    throw error;
+  }
 }
 
 export function extractChangedFileFromToolResult(

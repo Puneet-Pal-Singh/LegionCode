@@ -24,6 +24,17 @@ export interface ArtifactRow extends SqlRow {
   content_type: string | null;
   size_bytes: number | null;
   sha256: string | null;
+  user_message_id?: string | null;
+  assistant_message_id?: string | null;
+  source_turn_id?: string | null;
+  capture_sequence?: number | null;
+  patch_parse_status?: string | null;
+  patch_sha256?: string | null;
+  storage_backend?: string | null;
+  cf_artifact_repo?: string | null;
+  cf_artifact_commit_sha?: string | null;
+  cf_artifact_path?: string | null;
+  storage_reconciliation_status?: string | null;
   status: string;
   changed_files_json: unknown;
   created_at: string | Date;
@@ -60,6 +71,17 @@ export function mapArtifactRow(row: ArtifactRow): EditArtifactRecord {
     contentType: row.content_type,
     sizeBytes: row.size_bytes,
     sha256: row.sha256,
+    userMessageId: row.user_message_id ?? null,
+    assistantMessageId: row.assistant_message_id ?? null,
+    sourceTurnId: row.source_turn_id ?? null,
+    captureSequence: row.capture_sequence ?? 0,
+    patchParseStatus: row.patch_parse_status ?? "unknown",
+    patchSha256: row.patch_sha256 ?? row.sha256,
+    storageBackend: row.storage_backend ?? "r2_postgres",
+    cfArtifactRepo: row.cf_artifact_repo ?? null,
+    cfArtifactCommitSha: row.cf_artifact_commit_sha ?? null,
+    cfArtifactPath: row.cf_artifact_path ?? null,
+    storageReconciliationStatus: row.storage_reconciliation_status ?? null,
     changedFileCount: changedFiles.length,
     changedFiles,
     status: row.status,
