@@ -37,8 +37,11 @@ const SESSIONS_KEY = "shadowbox:sessions:v3";
 const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v3";
 const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 
-type StoredAgentSession = Omit<AgentSession, "mode"> & {
+type StoredSessionStatus = AgentSession["status"] | "error";
+
+type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
   mode?: RunMode;
+  status?: StoredSessionStatus;
   titleSource?: ChatTitleSource;
   pinnedAt?: string | null;
   archivedAt?: string | null;
@@ -639,10 +642,18 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
   return {
     ...session,
     mode: session.mode ?? DEFAULT_RUN_MODE,
+    status: normalizeStoredSessionStatus(session.status),
     titleSource: session.titleSource ?? "generated",
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
   };
+}
+
+function normalizeStoredSessionStatus(
+  status: StoredSessionStatus | undefined,
+): SessionStatus {
+  if (status === "error") return "failed";
+  return status ?? "idle";
 }
 
 function mapServerSession(session: ServerSessionRecord): AgentSession | null {
