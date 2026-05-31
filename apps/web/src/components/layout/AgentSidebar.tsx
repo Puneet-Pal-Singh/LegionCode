@@ -40,6 +40,7 @@ type TaskStatusFilter =
   | "all"
   | "needs_approval"
   | "running"
+  | "paused"
   | "idle"
   | "completed"
   | "failed";
@@ -48,6 +49,7 @@ const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
   { value: "all", label: "All tasks" },
   { value: "needs_approval", label: "Awaiting approval" },
   { value: "running", label: "Running" },
+  { value: "paused", label: "Paused" },
   { value: "failed", label: "Failed" },
   { value: "completed", label: "Completed" },
   { value: "idle", label: "Idle" },
@@ -75,12 +77,13 @@ function mapSessionStatus(
 ): SidebarTaskStatus {
   const status = session.status;
   if (status === "running") return "running";
+  if (status === "paused") return "paused";
   if (status === "completed") {
     return shouldHighlightCompleted(session, activeSessionId)
       ? "completed"
       : "idle";
   }
-  if (status === "paused" || status === "failed") return "failed";
+  if (status === "failed") return "failed";
   return "idle";
 }
 

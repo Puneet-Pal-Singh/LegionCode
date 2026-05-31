@@ -280,11 +280,14 @@ function AppContent() {
         | "queued"
         | "running"
         | "waiting"
+        | "paused"
         | "failed"
         | "complete" = "idle";
       if (session.status === "running") status = "running";
       else if (session.status === "completed") status = "complete";
-      else if (session.status === "paused" || session.status === "failed") {
+      else if (session.status === "paused") {
+        status = "paused";
+      } else if (session.status === "failed") {
         status = "failed";
       }
 

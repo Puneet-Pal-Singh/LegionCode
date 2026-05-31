@@ -42,6 +42,7 @@ describe("RunInbox", () => {
       "queued",
       "running",
       "waiting",
+      "paused",
       "failed",
       "complete",
     ];

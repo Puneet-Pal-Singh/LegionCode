@@ -48,7 +48,7 @@ describe("SessionStateService", () => {
       expect(loaded).toEqual({});
     });
 
-    it("rejects sessions with invalid persisted statuses", () => {
+    it("normalizes legacy error sessions to failed", () => {
       const session = SessionStateService.createSession("Test", "repo");
 
       localStorage.setItem(
@@ -59,6 +59,28 @@ describe("SessionStateService", () => {
             [session.id]: {
               ...session,
               status: "error",
+            },
+          },
+          activeSessionId: session.id,
+          lastModified: new Date().toISOString(),
+        }),
+      );
+
+      const loaded = SessionStateService.loadSessions();
+      expect(loaded[session.id]?.status).toBe("failed");
+    });
+
+    it("rejects sessions with unknown persisted statuses", () => {
+      const session = SessionStateService.createSession("Test", "repo");
+
+      localStorage.setItem(
+        "shadowbox:sessions:v3",
+        JSON.stringify({
+          version: 3,
+          sessions: {
+            [session.id]: {
+              ...session,
+              status: "unknown",
             },
           },
           activeSessionId: session.id,

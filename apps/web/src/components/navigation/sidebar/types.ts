@@ -1,6 +1,7 @@
 export type SidebarTaskStatus =
   | "idle"
   | "running"
+  | "paused"
   | "failed"
   | "completed"
   | "needs_approval";
