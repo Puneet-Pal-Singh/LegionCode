@@ -9,6 +9,7 @@ import {
 } from "./LLMGateway.js";
 import type { LLMGatewayDependencies } from "./LLMGateway.js";
 import type { ProviderCapabilityResolver } from "./types.js";
+import type { LLMUsage } from "../cost/index.js";
 
 const baseRequest = {
   context: {
@@ -152,7 +153,7 @@ describe("LLMGateway provider capabilities", () => {
           },
         ],
       },
-    ] as unknown as CoreMessage[];
+    ] satisfies CoreMessage[];
 
     await gateway.generateText({
       ...baseRequest,
@@ -162,11 +163,104 @@ describe("LLMGateway provider capabilities", () => {
     expect(deps.aiService.generateText).toHaveBeenCalledWith(
       expect.objectContaining({ messages }),
     );
-    const usage = deps.budgetPolicy.preflight.mock.calls[0]?.[1] as {
-      promptTokens: number;
-    };
-    expect(usage.promptTokens).toBeGreaterThan(1_000);
-    expect(usage.promptTokens).toBeLessThan(1_500);
+    const usage = readPreflightUsage(deps);
+    expect(usage.promptTokens).toBe(1_107);
+    expect(usage.completionTokens).toBe(500);
+    expect(usage.totalTokens).toBe(1_607);
+  });
+
+  it("estimates file parts without counting base64 as prompt text", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const gateway = new LLMGateway(deps);
+    const largeDataUrl = `data:application/pdf;base64,${"a".repeat(20_000)}`;
+    const messages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "inspect" },
+          {
+            type: "file",
+            data: largeDataUrl,
+            mimeType: "application/pdf",
+          },
+        ],
+      },
+    ] satisfies CoreMessage[];
+
+    await gateway.generateText({
+      ...baseRequest,
+      messages,
+    });
+
+    expect(readPreflightUsage(deps).promptTokens).toBe(1_107);
+  });
+
+  it("estimates nested tool-result experimental image content safely", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const gateway = new LLMGateway(deps);
+    const messages = [
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            toolName: "screenshot",
+            result: "ok",
+            experimental_content: [
+              {
+                type: "image",
+                image: `data:image/png;base64,${"a".repeat(20_000)}`,
+                mimeType: "image/png",
+              },
+            ],
+          },
+        ],
+      },
+    ] satisfies CoreMessage[];
+
+    await gateway.generateText({
+      ...baseRequest,
+      messages,
+    });
+
+    expect(readPreflightUsage(deps).promptTokens).toBe(1_105);
+  });
+
+  it("includes text system prompts in preflight estimates", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    const gateway = new LLMGateway(deps);
+
+    await gateway.generateText({
+      ...baseRequest,
+      system: "s".repeat(400),
+    });
+
+    expect(readPreflightUsage(deps).promptTokens).toBe(102);
   });
 
   it("propagates normalized tool calls when provider returns tool calls", async () => {
@@ -598,4 +692,12 @@ function createDependencies(
         })),
     },
   };
+}
+
+function readPreflightUsage(deps: LLMGatewayDependencies): LLMUsage {
+  const calls = deps.budgetPolicy.preflight.mock.calls;
+  expect(calls).toHaveLength(1);
+  const usage = calls[0]?.[1];
+  expect(usage).toBeDefined();
+  return usage;
 }
