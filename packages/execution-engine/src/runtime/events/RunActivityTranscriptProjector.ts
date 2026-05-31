@@ -14,15 +14,6 @@ interface ProjectRunActivityTranscriptParams {
   terminalReason?: string;
 }
 
-interface InterruptedActivityFinalizerInput {
-  runId: string;
-  sessionId: string;
-  turnId: string;
-  events: RunEvent[];
-  terminalStatus: "paused" | "failed" | "cancelled";
-  terminalReason: string;
-}
-
 interface TranscriptBuilderState {
   runId: string;
   sessionId: string;
@@ -46,7 +37,7 @@ export function projectRunActivityTranscript(
     projectEvent(state, event);
   }
 
-  finalizeOpenActivityEvents(
+  const finalizedEvents = finalizeOpenActivityEvents(
     state.events,
     mapTerminalStatus(params.terminalStatus),
     params.terminalReason,
@@ -55,26 +46,9 @@ export function projectRunActivityTranscript(
   return {
     version: 1,
     type: "turn_activity",
-    events: state.events,
+    events: finalizedEvents,
     compacted: false,
   };
-}
-
-export function finalizeInterruptedActivityEvents(
-  input: InterruptedActivityFinalizerInput,
-): TurnActivityEvent[] {
-  const part = projectRunActivityTranscript({
-    runId: input.runId,
-    sessionId: input.sessionId,
-    events: input.events,
-    terminalStatus: input.terminalStatus,
-    terminalReason: input.terminalReason,
-  });
-
-  return part.events.map((event) => ({
-    ...event,
-    turnId: event.turnId || input.turnId,
-  }));
 }
 
 function createTranscriptBuilderState(
@@ -312,15 +286,18 @@ function finalizeOpenActivityEvents(
   events: TurnActivityEvent[],
   status: TurnActivityEventStatus,
   terminalReason: string | undefined,
-): void {
-  for (const event of events) {
+): TurnActivityEvent[] {
+  return events.map((event) => {
     if (event.status !== "pending" && event.status !== "running") {
-      continue;
+      return event;
     }
 
-    event.status = status;
-    event.detail = event.detail ?? terminalReason;
-  }
+    return {
+      ...event,
+      status,
+      detail: event.detail ?? terminalReason,
+    };
+  });
 }
 
 function mapTerminalStatus(

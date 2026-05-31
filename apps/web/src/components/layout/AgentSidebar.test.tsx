@@ -83,6 +83,47 @@ describe("AgentSidebar", () => {
     expect(indicator.className).toContain("animate-spin");
   });
 
+  it("renders paused sessions without marking them failed", () => {
+    render(
+      <AgentSidebar
+        sessions={[createSession({ status: "paused" })]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-status-paused")).toHaveAttribute(
+      "data-status-kind",
+      "dot",
+    );
+    expect(screen.queryByTestId("task-status-failed")).not.toBeInTheDocument();
+  });
+
+  it("shows the paused filter option in the sidebar menu", () => {
+    render(
+      <AgentSidebar
+        sessions={[createSession({ status: "paused" })]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
+    expect(
+      screen.getByRole("menuitemradio", { name: "Paused" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows recently completed non-active sessions as blue completed status", () => {
     render(
       <AgentSidebar

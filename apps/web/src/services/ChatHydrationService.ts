@@ -1,5 +1,8 @@
 import type { Message } from "@ai-sdk/react";
-import type { TurnActivityTranscriptPart } from "@repo/shared-types";
+import {
+  isTurnActivityTranscriptPart,
+  type TurnActivityTranscriptPart,
+} from "@repo/shared-types";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
@@ -24,6 +27,10 @@ type ServerMessagePart =
   | CorePart
   | TurnActivityTranscriptPart
   | { type: string; [key: string]: unknown };
+
+type MessageWithActivityData = Message & {
+  data: { activityParts: TurnActivityTranscriptPart[] };
+};
 
 interface ServerMessage {
   id?: string;
@@ -180,9 +187,7 @@ export class ChatHydrationService {
           converted.toolInvocations = toolInvocations;
         }
         if (activityParts.length > 0) {
-          converted.data = {
-            activityParts,
-          } as unknown as Message["data"];
+          return attachActivityParts(converted, activityParts);
         }
 
         return converted;
@@ -231,14 +236,12 @@ function isToolCallPart(
   return value.type === "tool-call";
 }
 
-function isTurnActivityTranscriptPart(
-  value: ServerMessagePart,
-): value is TurnActivityTranscriptPart {
-  return (
-    value.type === "turn_activity" &&
-    "version" in value &&
-    value.version === 1 &&
-    "events" in value &&
-    Array.isArray(value.events)
-  );
+function attachActivityParts(
+  message: Message,
+  activityParts: TurnActivityTranscriptPart[],
+): Message {
+  return {
+    ...message,
+    data: { activityParts },
+  } as MessageWithActivityData;
 }

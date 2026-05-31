@@ -29,6 +29,10 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
       "h-3.5 w-3.5 rounded-full border-2 border-zinc-100/90 border-t-transparent animate-spin",
     kind: "spinner",
   },
+  paused: {
+    indicatorClass: "h-2.5 w-2.5 rounded-full bg-amber-300",
+    kind: "dot",
+  },
   failed: {
     indicatorClass: "h-2.5 w-2.5 rounded-full bg-red-400",
     kind: "dot",

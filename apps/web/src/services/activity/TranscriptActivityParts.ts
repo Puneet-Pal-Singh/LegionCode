@@ -1,25 +1,26 @@
 import type { Message } from "@ai-sdk/react";
-import type {
-  TurnActivityEvent,
-  TurnActivityTranscriptPart,
+import {
+  isTurnActivityTranscriptPart,
+  type TurnActivityEvent,
+  type TurnActivityTranscriptPart,
 } from "@repo/shared-types";
 import type {
   ActivityFeedRowViewModel,
   ActivityTurnViewModel,
 } from "./ActivityFeedViewModel.js";
 
-interface MessageWithActivityData extends Omit<Message, "data"> {
-  data?: unknown;
-}
-
 export function buildTranscriptActivityTurns(
   messages: Message[],
 ): ActivityTurnViewModel[] {
   const turns: ActivityTurnViewModel[] = [];
+  let userPrompt: string | null = null;
 
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index];
-    if (!message || message.role !== "assistant") {
+  for (const message of messages) {
+    if (message.role === "user" && message.content.trim()) {
+      userPrompt = message.content;
+      continue;
+    }
+    if (message.role !== "assistant") {
       continue;
     }
 
@@ -28,7 +29,6 @@ export function buildTranscriptActivityTurns(
       continue;
     }
 
-    const userPrompt = findPreviousUserPrompt(messages, index);
     turns.push(
       ...activityParts.flatMap((part) => buildTurns(part, userPrompt)),
     );
@@ -46,17 +46,25 @@ export function mergeTranscriptAndLiveActivityTurns(
     merged.set(turn.key, turn);
   }
   for (const turn of liveTurns) {
-    merged.set(turn.key, turn);
+    const existingTurn = merged.get(turn.key);
+    merged.set(
+      turn.key,
+      existingTurn ? choosePreferredTurn(existingTurn, turn) : turn,
+    );
   }
   return [...merged.values()];
 }
 
 function readActivityParts(message: Message): TurnActivityTranscriptPart[] {
-  const data = (message as MessageWithActivityData).data;
+  const data = readMessageData(message);
   if (!isActivityData(data)) {
     return [];
   }
   return data.activityParts.filter(isTurnActivityTranscriptPart);
+}
+
+function readMessageData(message: Message): unknown {
+  return (message as { data?: unknown }).data;
 }
 
 function isActivityData(value: unknown): value is { activityParts: unknown[] } {
@@ -66,33 +74,6 @@ function isActivityData(value: unknown): value is { activityParts: unknown[] } {
     "activityParts" in value &&
     Array.isArray((value as { activityParts?: unknown }).activityParts)
   );
-}
-
-function isTurnActivityTranscriptPart(
-  value: unknown,
-): value is TurnActivityTranscriptPart {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Partial<TurnActivityTranscriptPart>;
-  return (
-    candidate.version === 1 &&
-    candidate.type === "turn_activity" &&
-    Array.isArray(candidate.events)
-  );
-}
-
-function findPreviousUserPrompt(
-  messages: Message[],
-  startIndex: number,
-): string | null {
-  for (let index = startIndex - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === "user" && message.content.trim()) {
-      return message.content;
-    }
-  }
-  return null;
 }
 
 function buildTurns(
@@ -107,7 +88,7 @@ function buildTurns(
   }
 
   return [...grouped.entries()].flatMap(([turnId, events]) => {
-    const sortedEvents = events.sort(
+    const sortedEvents = [...events].sort(
       (left, right) => left.sequence - right.sequence,
     );
     const rows = sortedEvents.flatMap((event) => {
@@ -135,6 +116,40 @@ function buildTurns(
       },
     ];
   });
+}
+
+function choosePreferredTurn(
+  existing: ActivityTurnViewModel,
+  candidate: ActivityTurnViewModel,
+): ActivityTurnViewModel {
+  const existingScore = scoreActivityTurn(existing);
+  const candidateScore = scoreActivityTurn(candidate);
+  if (candidateScore > existingScore) {
+    return candidate;
+  }
+  return existing;
+}
+
+function scoreActivityTurn(turn: ActivityTurnViewModel): number {
+  const settledRows = turn.rows.filter(isSettledActivityRow).length;
+  const providerErrors = turn.rows.filter(isProviderUnavailableRow).length;
+  return turn.rows.length * 10 + settledRows * 2 + providerErrors * 5;
+}
+
+function isSettledActivityRow(row: ActivityFeedRowViewModel): boolean {
+  if (row.kind === "tool" || row.kind === "group") {
+    return row.status === "completed" || row.status === "failed";
+  }
+  if (row.kind === "reasoning" || row.kind === "commentary") {
+    return row.status === "completed";
+  }
+  return true;
+}
+
+function isProviderUnavailableRow(row: ActivityFeedRowViewModel): boolean {
+  return (
+    row.kind === "commentary" && row.metadata?.code === "PROVIDER_UNAVAILABLE"
+  );
 }
 
 function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
