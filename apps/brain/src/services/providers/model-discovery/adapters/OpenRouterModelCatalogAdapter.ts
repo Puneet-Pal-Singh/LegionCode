@@ -188,6 +188,7 @@ export class OpenRouterModelCatalogAdapter implements ProviderModelCatalogPort {
 function toDiscoveredModel(
   entry: z.infer<typeof OpenRouterModelsEnvelopeSchema>["data"][number],
 ): BYOKDiscoveredProviderModel {
+  const fetchedAt = new Date().toISOString();
   return {
     id: entry.id,
     name: entry.name?.trim() || entry.id,
@@ -204,7 +205,7 @@ function toDiscoveredModel(
       entry.settings,
       entry.architecture,
     ),
-    capabilityMetadata: toCapabilityMetadata(entry.architecture),
+    capabilityMetadata: toCapabilityMetadata(entry.architecture, fetchedAt),
     expirationDate: entry.expires_at,
   };
 }
@@ -268,9 +269,7 @@ function toOutputModalities(
       }
     | undefined,
 ): BYOKModelOutputModality | undefined {
-  const normalized = normalizeModalities(
-    architecture?.output_modalities ?? architecture?.modality,
-  );
+  const normalized = normalizeModalities(architecture?.output_modalities);
   if (normalized.length === 0) {
     return undefined;
   }
@@ -289,6 +288,7 @@ function toCapabilityMetadata(
         output_modalities?: string[] | undefined;
       }
     | undefined,
+  fetchedAt: string,
 ): BYOKModelCapabilityMetadata | undefined {
   if (!architecture) {
     return undefined;
@@ -303,6 +303,7 @@ function toCapabilityMetadata(
   return {
     source: "provider_api",
     confidence: hasExplicitModalities ? "confirmed" : "declared",
+    fetchedAt,
   };
 }
 

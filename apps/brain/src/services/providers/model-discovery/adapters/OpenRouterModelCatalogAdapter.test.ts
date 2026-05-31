@@ -56,10 +56,11 @@ describe("OpenRouterModelCatalogAdapter", () => {
     expect(models[0].inputModalities?.image).toBe(true);
     expect(models[0].outputModalities?.text).toBe(true);
     expect(models[0].outputModalities?.image).toBe(false);
-    expect(models[0].capabilityMetadata).toEqual({
+    expect(models[0].capabilityMetadata).toMatchObject({
       source: "provider_api",
       confidence: "confirmed",
     });
+    expect(models[0].capabilityMetadata?.fetchedAt).toEqual(expect.any(String));
   });
 
   it("does not infer image input from image output", async () => {
@@ -116,12 +117,13 @@ describe("OpenRouterModelCatalogAdapter", () => {
     });
 
     expect(models[0].inputModalities?.image).toBe(true);
-    expect(models[0].outputModalities?.image).toBe(true);
+    expect(models[0].outputModalities).toBeUndefined();
     expect(models[0].capabilities?.supportsVision).toBe(true);
-    expect(models[0].capabilityMetadata).toEqual({
+    expect(models[0].capabilityMetadata).toMatchObject({
       source: "provider_api",
       confidence: "declared",
     });
+    expect(models[0].capabilityMetadata?.fetchedAt).toEqual(expect.any(String));
   });
 
   it("fails fast on provider API failure", async () => {

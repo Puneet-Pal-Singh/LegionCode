@@ -115,7 +115,7 @@ describe("BYOK model discovery contracts", () => {
 
     expect(result.success).toBe(true);
     if (!result.success) {
-      return;
+      throw new Error("Expected discovered models response to parse.");
     }
     const [model] = result.data.models;
     expect(model).toBeDefined();
