@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { Workspace } from "./Workspace";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
@@ -667,7 +667,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("keeps the stop button available when local session state is still running", () => {
+  it("shows loading controls when local session state is still running", () => {
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
 
@@ -684,7 +684,7 @@ describe("Workspace", () => {
       expect.objectContaining({
         chatProps: expect.objectContaining({
           canStop: true,
-          isLoading: false,
+          isLoading: true,
         }),
       }),
     );
@@ -711,7 +711,9 @@ describe("Workspace", () => {
       chatProps: { stop: () => void };
     };
 
-    props.chatProps.stop();
+    act(() => {
+      props.chatProps.stop();
+    });
 
     expect(mockChatState.stop).toHaveBeenCalled();
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
