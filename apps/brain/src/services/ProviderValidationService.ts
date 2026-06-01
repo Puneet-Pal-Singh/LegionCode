@@ -79,6 +79,8 @@ export class ProviderValidationService {
       case "together":
       case "cerebras":
       case "mistral":
+      case "opencode-go":
+      case "opencode-zen":
         break;
       case "cohere":
         errors.push({

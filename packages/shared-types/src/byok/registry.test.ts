@@ -20,6 +20,9 @@ describe("Provider Registry", () => {
     expect("openai" in BUILTIN_PROVIDERS).toBe(true);
     expect("groq" in BUILTIN_PROVIDERS).toBe(true);
     expect("openrouter" in BUILTIN_PROVIDERS).toBe(true);
+    expect("opencode-go" in BUILTIN_PROVIDERS).toBe(true);
+    expect("opencode-zen" in BUILTIN_PROVIDERS).toBe(true);
+    expect("cloudflare-ai" in BUILTIN_PROVIDERS).toBe(true);
   });
 
   it("validates provider registry entry", () => {
@@ -54,6 +57,9 @@ describe("Provider Registry", () => {
     expect(ids).toContain("openai");
     expect(ids).toContain("groq");
     expect(ids).toContain("openrouter");
+    expect(ids).toContain("opencode-go");
+    expect(ids).toContain("opencode-zen");
+    expect(ids).toContain("cloudflare-ai");
   });
 
   it("generates registry with timestamp", () => {
@@ -111,6 +117,27 @@ describe("Provider Capabilities", () => {
     expect(BUILTIN_PROVIDERS.mistral?.launchStage).toBe("hidden");
     expect(BUILTIN_PROVIDERS.together?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS.cerebras?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS["opencode-go"]?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS["opencode-zen"]?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS["cloudflare-ai"]?.launchStage).toBe("coming_soon");
+  });
+
+  it("registers OpenCode and Cloudflare providers with truthful runtime families", () => {
+    expect(BUILTIN_PROVIDERS["opencode-go"]?.adapterFamily).toBe(
+      "openai-compatible",
+    );
+    expect(BUILTIN_PROVIDERS["opencode-go"]?.modelsEndpoint).toBe(
+      "https://opencode.ai/zen/go/v1/models",
+    );
+    expect(BUILTIN_PROVIDERS["opencode-zen"]?.adapterFamily).toBe(
+      "custom-http",
+    );
+    expect(BUILTIN_PROVIDERS["opencode-zen"]?.modelsEndpoint).toBe(
+      "https://opencode.ai/zen/v1/models",
+    );
+    expect(BUILTIN_PROVIDERS["cloudflare-ai"]?.adapterFamily).toBe(
+      "custom-http",
+    );
   });
 });
 
@@ -125,6 +152,9 @@ describe("Provider launch visibility", () => {
     expect(visibleProviderIds).toContain("google");
     expect(visibleProviderIds).toContain("together");
     expect(visibleProviderIds).toContain("cerebras");
+    expect(visibleProviderIds).toContain("opencode-go");
+    expect(visibleProviderIds).toContain("opencode-zen");
+    expect(visibleProviderIds).toContain("cloudflare-ai");
     expect(visibleProviderIds).not.toContain("mistral");
     expect(visibleProviderIds).not.toContain("cohere");
   });
@@ -138,6 +168,9 @@ describe("Provider launch visibility", () => {
     expect(supportedProviderIds).toContain("google");
     expect(supportedProviderIds).toContain("together");
     expect(supportedProviderIds).toContain("cerebras");
+    expect(supportedProviderIds).toContain("opencode-go");
+    expect(supportedProviderIds).toContain("opencode-zen");
+    expect(supportedProviderIds).not.toContain("cloudflare-ai");
     expect(supportedProviderIds).not.toContain("mistral");
     expect(supportedProviderIds).not.toContain("cohere");
   });

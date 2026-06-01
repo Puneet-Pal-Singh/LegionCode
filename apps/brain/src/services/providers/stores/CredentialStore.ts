@@ -5,7 +5,7 @@
  * Credentials are user-global (keyed by user_id, not workspace_id).
  */
 
-import type { ProviderId } from "@repo/shared-types";
+import type { ProviderConnectionConfig, ProviderId } from "@repo/shared-types";
 
 export interface ProviderCredentialRecord {
   credentialId: string;
@@ -15,6 +15,7 @@ export interface ProviderCredentialRecord {
   label: string;
   keyFingerprint: string;
   encryptedSecretJson: string;
+  connectionConfig?: ProviderConnectionConfig;
   keyVersion: string;
   status: "connected" | "failed" | "revoked";
   lastValidatedAt: string | null;
@@ -32,6 +33,7 @@ export interface SetCredentialInput {
   providerId: ProviderId;
   label: string;
   apiKey: string;
+  connectionConfig?: ProviderConnectionConfig;
   createdBy?: string;
 }
 

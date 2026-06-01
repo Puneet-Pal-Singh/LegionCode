@@ -75,9 +75,7 @@
       "supportsValidate": true,
       "supportsDisconnect": true,
       "strictModelGuard": true,
-      "notes": [
-        "hidden from launch catalog until product support is completed"
-      ]
+      "notes": ["hidden from launch catalog until product support is completed"]
     },
     {
       "providerId": "google",
@@ -112,6 +110,40 @@
       "strictModelGuard": true,
       "notes": [
         "hidden from launch catalog until custom-http runtime inference is wired"
+      ]
+    },
+    {
+      "providerId": "opencode-go",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true,
+      "notes": [
+        "initial runtime support uses OpenAI-compatible chat completions",
+        "messages transport models are gated until transport routing lands"
+      ]
+    },
+    {
+      "providerId": "opencode-zen",
+      "supportsConnect": true,
+      "supportsCatalog": true,
+      "supportsValidate": true,
+      "supportsDisconnect": true,
+      "strictModelGuard": true,
+      "notes": [
+        "mixed-transport provider; selectable models require runtime route metadata"
+      ]
+    },
+    {
+      "providerId": "cloudflare-ai",
+      "supportsConnect": false,
+      "supportsCatalog": false,
+      "supportsValidate": false,
+      "supportsDisconnect": false,
+      "strictModelGuard": true,
+      "notes": [
+        "coming soon until account metadata, model discovery, and one runtime route are wired"
       ]
     }
   ],

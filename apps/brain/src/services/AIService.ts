@@ -3,24 +3,15 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { ZodSchema } from "zod";
+import type { ProviderModelTransport } from "@repo/shared-types";
 import type { Env } from "../types/ai";
-import type {
-  ProviderAdapter,
-  GenerationParams,
-  GenerationResult,
-  StreamChunk,
-} from "./providers";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { ProviderAdapter } from "./providers";
 import { ProviderConfigService } from "./providers";
 import {
-  createDefaultAdapter,
   resolveModelSelection,
   mapProviderIdToRuntimeProvider,
   getRuntimeProviderFromAdapter,
-  selectAdapter,
-  generateText,
   type GenerateTextResult,
-  createChatStream,
   getSDKModelConfig,
   type SDKModelConfig,
   type GenerateStructuredResult,
@@ -31,7 +22,14 @@ import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
-import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
+import {
+  createChatStreamWithSelection,
+  generateTextWithSelection,
+} from "./ai/AITextGenerationCoordinator";
+import {
+  resolveStructuredBaseURLOverride,
+  resolveStructuredRuntimeProvider,
+} from "./ai/ProviderRouteMetadata";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -55,7 +53,11 @@ export class AIService {
     return this.defaultModel;
   }
 
-  resolveModelSelection(providerId?: string, modelId?: string, isByokOverride = false) {
+  resolveModelSelection(
+    providerId?: string,
+    modelId?: string,
+    isByokOverride = false,
+  ) {
     const options = isByokOverride ? { isByokOverride } : undefined;
     return resolveModelSelection(
       providerId,
@@ -72,6 +74,9 @@ export class AIService {
     messages,
     model,
     providerId,
+    runtimeModelId,
+    providerTransport,
+    providerEndpoint,
     temperature = 0.7,
     system,
     tools,
@@ -79,6 +84,9 @@ export class AIService {
     messages: CoreMessage[];
     model?: string;
     providerId?: string;
+    runtimeModelId?: string;
+    providerTransport?: ProviderModelTransport;
+    providerEndpoint?: string;
     temperature?: number;
     system?: string;
     tools?: Record<string, CoreTool>;
@@ -90,32 +98,20 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(selection.providerId, this.providerConfigService);
-    const selectedAdapter = await selectAdapter(
+    return generateTextWithSelection({
       selection,
-      this.adapter,
-      this.env,
-      this.providerConfigService,
-    );
-    const result = await generateText(selectedAdapter, {
+      defaultAdapter: this.adapter,
+      env: this.env,
+      providerConfigService: this.providerConfigService,
+      providerId,
+      runtimeModelId,
+      providerTransport,
+      providerEndpoint,
       messages,
       system,
       tools,
       temperature,
-      model: selection.model,
     });
-
-    if (providerId && result.usage.provider !== providerId) {
-      return {
-        ...result,
-        usage: {
-          ...result.usage,
-          provider: providerId,
-        },
-      };
-    }
-
-    return result;
   }
 
   async generateStructured<T>({
@@ -123,12 +119,18 @@ export class AIService {
     schema,
     model,
     providerId,
+    runtimeModelId,
+    providerTransport,
+    providerEndpoint,
     temperature = 0.2,
   }: {
     messages: CoreMessage[];
     schema: ZodSchema<T>;
     model?: string;
     providerId?: string;
+    runtimeModelId?: string;
+    providerTransport?: ProviderModelTransport;
+    providerEndpoint?: string;
     temperature?: number;
   }): Promise<GenerateStructuredResult<T>> {
     const selection = await resolveSelectionWithPreferences({
@@ -138,7 +140,10 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(selection.providerId, this.providerConfigService);
+    await consumeAxisQuotaIfNeeded(
+      selection.providerId,
+      this.providerConfigService,
+    );
 
     const overrideApiKey =
       selection.providerId && selection.providerId !== AXIS_PROVIDER_ID
@@ -147,12 +152,22 @@ export class AIService {
           )) ?? undefined)
         : undefined;
 
-    const sdkModelConfig = getSDKModelConfig(
-      selection.model,
+    const structuredRuntimeProvider = resolveStructuredRuntimeProvider(
       selection.runtimeProvider,
+      providerTransport,
+    );
+    const structuredBaseURLOverride = resolveStructuredBaseURLOverride(
+      providerTransport,
+      providerEndpoint,
+    );
+    const structuredModel = runtimeModelId ?? selection.model;
+    const sdkModelConfig = getSDKModelConfig(
+      structuredModel,
+      structuredRuntimeProvider,
       this.env,
       overrideApiKey,
       selection.providerId,
+      structuredBaseURLOverride,
     );
 
     const sdkModel = this.createSDKModel(sdkModelConfig);
@@ -171,7 +186,7 @@ export class AIService {
         provider: selection.runtimeProvider,
         providerId: selection.providerId,
         baseURL: sdkModelConfig.baseURL,
-        model: selection.model,
+        model: structuredModel,
         usage: result.usage,
       }),
     };
@@ -183,6 +198,9 @@ export class AIService {
     tools,
     model,
     providerId,
+    runtimeModelId,
+    providerTransport,
+    providerEndpoint,
     temperature = 0.7,
     onFinish,
     onChunk,
@@ -192,6 +210,9 @@ export class AIService {
     tools?: Record<string, CoreTool>;
     model?: string;
     providerId?: string;
+    runtimeModelId?: string;
+    providerTransport?: ProviderModelTransport;
+    providerEndpoint?: string;
     temperature?: number;
     onFinish?: (result: GenerateTextResult) => Promise<void> | void;
     onChunk?: (chunk: {
@@ -206,30 +227,22 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(selection.providerId, this.providerConfigService);
-    const selectedAdapter = await selectAdapter(
+    return createChatStreamWithSelection({
       selection,
-      this.adapter,
-      this.env,
-      this.providerConfigService,
-    );
-
-    const normalizedOnFinish = normalizeFinishCallback(providerId, onFinish);
-
-    return createChatStream(
-      selectedAdapter,
-      {
-        messages,
-        system,
-        tools,
-        temperature,
-        model: selection.model,
-      },
-      {
-        onFinish: normalizedOnFinish,
-        onChunk,
-      },
-    );
+      defaultAdapter: this.adapter,
+      env: this.env,
+      providerConfigService: this.providerConfigService,
+      providerId,
+      runtimeModelId,
+      providerTransport,
+      providerEndpoint,
+      messages,
+      system,
+      tools,
+      temperature,
+      onFinish,
+      onChunk,
+    });
   }
 
   getProviderAdapter(): ProviderAdapter {
@@ -263,5 +276,3 @@ export class AIService {
     return client(model);
   }
 }
-
-export type { GenerateTextResult };

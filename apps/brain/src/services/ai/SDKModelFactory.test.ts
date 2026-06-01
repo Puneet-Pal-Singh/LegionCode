@@ -60,4 +60,22 @@ describe("SDKModelFactory", () => {
       model: "gpt-oss-120b",
     });
   });
+
+  it("uses explicit route base URL for discovered provider routes", () => {
+    const config = getSDKModelConfig(
+      "@cf/meta/llama-3.1-8b-instruct",
+      "openai-compatible",
+      createEnv(),
+      "cloudflare-api-token",
+      "cloudflare-ai",
+      "https://api.cloudflare.com/client/v4/accounts/acct/ai/v1",
+    );
+
+    expect(config).toEqual({
+      provider: "openai-compatible",
+      apiKey: "cloudflare-api-token",
+      baseURL: "https://api.cloudflare.com/client/v4/accounts/acct/ai/v1",
+      model: "@cf/meta/llama-3.1-8b-instruct",
+    });
+  });
 });

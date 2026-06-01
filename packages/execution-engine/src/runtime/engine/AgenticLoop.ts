@@ -6,6 +6,7 @@
  */
 
 import type { CoreMessage, CoreTool } from "ai";
+import type { ProviderModelTransport } from "@repo/shared-types";
 import {
   safeParseToolActivityMetadata,
   type ToolActivityMetadata,
@@ -170,6 +171,9 @@ export class AgenticLoop {
       agentType: string;
       modelId?: string;
       providerId?: string;
+      runtimeModelId?: string;
+      providerTransport?: ProviderModelTransport;
+      providerEndpoint?: string;
       temperature?: number;
     } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
@@ -253,6 +257,9 @@ export class AgenticLoop {
             tools: isFinalSynthesisStep ? undefined : tools,
             model: context.modelId,
             providerId: context.providerId,
+            runtimeModelId: context.runtimeModelId,
+            providerTransport: context.providerTransport,
+            providerEndpoint: context.providerEndpoint,
             temperature: context.temperature,
           },
           step,

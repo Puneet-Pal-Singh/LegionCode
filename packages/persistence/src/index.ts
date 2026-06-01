@@ -33,6 +33,7 @@ export { providerUserModelCacheTextKeyMigration } from "./migrations/0011-provid
 export { sessionOrganizationMetadataMigration } from "./migrations/0012-session-organization-metadata.js";
 export { artifactReviewMetadataMigration } from "./migrations/0013-artifact-review-metadata.js";
 export { pausedRunAndSessionStatusMigration } from "./migrations/0014-paused-run-and-session-status.js";
+export { providerConnectionConfigMigration } from "./migrations/0015-provider-connection-config.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,

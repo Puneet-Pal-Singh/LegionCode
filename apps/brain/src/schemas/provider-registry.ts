@@ -22,6 +22,9 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderRegistryEntry> = {
   cerebras: { apiKeyPrefixes: [] },
   mistral: { apiKeyPrefixes: [] },
   cohere: { apiKeyPrefixes: [] },
+  "opencode-go": { apiKeyPrefixes: [] },
+  "opencode-zen": { apiKeyPrefixes: [] },
+  "cloudflare-ai": { apiKeyPrefixes: [] },
 };
 
 export function isProviderApiKeyFormatValid(

@@ -99,6 +99,13 @@
       "when": 1779900100000,
       "tag": "0013_artifact_review_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779900200000,
+      "tag": "0015_provider_connection_config",
+      "breakpoints": true
     }
   ]
 }

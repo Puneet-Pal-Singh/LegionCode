@@ -103,6 +103,35 @@ describe("Postgres provider stores", () => {
     expect(read?.apiKey).toBe(apiKey);
   });
 
+  it("fails fast when stored connection config has an invalid shape", async () => {
+    const client = new ScriptedSqlClient([
+      {
+        pattern: "FROM provider_credentials",
+        response: () =>
+          rows([
+            credentialRow({
+              connection_config_json: {
+                providerId: "cloudflare-ai",
+                accountId: "not valid spaces",
+                routeMode: "workers-ai-direct",
+              },
+            }),
+          ]),
+      },
+    ]);
+    const store = new PostgresCredentialStore(
+      client,
+      "user-1",
+      "workspace-1",
+      MASTER_KEY,
+      "v1",
+    );
+
+    await expect(
+      store.getCredential("cloudflare-ai" as ProviderId),
+    ).rejects.toThrow("Invalid provider connection config payload");
+  });
+
   it("persists provider preferences and credential labels", async () => {
     const client = new ScriptedSqlClient([
       {

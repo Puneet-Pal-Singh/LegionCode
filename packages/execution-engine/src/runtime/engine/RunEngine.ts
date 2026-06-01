@@ -105,6 +105,7 @@ import {
 } from "./RunExecutionPreparationPolicy.js";
 import {
   buildFinalSummaryFrame,
+  appendTerminalDetailsIfNeeded,
   isFinalSummaryContractEnabled,
   resolveNextStepFromSummaryText,
   resolveSummaryReason,
@@ -599,6 +600,9 @@ export class RunEngine implements IRunEngine {
         initialCompletedMutatingToolCount: restoredPersistedEditCount,
         modelId: input.modelId,
         providerId: input.providerId,
+        runtimeModelId: input.runtimeModelId,
+        providerTransport: input.providerTransport,
+        providerEndpoint: input.providerEndpoint,
         temperature: 0.2,
         onToolRequested: loopCallbacks.onToolRequested,
         onProgress: loopCallbacks.onProgress,
@@ -1023,23 +1027,6 @@ export class RunEngine implements IRunEngine {
       },
     });
   }
-}
-
-function appendTerminalDetailsIfNeeded(input: {
-  framedOutput: string;
-  originalText: string;
-  includeDetails: boolean;
-}): string {
-  const details = input.originalText.trim();
-  if (
-    !input.includeDetails ||
-    !details ||
-    input.framedOutput.includes(details)
-  ) {
-    return input.framedOutput;
-  }
-
-  return `${input.framedOutput}\n\nDetails:\n${details}`;
 }
 
 export class RunEngineError extends Error {

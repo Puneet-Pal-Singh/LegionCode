@@ -4,6 +4,8 @@ import {
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
   BYOKDiscoveredProviderModelsResponseSchema,
   BYOKProviderSlugSchema,
+  ProviderModelRuntimeRouteSchema,
+  ProviderModelTransportSchema,
 } from "./model-discovery.js";
 
 describe("BYOK model discovery contracts", () => {
@@ -58,6 +60,13 @@ describe("BYOK model discovery contracts", () => {
             outputPer1M: 15,
             currency: "USD",
           },
+          runtimeRoute: {
+            providerId: "openrouter",
+            modelId: "openai/gpt-4o",
+            transport: "openai-chat-completions",
+            endpoint: "https://openrouter.ai/api/v1/chat/completions",
+          },
+          availability: "available",
           popularityScore: {
             score: 0.92,
             signals: {
@@ -82,6 +91,23 @@ describe("BYOK model discovery contracts", () => {
       },
     });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts provider model runtime route metadata", () => {
+    const result = ProviderModelRuntimeRouteSchema.safeParse({
+      providerId: "opencode-go",
+      modelId: "kimi-k2.6",
+      transport: "openai-chat-completions",
+      endpoint: "https://opencode.ai/zen/go/v1/chat/completions",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown model transport values", () => {
+    const result = ProviderModelTransportSchema.safeParse("magic-endpoint");
+
+    expect(result.success).toBe(false);
   });
 
   it("distinguishes image input from image output", () => {

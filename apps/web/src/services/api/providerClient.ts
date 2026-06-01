@@ -28,6 +28,7 @@ import type {
   BYOKModelInputModality,
   BYOKModelDiscoverySource,
   BYOKModelDiscoverySurface,
+  ProviderModelAvailability,
 } from "@repo/shared-types";
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 import { SessionStateService } from "../SessionStateService";
@@ -41,6 +42,8 @@ export interface ProviderModelOption {
   id: string;
   name: string;
   provider?: string;
+  availability?: ProviderModelAvailability;
+  unavailableReason?: string;
   inputModalities?: BYOKModelInputModality;
   capabilityMetadata?: BYOKModelCapabilityMetadata;
 }
@@ -145,6 +148,8 @@ export class ProviderApiClient {
         id: model.id,
         name: model.name,
         provider: model.providerId,
+        availability: model.availability,
+        unavailableReason: model.unavailableReason,
         inputModalities: model.inputModalities,
         capabilityMetadata: model.capabilityMetadata,
       })),
