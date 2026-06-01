@@ -23,6 +23,76 @@ export const RUN_WORKFLOW_STEPS = {
 export type RunWorkflowStep =
   (typeof RUN_WORKFLOW_STEPS)[keyof typeof RUN_WORKFLOW_STEPS];
 
+export const PROVIDER_FAILURE_CODES = [
+  "PROVIDER_UNAVAILABLE",
+  "MODEL_TIMEOUT",
+  "MODEL_UNUSABLE_RESPONSE",
+] as const;
+
+export type ProviderFailureCode = (typeof PROVIDER_FAILURE_CODES)[number];
+
+export interface ProviderFailureMetadata {
+  code: ProviderFailureCode;
+  retryable: boolean;
+  providerId: string | null;
+  modelId: string | null;
+  statusCode: number | null;
+  retryCount: number;
+  lastCompletedAction: string | null;
+  stepsExecuted: number;
+  toolExecutionCount: number;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
+  noFilesChanged: boolean;
+}
+
+export const TURN_ACTIVITY_EVENT_KINDS = [
+  "thinking",
+  "progress",
+  "tool_call",
+  "tool_result",
+  "file_edit",
+  "approval",
+  "provider_error",
+  "summary",
+] as const;
+
+export type TurnActivityEventKind = (typeof TURN_ACTIVITY_EVENT_KINDS)[number];
+
+export const TURN_ACTIVITY_EVENT_STATUSES = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "paused",
+] as const;
+
+export type TurnActivityEventStatus =
+  (typeof TURN_ACTIVITY_EVENT_STATUSES)[number];
+
+export interface TurnActivityEvent {
+  id: string;
+  runId: string;
+  sessionId: string;
+  turnId: string;
+  sequence: number;
+  kind: TurnActivityEventKind;
+  status: TurnActivityEventStatus;
+  title: string;
+  detail?: string;
+  displayMode: "visible" | "collapsed" | "debug";
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TurnActivityTranscriptPart {
+  version: 1;
+  type: "turn_activity";
+  events: TurnActivityEvent[];
+  compacted: boolean;
+}
+
 export const MESSAGE_TRANSCRIPT_PHASES = {
   PROMPT: "prompt",
   COMMENTARY: "commentary",
