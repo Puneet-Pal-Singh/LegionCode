@@ -18,6 +18,10 @@ import {
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
+import {
+  getProviderModelUnavailableReason,
+  isProviderModelAvailable,
+} from "./providerModelAvailability";
 
 /**
  * Provider group with visibility state
@@ -104,8 +108,10 @@ function buildProviderGroups(
         displayName: entry.displayName,
         models,
         isModelListLoaded:
-          Object.prototype.hasOwnProperty.call(providerModels, entry.providerId) &&
-          !loadingProviderModelIds[entry.providerId],
+          Object.prototype.hasOwnProperty.call(
+            providerModels,
+            entry.providerId,
+          ) && !loadingProviderModelIds[entry.providerId],
       };
     });
 }
@@ -171,7 +177,10 @@ export interface ManageModelsDialogProps {
   providerModels: Record<string, ProviderModelOption[]>;
   visibleModelIds: Record<string, Set<string>>;
   loadingProviderModelIds: Record<string, boolean>;
-  onLoadProviderModels?: (providerId: string, limit?: number) => Promise<unknown>;
+  onLoadProviderModels?: (
+    providerId: string,
+    limit?: number,
+  ) => Promise<unknown>;
   onToggleModelVisibility: (providerId: string, modelId: string) => void;
   onSetProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
   onConnectProvider?: () => void;
@@ -210,9 +219,7 @@ export function ManageModelsDialog({
     );
     void Promise.allSettled(
       catalog
-        .filter(
-          (entry) => connectedProviderIds.has(entry.providerId),
-        )
+        .filter((entry) => connectedProviderIds.has(entry.providerId))
         .map((entry) => onLoadProviderModels(entry.providerId, 150)),
     );
   }, [catalog, credentials, isOpen, onLoadProviderModels]);
@@ -284,7 +291,9 @@ export function ManageModelsDialog({
           {guidanceBanner ? (
             <div className="mb-3 rounded-lg border border-blue-900 bg-blue-950/30 px-4 py-3 text-blue-100">
               <p className="text-sm font-medium">{guidanceBanner.title}</p>
-              <p className="mt-1 text-xs text-blue-200">{guidanceBanner.description}</p>
+              <p className="mt-1 text-xs text-blue-200">
+                {guidanceBanner.description}
+              </p>
             </div>
           ) : null}
           <div className="relative">
@@ -343,7 +352,9 @@ export function ManageModelsDialog({
                         onClick={() =>
                           onSetProviderVisibleModels(
                             group.providerId,
-                            isProviderVisible ? [] : group.models.map((model) => model.id),
+                            isProviderVisible
+                              ? []
+                              : group.models.map((model) => model.id),
                           )
                         }
                         className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition ${
@@ -375,28 +386,39 @@ export function ManageModelsDialog({
                         const isVisible = visibleSet
                           ? visibleSet.has(model.id)
                           : true;
+                        const isAvailable = isProviderModelAvailable(model);
                         return (
                           <div
                             key={model.id}
-                            className={`${VISIBILITY_ROW_CLASS} rounded-md py-1.5 transition-colors hover:bg-neutral-800/60`}
+                            className={`${VISIBILITY_ROW_CLASS} rounded-md py-1.5 transition-colors ${
+                              isAvailable
+                                ? "hover:bg-neutral-800/60"
+                                : "opacity-70"
+                            }`}
                           >
                             <div className="min-w-0 text-left">
                               <p className="text-xs font-medium text-neutral-300">
                                 {model.name}
                               </p>
+                              {!isAvailable && (
+                                <p className="mt-0.5 text-[11px] text-amber-300">
+                                  {getProviderModelUnavailableReason(model)}
+                                </p>
+                              )}
                             </div>
                             <button
                               type="button"
                               role="switch"
                               aria-checked={isVisible}
                               aria-label={`${model.name} visibility`}
+                              disabled={!isAvailable}
                               onClick={() => {
                                 onToggleModelVisibility(
                                   group.providerId,
                                   model.id,
                                 );
                               }}
-                              className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition ${
+                              className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition disabled:cursor-not-allowed disabled:opacity-50 ${
                                 isVisible
                                   ? "border-blue-500 bg-blue-600"
                                   : "border-neutral-600 bg-neutral-800"

@@ -64,11 +64,40 @@ describe("OpenCodeGoModelCatalogAdapter", () => {
     expect(models[0]).toMatchObject({
       id: "qwen3.6-plus",
       availability: "unsupported_transport",
+      capabilities: {
+        supportsTools: false,
+        supportsStructuredOutputs: false,
+      },
       runtimeRoute: {
         transport: "anthropic-messages",
         endpoint: "https://opencode.ai/zen/go/v1/messages",
       },
       unavailableReason: "Anthropic Messages transport is not wired yet.",
+    });
+  });
+
+  it("does not advertise structured output support for unknown unavailable models", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "new-model", name: "New Model" }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const adapter = new OpenCodeGoModelCatalogAdapter();
+    const models = await adapter.fetchAll("opencode-go", {
+      apiKey: "oc-test",
+    });
+
+    expect(models[0]).toMatchObject({
+      id: "new-model",
+      availability: "unsupported_transport",
+      capabilities: {
+        supportsTools: false,
+        supportsStructuredOutputs: false,
+      },
     });
   });
 

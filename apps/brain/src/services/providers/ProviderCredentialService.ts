@@ -70,14 +70,7 @@ export class ProviderCredentialService {
       }
       const now = new Date().toISOString();
 
-      const writableVault = this.vault as typeof this.vault & {
-        setCredential(
-          providerId: ProviderId,
-          apiKey: string,
-          connectionConfig?: ProviderConnectionConfig,
-        ): Promise<void>;
-      };
-      await writableVault.setCredential(
+      await this.vault.setCredential(
         providerId,
         normalizedApiKey,
         request.config,
@@ -191,17 +184,7 @@ export class ProviderCredentialService {
   async getConnectionConfig(
     providerId: ProviderId,
   ): Promise<ProviderConnectionConfig | undefined> {
-    const credentialVault = this.vault;
-    if (!("getConnectionConfig" in credentialVault)) {
-      return undefined;
-    }
-    const reader = credentialVault.getConnectionConfig;
-    if (typeof reader !== "function") {
-      return undefined;
-    }
-    return reader.call(credentialVault, providerId) as Promise<
-      ProviderConnectionConfig | undefined
-    >;
+    return this.vault.getConnectionConfig(providerId);
   }
 
   private getPlatformManagedApiKey(providerId: ProviderId): string | null {

@@ -39,6 +39,7 @@ export function getSDKModelConfig(
   env: Env,
   overrideApiKey?: string,
   providerId?: string,
+  baseURLOverride?: string,
 ): SDKModelConfig {
   const { apiKey, baseURL } = resolveProviderKeyForSDK(
     provider,
@@ -50,7 +51,7 @@ export function getSDKModelConfig(
   return {
     provider,
     apiKey,
-    baseURL,
+    baseURL: baseURLOverride ?? baseURL,
     model,
   };
 }

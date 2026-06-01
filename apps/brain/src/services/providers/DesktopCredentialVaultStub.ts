@@ -1,6 +1,7 @@
 import {
   CredentialVaultUnsupportedOperationError,
   type CredentialVault,
+  type ProviderConnectionConfig,
   type ProviderId,
 } from "@repo/shared-types";
 
@@ -14,12 +15,22 @@ import {
 export class DesktopCredentialVaultStub implements CredentialVault {
   readonly surface = "desktop" as const;
 
-  async setCredential(_providerId: ProviderId, _apiKey: string): Promise<void> {
+  async setCredential(
+    _providerId: ProviderId,
+    _apiKey: string,
+    _connectionConfig?: ProviderConnectionConfig,
+  ): Promise<void> {
     throw this.unsupported("setCredential");
   }
 
   async getApiKey(_providerId: ProviderId): Promise<string | null> {
     throw this.unsupported("getApiKey");
+  }
+
+  async getConnectionConfig(
+    _providerId: ProviderId,
+  ): Promise<ProviderConnectionConfig | undefined> {
+    throw this.unsupported("getConnectionConfig");
   }
 
   async deleteCredential(_providerId: ProviderId): Promise<void> {
@@ -34,7 +45,9 @@ export class DesktopCredentialVaultStub implements CredentialVault {
     throw this.unsupported("listConnectedProviders");
   }
 
-  private unsupported(method: string): CredentialVaultUnsupportedOperationError {
+  private unsupported(
+    method: string,
+  ): CredentialVaultUnsupportedOperationError {
     return new CredentialVaultUnsupportedOperationError(this.surface, method);
   }
 }

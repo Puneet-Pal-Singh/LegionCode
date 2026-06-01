@@ -160,8 +160,16 @@ describe("ManageModelsDialog", () => {
     const openRouterModels = {
       openrouter: [
         { id: "z-ai/glm-4.5-air", name: "GLM 4.5 Air", provider: "openrouter" },
-        { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5", provider: "openrouter" },
-        { id: "anthropic/claude-opus-4.6", name: "Claude Opus 4.6", provider: "openrouter" },
+        {
+          id: "anthropic/claude-sonnet-4.5",
+          name: "Claude Sonnet 4.5",
+          provider: "openrouter",
+        },
+        {
+          id: "anthropic/claude-opus-4.6",
+          name: "Claude Opus 4.6",
+          provider: "openrouter",
+        },
       ],
     };
 
@@ -179,9 +187,9 @@ describe("ManageModelsDialog", () => {
       />,
     );
 
-    const labels = screen.getAllByRole("switch").map((node) =>
-      node.getAttribute("aria-label"),
-    );
+    const labels = screen
+      .getAllByRole("switch")
+      .map((node) => node.getAttribute("aria-label"));
     expect(labels).toContain("Claude Opus 4.6 visibility");
     expect(labels).toContain("Claude Sonnet 4.5 visibility");
     expect(labels).toContain("GLM 4.5 Air visibility");
@@ -191,5 +199,38 @@ describe("ManageModelsDialog", () => {
     expect(labels.indexOf("Claude Sonnet 4.5 visibility")).toBeLessThan(
       labels.indexOf("GLM 4.5 Air visibility"),
     );
+  });
+
+  it("shows unavailable model reasons and disables their visibility toggles", () => {
+    render(
+      <ManageModelsDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        catalog={catalog}
+        credentials={credentials}
+        providerModels={{
+          google: [
+            {
+              id: "unsupported-model",
+              name: "Unsupported Model",
+              provider: "google",
+              availability: "unsupported_transport",
+              unavailableReason: "Transport is not wired yet.",
+            },
+          ],
+        }}
+        visibleModelIds={{ google: new Set(["unsupported-model"]) }}
+        loadingProviderModelIds={{}}
+        onToggleModelVisibility={vi.fn()}
+        onSetProviderVisibleModels={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Transport is not wired yet.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", {
+        name: /unsupported model visibility/i,
+      }),
+    ).toBeDisabled();
   });
 });

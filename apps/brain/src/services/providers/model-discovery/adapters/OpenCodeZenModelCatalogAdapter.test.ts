@@ -71,6 +71,11 @@ describe("OpenCodeZenModelCatalogAdapter", () => {
     expect(models[0]).toMatchObject({
       id: "gpt-5.5",
       availability: "unsupported_transport",
+      capabilities: {
+        supportsTools: false,
+        supportsStructuredOutputs: false,
+        supportsReasoning: false,
+      },
       runtimeRoute: {
         transport: "openai-responses",
         endpoint: "https://opencode.ai/zen/v1/responses",
@@ -101,11 +106,39 @@ describe("OpenCodeZenModelCatalogAdapter", () => {
     expect(models[0]).toMatchObject({
       id: "claude-sonnet-4-6",
       availability: "unsupported_transport",
+      capabilities: {
+        supportsTools: false,
+      },
       runtimeRoute: {
         transport: "anthropic-messages",
         endpoint: "https://opencode.ai/zen/v1/messages",
       },
       unavailableReason: "Anthropic Messages transport is not wired yet.",
+    });
+  });
+
+  it("does not advertise tool support for unknown unavailable models", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "surprise-model", name: "Surprise Model" }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const adapter = new OpenCodeZenModelCatalogAdapter();
+    const models = await adapter.fetchAll("opencode-zen", {
+      apiKey: "oc-test",
+    });
+
+    expect(models[0]).toMatchObject({
+      id: "surprise-model",
+      availability: "unsupported_transport",
+      capabilities: {
+        supportsTools: false,
+        supportsStructuredOutputs: false,
+      },
     });
   });
 

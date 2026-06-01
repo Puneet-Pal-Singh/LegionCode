@@ -4,7 +4,6 @@ import type {
   BYOKDiscoveredProviderModelsRefreshResponse,
   BYOKDiscoveredProviderModelsResponse,
   ProviderConnectionConfig,
-  ProviderId,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type {
@@ -394,10 +393,8 @@ export class ProviderModelDiscoveryService {
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
       apiKey = await this.credentialService.getApiKey(providerId);
-      connectionConfig = await readCredentialConnectionConfig(
-        this.credentialService,
-        providerId,
-      );
+      connectionConfig =
+        await this.credentialService.getConnectionConfig(providerId);
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -558,10 +555,8 @@ export class ProviderModelDiscoveryService {
     let connectionConfig: ProviderConnectionConfig | undefined;
     try {
       apiKey = await this.credentialService.getApiKey(providerId);
-      connectionConfig = await readCredentialConnectionConfig(
-        this.credentialService,
-        providerId,
-      );
+      connectionConfig =
+        await this.credentialService.getConnectionConfig(providerId);
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -620,22 +615,6 @@ export class ProviderModelDiscoveryService {
       );
     }
   }
-}
-
-async function readCredentialConnectionConfig(
-  credentialService: ProviderCredentialService,
-  providerId: string,
-): Promise<ProviderConnectionConfig | undefined> {
-  if (!("getConnectionConfig" in credentialService)) {
-    return undefined;
-  }
-  const reader = credentialService.getConnectionConfig;
-  if (typeof reader !== "function") {
-    return undefined;
-  }
-  return reader.call(credentialService, providerId as ProviderId) as Promise<
-    ProviderConnectionConfig | undefined
-  >;
 }
 
 function resolveConstructorArgs(
