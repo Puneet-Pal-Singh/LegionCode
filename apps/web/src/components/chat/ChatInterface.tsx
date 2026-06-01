@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
+import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import { ChatBranchSelector } from "./ChatBranchSelector";
 import { PermissionModeControl } from "./PermissionModeControl";
 import type { Message } from "@ai-sdk/react";
@@ -205,7 +206,10 @@ interface ChatInterfaceProps {
     runId: string;
     input: string;
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-    handleSubmit: () => void;
+    handleSubmit: (
+      event?: React.FormEvent,
+      attachments?: ChatSubmitAttachments,
+    ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
     canStop?: boolean;
@@ -598,14 +602,14 @@ export function ChatInterface({
     [reviewCommentError, toggleReviewCommentSelected],
   );
 
-  const handleSubmitWithReviewComments = useCallback(async () => {
+  const handleSubmitWithReviewComments = useCallback(async (): Promise<boolean> => {
     const budgetResult = validateReviewPromptBudget(
       selectedReviewComments,
       input,
     );
     if (!budgetResult.ok) {
       setReviewCommentError(budgetResult.reason);
-      return;
+      return false;
     }
 
     const { prompt } = buildReviewCommentPrompt(selectedReviewComments, input);
@@ -618,6 +622,7 @@ export function ChatInterface({
       await append({ role: "user", content: prompt });
       markReviewCommentsDispatched(selectedIds);
       handleInputChangeWrapper("");
+      return true;
     } catch (submitError) {
       markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
       lastReviewDispatchIdsRef.current = [];
@@ -626,6 +631,7 @@ export function ChatInterface({
           ? submitError.message
           : "Failed to send review comments.";
       setReviewCommentError(message);
+      return false;
     }
   }, [
     append,
@@ -969,8 +975,8 @@ export function ChatInterface({
           onChange={handleInputChangeWrapper}
           onSubmit={
             selectedReviewComments.length > 0
-              ? () => void handleSubmitWithReviewComments()
-              : handleSubmit
+              ? () => handleSubmitWithReviewComments()
+              : (attachments) => handleSubmit(undefined, attachments)
           }
           reviewComments={selectedReviewComments}
           onRemoveReviewComment={handleRemoveReviewComment}
