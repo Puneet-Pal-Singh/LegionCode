@@ -13,6 +13,7 @@ import {
   type ApprovalRequest,
   type DiffContent,
   type FileStatus,
+  type PromptArtifactReviewSource,
   type ProductMode,
   type RunEvent,
   type RunMode,
@@ -47,6 +48,10 @@ import {
   validateReviewPromptBudget,
 } from "../git/reviewComments";
 import { getGitDiff } from "../../lib/git-client.js";
+import {
+  getEditArtifactDiff,
+  getEditArtifactReviewSourceByMessage,
+} from "../../lib/edit-artifacts-client.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
@@ -271,6 +276,7 @@ export function ChatInterface({
   const {
     status: gitStatus,
     selectedReviewComments,
+    openPromptArtifactReview,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
     markReviewCommentsDispatched,
@@ -294,6 +300,8 @@ export function ChatInterface({
   const lastSettledFilesRef = useRef<FileStatus[]>([]);
   const previousIsLoadingRef = useRef(isLoading);
   const diffSnapshotsByMessageRef = useRef<Record<string, DiffContent>>({});
+  const artifactLookupMissesRef = useRef<Set<string>>(new Set());
+  const inflightArtifactLookupsRef = useRef<Set<string>>(new Set());
   const { providerModels } = useProviderStore(runId);
   const { login, refreshSession } = useAuth();
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(
@@ -303,6 +311,10 @@ export function ChatInterface({
     changedFilesByAssistantMessageId,
     setChangedFilesByAssistantMessageId,
   ] = useState<Record<string, FileStatus[]>>({});
+  const [
+    artifactSourcesByAssistantMessageId,
+    setArtifactSourcesByAssistantMessageId,
+  ] = useState<Record<string, PromptArtifactReviewSource>>({});
   const previousScrollScopeKeyRef = useRef<string | null>(null);
 
   const messageMetadataById = useMemo(() => {
@@ -318,9 +330,16 @@ export function ChatInterface({
     [events],
   );
   const scopedFeed = feed?.runId === runId ? feed : null;
+  const displayFeed = useMemo(
+    () =>
+      !isLoading && scopedFeed?.status === "RUNNING"
+        ? { ...scopedFeed, status: "CANCELLED" as const }
+        : scopedFeed,
+    [isLoading, scopedFeed],
+  );
   const activityViewModel = useMemo(
-    () => buildActivityFeedViewModel(scopedFeed, activityNowMs),
-    [scopedFeed, activityNowMs],
+    () => buildActivityFeedViewModel(displayFeed, activityNowMs),
+    [displayFeed, activityNowMs],
   );
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
@@ -363,6 +382,16 @@ export function ChatInterface({
         return cachedDiff;
       }
 
+      const artifactSource = artifactSourcesByAssistantMessageId[messageId];
+      if (artifactSource) {
+        const response = await getEditArtifactDiff({
+          artifactId: artifactSource.artifactId,
+          path: file.path,
+        });
+        diffSnapshotsByMessageRef.current[cacheKey] = response.diff;
+        return response.diff;
+      }
+
       const activityPreviewDiff = buildDiffFromActivityPreview(file);
       try {
         const liveDiff = await getGitDiff({
@@ -384,7 +413,7 @@ export function ChatInterface({
         throw error;
       }
     },
-    [runId, sessionId],
+    [artifactSourcesByAssistantMessageId, runId, sessionId],
   );
   const liveChangedFiles = useMemo(() => {
     return collectChangedFilesSinceBaseline(
@@ -398,9 +427,82 @@ export function ChatInterface({
     turnBaselineFilesRef.current = [];
     lastSettledFilesRef.current = [];
     diffSnapshotsByMessageRef.current = {};
+    artifactLookupMissesRef.current = new Set();
+    inflightArtifactLookupsRef.current = new Set();
     previousIsLoadingRef.current = false;
     setChangedFilesByAssistantMessageId({});
+    setArtifactSourcesByAssistantMessageId({});
   }, [runId]);
+
+  useEffect(() => {
+    const assistantMessageIds = messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.id)
+      .filter(
+        (messageId) =>
+          !artifactSourcesByAssistantMessageId[messageId] &&
+          !artifactLookupMissesRef.current.has(messageId) &&
+          !inflightArtifactLookupsRef.current.has(messageId),
+      );
+    if (!runId || assistantMessageIds.length === 0) {
+      return;
+    }
+
+    for (const messageId of assistantMessageIds) {
+      inflightArtifactLookupsRef.current.add(messageId);
+    }
+
+    let cancelled = false;
+    void Promise.allSettled(
+      assistantMessageIds.map(async (assistantMessageId) => {
+        const source = await getEditArtifactReviewSourceByMessage({
+          runId,
+          assistantMessageId,
+        });
+        return source ? ([assistantMessageId, source] as const) : null;
+      }),
+    )
+      .then((results) => {
+        if (cancelled) {
+          return;
+        }
+        const nextEntries: Array<[string, PromptArtifactReviewSource]> = [];
+        results.forEach((result, index) => {
+          const assistantMessageId = assistantMessageIds[index];
+          if (!assistantMessageId) {
+            return;
+          }
+          inflightArtifactLookupsRef.current.delete(assistantMessageId);
+          if (result.status === "fulfilled" && result.value) {
+            nextEntries.push([...result.value]);
+            return;
+          }
+          if (result.status === "rejected") {
+            console.warn("[chat/artifacts] Failed to hydrate artifact", {
+              assistantMessageId,
+              error: result.reason,
+            });
+          }
+          if (
+            result.status === "rejected" ||
+            (result.status === "fulfilled" && result.value === null)
+          ) {
+            artifactLookupMissesRef.current.add(assistantMessageId);
+          }
+        });
+        if (nextEntries.length === 0) {
+          return;
+        }
+        setArtifactSourcesByAssistantMessageId((current) => ({
+          ...current,
+          ...Object.fromEntries(nextEntries),
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactSourcesByAssistantMessageId, messages, runId]);
 
   useEffect(() => {
     if (!previousIsLoadingRef.current && isLoading) {
@@ -987,8 +1089,13 @@ export function ChatInterface({
                     isLoading,
                     liveFiles: liveChangedFiles,
                     snapshots: changedFileSnapshotsByAssistantMessageId,
+                    artifacts: artifactSourcesByAssistantMessageId,
                     loadFileDiff: (file) =>
                       loadChangedFileDiff(entry.message.id, file),
+                    onPromptArtifactReview: (artifactId) => {
+                      openPromptArtifactReview(artifactId, entry.message.id);
+                      onReviewOpen?.();
+                    },
                   })}
                 />
               ) : (
@@ -1064,13 +1171,25 @@ function resolveChangedFilesSummary(input: {
   isLoading: boolean;
   liveFiles: FileStatus[] | undefined;
   snapshots: Record<string, FileStatus[]>;
+  artifacts: Record<string, PromptArtifactReviewSource>;
   loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
+  onPromptArtifactReview: (artifactId: string) => void;
 }):
   | {
       files: FileStatus[];
       loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
+      onReviewOpen?: () => void;
     }
   | undefined {
+  const artifact = input.artifacts[input.messageId];
+  if (artifact?.files.length) {
+    return {
+      files: artifact.files.map(mapReviewFileToStatus),
+      loadFileDiff: input.loadFileDiff,
+      onReviewOpen: () => input.onPromptArtifactReview(artifact.artifactId),
+    };
+  }
+
   const liveFiles =
     !input.isLoading &&
     input.messageId === input.latestAssistantMessageId &&
@@ -1085,6 +1204,18 @@ function resolveChangedFilesSummary(input: {
   return {
     files,
     loadFileDiff: input.loadFileDiff,
+  };
+}
+
+function mapReviewFileToStatus(
+  file: PromptArtifactReviewSource["files"][number],
+): FileStatus {
+  return {
+    path: file.path,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    isStaged: file.isStaged ?? false,
   };
 }
 
