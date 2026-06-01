@@ -1,5 +1,8 @@
 import type { CoreMessage } from "ai";
-import type { TranscriptMessageRecord, TranscriptRepository } from "@repo/persistence";
+import type {
+  TranscriptMessageRecord,
+  TranscriptRepository,
+} from "@repo/persistence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/ai";
 import {
@@ -148,6 +151,84 @@ describe("PersistenceService", () => {
     );
   });
 
+  it("persists assistant text with a durable activity part", async () => {
+    const repository = {
+      appendMessageToExistingSession: vi.fn(async () =>
+        createTranscriptMessageRecord(),
+      ),
+    } as Partial<TranscriptRepository> as TranscriptRepository;
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      text: "The selected model stopped responding.",
+      metadata: {
+        code: "PROVIDER_UNAVAILABLE",
+        retryable: true,
+        providerId: "google",
+        modelId: undefined,
+      },
+      activity: {
+        version: 1,
+        type: "turn_activity",
+        compacted: false,
+        events: [
+          {
+            id: "activity-1",
+            runId: "123e4567-e89b-42d3-a456-426614174000",
+            sessionId: "123e4567-e89b-42d3-a456-426614174001",
+            turnId: "turn-1",
+            sequence: 1,
+            kind: "provider_error",
+            status: "paused",
+            title: "Provider interruption",
+            displayMode: "visible",
+            createdAt: "2026-05-24T00:00:00.000Z",
+            updatedAt: "2026-05-24T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    expect(repository.appendMessageToExistingSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "assistant",
+        parts: [
+          {
+            type: "text",
+            content: {
+              text: "The selected model stopped responding.",
+              metadata: {
+                code: "PROVIDER_UNAVAILABLE",
+                retryable: true,
+                providerId: "google",
+              },
+            },
+          },
+          expect.objectContaining({
+            type: "activity",
+            content: expect.objectContaining({
+              type: "turn_activity",
+              events: [
+                expect.objectContaining({
+                  kind: "provider_error",
+                  status: "paused",
+                }),
+              ],
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
   it("persists image-bearing user messages as redacted text parts", async () => {
     const repository = {
       appendMessage: vi.fn(async () => createTranscriptMessageRecord()),
@@ -228,7 +309,8 @@ function createTranscriptMessageRecord(): TranscriptMessageRecord {
 }
 
 function createTransactionalTranscriptRepository(): TranscriptRepository {
-  const repository = {} as Partial<TranscriptRepository> as TranscriptRepository;
+  const repository =
+    {} as Partial<TranscriptRepository> as TranscriptRepository;
   repository.appendMessageToExistingSession = vi.fn(async () =>
     createTranscriptMessageRecord(),
   );

@@ -248,6 +248,7 @@ export function mapRuntimeStatusToRunEventStatus(
     case "COMPLETED":
       return "complete";
     case "PAUSED":
+      return "paused";
     case "CANCELLED":
       return "waiting";
     case "CREATED":

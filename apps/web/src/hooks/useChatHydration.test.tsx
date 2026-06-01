@@ -119,8 +119,6 @@ describe("useChatHydration", () => {
           content: "hydrated on retry",
         }),
       ]);
-    });
-    await waitFor(() => {
       expect(result.current.hasHydrated).toBe(true);
     });
   });

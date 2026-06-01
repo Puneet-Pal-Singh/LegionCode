@@ -7,6 +7,7 @@ export const RUN_STATUSES = {
   QUEUED: "queued",
   RUNNING: "running",
   WAITING: "waiting",
+  PAUSED: "paused",
   FAILED: "failed",
   COMPLETE: "complete",
 } as const;

@@ -280,11 +280,16 @@ function AppContent() {
         | "queued"
         | "running"
         | "waiting"
+        | "paused"
         | "failed"
         | "complete" = "idle";
       if (session.status === "running") status = "running";
       else if (session.status === "completed") status = "complete";
-      else if (session.status === "error") status = "failed";
+      else if (session.status === "paused") {
+        status = "paused";
+      } else if (session.status === "failed") {
+        status = "failed";
+      }
 
       // Get session's last update time from localStorage or use current time
       const sessionUpdateKey = `session_updated_at_${session.id}`;
@@ -1142,7 +1147,8 @@ function AppContent() {
                   hasStartedSession={isSessionStarted}
                   allowPendingQueryRestore={
                     activeSession?.status !== "completed" &&
-                    activeSession?.status !== "error"
+                    activeSession?.status !== "paused" &&
+                    activeSession?.status !== "failed"
                   }
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })

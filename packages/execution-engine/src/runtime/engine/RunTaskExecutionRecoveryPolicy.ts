@@ -1,4 +1,4 @@
-import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import {
@@ -38,6 +38,7 @@ interface TaskExecutionRecoveryDependencies {
     text: string,
     metadata?: Record<string, unknown>,
     errorMetadata?: string,
+    terminalStatus?: "COMPLETED" | "PAUSED",
   ) => Promise<Response>;
   runEventRecorder: Pick<RunEventRecorder, "recordRunProgress">;
 }
@@ -171,18 +172,12 @@ async function handleProviderUnavailableRecovery(
   );
   const text = buildProviderUnavailableMessage({
     noFileChanged: context.stats.completedMutatingToolCount === 0,
-    toolExecutionCount: context.stats.toolExecutionCount,
-    stepsExecuted: context.stats.stepsExecuted,
-    providerId: details.providerId,
-    modelId: details.modelId,
-    statusCode: details.statusCode,
-    lastCompletedAction: details.lastCompletedAction,
   });
 
   await deps.runEventRecorder.recordRunProgress(
     RUN_WORKFLOW_STEPS.EXECUTION,
-    "Recoverable provider interruption",
-    "The provider failed repeatedly before the next action could be produced.",
+    "Provider interruption",
+    "The selected model stopped responding after retrying.",
     "completed",
   );
 
@@ -191,6 +186,7 @@ async function handleProviderUnavailableRecovery(
     text,
     buildProviderUnavailableMetadata(details),
     buildProviderUnavailableErrorMetadata(details),
+    "PAUSED",
   );
 }
 
@@ -278,33 +274,13 @@ function buildTaskExecutionTimeoutMessage(input: {
 
 function buildProviderUnavailableMessage(input: {
   noFileChanged: boolean;
-  toolExecutionCount: number;
-  stepsExecuted: number;
-  providerId: string | null;
-  modelId: string | null;
-  statusCode: number | null;
-  lastCompletedAction: string | null;
 }): string {
   const lines = [
-    "The model provider became unavailable after repeated retries before the next action could be produced.",
-  ];
-  const modelLabel = formatModelLabel(input.providerId, input.modelId);
-  if (modelLabel) {
-    lines.push(`Active model: ${modelLabel}.`);
-  }
-  if (typeof input.statusCode === "number") {
-    lines.push(`Provider status code: ${input.statusCode}.`);
-  }
-  if (input.lastCompletedAction) {
-    lines.push(`Last completed action: ${input.lastCompletedAction}.`);
-  }
-  lines.push(
+    "The selected model stopped responding, so I paused this run.",
     input.noFileChanged
-      ? "No file was changed before the provider interruption."
-      : "The run made partial progress before the provider interruption.",
-    `Execution stats so far: ${input.stepsExecuted} step(s), ${input.toolExecutionCount} tool call(s).`,
-  );
-  lines.push("Retry the request, or switch to another provider/model.");
+      ? "No files were changed. The provider became unavailable after retrying."
+      : "Some workspace changes may already exist. Review the changed files before retrying.",
+  ];
 
   return lines.join("\n");
 }
@@ -336,21 +312,27 @@ function buildProviderUnavailableMetadata(input: {
   modelId: string | null;
   statusCode: number | null;
   lastCompletedAction: string | null;
+  retryCount: number;
+  stepsExecuted: number;
+  toolExecutionCount: number;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
+  noFilesChanged: boolean;
 }): Record<string, unknown> {
   return {
     code: "PROVIDER_UNAVAILABLE",
     retryable: true,
-    ...(input.providerId ? { providerId: input.providerId } : undefined),
-    ...(input.modelId ? { modelId: input.modelId } : undefined),
-    ...(typeof input.statusCode === "number"
-      ? { statusCode: input.statusCode }
-      : undefined),
-    ...(input.lastCompletedAction
-      ? { lastCompletedAction: input.lastCompletedAction }
-      : undefined),
-    resumeHint:
-      "Retry in a few seconds. If this repeats, switch provider/model and retry.",
-    resumeActions: ["retry", "switch_model"],
+    providerId: input.providerId,
+    modelId: input.modelId,
+    statusCode: input.statusCode,
+    retryCount: input.retryCount,
+    lastCompletedAction: input.lastCompletedAction,
+    stepsExecuted: input.stepsExecuted,
+    toolExecutionCount: input.toolExecutionCount,
+    completedMutatingToolCount: input.completedMutatingToolCount,
+    completedReadOnlyToolCount: input.completedReadOnlyToolCount,
+    noFilesChanged: input.noFilesChanged,
+    terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
   };
 }
 
@@ -392,6 +374,12 @@ function buildProviderUnavailableDetails(
   modelId: string | null;
   statusCode: number | null;
   lastCompletedAction: string | null;
+  retryCount: number;
+  stepsExecuted: number;
+  toolExecutionCount: number;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
+  noFilesChanged: boolean;
   signal: string;
 } {
   return {
@@ -405,8 +393,32 @@ function buildProviderUnavailableDetails(
     lastCompletedAction: describeLastCompletedAction(
       context.stats.toolLifecycle,
     ),
+    retryCount: resolveProviderRetryCount(error, context.stats.llmRetryCount),
+    stepsExecuted: context.stats.stepsExecuted,
+    toolExecutionCount: context.stats.toolExecutionCount,
+    completedMutatingToolCount: context.stats.completedMutatingToolCount,
+    completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
+    noFilesChanged: context.stats.completedMutatingToolCount === 0,
     signal: getBoundedErrorSignal(error),
   };
+}
+
+function resolveProviderRetryCount(
+  error: unknown,
+  loopRetryCount: number,
+): number {
+  if (!(error instanceof Error)) {
+    return loopRetryCount;
+  }
+
+  const signalText = getErrorSignalText(error);
+  const attemptsMatch = signalText.match(/failed after\s+(\d+)\s+attempts?/i);
+  if (!attemptsMatch?.[1]) {
+    return loopRetryCount;
+  }
+
+  const parsed = Number.parseInt(attemptsMatch[1], 10);
+  return Number.isFinite(parsed) ? parsed : loopRetryCount;
 }
 
 function resolveTaskTimeoutMs(error: unknown): number | null {

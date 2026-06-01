@@ -122,7 +122,7 @@ export class RunRepository implements IRunRepository {
 
     for (const [, data] of listResult) {
       const run = Run.fromJSON(data);
-      if (["CREATED", "PLANNING", "RUNNING", "PAUSED"].includes(run.status)) {
+      if (["CREATED", "PLANNING", "RUNNING"].includes(run.status)) {
         allRuns.push(run);
       }
     }

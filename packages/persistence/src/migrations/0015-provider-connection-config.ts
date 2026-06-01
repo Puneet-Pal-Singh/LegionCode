@@ -1,7 +1,7 @@
 import type { SqlMigration } from "./types.js";
 
 export const providerConnectionConfigMigration: SqlMigration = {
-  id: "0014_provider_connection_config",
+  id: "0015_provider_connection_config",
   description: "Add non-secret provider connection config metadata",
   statements: [
     `

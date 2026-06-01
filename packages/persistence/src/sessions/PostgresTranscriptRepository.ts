@@ -557,6 +557,7 @@ function mapSessionStatus(status: string): SessionRecord["status"] {
     status === "idle" ||
     status === "running" ||
     status === "completed" ||
+    status === "paused" ||
     status === "failed"
   ) {
     return status;

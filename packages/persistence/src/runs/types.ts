@@ -4,10 +4,23 @@ function buildSqlList(values: readonly string[]): string {
   return values.map((value) => `'${value.replace(/'/g, "''")}'`).join(", ");
 }
 
-export const RUN_STATUSES = ["created", "running", "completed", "failed", "cancelled"] as const;
+export const RUN_STATUSES = [
+  "created",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-export const RUN_STEP_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
+export const RUN_STEP_STATUSES = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
 export type RunStepStatus = (typeof RUN_STEP_STATUSES)[number];
 
 export function buildRunStatusSqlList(): string {
@@ -109,5 +122,7 @@ export interface RunRepository {
   getRun(runId: string, userId?: string): Promise<RunRecord | null>;
   listRunEvents(runId: string, userId?: string): Promise<RunEventRecord[]>;
   listRunSteps(runId: string, userId?: string): Promise<RunStepRecord[]>;
-  transaction<T>(callback: (repository: RunRepository) => Promise<T>): Promise<T>;
+  transaction<T>(
+    callback: (repository: RunRepository) => Promise<T>,
+  ): Promise<T>;
 }

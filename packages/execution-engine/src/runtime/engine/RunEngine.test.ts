@@ -452,16 +452,18 @@ describe("RunEngine", () => {
     expect(response.status).toBe(200);
     const output = await response.text();
     expect(output).toContain(
-      "The model provider became unavailable after repeated retries before the next action could be produced.",
+      "The selected model stopped responding, so I paused this run.",
     );
-    expect(output).toContain("Provider status code: 500.");
+    expect(output).toContain(
+      "No files were changed. The provider became unavailable after retrying.",
+    );
 
     const persisted = await (
       runEngine as unknown as {
         getRun(runId: string): Promise<Run | null>;
       }
     ).getRun(TEST_RUN_ID);
-    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.status).toBe("PAUSED");
     expect(persisted?.metadata.error).toContain("PROVIDER_UNAVAILABLE:");
 
     const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
@@ -1402,6 +1404,36 @@ describe("RunEngine", () => {
     expect(assistantSummary?.payload.metadata).toMatchObject({
       terminalState: "interrupted",
     });
+  });
+
+  it("does not cancel a paused terminal run", async () => {
+    const state = new MockRuntimeState();
+    const runId = "f462a003-5c36-4c86-a95d-367b92bf4702";
+    const runtimeRunRepo = new RunRepository(state);
+    await runtimeRunRepo.create(
+      new Run(runId, "session-1", "PAUSED", "coding", {
+        agentType: "coding",
+        prompt: "resume later",
+        sessionId: "session-1",
+      }),
+    );
+    const runEngine = new RunEngine(
+      state,
+      {
+        env: { NODE_ENV: "test" } as unknown,
+        sessionId: "session-1",
+        runId,
+      },
+      undefined,
+      undefined,
+      { llmGateway: createMockLLMGateway() },
+    );
+
+    const cancelled = await runEngine.cancel(runId);
+
+    expect(cancelled).toBe(false);
+    const run = await runtimeRunRepo.getById(runId);
+    expect(run?.status).toBe("PAUSED");
   });
 
   it("keeps build mode running when planner would fail, because planner is inactive", async () => {
