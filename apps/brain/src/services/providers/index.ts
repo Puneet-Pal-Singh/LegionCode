@@ -66,7 +66,9 @@ export { readByokEncryptionConfig } from "./provider-encryption-key";
 export { LiteLLMAdapter } from "./adapters";
 export { OpenAIAdapter } from "./adapters";
 export { AnthropicAdapter } from "./adapters";
+export { AnthropicMessagesAdapter } from "./adapters";
 export { GoogleAdapter } from "./adapters";
+export { OpenAIResponsesAdapter } from "./adapters";
 export {
   OpenAICompatibleAdapter,
   streamGenerationHelper,

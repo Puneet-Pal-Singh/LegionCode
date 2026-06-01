@@ -59,6 +59,9 @@ export class CodingAgent extends BaseAgent {
       schema: PlanSchema,
       model: context.run.input.modelId,
       providerId: context.run.input.providerId,
+      runtimeModelId: context.run.input.runtimeModelId,
+      providerTransport: context.run.input.providerTransport,
+      providerEndpoint: context.run.input.providerEndpoint,
       temperature: 0.2,
     });
 
@@ -138,6 +141,9 @@ export class CodingAgent extends BaseAgent {
         ],
         model: context.modelId,
         providerId: context.providerId,
+        runtimeModelId: context.runtimeModelId,
+        providerTransport: context.providerTransport,
+        providerEndpoint: context.providerEndpoint,
       });
       if (looksLikeRawToolTranscript(result.text)) {
         console.warn(
@@ -427,7 +433,10 @@ VALIDATION RULES:
   }
 
   private async executeGitStageTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("git_stage", task.input);
+    const validatedInput = this.validateGoldenFlowInput(
+      "git_stage",
+      task.input,
+    );
     const payload: Record<string, unknown> = {};
     if (validatedInput.files && validatedInput.files.length > 0) {
       payload.files = validatedInput.files.map((file) => {
@@ -937,6 +946,9 @@ VALIDATION RULES:
       ],
       model: context.modelId,
       providerId: context.providerId,
+      runtimeModelId: context.runtimeModelId,
+      providerTransport: context.providerTransport,
+      providerEndpoint: context.providerEndpoint,
     });
     return this.buildSuccessResult(task.id, result.text);
   }

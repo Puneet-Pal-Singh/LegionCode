@@ -49,7 +49,11 @@ export type ProviderLaunchStage = z.infer<typeof ProviderLaunchStageSchema>;
  */
 export const ProviderRegistryEntrySchema = z.object({
   /** Unique provider identifier (slug format: `openai`, `groq`, `anthropic`, etc.) */
-  providerId: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/),
+  providerId: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/),
 
   /** Display name for UI */
   displayName: z.string().min(1).max(256),
@@ -102,9 +106,7 @@ export const ProviderRegistryEntrySchema = z.object({
   defaultModelId: z.string().optional(),
 });
 
-export type ProviderRegistryEntry = z.infer<
-  typeof ProviderRegistryEntrySchema
->;
+export type ProviderRegistryEntry = z.infer<typeof ProviderRegistryEntrySchema>;
 
 /**
  * ProviderRegistry - Catalog of all available providers
@@ -364,6 +366,69 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       endpoint: "https://api.cerebras.ai/v1/models",
       authMode: "bearer",
     },
+  },
+
+  "opencode-go": {
+    providerId: "opencode-go",
+    displayName: "OpenCode Go",
+    authModes: ["api_key"],
+    launchStage: "supported",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    keyFormat: {
+      description: "OpenCode Go API key",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "openai-compatible",
+    modelSource: "remote",
+    modelsEndpoint: "https://opencode.ai/zen/go/v1/models",
+    validation: {
+      endpoint: "https://opencode.ai/zen/go/v1/models",
+      authMode: "bearer",
+    },
+  },
+
+  "opencode-zen": {
+    providerId: "opencode-zen",
+    displayName: "OpenCode Zen",
+    authModes: ["api_key"],
+    launchStage: "supported",
+    baseUrl: "https://opencode.ai/zen/v1",
+    keyFormat: {
+      description: "OpenCode Zen API key",
+    },
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "custom-http",
+    modelSource: "remote",
+    modelsEndpoint: "https://opencode.ai/zen/v1/models",
+    validation: {
+      endpoint: "https://opencode.ai/zen/v1/models",
+      authMode: "bearer",
+    },
+  },
+
+  "cloudflare-ai": {
+    providerId: "cloudflare-ai",
+    displayName: "Cloudflare AI",
+    authModes: ["api_key"],
+    launchStage: "coming_soon",
+    capabilities: {
+      streaming: true,
+      tools: true,
+      jsonMode: true,
+      structuredOutputs: true,
+    },
+    adapterFamily: "custom-http",
+    modelSource: "remote",
   },
 };
 

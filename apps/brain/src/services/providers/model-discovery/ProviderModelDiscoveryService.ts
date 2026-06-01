@@ -3,6 +3,7 @@ import type {
   BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsRefreshResponse,
   BYOKDiscoveredProviderModelsResponse,
+  ProviderConnectionConfig,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type {
@@ -23,6 +24,9 @@ import type {
 import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalogAdapter";
 import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
 import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
+import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter";
+import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter";
+import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import type { OpenRouterRecommendationInput } from "./types";
@@ -129,10 +133,14 @@ export class ProviderModelDiscoveryService {
       }
 
       const fullList = await this.getCatalogWithCache(providerId);
+      const surfaceModels = filterModelsForSurface(
+        fullList.models,
+        query.surface,
+      );
       const ranked = await this.rankModels(
         providerId,
         query.view,
-        fullList.models,
+        surfaceModels,
         query.limit,
       );
       const page = toPage(ranked, query.cursor, query.limit);
@@ -235,7 +243,9 @@ export class ProviderModelDiscoveryService {
     }));
     const sorted = scored.sort(compareOpenRouterRecommendationScore);
     const topModels = sorted.slice(0, input.limit).map((s) => s.model);
-    const hasAuto = topModels.some((model) => model.id === OPENROUTER_AUTO_MODEL_ID);
+    const hasAuto = topModels.some(
+      (model) => model.id === OPENROUTER_AUTO_MODEL_ID,
+    );
     let finalModels: ProviderModelCacheRecord["models"];
     if (!hasAuto) {
       finalModels = [
@@ -296,13 +306,11 @@ export class ProviderModelDiscoveryService {
       this.getOpenRouterUserInventory(credential.cacheKey, credential.apiKey),
       this.getOpenRouterProgrammingModels(),
     ]);
-    const ranked = await this.rankOpenRouterRecommendations(
-      {
-        userModels: userInventory.models,
-        programmingModels,
-        limit: Math.max(query.limit, OPENROUTER_RECOMMENDED_MAX),
-      },
-    );
+    const ranked = await this.rankOpenRouterRecommendations({
+      userModels: userInventory.models,
+      programmingModels,
+      limit: Math.max(query.limit, OPENROUTER_RECOMMENDED_MAX),
+    });
     const page = toPage(ranked, query.cursor, query.limit);
     return {
       providerId: "openrouter",
@@ -332,10 +340,7 @@ export class ProviderModelDiscoveryService {
     );
     const categoryFetches = OPENROUTER_DISCOVERY_CATEGORIES.map(
       async (category) =>
-        [
-          category,
-          await this.getOpenRouterCategoryModels(category),
-        ] as const,
+        [category, await this.getOpenRouterCategoryModels(category)] as const,
     );
     const [leaderboardModels, freeModels, categoryEntries] = await Promise.all([
       this.getOpenRouterLeaderboardModels(),
@@ -385,8 +390,11 @@ export class ProviderModelDiscoveryService {
     }
 
     let apiKey: string | null = null;
+    let connectionConfig: ProviderConnectionConfig | undefined;
     try {
       apiKey = await this.credentialService.getApiKey(providerId);
+      connectionConfig =
+        await this.credentialService.getConnectionConfig(providerId);
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -399,6 +407,7 @@ export class ProviderModelDiscoveryService {
     }
     const models = await adapter.fetchAll(providerId, {
       apiKey,
+      connectionConfig,
     });
     const fetchedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
@@ -531,17 +540,23 @@ export class ProviderModelDiscoveryService {
     ];
 
     await Promise.all(
-      cacheKeys.map((cacheKey) => this.cacheStore.invalidateModelCache(cacheKey)),
+      cacheKeys.map((cacheKey) =>
+        this.cacheStore.invalidateModelCache(cacheKey),
+      ),
     );
   }
 
   private async getProviderCredential(providerId: string): Promise<{
     apiKey: string;
     cacheKey: string;
+    connectionConfig?: ProviderConnectionConfig;
   }> {
     let apiKey: string | null = null;
+    let connectionConfig: ProviderConnectionConfig | undefined;
     try {
       apiKey = await this.credentialService.getApiKey(providerId);
+      connectionConfig =
+        await this.credentialService.getConnectionConfig(providerId);
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -555,12 +570,17 @@ export class ProviderModelDiscoveryService {
     return {
       apiKey,
       cacheKey: await buildCredentialCacheKey(providerId, apiKey),
+      connectionConfig,
     };
   }
 
   private getOpenRouterAdapter(): OpenRouterModelCatalogPort {
     const adapter = this.adapters.get("openrouter");
-    if (!adapter || typeof (adapter as OpenRouterModelCatalogPort).fetchUserModels !== "function") {
+    if (
+      !adapter ||
+      typeof (adapter as OpenRouterModelCatalogPort).fetchUserModels !==
+        "function"
+    ) {
       throw new ProviderModelCacheError(
         "OpenRouter adapter does not support recommendation discovery.",
       );
@@ -588,7 +608,10 @@ export class ProviderModelDiscoveryService {
       return await this.cacheStore.getUserModelCache(key);
     } catch (error) {
       throw new ProviderModelCacheError(
-        toErrorMessage(error, "Failed to read user-scoped provider model cache."),
+        toErrorMessage(
+          error,
+          "Failed to read user-scoped provider model cache.",
+        ),
       );
     }
   }
@@ -678,6 +701,18 @@ function createAdapterForProvider(
     return new OpenRouterModelCatalogAdapter();
   }
 
+  if (provider.providerId === "opencode-go") {
+    return new OpenCodeGoModelCatalogAdapter();
+  }
+
+  if (provider.providerId === "opencode-zen") {
+    return new OpenCodeZenModelCatalogAdapter();
+  }
+
+  if (provider.providerId === "cloudflare-ai") {
+    return new CloudflareAIModelCatalogAdapter();
+  }
+
   if (provider.adapterFamily === "google-native") {
     return new GoogleModelCatalogAdapter();
   }
@@ -698,6 +733,19 @@ function createAdapterForProvider(
   }
 
   return undefined;
+}
+
+function filterModelsForSurface(
+  models: ProviderModelCacheRecord["models"],
+  surface: BYOKDiscoveredProviderModelsQuery["surface"],
+): ProviderModelCacheRecord["models"] {
+  if (surface === "manage") {
+    return models;
+  }
+  return models.filter((model) => {
+    const availability = model.availability ?? "available";
+    return availability === "available";
+  });
 }
 
 function buildDefaultSignals(modelIds: string[]) {
@@ -826,9 +874,7 @@ function compareOpenRouterRecommendationScore(
   return a.model.id.localeCompare(b.model.id);
 }
 
-function getOpenRouterMatchKeys(
-  model: BYOKDiscoveredProviderModel,
-): string[] {
+function getOpenRouterMatchKeys(model: BYOKDiscoveredProviderModel): string[] {
   const keys = [model.id.trim().toLowerCase()];
   if (model.canonicalSlug) {
     keys.push(model.canonicalSlug.trim().toLowerCase());
@@ -940,9 +986,7 @@ function resolveOpenRouterInventoryModel(
   return null;
 }
 
-function buildOpenRouterDedupeKey(
-  model: BYOKDiscoveredProviderModel,
-): string {
+function buildOpenRouterDedupeKey(model: BYOKDiscoveredProviderModel): string {
   if (model.id) {
     return `id:${model.id.trim().toLowerCase()}`;
   }

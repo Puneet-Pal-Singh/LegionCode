@@ -29,6 +29,47 @@ describe("BYOK API Contracts", () => {
     expect(result.success).toBe(true);
   });
 
+  it("validates Cloudflare AI connect config", () => {
+    const request = {
+      providerId: "cloudflare-ai",
+      apiKey: "cf-test-token",
+      config: {
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        gatewayId: "gateway-123",
+        routeMode: "ai-gateway" as const,
+      },
+    };
+
+    const result = BYOKConnectRequestSchema.safeParse(request);
+    expect(result.success).toBe(true);
+  });
+
+  it("requires Cloudflare AI config on connect", () => {
+    const request = {
+      providerId: "cloudflare-ai",
+      apiKey: "cf-test-token",
+    };
+
+    const result = BYOKConnectRequestSchema.safeParse(request);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects mismatched provider connection config", () => {
+    const request = {
+      providerId: "opencode-go",
+      apiKey: "oc-test-token",
+      config: {
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        routeMode: "workers-ai-direct" as const,
+      },
+    };
+
+    const result = BYOKConnectRequestSchema.safeParse(request);
+    expect(result.success).toBe(false);
+  });
+
   it("validates validate request", () => {
     const request = {
       providerId: "openai",
@@ -113,9 +154,9 @@ describe("BYOK API Contracts", () => {
       },
     };
 
-    expect(BYOKDiscoveredProviderModelsQuerySchema.safeParse(query).success).toBe(
-      true,
-    );
+    expect(
+      BYOKDiscoveredProviderModelsQuerySchema.safeParse(query).success,
+    ).toBe(true);
     expect(
       BYOKDiscoveredProviderModelsResponseSchema.safeParse(response).success,
     ).toBe(true);

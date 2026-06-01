@@ -11,6 +11,9 @@ describe("DesktopCredentialVaultStub", () => {
     await expect(vault.getApiKey("openai")).rejects.toThrow(
       'not supported on "desktop"',
     );
+    await expect(vault.getConnectionConfig("openai")).rejects.toThrow(
+      'not supported on "desktop"',
+    );
     await expect(vault.listConnectedProviders()).rejects.toThrow(
       'not supported on "desktop"',
     );

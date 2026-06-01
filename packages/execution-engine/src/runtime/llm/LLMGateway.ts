@@ -116,6 +116,9 @@ export class LLMGateway implements ILLMGateway {
           messages: req.messages,
           model: req.model,
           providerId: req.providerId,
+          runtimeModelId: req.runtimeModelId,
+          providerTransport: req.providerTransport,
+          providerEndpoint: req.providerEndpoint,
           temperature: req.temperature,
           system: req.system,
           tools: req.tools,
@@ -135,7 +138,10 @@ export class LLMGateway implements ILLMGateway {
       if (unusableResponse) {
         await this.persistCostEvent(
           requestWithIdempotency,
-          this.normalizeUsage(unusableResponse.usage ?? estimatedUsage, req.model),
+          this.normalizeUsage(
+            unusableResponse.usage ?? estimatedUsage,
+            req.model,
+          ),
         );
         throw unusableResponse;
       }
@@ -184,6 +190,9 @@ export class LLMGateway implements ILLMGateway {
           schema: req.schema,
           model: req.model,
           providerId: req.providerId,
+          runtimeModelId: req.runtimeModelId,
+          providerTransport: req.providerTransport,
+          providerEndpoint: req.providerEndpoint,
           temperature: req.temperature,
         }),
         {
@@ -282,6 +291,9 @@ export class LLMGateway implements ILLMGateway {
       tools: req.tools,
       model: req.model,
       providerId: req.providerId,
+      runtimeModelId: req.runtimeModelId,
+      providerTransport: req.providerTransport,
+      providerEndpoint: req.providerEndpoint,
       temperature: req.temperature,
       onFinish: async (finalResult) => {
         const usage = this.normalizeUsage(finalResult.usage, req.model);

@@ -65,6 +65,36 @@ export type BYOKModelOutputModality = z.infer<
   typeof BYOKModelOutputModalitySchema
 >;
 
+export const ProviderModelTransportSchema = z.enum([
+  "openai-chat-completions",
+  "openai-responses",
+  "anthropic-messages",
+  "google-generative",
+  "cloudflare-ai-run",
+]);
+export type ProviderModelTransport = z.infer<
+  typeof ProviderModelTransportSchema
+>;
+
+export const ProviderModelAvailabilitySchema = z.enum([
+  "available",
+  "unsupported_transport",
+  "limit_exceeded",
+]);
+export type ProviderModelAvailability = z.infer<
+  typeof ProviderModelAvailabilitySchema
+>;
+
+export const ProviderModelRuntimeRouteSchema = z.object({
+  providerId: BYOKProviderSlugSchema,
+  modelId: z.string().min(1),
+  transport: ProviderModelTransportSchema,
+  endpoint: z.string().url(),
+});
+export type ProviderModelRuntimeRoute = z.infer<
+  typeof ProviderModelRuntimeRouteSchema
+>;
+
 export const BYOKDiscoveredProviderModelSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -79,6 +109,9 @@ export const BYOKDiscoveredProviderModelSchema = z.object({
   expirationDate: z.string().datetime().optional(),
   deprecated: z.boolean().optional(),
   popularityScore: BYOKModelPopularityScoreSchema.optional(),
+  runtimeRoute: ProviderModelRuntimeRouteSchema.optional(),
+  availability: ProviderModelAvailabilitySchema.optional(),
+  unavailableReason: z.string().min(1).optional(),
 });
 export type BYOKDiscoveredProviderModel = z.infer<
   typeof BYOKDiscoveredProviderModelSchema

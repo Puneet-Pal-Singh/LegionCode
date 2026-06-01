@@ -17,12 +17,11 @@ import type {
   BYOKValidateResponse,
   ProviderCatalogResponse,
   ProviderConnection,
+  ProviderConnectionConfig,
   ProviderConnectionsResponse,
   ProviderId,
 } from "@repo/shared-types";
-import type {
-  ModelsListResponse,
-} from "../../schemas/provider";
+import type { ModelsListResponse } from "../../schemas/provider";
 
 /**
  * Minimal provider config service interface
@@ -57,5 +56,8 @@ export interface IProviderConfigService {
   ): Promise<BYOKDiscoveredProviderModelsResponse>;
   refreshOpenRouterDiscoveredModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getApiKey(providerId: ProviderId): Promise<string | null>;
+  getConnectionConfig(
+    providerId: ProviderId,
+  ): Promise<ProviderConnectionConfig | undefined>;
   isConnected(providerId: ProviderId): Promise<boolean>;
 }

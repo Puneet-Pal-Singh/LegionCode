@@ -21,31 +21,36 @@ This document defines provider behavior expectations, ownership, and test covera
 
 ## Provider Capability Matrix
 
-| Provider   | Connection       | Catalog        | Validate       | Disconnect     | Strict Model Guard |
-| ---------- | ---------------- | -------------- | -------------- | -------------- | ------------------ |
-| axis       | Platform-managed | Supported      | Not applicable | Not applicable | Curated            |
-| openrouter | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| openai     | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| groq       | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| anthropic  | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| google     | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| together   | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| cerebras   | Supported        | Supported      | Supported      | Supported      | Enforced           |
-| mistral    | Supported        | Hidden         | Supported      | Supported      | Enforced           |
-| cohere     | Supported        | Hidden         | Not supported  | Supported      | Enforced           |
+| Provider      | Connection       | Catalog     | Validate       | Disconnect     | Strict Model Guard |
+| ------------- | ---------------- | ----------- | -------------- | -------------- | ------------------ |
+| axis          | Platform-managed | Supported   | Not applicable | Not applicable | Curated            |
+| openrouter    | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| openai        | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| groq          | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| anthropic     | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| google        | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| together      | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| cerebras      | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| mistral       | Supported        | Hidden      | Supported      | Supported      | Enforced           |
+| cohere        | Supported        | Hidden      | Not supported  | Supported      | Enforced           |
+| opencode-go   | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| opencode-zen  | Supported        | Supported   | Supported      | Supported      | Enforced           |
+| cloudflare-ai | Coming soon      | Coming soon | Coming soon    | Coming soon    | Enforced           |
 
 Axis remains a managed starter provider with curated free models and quota behavior, but its execution-lane admission is still governed by the same capability-driven policy as other providers.
 
 Cohere and Mistral remain hidden from the launch catalog until product support is completed.
 
+OpenCode Go is supported through its OpenAI-compatible chat-completions route. OpenCode Zen is a mixed-transport provider; selectable models must carry explicit runtime route metadata before execution. Cloudflare AI remains coming soon until account metadata, model discovery, and at least one Workers AI route are wired end to end.
+
 ## Execution Lane Policy (Plan 82)
 
 Lane admission is **capability-driven only**. No lane rejection is based on provider ID, model price tier, or reliability classification.
 
-| Lane                           | Required Capabilities                                                                             |
-| ------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `chat_only`                    | Always supported                                                                                  |
-| `single_agent_action`          | `capabilities.tools`                                                                              |
+| Lane                           | Required Capabilities                                                                                           |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `chat_only`                    | Always supported                                                                                                |
+| `single_agent_action`          | `capabilities.tools`                                                                                            |
 | `structured_planning_required` | `capabilities.tools` + `capabilities.structuredOutputs` + JSON mode or anthropic-native/google-native transport |
 
 `latencyTier` and `reliabilityTier` are **informational only** (telemetry, UI hints). They do not influence lane admission.

@@ -89,6 +89,9 @@ export {
   ProviderCatalogEntrySchema,
   ProviderCatalogResponseSchema,
   ProviderConnectionStateSchema,
+  CloudflareAIConnectionConfigSchema,
+  EmptyProviderConnectionConfigSchema,
+  ProviderConnectionConfigSchema,
   ProviderConnectionSchema,
   ProviderConnectionsResponseSchema,
   BYOKConnectRequestSchema,
@@ -104,6 +107,12 @@ export {
   NormalizedProviderErrorSchema,
   ProviderErrorEnvelopeSchema,
 } from "./provider.js";
+
+export {
+  ProviderModelAvailabilitySchema,
+  ProviderModelRuntimeRouteSchema,
+  ProviderModelTransportSchema,
+} from "./byok/model-discovery.js";
 export type {
   ProviderId,
   ProviderCapabilityFlags,
@@ -111,6 +120,9 @@ export type {
   ProviderCatalogEntry,
   ProviderCatalogResponse,
   ProviderConnectionState,
+  CloudflareAIConnectionConfig,
+  EmptyProviderConnectionConfig,
+  ProviderConnectionConfig,
   ProviderConnection,
   ProviderConnectionsResponse,
   BYOKConnectRequest,
@@ -126,6 +138,11 @@ export type {
   NormalizedProviderError,
   ProviderErrorEnvelope,
 } from "./provider.js";
+export type {
+  ProviderModelAvailability,
+  ProviderModelRuntimeRoute,
+  ProviderModelTransport,
+} from "./byok/model-discovery.js";
 
 // Run status types
 export { RUN_STATUSES } from "./run-status.js";

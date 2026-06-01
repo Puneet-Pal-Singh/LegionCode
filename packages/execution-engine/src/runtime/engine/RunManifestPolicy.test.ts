@@ -7,7 +7,10 @@ import {
 import type { RuntimeHarnessId } from "../types.js";
 
 const PROVIDERS = ["openai", "groq"] as const;
-const HARNESSES = ["cloudflare-sandbox", "local-sandbox"] as const satisfies RuntimeHarnessId[];
+const HARNESSES = [
+  "cloudflare-sandbox",
+  "local-sandbox",
+] as const satisfies RuntimeHarnessId[];
 
 describe("RunManifestPolicy matrix conformance", () => {
   it("creates deterministic run manifests across provider/harness matrix", () => {
@@ -66,6 +69,58 @@ describe("RunManifestPolicy matrix conformance", () => {
       RunManifestMismatchError,
     );
     expect(() => ensureManifestMatch(existing, changedProvider)).toThrow(
+      RunManifestMismatchError,
+    );
+  });
+
+  it("persists provider transport route fields in the immutable manifest", () => {
+    const manifest = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "opencode-go",
+      modelId: "opencode-go/kimi-k2.6",
+      runtimeModelId: "kimi-k2.6",
+      providerTransport: "openai-chat-completions",
+      providerEndpoint: "https://opencode.ai/zen/go/v1/chat/completions",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    expect(manifest).toMatchObject({
+      providerId: "opencode-go",
+      modelId: "opencode-go/kimi-k2.6",
+      runtimeModelId: "kimi-k2.6",
+      providerTransport: "openai-chat-completions",
+      providerEndpoint: "https://opencode.ai/zen/go/v1/chat/completions",
+    });
+  });
+
+  it("rejects active-run manifest drift when provider transport changes", () => {
+    const existing = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "opencode-go",
+      modelId: "opencode-go/kimi-k2.6",
+      runtimeModelId: "kimi-k2.6",
+      providerTransport: "openai-chat-completions",
+      providerEndpoint: "https://opencode.ai/zen/go/v1/chat/completions",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    const changedTransport = createRunManifest({
+      agentType: "coding",
+      prompt: "same run",
+      sessionId: "session-1",
+      providerId: "opencode-go",
+      modelId: "opencode-go/kimi-k2.6",
+      runtimeModelId: "kimi-k2.6",
+      providerTransport: "anthropic-messages",
+      providerEndpoint: "https://opencode.ai/zen/go/v1/messages",
+      harnessId: "cloudflare-sandbox",
+    });
+
+    expect(() => ensureManifestMatch(existing, changedTransport)).toThrow(
       RunManifestMismatchError,
     );
   });

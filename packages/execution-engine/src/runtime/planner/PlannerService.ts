@@ -157,6 +157,9 @@ Generate a plan to accomplish this request.`;
         schema: PlanSchema,
         model: run.input.modelId,
         providerId: run.input.providerId,
+        runtimeModelId: run.input.runtimeModelId,
+        providerTransport: run.input.providerTransport,
+        providerEndpoint: run.input.providerEndpoint,
         temperature: 0.2, // Deterministic planning
         timeoutMs: PLANNING_TIMEOUT_MS,
       });
