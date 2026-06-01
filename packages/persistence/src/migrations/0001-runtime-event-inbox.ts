@@ -11,6 +11,7 @@ import { sessionsActiveRunForeignKeyMigration } from "./0010-sessions-active-run
 import { providerUserModelCacheTextKeyMigration } from "./0011-provider-user-model-cache-text-key.js";
 import { sessionOrganizationMetadataMigration } from "./0012-session-organization-metadata.js";
 import { artifactReviewMetadataMigration } from "./0013-artifact-review-metadata.js";
+import { pausedRunAndSessionStatusMigration } from "./0014-paused-run-and-session-status.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -66,4 +67,5 @@ export const persistenceMigrations = [
   providerUserModelCacheTextKeyMigration,
   sessionOrganizationMetadataMigration,
   artifactReviewMetadataMigration,
+  pausedRunAndSessionStatusMigration,
 ] as const;

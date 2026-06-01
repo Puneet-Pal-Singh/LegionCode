@@ -113,6 +113,7 @@ export function mapRunStatus(status: string): RunStatus {
   if (
     status === "created" ||
     status === "running" ||
+    status === "paused" ||
     status === "completed" ||
     status === "failed" ||
     status === "cancelled"

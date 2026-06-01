@@ -18,7 +18,7 @@ export class RunStateMachine {
     CREATED: ["PLANNING", "RUNNING", "CANCELLED"],
     PLANNING: ["RUNNING", "FAILED", "CANCELLED"],
     RUNNING: ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"],
-    PAUSED: ["RUNNING", "CANCELLED"],
+    PAUSED: [],
     COMPLETED: [],
     FAILED: [],
     CANCELLED: [],
@@ -33,11 +33,11 @@ export class RunStateMachine {
   }
 
   static isTerminalState(status: RunStatus): boolean {
-    return ["COMPLETED", "FAILED", "CANCELLED"].includes(status);
+    return ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"].includes(status);
   }
 
   static isActiveState(status: RunStatus): boolean {
-    return ["CREATED", "PLANNING", "RUNNING", "PAUSED"].includes(status);
+    return ["CREATED", "PLANNING", "RUNNING"].includes(status);
   }
 
   recordTransition(

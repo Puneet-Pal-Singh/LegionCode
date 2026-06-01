@@ -32,6 +32,7 @@ export { sessionsActiveRunForeignKeyMigration } from "./migrations/0010-sessions
 export { providerUserModelCacheTextKeyMigration } from "./migrations/0011-provider-user-model-cache-text-key.js";
 export { sessionOrganizationMetadataMigration } from "./migrations/0012-session-organization-metadata.js";
 export { artifactReviewMetadataMigration } from "./migrations/0013-artifact-review-metadata.js";
+export { pausedRunAndSessionStatusMigration } from "./migrations/0014-paused-run-and-session-status.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,

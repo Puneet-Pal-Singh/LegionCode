@@ -44,6 +44,40 @@ describe("RunCompletionPolicy", () => {
     expect(run.status).toBe("RUNNING");
   });
 
+  it("can persist a recovered assistant message as a paused run", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await completeRunWithRecoveredAssistantMessage({
+      run,
+      text: "The selected model stopped responding, so I paused this run.",
+      metadata: {
+        code: "PROVIDER_UNAVAILABLE",
+        terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
+      },
+      terminalStatus: "PAUSED",
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain("paused this run");
+    expect(run.status).toBe("PAUSED");
+    expect(deps.runRepo.updateUnlessStatus).toHaveBeenCalledWith(run, [
+      "PAUSED",
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED",
+    ]);
+    expect(deps.runEventRecorder.recordRunStatusChanged).toHaveBeenCalledWith(
+      "RUNNING",
+      "PAUSED",
+      "synthesis",
+    );
+    expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
+    expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ runStatus: "PAUSED" }),
+    );
+  });
+
   it("does not emit completion events when the atomic completion update loses a cancellation race", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run, false);

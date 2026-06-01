@@ -16,7 +16,12 @@ export type ChatTitleSource = SharedChatTitleSource;
  * Session status enum
  * Tracks the lifecycle state of a session and its active run
  */
-export type SessionStatus = "idle" | "running" | "completed" | "error";
+export type SessionStatus =
+  | "idle"
+  | "running"
+  | "completed"
+  | "paused"
+  | "failed";
 
 /**
  * AgentSession - Main session container

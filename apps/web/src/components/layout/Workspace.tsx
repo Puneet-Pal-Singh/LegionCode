@@ -277,7 +277,7 @@ export function Workspace({
 
     if (wasLoading && !isLoading) {
       if (chatError) {
-        onSessionStatusChange?.("error");
+        onSessionStatusChange?.("failed");
       } else {
         onSessionStatusChange?.("completed");
       }
@@ -338,8 +338,14 @@ export function Workspace({
       return;
     }
 
+    if (canonicalRunStatus === "PAUSED") {
+      onSessionStatusChange?.("paused");
+      void refetchGitStatus(true);
+      return;
+    }
+
     if (canonicalRunStatus === "FAILED") {
-      onSessionStatusChange?.("error");
+      onSessionStatusChange?.("failed");
       void refetchGitStatus(true);
       return;
     }
@@ -381,7 +387,7 @@ export function Workspace({
       runId: activeRunId,
       error: chatError,
     };
-    onSessionStatusChange?.("error");
+    onSessionStatusChange?.("failed");
   }, [
     activeRunId,
     chatError,

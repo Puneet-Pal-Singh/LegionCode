@@ -8,17 +8,11 @@ import { tryHandleTaskExecutionErrorPolicy } from "./RunTaskExecutionRecoveryPol
 
 describe("RunTaskExecutionRecoveryPolicy", () => {
   it("recovers task timeouts from plain error wrappers", async () => {
-    const run = new Run(
-      "run-1",
-      "session-1",
-      "RUNNING",
-      "coding",
-      {
-        agentType: "coding",
-        prompt: "inspect the footer",
-        sessionId: "session-1",
-      },
-    );
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "inspect the footer",
+      sessionId: "session-1",
+    });
     const recordRunProgress = vi.fn(async () => undefined);
     const completeRunWithRecoveredAssistantMessage = vi.fn(
       async (
@@ -74,17 +68,11 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
   });
 
   it("derives unusable-response attempts from loop retry stats", async () => {
-    const run = new Run(
-      "run-1",
-      "session-1",
-      "RUNNING",
-      "coding",
-      {
-        agentType: "coding",
-        prompt: "inspect the footer",
-        sessionId: "session-1",
-      },
-    );
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "inspect the footer",
+      sessionId: "session-1",
+    });
     const recordRunProgress = vi.fn(async () => undefined);
     const completeRunWithRecoveredAssistantMessage = vi.fn(
       async (
@@ -92,7 +80,10 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
         text: string,
         metadata?: Record<string, unknown>,
         errorMetadata?: string,
-      ) => new Response(JSON.stringify({ id: currentRun.id, text, metadata, errorMetadata })),
+      ) =>
+        new Response(
+          JSON.stringify({ id: currentRun.id, text, metadata, errorMetadata }),
+        ),
     );
     const loop = {
       getStats: () => ({
@@ -142,17 +133,11 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
   });
 
   it("recovers typed task timeouts through the dedicated timeout handler", async () => {
-    const run = new Run(
-      "run-1",
-      "session-1",
-      "RUNNING",
-      "coding",
-      {
-        agentType: "coding",
-        prompt: "update the footer CTA",
-        sessionId: "session-1",
-      },
-    );
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "update the footer CTA",
+      sessionId: "session-1",
+    });
     const recordRunProgress = vi.fn(async () => undefined);
     const completeRunWithRecoveredAssistantMessage = vi.fn(
       async (
@@ -212,20 +197,14 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
     );
   });
 
-  it("recovers provider retry exhaustion with a retryable provider-unavailable summary", async () => {
-    const run = new Run(
-      "run-1",
-      "session-1",
-      "RUNNING",
-      "coding",
-      {
-        agentType: "coding",
-        prompt: "check my open PR and CI checks",
-        sessionId: "session-1",
-        providerId: "google",
-        modelId: "gemma-4-31b-it",
-      },
-    );
+  it("pauses provider retry exhaustion with concise provider-unavailable copy", async () => {
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "check my open PR and CI checks",
+      sessionId: "session-1",
+      providerId: "google",
+      modelId: "gemma-4-31b-it",
+    });
     const recordRunProgress = vi.fn(async () => undefined);
     const completeRunWithRecoveredAssistantMessage = vi.fn(
       async (
@@ -261,7 +240,9 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       }),
     };
     const providerError = Object.assign(
-      new Error("Failed after 3 attempts. Last error: Internal error encountered."),
+      new Error(
+        "Failed after 3 attempts. Last error: Internal error encountered.",
+      ),
       {
         name: "AI_RetryError",
         cause: { statusCode: 500, message: "Internal error encountered." },
@@ -282,24 +263,36 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
     expect(response).toBeInstanceOf(Response);
     expect(recordRunProgress).toHaveBeenCalledWith(
       "execution",
-      "Recoverable provider interruption",
-      "The provider failed repeatedly before the next action could be produced.",
+      "Provider interruption",
+      "The selected model stopped responding after retrying.",
       "completed",
     );
     expect(completeRunWithRecoveredAssistantMessage).toHaveBeenCalledWith(
       run,
-      expect.stringContaining(
-        "The model provider became unavailable after repeated retries before the next action could be produced.",
-      ),
+      [
+        "The selected model stopped responding, so I paused this run.",
+        "No files were changed. The provider became unavailable after retrying.",
+      ].join("\n"),
       expect.objectContaining({
         code: "PROVIDER_UNAVAILABLE",
         retryable: true,
         statusCode: 500,
         providerId: "google",
         modelId: "gemma-4-31b-it",
+        retryCount: 3,
+        noFilesChanged: true,
+        completedReadOnlyToolCount: 2,
+        completedMutatingToolCount: 0,
       }),
       expect.stringContaining("PROVIDER_UNAVAILABLE:"),
+      "PAUSED",
     );
+    const persistedText =
+      completeRunWithRecoveredAssistantMessage.mock.calls[0]?.[1];
+    expect(persistedText).not.toContain("Failed after 3 attempts");
+    expect(persistedText).not.toContain("google / gemma-4-31b-it");
+    expect(persistedText).not.toContain("Provider status code");
+    expect(persistedText).not.toContain("switch to another provider/model");
   });
 
   it("recovers network-connection-loss failures as provider unavailable", async () => {
@@ -361,15 +354,18 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
     expect(completeRunWithRecoveredAssistantMessage).toHaveBeenCalledWith(
       run,
       expect.stringContaining(
-        "The model provider became unavailable after repeated retries before the next action could be produced.",
+        "Some workspace changes may already exist. Review the changed files before retrying.",
       ),
       expect.objectContaining({
         code: "PROVIDER_UNAVAILABLE",
         retryable: true,
         providerId: "openrouter",
         modelId: "inclusionai/ling-2.6-flash:free",
+        noFilesChanged: false,
+        completedMutatingToolCount: 1,
       }),
       expect.stringContaining("signal=network connection lost."),
+      "PAUSED",
     );
   });
 
@@ -401,7 +397,9 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       } as never,
       error: new Error("Your branch is behind upstream/main by 2 commits."),
       deps: {
-        completeRunWithRecoveredAssistantMessage: vi.fn(async () => new Response()),
+        completeRunWithRecoveredAssistantMessage: vi.fn(
+          async () => new Response(),
+        ),
         runEventRecorder: {
           recordRunProgress: vi.fn(async () => undefined),
         },

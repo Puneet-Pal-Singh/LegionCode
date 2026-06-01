@@ -5,6 +5,7 @@ import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { Run, RunRepository } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
+import type { RunStatus } from "../types.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import {
   recordLifecycleStep,
@@ -12,10 +13,14 @@ import {
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
-import { transitionRunToCompleted } from "./RunStatusPolicy.js";
+import {
+  transitionRunToCompleted,
+  transitionRunToPaused,
+} from "./RunStatusPolicy.js";
 import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
+type RecoveredRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
 
 type PlannerRecoveryErrorCode =
   | "PLANNER_TIMEOUT"
@@ -120,9 +125,18 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   plannerError?: unknown;
   metadata?: Record<string, unknown>;
   errorMetadata?: string;
+  terminalStatus?: RecoveredRunTerminalStatus;
   deps: RunCompletionDependencies;
 }): Promise<Response> {
-  const { run, text, plannerError, metadata, errorMetadata, deps } = params;
+  const {
+    run,
+    text,
+    plannerError,
+    metadata,
+    errorMetadata,
+    terminalStatus = "COMPLETED",
+    deps,
+  } = params;
   const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
     console.log(
@@ -140,20 +154,24 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
-  transitionRunToCompleted(run, run.id);
+  transitionRecoveredRun(run, terminalStatus);
   if (plannerError !== undefined) {
     run.metadata.error = buildPlannerRecoveryMetadata(plannerError);
   } else if (errorMetadata) {
     run.metadata.error = errorMetadata;
   }
-  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED:recoverable");
+  recordLifecycleStep(
+    run,
+    "TERMINAL",
+    buildRecoveredLifecycleDetail(terminalStatus),
+  );
   recordOrchestrationTerminal(run);
   run.output = {
     content: sanitizedText,
     finalSummary: sanitizedText,
   };
   run.metadata.terminalState = terminalState;
-  if (!(await updateCompletedRunIfActive(run, deps))) {
+  if (!(await updateRecoveredRunIfActive(run, deps))) {
     console.log(
       `[run/engine] Skipping recovered completion for terminal run ${run.id}`,
     );
@@ -165,13 +183,20 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     run.status,
     RUN_WORKFLOW_STEPS.SYNTHESIS,
   );
-  await persistSynthesisArtifacts({ run, sanitizedText, deps });
+  await persistSynthesisArtifacts({
+    run,
+    sanitizedText,
+    checkpointStatus: terminalStatus,
+    deps,
+  });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
     sanitizedText,
     finalMessage.metadata,
   );
-  await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
+  if (terminalStatus === "COMPLETED") {
+    await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
+  }
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
   return createStreamResponse(sanitizedText);
@@ -211,6 +236,38 @@ async function updateCompletedRunIfActive(
   ]);
 }
 
+async function updateRecoveredRunIfActive(
+  run: Run,
+  deps: RunCompletionDependencies,
+): Promise<boolean> {
+  return await deps.runRepo.updateUnlessStatus(run, [
+    "PAUSED",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED",
+  ]);
+}
+
+function transitionRecoveredRun(
+  run: Run,
+  terminalStatus: RecoveredRunTerminalStatus,
+): void {
+  if (terminalStatus === "PAUSED") {
+    transitionRunToPaused(run, run.id);
+    return;
+  }
+
+  transitionRunToCompleted(run, run.id);
+}
+
+function buildRecoveredLifecycleDetail(
+  terminalStatus: RecoveredRunTerminalStatus,
+): string {
+  return terminalStatus === "PAUSED"
+    ? "status=PAUSED:recoverable"
+    : "status=COMPLETED:recoverable";
+}
+
 export async function tryHandlePlanningError(params: {
   run: Run;
   runId: string;
@@ -248,9 +305,10 @@ export function getRunDurationMs(run: Run): number {
 async function persistSynthesisArtifacts(params: {
   run: Run;
   sanitizedText: string;
+  checkpointStatus?: RecoveredRunTerminalStatus;
   deps: RunCompletionDependencies;
 }): Promise<void> {
-  const { run, sanitizedText, deps } = params;
+  const { run, sanitizedText, checkpointStatus = "COMPLETED", deps } = params;
 
   await deps.safeMemoryOperation(() =>
     deps.memoryCoordinator.extractAndPersist({
@@ -276,11 +334,10 @@ async function persistSynthesisArtifacts(params: {
       runId: run.id,
       sequence: 1,
       phase: "synthesis",
-      runStatus: "COMPLETED",
+      runStatus: checkpointStatus,
       taskStatuses: {},
     }),
   );
-
 }
 
 function buildPlannerRecoveryMetadata(error: unknown): string {

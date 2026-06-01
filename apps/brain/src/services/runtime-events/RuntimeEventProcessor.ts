@@ -151,6 +151,8 @@ function mapRunStatus(status: string): RunStatus | null {
       return "created";
     case "running":
       return "running";
+    case "paused":
+      return "paused";
     case "complete":
     case "completed":
       return "completed";
@@ -183,9 +185,16 @@ function mapRunStepStatus(event: RunEvent): RunStepStatus | null {
 }
 
 function isTerminalRunStatus(status: RunStatus): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
+  return (
+    status === "completed" ||
+    status === "paused" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
 }
 
 function isTerminalStepStatus(status: RunStepStatus): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
 }

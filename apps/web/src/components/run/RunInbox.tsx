@@ -13,6 +13,7 @@ export type RunStatus =
   | "queued"
   | "running"
   | "waiting"
+  | "paused"
   | "failed"
   | "complete";
 
@@ -42,6 +43,7 @@ function getStatusIcon(status: RunStatus) {
     case "failed":
       return <AlertCircle className="w-4 h-4 text-red-500" />;
     case "waiting":
+    case "paused":
       return <Clock className="w-4 h-4 text-yellow-500" />;
     case "queued":
       return <Clock className="w-4 h-4 text-zinc-400" />;
@@ -57,6 +59,7 @@ function getStatusLabel(status: RunStatus): string {
     queued: "Queued",
     running: "Running",
     waiting: "Waiting",
+    paused: "Paused",
     failed: "Failed",
     complete: "Complete",
   };
@@ -69,6 +72,7 @@ function getStatusColor(status: RunStatus): string {
     queued: "bg-zinc-800 text-zinc-300",
     running: "bg-blue-900 text-blue-200",
     waiting: "bg-yellow-900 text-yellow-200",
+    paused: "bg-yellow-900 text-yellow-200",
     failed: "bg-red-900 text-red-200",
     complete: "bg-green-900 text-green-200",
   };

@@ -140,10 +140,12 @@ async function persistAssistantMessageFromTextResponse(
 
 function mapRuntimeTerminalStatus(
   status: string | null | undefined,
-): "completed" | "failed" | "cancelled" | null {
+): "completed" | "paused" | "failed" | "cancelled" | null {
   switch (status) {
     case "COMPLETED":
       return "completed";
+    case "PAUSED":
+      return "paused";
     case "FAILED":
       return "failed";
     case "CANCELLED":

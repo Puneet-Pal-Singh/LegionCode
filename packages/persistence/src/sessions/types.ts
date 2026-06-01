@@ -11,6 +11,7 @@ export const SESSION_STATUSES = [
   "idle",
   "running",
   "completed",
+  "paused",
   "failed",
 ] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];

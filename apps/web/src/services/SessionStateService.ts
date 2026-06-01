@@ -37,8 +37,11 @@ const SESSIONS_KEY = "shadowbox:sessions:v3";
 const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v3";
 const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 
-type StoredAgentSession = Omit<AgentSession, "mode"> & {
+type StoredSessionStatus = AgentSession["status"] | "error";
+
+type StoredAgentSession = Omit<AgentSession, "mode" | "status"> & {
   mode?: RunMode;
+  status?: StoredSessionStatus;
   titleSource?: ChatTitleSource;
   pinnedAt?: string | null;
   archivedAt?: string | null;
@@ -51,7 +54,7 @@ interface ServerSessionRecord {
   repository: string | null;
   activeRunId: string | null;
   mode: RunMode;
-  status: "idle" | "running" | "completed" | "failed";
+  status: "idle" | "running" | "completed" | "paused" | "failed";
   pinnedAt?: string | null;
   archivedAt?: string | null;
   updatedAt: string;
@@ -99,10 +102,13 @@ export class SessionStateService {
 
       const sessions = parsed.sessions || {};
       return Object.fromEntries(
-        Object.entries(sessions).map(([sessionId, session]) => [
-          sessionId,
-          normalizeSession(session as StoredAgentSession),
-        ]),
+        Object.entries(sessions).flatMap(([sessionId, session]) => {
+          const normalized = normalizeSession(session as StoredAgentSession);
+          if (!this.validateSession(normalized)) {
+            return [];
+          }
+          return [[sessionId, normalized]];
+        }),
       );
     } catch (e) {
       console.error("[SessionStateService] Failed to load sessions:", e);
@@ -578,7 +584,13 @@ export class SessionStateService {
    * Returns true if session is valid
    */
   static validateSession(session: AgentSession): boolean {
-    const validStatuses = ["idle", "running", "completed", "error"] as const;
+    const validStatuses = [
+      "idle",
+      "running",
+      "completed",
+      "paused",
+      "failed",
+    ] as const;
     const checks = [
       { name: "id", pass: !!session.id },
       { name: "name", pass: !!session.name },
@@ -630,10 +642,18 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
   return {
     ...session,
     mode: session.mode ?? DEFAULT_RUN_MODE,
+    status: normalizeStoredSessionStatus(session.status),
     titleSource: session.titleSource ?? "generated",
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
   };
+}
+
+function normalizeStoredSessionStatus(
+  status: StoredSessionStatus | undefined,
+): SessionStatus {
+  if (status === "error") return "failed";
+  return status ?? "idle";
 }
 
 function mapServerSession(session: ServerSessionRecord): AgentSession | null {
@@ -657,9 +677,6 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
 }
 
 function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
-  if (status === "failed") {
-    return "error";
-  }
   return status;
 }
 
