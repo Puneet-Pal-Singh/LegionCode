@@ -1,5 +1,6 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { ZodSchema } from "zod";
+import type { ProviderModelTransport } from "@repo/shared-types";
 import type { LLMUsage } from "../cost/index.js";
 
 export type LLMPhase = "planning" | "task" | "synthesis" | "memory";
@@ -26,6 +27,9 @@ export interface LLMTextRequest {
   context: LLMCallContext;
   model?: string;
   providerId?: string;
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
   messages: CoreMessage[];
   temperature?: number;
   system?: string;
@@ -37,6 +41,9 @@ export interface LLMStructuredRequest<T> {
   context: LLMCallContext;
   model?: string;
   providerId?: string;
+  runtimeModelId?: string;
+  providerTransport?: ProviderModelTransport;
+  providerEndpoint?: string;
   messages: CoreMessage[];
   schema: ZodSchema<T>;
   temperature?: number;
@@ -99,6 +106,9 @@ export interface LLMRuntimeAIService {
     messages: CoreMessage[];
     model?: string;
     providerId?: string;
+    runtimeModelId?: string;
+    providerTransport?: ProviderModelTransport;
+    providerEndpoint?: string;
     temperature?: number;
     system?: string;
     tools?: Record<string, CoreTool>;
@@ -116,6 +126,9 @@ export interface LLMRuntimeAIService {
     schema: ZodSchema<T>;
     model?: string;
     providerId?: string;
+    runtimeModelId?: string;
+    providerTransport?: ProviderModelTransport;
+    providerEndpoint?: string;
     temperature?: number;
   }): Promise<{ object: T; usage: LLMUsage }>;
   createChatStream(input: {
@@ -124,6 +137,9 @@ export interface LLMRuntimeAIService {
     tools?: Record<string, CoreTool>;
     model?: string;
     providerId?: string;
+    runtimeModelId?: string;
+    providerTransport?: ProviderModelTransport;
+    providerEndpoint?: string;
     temperature?: number;
     onFinish?: (result: { usage: LLMUsage }) => void | Promise<void>;
   }): Promise<ReadableStream<Uint8Array>>;

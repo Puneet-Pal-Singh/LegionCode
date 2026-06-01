@@ -44,6 +44,7 @@ describe("ProviderModelDiscoveryService", () => {
     const store = createStoreStub();
     const credentialService = {
       getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
@@ -84,6 +85,7 @@ describe("ProviderModelDiscoveryService", () => {
     });
     const credentialService = {
       getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => {
@@ -120,6 +122,7 @@ describe("ProviderModelDiscoveryService", () => {
     });
     const credentialService = {
       getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => []),
@@ -143,6 +146,7 @@ describe("ProviderModelDiscoveryService", () => {
     const store = createStoreStub();
     const credentialService = {
       getApiKey: vi.fn(async () => "sk-or-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter = {
       fetchAll: vi.fn(async () => [
@@ -248,6 +252,7 @@ describe("ProviderModelDiscoveryService", () => {
       getApiKey: vi.fn(async () => {
         throw new Error("Decryption failed");
       }),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [
@@ -272,6 +277,7 @@ describe("ProviderModelDiscoveryService", () => {
     const store = createStoreStub();
     const credentialService = {
       getApiKey: vi.fn(async () => "oc-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const adapter: ProviderModelCatalogPort = {
       fetchAll: vi.fn(async () => [

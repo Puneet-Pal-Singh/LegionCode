@@ -24,6 +24,7 @@ export const providerStateBootstrapMigration: SqlMigration = {
         label TEXT NOT NULL,
         key_fingerprint TEXT NOT NULL,
         encrypted_secret_json JSONB NOT NULL,
+        connection_config_json JSONB,
         key_version TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'connected',
         last_validated_at TIMESTAMPTZ,

@@ -1,4 +1,7 @@
-import { BudgetExceededError, SessionBudgetExceededError } from "../cost/index.js";
+import {
+  BudgetExceededError,
+  SessionBudgetExceededError,
+} from "../cost/index.js";
 import type { ILLMGateway } from "../llm/index.js";
 import type { MemoryContext, MemoryCoordinator } from "../memory/index.js";
 import type { Run } from "../run/index.js";
@@ -49,6 +52,9 @@ export async function synthesizeResultFromTasks({
       ],
       model: run.input.modelId,
       providerId: run.input.providerId,
+      runtimeModelId: run.input.runtimeModelId,
+      providerTransport: run.input.providerTransport,
+      providerEndpoint: run.input.providerEndpoint,
       temperature: 0.7,
     });
 

@@ -3,6 +3,7 @@ import type {
   BYOKDiscoveredProviderModelsQuery,
   BYOKDiscoveredProviderModelsRefreshResponse,
   BYOKDiscoveredProviderModelsResponse,
+  ProviderConnectionConfig,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import type {
@@ -24,6 +25,8 @@ import { OpenRouterModelCatalogAdapter } from "./adapters/OpenRouterModelCatalog
 import { GoogleModelCatalogAdapter } from "./adapters/GoogleModelCatalogAdapter";
 import { OpenAICompatibleModelCatalogAdapter } from "./adapters/OpenAICompatibleModelCatalogAdapter";
 import { OpenCodeGoModelCatalogAdapter } from "./adapters/OpenCodeGoModelCatalogAdapter";
+import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatalogAdapter";
+import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import type { OpenRouterRecommendationInput } from "./types";
@@ -387,8 +390,11 @@ export class ProviderModelDiscoveryService {
     }
 
     let apiKey: string | null = null;
+    let connectionConfig: ProviderConnectionConfig | undefined;
     try {
       apiKey = await this.credentialService.getApiKey(providerId);
+      connectionConfig =
+        await this.credentialService.getConnectionConfig(providerId);
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -401,6 +407,7 @@ export class ProviderModelDiscoveryService {
     }
     const models = await adapter.fetchAll(providerId, {
       apiKey,
+      connectionConfig,
     });
     const fetchedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
@@ -542,10 +549,14 @@ export class ProviderModelDiscoveryService {
   private async getProviderCredential(providerId: string): Promise<{
     apiKey: string;
     cacheKey: string;
+    connectionConfig?: ProviderConnectionConfig;
   }> {
     let apiKey: string | null = null;
+    let connectionConfig: ProviderConnectionConfig | undefined;
     try {
       apiKey = await this.credentialService.getApiKey(providerId);
+      connectionConfig =
+        await this.credentialService.getConnectionConfig(providerId);
     } catch (_error) {
       throw new ProviderModelDiscoveryAuthError(
         `Failed to read ${providerId} credentials for model discovery. Reconnect this provider and retry.`,
@@ -559,6 +570,7 @@ export class ProviderModelDiscoveryService {
     return {
       apiKey,
       cacheKey: await buildCredentialCacheKey(providerId, apiKey),
+      connectionConfig,
     };
   }
 
@@ -691,6 +703,14 @@ function createAdapterForProvider(
 
   if (provider.providerId === "opencode-go") {
     return new OpenCodeGoModelCatalogAdapter();
+  }
+
+  if (provider.providerId === "opencode-zen") {
+    return new OpenCodeZenModelCatalogAdapter();
+  }
+
+  if (provider.providerId === "cloudflare-ai") {
+    return new CloudflareAIModelCatalogAdapter();
   }
 
   if (provider.adapterFamily === "google-native") {

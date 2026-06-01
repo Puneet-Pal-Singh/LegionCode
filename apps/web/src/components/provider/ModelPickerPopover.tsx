@@ -25,6 +25,7 @@ import {
   type ProviderModelsMetadata,
 } from "../../services/api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import { isProviderModelAvailable } from "./providerModelAvailability";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
@@ -293,7 +294,9 @@ export function ModelPickerPopover({
   const providerGroups = useMemo((): ProviderGroup[] => {
     return catalog
       .filter((entry) => {
-        if (!canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, entry.providerId)) {
+        if (
+          !canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, entry.providerId)
+        ) {
           return false;
         }
 
@@ -426,7 +429,10 @@ export function ModelPickerPopover({
     try {
       await onSelectModel(providerId, modelId);
     } catch (error) {
-      console.error("[model-picker/select] Failed to persist model selection:", error);
+      console.error(
+        "[model-picker/select] Failed to persist model selection:",
+        error,
+      );
     } finally {
       setSelectingModelId(null);
     }
@@ -491,11 +497,9 @@ export function ModelPickerPopover({
   );
   const isLoadingModelsInline =
     !isLoading &&
-    (
-      isLoadingMoreSelectedProviderModels ||
+    (isLoadingMoreSelectedProviderModels ||
       isRefreshingSelectedProviderModels ||
-      isHydratingVisibleModels
-    );
+      isHydratingVisibleModels);
 
   // Close on outside click
   useEffect(() => {
@@ -687,7 +691,9 @@ export function ModelPickerPopover({
                       onClick={() => {
                         void handleModelViewChange(view);
                       }}
-                      disabled={!canSelectModelView || isSwitchingView || isLoading}
+                      disabled={
+                        !canSelectModelView || isSwitchingView || isLoading
+                      }
                       className={`rounded px-2 py-1 text-[11px] font-medium transition ${
                         selectedModelView === view
                           ? "bg-neutral-200 text-neutral-900"
@@ -848,10 +854,16 @@ export function ModelPickerPopover({
                             <button
                               type="button"
                               key={model.id}
-                              onClick={() =>
-                                handleSelectModel(group.providerId, model.id)
+                              onClick={() => {
+                                if (!isProviderModelAvailable(model)) {
+                                  return;
+                                }
+                                handleSelectModel(group.providerId, model.id);
+                              }}
+                              disabled={
+                                selectingModelId === model.id ||
+                                !isProviderModelAvailable(model)
                               }
-                              disabled={selectingModelId === model.id}
                               className={`
                               w-full px-3 py-2 text-left text-xs
                               transition-colors disabled:opacity-50
@@ -869,6 +881,11 @@ export function ModelPickerPopover({
                                 <p className="truncate font-medium">
                                   {model.name}
                                 </p>
+                                {!isProviderModelAvailable(model) && (
+                                  <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
+                                    Unavailable
+                                  </span>
+                                )}
                                 {effectiveSelection.providerId ===
                                   group.providerId &&
                                   effectiveSelection.modelId === model.id && (
