@@ -73,6 +73,7 @@ vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
     status: mockGitReviewState.status,
     selectedReviewComments: [],
+    openPromptArtifactReview: vi.fn(),
     toggleReviewCommentSelected: vi.fn(),
     markReviewCommentsDispatching: vi.fn(),
     markReviewCommentsDispatched: vi.fn(),
@@ -82,6 +83,11 @@ vi.mock("../git/GitReviewContext", () => ({
 
 vi.mock("../../lib/git-client.js", () => ({
   getGitDiff: (input: unknown) => mockGetGitDiff(input),
+}));
+
+vi.mock("../../lib/edit-artifacts-client.js", () => ({
+  getEditArtifactDiff: vi.fn(),
+  getEditArtifactReviewSourceByMessage: vi.fn(async () => null),
 }));
 
 const mockDispatchRunSummaryRefresh = vi.fn();

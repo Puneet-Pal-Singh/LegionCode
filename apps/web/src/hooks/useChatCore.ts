@@ -35,13 +35,43 @@ import {
   type ChatRequestBody,
 } from "../lib/chat-request";
 import { loadRepositoryContextFields } from "../lib/chat-repository-context";
+import {
+  toImageParts,
+  toRedactedImageMetadata,
+  type ChatImageAttachment,
+} from "../components/chat/chatImageAttachments";
+
+type ChatUserContent =
+  | string
+  | Array<
+      | { type: "text"; text: string }
+      | {
+          type: "image";
+          image: string;
+          mimeType: string;
+          name: string;
+        }
+    >;
+
+interface ChatAppendMessage {
+  role: "user";
+  content: ChatUserContent;
+  imageMetadata?: ReturnType<typeof toRedactedImageMetadata>;
+}
+
+interface ChatSubmitAttachments {
+  imageAttachments?: ChatImageAttachment[];
+}
 
 interface UseChatCoreResult {
   messages: Message[];
   input: string;
   handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
-  handleSubmit: (e?: FormEvent) => void;
-  append: (message: { role: "user"; content: string }) => Promise<void>;
+  handleSubmit: (
+    e?: FormEvent,
+    attachments?: ChatSubmitAttachments,
+  ) => Promise<boolean>;
+  append: (message: ChatAppendMessage) => Promise<void>;
   isLoading: boolean;
   stop: () => void;
   setMessages: (messages: Message[]) => void;
@@ -268,17 +298,21 @@ export function useChatCore(
 
   const pushChatRequestDebugEvent = useCallback(
     (
-      content: string,
+      message: ChatAppendMessage,
       requestBody: ChatRequestBody,
       config: ResolvedProviderConfig,
     ) => {
+      const text = extractTextContent(message.content);
       pushDebugEvent({
         phase: "request",
         summary: `POST ${apiPath}`,
         payload: {
           endpoint: apiPath,
           requestBody,
-          userMessage: content,
+          userMessage: text,
+          imageAttachments:
+            message.imageMetadata ??
+            toRedactedImageMetadataFromParts(message.content),
           resolvedConfig: {
             providerId: config.providerId,
             modelId: config.modelId,
@@ -292,22 +326,25 @@ export function useChatCore(
   );
 
   const submitResolvedMessage = useCallback(
-    async (content: string, requestBody: ChatRequestBody): Promise<void> => {
-      await append(
-        { role: "user", content },
-        {
-          body: requestBody,
-        },
-      );
+    async (
+      message: ChatAppendMessage,
+      requestBody: ChatRequestBody,
+    ): Promise<void> => {
+      const appendMultimodal = append as (
+        input: ChatAppendMessage,
+        options: { body: ChatRequestBody },
+      ) => Promise<string | null | undefined>;
+      await appendMultimodal(message, { body: requestBody });
     },
     [append],
   );
 
   const appendWithResolution = useCallback(
-    async (message: { role: "user"; content: string }): Promise<void> => {
+    async (message: ChatAppendMessage): Promise<void> => {
       const requestScopeKey = scopeKey;
-      const content = message.content.trim();
-      if (!content || status !== "ready") {
+      const content = extractTextContent(message.content).trim();
+      const hasImages = messageHasImageParts(message);
+      if ((!content && !hasImages) || status !== "ready") {
         throw new Error(
           "Chat is still initializing model settings. Wait a moment, then try again. If this continues, open Settings and reconnect a provider key.",
         );
@@ -327,9 +364,9 @@ export function useChatCore(
         }
 
         const requestBody = buildChatRequestBody(providerConfig);
-        pushChatRequestDebugEvent(content, requestBody, providerConfig);
+        pushChatRequestDebugEvent(message, requestBody, providerConfig);
         dispatchRunSummaryRefresh(runId);
-        await submitResolvedMessage(content, requestBody);
+        await submitResolvedMessage(message, requestBody);
       } finally {
         if (isActiveScope(requestScopeKey)) {
           setIsSubmitting(false);
@@ -350,8 +387,8 @@ export function useChatCore(
   );
 
   const shouldBlockSubmit = useCallback(
-    (content: string) =>
-      !content ||
+    (content: string, hasImages: boolean) =>
+      (!content && !hasImages) ||
       isLoading ||
       isSubmitting ||
       isStopping ||
@@ -399,30 +436,40 @@ export function useChatCore(
 
   const submitPreparedInput = useCallback(
     async (
-      content: string,
+      message: ChatAppendMessage,
       requestScopeKey: string,
       originalInput: string,
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       try {
-        await appendWithResolution({ role: "user", content });
+        await appendWithResolution(message);
+        return true;
       } catch (error) {
         handleSubmitFailure(error, requestScopeKey, originalInput);
+        return false;
       }
     },
     [appendWithResolution, handleSubmitFailure],
   );
 
   const handleSubmit = useCallback(
-    (e?: FormEvent) => {
+    async (
+      e?: FormEvent,
+      attachments?: ChatSubmitAttachments,
+    ): Promise<boolean> => {
       e?.preventDefault();
       const requestScopeKey = scopeKey;
       const originalInput = input;
       const trimmedInput = input.trim();
-      if (shouldBlockSubmit(trimmedInput)) {
-        return;
+      const imageAttachments = attachments?.imageAttachments ?? [];
+      if (shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)) {
+        return false;
       }
       clearChatInput();
-      void submitPreparedInput(trimmedInput, requestScopeKey, originalInput);
+      return submitPreparedInput(
+        buildChatAppendMessage(trimmedInput, imageAttachments),
+        requestScopeKey,
+        originalInput,
+      );
     },
     [
       clearChatInput,
@@ -487,6 +534,60 @@ export function useChatCore(
     error,
     debugEvents,
   };
+}
+
+function buildChatAppendMessage(
+  text: string,
+  imageAttachments: ChatImageAttachment[],
+): ChatAppendMessage {
+  if (imageAttachments.length === 0) {
+    return { role: "user", content: text };
+  }
+  return {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: text || "Analyze the attached image(s).",
+      },
+      ...toImageParts(imageAttachments),
+    ],
+    imageMetadata: toRedactedImageMetadata(imageAttachments),
+  };
+}
+
+function extractTextContent(content: ChatUserContent): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  return content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function messageHasImageParts(message: ChatAppendMessage): boolean {
+  return Array.isArray(message.content)
+    ? message.content.some((part) => part.type === "image")
+    : false;
+}
+
+function toRedactedImageMetadataFromParts(content: ChatUserContent) {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  const syntheticAttachments = content
+    .filter((part) => part.type === "image")
+    .map((part, index) => ({
+      id: `image-${index + 1}`,
+      name: part.name,
+      mediaType: part.mimeType as ChatImageAttachment["mediaType"],
+      byteSize: 0,
+      source: "paste" as const,
+      dataUrl: "",
+      previewUrl: "",
+    }));
+  return toRedactedImageMetadata(syntheticAttachments);
 }
 
 function updateChatInput(

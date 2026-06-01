@@ -15,6 +15,15 @@ describe("generateChatTitleFromPrompt", () => {
     expect(
       generateChatTitleFromPrompt("lets upgrade our footer Footer.tsx"),
     ).toBe("Upgrade Footer");
+    expect(
+      generateChatTitleFromPrompt("check my readme and tell about this project?"),
+    ).toBe("Review Project README");
+    expect(generateChatTitleFromPrompt("Hi lets add hero section")).toBe(
+      "Add Hero Section",
+    );
+    expect(
+      generateChatTitleFromPrompt("Make my hero page @index.tsx prettier."),
+    ).toBe("Improve Hero Page");
   });
 
   it("returns New Task when the prompt has no useful words", () => {

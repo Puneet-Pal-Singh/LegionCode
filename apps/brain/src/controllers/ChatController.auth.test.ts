@@ -170,6 +170,9 @@ function createIdentitySessionRecord() {
     },
     createdAt: Date.now(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    workspaceId: TEST_WORKSPACE_ID,
+    defaultWorkspaceId: TEST_WORKSPACE_ID,
+    workspaceIds: [TEST_WORKSPACE_ID],
   };
 }
 

@@ -1,4 +1,3 @@
-import type { CoreMessage } from "ai";
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
 import {
   ProductModeSchema,
@@ -20,7 +19,6 @@ import {
   validateWithSchema,
 } from "../http/validation";
 import {
-  ValidationError,
   isDomainError,
   mapDomainErrorToHttp,
 } from "../domain/errors";
@@ -37,7 +35,13 @@ import {
 } from "./chat-runtime-helpers";
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
+import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
+import {
+  validateChatImageInput,
+  type ChatImageInputState,
+} from "../services/chat/ChatImageInputPolicy";
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
@@ -80,6 +84,7 @@ interface ChatRequest {
   correlationId: string;
   sessionId: string;
   runId: string;
+  imageInput: ChatImageInputState;
   userId?: string;
   workspaceId?: string;
 }
@@ -90,7 +95,7 @@ interface ChatRequest {
  */
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
-    const correlationId = Math.random().toString(36).substring(7);
+    const correlationId = crypto.randomUUID();
     const requestStartedAt = Date.now();
     console.log(`[chat/request] ${correlationId} received`);
 
@@ -121,19 +126,14 @@ export class ChatController {
         correlationId,
       );
 
-      if (!Array.isArray(body.messages) || body.messages.length === 0) {
-        throw new ValidationError(
-          "Invalid messages: expected non-empty array",
-          "INVALID_MESSAGES",
-          correlationId,
-        );
-      }
+      const imageInput = validateChatImageInput(body, correlationId);
 
       const chatRequest: ChatRequest = {
         body,
         correlationId,
         sessionId: identifiers.sessionId,
         runId: identifiers.runId,
+        imageInput,
         ...(await resolveExecutionScope(
           req,
           env,
@@ -234,20 +234,28 @@ export class ChatController {
       ReturnType<RunAdmissionService["enforce"]>
     > | undefined;
 
-    const coreMessages: CoreMessage[] =
-      body.messages! as unknown as CoreMessage[];
+    const coreMessages = chatRequest.imageInput.messages;
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
     const admissionInput = {
       userId,
       workspaceId,
       sessionId,
-      clientFingerprint: buildAdmissionScopeFingerprint(req),
+      clientFingerprint: await buildAdmissionScopeFingerprint(req),
       mode: body.mode,
       workflowIntent: body.workflowIntent,
     };
 
     try {
+      await enforceImageCapability({
+        env,
+        userId,
+        workspaceId,
+        providerId: body.providerId,
+        modelId: body.modelId,
+        hasImages: chatRequest.imageInput.hasImages,
+        correlationId,
+      });
       admissionGrant = await admissionService.enforce(admissionInput, correlationId);
 
       const executionStartedAt = Date.now();
@@ -308,7 +316,9 @@ export class ChatController {
       );
       throw error;
     } finally {
-      await admissionService.release(admissionGrant, admissionInput, correlationId);
+      if (admissionGrant) {
+        await admissionService.release(admissionGrant, admissionInput, correlationId);
+      }
     }
   }
 
@@ -319,29 +329,4 @@ function errorMessageKey(error: unknown): string {
     return error.message;
   }
   return "internal-server-error";
-}
-
-function buildAdmissionScopeFingerprint(request: Request): string {
-  const cfIp = request.headers.get("CF-Connecting-IP")?.trim() ?? "";
-  const forwarded = request.headers.get("X-Forwarded-For")?.trim() ?? "";
-  const userAgent = request.headers.get("User-Agent")?.trim().toLowerCase() ?? "";
-  const ip = firstForwardedIp(forwarded) || cfIp || "unknown-ip";
-  return hashScopeFingerprintSeed(`${ip}|${userAgent || "unknown-ua"}`);
-}
-
-function firstForwardedIp(forwarded: string): string {
-  if (forwarded.length === 0) {
-    return "";
-  }
-  const first = forwarded.split(",")[0]?.trim() ?? "";
-  return first;
-}
-
-function hashScopeFingerprintSeed(seed: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash ^= seed.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `fp-${(hash >>> 0).toString(36)}`;
 }
