@@ -51,10 +51,14 @@ vi.mock("../git/GitReviewContext", () => ({
     commitError: null,
     committing: false,
     selectedFile: null,
+    reviewFiles: mockStatusFiles,
     stagedFiles: new Set<string>(),
     commitMessage: "feat: ship it",
     reviewScope: "git-changes",
     setReviewScope: mockSetReviewScope,
+    reviewMode: { kind: "live_git" },
+    reviewSourceLoading: false,
+    reviewSourceError: null,
     reviewComments: [],
     selectedReviewComments: [],
     selectedReviewCommentCount: 0,
@@ -68,6 +72,8 @@ vi.mock("../git/GitReviewContext", () => ({
     markReviewCommentsDispatchFailed: vi.fn(),
     setCommitMessage: vi.fn(),
     openReview: mockOpenReview,
+    openPromptArtifactReview: vi.fn(),
+    openLiveGitReview: vi.fn(),
     closeReview: vi.fn(),
     selectFile: mockSelectFile,
     toggleFileStaged: vi.fn(),
@@ -91,8 +97,8 @@ vi.mock("../diff/ChangesList", () => ({
       additions: number;
       deletions: number;
     }) => void;
-    reviewScope: "git-changes";
-    onReviewScopeChange: (scope: "git-changes") => void;
+    reviewScope: "git-changes" | "prompt-artifact";
+    onReviewScopeChange: (scope: "git-changes" | "prompt-artifact") => void;
   }) => (
     <div>
       <div data-testid="review-scope">{reviewScope}</div>
@@ -190,7 +196,7 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("No changes")).toBeInTheDocument();
+    expect(screen.getByText("No live Git changes")).toBeInTheDocument();
     expect(mockSelectFile).not.toHaveBeenCalled();
   });
 

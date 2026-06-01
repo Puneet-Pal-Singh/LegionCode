@@ -105,6 +105,13 @@
     },
   ],
 
+  "artifacts": [
+    {
+      "binding": "ARTIFACTS",
+      "namespace": "legioncode-edit-artifacts",
+    },
+  ],
+
   "triggers": {
     "crons": ["0 3 * * *"],
   },

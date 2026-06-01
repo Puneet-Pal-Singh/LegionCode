@@ -7,12 +7,16 @@ import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
+import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
 
 interface UseChatResult {
   messages: Message[];
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  handleSubmit: (e?: FormEvent) => void;
+  handleSubmit: (
+    e?: FormEvent,
+    attachments?: ChatSubmitAttachments,
+  ) => Promise<boolean>;
   append: (message: { role: "user"; content: string }) => Promise<void>;
   isLoading: boolean;
   isHydrating: boolean;

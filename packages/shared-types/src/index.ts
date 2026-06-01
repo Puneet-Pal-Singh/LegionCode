@@ -70,6 +70,26 @@ export {
   type EditArtifactPatchObjectMetadata,
 } from "./edit-artifacts.js";
 
+export {
+  EditArtifactReviewScopeSchema,
+  EditArtifactReviewFileSchema,
+  EditArtifactStorageBackendSchema,
+  PromptArtifactReviewSourceSchema,
+  LiveGitReviewSourceSchema,
+  DiffLineSchema,
+  DiffHunkSchema,
+  DiffContentSchema,
+  EditArtifactReviewSourceSchema,
+  EditArtifactDiffResponseSchema,
+  type EditArtifactReviewScope,
+  type EditArtifactReviewFile,
+  type EditArtifactStorageBackend,
+  type PromptArtifactReviewSource,
+  type LiveGitReviewSource,
+  type EditArtifactReviewSource,
+  type EditArtifactDiffResponse,
+} from "./edit-artifact-review.js";
+
 // Credential vault contracts
 export {
   CredentialVaultSurfaceSchema,
@@ -423,6 +443,10 @@ export {
   BYOKModelPopularitySignalsSchema,
   BYOKModelPopularityScoreSchema,
   BYOKModelCapabilitySchema,
+  BYOKModelCapabilityConfidenceSchema,
+  BYOKModelCapabilityMetadataSchema,
+  BYOKModelCapabilitySourceSchema,
+  BYOKModelInputModalitySchema,
   BYOKModelOutputModalitySchema,
   BYOKDiscoveredProviderModelSchema,
   BYOKDiscoveredProviderModelsPageSchema,
@@ -490,6 +514,10 @@ export {
   type BYOKModelPopularitySignals,
   type BYOKModelPopularityScore,
   type BYOKModelCapability,
+  type BYOKModelCapabilityConfidence,
+  type BYOKModelCapabilityMetadata,
+  type BYOKModelCapabilitySource,
+  type BYOKModelInputModality,
   type BYOKModelOutputModality,
   type BYOKDiscoveredProviderModel,
   type BYOKDiscoveredProviderModelsPage,

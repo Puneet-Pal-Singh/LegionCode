@@ -24,6 +24,7 @@ import type { ChatMessageMetadata } from "./messageMetadata";
 interface ChangedFilesSummary {
   files: FileStatus[];
   loadFileDiff?: (file: FileStatus) => Promise<DiffContent>;
+  onReviewOpen?: () => void;
 }
 
 interface ChangeLineStats {
@@ -240,7 +241,7 @@ export function ChatMessage({
             <ChangedFilesCard
               files={changedFilesSummary.files}
               loadFileDiff={changedFilesSummary.loadFileDiff}
-              onReviewOpen={onReviewOpen}
+              onReviewOpen={changedFilesSummary.onReviewOpen ?? onReviewOpen}
             />
           )}
 

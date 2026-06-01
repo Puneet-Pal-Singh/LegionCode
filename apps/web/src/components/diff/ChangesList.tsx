@@ -13,6 +13,7 @@ interface ChangesListProps {
   onReviewScopeChange: (scope: ReviewScope) => void;
   showToolbar?: boolean;
   className?: string;
+  emptyLabel?: string;
 }
 
 interface ChangeTreeNode {
@@ -30,6 +31,7 @@ export function ChangesList({
   onReviewScopeChange,
   showToolbar = true,
   className = "",
+  emptyLabel = "No changes",
 }: ChangesListProps) {
   const tree = useMemo(() => buildChangeTree(files), [files]);
   const stats = useMemo(() => calculateTotals(files), [files]);
@@ -54,7 +56,9 @@ export function ChangesList({
 
       <div className="flex-1 overflow-y-auto bg-black py-1">
         {files.length === 0 ? (
-          <div className="p-4 text-center text-sm text-zinc-500">No changes</div>
+          <div className="p-4 text-center text-sm text-zinc-500">
+            {emptyLabel}
+          </div>
         ) : (
           Array.from(tree.children.values()).map((node) => (
             <ChangeTreeRow
