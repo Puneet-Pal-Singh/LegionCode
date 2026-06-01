@@ -45,8 +45,12 @@ export function ChangesPanel({
     diffLoading,
     diffError,
     selectedFile,
+    reviewFiles,
     reviewScope,
     setReviewScope,
+    reviewMode,
+    reviewSourceLoading,
+    reviewSourceError,
     selectedReviewCommentsForFile,
     currentDiffFingerprint,
     addReviewComment,
@@ -60,7 +64,7 @@ export function ChangesPanel({
   };
 
   const showChangesList = mode === "sidebar" || layout !== "stacked";
-  const files = useMemo(() => status?.files ?? [], [status?.files]);
+  const files = useMemo(() => reviewFiles, [reviewFiles]);
 
   useEffect(() => {
     if (showChangesList || selectedFile || files.length === 0) {
@@ -73,7 +77,13 @@ export function ChangesPanel({
     }
   }, [files, selectFile, selectedFile, showChangesList]);
 
-  if ((statusLoading || isGitWorkspaceRecovering) && !status) {
+  const isPromptArtifactMode = reviewMode.kind === "prompt_artifact";
+
+  if (
+    !isPromptArtifactMode &&
+    (statusLoading || isGitWorkspaceRecovering) &&
+    !status
+  ) {
     return (
       <div
         className={`flex items-center justify-center h-full bg-transparent ${className}`}
@@ -89,7 +99,7 @@ export function ChangesPanel({
     );
   }
 
-  if (statusError && !status) {
+  if (!isPromptArtifactMode && statusError && !status) {
     return (
       <div className={`p-4 text-red-400 text-sm bg-transparent ${className}`}>
         Error: {statusError}
@@ -97,7 +107,7 @@ export function ChangesPanel({
     );
   }
 
-  if (!gitAvailable) {
+  if (!isPromptArtifactMode && !gitAvailable) {
     if (statusLoading || isGitWorkspaceRecovering) {
       return (
         <div
@@ -157,6 +167,13 @@ export function ChangesPanel({
               reviewScope={reviewScope}
               onReviewScopeChange={setReviewScope}
               showToolbar={mode === "sidebar" ? showToolbar : false}
+              emptyLabel={
+                isPromptArtifactMode
+                  ? reviewSourceLoading
+                    ? "Loading saved artifact..."
+                    : (reviewSourceError ?? "No saved artifact")
+                  : "No live Git changes"
+              }
             />
           </div>
         ) : null}
@@ -185,9 +202,13 @@ export function ChangesPanel({
                   ? diffLoading
                     ? "Loading diff..."
                     : (diffError ?? "No diff available")
-                  : files.length > 0
-                    ? "Loading diff..."
-                    : "No changes"}
+                    : files.length > 0
+                      ? "Loading diff..."
+                      : isPromptArtifactMode
+                        ? reviewSourceLoading
+                          ? "Loading saved artifact..."
+                          : (reviewSourceError ?? "No saved artifact")
+                        : "No live Git changes"}
               </div>
             )}
           </div>
@@ -207,8 +228,8 @@ function ReviewDiffToolbar({
   hunksCollapsed,
   onToggleHunks,
 }: {
-  reviewScope: "git-changes";
-  onReviewScopeChange: (scope: "git-changes") => void;
+  reviewScope: "git-changes" | "prompt-artifact";
+  onReviewScopeChange: (scope: "git-changes" | "prompt-artifact") => void;
   layout: "stacked" | "split";
   onLayoutChange: (layout: "stacked" | "split") => void;
   wordWrap: boolean;
