@@ -30,6 +30,8 @@ export { artifactMetadataBootstrapMigration } from "./migrations/0008-artifact-m
 export { artifactRestoreLookupIndexMigration } from "./migrations/0009-artifact-restore-lookup-index.js";
 export { sessionsActiveRunForeignKeyMigration } from "./migrations/0010-sessions-active-run-fk.js";
 export { providerUserModelCacheTextKeyMigration } from "./migrations/0011-provider-user-model-cache-text-key.js";
+export { sessionOrganizationMetadataMigration } from "./migrations/0012-session-organization-metadata.js";
+export { artifactReviewMetadataMigration } from "./migrations/0013-artifact-review-metadata.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,

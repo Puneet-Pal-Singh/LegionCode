@@ -9,6 +9,7 @@ import type { Env } from "../types/ai";
 const TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000";
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440001";
 const TEST_RUN_ID = "550e8400-e29b-41d4-a716-446655440002";
+const TEST_WORKSPACE_ID = "default";
 
 describe("TranscriptController", () => {
   let repository: MemoryTranscriptRepository;
@@ -241,5 +242,8 @@ function createIdentitySessionRecord() {
     },
     createdAt: Date.now(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    workspaceId: TEST_WORKSPACE_ID,
+    defaultWorkspaceId: TEST_WORKSPACE_ID,
+    workspaceIds: [TEST_WORKSPACE_ID],
   };
 }
