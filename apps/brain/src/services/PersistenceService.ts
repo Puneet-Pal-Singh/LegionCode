@@ -15,6 +15,10 @@ import { Env } from "../types/ai";
 import { DomainError } from "../domain/errors";
 import { withTranscriptRepository } from "./sessions/TranscriptPersistenceFactory";
 import { withRunRepository } from "./runs/RunPersistenceFactory";
+import {
+  buildRedactedMessageText,
+  messageHasImageParts,
+} from "./chat/ImageMessageRedactor";
 
 interface PersistMessageContext {
   userId?: string;
@@ -153,10 +157,7 @@ export class PersistenceService {
     context: PersistMessageContext = {},
   ): Promise<void> {
     try {
-      const content =
-        typeof message.content === "string"
-          ? message.content
-          : JSON.stringify(message.content);
+      const content = buildPersistenceDedupeContent(message);
 
       const idempotencyKey = await this.generateMessageIdempotencyKey(
         sessionId,
@@ -223,10 +224,7 @@ export class PersistenceService {
   ): Promise<void> {
     await withTranscriptRepository(this.env, async (repository) => {
       await repository.transaction(async (txRepo) => {
-        const content =
-          typeof message.content === "string"
-            ? message.content
-            : JSON.stringify(message.content);
+        const content = buildPersistenceDedupeContent(message);
         const idempotencyKey = await this.generateMessageIdempotencyKey(
           sessionId,
           runId,
@@ -329,7 +327,26 @@ function coreMessageToTranscriptParts(message: CoreMessage): Array<{
     return [{ type: "text", content: { text: message.content } }];
   }
 
+  if (messageHasImageParts(message)) {
+    return [
+      {
+        type: "text",
+        content: { text: buildRedactedMessageText(message) },
+      },
+    ];
+  }
+
   return [{ type: "raw", content: toJsonValue(message.content) }];
+}
+
+function buildPersistenceDedupeContent(message: CoreMessage): string {
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+  if (messageHasImageParts(message)) {
+    return buildRedactedMessageText(message);
+  }
+  return JSON.stringify(message.content);
 }
 
 function readClientMessageId(message: CoreMessage): string | null {

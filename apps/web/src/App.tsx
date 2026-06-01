@@ -684,10 +684,6 @@ function AppContent() {
     !!activeSessionId &&
     !!activeSession &&
     !!isSessionStarted;
-  const activeWorkspaceKey = activeSession
-    ? `workspace:${activeSession.id}:${activeSession.activeRunId}`
-    : "workspace:none";
-
   const hasProviderConnection = isAuthenticated && credentials.length > 0;
   const hasRealSession = sessions.length > 0;
   const hasRepoContext = sessions.some(
@@ -1135,7 +1131,7 @@ function AppContent() {
               </motion.div>
             ) : showWorkspace ? (
               <motion.div
-                key={activeWorkspaceKey}
+                key="workspace"
                 initial={false}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 1 }}

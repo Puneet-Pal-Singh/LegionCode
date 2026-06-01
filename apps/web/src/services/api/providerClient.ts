@@ -24,6 +24,8 @@ import {
   type ProviderRegistryEntry,
 } from "@repo/platform-client-sdk";
 import type {
+  BYOKModelCapabilityMetadata,
+  BYOKModelInputModality,
   BYOKModelDiscoverySource,
   BYOKModelDiscoverySurface,
 } from "@repo/shared-types";
@@ -39,6 +41,8 @@ export interface ProviderModelOption {
   id: string;
   name: string;
   provider?: string;
+  inputModalities?: BYOKModelInputModality;
+  capabilityMetadata?: BYOKModelCapabilityMetadata;
 }
 
 export type ProviderModelDiscoveryView =
@@ -141,6 +145,8 @@ export class ProviderApiClient {
         id: model.id,
         name: model.name,
         provider: model.providerId,
+        inputModalities: model.inputModalities,
+        capabilityMetadata: model.capabilityMetadata,
       })),
       page: response.page,
       metadata: response.metadata,
