@@ -10,6 +10,7 @@ import { artifactRestoreLookupIndexMigration } from "./0009-artifact-restore-loo
 import { sessionsActiveRunForeignKeyMigration } from "./0010-sessions-active-run-fk.js";
 import { providerUserModelCacheTextKeyMigration } from "./0011-provider-user-model-cache-text-key.js";
 import { sessionOrganizationMetadataMigration } from "./0012-session-organization-metadata.js";
+import { providerConnectionConfigMigration } from "./0013-provider-connection-config.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -64,4 +65,5 @@ export const persistenceMigrations = [
   sessionsActiveRunForeignKeyMigration,
   providerUserModelCacheTextKeyMigration,
   sessionOrganizationMetadataMigration,
+  providerConnectionConfigMigration,
 ] as const;

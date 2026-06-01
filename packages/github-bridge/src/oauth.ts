@@ -28,6 +28,11 @@ export interface GitHubUser {
   name: string | null;
 }
 
+interface GitHubOAuthErrorResponse {
+  error?: string;
+  error_description?: string;
+}
+
 export const DEFAULT_SCOPES = ["repo", "read:user", "user:email"];
 
 /**
@@ -69,15 +74,16 @@ export async function exchangeCodeForToken(
     throw new Error(`Token exchange failed: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = await readJsonResponse(response);
+  const errorResponse = readOAuthError(data);
 
-  if (data.error) {
+  if (errorResponse.error) {
     throw new Error(
-      `GitHub OAuth error: ${data.error_description || data.error}`,
+      `GitHub OAuth error: ${errorResponse.error_description || errorResponse.error}`,
     );
   }
 
-  return data;
+  return readTokenResponse(data);
 }
 
 /**
@@ -129,5 +135,89 @@ export async function fetchGitHubUser(
     throw new Error(`Failed to fetch user: ${response.statusText}`);
   }
 
+  return readGitHubUser(await readJsonResponse(response));
+}
+
+async function readJsonResponse(response: Response): Promise<unknown> {
   return response.json();
+}
+
+function readOAuthError(payload: unknown): GitHubOAuthErrorResponse {
+  if (!isRecord(payload)) {
+    return {};
+  }
+  return {
+    error: readOptionalString(payload.error),
+    error_description: readOptionalString(payload.error_description),
+  };
+}
+
+function readTokenResponse(payload: unknown): GitHubTokenResponse {
+  if (!isRecord(payload)) {
+    throw new Error("GitHub OAuth token response was not an object.");
+  }
+  const accessToken = readRequiredString(payload.access_token, "access_token");
+  const tokenType = readRequiredString(payload.token_type, "token_type");
+  const scope = readRequiredString(payload.scope, "scope");
+  return {
+    access_token: accessToken,
+    token_type: tokenType,
+    scope,
+    refresh_token: readOptionalString(payload.refresh_token),
+    expires_in: readOptionalNumber(payload.expires_in),
+  };
+}
+
+function readGitHubUser(payload: unknown): GitHubUser {
+  if (!isRecord(payload)) {
+    throw new Error("GitHub user response was not an object.");
+  }
+  return {
+    id: readRequiredNumber(payload.id, "id"),
+    login: readRequiredString(payload.login, "login"),
+    avatar_url: readRequiredString(payload.avatar_url, "avatar_url"),
+    email: readNullableString(payload.email, "email"),
+    name: readNullableString(payload.name, "name"),
+  };
+}
+
+function readRequiredString(value: unknown, field: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`GitHub response field "${field}" was not a string.`);
+  }
+  if (value.length === 0) {
+    throw new Error(`GitHub response field "${field}" was empty.`);
+  }
+  return value;
+}
+
+function readRequiredNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`GitHub response field "${field}" was not a number.`);
+  }
+  return value;
+}
+
+function readNullableString(value: unknown, field: string): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`GitHub response field "${field}" was not a string.`);
+  }
+  return value;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

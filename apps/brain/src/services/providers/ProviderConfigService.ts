@@ -24,6 +24,7 @@ import type {
   BYOKValidateResponse,
   ProviderCatalogResponse,
   ProviderConnection,
+  ProviderConnectionConfig,
   ProviderConnectionsResponse,
   ProviderId,
   ProviderRegistryEntry,
@@ -268,6 +269,13 @@ export class ProviderConfigService {
   async getApiKey(providerId: ProviderId): Promise<string | null> {
     await this.ensureStorageReady();
     return this.credentialVault.getApiKey(providerId);
+  }
+
+  async getConnectionConfig(
+    providerId: ProviderId,
+  ): Promise<ProviderConnectionConfig | undefined> {
+    await this.ensureStorageReady();
+    return this.credentialVault.getConnectionConfig(providerId);
   }
 
   async isConnected(providerId: ProviderId): Promise<boolean> {

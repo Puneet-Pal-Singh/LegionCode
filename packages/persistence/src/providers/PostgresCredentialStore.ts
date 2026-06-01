@@ -1,4 +1,8 @@
-import type { ProviderId } from "@repo/shared-types";
+import {
+  ProviderConnectionConfigSchema,
+  type ProviderConnectionConfig,
+  type ProviderId,
+} from "@repo/shared-types";
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
 import {
   CredentialEncryptionService,
@@ -19,6 +23,7 @@ interface CredentialRow extends SqlRow {
   label: string;
   key_fingerprint: string;
   encrypted_secret_json: unknown;
+  connection_config_json: unknown;
   key_version: string;
   status: string;
   last_validated_at: string | null;
@@ -104,6 +109,7 @@ export class PostgresCredentialStore implements CredentialStore {
         input.label,
         fingerprint,
         JSON.stringify(encrypted),
+        input.connectionConfig ? JSON.stringify(input.connectionConfig) : null,
         this.keyVersion,
         "connected",
         input.createdBy || this.userId,
@@ -187,6 +193,7 @@ export class PostgresCredentialStore implements CredentialStore {
       label: row.label,
       keyFingerprint: row.key_fingerprint,
       encryptedSecretJson: stringifyJsonColumn(row.encrypted_secret_json),
+      connectionConfig: readConnectionConfig(row.connection_config_json),
       keyVersion: row.key_version,
       status: row.status as "connected" | "failed" | "revoked",
       lastValidatedAt: row.last_validated_at,
@@ -224,6 +231,23 @@ function readEncryptedSecret(value: unknown): EncryptedSecret {
   };
 }
 
+function readConnectionConfig(
+  value: unknown,
+): ProviderConnectionConfig | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const parsed = parseJsonColumn(value, "connection config payload");
+  if (parsed === null || parsed === undefined) {
+    return undefined;
+  }
+  const result = ProviderConnectionConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("Invalid provider connection config payload");
+  }
+  return result.data;
+}
+
 const GET_CREDENTIAL_SQL = `
   SELECT
     id,
@@ -233,6 +257,7 @@ const GET_CREDENTIAL_SQL = `
     label,
     key_fingerprint,
     encrypted_secret_json,
+    connection_config_json,
     key_version,
     status,
     last_validated_at,
@@ -258,18 +283,20 @@ const UPSERT_CREDENTIAL_SQL = `
     label,
     key_fingerprint,
     encrypted_secret_json,
+    connection_config_json,
     key_version,
     status,
     created_by,
     created_at,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $11)
+  VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $12)
   ON CONFLICT (user_id, provider_id)
   WHERE deleted_at IS NULL
   DO UPDATE SET
     label = EXCLUDED.label,
     encrypted_secret_json = EXCLUDED.encrypted_secret_json,
+    connection_config_json = EXCLUDED.connection_config_json,
     key_version = EXCLUDED.key_version,
     key_fingerprint = EXCLUDED.key_fingerprint,
     status = 'connected',
@@ -286,6 +313,7 @@ const UPSERT_CREDENTIAL_SQL = `
     label,
     key_fingerprint,
     encrypted_secret_json,
+    connection_config_json,
     key_version,
     status,
     last_validated_at,

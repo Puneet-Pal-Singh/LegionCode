@@ -36,6 +36,7 @@ export const providerCredentials = pgTable(
     label: text("label").notNull(),
     keyFingerprint: text("key_fingerprint").notNull(),
     encryptedSecretJson: jsonb("encrypted_secret_json").notNull(),
+    connectionConfigJson: jsonb("connection_config_json"),
     keyVersion: text("key_version").notNull(),
     status: text("status").notNull().default("connected"),
     lastValidatedAt: timestamp("last_validated_at", {

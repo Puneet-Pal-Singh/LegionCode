@@ -4,6 +4,7 @@ import type {
   BYOKPreferences,
   BYOKPreferencesPatch,
   BYOKValidationMode,
+  ProviderConnectionConfig,
   ProviderId,
 } from "@repo/shared-types";
 
@@ -51,6 +52,7 @@ export interface ProviderCredentialRecord {
   label: string;
   keyFingerprint: string;
   encryptedSecretJson: string;
+  connectionConfig?: ProviderConnectionConfig;
   keyVersion: string;
   status: ProviderCredentialStatus;
   lastValidatedAt: string | null;
@@ -68,6 +70,7 @@ export interface SetCredentialInput {
   providerId: ProviderId;
   label: string;
   apiKey: string;
+  connectionConfig?: ProviderConnectionConfig;
   createdBy?: string;
 }
 

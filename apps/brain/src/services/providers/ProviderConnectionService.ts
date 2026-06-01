@@ -57,11 +57,15 @@ export class ProviderConnectionService {
       : undefined;
     try {
       const isConnected = await this.credentialService.isConnected(providerId);
+      const config = isConnected
+        ? await this.credentialService.getConnectionConfig(providerId)
+        : undefined;
       return {
         providerId,
         status: isConnected ? "connected" : "disconnected",
         lastValidatedAt: isConnected ? new Date().toISOString() : undefined,
         capabilities,
+        config,
       };
     } catch (error) {
       console.warn(

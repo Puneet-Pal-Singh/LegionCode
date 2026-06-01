@@ -141,6 +141,7 @@ export class MemoryCredentialStore implements CredentialStore {
       label: input.label,
       keyFingerprint: await this.encryption.generateFingerprint(input.apiKey),
       encryptedSecretJson: JSON.stringify(encrypted),
+      connectionConfig: input.connectionConfig,
       keyVersion: this.keyVersion,
       status: "connected",
       lastValidatedAt: null,
