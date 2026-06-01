@@ -5,7 +5,11 @@
  * repository interface.
  */
 
-import type { CredentialVault, ProviderId } from "@repo/shared-types";
+import type {
+  CredentialVault,
+  ProviderConnectionConfig,
+  ProviderId,
+} from "@repo/shared-types";
 import type { CredentialStore } from "./stores/CredentialStore";
 
 export class CloudCredentialVault implements CredentialVault {
@@ -16,13 +20,18 @@ export class CloudCredentialVault implements CredentialVault {
     private readonly userId: string,
   ) {}
 
-  async setCredential(providerId: ProviderId, apiKey: string): Promise<void> {
+  async setCredential(
+    providerId: ProviderId,
+    apiKey: string,
+    connectionConfig?: ProviderConnectionConfig,
+  ): Promise<void> {
     await this.credentialStore.setCredential({
       credentialId: crypto.randomUUID(),
       userId: this.userId,
       providerId,
       label: "default",
       apiKey,
+      connectionConfig,
     });
   }
 
@@ -38,6 +47,13 @@ export class CloudCredentialVault implements CredentialVault {
   async isConnected(providerId: ProviderId): Promise<boolean> {
     const cred = await this.credentialStore.getCredential(providerId);
     return cred !== null && cred.status === "connected";
+  }
+
+  async getConnectionConfig(
+    providerId: ProviderId,
+  ): Promise<ProviderConnectionConfig | undefined> {
+    const credential = await this.credentialStore.getCredential(providerId);
+    return credential?.connectionConfig;
   }
 
   async listConnectedProviders(): Promise<ProviderId[]> {

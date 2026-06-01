@@ -63,6 +63,9 @@ export async function determineTurnMode({
     messages: classifierMessages,
     model: run.input.modelId,
     providerId: run.input.providerId,
+    runtimeModelId: run.input.runtimeModelId,
+    providerTransport: run.input.providerTransport,
+    providerEndpoint: run.input.providerEndpoint,
     temperature: 0,
   });
 

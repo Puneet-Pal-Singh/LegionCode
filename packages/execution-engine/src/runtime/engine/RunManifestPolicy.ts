@@ -14,16 +14,14 @@ export { RunManifestMismatchError } from "@shadowbox/orchestrator-core";
 
 /**
  * Creates a run manifest with deterministic configuration.
- * 
+ *
  * Selection fields follow explicit precedence:
  * 1. Use request-supplied selection when provided
  * 2. Otherwise apply deterministic defaults
- * 
+ *
  * This ensures portable, explicit backend selection without implicit fallbacks.
  */
-export function createRunManifest(
-  input: RunInput,
-): RunManifest {
+export function createRunManifest(input: RunInput): RunManifest {
   const orchestratorBackend = normalizeOrchestratorBackend(
     input.orchestratorBackend,
   );
@@ -32,6 +30,9 @@ export function createRunManifest(
     mode: input.mode ?? DEFAULT_RUN_MODE,
     providerId: normalizeOptionalSelection(input.providerId),
     modelId: normalizeOptionalSelection(input.modelId),
+    runtimeModelId: normalizeOptionalSelection(input.runtimeModelId),
+    providerTransport: input.providerTransport ?? null,
+    providerEndpoint: normalizeOptionalSelection(input.providerEndpoint),
     harness: normalizeHarnessSelection(input.harnessId),
     orchestratorBackend,
     executionBackend: normalizeExecutionBackend(input.executionBackend),
@@ -51,6 +52,9 @@ export function ensureManifestMatch(
     existing.mode !== candidate.mode ||
     existing.providerId !== candidate.providerId ||
     existing.modelId !== candidate.modelId ||
+    existing.runtimeModelId !== candidate.runtimeModelId ||
+    existing.providerTransport !== candidate.providerTransport ||
+    existing.providerEndpoint !== candidate.providerEndpoint ||
     existing.harness !== candidate.harness ||
     existing.orchestratorBackend !== candidate.orchestratorBackend ||
     existing.executionBackend !== candidate.executionBackend ||
