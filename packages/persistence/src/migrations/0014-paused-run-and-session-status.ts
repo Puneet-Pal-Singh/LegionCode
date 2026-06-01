@@ -6,7 +6,7 @@ const RUN_STATUS_SQL_LIST = buildRunStatusSqlList();
 const SESSION_STATUS_SQL_LIST = buildSessionStatusSqlList();
 
 export const pausedRunAndSessionStatusMigration: SqlMigration = {
-  id: "0013_paused_run_and_session_status",
+  id: "0014_paused_run_and_session_status",
   description: "Allow paused run and session status values",
   statements: [
     `

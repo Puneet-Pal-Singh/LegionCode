@@ -228,6 +228,57 @@ describe("PersistenceService", () => {
       }),
     );
   });
+
+  it("persists image-bearing user messages as redacted text parts", async () => {
+    const repository = {
+      appendMessage: vi.fn(async () => createTranscriptMessageRecord()),
+    } as Partial<TranscriptRepository> as TranscriptRepository;
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    await service.persistUserMessage(
+      "123e4567-e89b-42d3-a456-426614174001",
+      "123e4567-e89b-42d3-a456-426614174000",
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What is wrong here?" },
+          {
+            type: "image",
+            image: "data:image/png;base64,aGVsbG8=",
+            mimeType: "image/png",
+            name: "screen.png",
+          },
+        ],
+      } as CoreMessage,
+      {
+        userId: "123e4567-e89b-42d3-a456-426614174002",
+      },
+    );
+
+    expect(repository.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          {
+            type: "text",
+            content: {
+              text: "What is wrong here?\n\n[Image attached: screen.png, image/png, 5 B]",
+            },
+          },
+        ],
+      }),
+    );
+    const appendInput = repository.appendMessage.mock.calls[0]?.[0] as {
+      parts: Array<{ content: unknown }>;
+      dedupeKey: string;
+    };
+    expect(JSON.stringify(appendInput.parts)).not.toContain("data:image/");
+  });
 });
 
 function createEnv(): Env {

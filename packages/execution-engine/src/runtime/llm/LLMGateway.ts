@@ -17,6 +17,11 @@ import type {
 } from "./types.js";
 
 const TOKEN_CHAR_RATIO = 4;
+// Conservative cross-provider placeholder for image/file parts when exact
+// provider token accounting is unavailable during preflight.
+const DEFAULT_IMAGE_INPUT_TOKENS = 1_105;
+const DEFAULT_FILE_INPUT_TOKENS = DEFAULT_IMAGE_INPUT_TOKENS;
+const DEFAULT_UNKNOWN_PART_TOKENS = 1;
 const DEFAULT_COMPLETION_TOKENS = 500;
 const DEFAULT_TEXT_TIMEOUT_MS = 20_000;
 const FAST_TASK_TEXT_TIMEOUT_MS = 60_000;
@@ -100,6 +105,7 @@ export class LLMGateway implements ILLMGateway {
       req.messages,
       req.model,
       req.providerId,
+      req.system,
     );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
@@ -250,6 +256,7 @@ export class LLMGateway implements ILLMGateway {
       req.messages,
       req.model,
       req.providerId,
+      req.system,
     );
     await this.preflight(req, estimatedUsage);
     this.assertPricingAllowed(req.context, estimatedUsage);
@@ -351,10 +358,12 @@ export class LLMGateway implements ILLMGateway {
     messages: CoreMessage[],
     model?: string,
     providerId?: string,
+    system?: string,
   ): LLMUsage {
-    const charCount = messages.reduce((sum, message) => {
+    const messageCharCount = messages.reduce((sum, message) => {
       return sum + this.getMessageLength(message.content);
     }, 0);
+    const charCount = messageCharCount + (system?.length ?? 0);
     const promptTokens = Math.ceil(charCount / TOKEN_CHAR_RATIO);
     const completionTokens = DEFAULT_COMPLETION_TOKENS;
 
@@ -371,14 +380,20 @@ export class LLMGateway implements ILLMGateway {
     if (typeof content === "string") {
       return content.length;
     }
-    return JSON.stringify(content).length;
+    if (Array.isArray(content)) {
+      return content.reduce(
+        (sum, part) => sum + getMessagePartLength(part),
+        0,
+      );
+    }
+    return getMessagePartLength(content);
   }
 
   private normalizeUsage(usage: LLMUsage, model?: string): LLMUsage {
     const promptTokens = Math.max(0, usage.promptTokens ?? 0);
     const completionTokens = Math.max(0, usage.completionTokens ?? 0);
     const totalTokens =
-      usage.totalTokens && usage.totalTokens > 0
+      usage.totalTokens !== undefined && usage.totalTokens >= 0
         ? usage.totalTokens
         : promptTokens + completionTokens;
 
@@ -721,4 +736,53 @@ function normalizeToolArgs(args: unknown): Record<string, unknown> {
     return {};
   }
   return args as Record<string, unknown>;
+}
+
+function getMessagePartLength(part: unknown): number {
+  if (typeof part === "string") {
+    return part.length;
+  }
+  if (!part || typeof part !== "object") {
+    return 0;
+  }
+  const record = part as Record<string, unknown>;
+  if (record.type === "image") {
+    return DEFAULT_IMAGE_INPUT_TOKENS * TOKEN_CHAR_RATIO;
+  }
+  if (record.type === "file") {
+    return DEFAULT_FILE_INPUT_TOKENS * TOKEN_CHAR_RATIO;
+  }
+  if (record.type === "tool-result") {
+    return getToolResultPartLength(record);
+  }
+  if (typeof record.text === "string") {
+    return record.text.length;
+  }
+  if (typeof record.content === "string") {
+    return record.content.length;
+  }
+  return safeJsonLength(record);
+}
+
+function safeJsonLength(value: unknown): number {
+  try {
+    return JSON.stringify(value).length;
+  } catch (error) {
+    console.warn(
+      "[llm/gateway] failed to serialize message part for token estimation",
+      error,
+    );
+    return DEFAULT_UNKNOWN_PART_TOKENS * TOKEN_CHAR_RATIO;
+  }
+}
+
+function getToolResultPartLength(record: Record<string, unknown>): number {
+  const experimentalContent = record.experimental_content;
+  if (Array.isArray(experimentalContent)) {
+    return experimentalContent.reduce(
+      (sum, part) => sum + getMessagePartLength(part),
+      0,
+    );
+  }
+  return safeJsonLength(record);
 }
