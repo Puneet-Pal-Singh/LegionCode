@@ -5,24 +5,13 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { ZodSchema } from "zod";
 import type { ProviderModelTransport } from "@repo/shared-types";
 import type { Env } from "../types/ai";
-import type {
-  ProviderAdapter,
-  GenerationParams,
-  GenerationResult,
-  StreamChunk,
-} from "./providers";
-import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { ProviderAdapter } from "./providers";
 import { ProviderConfigService } from "./providers";
-import { ValidationError } from "../domain/errors";
 import {
-  createDefaultAdapter,
   resolveModelSelection,
   mapProviderIdToRuntimeProvider,
   getRuntimeProviderFromAdapter,
-  selectAdapter,
-  generateText,
   type GenerateTextResult,
-  createChatStream,
   getSDKModelConfig,
   type SDKModelConfig,
   type GenerateStructuredResult,
@@ -32,9 +21,15 @@ import {
 import { resolveSelectionWithPreferences } from "./ai/preference-selection";
 import { DefaultAdapterService } from "./ai/DefaultAdapterService";
 import { consumeAxisQuotaIfNeeded } from "./ai/axis-quota";
-import { toOpenAICompatibleBaseURL } from "./ai/ProviderTransportAdapterFactory";
 import { AXIS_PROVIDER_ID } from "./providers/axis";
-import { normalizeFinishCallback } from "./ai/normalize-finish-callback";
+import {
+  createChatStreamWithSelection,
+  generateTextWithSelection,
+} from "./ai/AITextGenerationCoordinator";
+import {
+  resolveStructuredBaseURLOverride,
+  resolveStructuredRuntimeProvider,
+} from "./ai/ProviderRouteMetadata";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -103,41 +98,20 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(
-      selection.providerId,
-      this.providerConfigService,
-    );
-    const selectedAdapter = await selectAdapter(
+    return generateTextWithSelection({
       selection,
-      this.adapter,
-      this.env,
-      this.providerConfigService,
-      undefined,
-      buildProviderTransportRoute({
-        providerId: selection.providerId,
-        providerTransport,
-        providerEndpoint,
-      }),
-    );
-    const result = await generateText(selectedAdapter, {
+      defaultAdapter: this.adapter,
+      env: this.env,
+      providerConfigService: this.providerConfigService,
+      providerId,
+      runtimeModelId,
+      providerTransport,
+      providerEndpoint,
       messages,
       system,
       tools,
       temperature,
-      model: runtimeModelId ?? selection.model,
     });
-
-    if (providerId && result.usage.provider !== providerId) {
-      return {
-        ...result,
-        usage: {
-          ...result.usage,
-          provider: providerId,
-        },
-      };
-    }
-
-    return result;
   }
 
   async generateStructured<T>({
@@ -253,39 +227,22 @@ export class AIService {
       resolveSelection: (selectedProviderId, selectedModelId) =>
         this.resolveModelSelection(selectedProviderId, selectedModelId),
     });
-    await consumeAxisQuotaIfNeeded(
-      selection.providerId,
-      this.providerConfigService,
-    );
-    const selectedAdapter = await selectAdapter(
+    return createChatStreamWithSelection({
       selection,
-      this.adapter,
-      this.env,
-      this.providerConfigService,
-      undefined,
-      buildProviderTransportRoute({
-        providerId: selection.providerId,
-        providerTransport,
-        providerEndpoint,
-      }),
-    );
-
-    const normalizedOnFinish = normalizeFinishCallback(providerId, onFinish);
-
-    return createChatStream(
-      selectedAdapter,
-      {
-        messages,
-        system,
-        tools,
-        temperature,
-        model: runtimeModelId ?? selection.model,
-      },
-      {
-        onFinish: normalizedOnFinish,
-        onChunk,
-      },
-    );
+      defaultAdapter: this.adapter,
+      env: this.env,
+      providerConfigService: this.providerConfigService,
+      providerId,
+      runtimeModelId,
+      providerTransport,
+      providerEndpoint,
+      messages,
+      system,
+      tools,
+      temperature,
+      onFinish,
+      onChunk,
+    });
   }
 
   getProviderAdapter(): ProviderAdapter {
@@ -319,63 +276,3 @@ export class AIService {
     return client(model);
   }
 }
-
-function buildProviderTransportRoute(input: {
-  providerId?: string;
-  providerTransport?: ProviderModelTransport;
-  providerEndpoint?: string;
-}) {
-  const hasTransport = Boolean(input.providerTransport);
-  const hasEndpoint = Boolean(input.providerEndpoint);
-  if (!hasTransport && !hasEndpoint) {
-    return undefined;
-  }
-  if (!input.providerId || !input.providerTransport || !input.providerEndpoint) {
-    throw new ValidationError(
-      "Provider route metadata requires providerId, providerTransport, and providerEndpoint.",
-      "INVALID_PROVIDER_SELECTION",
-    );
-  }
-  return {
-    providerId: input.providerId,
-    transport: input.providerTransport,
-    endpoint: input.providerEndpoint,
-  };
-}
-
-function resolveStructuredRuntimeProvider(
-  runtimeProvider: SDKModelConfig["provider"],
-  providerTransport: ProviderModelTransport | undefined,
-): SDKModelConfig["provider"] {
-  if (!providerTransport) {
-    return runtimeProvider;
-  }
-  if (providerTransport === "openai-chat-completions") {
-    return "openai-compatible";
-  }
-  throw new ValidationError(
-    `Structured generation is not wired for provider transport "${providerTransport}".`,
-    "UNKNOWN_PROVIDER",
-  );
-}
-
-function resolveStructuredBaseURLOverride(
-  providerTransport: ProviderModelTransport | undefined,
-  providerEndpoint: string | undefined,
-): string | undefined {
-  if (!providerTransport) {
-    return undefined;
-  }
-  if (providerTransport !== "openai-chat-completions") {
-    return undefined;
-  }
-  if (!providerEndpoint) {
-    throw new ValidationError(
-      "OpenAI-compatible structured generation requires providerEndpoint.",
-      "INVALID_PROVIDER_SELECTION",
-    );
-  }
-  return toOpenAICompatibleBaseURL(providerEndpoint);
-}
-
-export type { GenerateTextResult };

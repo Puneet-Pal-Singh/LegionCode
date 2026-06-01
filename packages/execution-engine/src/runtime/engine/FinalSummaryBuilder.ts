@@ -1,7 +1,11 @@
 import { RUN_TERMINAL_STATES, type RunTerminalState } from "@repo/shared-types";
 
-const DEFAULT_DETAIL_FALLBACK = "The runtime finished without additional diagnostics.";
-const FEATURE_FLAG_KEYS = ["finalSummaryContractV1", "final_summary_contract_v1"] as const;
+const DEFAULT_DETAIL_FALLBACK =
+  "The runtime finished without additional diagnostics.";
+const FEATURE_FLAG_KEYS = [
+  "finalSummaryContractV1",
+  "final_summary_contract_v1",
+] as const;
 
 interface FinalSummaryFrameInput {
   terminalState: RunTerminalState;
@@ -30,8 +34,11 @@ export function isFinalSummaryContractEnabled(
 
 export function buildFinalSummaryFrame(input: FinalSummaryFrameInput): string {
   const outcome = resolveOutcomeLine(input.terminalState);
-  const happened = normalizeSummaryLine(input.detail) || DEFAULT_DETAIL_FALLBACK;
-  const next = normalizeSummaryLine(input.nextStep) || resolveDefaultNextStep(input.terminalState);
+  const happened =
+    normalizeSummaryLine(input.detail) || DEFAULT_DETAIL_FALLBACK;
+  const next =
+    normalizeSummaryLine(input.nextStep) ||
+    resolveDefaultNextStep(input.terminalState);
 
   return [
     `Outcome: ${outcome}`,
@@ -40,7 +47,9 @@ export function buildFinalSummaryFrame(input: FinalSummaryFrameInput): string {
   ].join("\n");
 }
 
-export function resolveNextStepFromSummaryText(summaryText: string): string | undefined {
+export function resolveNextStepFromSummaryText(
+  summaryText: string,
+): string | undefined {
   const lines = summaryText
     .split("\n")
     .map((line) => line.trim())
@@ -60,6 +69,23 @@ export function resolveSummaryReason(summaryText: string): string {
 
   const preferred = lines.find((line) => !isActionableLine(line));
   return preferred ?? lines[0] ?? DEFAULT_DETAIL_FALLBACK;
+}
+
+export function appendTerminalDetailsIfNeeded(input: {
+  framedOutput: string;
+  originalText: string;
+  includeDetails: boolean;
+}): string {
+  const details = input.originalText.trim();
+  if (
+    !input.includeDetails ||
+    !details ||
+    input.framedOutput.includes(details)
+  ) {
+    return input.framedOutput;
+  }
+
+  return `${input.framedOutput}\n\nDetails:\n${details}`;
 }
 
 function resolveOutcomeLine(terminalState: RunTerminalState): string {
@@ -124,7 +150,9 @@ function normalizeSummaryLine(value: string | undefined): string {
   if (!normalized) {
     return "";
   }
-  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
+  return normalized.length > 220
+    ? `${normalized.slice(0, 217)}...`
+    : normalized;
 }
 
 function isActionableLine(value: string): boolean {
