@@ -10,6 +10,12 @@
       "@shadowbox/execution-engine/runtime/*": [
         "../../packages/execution-engine/src/runtime/*"
       ],
+      "@shadowbox/github-bridge": [
+        "../../packages/github-bridge/src/index.ts"
+      ],
+      "@shadowbox/github-bridge/*": [
+        "../../packages/github-bridge/src/*"
+      ],
       "@repo/shared-types": ["../../packages/shared-types/src/index.ts"],
       "@repo/shared-types/*": ["../../packages/shared-types/src/*"]
     },

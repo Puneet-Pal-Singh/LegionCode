@@ -7,6 +7,7 @@
 import { z } from "zod";
 import {
   ApprovalDecisionKindSchema,
+  ProviderModelTransportSchema,
   ProductModeSchema,
   RunModeSchema,
   WorkflowEntrypointSchema,
@@ -36,11 +37,7 @@ const OrchestratorBackendSchema = z.enum([
   "execution-engine-v1",
   "cloudflare_agents",
 ]);
-const ExecutionBackendSchema = z.enum([
-  "cloudflare_sandbox",
-  "e2b",
-  "daytona",
-]);
+const ExecutionBackendSchema = z.enum(["cloudflare_sandbox", "e2b", "daytona"]);
 const HarnessModeSchema = z.enum(["platform_owned", "delegated"]);
 const AuthModeSchema = z.enum(["api_key", "oauth"]);
 const SerializableToolObjectSchema = z.object({}).catchall(z.unknown());
@@ -82,6 +79,9 @@ export const ExecuteRunPayloadSchema = z.object({
       sessionId: z.string().trim().min(1),
       providerId: z.string().trim().min(1).optional(),
       modelId: z.string().trim().min(1).optional(),
+      runtimeModelId: z.string().trim().min(1).optional(),
+      providerTransport: ProviderModelTransportSchema.optional(),
+      providerEndpoint: z.string().trim().min(1).url().optional(),
       harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
       orchestratorBackend: OrchestratorBackendSchema,
       executionBackend: ExecutionBackendSchema,
@@ -155,9 +155,7 @@ export const ExecuteRunPayloadSchema = z.object({
       }
     }),
   messages: z.array(CoreMessageSchema).min(1),
-  tools: z
-    .record(SerializableToolDefinitionSchema)
-    .optional(),
+  tools: z.record(SerializableToolDefinitionSchema).optional(),
 });
 
 /**

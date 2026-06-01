@@ -37,15 +37,9 @@ export {
   createGroqAdapter,
 } from "./ProviderAdapterFactory";
 
-export {
-  getSDKModelConfig,
-  type SDKModelConfig,
-} from "./SDKModelFactory";
+export { getSDKModelConfig, type SDKModelConfig } from "./SDKModelFactory";
 
-export {
-  type GenerateTextResult,
-  generateText,
-} from "./TextGenerationService";
+export { type GenerateTextResult, generateText } from "./TextGenerationService";
 
 export {
   type GenerateStructuredResult,
@@ -58,3 +52,9 @@ export {
 export { createChatStream } from "./StreamGenerationService";
 
 export { selectAdapter } from "./AdapterSelectionService";
+
+export {
+  ProviderModelRouteResolver,
+  type ProviderModelRoute,
+  type ProviderModelRouteInput,
+} from "./ProviderModelRouteResolver";

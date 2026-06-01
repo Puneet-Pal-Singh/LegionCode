@@ -38,6 +38,9 @@ export class ReviewAgent extends BaseAgent {
       schema: PlanSchema,
       model: context.run.input.modelId,
       providerId: context.run.input.providerId,
+      runtimeModelId: context.run.input.runtimeModelId,
+      providerTransport: context.run.input.providerTransport,
+      providerEndpoint: context.run.input.providerEndpoint,
       temperature: 0.2,
     });
 
@@ -95,6 +98,9 @@ export class ReviewAgent extends BaseAgent {
       ],
       model: context.modelId,
       providerId: context.providerId,
+      runtimeModelId: context.runtimeModelId,
+      providerTransport: context.providerTransport,
+      providerEndpoint: context.providerEndpoint,
     });
     return result.text;
   }
@@ -133,9 +139,13 @@ Rules:
       extractStructuredField(task.input, "path") ?? task.input.description;
     validateSafePath(path);
 
-    const result = await this.executionService.execute("filesystem", "read_file", {
-      path,
-    });
+    const result = await this.executionService.execute(
+      "filesystem",
+      "read_file",
+      {
+        path,
+      },
+    );
     const failure = extractExecutionFailure(result);
     if (failure) {
       return {
@@ -164,6 +174,9 @@ Rules:
       ],
       model: context.modelId,
       providerId: context.providerId,
+      runtimeModelId: context.runtimeModelId,
+      providerTransport: context.providerTransport,
+      providerEndpoint: context.providerEndpoint,
     });
 
     return this.buildSuccessResult(task.id, analysisResult.text);
@@ -191,6 +204,9 @@ Rules:
       ],
       model: context.modelId,
       providerId: context.providerId,
+      runtimeModelId: context.runtimeModelId,
+      providerTransport: context.providerTransport,
+      providerEndpoint: context.providerEndpoint,
     });
 
     return this.buildSuccessResult(task.id, reviewResult.text);

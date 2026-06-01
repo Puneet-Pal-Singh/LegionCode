@@ -79,6 +79,11 @@ describe("ModelPickerPopover", () => {
     openai: [
       { id: "gpt-4", name: "GPT-4" },
       { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
+      {
+        id: "gpt-unsupported",
+        name: "GPT Unsupported",
+        availability: "unsupported_transport",
+      },
     ],
     anthropic: [
       { id: "claude-3-opus", name: "Claude 3 Opus" },
@@ -217,11 +222,13 @@ describe("ModelPickerPopover", () => {
         screen.getByRole("button", { name: /open model picker/i }),
       ).toHaveTextContent("Loading selected models...");
 
-      fireEvent.click(screen.getByRole("button", { name: /open model picker/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
 
-      expect(
-        screen.getByTestId("model-picker-popover"),
-      ).toHaveTextContent("Loading selected models...");
+      expect(screen.getByTestId("model-picker-popover")).toHaveTextContent(
+        "Loading selected models...",
+      );
     });
 
     it("opens popover on button click", async () => {
@@ -412,7 +419,9 @@ describe("ModelPickerPopover", () => {
       await waitFor(() => {
         expect(screen.getByText("OpenAI")).toBeInTheDocument();
         expect(screen.getByText("Anthropic")).toBeInTheDocument();
-        expect(screen.getAllByText(/models loading/i).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/models loading/i).length).toBeGreaterThan(
+          0,
+        );
       });
     });
 
@@ -587,6 +596,37 @@ describe("ModelPickerPopover", () => {
           "gpt-4",
         );
       });
+    });
+
+    it("disables unavailable models and does not select them", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          visibleModelIds={{
+            ...mockVisibleModelIds,
+            openai: new Set(["gpt-4", "gpt-4-turbo", "gpt-unsupported"]),
+          }}
+          selectedProviderId={null}
+          selectedModelId={null}
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+
+      const unavailableButton = (
+        await screen.findByText("GPT Unsupported")
+      ).closest("button");
+
+      expect(unavailableButton).toBeDisabled();
+      expect(unavailableButton).toHaveTextContent("Unavailable");
+
+      fireEvent.click(unavailableButton!);
+      expect(mockHandlers.onSelectModel).not.toHaveBeenCalledWith(
+        "openai",
+        "gpt-unsupported",
+      );
     });
 
     it("closes popover after model selection", async () => {
@@ -998,7 +1038,9 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(triggerButton);
 
       expect(
-        await screen.findByText(/fetching available models from your providers/i),
+        await screen.findByText(
+          /fetching available models from your providers/i,
+        ),
       ).toBeInTheDocument();
     });
 

@@ -115,6 +115,48 @@ describe("ConnectProviderChooser", () => {
       },
       modelSource: "remote",
     },
+    {
+      providerId: "opencode-go",
+      displayName: "OpenCode Go",
+      authModes: ["api_key"],
+      launchStage: "supported",
+      adapterFamily: "openai-compatible",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "remote",
+    },
+    {
+      providerId: "opencode-zen",
+      displayName: "OpenCode Zen",
+      authModes: ["api_key"],
+      launchStage: "supported",
+      adapterFamily: "custom-http",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "remote",
+    },
+    {
+      providerId: "cloudflare-ai",
+      displayName: "Cloudflare AI",
+      authModes: ["api_key"],
+      launchStage: "coming_soon",
+      adapterFamily: "custom-http",
+      capabilities: {
+        streaming: true,
+        tools: true,
+        jsonMode: true,
+        structuredOutputs: true,
+      },
+      modelSource: "remote",
+    },
   ];
 
   const mockHandlers = {
@@ -129,14 +171,19 @@ describe("ConnectProviderChooser", () => {
   it("renders provider search and list", () => {
     render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
-    expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/search providers/i),
+    ).toBeInTheDocument();
     expect(screen.getByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("Anthropic")).toBeInTheDocument();
     expect(screen.getByText("Groq")).toBeInTheDocument();
     expect(screen.getByText("Google AI (Gemini)")).toBeInTheDocument();
     expect(screen.getByText("Together AI")).toBeInTheDocument();
     expect(screen.getByText("Cerebras")).toBeInTheDocument();
+    expect(screen.getByText("OpenCode Go")).toBeInTheDocument();
+    expect(screen.getByText("OpenCode Zen")).toBeInTheDocument();
     expect(screen.queryByText("Axis")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cloudflare AI")).not.toBeInTheDocument();
   });
 
   it("excludes Axis from connect list even if auth mode is misconfigured", () => {
@@ -148,14 +195,14 @@ describe("ConnectProviderChooser", () => {
               "api_key" | "oauth" | "platform_managed"
             >,
           }
-        : entry
+        : entry,
     );
 
     render(
       <ConnectProviderChooser
         catalog={misconfiguredCatalog}
         {...mockHandlers}
-      />
+      />,
     );
 
     expect(screen.queryByText("Axis")).not.toBeInTheDocument();
@@ -165,10 +212,12 @@ describe("ConnectProviderChooser", () => {
     const hiddenCatalog = mockCatalog.map((entry) =>
       entry.providerId === "google"
         ? { ...entry, launchStage: "hidden" as const }
-        : entry
+        : entry,
     );
 
-    render(<ConnectProviderChooser catalog={hiddenCatalog} {...mockHandlers} />);
+    render(
+      <ConnectProviderChooser catalog={hiddenCatalog} {...mockHandlers} />,
+    );
 
     expect(screen.queryByText("Google AI (Gemini)")).not.toBeInTheDocument();
   });
@@ -189,7 +238,9 @@ describe("ConnectProviderChooser", () => {
     const input = screen.getByPlaceholderText(/search providers/i);
     fireEvent.change(input, { target: { value: "nonexistent" } });
 
-    expect(screen.getByText(/no providers match your search/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/no providers match your search/i),
+    ).toBeInTheDocument();
   });
 
   it("moves to API key step after provider selection", async () => {
@@ -200,7 +251,9 @@ describe("ConnectProviderChooser", () => {
     await waitFor(() => {
       expect(screen.getByText(/connect openai/i)).toBeInTheDocument();
       expect(screen.getByPlaceholderText(/api key/i)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /back to providers/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /back to providers/i }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -215,7 +268,9 @@ describe("ConnectProviderChooser", () => {
     fireEvent.click(backButton);
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/search providers/i)).toBeInTheDocument();
+      expect(
+        screen.getByPlaceholderText(/search providers/i),
+      ).toBeInTheDocument();
     });
   });
 
@@ -240,7 +295,10 @@ describe("ConnectProviderChooser", () => {
     fireEvent.click(submitButton);
 
     await waitFor(() => {
-      expect(mockHandlers.onConnect).toHaveBeenCalledWith("openai", "sk-test-key");
+      expect(mockHandlers.onConnect).toHaveBeenCalledWith(
+        "openai",
+        "sk-test-key",
+      );
     });
   });
 
@@ -250,7 +308,7 @@ describe("ConnectProviderChooser", () => {
         catalog={mockCatalog}
         isConnecting={false}
         {...mockHandlers}
-      />
+      />,
     );
 
     fireEvent.click(screen.getByText("OpenAI"));
@@ -260,7 +318,7 @@ describe("ConnectProviderChooser", () => {
         catalog={mockCatalog}
         isConnecting={true}
         {...mockHandlers}
-      />
+      />,
     );
 
     await waitFor(() => {
@@ -274,7 +332,7 @@ describe("ConnectProviderChooser", () => {
         catalog={mockCatalog}
         error="Invalid API key format"
         {...mockHandlers}
-      />
+      />,
     );
 
     expect(screen.getByText(/invalid api key format/i)).toBeInTheDocument();
@@ -286,10 +344,12 @@ describe("ConnectProviderChooser", () => {
         catalog={mockCatalog}
         success="Provider connected successfully"
         {...mockHandlers}
-      />
+      />,
     );
 
-    expect(screen.getByText(/provider connected successfully/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/provider connected successfully/i),
+    ).toBeInTheDocument();
   });
 
   it("shows empty catalog message", () => {
