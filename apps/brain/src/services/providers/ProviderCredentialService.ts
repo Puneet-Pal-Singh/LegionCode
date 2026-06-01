@@ -14,6 +14,7 @@ import type {
   BYOKDisconnectRequest,
   CredentialVault,
   ProviderId,
+  ProviderConnectionConfig,
   BYOKValidateRequest,
   BYOKValidateResponse,
 } from "@repo/shared-types";
@@ -50,14 +51,18 @@ export class ProviderCredentialService {
    * Transport-level shape validation happens at request boundaries; provider-specific
    * key format validation is enforced here before persisting credentials.
    */
-  async connect(
-    request: BYOKConnectRequest,
-  ): Promise<BYOKConnectResponse> {
+  async connect(request: BYOKConnectRequest): Promise<BYOKConnectResponse> {
     try {
       const { providerId, apiKey } = request;
       ensureProviderAllowsManualCredential(this.registryService, providerId);
       const normalizedApiKey = apiKey.trim();
-      if (!isConnectApiKeyValid(this.registryService, providerId, normalizedApiKey)) {
+      if (
+        !isConnectApiKeyValid(
+          this.registryService,
+          providerId,
+          normalizedApiKey,
+        )
+      ) {
         return this.failureResponse(
           providerId,
           "Invalid API key format for this provider",
@@ -65,7 +70,11 @@ export class ProviderCredentialService {
       }
       const now = new Date().toISOString();
 
-      await this.vault.setCredential(providerId, normalizedApiKey);
+      await this.vault.setCredential(
+        providerId,
+        normalizedApiKey,
+        request.config,
+      );
       console.log(
         `[provider/credential] ${providerId} connected and persisted (key masked)`,
       );
@@ -91,9 +100,7 @@ export class ProviderCredentialService {
     }
   }
 
-  async validate(
-    request: BYOKValidateRequest,
-  ): Promise<BYOKValidateResponse> {
+  async validate(request: BYOKValidateRequest): Promise<BYOKValidateResponse> {
     const { providerId } = request;
     ensureProviderAllowsManualCredential(this.registryService, providerId);
     const validationMode = request.mode ?? "format";
@@ -172,6 +179,12 @@ export class ProviderCredentialService {
       return true;
     }
     return this.vault.isConnected(providerId);
+  }
+
+  async getConnectionConfig(
+    providerId: ProviderId,
+  ): Promise<ProviderConnectionConfig | undefined> {
+    return this.vault.getConnectionConfig(providerId);
   }
 
   private getPlatformManagedApiKey(providerId: ProviderId): string | null {

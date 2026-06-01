@@ -207,8 +207,9 @@ function normalizeOpenCodeGoModel(
     description: model.description,
     contextWindow: model.contextWindow ?? model.context_window,
     capabilities: {
-      supportsTools: true,
-      supportsStructuredOutputs: route.transport === "openai-chat-completions",
+      supportsTools: route.available,
+      supportsStructuredOutputs:
+        route.available && route.transport === "openai-chat-completions",
     },
     runtimeRoute: {
       providerId: OPENCODE_GO_PROVIDER_ID,

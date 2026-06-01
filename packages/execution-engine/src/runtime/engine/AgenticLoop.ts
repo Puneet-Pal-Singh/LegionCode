@@ -6,6 +6,7 @@
  */
 
 import type { CoreMessage, CoreTool } from "ai";
+import type { ProviderModelTransport } from "@repo/shared-types";
 import {
   safeParseToolActivityMetadata,
   type ToolActivityMetadata,
@@ -157,6 +158,9 @@ export class AgenticLoop {
       agentType: string;
       modelId?: string;
       providerId?: string;
+      runtimeModelId?: string;
+      providerTransport?: ProviderModelTransport;
+      providerEndpoint?: string;
       temperature?: number;
     } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
@@ -240,6 +244,9 @@ export class AgenticLoop {
             tools: isFinalSynthesisStep ? undefined : tools,
             model: context.modelId,
             providerId: context.providerId,
+            runtimeModelId: context.runtimeModelId,
+            providerTransport: context.providerTransport,
+            providerEndpoint: context.providerEndpoint,
             temperature: context.temperature,
           },
           step,
@@ -418,7 +425,10 @@ export class AgenticLoop {
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
           if (
-            isCiLogsAuthorizationBoundaryFailure(toolCall.toolName, errorMessage)
+            isCiLogsAuthorizationBoundaryFailure(
+              toolCall.toolName,
+              errorMessage,
+            )
           ) {
             encounteredCiLogsAuthorizationBoundary = true;
           }
@@ -640,7 +650,6 @@ export class AgenticLoop {
 
     return `Skipped duplicate ${toolCall.toolName} call because the same request already completed in this run. Choose a different tool or proceed with the edit.`;
   }
-
 }
 
 function buildAgenticLoopSystemPrompt(input: {
@@ -900,9 +909,8 @@ function latestTurnRequestsCiLogs(initialMessages: CoreMessage[]): boolean {
   ).toLowerCase();
 
   const asksForLogs = /\b(log|logs)\b/.test(latestTurnText);
-  const asksForCiContext = /\b(ci|check|checks|workflow|actions|job|run)\b/.test(
-    latestTurnText,
-  );
+  const asksForCiContext =
+    /\b(ci|check|checks|workflow|actions|job|run)\b/.test(latestTurnText);
   return asksForLogs && asksForCiContext;
 }
 
@@ -966,9 +974,7 @@ function normalizeStandaloneToolCallMarkup(text: string): string {
   return text;
 }
 
-function buildLoopProgressUpdate(input: {
-  isFinalSynthesisStep: boolean;
-}): {
+function buildLoopProgressUpdate(input: { isFinalSynthesisStep: boolean }): {
   phase: "planning" | "execution" | "synthesis";
   label: string;
   summary: string;

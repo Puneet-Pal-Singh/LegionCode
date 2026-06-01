@@ -339,6 +339,16 @@ vi.mock("./ai", () => ({
     },
   ),
   getSDKModelConfig: vi.fn(),
+  buildStructuredGenerationUsage: vi.fn(
+    (input: { providerId?: string; model: string }) => ({
+      provider: input.providerId ?? "openai-compatible",
+      model: input.model,
+      promptTokens: 1,
+      completionTokens: 1,
+      totalTokens: 2,
+    }),
+  ),
+  getStructuredGenerationMode: vi.fn(() => "auto"),
 }));
 
 import * as aiModule from "./ai";
@@ -452,6 +462,62 @@ describe("AIService provider override routing", () => {
     expect(result.usage.model).toBe("gpt-4o");
     expect(openaiAdapter.generate).toHaveBeenCalledTimes(1);
     expect(litellmAdapter.generate).not.toHaveBeenCalled();
+  });
+
+  it("passes complete provider route metadata to adapter selection", async () => {
+    const providerConfig = createProviderConfigService();
+    await providerConfig.connect({
+      providerId: "cloudflare-ai",
+      apiKey: "cloudflare-api-token",
+      config: {
+        providerId: "cloudflare-ai",
+        accountId: "acct",
+        routeMode: "workers-ai-direct",
+      },
+    });
+
+    const service = new AIService(createEnv(), providerConfig);
+    mockedAi.selectAdapter.mockResolvedValue(openaiAdapter);
+
+    await service.generateText({
+      messages: BASE_MESSAGES,
+      providerId: "cloudflare-ai",
+      model: "@cf/meta/llama-3.1-8b-instruct",
+      runtimeModelId: "@cf/meta/llama-3.1-8b-instruct",
+      providerTransport: "openai-chat-completions",
+      providerEndpoint:
+        "https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/chat/completions",
+    });
+
+    expect(mockedAi.selectAdapter).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.any(Object),
+      expect.any(Object),
+      undefined,
+      {
+        providerId: "cloudflare-ai",
+        transport: "openai-chat-completions",
+        endpoint:
+          "https://api.cloudflare.com/client/v4/accounts/acct/ai/v1/chat/completions",
+      },
+    );
+  });
+
+  it("fails fast when provider route metadata is incomplete", async () => {
+    const providerConfig = createProviderConfigService();
+    const service = new AIService(createEnv(), providerConfig);
+
+    await expect(
+      service.generateText({
+        messages: BASE_MESSAGES,
+        providerId: "cloudflare-ai",
+        model: "@cf/meta/llama-3.1-8b-instruct",
+        providerTransport: "openai-chat-completions",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PROVIDER_SELECTION" });
+
+    expect(mockedAi.selectAdapter).not.toHaveBeenCalled();
   });
 
   it("enforces axis quota before runtime inference", async () => {

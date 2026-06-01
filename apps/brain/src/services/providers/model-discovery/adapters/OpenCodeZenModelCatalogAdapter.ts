@@ -261,9 +261,11 @@ function buildCapabilities(
   route: OpenCodeZenRoute,
 ): BYOKDiscoveredProviderModel["capabilities"] {
   return {
-    supportsTools: true,
-    supportsStructuredOutputs: route.transport === "openai-chat-completions",
-    supportsReasoning: route.transport === "openai-responses",
+    supportsTools: route.available,
+    supportsStructuredOutputs:
+      route.available && route.transport === "openai-chat-completions",
+    supportsReasoning:
+      route.available && route.transport === "openai-responses",
   };
 }
 

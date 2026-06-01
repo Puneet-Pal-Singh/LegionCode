@@ -348,10 +348,11 @@ export class RunEngine implements IRunEngine {
         runMode === "build" &&
         isPlatformApprovalOwner(run.metadata.manifest)
       ) {
-        const approvalDirectiveMessage = await processPermissionDirectivesPolicy(
-          input.prompt,
-          this.permissionApprovalStore,
-        );
+        const approvalDirectiveMessage =
+          await processPermissionDirectivesPolicy(
+            input.prompt,
+            this.permissionApprovalStore,
+          );
         if (approvalDirectiveMessage) {
           recordLifecycleStep(
             run,
@@ -598,6 +599,9 @@ export class RunEngine implements IRunEngine {
         initialCompletedMutatingToolCount: restoredPersistedEditCount,
         modelId: input.modelId,
         providerId: input.providerId,
+        runtimeModelId: input.runtimeModelId,
+        providerTransport: input.providerTransport,
+        providerEndpoint: input.providerEndpoint,
         temperature: 0.2,
         onToolRequested: loopCallbacks.onToolRequested,
         onProgress: async (progress) => {
@@ -919,14 +923,21 @@ export class RunEngine implements IRunEngine {
   private async processPermissionDirectives(
     prompt: string,
   ): Promise<string | null> {
-    return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
+    return processPermissionDirectivesPolicy(
+      prompt,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getPermissionPolicyMessage(
     prompt: string,
     repositoryContext?: { owner?: string; repo?: string },
   ): Promise<string | null> {
-    return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
+    return getPermissionPolicyMessage(
+      prompt,
+      repositoryContext,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getWorkspaceBootstrapMessage(
@@ -934,7 +945,12 @@ export class RunEngine implements IRunEngine {
     prompt: string,
     repositoryContext?: { owner?: string; repo?: string; branch?: string },
   ): Promise<string | null> {
-    const evaluation = await evaluateWorkspaceBootstrap(runId, prompt, repositoryContext, this.workspaceBootstrapper);
+    const evaluation = await evaluateWorkspaceBootstrap(
+      runId,
+      prompt,
+      repositoryContext,
+      this.workspaceBootstrapper,
+    );
     return evaluation.message;
   }
 
