@@ -241,7 +241,11 @@ function readConnectionConfig(
   if (parsed === null || parsed === undefined) {
     return undefined;
   }
-  return ProviderConnectionConfigSchema.parse(parsed);
+  const result = ProviderConnectionConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("Invalid provider connection config payload");
+  }
+  return result.data;
 }
 
 const GET_CREDENTIAL_SQL = `

@@ -18,6 +18,10 @@ import {
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
+import {
+  getProviderModelUnavailableReason,
+  isProviderModelAvailable,
+} from "./providerModelAvailability";
 
 /**
  * Provider group with visibility state
@@ -382,8 +386,7 @@ export function ManageModelsDialog({
                         const isVisible = visibleSet
                           ? visibleSet.has(model.id)
                           : true;
-                        const isAvailable =
-                          (model.availability ?? "available") === "available";
+                        const isAvailable = isProviderModelAvailable(model);
                         return (
                           <div
                             key={model.id}
@@ -399,8 +402,7 @@ export function ManageModelsDialog({
                               </p>
                               {!isAvailable && (
                                 <p className="mt-0.5 text-[11px] text-amber-300">
-                                  {model.unavailableReason ??
-                                    "Unavailable for runtime selection"}
+                                  {getProviderModelUnavailableReason(model)}
                                 </p>
                               )}
                             </div>

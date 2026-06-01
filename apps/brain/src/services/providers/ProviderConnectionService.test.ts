@@ -23,6 +23,7 @@ describe("ProviderConnectionService", () => {
       isConnected: vi.fn(
         async (providerId: ProviderId) => providerId === "openai",
       ),
+      getConnectionConfig: vi.fn(async () => undefined),
     };
     const registryService = createRegistryMock();
 
@@ -55,6 +56,7 @@ describe("ProviderConnectionService", () => {
         }
         return providerId === "openai";
       }),
+      getConnectionConfig: vi.fn(async () => undefined),
     };
     const registryService = createRegistryMock();
 

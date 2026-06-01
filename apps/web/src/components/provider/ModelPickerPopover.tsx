@@ -25,6 +25,7 @@ import {
   type ProviderModelsMetadata,
 } from "../../services/api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import { isProviderModelAvailable } from "./providerModelAvailability";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
@@ -854,18 +855,14 @@ export function ModelPickerPopover({
                               type="button"
                               key={model.id}
                               onClick={() => {
-                                if (
-                                  (model.availability ?? "available") !==
-                                  "available"
-                                ) {
+                                if (!isProviderModelAvailable(model)) {
                                   return;
                                 }
                                 handleSelectModel(group.providerId, model.id);
                               }}
                               disabled={
                                 selectingModelId === model.id ||
-                                (model.availability ?? "available") !==
-                                  "available"
+                                !isProviderModelAvailable(model)
                               }
                               className={`
                               w-full px-3 py-2 text-left text-xs
@@ -884,8 +881,7 @@ export function ModelPickerPopover({
                                 <p className="truncate font-medium">
                                   {model.name}
                                 </p>
-                                {(model.availability ?? "available") !==
-                                  "available" && (
+                                {!isProviderModelAvailable(model) && (
                                   <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
                                     Unavailable
                                   </span>

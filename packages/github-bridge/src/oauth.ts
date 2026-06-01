@@ -182,8 +182,11 @@ function readGitHubUser(payload: unknown): GitHubUser {
 }
 
 function readRequiredString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.length === 0) {
+  if (typeof value !== "string") {
     throw new Error(`GitHub response field "${field}" was not a string.`);
+  }
+  if (value.length === 0) {
+    throw new Error(`GitHub response field "${field}" was empty.`);
   }
   return value;
 }
@@ -216,5 +219,5 @@ function readOptionalNumber(value: unknown): number | undefined {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
