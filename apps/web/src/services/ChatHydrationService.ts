@@ -1,4 +1,8 @@
 import type { Message } from "@ai-sdk/react";
+import {
+  isTurnActivityTranscriptPart,
+  type TurnActivityTranscriptPart,
+} from "@repo/shared-types";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
@@ -19,10 +23,19 @@ interface CorePart {
   args?: unknown;
 }
 
+type ServerMessagePart =
+  | CorePart
+  | TurnActivityTranscriptPart
+  | { type: string; [key: string]: unknown };
+
+type MessageWithActivityData = Message & {
+  data: { activityParts: TurnActivityTranscriptPart[] };
+};
+
 interface ServerMessage {
   id?: string;
   role: "system" | "user" | "assistant" | "tool";
-  content: string | CorePart[];
+  content: string | ServerMessagePart[];
   tool_calls?: ServerToolCall[];
   createdAt?: string | Date;
 }
@@ -134,15 +147,16 @@ export class ChatHydrationService {
       .map((msg, index) => {
         let content = "";
         let toolInvocations: ToolInvocation[] = [];
+        const activityParts: TurnActivityTranscriptPart[] = [];
 
         if (typeof msg.content === "string") {
           content = msg.content;
         } else if (Array.isArray(msg.content)) {
           // Handle CoreMessage parts
           msg.content.forEach((part) => {
-            if (part.type === "text" && part.text) {
+            if (isCoreTextPart(part)) {
               content += part.text;
-            } else if (part.type === "tool-call") {
+            } else if (isToolCallPart(part)) {
               toolInvocations.push({
                 state: "result",
                 toolCallId: part.toolCallId || `${runId}-tool-${index}`,
@@ -150,6 +164,8 @@ export class ChatHydrationService {
                 args: part.args || {},
                 result: null, // Results are pruned or handled separately
               });
+            } else if (isTurnActivityTranscriptPart(part)) {
+              activityParts.push(part);
             }
           });
         }
@@ -169,6 +185,9 @@ export class ChatHydrationService {
 
         if (toolInvocations.length > 0) {
           converted.toolInvocations = toolInvocations;
+        }
+        if (activityParts.length > 0) {
+          return attachActivityParts(converted, activityParts);
         }
 
         return converted;
@@ -198,4 +217,31 @@ export class ChatHydrationService {
       return {};
     }
   }
+}
+
+function isCoreTextPart(
+  value: ServerMessagePart,
+): value is CorePart & { type: "text"; text: string } {
+  return (
+    value.type === "text" &&
+    "text" in value &&
+    typeof value.text === "string" &&
+    value.text.length > 0
+  );
+}
+
+function isToolCallPart(
+  value: ServerMessagePart,
+): value is CorePart & { type: "tool-call" } {
+  return value.type === "tool-call";
+}
+
+function attachActivityParts(
+  message: Message,
+  activityParts: TurnActivityTranscriptPart[],
+): Message {
+  return {
+    ...message,
+    data: { activityParts },
+  } as MessageWithActivityData;
 }

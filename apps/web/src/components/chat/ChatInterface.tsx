@@ -33,6 +33,10 @@ import {
   buildConversationTurns,
 } from "./messageMetadata";
 import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeedViewModel.js";
+import {
+  buildTranscriptActivityTurns,
+  mergeTranscriptAndLiveActivityTurns,
+} from "../../services/activity/TranscriptActivityParts.js";
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
@@ -337,10 +341,16 @@ export function ChatInterface({
         : scopedFeed,
     [isLoading, scopedFeed],
   );
-  const activityViewModel = useMemo(
-    () => buildActivityFeedViewModel(displayFeed, activityNowMs),
-    [displayFeed, activityNowMs],
-  );
+  const activityViewModel = useMemo(() => {
+    const liveViewModel = buildActivityFeedViewModel(displayFeed, activityNowMs);
+    return {
+      ...liveViewModel,
+      turns: mergeTranscriptAndLiveActivityTurns(
+        buildTranscriptActivityTurns(messages),
+        liveViewModel.turns,
+      ),
+    };
+  }, [activityNowMs, displayFeed, messages]);
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
     [messages],

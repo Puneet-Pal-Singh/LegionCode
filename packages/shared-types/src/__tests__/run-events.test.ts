@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   RUN_EVENT_TYPES,
   RUN_WORKFLOW_STEPS,
+  isTurnActivityTranscriptPart,
   isRunEvent,
   isRunEventOfType,
   type RunEvent,
@@ -81,6 +82,26 @@ describe("RunEvent Type Guards", () => {
     expect(
       isRunEventOfType(validRunStartedEvent, RUN_EVENT_TYPES.MESSAGE_EMITTED),
     ).toBe(false);
+  });
+});
+
+describe("Turn activity transcript part guard", () => {
+  it("accepts canonical turn activity transcript parts", () => {
+    expect(
+      isTurnActivityTranscriptPart({
+        version: 1,
+        type: "turn_activity",
+        events: [],
+        compacted: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects non-transcript parts", () => {
+    expect(isTurnActivityTranscriptPart({ type: "text", text: "hello" })).toBe(
+      false,
+    );
+    expect(isTurnActivityTranscriptPart(null)).toBe(false);
   });
 });
 

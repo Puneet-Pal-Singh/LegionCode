@@ -281,6 +281,82 @@ describe("ChatInterface", () => {
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
+  it("replays provider interruption rows from hydrated transcript activity", () => {
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "check CI",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "The selected model stopped responding.",
+              data: {
+                activityParts: [
+                  {
+                    version: 1,
+                    type: "turn_activity",
+                    compacted: false,
+                    events: [
+                      {
+                        id: "activity-provider",
+                        runId: "run-1",
+                        sessionId: "session-1",
+                        turnId: "run-1:turn-1",
+                        sequence: 1,
+                        kind: "provider_error",
+                        status: "paused",
+                        title: "Provider interruption",
+                        detail:
+                          "The selected model stopped responding after retrying.",
+                        displayMode: "visible",
+                        metadata: {
+                          code: "PROVIDER_UNAVAILABLE",
+                          providerId: "google",
+                          modelId: "gemma-4-31b-it",
+                          statusCode: 500,
+                        },
+                        createdAt: "2026-05-24T00:00:00.000Z",
+                        updatedAt: "2026-05-24T00:00:00.000Z",
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+          runId: "run-1",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getAllByText("The selected model stopped responding."),
+    ).toHaveLength(2);
+    expect(screen.getByText("View details")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Recoverable provider interruption"),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps changed files on the final assistant message after git status becomes clean", async () => {
     const changedStatus: GitStatusResponse = {
       files: [
