@@ -143,6 +143,9 @@ export function Workspace({
     gitAvailable,
     refetch: refetchGitStatus,
   } = useGitStatus(activeRunId, sessionId);
+  const [locallyStoppedRunId, setLocallyStoppedRunId] = useState<string | null>(
+    null,
+  );
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
   const canonicalRunStatus = runSummaryMatchesActiveRun
     ? normalizeRunStatus(runSummary.status)
@@ -157,16 +160,24 @@ export function Workspace({
   const isCanonicalRunActive =
     canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
   const isCanonicalRunTerminal = isTerminalRunStatus(canonicalRunStatus);
+  const isLocallyStoppedRun = locallyStoppedRunId === activeRunId;
   const isStaleCanonicalActiveRun =
     isCanonicalRunActive && hasLocalAssistantCompletion;
   const isEffectiveCanonicalRunActive =
-    isCanonicalRunActive && !isStaleCanonicalActiveRun;
-  const isRunLoading = isLoading || isEffectiveCanonicalRunActive;
+    isCanonicalRunActive && !isStaleCanonicalActiveRun && !isLocallyStoppedRun;
+  const isSessionActiveWithoutSummary =
+    isSessionRunning &&
+    !isCanonicalRunTerminal &&
+    !hasLocalAssistantCompletion &&
+    !isLocallyStoppedRun;
+  const isRunLoading =
+    isLoading || isEffectiveCanonicalRunActive || isSessionActiveWithoutSummary;
   const canStopRun =
     isRunLoading ||
     (isSessionRunning &&
       !isCanonicalRunTerminal &&
-      !isStaleCanonicalActiveRun);
+      !isStaleCanonicalActiveRun &&
+      !isLocallyStoppedRun);
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -217,9 +228,16 @@ export function Workspace({
   ]);
 
   const handleStopRun = useCallback(() => {
+    setLocallyStoppedRunId(activeRunId);
     stop();
     onSessionStatusChange?.("completed");
-  }, [onSessionStatusChange, stop]);
+  }, [activeRunId, onSessionStatusChange, stop]);
+
+  useEffect(() => {
+    if (isLoading) {
+      setLocallyStoppedRunId(null);
+    }
+  }, [isLoading]);
 
   useEffect(() => {
     // Persist runId to localStorage scoped by sessionId for cross-tab/refreshes persistence
@@ -313,6 +331,9 @@ export function Workspace({
     };
 
     if (canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED") {
+      if (isLocallyStoppedRun) {
+        return;
+      }
       onSessionStatusChange?.("running");
       return;
     }
@@ -327,12 +348,16 @@ export function Workspace({
       canonicalRunStatus === "COMPLETED" ||
       canonicalRunStatus === "CANCELLED"
     ) {
+      if (canonicalRunStatus === "CANCELLED") {
+        setLocallyStoppedRunId(null);
+      }
       onSessionStatusChange?.("completed");
       void refetchGitStatus(true);
     }
   }, [
     activeRunId,
     canonicalRunStatus,
+    isLocallyStoppedRun,
     isStaleCanonicalActiveRun,
     onSessionStatusChange,
     refetchGitStatus,

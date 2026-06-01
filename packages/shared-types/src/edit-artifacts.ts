@@ -5,6 +5,8 @@ export const EDIT_ARTIFACT_KINDS = ["git_patch", "file_snapshot"] as const;
 export const EDIT_ARTIFACT_STATUSES = [
   "pending",
   "stored",
+  "stored_with_secondary",
+  "secondary_write_failed",
   "capture_failed",
   "restore_in_progress",
   "restored",
@@ -18,6 +20,12 @@ export const EDIT_ARTIFACT_STATUSES = [
 export const EDIT_ARTIFACT_EVENT_TYPES = [
   "capture_started",
   "r2_write_succeeded",
+  "patch_parse_succeeded",
+  "patch_parse_failed",
+  "cf_artifacts_write_succeeded",
+  "cf_artifacts_write_failed",
+  "reconciliation_succeeded",
+  "reconciliation_failed",
   "metadata_commit_succeeded",
   "capture_failed",
   "restore_attempted",
@@ -58,6 +66,19 @@ export const EditArtifactRecordSchema = z.object({
   contentType: z.string().min(1).nullable(),
   sizeBytes: z.number().int().nonnegative().nullable(),
   sha256: z.string().min(1).nullable(),
+  userMessageId: z.string().min(1).nullable().optional(),
+  assistantMessageId: z.string().min(1).nullable().optional(),
+  sourceTurnId: z.string().min(1).nullable().optional(),
+  captureSequence: z.number().int().nonnegative().optional(),
+  patchParseStatus: z.string().min(1).optional(),
+  patchSha256: z.string().min(1).nullable().optional(),
+  storageBackend: z
+    .enum(["r2_postgres", "cloudflare_artifacts"])
+    .optional(),
+  cfArtifactRepo: z.string().min(1).nullable().optional(),
+  cfArtifactCommitSha: z.string().min(1).nullable().optional(),
+  cfArtifactPath: z.string().min(1).nullable().optional(),
+  storageReconciliationStatus: z.string().min(1).nullable().optional(),
   changedFileCount: z.number().int().nonnegative(),
   changedFiles: z.array(EditArtifactChangedFileSchema),
   status: EditArtifactStatusSchema,
@@ -90,6 +111,19 @@ export const CreateEditArtifactInputSchema = z.object({
   artifactKind: EditArtifactKindSchema,
   r2ObjectKey: z.string().min(1),
   changedFiles: z.array(EditArtifactChangedFileSchema),
+  userMessageId: z.string().min(1).optional().nullable(),
+  assistantMessageId: z.string().min(1).optional().nullable(),
+  sourceTurnId: z.string().min(1).optional().nullable(),
+  captureSequence: z.number().int().nonnegative().optional(),
+  patchParseStatus: z.string().min(1).optional(),
+  patchSha256: z.string().min(1).optional().nullable(),
+  storageBackend: z
+    .enum(["r2_postgres", "cloudflare_artifacts"])
+    .optional(),
+  cfArtifactRepo: z.string().min(1).optional().nullable(),
+  cfArtifactCommitSha: z.string().min(1).optional().nullable(),
+  cfArtifactPath: z.string().min(1).optional().nullable(),
+  storageReconciliationStatus: z.string().min(1).optional().nullable(),
   expiresAt: z.string().min(1),
 });
 
@@ -105,6 +139,14 @@ export const EditArtifactPatchObjectMetadataSchema = z.object({
   branch: z.string().min(1).nullable(),
   baseCommitSha: z.string().min(1).nullable(),
   patchSha256: z.string().min(1),
+  userMessageId: z.string().min(1).optional().nullable(),
+  assistantMessageId: z.string().min(1).optional().nullable(),
+  sourceTurnId: z.string().min(1).optional().nullable(),
+  captureSequence: z.number().int().nonnegative().optional(),
+  patchParseStatus: z.string().min(1).optional(),
+  storageBackend: z
+    .enum(["r2_postgres", "cloudflare_artifacts"])
+    .optional(),
   changedFiles: z.array(EditArtifactChangedFileSchema),
   capturedAt: z.string().min(1),
 });
