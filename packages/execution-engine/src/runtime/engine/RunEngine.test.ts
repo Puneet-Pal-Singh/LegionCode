@@ -410,7 +410,11 @@ describe("RunEngine", () => {
       ),
       {
         name: "AI_RetryError",
-        cause: { statusCode: 500, message: "Internal error encountered." },
+        cause: {
+          statusCode: 500,
+          retryCount: 3,
+          message: "Internal error encountered.",
+        },
       },
     );
     const llmGateway: ILLMGateway = {

@@ -245,7 +245,11 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       ),
       {
         name: "AI_RetryError",
-        cause: { statusCode: 500, message: "Internal error encountered." },
+        cause: {
+          statusCode: 500,
+          retryCount: 3,
+          message: "Internal error encountered.",
+        },
       },
     );
 
@@ -367,6 +371,56 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       expect.stringContaining("signal=network connection lost."),
       "PAUSED",
     );
+  });
+
+  it("omits unavailable provider metadata fields when they are unknown", async () => {
+    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+      agentType: "coding",
+      prompt: "continue",
+      sessionId: "session-1",
+    });
+    const completeRunWithRecoveredAssistantMessage = vi.fn(
+      async () => new Response(),
+    );
+
+    const response = await tryHandleTaskExecutionErrorPolicy({
+      run,
+      prompt: "continue",
+      loop: {
+        getStats: () => ({
+          stopReason: "llm_stop" as const,
+          stepsExecuted: 1,
+          toolExecutionCount: 0,
+          failedToolCount: 0,
+          requiresMutation: false,
+          completedMutatingToolCount: 0,
+          completedReadOnlyToolCount: 0,
+          llmRetryCount: 2,
+          terminalLlmIssue: undefined,
+          toolLifecycle: [],
+        }),
+      } as never,
+      error: new Error("Provider request failed."),
+      deps: {
+        completeRunWithRecoveredAssistantMessage,
+        runEventRecorder: {
+          recordRunProgress: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    const metadata =
+      completeRunWithRecoveredAssistantMessage.mock.calls[0]?.[2];
+    expect(response).toBeInstanceOf(Response);
+    expect(metadata).toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+      retryCount: 2,
+      noFilesChanged: true,
+    });
+    expect(metadata).not.toHaveProperty("providerId");
+    expect(metadata).not.toHaveProperty("modelId");
+    expect(metadata).not.toHaveProperty("statusCode");
+    expect(metadata).not.toHaveProperty("lastCompletedAction");
   });
 
   it("does not classify unrelated 'upstream' wording as provider unavailable", async () => {

@@ -75,9 +75,20 @@ export class RunEventRecorder {
     label: string,
     summary: string,
     status: "active" | "completed",
+    options?: {
+      displayMode?: "visible" | "collapsed" | "debug";
+      metadata?: Record<string, unknown>;
+    },
   ): Promise<void> {
     await this.append(
-      createRunProgressEvent(this.baseInput(), phase, label, summary, status),
+      createRunProgressEvent(
+        this.baseInput(),
+        phase,
+        label,
+        summary,
+        status,
+        options,
+      ),
     );
   }
 

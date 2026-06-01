@@ -189,15 +189,30 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
           },
         });
 
+      const onProviderRetry = vi.fn();
       const result = await loop.execute(
         [{ role: "user", content: "inspect the repository" }],
         {},
-        { agentType: "coding" },
+        {
+          agentType: "coding",
+          onProviderRetry,
+        },
       );
 
       expect(result.stopReason).toBe("llm_stop");
       expect(result.llmRetryCount).toBe(1);
       expect(llmGateway.generateText).toHaveBeenCalledTimes(2);
+      expect(onProviderRetry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerId: "google",
+          modelId: "gemini-2.5-flash-lite",
+          anomalyCode: "EMPTY_CANDIDATE",
+          attempt: 1,
+          nextAttempt: 2,
+          maxAttempts: 2,
+          retryCount: 1,
+        }),
+      );
     });
 
     it("should stop with budget_exceeded when budget is over", async () => {

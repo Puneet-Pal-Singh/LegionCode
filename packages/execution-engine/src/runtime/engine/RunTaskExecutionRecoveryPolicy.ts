@@ -322,11 +322,15 @@ function buildProviderUnavailableMetadata(input: {
   return {
     code: "PROVIDER_UNAVAILABLE",
     retryable: true,
-    providerId: input.providerId,
-    modelId: input.modelId,
-    statusCode: input.statusCode,
+    ...(input.providerId ? { providerId: input.providerId } : undefined),
+    ...(input.modelId ? { modelId: input.modelId } : undefined),
+    ...(input.statusCode !== null
+      ? { statusCode: input.statusCode }
+      : undefined),
     retryCount: input.retryCount,
-    lastCompletedAction: input.lastCompletedAction,
+    ...(input.lastCompletedAction
+      ? { lastCompletedAction: input.lastCompletedAction }
+      : undefined),
     stepsExecuted: input.stepsExecuted,
     toolExecutionCount: input.toolExecutionCount,
     completedMutatingToolCount: input.completedMutatingToolCount,
@@ -407,18 +411,11 @@ function resolveProviderRetryCount(
   error: unknown,
   loopRetryCount: number,
 ): number {
-  if (!(error instanceof Error)) {
-    return loopRetryCount;
-  }
-
-  const signalText = getErrorSignalText(error);
-  const attemptsMatch = signalText.match(/failed after\s+(\d+)\s+attempts?/i);
-  if (!attemptsMatch?.[1]) {
-    return loopRetryCount;
-  }
-
-  const parsed = Number.parseInt(attemptsMatch[1], 10);
-  return Number.isFinite(parsed) ? parsed : loopRetryCount;
+  return (
+    readNestedFiniteNumber(error, "retryCount") ??
+    readNestedFiniteNumber(error, "attempts") ??
+    loopRetryCount
+  );
 }
 
 function resolveTaskTimeoutMs(error: unknown): number | null {
@@ -476,15 +473,39 @@ function collectErrorStatusCodes(error: Error): number[] {
 }
 
 function readStatusCode(value: unknown): number | null {
+  return readFiniteNumberProperty(value, "statusCode");
+}
+
+function readNestedFiniteNumber(value: unknown, key: string): number | null {
+  let current: unknown = value;
+  let depth = 0;
+
+  while (current && depth < 6) {
+    const numberValue = readFiniteNumberProperty(current, key);
+    if (numberValue !== null) {
+      return numberValue;
+    }
+    if (current instanceof Error || typeof current === "object") {
+      current = (current as { cause?: unknown }).cause;
+      depth += 1;
+      continue;
+    }
+    break;
+  }
+
+  return null;
+}
+
+function readFiniteNumberProperty(value: unknown, key: string): number | null {
   if (!value || typeof value !== "object") {
     return null;
   }
 
-  const statusCode = (value as Record<string, unknown>).statusCode;
-  if (typeof statusCode !== "number" || !Number.isFinite(statusCode)) {
+  const numericValue = (value as Record<string, unknown>)[key];
+  if (typeof numericValue !== "number" || !Number.isFinite(numericValue)) {
     return null;
   }
-  return statusCode;
+  return numericValue;
 }
 
 function sanitizeOptionalString(value: unknown): string | null {

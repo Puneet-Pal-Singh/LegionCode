@@ -78,12 +78,18 @@ export function createRunProgressEvent(
   label: string,
   summary: string,
   status: "active" | "completed",
+  options?: {
+    displayMode?: "visible" | "collapsed" | "debug";
+    metadata?: Record<string, unknown>;
+  },
 ): RunProgressEvent {
   return createEnvelope(input, RUN_EVENT_TYPES.RUN_PROGRESS, {
     phase,
     label,
     summary,
     status,
+    displayMode: options?.displayMode,
+    metadata: options?.metadata,
   });
 }
 

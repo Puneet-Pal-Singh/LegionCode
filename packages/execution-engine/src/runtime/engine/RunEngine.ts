@@ -348,10 +348,11 @@ export class RunEngine implements IRunEngine {
         runMode === "build" &&
         isPlatformApprovalOwner(run.metadata.manifest)
       ) {
-        const approvalDirectiveMessage = await processPermissionDirectivesPolicy(
-          input.prompt,
-          this.permissionApprovalStore,
-        );
+        const approvalDirectiveMessage =
+          await processPermissionDirectivesPolicy(
+            input.prompt,
+            this.permissionApprovalStore,
+          );
         if (approvalDirectiveMessage) {
           recordLifecycleStep(
             run,
@@ -600,30 +601,9 @@ export class RunEngine implements IRunEngine {
         providerId: input.providerId,
         temperature: 0.2,
         onToolRequested: loopCallbacks.onToolRequested,
-        onProgress: async (progress) => {
-          if (!progress) return;
-          await this.runEventRecorder.recordRunProgress(
-            progress.phase,
-            progress.label,
-            progress.summary,
-            progress.status,
-          );
-        },
-        onAssistantMessage: async (content) => {
-          const sanitizedContent = sanitizeUserFacingOutput(content).trim();
-          if (!sanitizedContent) {
-            return;
-          }
-          await this.runEventRecorder.recordMessageEmitted(
-            "assistant",
-            sanitizedContent,
-            undefined,
-            {
-              phase: "commentary",
-              status: "completed",
-            },
-          );
-        },
+        onProgress: loopCallbacks.onProgress,
+        onProviderRetry: loopCallbacks.onProviderRetry,
+        onAssistantMessage: loopCallbacks.onAssistantMessage,
         onToolStarted: loopCallbacks.onToolStarted,
         onToolCompleted: loopCallbacks.onToolCompleted,
         onToolFailed: loopCallbacks.onToolFailed,
@@ -919,14 +899,21 @@ export class RunEngine implements IRunEngine {
   private async processPermissionDirectives(
     prompt: string,
   ): Promise<string | null> {
-    return processPermissionDirectivesPolicy(prompt, this.permissionApprovalStore);
+    return processPermissionDirectivesPolicy(
+      prompt,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getPermissionPolicyMessage(
     prompt: string,
     repositoryContext?: { owner?: string; repo?: string },
   ): Promise<string | null> {
-    return getPermissionPolicyMessage(prompt, repositoryContext, this.permissionApprovalStore);
+    return getPermissionPolicyMessage(
+      prompt,
+      repositoryContext,
+      this.permissionApprovalStore,
+    );
   }
 
   private async getWorkspaceBootstrapMessage(
@@ -934,7 +921,12 @@ export class RunEngine implements IRunEngine {
     prompt: string,
     repositoryContext?: { owner?: string; repo?: string; branch?: string },
   ): Promise<string | null> {
-    const evaluation = await evaluateWorkspaceBootstrap(runId, prompt, repositoryContext, this.workspaceBootstrapper);
+    const evaluation = await evaluateWorkspaceBootstrap(
+      runId,
+      prompt,
+      repositoryContext,
+      this.workspaceBootstrapper,
+    );
     return evaluation.message;
   }
 

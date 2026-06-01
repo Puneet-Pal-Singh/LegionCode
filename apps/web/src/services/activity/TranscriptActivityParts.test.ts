@@ -11,6 +11,56 @@ import {
 import type { ActivityTurnViewModel } from "./ActivityFeedViewModel.js";
 
 describe("TranscriptActivityParts", () => {
+  it("keeps provider retry debug events out of visible transcript rows", () => {
+    const turns = buildTranscriptActivityTurns([
+      createMessage("user", "check CI"),
+      createAssistantMessageWithActivity(
+        createPart("run-1:turn-1", [
+          createProgressEvent({
+            id: "retry-1",
+            sequence: 1,
+            displayMode: "debug",
+            title: "Retrying model request",
+            detail: "Retrying once before pausing the run.",
+            metadata: {
+              code: "MODEL_UNUSABLE_RESPONSE",
+              retryCount: 1,
+            },
+          }),
+          createProviderErrorEvent(),
+        ]),
+      ),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.rows).toHaveLength(1);
+    expect(turns[0]?.summaryLabel).toBe("Paused after provider interruption");
+    expect(turns[0]?.rows[0]).toMatchObject({
+      kind: "commentary",
+      metadata: {
+        code: "PROVIDER_UNAVAILABLE",
+      },
+    });
+  });
+
+  it("drops turns that only contain debug activity", () => {
+    const turns = buildTranscriptActivityTurns([
+      createMessage("user", "check CI"),
+      createAssistantMessageWithActivity(
+        createPart("run-1:turn-1", [
+          createProgressEvent({
+            id: "retry-1",
+            sequence: 1,
+            displayMode: "debug",
+            title: "Retrying model request",
+          }),
+        ]),
+      ),
+    ]);
+
+    expect(turns).toEqual([]);
+  });
+
   it("builds transcript turns with the latest preceding user prompt", () => {
     const turns = buildTranscriptActivityTurns([
       createMessage("user", "first prompt"),
@@ -105,6 +155,45 @@ function createPart(
     type: "turn_activity",
     events: events.map((event) => ({ ...event, turnId })),
     compacted: false,
+  };
+}
+
+function createProgressEvent(
+  overrides: Partial<TurnActivityEvent>,
+): TurnActivityEvent {
+  return {
+    id: "progress-1",
+    runId: "run-1",
+    sessionId: "session-1",
+    turnId: "turn-1",
+    sequence: 1,
+    kind: "progress",
+    status: "completed",
+    title: "Progress",
+    displayMode: "visible",
+    createdAt: "2026-05-24T00:00:00.000Z",
+    updatedAt: "2026-05-24T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function createProviderErrorEvent(): TurnActivityEvent {
+  return {
+    id: "provider-error-1",
+    runId: "run-1",
+    sessionId: "session-1",
+    turnId: "turn-1",
+    sequence: 2,
+    kind: "provider_error",
+    status: "paused",
+    title: "Provider interruption",
+    detail: "The selected model stopped responding after retrying.",
+    displayMode: "visible",
+    metadata: {
+      code: "PROVIDER_UNAVAILABLE",
+    },
+    createdAt: "2026-05-24T00:00:01.000Z",
+    updatedAt: "2026-05-24T00:00:01.000Z",
   };
 }
 

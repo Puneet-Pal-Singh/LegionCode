@@ -82,6 +82,8 @@ const RunProgressPayloadSchema = z.object({
   label: z.string().min(1),
   summary: z.string(),
   status: z.enum(["active", "completed"]),
+  displayMode: z.enum(["visible", "collapsed", "debug"]).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const ApprovalRequestPayloadSchema = z.object({

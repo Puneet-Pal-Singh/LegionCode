@@ -156,6 +156,35 @@ describe("RunEvent Schema Validation", () => {
     }
   });
 
+  it("should parse debug run progress metadata", () => {
+    const event = {
+      version: 1,
+      eventId: "evt-progress",
+      runId: "run-456",
+      timestamp: new Date().toISOString(),
+      source: "brain" as const,
+      type: RUN_EVENT_TYPES.RUN_PROGRESS,
+      payload: {
+        phase: RUN_WORKFLOW_STEPS.EXECUTION,
+        label: "Retrying model request",
+        summary: "Retrying once before pausing the run.",
+        status: "completed" as const,
+        displayMode: "debug" as const,
+        metadata: {
+          code: "MODEL_UNUSABLE_RESPONSE",
+          retryCount: 1,
+        },
+      },
+    };
+
+    const parsed = parseRunEvent(event);
+    expect(parsed.type).toBe(RUN_EVENT_TYPES.RUN_PROGRESS);
+    if (parsed.type === RUN_EVENT_TYPES.RUN_PROGRESS) {
+      expect(parsed.payload.displayMode).toBe("debug");
+      expect(parsed.payload.metadata?.retryCount).toBe(1);
+    }
+  });
+
   it("should trim tool.requested description and displayText", () => {
     const event = {
       version: 1,

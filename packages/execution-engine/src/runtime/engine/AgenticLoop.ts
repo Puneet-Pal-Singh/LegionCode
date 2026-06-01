@@ -56,6 +56,18 @@ interface AgenticLoopToolResult {
   terminalError?: boolean;
 }
 
+export interface AgenticLoopProviderRetryEvent {
+  providerId: string;
+  modelId: string;
+  anomalyCode: string;
+  finishReason?: string;
+  statusCode?: number;
+  attempt: number;
+  nextAttempt: number;
+  maxAttempts: number;
+  retryCount: number;
+}
+
 export type StopReason =
   | "max_steps_reached"
   | "budget_exceeded"
@@ -104,6 +116,7 @@ interface AgenticLoopHooks {
     error: string,
     executionTimeMs: number,
   ) => Promise<void>;
+  onProviderRetry?: (event: AgenticLoopProviderRetryEvent) => Promise<void>;
 }
 
 export class AgenticLoopCancelledError extends Error {
@@ -243,6 +256,7 @@ export class AgenticLoop {
             temperature: context.temperature,
           },
           step,
+          context,
         );
       } catch (error) {
         console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
@@ -418,7 +432,10 @@ export class AgenticLoop {
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
           if (
-            isCiLogsAuthorizationBoundaryFailure(toolCall.toolName, errorMessage)
+            isCiLogsAuthorizationBoundaryFailure(
+              toolCall.toolName,
+              errorMessage,
+            )
           ) {
             encounteredCiLogsAuthorizationBoundary = true;
           }
@@ -525,6 +542,7 @@ export class AgenticLoop {
   private async generateLoopText(
     request: Parameters<ILLMGateway["generateText"]>[0],
     step: number,
+    hooks: Pick<AgenticLoopHooks, "onProviderRetry">,
   ): ReturnType<ILLMGateway["generateText"]> {
     const maxAttempts = 2;
 
@@ -565,6 +583,17 @@ export class AgenticLoop {
         }
 
         this.llmRetryCount++;
+        await hooks.onProviderRetry?.({
+          providerId: error.providerId,
+          modelId: error.modelId,
+          anomalyCode: error.anomalyCode,
+          finishReason: error.finishReason,
+          statusCode: error.statusCode,
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts,
+          retryCount: this.llmRetryCount,
+        });
         console.warn(
           `[agentic-loop] Unusable LLM response for run ${this.config.runId}; retrying once`,
           {
@@ -640,7 +669,6 @@ export class AgenticLoop {
 
     return `Skipped duplicate ${toolCall.toolName} call because the same request already completed in this run. Choose a different tool or proceed with the edit.`;
   }
-
 }
 
 function buildAgenticLoopSystemPrompt(input: {
@@ -900,9 +928,8 @@ function latestTurnRequestsCiLogs(initialMessages: CoreMessage[]): boolean {
   ).toLowerCase();
 
   const asksForLogs = /\b(log|logs)\b/.test(latestTurnText);
-  const asksForCiContext = /\b(ci|check|checks|workflow|actions|job|run)\b/.test(
-    latestTurnText,
-  );
+  const asksForCiContext =
+    /\b(ci|check|checks|workflow|actions|job|run)\b/.test(latestTurnText);
   return asksForLogs && asksForCiContext;
 }
 
@@ -966,9 +993,7 @@ function normalizeStandaloneToolCallMarkup(text: string): string {
   return text;
 }
 
-function buildLoopProgressUpdate(input: {
-  isFinalSynthesisStep: boolean;
-}): {
+function buildLoopProgressUpdate(input: { isFinalSynthesisStep: boolean }): {
   phase: "planning" | "execution" | "synthesis";
   label: string;
   summary: string;

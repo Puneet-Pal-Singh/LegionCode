@@ -87,26 +87,34 @@ function buildTurns(
     grouped.set(event.turnId, events);
   }
 
-  return [...grouped.entries()].map(([turnId, events]) => {
+  return [...grouped.entries()].flatMap(([turnId, events]) => {
     const sortedEvents = [...events].sort(
       (left, right) => left.sequence - right.sequence,
     );
-    const rows = sortedEvents.map(eventToRow);
+    const rows = sortedEvents.flatMap((event) => {
+      const row = eventToRow(event);
+      return row ? [row] : [];
+    });
+    if (rows.length === 0) {
+      return [];
+    }
     const hasProviderError = rows.some(
       (row) =>
         row.kind === "commentary" &&
         row.metadata?.code === "PROVIDER_UNAVAILABLE",
     );
-    return {
-      key: turnId,
-      userPrompt,
-      elapsedLabel: formatTurnElapsed(sortedEvents),
-      summaryLabel: buildSummaryLabel(rows),
-      defaultCollapsed: !hasProviderError,
-      isActiveTurn: false,
-      hasVisibleRows: rows.length > 0,
-      rows,
-    };
+    return [
+      {
+        key: turnId,
+        userPrompt,
+        elapsedLabel: formatTurnElapsed(sortedEvents),
+        summaryLabel: buildSummaryLabel(rows),
+        defaultCollapsed: !hasProviderError,
+        isActiveTurn: false,
+        hasVisibleRows: true,
+        rows,
+      },
+    ];
   });
 }
 
@@ -144,7 +152,11 @@ function isProviderUnavailableRow(row: ActivityFeedRowViewModel): boolean {
   );
 }
 
-function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel {
+function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
+  if (event.displayMode === "debug") {
+    return null;
+  }
+
   if (event.kind === "provider_error") {
     return {
       kind: "commentary",
