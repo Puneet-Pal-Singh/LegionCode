@@ -56,6 +56,17 @@ export const BYOKModelCapabilitySchema = z.object({
 });
 export type BYOKModelCapability = z.infer<typeof BYOKModelCapabilitySchema>;
 
+export const BYOKModelInputModalitySchema = z.object({
+  text: z.boolean().optional(),
+  image: z.boolean().optional(),
+  audio: z.boolean().optional(),
+  video: z.boolean().optional(),
+  file: z.boolean().optional(),
+});
+export type BYOKModelInputModality = z.infer<
+  typeof BYOKModelInputModalitySchema
+>;
+
 export const BYOKModelOutputModalitySchema = z.object({
   text: z.boolean().optional(),
   image: z.boolean().optional(),
@@ -63,6 +74,33 @@ export const BYOKModelOutputModalitySchema = z.object({
 });
 export type BYOKModelOutputModality = z.infer<
   typeof BYOKModelOutputModalitySchema
+>;
+
+export const BYOKModelCapabilitySourceSchema = z.enum([
+  "provider_api",
+  "platform_registry",
+  "static_override",
+]);
+export type BYOKModelCapabilitySource = z.infer<
+  typeof BYOKModelCapabilitySourceSchema
+>;
+
+export const BYOKModelCapabilityConfidenceSchema = z.enum([
+  "confirmed",
+  "declared",
+  "unknown",
+]);
+export type BYOKModelCapabilityConfidence = z.infer<
+  typeof BYOKModelCapabilityConfidenceSchema
+>;
+
+export const BYOKModelCapabilityMetadataSchema = z.object({
+  source: BYOKModelCapabilitySourceSchema,
+  fetchedAt: z.string().datetime().optional(),
+  confidence: BYOKModelCapabilityConfidenceSchema,
+});
+export type BYOKModelCapabilityMetadata = z.infer<
+  typeof BYOKModelCapabilityMetadataSchema
 >;
 
 export const ProviderModelTransportSchema = z.enum([
@@ -104,8 +142,10 @@ export const BYOKDiscoveredProviderModelSchema = z.object({
   canonicalSlug: z.string().optional(),
   description: z.string().optional(),
   supportedParameters: z.array(z.string()).optional(),
+  inputModalities: BYOKModelInputModalitySchema.optional(),
   outputModalities: BYOKModelOutputModalitySchema.optional(),
   capabilities: BYOKModelCapabilitySchema.optional(),
+  capabilityMetadata: BYOKModelCapabilityMetadataSchema.optional(),
   expirationDate: z.string().datetime().optional(),
   deprecated: z.boolean().optional(),
   popularityScore: BYOKModelPopularityScoreSchema.optional(),

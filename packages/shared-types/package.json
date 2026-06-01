@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./git": "./src/git.ts",
     "./edit-artifacts": "./src/edit-artifacts.ts",
+    "./edit-artifact-review": "./src/edit-artifact-review.ts",
     "./runtime-events": "./src/runtime-events.ts"
   },
   "scripts": {
