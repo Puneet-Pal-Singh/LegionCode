@@ -36,6 +36,7 @@ import {
   withRunEngineHeaders,
 } from "./RunEngineHttpResponse";
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
+import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersistence";
 import type { RealtimeEventPort } from "./ports";
 import {
   enforceGoldenFlowToolFloor,
@@ -62,6 +63,9 @@ export interface RunEngineExecuteResult {
   sessionId: string;
   response: Response;
 }
+
+export type RunEnginePostExecutionResult =
+  PersistedAssistantMessageResult | null | void;
 
 export class RunEngineRequestHandler {
   constructor(
@@ -426,7 +430,9 @@ export class RunEngineRequestHandler {
 
   async handleExecuteRequest(
     request: Request,
-    onExecuteResult?: (result: RunEngineExecuteResult) => Promise<void> | void,
+    onExecuteResult?: (
+      result: RunEngineExecuteResult,
+    ) => Promise<RunEnginePostExecutionResult> | RunEnginePostExecutionResult,
   ): Promise<Response> {
     let payload: ExecuteRunPayload;
     try {
@@ -493,12 +499,17 @@ export class RunEngineRequestHandler {
           toRuntimeCoreTools(payload.tools),
         );
 
-        if (onExecuteResult) {
-          await onExecuteResult({
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            response: executionResponse,
+        const postExecutionResult = onExecuteResult
+          ? await onExecuteResult({
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              response: executionResponse,
+            })
+          : null;
+        if (postExecutionResult?.assistantMessageId) {
+          editArtifactCoordinator.setMessageContext({
+            assistantMessageId: postExecutionResult.assistantMessageId,
           });
         }
         await editArtifactCoordinator.waitForPendingCapture();

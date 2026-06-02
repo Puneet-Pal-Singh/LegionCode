@@ -25,7 +25,7 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return handler.handleExecuteRequest(request, async (result) => {
-        await persistAssistantMessageFromRunResponse(
+        return await persistAssistantMessageFromRunResponse(
           this.ctx,
           this.env,
           result.sessionId,

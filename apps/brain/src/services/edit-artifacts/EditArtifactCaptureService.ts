@@ -229,14 +229,17 @@ export class EditArtifactCaptureService {
     });
   }
 
-  private async createPendingArtifact(repository: ArtifactRepository, input: {
-    artifactId: string;
-    capturedAt: string;
-    capturedPatch: CapturedPatchPayload;
-    changedFiles: EditArtifactChangedFile[];
-    input: CaptureAfterRunInput;
-    r2ObjectKey: string;
-  }): Promise<EditArtifactRecord> {
+  private async createPendingArtifact(
+    repository: ArtifactRepository,
+    input: {
+      artifactId: string;
+      capturedAt: string;
+      capturedPatch: CapturedPatchPayload;
+      changedFiles: EditArtifactChangedFile[];
+      input: CaptureAfterRunInput;
+      r2ObjectKey: string;
+    },
+  ): Promise<EditArtifactRecord> {
     return repository.createPendingArtifact({
       id: input.artifactId,
       userId: input.input.userId,
@@ -401,7 +404,9 @@ export class EditArtifactCaptureService {
       artifactId,
       runId: input.runId,
       eventType:
-        parseStatus === "parsed" ? "patch_parse_succeeded" : "patch_parse_failed",
+        parseStatus === "parsed"
+          ? "patch_parse_succeeded"
+          : "patch_parse_failed",
       message:
         parseStatus === "parsed"
           ? "Edit artifact patch parsed successfully"
@@ -460,8 +465,19 @@ export class EditArtifactCaptureService {
   }
 }
 
+interface EditArtifactCapturePort {
+  captureAfterRunMutation(input: CaptureAfterRunInput): Promise<void>;
+}
+
+interface EditArtifactMessageContext {
+  userMessageId?: string;
+  assistantMessageId?: string;
+  sourceTurnId?: string;
+}
+
 interface EditArtifactCoordinator {
   handleEvent(event: RunEvent): void;
+  setMessageContext(context: EditArtifactMessageContext): void;
   waitForPendingCapture(): Promise<void>;
 }
 
@@ -469,9 +485,12 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   private readonly changedFiles = new Map<string, EditArtifactChangedFile>();
   private captureInFlight: Promise<void> = Promise.resolve();
   private captureSequence = 0;
+  private runCompleted = false;
+  private captured = false;
+  private messageContext: EditArtifactMessageContext = {};
 
   constructor(
-    private readonly service: EditArtifactCaptureService,
+    private readonly service: EditArtifactCapturePort,
     private readonly context: {
       userId: string;
       runId: string;
@@ -490,15 +509,26 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
     }
 
     if (event.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+      this.runCompleted = true;
+    }
+  }
+
+  setMessageContext(context: EditArtifactMessageContext): void {
+    this.messageContext = {
+      ...this.messageContext,
+      ...removeEmptyMessageContextFields(context),
+    };
+  }
+
+  async waitForPendingCapture(): Promise<void> {
+    if (this.runCompleted && !this.captured) {
+      this.captured = true;
       this.captureInFlight = this.captureInFlight
         .then(() => this.capture())
         .catch((error) => {
           console.warn("[edit-artifacts/capture] failed", error);
         });
     }
-  }
-
-  async waitForPendingCapture(): Promise<void> {
     await this.captureInFlight;
   }
 
@@ -518,6 +548,7 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
     this.captureSequence += 1;
     await this.service.captureAfterRunMutation({
       ...this.context,
+      ...this.messageContext,
       changedFiles: Array.from(this.changedFiles.values()),
       captureSequence: this.captureSequence,
     });
@@ -560,9 +591,30 @@ class NoopEditArtifactCoordinator implements EditArtifactCoordinator {
     return;
   }
 
+  setMessageContext(): void {
+    return;
+  }
+
   async waitForPendingCapture(): Promise<void> {
     return;
   }
+}
+
+function removeEmptyMessageContextFields(
+  context: EditArtifactMessageContext,
+): EditArtifactMessageContext {
+  return {
+    userMessageId: normalizeOptionalMessageId(context.userMessageId),
+    assistantMessageId: normalizeOptionalMessageId(context.assistantMessageId),
+    sourceTurnId: normalizeOptionalMessageId(context.sourceTurnId),
+  };
+}
+
+function normalizeOptionalMessageId(
+  value: string | undefined,
+): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 export function changedFilesFromStatus(

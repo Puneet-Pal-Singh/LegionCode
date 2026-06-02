@@ -7,6 +7,7 @@ import type {
   RunRepository,
   RunStatus,
   TranscriptRepository,
+  TranscriptMessageRecord,
   UpdateRunStatusInput,
   UpsertRunStepInput,
 } from "@repo/persistence";
@@ -161,7 +162,7 @@ export class PersistenceService {
     runId: string,
     message: CoreMessage,
     context: PersistMessageContext = {},
-  ): Promise<void> {
+  ): Promise<TranscriptMessageRecord> {
     try {
       const content = buildPersistenceDedupeContent(message);
 
@@ -172,7 +173,7 @@ export class PersistenceService {
         content,
       );
 
-      await this.persistMessage({
+      const persistedMessage = await this.persistMessage({
         sessionId,
         runId,
         message,
@@ -180,6 +181,7 @@ export class PersistenceService {
         context,
       });
       console.log(`[Brain] Persisted ${message.role} message for run ${runId}`);
+      return persistedMessage;
     } catch (error) {
       console.error("[Brain] Persist user message failed", error);
       throw new TranscriptPersistenceError("persistUserMessage", error);
@@ -229,7 +231,7 @@ export class PersistenceService {
     text: string;
     metadata?: Record<string, unknown>;
     activity?: TurnActivityTranscriptPart | null;
-  }): Promise<void> {
+  }): Promise<TranscriptMessageRecord> {
     try {
       const idempotencyKey = await this.generateIdempotencyKey(
         input.sessionId,
@@ -238,16 +240,20 @@ export class PersistenceService {
         input.text,
       );
 
-      await withTranscriptRepository(this.env, async (repository) => {
-        await repository.appendMessageToExistingSession({
-          sessionId: input.sessionId,
-          runId: input.runId,
-          role: "assistant",
-          dedupeKey: idempotencyKey,
-          parts: buildAssistantTurnParts(input),
-        });
-      });
+      const message = await withTranscriptRepository(
+        this.env,
+        async (repository) => {
+          return await repository.appendMessageToExistingSession({
+            sessionId: input.sessionId,
+            runId: input.runId,
+            role: "assistant",
+            dedupeKey: idempotencyKey,
+            parts: buildAssistantTurnParts(input),
+          });
+        },
+      );
       console.log(`[Brain] Persisted assistant turn for run ${input.runId}`);
+      return message;
     } catch (error) {
       console.error("[Brain] Persist assistant turn failed", error);
       throw new TranscriptPersistenceError("persistAssistantTurn", error);
@@ -291,15 +297,14 @@ export class PersistenceService {
       context: PersistMessageContext;
     },
     repository?: TranscriptRepository,
-  ): Promise<void> {
+  ): Promise<TranscriptMessageRecord> {
     if (repository) {
-      await this.doPersistMessage(input, repository);
-      return;
+      return await this.doPersistMessage(input, repository);
     }
 
-    await withTranscriptRepository(this.env, async (repo) => {
-      await this.doPersistMessage(input, repo);
-    });
+    return await withTranscriptRepository(this.env, async (repo) =>
+      this.doPersistMessage(input, repo),
+    );
   }
 
   private async doPersistMessage(
@@ -311,10 +316,10 @@ export class PersistenceService {
       context: PersistMessageContext;
     },
     repository: TranscriptRepository,
-  ): Promise<void> {
+  ): Promise<TranscriptMessageRecord> {
     const parts = coreMessageToTranscriptParts(input.message);
     if (input.context.userId) {
-      await repository.appendMessage({
+      return await repository.appendMessage({
         sessionId: input.sessionId,
         runId: input.runId,
         userId: input.context.userId,
@@ -328,10 +333,9 @@ export class PersistenceService {
         dedupeKey: input.idempotencyKey,
         parts,
       });
-      return;
     }
 
-    await repository.appendMessageToExistingSession({
+    return await repository.appendMessageToExistingSession({
       sessionId: input.sessionId,
       runId: input.runId,
       role: input.message.role,

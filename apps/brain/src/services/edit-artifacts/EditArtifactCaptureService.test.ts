@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
+import type { RunCompletedEvent, ToolCompletedEvent } from "@repo/shared-types";
 import {
+  EditArtifactRunCaptureCoordinator,
+  type EditArtifactCaptureService,
   extractChangedFileFromToolResult,
   mergePromptChangedFilesWithGitStats,
 } from "./EditArtifactCaptureService";
@@ -78,4 +82,92 @@ describe("EditArtifactCaptureService helpers", () => {
       },
     ]);
   });
+
+  it("binds captured patches to the persisted assistant message before capture", async () => {
+    const captures: Array<
+      Parameters<EditArtifactCaptureService["captureAfterRunMutation"]>[0]
+    > = [];
+    const service = {
+      captureAfterRunMutation: async (
+        input: Parameters<
+          EditArtifactCaptureService["captureAfterRunMutation"]
+        >[0],
+      ) => {
+        captures.push(input);
+      },
+    };
+    const coordinator = new EditArtifactRunCaptureCoordinator(service, {
+      userId: "user-1",
+      runId: "run-1",
+      sessionId: "session-1",
+      workspaceId: "workspace-1",
+      muscleSession: "run-1",
+      repoOwner: "owner",
+      repoName: "repo",
+      repoUrl: "https://github.com/owner/repo",
+    });
+
+    coordinator.handleEvent(createWriteFileCompletedEvent());
+    coordinator.handleEvent(createRunCompletedEvent());
+    coordinator.setMessageContext({ assistantMessageId: "assistant-1" });
+
+    await coordinator.waitForPendingCapture();
+
+    expect(captures).toHaveLength(1);
+    expect(captures[0]).toMatchObject({
+      assistantMessageId: "assistant-1",
+      changedFiles: [
+        {
+          path: "src/hero.tsx",
+          status: "modified",
+          additions: 2,
+          deletions: 1,
+        },
+      ],
+    });
+  });
 });
+
+function createWriteFileCompletedEvent(): ToolCompletedEvent {
+  return {
+    version: 1,
+    eventId: "event-tool-1",
+    runId: "run-1",
+    sessionId: "session-1",
+    timestamp: "2026-06-01T00:00:00.000Z",
+    source: "brain",
+    type: RUN_EVENT_TYPES.TOOL_COMPLETED,
+    payload: {
+      toolId: "tool-1",
+      toolName: "write_file",
+      executionTimeMs: 1,
+      result: {
+        metadata: {
+          activity: {
+            family: "edit",
+            filePath: "src/hero.tsx",
+            additions: 2,
+            deletions: 1,
+          },
+        },
+      },
+    },
+  };
+}
+
+function createRunCompletedEvent(): RunCompletedEvent {
+  return {
+    version: 1,
+    eventId: "event-run-1",
+    runId: "run-1",
+    sessionId: "session-1",
+    timestamp: "2026-06-01T00:00:01.000Z",
+    source: "brain",
+    type: RUN_EVENT_TYPES.RUN_COMPLETED,
+    payload: {
+      status: "complete",
+      totalDurationMs: 1,
+      toolsUsed: 1,
+    },
+  };
+}

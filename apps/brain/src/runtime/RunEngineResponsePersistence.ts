@@ -1,4 +1,5 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
+import type { TranscriptMessageRecord } from "@repo/persistence";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { MessageEmittedEvent, RunEvent } from "@repo/shared-types";
 import {
@@ -10,6 +11,10 @@ import {
 import { PersistenceService } from "../services/PersistenceService";
 import type { Env } from "../types/ai";
 
+export interface PersistedAssistantMessageResult {
+  assistantMessageId: string;
+}
+
 export async function persistAssistantMessageFromRunResponse(
   ctx: DurableObjectState,
   env: Env,
@@ -17,9 +22,9 @@ export async function persistAssistantMessageFromRunResponse(
   runId: string,
   correlationId: string,
   response: Response,
-): Promise<void> {
+): Promise<PersistedAssistantMessageResult | null> {
   if (!response.ok) {
-    return;
+    return null;
   }
 
   const persistedOutput = await persistAssistantMessageFromRunOutput(
@@ -31,16 +36,19 @@ export async function persistAssistantMessageFromRunResponse(
   );
   await persistTerminalRunStatusFromRuntime(ctx, env, runId, correlationId);
   if (persistedOutput) {
-    return;
+    return toPersistedAssistantMessageResult(persistedOutput);
   }
 
-  await persistAssistantMessageFromTextResponse(
+  const persistedText = await persistAssistantMessageFromTextResponse(
     env,
     sessionId,
     runId,
     correlationId,
     response,
   );
+  return persistedText
+    ? toPersistedAssistantMessageResult(persistedText)
+    : null;
 }
 
 async function persistTerminalRunStatusFromRuntime(
@@ -82,7 +90,7 @@ async function persistAssistantMessageFromRunOutput(
   sessionId: string,
   runId: string,
   correlationId: string,
-): Promise<boolean> {
+): Promise<TranscriptMessageRecord | null> {
   try {
     const runtimeState = tagRuntimeStateSemantics(
       ctx as unknown as LegacyDurableObjectState,
@@ -94,12 +102,12 @@ async function persistAssistantMessageFromRunOutput(
     const outputContent = run?.output?.content?.trim();
 
     if (!outputContent) {
-      return false;
+      return null;
     }
 
     const persistenceService = new PersistenceService(env);
     const events = await runEventRepository.getByRun(runId);
-    await persistenceService.persistAssistantTurn({
+    return await persistenceService.persistAssistantTurn({
       sessionId,
       runId,
       text: outputContent,
@@ -112,13 +120,12 @@ async function persistAssistantMessageFromRunOutput(
         terminalReason: readTerminalReason(run?.metadata?.error),
       }),
     });
-    return true;
   } catch (error) {
     console.warn(
       `[run/engine-runtime] ${correlationId}: Failed to persist assistant output from run state`,
       error,
     );
-    return false;
+    return null;
   }
 }
 
@@ -166,20 +173,20 @@ async function persistAssistantMessageFromTextResponse(
   runId: string,
   correlationId: string,
   response: Response,
-): Promise<void> {
+): Promise<TranscriptMessageRecord | null> {
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
   if (!contentType.includes("text/plain")) {
-    return;
+    return null;
   }
 
   try {
     const assistantText = (await response.clone().text()).trim();
     if (!assistantText) {
-      return;
+      return null;
     }
 
     const persistenceService = new PersistenceService(env);
-    await persistenceService.persistUserMessage(sessionId, runId, {
+    return await persistenceService.persistUserMessage(sessionId, runId, {
       role: "assistant",
       content: assistantText,
     });
@@ -189,6 +196,13 @@ async function persistAssistantMessageFromTextResponse(
       error,
     );
   }
+  return null;
+}
+
+function toPersistedAssistantMessageResult(
+  message: TranscriptMessageRecord,
+): PersistedAssistantMessageResult {
+  return { assistantMessageId: message.id };
 }
 
 function mapRuntimeTerminalStatus(
