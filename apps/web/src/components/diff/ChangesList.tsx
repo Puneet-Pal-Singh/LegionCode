@@ -14,6 +14,7 @@ interface ChangesListProps {
   showToolbar?: boolean;
   className?: string;
   emptyLabel?: string;
+  sourceBadgeLabel?: string;
 }
 
 interface ChangeTreeNode {
@@ -32,6 +33,7 @@ export function ChangesList({
   showToolbar = true,
   className = "",
   emptyLabel = "No changes",
+  sourceBadgeLabel,
 }: ChangesListProps) {
   const tree = useMemo(() => buildChangeTree(files), [files]);
   const stats = useMemo(() => calculateTotals(files), [files]);
@@ -41,7 +43,14 @@ export function ChangesList({
       {showToolbar ? (
         <div className="border-b border-zinc-800 bg-black px-4 py-3">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-white">Review</h3>
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">Review</h3>
+              {sourceBadgeLabel ? (
+                <span className="rounded border border-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-zinc-400">
+                  {sourceBadgeLabel}
+                </span>
+              ) : null}
+            </div>
             <ChangeStats
               additions={stats.additions}
               deletions={stats.deletions}

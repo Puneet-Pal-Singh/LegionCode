@@ -169,7 +169,7 @@ vi.mock("../git/GitReviewContext", () => ({
     currentDiffFingerprint: null,
     reviewScope: "git-changes",
     setReviewScope: vi.fn(),
-    reviewMode: { kind: "live_git" },
+    reviewSource: { kind: "live_git", reason: "empty" },
     reviewSourceLoading: false,
     reviewSourceError: null,
     openReview: vi.fn(),

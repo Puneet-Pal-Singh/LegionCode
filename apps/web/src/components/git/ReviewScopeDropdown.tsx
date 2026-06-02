@@ -2,6 +2,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import type { ReviewScope } from "./GitReviewContext";
+import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
 
 interface ReviewScopeDropdownProps {
   value: ReviewScope;
@@ -14,8 +15,8 @@ const REVIEW_SCOPE_OPTIONS: Array<{
   label: string;
   disabled: boolean;
 }> = [
-  { value: "git-changes", label: "Git changes", disabled: false },
-  { value: "prompt-artifact", label: "Prompt artifact", disabled: false },
+  { value: "git-changes", label: REVIEW_SOURCE_LABELS.live_git.scope, disabled: false },
+  { value: "prompt-artifact", label: REVIEW_SOURCE_LABELS.prompt_artifact.scope, disabled: false },
   { value: "branch-changes", label: "Branch changes", disabled: true },
 ];
 
