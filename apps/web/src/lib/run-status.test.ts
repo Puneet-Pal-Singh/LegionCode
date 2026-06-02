@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isApprovalRequiredRunStatus,
   isTerminalRunStatus,
   mapRunStatusToSessionStatus,
   normalizeRunStatus,
@@ -20,5 +21,16 @@ describe("run status helpers", () => {
   it("treats paused as terminal without mapping it to failure", () => {
     expect(isTerminalRunStatus("paused")).toBe(true);
     expect(mapRunStatusToSessionStatus("paused")).toBe("paused");
+  });
+
+  it("maps approval waiting states to a waiting approval session state", () => {
+    expect(isApprovalRequiredRunStatus("approval_required")).toBe(true);
+    expect(isApprovalRequiredRunStatus("waiting")).toBe(true);
+    expect(mapRunStatusToSessionStatus("completed", true)).toBe(
+      "waiting_for_approval",
+    );
+    expect(mapRunStatusToSessionStatus("approval_required")).toBe(
+      "waiting_for_approval",
+    );
   });
 });

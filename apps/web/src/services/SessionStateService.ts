@@ -587,6 +587,7 @@ export class SessionStateService {
     const validStatuses = [
       "idle",
       "running",
+      "waiting_for_approval",
       "completed",
       "paused",
       "failed",

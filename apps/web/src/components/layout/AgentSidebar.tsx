@@ -77,6 +77,7 @@ function mapSessionStatus(
 ): SidebarTaskStatus {
   const status = session.status;
   if (status === "running") return "running";
+  if (status === "waiting_for_approval") return "needs_approval";
   if (status === "paused") return "paused";
   if (status === "completed") {
     return shouldHighlightCompleted(session, activeSessionId)
