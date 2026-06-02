@@ -83,9 +83,19 @@ export async function completeRunWithAssistantMessage(params: {
     terminalState,
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
+  const shouldPauseForApproval =
+    terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED;
   recordLifecycleStep(run, "SYNTHESIS");
-  transitionRunToCompleted(run, run.id);
-  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
+  if (shouldPauseForApproval) {
+    transitionRunToPaused(run, run.id);
+  } else {
+    transitionRunToCompleted(run, run.id);
+  }
+  recordLifecycleStep(
+    run,
+    "TERMINAL",
+    shouldPauseForApproval ? "status=PAUSED" : "status=COMPLETED",
+  );
   recordOrchestrationTerminal(run);
   run.output = {
     content: sanitizedText,
@@ -110,10 +120,12 @@ export async function completeRunWithAssistantMessage(params: {
     sanitizedText,
     finalMessage.metadata,
   );
-  await deps.runEventRecorder.recordRunCompleted(
-    getRunDurationMs(run),
-    run.metadata.agenticLoop?.toolExecutionCount ?? 0,
-  );
+  if (!shouldPauseForApproval) {
+    await deps.runEventRecorder.recordRunCompleted(
+      getRunDurationMs(run),
+      run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+    );
+  }
   console.log(`[run/engine] Completed assistant run ${run.id}`);
 
   return createStreamResponse(sanitizedText);

@@ -78,6 +78,32 @@ describe("RunCompletionPolicy", () => {
     );
   });
 
+  it("pauses approval-required runs instead of marking them completed", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await completeRunWithAssistantMessage({
+      run,
+      text: "I need your approval before I can continue.",
+      metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain(
+      "I need your approval before I can continue.",
+    );
+    expect(run.status).toBe("PAUSED");
+    expect(deps.runEventRecorder.recordRunStatusChanged).toHaveBeenCalledWith(
+      "RUNNING",
+      "PAUSED",
+      "synthesis",
+    );
+    expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
+    expect(run.metadata.terminalState).toBe(
+      RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+    );
+  });
+
   it("does not emit completion events when the atomic completion update loses a cancellation race", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run, false);
