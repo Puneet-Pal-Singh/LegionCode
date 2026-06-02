@@ -21,7 +21,17 @@ const mockArtifactState = vi.hoisted(() => ({
   source: null as PromptArtifactReviewSource | null,
   loading: false,
   error: null as string | null,
+  resolved: false,
 }));
+const mockArtifactHookInputs = vi.hoisted(
+  () =>
+    [] as Array<{
+      runId?: string;
+      sessionId?: string;
+      assistantMessageId?: string;
+      enabled: boolean;
+    }>,
+);
 
 vi.mock("../../hooks/useRunContext", () => ({
   useRunContext: () => ({
@@ -50,12 +60,21 @@ vi.mock("../../hooks/useGitDiff", () => ({
 }));
 
 vi.mock("../../hooks/useEditArtifactReviewSource", () => ({
-  useEditArtifactReviewSource: () => ({
-    source: mockArtifactState.source,
-    loading: mockArtifactState.loading,
-    error: mockArtifactState.error,
-    refetch: vi.fn(async () => undefined),
-  }),
+  useEditArtifactReviewSource: (input: {
+    runId?: string;
+    sessionId?: string;
+    assistantMessageId?: string;
+    enabled: boolean;
+  }) => {
+    mockArtifactHookInputs.push(input);
+    return {
+      source: mockArtifactState.source,
+      loading: mockArtifactState.loading,
+      error: mockArtifactState.error,
+      resolved: mockArtifactState.resolved,
+      refetch: vi.fn(async () => undefined),
+    };
+  },
 }));
 
 vi.mock("../../hooks/useEditArtifactDiff", () => ({
@@ -94,6 +113,8 @@ describe("GitReviewProvider", () => {
     mockArtifactState.source = null;
     mockArtifactState.loading = false;
     mockArtifactState.error = null;
+    mockArtifactState.resolved = false;
+    mockArtifactHookInputs.splice(0, mockArtifactHookInputs.length);
     vi.stubGlobal("crypto", {
       randomUUID: () => "comment-1",
     });
@@ -140,7 +161,7 @@ describe("GitReviewProvider", () => {
       "prompt-artifact",
     );
     expect(screen.getByTestId("review-source")).toHaveTextContent(
-      "saved_edit:live_git_empty_fallback",
+      "prompt_artifact:live_git_empty_fallback",
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
 
@@ -167,6 +188,53 @@ describe("GitReviewProvider", () => {
       "live_git:explicit",
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+  });
+
+  it("starts saved edit lookup before live git status resolves empty", () => {
+    mockGitStatusState.status = null;
+    mockGitStatusState.loading = true;
+    mockArtifactState.loading = false;
+    mockArtifactState.resolved = false;
+
+    render(
+      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(screen.getByTestId("review-source-loading")).toHaveTextContent(
+      "loading",
+    );
+  });
+
+  it("pins chat-opened artifacts even when live git has files", () => {
+    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    mockArtifactState.source = buildArtifactSource();
+    mockArtifactState.resolved = true;
+
+    render(
+      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "open chat artifact" }));
+
+    expect(screen.getByTestId("review-scope")).toHaveTextContent(
+      "prompt-artifact",
+    );
+    expect(screen.getByTestId("review-source")).toHaveTextContent(
+      "prompt_artifact:explicit",
+    );
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({
+        assistantMessageId: "assistant-chat",
+        enabled: true,
+      }),
+    );
   });
 });
 
@@ -217,6 +285,9 @@ function ReviewSourceProbe() {
       <span data-testid="review-source">
         {review.reviewSource.kind}:{review.reviewSource.reason}
       </span>
+      <span data-testid="review-source-loading">
+        {review.reviewSourceLoading ? "loading" : "idle"}
+      </span>
       <span data-testid="review-files">
         {review.reviewFiles.map((file) => file.path).join(",") || "none"}
       </span>
@@ -232,6 +303,14 @@ function ReviewSourceProbe() {
       </button>
       <button type="button" onClick={() => review.setReviewScope("git-changes")}>
         select live git
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          review.openPromptArtifactReview("artifact-chat", "assistant-chat")
+        }
+      >
+        open chat artifact
       </button>
     </div>
   );
@@ -260,6 +339,10 @@ function buildInput() {
   };
 }
 
+function latestArtifactHookInput() {
+  return mockArtifactHookInputs[mockArtifactHookInputs.length - 1];
+}
+
 function buildGitStatus(files: FileStatus[]): GitStatusResponse {
   return {
     branch: "main",
@@ -269,6 +352,16 @@ function buildGitStatus(files: FileStatus[]): GitStatusResponse {
     hasStaged: files.some((file) => file.isStaged),
     hasUnstaged: files.some((file) => !file.isStaged),
     gitAvailable: true,
+  };
+}
+
+function buildFileStatus(path: string): FileStatus {
+  return {
+    path,
+    status: "modified",
+    additions: 1,
+    deletions: 0,
+    isStaged: false,
   };
 }
 

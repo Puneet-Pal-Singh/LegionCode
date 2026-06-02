@@ -3,18 +3,34 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 
-export type ReviewSourceKind = "live_git" | "saved_edit";
-export type ReviewRequestedScope = "git-changes" | "prompt-artifact";
+export type ReviewSourceKind = "live_git" | "prompt_artifact";
+export type ReviewScope = "git-changes" | "prompt-artifact";
+
+export const REVIEW_SOURCE_LABELS: Record<
+  ReviewSourceKind,
+  { scope: string; badge: string }
+> = {
+  live_git: {
+    scope: "Live Git changes",
+    badge: "Live Git",
+  },
+  prompt_artifact: {
+    scope: "Saved edit",
+    badge: "Saved edit",
+  },
+};
 
 export type ReviewSourceSelection =
   | {
       kind: "live_git";
+      /** Tracks whether live Git was explicitly requested, has files, or is the honest empty result. */
       reason: "explicit" | "live_git_has_changes" | "empty";
     }
   | {
-      kind: "saved_edit";
+      kind: "prompt_artifact";
       artifactId: string;
       assistantMessageId?: string;
+      /** Tracks whether a saved edit was explicitly requested, opened from chat, or selected as fallback. */
       reason: "explicit" | "chat_artifact" | "live_git_empty_fallback";
     };
 
@@ -24,7 +40,7 @@ export interface OpenedReviewArtifact {
 }
 
 interface ResolveReviewSourceInput {
-  requestedScope: ReviewRequestedScope | null;
+  requestedScope: ReviewScope | null;
   openedArtifact: OpenedReviewArtifact | null;
   liveGitFiles: FileStatus[];
   latestArtifactSource: PromptArtifactReviewSource | null;
@@ -43,7 +59,7 @@ export function resolveReviewSource(
 
   if (input.openedArtifact) {
     return {
-      kind: "saved_edit",
+      kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
       assistantMessageId: input.openedArtifact.assistantMessageId,
       reason: "chat_artifact",
@@ -69,7 +85,7 @@ function resolveExplicitSavedEdit(
 ): ReviewSourceSelection {
   if (input.openedArtifact) {
     return {
-      kind: "saved_edit",
+      kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
       assistantMessageId: input.openedArtifact.assistantMessageId,
       reason: "explicit",
@@ -91,10 +107,10 @@ function hasArtifactFiles(
 
 function toSavedEditSelection(
   source: PromptArtifactReviewSource,
-  reason: Extract<ReviewSourceSelection, { kind: "saved_edit" }>["reason"],
+  reason: Extract<ReviewSourceSelection, { kind: "prompt_artifact" }>["reason"],
 ): ReviewSourceSelection {
   return {
-    kind: "saved_edit",
+    kind: "prompt_artifact",
     artifactId: source.artifactId,
     assistantMessageId: source.assistantMessageId,
     reason,

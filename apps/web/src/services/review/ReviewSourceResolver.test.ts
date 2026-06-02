@@ -5,6 +5,8 @@ import type {
 } from "@repo/shared-types";
 import { resolveReviewSource } from "./ReviewSourceResolver";
 
+const TEST_CREATED_AT = "2026-01-01T00:00:00.000Z";
+
 describe("resolveReviewSource", () => {
   it("uses live git when live files are present", () => {
     const source = resolveReviewSource({
@@ -29,7 +31,7 @@ describe("resolveReviewSource", () => {
     });
 
     expect(source).toEqual({
-      kind: "saved_edit",
+      kind: "prompt_artifact",
       artifactId: "artifact-1",
       assistantMessageId: "assistant-1",
       reason: "live_git_empty_fallback",
@@ -56,7 +58,7 @@ describe("resolveReviewSource", () => {
     });
 
     expect(source).toEqual({
-      kind: "saved_edit",
+      kind: "prompt_artifact",
       artifactId: "artifact-1",
       assistantMessageId: "assistant-1",
       reason: "explicit",
@@ -75,11 +77,47 @@ describe("resolveReviewSource", () => {
     });
 
     expect(source).toEqual({
-      kind: "saved_edit",
+      kind: "prompt_artifact",
       artifactId: "artifact-chat",
       assistantMessageId: "assistant-chat",
       reason: "chat_artifact",
     });
+  });
+
+  it("returns empty live git when saved edit is requested without an artifact", () => {
+    const source = resolveReviewSource({
+      requestedScope: "prompt-artifact",
+      openedArtifact: null,
+      liveGitFiles: [],
+      latestArtifactSource: null,
+    });
+
+    expect(source).toEqual({ kind: "live_git", reason: "empty" });
+  });
+
+  it("returns empty live git when all inputs are empty", () => {
+    const source = resolveReviewSource({
+      requestedScope: null,
+      openedArtifact: null,
+      liveGitFiles: [],
+      latestArtifactSource: null,
+    });
+
+    expect(source).toEqual({ kind: "live_git", reason: "empty" });
+  });
+
+  it("respects explicit live git scope even when an artifact is opened", () => {
+    const source = resolveReviewSource({
+      requestedScope: "git-changes",
+      openedArtifact: {
+        artifactId: "artifact-chat",
+        assistantMessageId: "assistant-chat",
+      },
+      liveGitFiles: [],
+      latestArtifactSource: buildArtifactSource(),
+    });
+
+    expect(source).toEqual({ kind: "live_git", reason: "explicit" });
   });
 });
 
@@ -111,7 +149,7 @@ function buildArtifactSource(): PromptArtifactReviewSource {
         diffAvailable: true,
       },
     ],
-    createdAt: "2026-06-02T00:00:00.000Z",
+    createdAt: TEST_CREATED_AT,
     storageBackend: "r2_postgres",
   };
 }

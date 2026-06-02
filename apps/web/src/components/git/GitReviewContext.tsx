@@ -18,14 +18,14 @@ import type {
 import { useRunContext } from "../../hooks/useRunContext";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
-import { useEditArtifactDiff } from "../../hooks/useEditArtifactDiff";
-import { useEditArtifactReviewSource } from "../../hooks/useEditArtifactReviewSource";
+import { useReviewSourceState } from "../../hooks/useReviewSourceState";
 import { useGitCommit } from "../../hooks/useGitCommit";
 import {
   createGitBranch,
   pushGitBranch,
   stageGitFiles,
 } from "../../lib/git-client.js";
+import { EMPTY_FILE_STATUSES } from "../../lib/empty-collections";
 import {
   buildDiffFingerprint,
   rebindReviewCommentDraft,
@@ -33,8 +33,8 @@ import {
   type ReviewCommentDraft,
 } from "./reviewComments";
 import {
-  resolveReviewSource,
   type ReviewSourceSelection,
+  type ReviewScope,
 } from "../../services/review/ReviewSourceResolver";
 
 interface GitReviewProviderProps {
@@ -44,15 +44,7 @@ interface GitReviewProviderProps {
   isGitWorkspaceRecovering?: boolean;
 }
 
-export type ReviewScope = "git-changes" | "prompt-artifact";
-
-export type ReviewMode =
-  | { kind: "live_git" }
-  | {
-      kind: "prompt_artifact";
-      artifactId: string;
-      assistantMessageId?: string;
-    };
+export type { ReviewScope } from "../../services/review/ReviewSourceResolver";
 
 interface GitReviewContextValue {
   status: GitStatusResponse | null;
@@ -80,7 +72,6 @@ interface GitReviewContextValue {
   currentDiffFingerprint: string | null;
   reviewScope: ReviewScope;
   setReviewScope: (scope: ReviewScope) => void;
-  reviewMode: ReviewMode;
   reviewSource: ReviewSourceSelection;
   reviewSourceLoading: boolean;
   reviewSourceError: string | null;
@@ -119,7 +110,6 @@ interface GitReviewContextValue {
 
 const GitReviewContext = createContext<GitReviewContextValue | null>(null);
 const DEFAULT_COMMIT_SCOPE = "review";
-const EMPTY_REVIEW_FILES: FileStatus[] = [];
 
 export function GitReviewProvider({
   children,
@@ -152,75 +142,44 @@ export function GitReviewProvider({
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [stageError, setStageError] = useState<string | null>(null);
-  const [reviewMode, setReviewMode] = useState<ReviewMode>({
-    kind: "live_git",
-  });
-  const [requestedScope, setRequestedScope] = useState<ReviewScope | null>(null);
   const [reviewComments, setReviewComments] = useState<ReviewCommentDraft[]>([]);
-  const liveGitFiles = status?.files ?? EMPTY_REVIEW_FILES;
-  const shouldLoadArtifactSource = Boolean(
-    runId &&
-      (reviewMode.kind === "prompt_artifact" ||
-        (!statusLoading && liveGitFiles.length === 0)),
-  );
+  const liveGitFiles = status?.files ?? EMPTY_FILE_STATUSES;
   const {
-    source: promptArtifactSource,
-    loading: artifactSourceLoading,
-    error: artifactSourceError,
-  } = useEditArtifactReviewSource({
+    artifactDiffState,
+    promptArtifactSource,
+    reviewScope,
+    reviewSource,
+    reviewSourceLoading,
+    reviewSourceError,
+    openLiveGitReviewSource,
+    openPromptArtifactReviewSource,
+    selectReviewScope,
+  } = useReviewSourceState({
     runId: runId ?? undefined,
     sessionId: sessionId ?? undefined,
-    assistantMessageId:
-      reviewMode.kind === "prompt_artifact"
-        ? reviewMode.assistantMessageId
-        : undefined,
-    enabled: shouldLoadArtifactSource,
+    liveGitFiles,
   });
-  const openedArtifact = useMemo(
-    () =>
-      reviewMode.kind === "prompt_artifact"
-        ? {
-            artifactId: reviewMode.artifactId,
-            assistantMessageId: reviewMode.assistantMessageId,
-          }
-        : null,
-    [reviewMode],
-  );
-  const reviewSource = useMemo(
-    () =>
-      resolveReviewSource({
-        requestedScope,
-        openedArtifact,
-        liveGitFiles,
-        latestArtifactSource: promptArtifactSource,
-      }),
-    [liveGitFiles, openedArtifact, promptArtifactSource, requestedScope],
-  );
-  const selectedArtifactId =
-    reviewSource.kind === "saved_edit" ? reviewSource.artifactId : undefined;
   const {
     diff: artifactDiff,
     loading: artifactDiffLoading,
     error: artifactDiffError,
     fetch: fetchArtifactDiff,
-  } = useEditArtifactDiff(selectedArtifactId);
-  const reviewScope: ReviewScope =
-    reviewSource.kind === "saved_edit" ? "prompt-artifact" : "git-changes";
+  } = artifactDiffState;
   const activeFiles = useMemo(
     () =>
-      reviewSource.kind === "saved_edit"
+      reviewSource.kind === "prompt_artifact"
         ? mapArtifactFilesToStatus(promptArtifactSource?.files ?? [])
         : liveGitFiles,
     [liveGitFiles, promptArtifactSource?.files, reviewSource.kind],
   );
-  const diff = reviewSource.kind === "saved_edit" ? artifactDiff : liveDiff;
+  const diff = reviewSource.kind === "prompt_artifact" ? artifactDiff : liveDiff;
   const diffLoading =
-    reviewSource.kind === "saved_edit"
-      ? artifactDiffLoading || artifactSourceLoading
+    reviewSource.kind === "prompt_artifact"
+      ? artifactDiffLoading || reviewSourceLoading
       : liveDiffLoading;
   const diffError =
-    reviewSource.kind === "saved_edit"
-      ? artifactDiffError ?? artifactSourceError
+    reviewSource.kind === "prompt_artifact"
+      ? artifactDiffError ?? reviewSourceError
       : liveDiffError;
   const currentDiffFingerprint = useMemo(
     () => (diff ? buildDiffFingerprint(diff) : null),
@@ -282,119 +241,85 @@ export function GitReviewProvider({
     );
   }, [activeSelectedFilePath, effectiveReviewComments]);
 
-  const selectFileForReview = useCallback(
+  const selectSavedFileForReview = useCallback(
+    async (path: string): Promise<void> => {
+      setSelectedFilePath(path);
+      await fetchArtifactDiff(path);
+    },
+    [fetchArtifactDiff],
+  );
+
+  const selectLiveFileForReview = useCallback(
     async (path: string, staged: boolean): Promise<void> => {
       setSelectedFilePath(path);
-      if (reviewSource.kind === "saved_edit") {
-        await fetchArtifactDiff(path);
-        return;
-      }
       await fetchLiveDiff(path, staged);
     },
-    [fetchArtifactDiff, fetchLiveDiff, reviewSource.kind],
+    [fetchLiveDiff],
+  );
+
+  const selectFilePathForReview = useCallback(
+    async (path: string, staged: boolean): Promise<void> => {
+      if (reviewSource.kind === "prompt_artifact") {
+        await selectSavedFileForReview(path);
+        return;
+      }
+
+      await selectLiveFileForReview(path, staged);
+    },
+    [reviewSource.kind, selectLiveFileForReview, selectSavedFileForReview],
   );
 
   useEffect(() => {
     if (
-      reviewSource.kind !== "saved_edit" ||
+      reviewSource.kind !== "prompt_artifact" ||
       selectedFilePath ||
-      !activeSelectedFilePath ||
-      !selectedArtifactId
+      !activeSelectedFilePath
     ) {
       return;
     }
-    if (activeSelectedFilePath) {
-      void fetchArtifactDiff(activeSelectedFilePath);
-    }
+    void fetchArtifactDiff(activeSelectedFilePath);
   }, [
     activeSelectedFilePath,
     fetchArtifactDiff,
     reviewSource.kind,
     selectedFilePath,
-    selectedArtifactId,
-  ]);
-
-  useEffect(() => {
-    if (import.meta.env.MODE !== "development") {
-      return;
-    }
-
-    console.log("[review/source] selected", {
-      runId,
-      sessionId,
-      liveFileCount: liveGitFiles.length,
-      artifactFileCount: promptArtifactSource?.files.length ?? 0,
-      selectedSource: reviewSource.kind,
-      reason: reviewSource.reason,
-    });
-  }, [
-    liveGitFiles.length,
-    promptArtifactSource?.files.length,
-    reviewSource,
-    runId,
-    sessionId,
   ]);
 
   const openLiveGitReview = useCallback(() => {
-    setReviewMode({ kind: "live_git" });
-    setRequestedScope("git-changes");
+    openLiveGitReviewSource();
     setSelectedFilePath(null);
     onReviewOpenChange(true);
-  }, [onReviewOpenChange]);
+  }, [onReviewOpenChange, openLiveGitReviewSource]);
 
   const openPromptArtifactReview = useCallback(
     (artifactId: string, assistantMessageId?: string) => {
-      setRequestedScope(null);
-      setReviewMode({ kind: "prompt_artifact", artifactId, assistantMessageId });
+      openPromptArtifactReviewSource(artifactId, assistantMessageId);
       setSelectedFilePath(null);
       onReviewOpenChange(true);
     },
-    [onReviewOpenChange],
+    [onReviewOpenChange, openPromptArtifactReviewSource],
   );
 
   const setReviewScope = useCallback(
     (scope: ReviewScope) => {
-      setRequestedScope(scope);
-      if (scope === "git-changes") {
-        setReviewMode({ kind: "live_git" });
-        setSelectedFilePath(null);
-        return;
-      }
-
-      const artifactSelection =
-        reviewSource.kind === "saved_edit"
-          ? reviewSource
-          : promptArtifactSource
-            ? {
-                kind: "saved_edit" as const,
-                artifactId: promptArtifactSource.artifactId,
-                assistantMessageId: promptArtifactSource.assistantMessageId,
-              }
-            : null;
-      if (artifactSelection) {
-        setReviewMode({
-          kind: "prompt_artifact",
-          artifactId: artifactSelection.artifactId,
-          assistantMessageId: artifactSelection.assistantMessageId,
-        });
-        setSelectedFilePath(null);
-      }
+      selectReviewScope(scope);
+      setSelectedFilePath(null);
     },
-    [promptArtifactSource, reviewSource],
+    [selectReviewScope],
   );
 
   const openReview = useCallback(
     (path?: string) => {
       onReviewOpenChange(true);
       if (path) {
-        void selectFileForReview(path, stagedFiles.has(path));
+        void selectFilePathForReview(path, stagedFiles.has(path));
         return;
       }
 
       if (!selectedFilePath) {
         const [firstFile] = activeFiles;
         if (firstFile) {
-          void selectFileForReview(
+          void selectFilePathForReview(
             firstFile.path,
             stagedFiles.has(firstFile.path),
           );
@@ -404,7 +329,7 @@ export function GitReviewProvider({
     [
       onReviewOpenChange,
       activeFiles,
-      selectFileForReview,
+      selectFilePathForReview,
       selectedFilePath,
       stagedFiles,
     ],
@@ -416,9 +341,9 @@ export function GitReviewProvider({
 
   const selectFile = useCallback(
     (file: FileStatus) => {
-      void selectFileForReview(file.path, stagedFiles.has(file.path));
+      void selectFilePathForReview(file.path, file.isStaged);
     },
-    [selectFileForReview, stagedFiles],
+    [selectFilePathForReview],
   );
 
   const addReviewComment = useCallback(
@@ -708,10 +633,9 @@ export function GitReviewProvider({
     currentDiffFingerprint,
     reviewScope,
     setReviewScope,
-    reviewMode,
     reviewSource,
-    reviewSourceLoading: shouldLoadArtifactSource && artifactSourceLoading,
-    reviewSourceError: shouldLoadArtifactSource ? artifactSourceError : null,
+    reviewSourceLoading,
+    reviewSourceError,
     openReview,
     openPromptArtifactReview,
     openLiveGitReview,

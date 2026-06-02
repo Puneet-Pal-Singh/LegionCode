@@ -11,6 +11,7 @@ import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useGitReview } from "../git/GitReviewContext";
 import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
+import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
 import { cn } from "../../lib/utils";
 
 interface ChangesPanelProps {
@@ -77,11 +78,20 @@ export function ChangesPanel({
     }
   }, [files, selectFile, selectedFile, showChangesList]);
 
-  const isSavedEditMode = reviewSource.kind === "saved_edit";
+  const isSavedEditMode = reviewSource.kind === "prompt_artifact";
   const emptyReviewLabel = getEmptyReviewLabel({
     isSavedEditMode,
+    reviewScope,
+    reviewSourceReason: reviewSource.reason,
     reviewSourceLoading,
     reviewSourceError,
+  });
+  const modalDiffMessage = getModalDiffMessage({
+    selectedFile,
+    diffLoading,
+    diffError,
+    hasFiles: files.length > 0,
+    emptyReviewLabel,
   });
 
   if (
@@ -172,7 +182,11 @@ export function ChangesPanel({
               reviewScope={reviewScope}
               onReviewScopeChange={setReviewScope}
               showToolbar={mode === "sidebar" ? showToolbar : false}
-              sourceBadgeLabel={isSavedEditMode ? "Saved" : "Live"}
+              sourceBadgeLabel={
+                reviewScope === "prompt-artifact"
+                  ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
+                  : REVIEW_SOURCE_LABELS.live_git.badge
+              }
               emptyLabel={emptyReviewLabel}
             />
           </div>
@@ -198,13 +212,7 @@ export function ChangesPanel({
               />
             ) : (
               <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-                {selectedFile
-                  ? diffLoading
-                    ? "Loading diff..."
-                    : (diffError ?? "No diff available")
-                    : files.length > 0
-                      ? "Loading diff..."
-                      : emptyReviewLabel}
+                {modalDiffMessage}
               </div>
             )}
           </div>
@@ -216,17 +224,25 @@ export function ChangesPanel({
 
 function getEmptyReviewLabel({
   isSavedEditMode,
+  reviewScope,
+  reviewSourceReason,
   reviewSourceLoading,
   reviewSourceError,
 }: {
   isSavedEditMode: boolean;
+  reviewScope: "git-changes" | "prompt-artifact";
+  reviewSourceReason: string;
   reviewSourceLoading: boolean;
   reviewSourceError: string | null;
 }): string {
-  if (isSavedEditMode) {
+  if (isSavedEditMode || reviewScope === "prompt-artifact") {
     return reviewSourceLoading
       ? "Loading saved edit..."
       : (reviewSourceError ?? "No saved edit for this run");
+  }
+
+  if (reviewSourceReason === "explicit") {
+    return "No live Git changes";
   }
 
   if (reviewSourceLoading) {
@@ -234,6 +250,26 @@ function getEmptyReviewLabel({
   }
 
   return "No reviewed changes yet";
+}
+
+function getModalDiffMessage({
+  selectedFile,
+  diffLoading,
+  diffError,
+  hasFiles,
+  emptyReviewLabel,
+}: {
+  selectedFile: unknown;
+  diffLoading: boolean;
+  diffError: string | null;
+  hasFiles: boolean;
+  emptyReviewLabel: string;
+}): string {
+  if (selectedFile) {
+    return diffLoading ? "Loading diff..." : (diffError ?? "No diff available");
+  }
+
+  return hasFiles ? "Loading diff..." : emptyReviewLabel;
 }
 
 function ReviewDiffToolbar({

@@ -11,6 +11,12 @@ const mockGitReviewState = vi.hoisted(() => ({
   statusLoading: false,
   isGitWorkspaceRecovering: false,
   statusError: null as string | null,
+  reviewSourceLoading: false,
+  reviewScope: "git-changes" as "git-changes" | "prompt-artifact",
+  reviewSourceReason: "live_git_has_changes" as
+    | "live_git_has_changes"
+    | "empty"
+    | "explicit",
 }));
 const mockStatusFiles = vi.hoisted(() => [
   {
@@ -54,11 +60,18 @@ vi.mock("../git/GitReviewContext", () => ({
     reviewFiles: mockStatusFiles,
     stagedFiles: new Set<string>(),
     commitMessage: "feat: ship it",
-    reviewScope: "git-changes",
+    reviewScope: mockGitReviewState.reviewScope,
     setReviewScope: mockSetReviewScope,
-    reviewMode: { kind: "live_git" },
-    reviewSource: { kind: "live_git", reason: "live_git_has_changes" },
-    reviewSourceLoading: false,
+    reviewSource: {
+      kind: "live_git",
+      reason:
+        mockStatusFiles.length === 0
+          ? mockGitReviewState.reviewSourceReason === "explicit"
+            ? "explicit"
+            : "empty"
+          : "live_git_has_changes",
+    },
+    reviewSourceLoading: mockGitReviewState.reviewSourceLoading,
     reviewSourceError: null,
     reviewComments: [],
     selectedReviewComments: [],
@@ -141,6 +154,9 @@ describe("ChangesPanel", () => {
     mockGitReviewState.statusLoading = false;
     mockGitReviewState.isGitWorkspaceRecovering = false;
     mockGitReviewState.statusError = null;
+    mockGitReviewState.reviewSourceLoading = false;
+    mockGitReviewState.reviewScope = "git-changes";
+    mockGitReviewState.reviewSourceReason = "live_git_has_changes";
     mockSelectFile.mockClear();
     mockSetReviewScope.mockClear();
     mockOpenReview.mockClear();
@@ -199,6 +215,27 @@ describe("ChangesPanel", () => {
 
     expect(screen.getByText("No reviewed changes yet")).toBeInTheDocument();
     expect(mockSelectFile).not.toHaveBeenCalled();
+  });
+
+  it("shows saved edit lookup while fallback source is still loading", () => {
+    mockStatusFiles.splice(0, mockStatusFiles.length);
+    mockGitReviewState.reviewSourceLoading = true;
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    expect(screen.getByText("Checking saved edits...")).toBeInTheDocument();
+    expect(screen.queryByText("No reviewed changes yet")).toBeNull();
+  });
+
+  it("shows live git empty state for explicit live git selection", () => {
+    mockStatusFiles.splice(0, mockStatusFiles.length);
+    mockGitReviewState.reviewSourceLoading = true;
+    mockGitReviewState.reviewSourceReason = "explicit";
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    expect(screen.getByText("No live Git changes")).toBeInTheDocument();
+    expect(screen.queryByText("Checking saved edits...")).toBeNull();
   });
 
   it("shows a recovery state while git availability is being refreshed", () => {

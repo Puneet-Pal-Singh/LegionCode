@@ -17,8 +17,11 @@ interface UseEditArtifactReviewSourceResult {
   source: PromptArtifactReviewSource | null;
   loading: boolean;
   error: string | null;
+  resolved: boolean;
   refetch: () => Promise<void>;
 }
+
+const REVIEW_SOURCE_REFRESH_DEBOUNCE_MS = 800;
 
 export function useEditArtifactReviewSource(
   input: UseEditArtifactReviewSourceInput,
@@ -26,6 +29,7 @@ export function useEditArtifactReviewSource(
   const [source, setSource] = useState<PromptArtifactReviewSource | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolved, setResolved] = useState(false);
   const requestIdRef = useRef(0);
 
   const refetch = useCallback(async (): Promise<void> => {
@@ -34,12 +38,14 @@ export function useEditArtifactReviewSource(
       setSource(null);
       setLoading(false);
       setError(null);
+      setResolved(false);
       return;
     }
 
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
+    setResolved(false);
     try {
       const nextSource = input.assistantMessageId
         ? await getEditArtifactReviewSourceByMessage({
@@ -64,6 +70,7 @@ export function useEditArtifactReviewSource(
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
+        setResolved(true);
       }
     }
   }, [input.assistantMessageId, input.enabled, input.runId, input.sessionId]);
@@ -92,7 +99,7 @@ export function useEditArtifactReviewSource(
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
         void refetch();
-      }, 800);
+      }, REVIEW_SOURCE_REFRESH_DEBOUNCE_MS);
     };
 
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
@@ -104,5 +111,5 @@ export function useEditArtifactReviewSource(
     };
   }, [input.enabled, input.runId, refetch]);
 
-  return { source, loading, error, refetch };
+  return { source, loading, error, resolved, refetch };
 }
