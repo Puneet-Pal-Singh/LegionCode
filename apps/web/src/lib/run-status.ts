@@ -7,9 +7,12 @@ const TERMINAL_RUN_STATUSES = new Set([
 
 const APPROVAL_REQUIRED_RUN_STATUSES = new Set([
   "APPROVAL_REQUIRED",
-  "WAITING",
   "WAITING_FOR_APPROVAL",
 ]);
+
+interface MapRunStatusToSessionStatusOptions {
+  hasPendingApproval?: boolean;
+}
 
 export function normalizeRunStatus(
   status: string | null | undefined,
@@ -34,10 +37,13 @@ export function isApprovalRequiredRunStatus(
 
 export function mapRunStatusToSessionStatus(
   status: string | null | undefined,
-  hasPendingApproval = false,
+  options: MapRunStatusToSessionStatusOptions = {},
 ): "completed" | "paused" | "failed" | "waiting_for_approval" | null {
   const normalized = normalizeRunStatus(status);
-  if (hasPendingApproval || isApprovalRequiredRunStatus(normalized)) {
+  if (
+    options.hasPendingApproval ||
+    isApprovalRequiredRunStatus(normalized)
+  ) {
     return "waiting_for_approval";
   }
   if (normalized === "COMPLETED") {

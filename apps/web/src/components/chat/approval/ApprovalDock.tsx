@@ -1,6 +1,6 @@
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
 import { ApprovalActions } from "./ApprovalActions";
-import { buildApprovalCategoryLabel } from "./approvalFormat";
+import { buildApprovalCategoryLabel } from "./approvalLabels";
 
 interface ApprovalDockProps {
   pendingApproval: ApprovalRequest;
@@ -22,8 +22,8 @@ export function ApprovalDock({
   onResolve,
 }: ApprovalDockProps) {
   return (
-    <div className="sticky top-0 z-20 -mx-1 mb-4 pt-1">
-      <div className="rounded-xl border border-amber-300/35 bg-zinc-950/95 px-3 py-3 text-zinc-100 shadow-[0_12px_32px_rgba(0,0,0,0.45)] backdrop-blur">
+    <div className="mb-2">
+      <div className="rounded-xl border border-amber-300/35 bg-zinc-950/95 px-3 py-3 text-zinc-100 shadow-[0_12px_32px_rgba(0,0,0,0.45)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
@@ -49,9 +49,15 @@ export function ApprovalDock({
           />
         </div>
         {notice ? (
-          <p className="mt-2 text-xs text-emerald-200">{notice}</p>
+          <div role="status" aria-live="polite">
+            <p className="mt-2 text-xs text-emerald-200">{notice}</p>
+          </div>
         ) : null}
-        {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
+        {error ? (
+          <div role="alert">
+            <p className="mt-2 text-xs text-red-300">{error}</p>
+          </div>
+        ) : null}
       </div>
     </div>
   );

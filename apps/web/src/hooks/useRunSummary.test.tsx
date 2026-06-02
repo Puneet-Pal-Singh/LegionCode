@@ -56,7 +56,17 @@ describe("useRunSummary", () => {
         JSON.stringify({
           runId: "run-approval",
           status: "completed",
-          pendingApproval: { requestId: "approval-1" },
+          pendingApproval: {
+            requestId: "approval-1",
+            runId: "run-approval",
+            origin: "agent",
+            category: "shell_command",
+            title: "Run command",
+            reason: "Needs approval",
+            actionFingerprint: "shell_command:test",
+            availableDecisions: ["allow_once", "deny"],
+            createdAt: "2026-06-02T00:00:00.000Z",
+          },
         }),
         { status: 200 },
       ),

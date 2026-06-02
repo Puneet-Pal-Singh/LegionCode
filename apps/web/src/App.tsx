@@ -44,6 +44,10 @@ import {
   isTerminalRunStatus,
   mapRunStatusToSessionStatus,
 } from "./lib/run-status";
+import {
+  parseRunSummaryStatusSnapshot,
+  type RunSummaryStatusSnapshot,
+} from "./lib/run-summary-status-snapshot";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -53,15 +57,6 @@ function buildOnboardingSeenKey(userId: string | null): string {
 }
 
 const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
-interface RunSummaryStatusPayload {
-  status?: string | null;
-  pendingApproval?: unknown;
-}
-
-interface RunSummaryStatusSnapshot {
-  status: string | null;
-  hasPendingApproval: boolean;
-}
 
 async function fetchRunSummaryStatus(
   runId: string,
@@ -73,11 +68,7 @@ async function fetchRunSummaryStatus(
   if (!response.ok) {
     return null;
   }
-  const payload = (await response.json()) as RunSummaryStatusPayload;
-  return {
-    status: payload.status ?? null,
-    hasPendingApproval: payload.pendingApproval != null,
-  };
+  return parseRunSummaryStatusSnapshot(await response.json());
 }
 
 function buildRepositoryFromWorkspace(
@@ -633,7 +624,7 @@ function AppContent() {
               sessionId: session.id,
               status: mapRunStatusToSessionStatus(
                 snapshot.status,
-                snapshot.hasPendingApproval,
+                { hasPendingApproval: snapshot.hasPendingApproval },
               ),
             };
           } catch (error) {

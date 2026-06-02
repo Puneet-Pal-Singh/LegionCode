@@ -81,6 +81,7 @@ export function useRunSummary(
     timestamp: number;
     message: string;
   } | null>(null);
+  const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
 
   useEffect(() => {
     activeRunIdRef.current = runId;
@@ -175,7 +176,7 @@ export function useRunSummary(
         !shouldPoll &&
         isTerminalRunStatus(summary?.status) &&
         !isApprovalRequiredRunStatus(summary?.status) &&
-        !summary?.pendingApproval;
+        !pendingApprovalRequestId;
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
@@ -188,9 +189,9 @@ export function useRunSummary(
     };
   }, [
     fetchSummary,
+    pendingApprovalRequestId,
     runId,
     shouldPoll,
-    summary?.pendingApproval,
     summary?.status,
   ]);
 

@@ -25,8 +25,10 @@ describe("run status helpers", () => {
 
   it("maps approval waiting states to a waiting approval session state", () => {
     expect(isApprovalRequiredRunStatus("approval_required")).toBe(true);
-    expect(isApprovalRequiredRunStatus("waiting")).toBe(true);
-    expect(mapRunStatusToSessionStatus("completed", true)).toBe(
+    expect(isApprovalRequiredRunStatus("waiting")).toBe(false);
+    expect(
+      mapRunStatusToSessionStatus("completed", { hasPendingApproval: true }),
+    ).toBe(
       "waiting_for_approval",
     );
     expect(mapRunStatusToSessionStatus("approval_required")).toBe(

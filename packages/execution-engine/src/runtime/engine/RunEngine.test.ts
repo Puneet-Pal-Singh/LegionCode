@@ -4837,7 +4837,7 @@ describe("RunEngine", () => {
     expect(lifecycleSteps).toContain("APPROVAL_WAIT");
     expect(persisted?.metadata.manifest?.harnessMode).toBe("platform_owned");
     expect(output).toContain("Cross-repo access requires explicit approval");
-    expect(persisted?.status).toBe("COMPLETED");
+    expect(persisted?.status).toBe("PAUSED");
   });
 
   it("skips platform approval gate when delegated mode is internally authorized", async () => {

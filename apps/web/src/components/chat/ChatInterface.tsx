@@ -60,8 +60,7 @@ import {
   getEditArtifactReviewSourceByMessage,
 } from "../../lib/edit-artifacts-client.js";
 import { ApprovalDock } from "./approval/ApprovalDock.js";
-import { ApprovalPanel } from "./approval/ApprovalPanel.js";
-import { getDisplayedApprovalDecisions } from "./approval/approvalFormat.js";
+import { getDisplayedApprovalDecisions } from "./approval/approvalDecisions.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
@@ -69,10 +68,24 @@ const PLAN_MODE_RECOVERY_SENTINELS = [
   "I couldn't generate a valid structured plan for this turn",
   "Planning timed out before I could build safe executable tasks",
 ];
+const APPROVAL_NOTICE_CLEAR_DELAY_MS = 5_000;
 const RunSummaryPendingApprovalSchema = z.object({
   pendingApproval: ApprovalRequestSchema.nullish(),
 });
 type ComposerLayout = "docked" | "hero";
+type ApprovalNotice =
+  | { kind: "resolved"; requestId: string }
+  | { kind: "stale"; requestId: string }
+  | null;
+
+function getApprovalNoticeText(notice: ApprovalNotice): string | null {
+  if (!notice) {
+    return null;
+  }
+  return notice.kind === "resolved"
+    ? "Approval recorded. Continuing..."
+    : "Approval request is no longer pending.";
+}
 
 function ChatLoadingIndicator() {
   return (
@@ -231,10 +244,7 @@ export function ChatInterface({
   const [approvalBusyDecision, setApprovalBusyDecision] =
     useState<ApprovalDecisionKind | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
-  const [approvalNotice, setApprovalNotice] = useState<string | null>(null);
-  const [resolvedApprovalRequestId, setResolvedApprovalRequestId] = useState<
-    string | null
-  >(null);
+  const [approvalNotice, setApprovalNotice] = useState<ApprovalNotice>(null);
   const [dismissedApprovalRequestId, setDismissedApprovalRequestId] = useState<
     string | null
   >(null);
@@ -735,8 +745,10 @@ export function ChatInterface({
                   isNoPendingApprovalError(retryMessage);
                 if (isRetryStaleApproval) {
                   setDismissedApprovalRequestId(latestPending.requestId);
-                  setResolvedApprovalRequestId(null);
-                  setApprovalNotice("Approval request is no longer pending.");
+                  setApprovalNotice({
+                    kind: "stale",
+                    requestId: latestPending.requestId,
+                  });
                   dispatchRunSummaryRefresh(runId);
                   return;
                 }
@@ -745,15 +757,19 @@ export function ChatInterface({
                     `Failed to resolve approval (${retryResponse.status})`,
                 );
               }
-              setResolvedApprovalRequestId(latestPending.requestId);
-              setApprovalNotice("Approval recorded. Continuing...");
+              setApprovalNotice({
+                kind: "resolved",
+                requestId: latestPending.requestId,
+              });
               dispatchRunSummaryRefresh(runId);
               return;
             }
 
             setDismissedApprovalRequestId(pending.requestId);
-            setResolvedApprovalRequestId(null);
-            setApprovalNotice("Approval request is no longer pending.");
+            setApprovalNotice({
+              kind: "stale",
+              requestId: pending.requestId,
+            });
             dispatchRunSummaryRefresh(runId);
             return;
           }
@@ -761,11 +777,10 @@ export function ChatInterface({
             message || `Failed to resolve approval (${response.status})`,
           );
         }
-        setResolvedApprovalRequestId(pending.requestId);
-        setApprovalNotice("Approval recorded. Continuing...");
+        setApprovalNotice({ kind: "resolved", requestId: pending.requestId });
         dispatchRunSummaryRefresh(runId);
       } catch (error) {
-        setResolvedApprovalRequestId(null);
+        setApprovalNotice(null);
         setApprovalError(
           error instanceof Error
             ? error.message
@@ -838,8 +853,8 @@ export function ChatInterface({
       if (dismissedApprovalRequestId !== null) {
         setDismissedApprovalRequestId(null);
       }
-      if (resolvedApprovalRequestId !== null) {
-        setResolvedApprovalRequestId(null);
+      if (approvalNotice !== null) {
+        setApprovalNotice(null);
       }
       return;
     }
@@ -851,17 +866,35 @@ export function ChatInterface({
       setApprovalError(null);
     }
     if (
-      resolvedApprovalRequestId &&
-      pendingApprovalCandidate.requestId !== resolvedApprovalRequestId
+      approvalNotice &&
+      pendingApprovalCandidate.requestId !== approvalNotice.requestId
     ) {
-      setResolvedApprovalRequestId(null);
       setApprovalNotice(null);
     }
   }, [
+    approvalNotice,
     dismissedApprovalRequestId,
     pendingApprovalCandidate,
-    resolvedApprovalRequestId,
   ]);
+
+  useEffect(() => {
+    if (!approvalNotice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setApprovalNotice((currentNotice) =>
+        currentNotice?.kind === approvalNotice.kind &&
+        currentNotice.requestId === approvalNotice.requestId
+          ? null
+          : currentNotice,
+      );
+    }, APPROVAL_NOTICE_CLEAR_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [approvalNotice]);
 
   useEffect(() => {
     onPendingApprovalChange?.(Boolean(pendingApproval));
@@ -870,9 +903,10 @@ export function ChatInterface({
     () => getDisplayedApprovalDecisions(pendingApproval),
     [pendingApproval],
   );
+  const approvalNoticeText = getApprovalNoticeText(approvalNotice);
   const isApprovalResolutionPending =
-    Boolean(pendingApproval) &&
-    pendingApproval?.requestId === resolvedApprovalRequestId;
+    approvalNotice?.kind === "resolved" &&
+    pendingApproval?.requestId === approvalNotice.requestId;
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns, runId),
     [activityViewModel.turns, conversationTurns, runId],
@@ -947,7 +981,15 @@ export function ChatInterface({
         </div>
       ) : null}
       {pendingApproval ? (
-        <ApprovalPanel pendingApproval={pendingApproval} />
+        <ApprovalDock
+          pendingApproval={pendingApproval}
+          decisions={displayedApprovalDecisions}
+          busyDecision={approvalBusyDecision}
+          error={approvalError}
+          notice={approvalNoticeText}
+          isResolutionPending={isApprovalResolutionPending}
+          onResolve={resolveApprovalDecision}
+        />
       ) : (
         <ChatInputBar
           input={input}
@@ -1017,18 +1059,6 @@ export function ChatInterface({
           <ChatLoadingIndicator />
         ) : (
           <div className="max-w-4xl mx-auto space-y-6">
-            {pendingApproval ? (
-              <ApprovalDock
-                pendingApproval={pendingApproval}
-                decisions={displayedApprovalDecisions}
-                busyDecision={approvalBusyDecision}
-                error={approvalError}
-                notice={approvalNotice}
-                isResolutionPending={isApprovalResolutionPending}
-                onResolve={resolveApprovalDecision}
-              />
-            ) : null}
-
             {showDebugPanel && (
               <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
                 <div className="px-3 py-2 border-b border-cyan-800/40 text-cyan-200 text-xs font-semibold uppercase tracking-wider">

@@ -792,10 +792,7 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Do you want me to commit repository changes?"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("Approval required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Approval required")).toHaveLength(1);
     expect(
       screen.getByText("LegionCode wants to commit repository changes"),
     ).toBeInTheDocument();
@@ -893,7 +890,7 @@ describe("ChatInterface", () => {
     });
     await waitFor(() => {
       expect(
-        screen.queryByText("Do you want me to run this command?"),
+        screen.queryByText("LegionCode wants to run a shell command"),
       ).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
@@ -1107,7 +1104,7 @@ describe("ChatInterface", () => {
     );
 
     expect(
-      screen.getByText("Do you want me to run a shell command?"),
+      screen.getByText("LegionCode wants to run a shell command"),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Allow once" }),
@@ -1175,14 +1172,14 @@ describe("ChatInterface", () => {
 
     expect(
       screen.getAllByText("Create branch feat/demo-approval?").length,
-    ).toBeGreaterThan(0);
+    ).toBe(1);
     expect(
       screen.getByRole("button", { name: "Allow for this run" }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
-  it("uses the simplified default permission prompt when title is not question-style", () => {
+  it("renders the approval title and command in the dock", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
         runId: "run-shell-prompt",
@@ -1226,10 +1223,8 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Do you want me to run this command?"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("pnpm test").length).toBeGreaterThan(1);
+    expect(screen.getByText("Run shell command")).toBeInTheDocument();
+    expect(screen.getAllByText("pnpm test")).toHaveLength(1);
   });
 
   it("switches to build mode and stages the approved handoff prompt", async () => {
