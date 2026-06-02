@@ -14,8 +14,8 @@ const REVIEW_SCOPE_OPTIONS: Array<{
   label: string;
   disabled: boolean;
 }> = [
-  { value: "git-changes", label: "Git changes", disabled: false },
-  { value: "prompt-artifact", label: "Prompt artifact", disabled: false },
+  { value: "git-changes", label: "Live Git changes", disabled: false },
+  { value: "prompt-artifact", label: "Saved edit", disabled: false },
   { value: "branch-changes", label: "Branch changes", disabled: true },
 ];
 

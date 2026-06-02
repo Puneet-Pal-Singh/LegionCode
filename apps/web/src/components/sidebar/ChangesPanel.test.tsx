@@ -57,6 +57,7 @@ vi.mock("../git/GitReviewContext", () => ({
     reviewScope: "git-changes",
     setReviewScope: mockSetReviewScope,
     reviewMode: { kind: "live_git" },
+    reviewSource: { kind: "live_git", reason: "live_git_has_changes" },
     reviewSourceLoading: false,
     reviewSourceError: null,
     reviewComments: [],
@@ -196,7 +197,7 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("No live Git changes")).toBeInTheDocument();
+    expect(screen.getByText("No reviewed changes yet")).toBeInTheDocument();
     expect(mockSelectFile).not.toHaveBeenCalled();
   });
 

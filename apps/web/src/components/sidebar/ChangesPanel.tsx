@@ -48,7 +48,7 @@ export function ChangesPanel({
     reviewFiles,
     reviewScope,
     setReviewScope,
-    reviewMode,
+    reviewSource,
     reviewSourceLoading,
     reviewSourceError,
     selectedReviewCommentsForFile,
@@ -77,10 +77,15 @@ export function ChangesPanel({
     }
   }, [files, selectFile, selectedFile, showChangesList]);
 
-  const isPromptArtifactMode = reviewMode.kind === "prompt_artifact";
+  const isSavedEditMode = reviewSource.kind === "saved_edit";
+  const emptyReviewLabel = getEmptyReviewLabel({
+    isSavedEditMode,
+    reviewSourceLoading,
+    reviewSourceError,
+  });
 
   if (
-    !isPromptArtifactMode &&
+    !isSavedEditMode &&
     (statusLoading || isGitWorkspaceRecovering) &&
     !status
   ) {
@@ -99,7 +104,7 @@ export function ChangesPanel({
     );
   }
 
-  if (!isPromptArtifactMode && statusError && !status) {
+  if (!isSavedEditMode && statusError && !status) {
     return (
       <div className={`p-4 text-red-400 text-sm bg-transparent ${className}`}>
         Error: {statusError}
@@ -107,7 +112,7 @@ export function ChangesPanel({
     );
   }
 
-  if (!isPromptArtifactMode && !gitAvailable) {
+  if (!isSavedEditMode && !gitAvailable) {
     if (statusLoading || isGitWorkspaceRecovering) {
       return (
         <div
@@ -167,13 +172,8 @@ export function ChangesPanel({
               reviewScope={reviewScope}
               onReviewScopeChange={setReviewScope}
               showToolbar={mode === "sidebar" ? showToolbar : false}
-              emptyLabel={
-                isPromptArtifactMode
-                  ? reviewSourceLoading
-                    ? "Loading saved artifact..."
-                    : (reviewSourceError ?? "No saved artifact")
-                  : "No live Git changes"
-              }
+              sourceBadgeLabel={isSavedEditMode ? "Saved" : "Live"}
+              emptyLabel={emptyReviewLabel}
             />
           </div>
         ) : null}
@@ -204,11 +204,7 @@ export function ChangesPanel({
                     : (diffError ?? "No diff available")
                     : files.length > 0
                       ? "Loading diff..."
-                      : isPromptArtifactMode
-                        ? reviewSourceLoading
-                          ? "Loading saved artifact..."
-                          : (reviewSourceError ?? "No saved artifact")
-                        : "No live Git changes"}
+                      : emptyReviewLabel}
               </div>
             )}
           </div>
@@ -216,6 +212,28 @@ export function ChangesPanel({
       </div>
     </div>
   );
+}
+
+function getEmptyReviewLabel({
+  isSavedEditMode,
+  reviewSourceLoading,
+  reviewSourceError,
+}: {
+  isSavedEditMode: boolean;
+  reviewSourceLoading: boolean;
+  reviewSourceError: string | null;
+}): string {
+  if (isSavedEditMode) {
+    return reviewSourceLoading
+      ? "Loading saved edit..."
+      : (reviewSourceError ?? "No saved edit for this run");
+  }
+
+  if (reviewSourceLoading) {
+    return "Checking saved edits...";
+  }
+
+  return "No reviewed changes yet";
 }
 
 function ReviewDiffToolbar({
