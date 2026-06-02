@@ -4,6 +4,7 @@ import {
   getEditArtifactReviewSourceByMessage,
   getLatestEditArtifactReviewSource,
 } from "../lib/edit-artifacts-client.js";
+import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 
 interface UseEditArtifactReviewSourceInput {
   runId?: string;
@@ -70,6 +71,38 @@ export function useEditArtifactReviewSource(
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  useEffect(() => {
+    if (!input.enabled || !input.runId) {
+      return;
+    }
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleRefreshEvent = (event: Event): void => {
+      const customEvent = event as CustomEvent<{ runId?: string }>;
+      if (customEvent.detail?.runId !== input.runId) {
+        return;
+      }
+
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        void refetch();
+      }, 800);
+    };
+
+    window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+    return () => {
+      window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+    };
+  }, [input.enabled, input.runId, refetch]);
 
   return { source, loading, error, refetch };
 }

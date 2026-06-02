@@ -9,6 +9,7 @@ export function GitReviewDialog() {
     closeReview,
     status,
     selectedFile,
+    reviewFiles,
     selectedReviewCommentCount,
     selectFile,
   } = useGitReview();
@@ -23,15 +24,15 @@ export function GitReviewDialog() {
   }, [closeReview]);
 
   useEffect(() => {
-    if (!isReviewOpen || selectedFile || !status?.files.length) {
+    if (!isReviewOpen || selectedFile || reviewFiles.length === 0) {
       return;
     }
 
-    const [firstFile] = status.files;
+    const [firstFile] = reviewFiles;
     if (firstFile) {
       selectFile(firstFile);
     }
-  }, [isReviewOpen, selectFile, selectedFile, status?.files]);
+  }, [isReviewOpen, reviewFiles, selectFile, selectedFile]);
 
   useEffect(() => {
     if (!isReviewOpen) {
