@@ -342,7 +342,10 @@ export function ChatInterface({
     [isLoading, scopedFeed],
   );
   const activityViewModel = useMemo(() => {
-    const liveViewModel = buildActivityFeedViewModel(displayFeed, activityNowMs);
+    const liveViewModel = buildActivityFeedViewModel(
+      displayFeed,
+      activityNowMs,
+    );
     return {
       ...liveViewModel,
       turns: mergeTranscriptAndLiveActivityTurns(
@@ -445,6 +448,9 @@ export function ChatInterface({
   }, [runId]);
 
   useEffect(() => {
+    const shouldCacheArtifactMisses =
+      !isLoading &&
+      (summary?.status ? isTerminalRunStatus(summary.status) : false);
     const assistantMessageIds = messages
       .filter((message) => message.role === "assistant")
       .map((message) => message.id)
@@ -471,48 +477,54 @@ export function ChatInterface({
         });
         return source ? ([assistantMessageId, source] as const) : null;
       }),
-    )
-      .then((results) => {
-        if (cancelled) {
+    ).then((results) => {
+      if (cancelled) {
+        return;
+      }
+      const nextEntries: Array<[string, PromptArtifactReviewSource]> = [];
+      results.forEach((result, index) => {
+        const assistantMessageId = assistantMessageIds[index];
+        if (!assistantMessageId) {
           return;
         }
-        const nextEntries: Array<[string, PromptArtifactReviewSource]> = [];
-        results.forEach((result, index) => {
-          const assistantMessageId = assistantMessageIds[index];
-          if (!assistantMessageId) {
-            return;
-          }
-          inflightArtifactLookupsRef.current.delete(assistantMessageId);
-          if (result.status === "fulfilled" && result.value) {
-            nextEntries.push([...result.value]);
-            return;
-          }
-          if (result.status === "rejected") {
-            console.warn("[chat/artifacts] Failed to hydrate artifact", {
-              assistantMessageId,
-              error: result.reason,
-            });
-          }
-          if (
-            result.status === "rejected" ||
-            (result.status === "fulfilled" && result.value === null)
-          ) {
-            artifactLookupMissesRef.current.add(assistantMessageId);
-          }
-        });
-        if (nextEntries.length === 0) {
+        inflightArtifactLookupsRef.current.delete(assistantMessageId);
+        if (result.status === "fulfilled" && result.value) {
+          nextEntries.push([...result.value]);
           return;
         }
-        setArtifactSourcesByAssistantMessageId((current) => ({
-          ...current,
-          ...Object.fromEntries(nextEntries),
-        }));
+        if (result.status === "rejected") {
+          console.warn("[chat/artifacts] Failed to hydrate artifact", {
+            assistantMessageId,
+            error: result.reason,
+          });
+        }
+        if (
+          shouldCacheArtifactMisses &&
+          (result.status === "rejected" ||
+            (result.status === "fulfilled" && result.value === null))
+        ) {
+          artifactLookupMissesRef.current.add(assistantMessageId);
+        }
       });
+      if (nextEntries.length === 0) {
+        return;
+      }
+      setArtifactSourcesByAssistantMessageId((current) => ({
+        ...current,
+        ...Object.fromEntries(nextEntries),
+      }));
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [artifactSourcesByAssistantMessageId, messages, runId]);
+  }, [
+    artifactSourcesByAssistantMessageId,
+    isLoading,
+    messages,
+    runId,
+    summary?.status,
+  ]);
 
   useEffect(() => {
     if (!previousIsLoadingRef.current && isLoading) {
@@ -612,46 +624,50 @@ export function ChatInterface({
     [reviewCommentError, toggleReviewCommentSelected],
   );
 
-  const handleSubmitWithReviewComments = useCallback(async (): Promise<boolean> => {
-    const budgetResult = validateReviewPromptBudget(
-      selectedReviewComments,
+  const handleSubmitWithReviewComments =
+    useCallback(async (): Promise<boolean> => {
+      const budgetResult = validateReviewPromptBudget(
+        selectedReviewComments,
+        input,
+      );
+      if (!budgetResult.ok) {
+        setReviewCommentError(budgetResult.reason);
+        return false;
+      }
+
+      const { prompt } = buildReviewCommentPrompt(
+        selectedReviewComments,
+        input,
+      );
+      const selectedIds = selectedReviewComments.map((comment) => comment.id);
+      lastReviewDispatchIdsRef.current = selectedIds;
+      setReviewCommentError(null);
+      markReviewCommentsDispatching(selectedIds);
+
+      try {
+        await append({ role: "user", content: prompt });
+        markReviewCommentsDispatched(selectedIds);
+        handleInputChangeWrapper("");
+        return true;
+      } catch (submitError) {
+        markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
+        lastReviewDispatchIdsRef.current = [];
+        const message =
+          submitError instanceof Error
+            ? submitError.message
+            : "Failed to send review comments.";
+        setReviewCommentError(message);
+        return false;
+      }
+    }, [
+      append,
+      handleInputChangeWrapper,
       input,
-    );
-    if (!budgetResult.ok) {
-      setReviewCommentError(budgetResult.reason);
-      return false;
-    }
-
-    const { prompt } = buildReviewCommentPrompt(selectedReviewComments, input);
-    const selectedIds = selectedReviewComments.map((comment) => comment.id);
-    lastReviewDispatchIdsRef.current = selectedIds;
-    setReviewCommentError(null);
-    markReviewCommentsDispatching(selectedIds);
-
-    try {
-      await append({ role: "user", content: prompt });
-      markReviewCommentsDispatched(selectedIds);
-      handleInputChangeWrapper("");
-      return true;
-    } catch (submitError) {
-      markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
-      lastReviewDispatchIdsRef.current = [];
-      const message =
-        submitError instanceof Error
-          ? submitError.message
-          : "Failed to send review comments.";
-      setReviewCommentError(message);
-      return false;
-    }
-  }, [
-    append,
-    handleInputChangeWrapper,
-    input,
-    markReviewCommentsDispatchFailed,
-    markReviewCommentsDispatched,
-    markReviewCommentsDispatching,
-    selectedReviewComments,
-  ]);
+      markReviewCommentsDispatchFailed,
+      markReviewCommentsDispatched,
+      markReviewCommentsDispatching,
+      selectedReviewComments,
+    ]);
 
   useEffect(() => {
     if (!pendingPlanPrompt || mode !== "build" || isLoading) {
