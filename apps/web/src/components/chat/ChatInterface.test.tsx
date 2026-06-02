@@ -795,6 +795,10 @@ describe("ChatInterface", () => {
     expect(
       screen.getByText("Do you want me to commit repository changes?"),
     ).toBeInTheDocument();
+    expect(screen.getAllByText("Approval required").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("LegionCode wants to commit repository changes"),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Permission mode" }),
     ).toBeInTheDocument();
@@ -804,7 +808,7 @@ describe("ChatInterface", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Allow for this session" }),
+      screen.queryByRole("button", { name: "Allow for this run" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Allow in future" }),
@@ -821,6 +825,10 @@ describe("ChatInterface", () => {
       );
     });
     expect(mockDispatchRunSummaryRefresh).toHaveBeenCalledWith("run-approval");
+    expect(
+      await screen.findByText("Approval recorded. Continuing..."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
   it("treats stale approval requests as already resolved", async () => {
@@ -944,7 +952,7 @@ describe("ChatInterface", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Allow for this session" }),
+      screen.getByRole("button", { name: "Allow for this run" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Allow in future" }),
@@ -1107,6 +1115,73 @@ describe("ChatInterface", () => {
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
+  it("shows unresolved event-based approval for approval-required terminal summaries", () => {
+    const pendingApprovalEvent: RunEvent = {
+      version: 1,
+      eventId: "evt-approval-required-terminal",
+      runId: "run-terminal-approval",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      source: "brain",
+      type: "approval.requested",
+      payload: {
+        request: {
+          requestId: "req-terminal-approval",
+          runId: "run-terminal-approval",
+          origin: "agent",
+          category: "git_mutation",
+          title: "Create branch feat/demo-approval?",
+          reason: "Branch creation changes repository state.",
+          actionFingerprint: "git_mutation:create_branch:feat/demo-approval",
+          command: "git checkout -b feat/demo-approval",
+          availableDecisions: ["allow_once", "allow_for_run", "deny"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    };
+
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-terminal-approval",
+        status: "approval_required",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: null,
+      },
+    });
+    vi.mocked(useRunEvents).mockReturnValue({
+      events: [pendingApprovalEvent],
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run-terminal-approval",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getAllByText("Create branch feat/demo-approval?").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Allow for this run" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
+  });
+
   it("uses the simplified default permission prompt when title is not question-style", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
@@ -1154,7 +1229,7 @@ describe("ChatInterface", () => {
     expect(
       screen.getByText("Do you want me to run this command?"),
     ).toBeInTheDocument();
-    expect(screen.getByText("pnpm test")).toBeInTheDocument();
+    expect(screen.getAllByText("pnpm test").length).toBeGreaterThan(1);
   });
 
   it("switches to build mode and stages the approved handoff prompt", async () => {

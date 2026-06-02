@@ -45,7 +45,10 @@ import {
   runApprovalPath,
 } from "../../lib/platform-endpoints.js";
 import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
-import { isTerminalRunStatus } from "../../lib/run-status.js";
+import {
+  isApprovalRequiredRunStatus,
+  isTerminalRunStatus,
+} from "../../lib/run-status.js";
 import { useGitReview } from "../git/GitReviewContext";
 import {
   buildReviewCommentPrompt,
@@ -56,14 +59,12 @@ import {
   getEditArtifactDiff,
   getEditArtifactReviewSourceByMessage,
 } from "../../lib/edit-artifacts-client.js";
+import { ApprovalDock } from "./approval/ApprovalDock.js";
+import { ApprovalPanel } from "./approval/ApprovalPanel.js";
+import { getDisplayedApprovalDecisions } from "./approval/approvalFormat.js";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
-const PRIMARY_APPROVAL_DECISIONS: ApprovalDecisionKind[] = [
-  "allow_once",
-  "allow_for_run",
-  "deny",
-];
 const PLAN_MODE_RECOVERY_SENTINELS = [
   "I couldn't generate a valid structured plan for this turn",
   "Planning timed out before I could build safe executable tasks",
@@ -107,69 +108,6 @@ function ChatErrorNotice({
       >
         {actionLabel}
       </button>
-    </div>
-  );
-}
-
-function ApprovalPanel({
-  pendingApproval,
-  displayedApprovalDecisions,
-  approvalBusyDecision,
-  approvalError,
-  resolveApprovalDecision,
-  approvalDecisionButtonClassName,
-  formatApprovalDecisionLabel,
-  buildApprovalPromptTitle,
-}: {
-  pendingApproval: ApprovalRequest;
-  displayedApprovalDecisions: ApprovalDecisionKind[];
-  approvalBusyDecision: ApprovalDecisionKind | null;
-  approvalError: string | null;
-  resolveApprovalDecision: (decision: ApprovalDecisionKind) => Promise<void>;
-  approvalDecisionButtonClassName: (decision: ApprovalDecisionKind) => string;
-  formatApprovalDecisionLabel: (decision: ApprovalDecisionKind) => string;
-  buildApprovalPromptTitle: (pendingApproval: ApprovalRequest) => string;
-}) {
-  return (
-    <div className="mb-2 overflow-hidden rounded-2xl border border-zinc-700/80 bg-[linear-gradient(180deg,#18181b_0%,#151518_55%,#141418_100%)] text-zinc-100 shadow-[0_8px_26px_rgba(0,0,0,0.34)]">
-      <div className="border-b border-zinc-800/90 px-4 py-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-300">
-          Pending approval
-          <span className="ml-2 text-[12px] font-medium normal-case tracking-normal text-zinc-400">
-            Command approval requested
-          </span>
-        </p>
-      </div>
-      <div className="p-4">
-        <p className="text-[clamp(1.1rem,1.35vw,1.45rem)] font-semibold leading-tight text-zinc-100">
-          {buildApprovalPromptTitle(pendingApproval)}
-        </p>
-        {pendingApproval.command ? (
-          <p className="mt-3 rounded-lg border border-zinc-700 bg-black/35 px-3 py-2 font-mono text-[13px] text-zinc-100">
-            {pendingApproval.command}
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-zinc-300">{pendingApproval.reason}</p>
-        )}
-      </div>
-      <div className="border-t border-zinc-800/90 px-4 pb-4 pt-3">
-        <div className="flex flex-wrap gap-2">
-          {displayedApprovalDecisions.map((decision) => (
-            <button
-              key={decision}
-              type="button"
-              disabled={approvalBusyDecision !== null}
-              onClick={() => void resolveApprovalDecision(decision)}
-              className={approvalDecisionButtonClassName(decision)}
-            >
-              {formatApprovalDecisionLabel(decision)}
-            </button>
-          ))}
-        </div>
-        {approvalError ? (
-          <p className="mt-3 text-xs text-red-300">{approvalError}</p>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -293,6 +231,10 @@ export function ChatInterface({
   const [approvalBusyDecision, setApprovalBusyDecision] =
     useState<ApprovalDecisionKind | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [approvalNotice, setApprovalNotice] = useState<string | null>(null);
+  const [resolvedApprovalRequestId, setResolvedApprovalRequestId] = useState<
+    string | null
+  >(null);
   const [dismissedApprovalRequestId, setDismissedApprovalRequestId] = useState<
     string | null
   >(null);
@@ -762,6 +704,7 @@ export function ChatInterface({
       }
       setApprovalBusyDecision(decision);
       setApprovalError(null);
+      setApprovalNotice(null);
       try {
         const response = await submitApprovalDecision({
           runId,
@@ -792,6 +735,8 @@ export function ChatInterface({
                   isNoPendingApprovalError(retryMessage);
                 if (isRetryStaleApproval) {
                   setDismissedApprovalRequestId(latestPending.requestId);
+                  setResolvedApprovalRequestId(null);
+                  setApprovalNotice("Approval request is no longer pending.");
                   dispatchRunSummaryRefresh(runId);
                   return;
                 }
@@ -800,12 +745,15 @@ export function ChatInterface({
                     `Failed to resolve approval (${retryResponse.status})`,
                 );
               }
-              setDismissedApprovalRequestId(latestPending.requestId);
+              setResolvedApprovalRequestId(latestPending.requestId);
+              setApprovalNotice("Approval recorded. Continuing...");
               dispatchRunSummaryRefresh(runId);
               return;
             }
 
             setDismissedApprovalRequestId(pending.requestId);
+            setResolvedApprovalRequestId(null);
+            setApprovalNotice("Approval request is no longer pending.");
             dispatchRunSummaryRefresh(runId);
             return;
           }
@@ -813,9 +761,11 @@ export function ChatInterface({
             message || `Failed to resolve approval (${response.status})`,
           );
         }
-        setDismissedApprovalRequestId(pending.requestId);
+        setResolvedApprovalRequestId(pending.requestId);
+        setApprovalNotice("Approval recorded. Continuing...");
         dispatchRunSummaryRefresh(runId);
       } catch (error) {
+        setResolvedApprovalRequestId(null);
         setApprovalError(
           error instanceof Error
             ? error.message
@@ -865,7 +815,10 @@ export function ChatInterface({
         return summary.pendingApproval;
       }
       const isTerminal = isTerminalRunStatus(summary.status);
-      return isTerminal ? null : pendingApprovalFromEvents;
+      const isApprovalWaiting = isApprovalRequiredRunStatus(summary.status);
+      return isTerminal && !isApprovalWaiting
+        ? null
+        : pendingApprovalFromEvents;
     }
 
     return pendingApprovalFromEvents;
@@ -885,6 +838,9 @@ export function ChatInterface({
       if (dismissedApprovalRequestId !== null) {
         setDismissedApprovalRequestId(null);
       }
+      if (resolvedApprovalRequestId !== null) {
+        setResolvedApprovalRequestId(null);
+      }
       return;
     }
     if (
@@ -894,23 +850,29 @@ export function ChatInterface({
       setDismissedApprovalRequestId(null);
       setApprovalError(null);
     }
-  }, [dismissedApprovalRequestId, pendingApprovalCandidate]);
+    if (
+      resolvedApprovalRequestId &&
+      pendingApprovalCandidate.requestId !== resolvedApprovalRequestId
+    ) {
+      setResolvedApprovalRequestId(null);
+      setApprovalNotice(null);
+    }
+  }, [
+    dismissedApprovalRequestId,
+    pendingApprovalCandidate,
+    resolvedApprovalRequestId,
+  ]);
 
   useEffect(() => {
     onPendingApprovalChange?.(Boolean(pendingApproval));
   }, [onPendingApprovalChange, pendingApproval]);
-  const displayedApprovalDecisions = useMemo(() => {
-    if (!pendingApproval) {
-      return [];
-    }
-    const preferredDecisions = PRIMARY_APPROVAL_DECISIONS.filter((decision) =>
-      pendingApproval.availableDecisions.includes(decision),
-    );
-    const remainingDecisions = pendingApproval.availableDecisions.filter(
-      (decision) => !preferredDecisions.includes(decision),
-    );
-    return [...preferredDecisions, ...remainingDecisions];
-  }, [pendingApproval]);
+  const displayedApprovalDecisions = useMemo(
+    () => getDisplayedApprovalDecisions(pendingApproval),
+    [pendingApproval],
+  );
+  const isApprovalResolutionPending =
+    Boolean(pendingApproval) &&
+    pendingApproval?.requestId === resolvedApprovalRequestId;
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns, runId),
     [activityViewModel.turns, conversationTurns, runId],
@@ -985,16 +947,7 @@ export function ChatInterface({
         </div>
       ) : null}
       {pendingApproval ? (
-        <ApprovalPanel
-          pendingApproval={pendingApproval}
-          displayedApprovalDecisions={displayedApprovalDecisions}
-          approvalBusyDecision={approvalBusyDecision}
-          approvalError={approvalError}
-          resolveApprovalDecision={resolveApprovalDecision}
-          approvalDecisionButtonClassName={approvalDecisionButtonClassName}
-          formatApprovalDecisionLabel={formatApprovalDecisionLabel}
-          buildApprovalPromptTitle={buildApprovalPromptTitle}
-        />
+        <ApprovalPanel pendingApproval={pendingApproval} />
       ) : (
         <ChatInputBar
           input={input}
@@ -1064,6 +1017,18 @@ export function ChatInterface({
           <ChatLoadingIndicator />
         ) : (
           <div className="max-w-4xl mx-auto space-y-6">
+            {pendingApproval ? (
+              <ApprovalDock
+                pendingApproval={pendingApproval}
+                decisions={displayedApprovalDecisions}
+                busyDecision={approvalBusyDecision}
+                error={approvalError}
+                notice={approvalNotice}
+                isResolutionPending={isApprovalResolutionPending}
+                onResolve={resolveApprovalDecision}
+              />
+            ) : null}
+
             {showDebugPanel && (
               <div className="rounded border border-cyan-800/60 bg-cyan-950/20">
                 <div className="px-3 py-2 border-b border-cyan-800/40 text-cyan-200 text-xs font-semibold uppercase tracking-wider">
@@ -1437,77 +1402,6 @@ function formatDebugPayload(payload: unknown): string {
     return serialized;
   } catch {
     return String(payload);
-  }
-}
-
-function formatApprovalDecisionLabel(decision: ApprovalDecisionKind): string {
-  switch (decision) {
-    case "allow_once":
-      return "Allow once";
-    case "allow_for_run":
-      return "Allow for this session";
-    case "allow_persistent_rule":
-      return "Allow in future";
-    case "deny":
-      return "Deny";
-    case "abort":
-      return "Abort";
-    default:
-      return decision;
-  }
-}
-
-function approvalDecisionButtonClassName(
-  decision: ApprovalDecisionKind,
-): string {
-  const baseClassName =
-    "rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60";
-
-  switch (decision) {
-    case "allow_once":
-      return `${baseClassName} border-blue-500/35 bg-blue-500/10 text-blue-100 hover:border-blue-400/50 hover:bg-blue-500/15`;
-    case "allow_for_run":
-      return `${baseClassName} border-emerald-500/35 bg-emerald-500/10 text-emerald-100 hover:border-emerald-400/50 hover:bg-emerald-500/15`;
-    case "deny":
-    case "abort":
-      return `${baseClassName} border-red-500/35 bg-red-500/10 text-red-100 hover:border-red-400/50 hover:bg-red-500/15`;
-    case "allow_persistent_rule":
-    default:
-      return `${baseClassName} border-zinc-600 bg-zinc-900/80 text-zinc-100 hover:border-zinc-500 hover:bg-zinc-800/80`;
-  }
-}
-
-function buildApprovalPromptTitle(pendingApproval: ApprovalRequest): string {
-  const title = pendingApproval.title.trim();
-  if (title.endsWith("?")) {
-    return title;
-  }
-
-  const wantsToMatch = title.match(/^(?:legioncode)\s+wants\s+to\s+(.+)$/i);
-  if (wantsToMatch?.[1]) {
-    return `Do you want me to ${wantsToMatch[1]}?`;
-  }
-
-  switch (pendingApproval.category) {
-    case "git_mutation":
-      return "Do you want me to run this git command?";
-    case "filesystem_write":
-      return "Do you want me to write files in this workspace?";
-    case "network_external":
-      return "Do you want me to access an external network target?";
-    case "outside_workspace":
-      return "Do you want me to run this command outside the workspace?";
-    case "subagent_spawn":
-      return "Do you want me to start a sub-agent?";
-    case "provider_connect":
-      return "Do you want me to connect this provider?";
-    case "deploy_or_infra_mutation":
-      return "Do you want me to run this deployment action?";
-    case "dangerous_retry":
-      return "Do you want me to retry this risky action?";
-    case "shell_command":
-    default:
-      return "Do you want me to run this command?";
   }
 }
 
