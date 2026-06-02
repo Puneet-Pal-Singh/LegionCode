@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
-import { isTerminalRunStatus } from "../lib/run-status.js";
+import {
+  isApprovalRequiredRunStatus,
+  isTerminalRunStatus,
+} from "../lib/run-status.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import type {
   ApprovalRequest,
@@ -78,6 +81,7 @@ export function useRunSummary(
     timestamp: number;
     message: string;
   } | null>(null);
+  const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
 
   useEffect(() => {
     activeRunIdRef.current = runId;
@@ -169,7 +173,10 @@ export function useRunSummary(
       }
 
       const shouldSkipTerminalSummary =
-        !shouldPoll && isTerminalRunStatus(summary?.status);
+        !shouldPoll &&
+        isTerminalRunStatus(summary?.status) &&
+        !isApprovalRequiredRunStatus(summary?.status) &&
+        !pendingApprovalRequestId;
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
@@ -180,7 +187,13 @@ export function useRunSummary(
     return () => {
       window.removeEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
     };
-  }, [fetchSummary, runId, shouldPoll, summary?.status]);
+  }, [
+    fetchSummary,
+    pendingApprovalRequestId,
+    runId,
+    shouldPoll,
+    summary?.status,
+  ]);
 
   useEffect(() => {
     if (!runId || !shouldPoll) {

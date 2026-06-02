@@ -17,6 +17,7 @@ interface SidebarHeaderProps {
   isViewingContent: boolean;
   activeTab: TabType;
   changesCount: number;
+  hasPendingApproval?: boolean;
   onBack: () => void;
   onTabChange: (tab: TabType) => void;
   onCommit?: () => void;
@@ -27,6 +28,7 @@ export function SidebarHeader({
   isViewingContent,
   activeTab,
   changesCount,
+  hasPendingApproval = false,
   onBack,
   onTabChange,
   onCommit,
@@ -46,6 +48,7 @@ export function SidebarHeader({
         <SidebarSurfaceControls
           activeTab={activeTab}
           changesCount={changesCount}
+          hasPendingApproval={hasPendingApproval}
           onTabChange={onTabChange}
           onCommit={onCommit}
           onExpand={onExpand}
@@ -54,6 +57,7 @@ export function SidebarHeader({
         <SidebarSurfaceControls
           activeTab={activeTab}
           changesCount={changesCount}
+          hasPendingApproval={hasPendingApproval}
           onTabChange={onTabChange}
           onCommit={onCommit}
           onExpand={onExpand}
@@ -66,12 +70,14 @@ export function SidebarHeader({
 function SidebarSurfaceControls({
   activeTab,
   changesCount,
+  hasPendingApproval,
   onTabChange,
   onCommit,
   onExpand,
 }: {
   activeTab: TabType;
   changesCount: number;
+  hasPendingApproval: boolean;
   onTabChange: (tab: TabType) => void;
   onCommit?: () => void;
   onExpand?: () => void;
@@ -104,6 +110,11 @@ function SidebarSurfaceControls({
         />
       </div>
       <div className="flex items-center gap-1">
+        {hasPendingApproval ? (
+          <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+            Approval
+          </span>
+        ) : null}
         {/* TODO: Set REVIEW_COMMIT_ENTRY_POINT_ENABLED true after commit flow reliability is production-ready. */}
         {REVIEW_COMMIT_ENTRY_POINT_ENABLED ? (
           <HeaderIconButton

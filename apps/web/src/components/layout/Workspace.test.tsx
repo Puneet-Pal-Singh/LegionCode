@@ -34,7 +34,11 @@ const mockGitHubTreeState = vi.hoisted(() => ({
   isContextMismatch: false,
 }));
 const mockRunSummaryState = vi.hoisted(() => ({
-  summary: null as { runId: string; status: string | null } | null,
+  summary: null as {
+    runId: string;
+    status: string | null;
+    pendingApproval?: unknown;
+  } | null,
 }));
 const mockGitStatusState = vi.hoisted(() => ({
   status: {
@@ -640,6 +644,50 @@ describe("Workspace", () => {
         }),
       }),
     );
+  });
+
+  it("maps pending approval summaries to a waiting session without loading controls", async () => {
+    const onSessionStatusChange = vi.fn();
+    mockRunSummaryState.summary = {
+      runId: "run-123",
+      status: "COMPLETED",
+      pendingApproval: {
+        requestId: "approval-1",
+        runId: "run-123",
+        origin: "agent",
+        category: "shell_command",
+        title: "Run command",
+        reason: "Needs approval",
+        actionFingerprint: "shell_command:test",
+        availableDecisions: ["allow_once", "deny"],
+        createdAt: "2026-06-02T00:00:00.000Z",
+      },
+    };
+    mockChatState.isLoading = false;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    expect(mockChatInterface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatProps: expect.objectContaining({
+          canStop: false,
+          isLoading: false,
+        }),
+      }),
+    );
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith(
+        "waiting_for_approval",
+      );
+    });
   });
 
   it("clears loading when a stale active summary follows a finished assistant response", () => {

@@ -21,6 +21,7 @@ import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js"
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
 type RecoveredRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
+type FinalizedRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
 
 type PlannerRecoveryErrorCode =
   | "PLANNER_TIMEOUT"
@@ -42,6 +43,18 @@ export interface RunCompletionDependencies {
   ) => Promise<T | undefined>;
 }
 
+interface RunAssistantFinalizationParams {
+  run: Run;
+  text: string;
+  metadata?: Record<string, unknown>;
+  deps: RunCompletionDependencies;
+}
+
+interface PersistFinalAssistantRunParams extends RunAssistantFinalizationParams {
+  terminalState: RunTerminalState;
+  terminalStatus: FinalizedRunTerminalStatus;
+}
+
 export function createStreamResponse(content: string): Response {
   const safeContent = sanitizeUserFacingOutput(content);
   const encoder = new TextEncoder();
@@ -60,12 +73,47 @@ export function createStreamResponse(content: string): Response {
   });
 }
 
-export async function completeRunWithAssistantMessage(params: {
-  run: Run;
-  text: string;
-  metadata?: Record<string, unknown>;
-  deps: RunCompletionDependencies;
-}): Promise<Response> {
+export async function finalizeRunWithAssistantMessage(
+  params: RunAssistantFinalizationParams,
+): Promise<Response> {
+  const terminalState =
+    parseTerminalState(params.metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
+  if (terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED) {
+    return pauseRunForApprovalWithAssistantMessage(params);
+  }
+
+  return completeRunWithAssistantMessage(params);
+}
+
+export async function completeRunWithAssistantMessage(
+  params: RunAssistantFinalizationParams,
+): Promise<Response> {
+  const terminalState =
+    parseTerminalState(params.metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
+  assertCompletionTerminalState(terminalState);
+  return persistFinalAssistantRun({
+    ...params,
+    terminalState,
+    terminalStatus: "COMPLETED",
+  });
+}
+
+export async function pauseRunForApprovalWithAssistantMessage(
+  params: RunAssistantFinalizationParams,
+): Promise<Response> {
+  const terminalState =
+    parseTerminalState(params.metadata) ?? RUN_TERMINAL_STATES.APPROVAL_REQUIRED;
+  assertApprovalTerminalState(terminalState);
+  return persistFinalAssistantRun({
+    ...params,
+    terminalState,
+    terminalStatus: "PAUSED",
+  });
+}
+
+async function persistFinalAssistantRun(
+  params: PersistFinalAssistantRunParams,
+): Promise<Response> {
   const { run, text, metadata, deps } = params;
   const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
@@ -74,25 +122,23 @@ export async function completeRunWithAssistantMessage(params: {
     );
     return createStreamResponse("");
   }
-  const terminalState =
-    parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED;
   const finalMessage = buildFinalAssistantMessage({
     run,
     text,
     metadata,
-    terminalState,
+    terminalState: params.terminalState,
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS");
-  transitionRunToCompleted(run, run.id);
-  recordLifecycleStep(run, "TERMINAL", "status=COMPLETED");
+  transitionFinalAssistantRun(run, params.terminalStatus);
+  recordLifecycleStep(run, "TERMINAL", `status=${params.terminalStatus}`);
   recordOrchestrationTerminal(run);
   run.output = {
     content: sanitizedText,
     finalSummary: sanitizedText,
   };
-  run.metadata.terminalState = terminalState;
-  if (!(await updateCompletedRunIfActive(run, deps))) {
+  run.metadata.terminalState = params.terminalState;
+  if (!(await updateFinalizedRunIfActive(run, deps, params.terminalStatus))) {
     console.log(
       `[run/engine] Skipping assistant completion for terminal run ${run.id}`,
     );
@@ -110,11 +156,13 @@ export async function completeRunWithAssistantMessage(params: {
     sanitizedText,
     finalMessage.metadata,
   );
-  await deps.runEventRecorder.recordRunCompleted(
-    getRunDurationMs(run),
-    run.metadata.agenticLoop?.toolExecutionCount ?? 0,
-  );
-  console.log(`[run/engine] Completed assistant run ${run.id}`);
+  if (params.terminalStatus === "COMPLETED") {
+    await deps.runEventRecorder.recordRunCompleted(
+      getRunDurationMs(run),
+      run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+    );
+  }
+  console.log(buildFinalAssistantRunLog(run.id, params.terminalStatus));
 
   return createStreamResponse(sanitizedText);
 }
@@ -225,15 +273,17 @@ async function isRunCancelledInStore(
   return currentRun?.status === "CANCELLED";
 }
 
-async function updateCompletedRunIfActive(
+async function updateFinalizedRunIfActive(
   run: Run,
   deps: RunCompletionDependencies,
+  terminalStatus: FinalizedRunTerminalStatus,
 ): Promise<boolean> {
-  return await deps.runRepo.updateUnlessStatus(run, [
-    "COMPLETED",
-    "FAILED",
-    "CANCELLED",
-  ]);
+  const blockedStatuses: RunStatus[] =
+    terminalStatus === "PAUSED"
+      ? ["PAUSED", "COMPLETED", "FAILED", "CANCELLED"]
+      : ["COMPLETED", "FAILED", "CANCELLED"];
+
+  return await deps.runRepo.updateUnlessStatus(run, blockedStatuses);
 }
 
 async function updateRecoveredRunIfActive(
@@ -258,6 +308,45 @@ function transitionRecoveredRun(
   }
 
   transitionRunToCompleted(run, run.id);
+}
+
+function transitionFinalAssistantRun(
+  run: Run,
+  terminalStatus: FinalizedRunTerminalStatus,
+): void {
+  if (terminalStatus === "PAUSED") {
+    transitionRunToPaused(run, run.id);
+    return;
+  }
+
+  transitionRunToCompleted(run, run.id);
+}
+
+function buildFinalAssistantRunLog(
+  runId: string,
+  terminalStatus: FinalizedRunTerminalStatus,
+): string {
+  if (terminalStatus === "PAUSED") {
+    return `[run/engine] Paused assistant run ${runId} for approval`;
+  }
+
+  return `[run/engine] Completed assistant run ${runId}`;
+}
+
+function assertCompletionTerminalState(terminalState: RunTerminalState): void {
+  if (terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED) {
+    throw new Error(
+      "completeRunWithAssistantMessage cannot finalize approval-required runs",
+    );
+  }
+}
+
+function assertApprovalTerminalState(terminalState: RunTerminalState): void {
+  if (terminalState !== RUN_TERMINAL_STATES.APPROVAL_REQUIRED) {
+    throw new Error(
+      "pauseRunForApprovalWithAssistantMessage requires approval terminal state",
+    );
+  }
 }
 
 function buildRecoveredLifecycleDetail(

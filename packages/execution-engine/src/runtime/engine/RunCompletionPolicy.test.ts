@@ -6,6 +6,8 @@ import { Run } from "../run/index.js";
 import {
   completeRunWithAssistantMessage,
   completeRunWithRecoveredAssistantMessage,
+  finalizeRunWithAssistantMessage,
+  pauseRunForApprovalWithAssistantMessage,
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
 
@@ -75,6 +77,68 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
       expect.objectContaining({ runStatus: "PAUSED" }),
+    );
+  });
+
+  it("pauses approval-required runs instead of marking them completed", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await finalizeRunWithAssistantMessage({
+      run,
+      text: "I need your approval before I can continue.",
+      metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain(
+      "I need your approval before I can continue.",
+    );
+    expect(run.status).toBe("PAUSED");
+    expect(deps.runEventRecorder.recordRunStatusChanged).toHaveBeenCalledWith(
+      "RUNNING",
+      "PAUSED",
+      "synthesis",
+    );
+    expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
+    expect(run.metadata.terminalState).toBe(
+      RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+    );
+  });
+
+  it("pauses approval runs through the explicit approval finalizer", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await pauseRunForApprovalWithAssistantMessage({
+      run,
+      text: "Approval is required.",
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain("Approval is required.");
+    expect(run.status).toBe("PAUSED");
+    expect(deps.runRepo.updateUnlessStatus).toHaveBeenCalledWith(run, [
+      "PAUSED",
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED",
+    ]);
+  });
+
+  it("fails fast when approval metadata is sent to the completion finalizer", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    await expect(
+      completeRunWithAssistantMessage({
+        run,
+        text: "Approval is required.",
+        metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
+        deps,
+      }),
+    ).rejects.toThrow(
+      "completeRunWithAssistantMessage cannot finalize approval-required runs",
     );
   });
 

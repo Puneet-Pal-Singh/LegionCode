@@ -19,6 +19,7 @@ export type ChatTitleSource = SharedChatTitleSource;
 export type SessionStatus =
   | "idle"
   | "running"
+  | "waiting_for_approval"
   | "completed"
   | "paused"
   | "failed";

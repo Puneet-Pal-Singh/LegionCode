@@ -50,7 +50,7 @@ import {
 } from "./RunPermissionWorkspacePolicy.js";
 import {
   createStreamResponse,
-  completeRunWithAssistantMessage as completeRunWithAssistantMessagePolicy,
+  finalizeRunWithAssistantMessage as finalizeRunWithAssistantMessagePolicy,
   completeRunWithRecoveredAssistantMessage as completeRunWithRecoveredAssistantMessagePolicy,
   getRunDurationMs as getRunDurationMsPolicy,
   tryHandlePlanningError as tryHandlePlanningErrorPolicy,
@@ -939,7 +939,7 @@ export class RunEngine implements IRunEngine {
     text: string,
     metadata?: Record<string, unknown>,
   ): Promise<Response> {
-    return completeRunWithAssistantMessagePolicy({
+    return finalizeRunWithAssistantMessagePolicy({
       run,
       text,
       metadata,

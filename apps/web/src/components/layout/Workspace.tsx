@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import {
   type DiffContent,
   type ProductMode,
@@ -25,11 +25,12 @@ import {
   loadStoredProductMode,
   persistProductMode,
 } from "../../lib/product-mode-storage";
-import { isTerminalRunStatus, normalizeRunStatus } from "../../lib/run-status";
+import { normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
+import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -150,34 +151,36 @@ export function Workspace({
   const canonicalRunStatus = runSummaryMatchesActiveRun
     ? normalizeRunStatus(runSummary.status)
     : null;
+  const hasPendingApproval =
+    runSummaryMatchesActiveRun && Boolean(runSummary?.pendingApproval);
   const lastMessage = messages[messages.length - 1];
-  const hasLocalAssistantCompletion =
-    !isLoading &&
-    lastMessage?.role === "assistant" &&
-    typeof lastMessage.content === "string" &&
-    lastMessage.content.trim().length > 0 &&
-    !(runSummaryMatchesActiveRun && runSummary?.pendingApproval);
-  const isCanonicalRunActive =
-    canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED";
-  const isCanonicalRunTerminal = isTerminalRunStatus(canonicalRunStatus);
   const isLocallyStoppedRun = locallyStoppedRunId === activeRunId;
-  const isStaleCanonicalActiveRun =
-    isCanonicalRunActive && hasLocalAssistantCompletion;
-  const isEffectiveCanonicalRunActive =
-    isCanonicalRunActive && !isStaleCanonicalActiveRun && !isLocallyStoppedRun;
-  const isSessionActiveWithoutSummary =
-    isSessionRunning &&
-    !isCanonicalRunTerminal &&
-    !hasLocalAssistantCompletion &&
-    !isLocallyStoppedRun;
-  const isRunLoading =
-    isLoading || isEffectiveCanonicalRunActive || isSessionActiveWithoutSummary;
-  const canStopRun =
-    isRunLoading ||
-    (isSessionRunning &&
-      !isCanonicalRunTerminal &&
-      !isStaleCanonicalActiveRun &&
-      !isLocallyStoppedRun);
+  const runUiState = useMemo(
+    () =>
+      deriveWorkspaceRunUiState({
+        canonicalRunStatus,
+        hasPendingApproval,
+        isChatLoading: isLoading,
+        isSessionRunning,
+        isLocallyStoppedRun,
+        lastMessage,
+      }),
+    [
+      canonicalRunStatus,
+      hasPendingApproval,
+      isLoading,
+      isLocallyStoppedRun,
+      isSessionRunning,
+      lastMessage,
+    ],
+  );
+  const {
+    isApprovalWaitingRun,
+    isStaleCanonicalActiveRun,
+    isEffectiveCanonicalRunActive,
+    isRunLoading,
+    canStopRun,
+  } = runUiState;
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
@@ -276,14 +279,22 @@ export function Workspace({
     }
 
     if (wasLoading && !isLoading) {
-      if (chatError) {
+      if (hasPendingApproval) {
+        onSessionStatusChange?.("waiting_for_approval");
+      } else if (chatError) {
         onSessionStatusChange?.("failed");
       } else {
         onSessionStatusChange?.("completed");
       }
       void refetchGitStatus(true);
     }
-  }, [chatError, isLoading, onSessionStatusChange, refetchGitStatus]);
+  }, [
+    chatError,
+    hasPendingApproval,
+    isLoading,
+    onSessionStatusChange,
+    refetchGitStatus,
+  ]);
 
   const lastAppliedCanonicalStatusRef = useRef<{
     runId: string;
@@ -295,6 +306,12 @@ export function Workspace({
   } | null>(null);
   useEffect(() => {
     if (!canonicalRunStatus) {
+      return;
+    }
+
+    if (isApprovalWaitingRun) {
+      onSessionStatusChange?.("waiting_for_approval");
+      void refetchGitStatus(true);
       return;
     }
 
@@ -363,6 +380,7 @@ export function Workspace({
   }, [
     activeRunId,
     canonicalRunStatus,
+    isApprovalWaitingRun,
     isLocallyStoppedRun,
     isStaleCanonicalActiveRun,
     onSessionStatusChange,
@@ -370,7 +388,12 @@ export function Workspace({
   ]);
 
   useEffect(() => {
-    if (!chatError || isLoading || isEffectiveCanonicalRunActive) {
+    if (
+      !chatError ||
+      isLoading ||
+      isEffectiveCanonicalRunActive ||
+      isApprovalWaitingRun
+    ) {
       return;
     }
 
@@ -392,6 +415,7 @@ export function Workspace({
     activeRunId,
     chatError,
     isEffectiveCanonicalRunActive,
+    isApprovalWaitingRun,
     isLoading,
     onSessionStatusChange,
   ]);
@@ -633,6 +657,7 @@ export function Workspace({
                 isViewingContent={isViewingContent}
                 activeTab={activeTab}
                 changesCount={changesCount}
+                hasPendingApproval={isApprovalWaitingRun}
                 onExpand={() => {
                   setIsRightSidebarOpen?.(true);
                   onGitReviewOpenChange?.(true);

@@ -31,6 +31,7 @@ import { getBrainHttpBase } from "./lib/platform-endpoints";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
+import { AuthShellLoading } from "./components/startup/AuthShellLoading";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
@@ -43,6 +44,10 @@ import {
   isTerminalRunStatus,
   mapRunStatusToSessionStatus,
 } from "./lib/run-status";
+import {
+  parseRunSummaryStatusSnapshot,
+  type RunSummaryStatusSnapshot,
+} from "./lib/run-summary-status-snapshot";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -52,11 +57,10 @@ function buildOnboardingSeenKey(userId: string | null): string {
 }
 
 const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
-interface RunSummaryStatusPayload {
-  status?: string | null;
-}
 
-async function fetchRunSummaryStatus(runId: string): Promise<string | null> {
+async function fetchRunSummaryStatus(
+  runId: string,
+): Promise<RunSummaryStatusSnapshot | null> {
   const response = await fetch(
     `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
     { credentials: "include" },
@@ -64,8 +68,7 @@ async function fetchRunSummaryStatus(runId: string): Promise<string | null> {
   if (!response.ok) {
     return null;
   }
-  const payload = (await response.json()) as RunSummaryStatusPayload;
-  return payload.status ?? null;
+  return parseRunSummaryStatusSnapshot(await response.json());
 }
 
 function buildRepositoryFromWorkspace(
@@ -284,6 +287,7 @@ function AppContent() {
         | "failed"
         | "complete" = "idle";
       if (session.status === "running") status = "running";
+      else if (session.status === "waiting_for_approval") status = "waiting";
       else if (session.status === "completed") status = "complete";
       else if (session.status === "paused") {
         status = "paused";
@@ -605,14 +609,23 @@ function AppContent() {
       const updates = await Promise.all(
         runningSessions.map(async (session) => {
           try {
-            const runStatus = await fetchRunSummaryStatus(session.activeRunId);
-            if (!isTerminalRunStatus(runStatus)) {
+            const snapshot = await fetchRunSummaryStatus(session.activeRunId);
+            if (!snapshot) {
+              return null;
+            }
+            if (
+              !snapshot.hasPendingApproval &&
+              !isTerminalRunStatus(snapshot.status)
+            ) {
               return null;
             }
 
             return {
               sessionId: session.id,
-              status: mapRunStatusToSessionStatus(runStatus),
+              status: mapRunStatusToSessionStatus(
+                snapshot.status,
+                { hasPendingApproval: snapshot.hasPendingApproval },
+              ),
             };
           } catch (error) {
             console.warn(
@@ -975,11 +988,7 @@ function AppContent() {
 
   // Show loading state while checking auth
   if (isLoading) {
-    return (
-      <div className="h-screen w-screen bg-background flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-zinc-600 border-t-white rounded-full" />
-      </div>
-    );
+    return <AuthShellLoading />;
   }
 
   return (
