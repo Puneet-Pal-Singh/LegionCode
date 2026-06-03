@@ -216,6 +216,21 @@ function AppContent() {
     useState<boolean>(false);
   const [isWorkspaceContextRepairing, setIsWorkspaceContextRepairing] =
     useState(false);
+  const workspaceContextRepairGenerationRef = useRef(0);
+  const scheduleWorkspaceContextRepairState = useCallback(
+    (nextValue: boolean): void => {
+      const generation = workspaceContextRepairGenerationRef.current + 1;
+      workspaceContextRepairGenerationRef.current = generation;
+
+      window.setTimeout(() => {
+        if (workspaceContextRepairGenerationRef.current !== generation) {
+          return;
+        }
+        setIsWorkspaceContextRepairing(nextValue);
+      }, 0);
+    },
+    [],
+  );
   useEffect(() => {
     let cancelled = false;
     try {
@@ -342,7 +357,7 @@ function AppContent() {
   // Uses SessionStateService for session-scoped storage
   useEffect(() => {
     if (!activeSessionId || !activeSession) {
-      setIsWorkspaceContextRepairing(false);
+      scheduleWorkspaceContextRepairState(false);
       return;
     }
     const sessionChanged =
@@ -369,7 +384,7 @@ function AppContent() {
         return;
       }
 
-      setIsWorkspaceContextRepairing(false);
+      scheduleWorkspaceContextRepairState(false);
       // Reconstruct Repository object from stored context
       // Only include fields actually needed; others should be loaded on demand
       const storedRepo: Repository = {
@@ -417,7 +432,7 @@ function AppContent() {
           repoName: repo.name,
         })
       ) {
-        setIsWorkspaceContextRepairing(false);
+        scheduleWorkspaceContextRepairState(false);
         const repairedBranch = branch.trim() || repo.default_branch || "main";
         SessionStateService.saveSessionGitHubContext(activeSessionId, {
           repoOwner: repo.owner.login,
@@ -432,7 +447,7 @@ function AppContent() {
       }
 
       if (!activeRepository || activeRepository === "New Project") {
-        setIsWorkspaceContextRepairing(false);
+        scheduleWorkspaceContextRepairState(false);
         if (repo) {
           console.log(
             `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
@@ -443,7 +458,7 @@ function AppContent() {
       }
 
       let cancelled = false;
-      setIsWorkspaceContextRepairing(true);
+      scheduleWorkspaceContextRepairState(true);
 
       const repairSessionContextFromWorkspace = async (): Promise<void> => {
         try {
@@ -457,7 +472,7 @@ function AppContent() {
             workspaceState,
           );
           if (!workspaceContext) {
-            setIsWorkspaceContextRepairing(false);
+            scheduleWorkspaceContextRepairState(false);
             if (repo) {
               clearContext();
             }
@@ -475,7 +490,7 @@ function AppContent() {
             branch: workspaceContext.branch,
           });
           setContext(repairedRepo, workspaceContext.branch);
-          setIsWorkspaceContextRepairing(false);
+          scheduleWorkspaceContextRepairState(false);
         } catch (error) {
           console.warn(
             "[App] Failed to repair session GitHub context from workspace state:",
@@ -485,7 +500,7 @@ function AppContent() {
             clearContext();
           }
           if (!cancelled) {
-            setIsWorkspaceContextRepairing(false);
+            scheduleWorkspaceContextRepairState(false);
           }
         }
       };
@@ -496,7 +511,15 @@ function AppContent() {
         cancelled = true;
       };
     }
-  }, [activeSessionId, activeSession, repo, branch, setContext, clearContext]);
+  }, [
+    activeSessionId,
+    activeSession,
+    repo,
+    branch,
+    setContext,
+    clearContext,
+    scheduleWorkspaceContextRepairState,
+  ]);
 
   const lastPersistedWorkspaceSelectionRef = useRef<string | null>(null);
 
