@@ -124,6 +124,9 @@ export class RipgrepService {
       ),
       ["rg"],
     );
+    if (result.exitCode === 1 && result.stderr.trim().length === 0) {
+      return "";
+    }
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || "ripgrep file listing failed");
     }

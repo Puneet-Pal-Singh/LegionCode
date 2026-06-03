@@ -392,6 +392,32 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.error).toMatch(/traversal|Access Denied/i);
   });
 
+  it("returns an empty successful result for fast glob misses", async () => {
+    const plugin = new FileSystemPlugin();
+    const sandbox = createSandboxMockWithResponder((command) => {
+      if (command.includes("'rg'")) {
+        return { exitCode: 1, stdout: "", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "glob",
+      runId: "run-safe-glob-empty",
+      pattern: "**/*.not-found",
+      path: ".",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("");
+    expect(result.metadata).toMatchObject({
+      paths: [],
+      total: 0,
+      returned: 0,
+    });
+    expect(result.truncated).toBe(false);
+  });
+
   it("validates git auth token format", async () => {
     const plugin = new GitPlugin();
     const sandbox = createSandboxMock();
