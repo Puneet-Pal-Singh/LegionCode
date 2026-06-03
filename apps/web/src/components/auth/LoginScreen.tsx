@@ -1,5 +1,11 @@
 import { motion } from "framer-motion";
-import { Cloud, Github, Code2, Terminal, FileCode, Boxes } from "lucide-react";
+import {
+  FileCode,
+  Github,
+  KeyRound,
+  ShieldCheck,
+  Terminal,
+} from "lucide-react";
 import { GitHubLoginButton } from "./GitHubLoginButton";
 
 interface LoginScreenProps {
@@ -38,10 +44,10 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
         />
 
         {/* Floating Icons */}
-        <FloatingIcon Icon={Code2} className="top-20 left-20" delay={0} />
+        <FloatingIcon Icon={ShieldCheck} className="top-20 left-20" delay={0} />
         <FloatingIcon Icon={Terminal} className="top-32 right-32" delay={0.5} />
         <FloatingIcon Icon={FileCode} className="bottom-32 left-32" delay={1} />
-        <FloatingIcon Icon={Boxes} className="bottom-20 right-20" delay={1.5} />
+        <FloatingIcon Icon={KeyRound} className="bottom-20 right-20" delay={1.5} />
       </div>
 
       {/* Main Content */}
@@ -53,7 +59,7 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
       >
         {/* Logo */}
         <motion.div
-          className="w-16 h-16 mb-6"
+          className="mb-6"
           animate={{
             y: [0, -8, 0],
           }}
@@ -63,12 +69,18 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
             ease: "easeInOut",
           }}
         >
-          <Cloud className="w-full h-full text-zinc-300" strokeWidth={1.5} />
+          <img
+            alt="LegionCode"
+            className="h-10 w-auto"
+            height="40"
+            src="/assets/legioncode-wordmark.png"
+            width="164"
+          />
         </motion.div>
 
         {/* Title */}
         <p className="mb-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
-          Public Alpha
+          Private Alpha
         </p>
         <h1 className="text-3xl font-semibold text-white mb-3 text-center">
           Welcome to LegionCode
@@ -76,8 +88,8 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
 
         {/* Subtitle */}
         <p className="text-zinc-500 text-center mb-8 leading-relaxed">
-          AI-powered coding assistant that works directly with your GitHub
-          repositories. Connect your GitHub account to get started.
+          Web/cloud coding-agent workspace for GitHub repos, BYOK providers,
+          and review-first changes. Use test repos or disposable branches.
         </p>
 
         {/* Features */}
@@ -85,22 +97,22 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
           <FeatureCard
             icon={Github}
             title="GitHub Integration"
-            description="Work with your repos"
+            description="Select a repo"
           />
           <FeatureCard
             icon={Terminal}
-            title="AI Assistant"
-            description="Code with AI help"
+            title="Cloud Sandbox"
+            description="Run agent tasks"
           />
           <FeatureCard
-            icon={Code2}
-            title="Smart Suggestions"
-            description="Intelligent code completion"
+            icon={FileCode}
+            title="Review Diffs"
+            description="Inspect changed files"
           />
           <FeatureCard
-            icon={Boxes}
-            title="Multi-Agent"
-            description="Parallel task execution"
+            icon={KeyRound}
+            title="BYOK Models"
+            description="Connect providers"
           />
         </div>
 
@@ -121,7 +133,7 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
 
         {/* Security Note */}
         <p className="mt-6 text-xs text-zinc-600 text-center">
-          LegionCode is in public alpha. Expect rapid changes and occasional
+          LegionCode is in private alpha. Expect rapid changes and occasional
           rough edges.
           <br />
           Your GitHub token is encrypted and stored securely.

@@ -51,6 +51,11 @@ import {
   parseRunSummaryStatusSnapshot,
   type RunSummaryStatusSnapshot,
 } from "./lib/run-summary-status-snapshot";
+import { CloudReservedPage, LandingPage } from "./pages/LandingPage";
+import {
+  buildAgentsRedirectUrl,
+  resolveWebRoute,
+} from "./lib/web-route";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -142,7 +147,37 @@ function findWorkspaceForRepository(
  * Main App Component
  * Wraps everything in AuthProvider and GitHubContextProvider
  */
+function RedirectToAgents({ target }: { target: string }) {
+  useEffect(() => {
+    window.location.replace(target);
+  }, [target]);
+
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-black text-sm text-zinc-500">
+      Opening LegionCode agents...
+    </div>
+  );
+}
+
 function App() {
+  const route = resolveWebRoute(window.location.pathname);
+
+  if (route.kind === "landing") {
+    return <LandingPage />;
+  }
+
+  if (route.kind === "cloud") {
+    return <CloudReservedPage />;
+  }
+
+  if (route.kind === "redirect") {
+    return (
+      <RedirectToAgents
+        target={buildAgentsRedirectUrl(window.location.search, window.location.hash)}
+      />
+    );
+  }
+
   return (
     <AuthProvider>
       <GitHubContextProvider>

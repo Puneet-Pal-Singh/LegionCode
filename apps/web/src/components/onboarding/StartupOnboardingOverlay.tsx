@@ -112,7 +112,7 @@ export function StartupOnboardingOverlay({
               First-Run Setup
             </p>
             <p className="mt-1 inline-flex rounded-full border border-amber-500/35 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-200">
-              Public Alpha
+              Private Alpha
             </p>
             <h2
               id="onboarding-title"
@@ -125,7 +125,8 @@ export function StartupOnboardingOverlay({
               className="mt-1 text-xs text-zinc-400"
             >
               Complete GitHub repo setup and BYOK provider setup to start your
-              first run. Expect rapid improvements and occasional rough edges.
+              first run. Use test repos or disposable branches while the alpha
+              hardens.
             </p>
           </div>
           <button
