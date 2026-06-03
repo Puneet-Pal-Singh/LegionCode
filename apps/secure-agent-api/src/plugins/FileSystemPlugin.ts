@@ -14,6 +14,12 @@ import {
   readToolboxCommandContext,
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
+import { RipgrepService } from "./filesystem/RipgrepService";
+
+const DEFAULT_READ_LIMIT = 200;
+const MAX_READ_LIMIT = 1_000;
+const MAX_READ_LINE_LENGTH = 500;
+const MAX_READ_OUTPUT_BYTES = 24_000;
 
 const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
@@ -24,6 +30,38 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("read_file"),
     path: z.string().min(1),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).max(MAX_READ_LIMIT).optional(),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("files"),
+    path: z.string().optional(),
+    glob: z.string().optional(),
+    maxResults: z.number().int().min(1).max(200).optional(),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("tree"),
+    path: z.string().optional(),
+    glob: z.string().optional(),
+    maxResults: z.number().int().min(1).max(200).optional(),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("glob"),
+    pattern: z.string().min(1),
+    path: z.string().optional(),
+    maxResults: z.number().int().min(1).max(200).optional(),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("grep"),
+    pattern: z.string().min(1),
+    path: z.string().optional(),
+    glob: z.string().optional(),
+    maxResults: z.number().int().min(1).max(200).optional(),
+    caseSensitive: z.boolean().optional(),
     runId: z.string().optional(),
   }),
   z.object({
@@ -44,6 +82,7 @@ type FileSystemPayload = z.infer<typeof FileSystemPayloadSchema>;
 export class FileSystemPlugin implements IPlugin {
   name = "filesystem";
   tools = FileSystemTools;
+  private readonly ripgrepService = new RipgrepService();
 
   async execute(
     sandbox: Sandbox,
@@ -82,6 +121,34 @@ export class FileSystemPlugin implements IPlugin {
           parsedPayload,
           toolboxContext,
           runId,
+        );
+      }
+      if (parsedPayload.action === "files") {
+        return await this.ripgrepService.files(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload,
+        );
+      }
+      if (parsedPayload.action === "tree") {
+        return await this.ripgrepService.tree(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload,
+        );
+      }
+      if (parsedPayload.action === "glob") {
+        return await this.ripgrepService.glob(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          {
+            path: parsedPayload.path,
+            glob: parsedPayload.pattern,
+            maxResults: parsedPayload.maxResults,
+          },
+        );
+      }
+      if (parsedPayload.action === "grep") {
+        return await this.ripgrepService.grep(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload,
         );
       }
       if (parsedPayload.action === "write_file") {
@@ -179,22 +246,80 @@ export class FileSystemPlugin implements IPlugin {
         success: true,
         output: "[BINARY_FILE_DETECTED]",
         isBinary: true,
+        metadata: { path: payload.path, mimeType },
+        truncated: false,
       };
     }
 
+    const offset = payload.offset ?? 0;
+    const limit = payload.limit ?? DEFAULT_READ_LIMIT;
     const result = await runSafeCommand(
       sandbox,
       withToolboxCommandContext(
-        { command: "cat", args: [targetPath], runId },
+        {
+          command: "awk",
+          args: buildReadWindowArgs(targetPath, offset, limit),
+          runId,
+        },
         toolboxContext,
         "filesystem.read_file",
       ),
-      ["cat"],
+      ["awk"],
     );
     if (result.exitCode !== 0) {
       return { success: false, error: result.stderr || "File read failed" };
     }
-    return { success: true, output: result.stdout };
+
+    const returnedLines = countOutputLines(result.stdout);
+    const capped = capReadOutput(result.stdout);
+    const totalLines = await this.countLines(
+      sandbox,
+      targetPath,
+      toolboxContext,
+      runId,
+    );
+    const truncated =
+      capped.truncated ||
+      capped.output.includes("[line truncated]") ||
+      (typeof totalLines === "number" && offset + limit < totalLines);
+    return {
+      success: true,
+      output: capped.output,
+      metadata: {
+        path: payload.path,
+        mimeType,
+        offset,
+        limit,
+        totalLines,
+        returnedLines,
+        returnedBytes: capped.output.length,
+        narrowHint: truncated
+          ? "Use offset/limit or narrow the target file to continue."
+          : undefined,
+      },
+      truncated,
+    };
+  }
+
+  private async countLines(
+    sandbox: Sandbox,
+    targetPath: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+  ): Promise<number | null> {
+    const result = await runSafeCommand(
+      sandbox,
+      withToolboxCommandContext(
+        { command: "wc", args: ["-l", targetPath], runId },
+        toolboxContext,
+        "filesystem.read_file_line_count",
+      ),
+      ["wc"],
+    );
+    if (result.exitCode !== 0) {
+      return null;
+    }
+    return parseLineCount(result.stdout);
   }
 
   private async writeFile(
@@ -255,4 +380,45 @@ function isBinaryMimeType(mimeType: string): boolean {
     mimeType.includes("application/x-executable") ||
     mimeType.includes("application/x-sharedlib")
   );
+}
+
+function buildReadWindowArgs(
+  targetPath: string,
+  offset: number,
+  limit: number,
+): string[] {
+  return [
+    "-v",
+    `start=${offset + 1}`,
+    "-v",
+    `limit=${limit}`,
+    "-v",
+    `max=${MAX_READ_LINE_LENGTH}`,
+    'NR >= start { line=$0; if (length(line) > max) line=substr(line, 1, max) " [line truncated]"; print line; count++; if (count >= limit) exit }',
+    targetPath,
+  ];
+}
+
+function capReadOutput(output: string): { output: string; truncated: boolean } {
+  if (output.length <= MAX_READ_OUTPUT_BYTES) {
+    return { output, truncated: false };
+  }
+  return {
+    output: `${output.slice(0, MAX_READ_OUTPUT_BYTES)}\n[output truncated]`,
+    truncated: true,
+  };
+}
+
+function countOutputLines(output: string): number {
+  if (output.length === 0) {
+    return 0;
+  }
+  return output.endsWith("\n")
+    ? output.split(/\r?\n/).length - 1
+    : output.split(/\r?\n/).length;
+}
+
+function parseLineCount(output: string): number | null {
+  const value = Number(output.trim().split(/\s+/)[0]);
+  return Number.isFinite(value) ? value : null;
 }
