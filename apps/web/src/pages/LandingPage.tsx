@@ -43,12 +43,7 @@ const workflowSteps: Array<{
   },
 ];
 
-const providerChips = [
-  "OpenAI",
-  "OpenRouter",
-  "Groq",
-  "Anthropic",
-];
+const providerChips = ["OpenAI", "OpenRouter", "Groq", "Anthropic"];
 
 const reviewBullets = [
   "Changed files in chat",
@@ -314,7 +309,10 @@ function ReviewPanel() {
         </p>
         <div className="mt-3 space-y-2">
           <ChangedFile path="apps/web/src/App.tsx" status="+42" />
-          <ChangedFile path="apps/web/src/pages/LandingPage.tsx" status="+280" />
+          <ChangedFile
+            path="apps/web/src/pages/LandingPage.tsx"
+            status="+280"
+          />
           <ChangedFile path="apps/web/public/_redirects" status="+2" />
         </div>
         <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
@@ -332,7 +330,9 @@ function ReviewPanel() {
             <FileDiff size={14} className="text-emerald-300" />
             Review diff
           </div>
-          <span className="text-[11px] text-zinc-500">saved artifact ready</span>
+          <span className="text-[11px] text-zinc-500">
+            saved artifact ready
+          </span>
         </div>
         <pre className="overflow-x-auto p-3 text-[11px] leading-5 text-zinc-300">
           <code>{`+ <p>Private alpha, intentionally.</p>
@@ -394,7 +394,10 @@ function WorkflowCard({
 
 function ProviderSection() {
   return (
-    <section className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8" id="providers">
+    <section
+      className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8"
+      id="providers"
+    >
       <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1fr)] lg:items-start">
         <SectionHeading
           align="left"
@@ -424,7 +427,10 @@ function ProviderSection() {
 
 function ReviewSection() {
   return (
-    <section className="border-y border-zinc-900 bg-[#08080a] px-5 py-16 sm:px-6 lg:px-8" id="review">
+    <section
+      className="border-y border-zinc-900 bg-[#08080a] px-5 py-16 sm:px-6 lg:px-8"
+      id="review"
+    >
       <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] lg:items-center">
         <SectionHeading
           align="left"
