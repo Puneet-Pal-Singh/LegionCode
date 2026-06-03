@@ -97,14 +97,28 @@ describe("RunController", () => {
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({
         getRun: vi.fn().mockResolvedValue(run),
-        listRunEvents: vi.fn().mockResolvedValue([
-          { eventType: "tool.started" },
-          { eventType: "tool.completed" },
-        ]),
+        listRunEvents: vi
+          .fn()
+          .mockResolvedValue([
+            { eventType: "tool.started" },
+            { eventType: "tool.completed" },
+          ]),
         listRunSteps: vi.fn().mockResolvedValue([
-          { status: "completed" },
-          { status: "failed" },
-          { status: "pending" },
+          {
+            status: "completed",
+            stepType: "tool",
+            payload: { toolName: "read_file" },
+          },
+          {
+            status: "failed",
+            stepType: "tool",
+            payload: { toolName: "npm_test" },
+          },
+          {
+            status: "pending",
+            stepType: "tool",
+            payload: { toolName: "build" },
+          },
         ]),
       }),
     );
@@ -134,6 +148,13 @@ describe("RunController", () => {
       pendingTasks: 1,
       eventCount: 2,
       lastEventType: "tool.completed",
+      terminalState: "completed",
+      terminalMessage: {
+        lastSuccessfulStep: "read_file",
+        failedStep: "npm_test",
+        nextAction:
+          "Review the changed files, then send the next task when ready.",
+      },
     });
   });
 

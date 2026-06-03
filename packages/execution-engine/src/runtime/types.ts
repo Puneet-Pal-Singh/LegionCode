@@ -283,6 +283,7 @@ export interface RunMetadata {
   error?: string;
   startedAt?: string;
   terminalState?: RunTerminalState;
+  terminalMessage?: Record<string, unknown>;
 }
 
 export interface RunOrchestrationTelemetry {

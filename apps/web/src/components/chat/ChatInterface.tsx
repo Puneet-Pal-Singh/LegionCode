@@ -34,6 +34,10 @@ import {
 } from "./messageMetadata";
 import { buildActivityFeedViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import {
+  buildRunTerminalViewModel,
+  type RunTerminalViewModel,
+} from "../../services/workflow/RunTerminalViewModel.js";
+import {
   buildTranscriptActivityTurns,
   mergeTranscriptAndLiveActivityTurns,
 } from "../../services/activity/TranscriptActivityParts.js";
@@ -379,6 +383,23 @@ export function ChatInterface({
       }
     },
     [artifactSourcesByAssistantMessageId, runId, sessionId],
+  );
+  const loadArtifactChangedFileDiff = useCallback(
+    async (artifactId: string, file: FileStatus): Promise<DiffContent> => {
+      const cacheKey = buildArtifactChangedFileDiffCacheKey(artifactId, file);
+      const cachedDiff = diffSnapshotsByMessageRef.current[cacheKey];
+      if (cachedDiff) {
+        return cachedDiff;
+      }
+
+      const response = await getEditArtifactDiff({
+        artifactId,
+        path: file.path,
+      });
+      diffSnapshotsByMessageRef.current[cacheKey] = response.diff;
+      return response.diff;
+    },
+    [],
   );
   const liveChangedFiles = useMemo(() => {
     return collectChangedFilesSinceBaseline(
@@ -871,11 +892,7 @@ export function ChatInterface({
     ) {
       setApprovalNotice(null);
     }
-  }, [
-    approvalNotice,
-    dismissedApprovalRequestId,
-    pendingApprovalCandidate,
-  ]);
+  }, [approvalNotice, dismissedApprovalRequestId, pendingApprovalCandidate]);
 
   useEffect(() => {
     if (!approvalNotice) {
@@ -910,6 +927,43 @@ export function ChatInterface({
   const chatEntries = useMemo(
     () => buildChatEntries(conversationTurns, activityViewModel.turns, runId),
     [activityViewModel.turns, conversationTurns, runId],
+  );
+  const terminalChangedFiles = useMemo(
+    () => collectActivityChangedFiles(activityViewModel.turns),
+    [activityViewModel.turns],
+  );
+  const hasAssistantChangedFileSummary = useMemo(
+    () =>
+      hasChangedFileSnapshot(changedFileSnapshotsByAssistantMessageId) ||
+      hasArtifactChangedFileSnapshot(artifactSourcesByAssistantMessageId) ||
+      (!isLoading &&
+        Boolean(latestAssistantMessageId) &&
+        liveChangedFiles.length > 0),
+    [
+      artifactSourcesByAssistantMessageId,
+      changedFileSnapshotsByAssistantMessageId,
+      isLoading,
+      latestAssistantMessageId,
+      liveChangedFiles.length,
+    ],
+  );
+  const terminalViewModel = useMemo(
+    () =>
+      buildRunTerminalViewModel({
+        runId,
+        summary,
+        events,
+        hasVisibleAssistantMessage: chatEntries.some(
+          (entry) =>
+            entry.kind === "message" &&
+            isVisibleTerminalAssistantMessage(entry.message),
+        ),
+        changedFileCount:
+          terminalChangedFiles.length > 0
+            ? terminalChangedFiles.length
+            : undefined,
+      }),
+    [chatEntries, events, runId, summary, terminalChangedFiles.length],
   );
   const hasUserMessage = useMemo(
     () =>
@@ -1124,6 +1178,30 @@ export function ChatInterface({
               ),
             )}
 
+            {terminalViewModel ? (
+              <ChatMessage
+                message={{
+                  id: terminalViewModel.id,
+                  role: "assistant",
+                  content: terminalViewModel.content,
+                }}
+                changedFilesSummary={resolveTerminalChangedFilesSummary({
+                  terminalViewModel,
+                  files: hasAssistantChangedFileSummary
+                    ? []
+                    : terminalChangedFiles,
+                  loadArtifactFileDiff: loadArtifactChangedFileDiff,
+                  loadFallbackFileDiff: (file) =>
+                    loadChangedFileDiff(terminalViewModel.id, file),
+                  onPromptArtifactReview: (artifactId) => {
+                    openPromptArtifactReview(artifactId);
+                    onReviewOpen?.();
+                  },
+                  onReviewOpen,
+                })}
+              />
+            ) : null}
+
             {/* Loading indicator */}
             {isLoading && !activeInlineTurn && (
               <div className="py-2 text-sm font-medium text-zinc-500">
@@ -1250,11 +1328,67 @@ function mergeChangedFileSnapshots(
   };
 }
 
+function hasChangedFileSnapshot(
+  snapshots: Record<string, FileStatus[]>,
+): boolean {
+  return Object.values(snapshots).some((files) => files.length > 0);
+}
+
+function hasArtifactChangedFileSnapshot(
+  artifacts: Record<string, PromptArtifactReviewSource>,
+): boolean {
+  return Object.values(artifacts).some((artifact) => artifact.files.length > 0);
+}
+
 function buildChangedFileDiffCacheKey(
   messageId: string,
   file: FileStatus,
 ): string {
   return `${messageId}:${file.path}:${file.isStaged ? "staged" : "unstaged"}`;
+}
+
+function buildArtifactChangedFileDiffCacheKey(
+  artifactId: string,
+  file: FileStatus,
+): string {
+  return `artifact:${artifactId}:${file.path}`;
+}
+
+function resolveTerminalChangedFilesSummary(input: {
+  terminalViewModel: RunTerminalViewModel;
+  files: FileStatus[];
+  loadArtifactFileDiff: (
+    artifactId: string,
+    file: FileStatus,
+  ) => Promise<DiffContent>;
+  loadFallbackFileDiff: (file: FileStatus) => Promise<DiffContent>;
+  onPromptArtifactReview: (artifactId: string) => void;
+  onReviewOpen?: () => void;
+}):
+  | {
+      files: FileStatus[];
+      loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
+      onReviewOpen?: () => void;
+    }
+  | undefined {
+  if (input.files.length === 0) {
+    return undefined;
+  }
+
+  if (input.terminalViewModel.artifactId) {
+    const artifactId = input.terminalViewModel.artifactId;
+    return {
+      files: input.files,
+      loadFileDiff: (file) => input.loadArtifactFileDiff(artifactId, file),
+      onReviewOpen: () => input.onPromptArtifactReview(artifactId),
+    };
+  }
+
+  return {
+    files: input.files,
+    loadFileDiff: input.loadFallbackFileDiff,
+    onReviewOpen: input.onReviewOpen,
+  };
 }
 
 function buildDiffFromActivityPreview(file: FileStatus): DiffContent | null {
@@ -1490,6 +1624,44 @@ function derivePendingApprovalFromEvents(
     left.createdAt.localeCompare(right.createdAt),
   );
   return pendingRequests[pendingRequests.length - 1] ?? null;
+}
+
+function isVisibleTerminalAssistantMessage(message: Message): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+
+  const metadata = readAssistantMessageMetadata(message);
+  if (
+    typeof metadata?.terminalState === "string" ||
+    metadata?.finalMessageSource === "model" ||
+    metadata?.finalMessageSource === "runtime"
+  ) {
+    return true;
+  }
+
+  return hasTerminalSummaryFrame(message.content);
+}
+
+function readAssistantMessageMetadata(
+  message: Message,
+): Record<string, unknown> | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+  const metadata = (data as Record<string, unknown>).metadata;
+  return metadata && typeof metadata === "object"
+    ? (metadata as Record<string, unknown>)
+    : null;
+}
+
+function hasTerminalSummaryFrame(content: Message["content"]): boolean {
+  const text = typeof content === "string" ? content : "";
+  return (
+    text.includes("Outcome:") &&
+    (text.includes("Next action:") || text.includes("Next step:"))
+  );
 }
 
 type ChatInterfaceEntry =

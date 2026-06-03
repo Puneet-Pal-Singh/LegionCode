@@ -35,6 +35,23 @@ describe("useSessionManager", () => {
   });
 
   describe("Session Creation", () => {
+    it("defers server hydration until explicitly enabled", () => {
+      const hydrateSpy = vi.mocked(SessionStateService.hydrateSessionsFromServer);
+      const { result, rerender } = renderHook(
+        ({ enabled }) =>
+          useSessionManager({ hydrateFromServer: enabled }),
+        { initialProps: { enabled: false } },
+      );
+
+      expect(result.current.sessionHydrationStatus).toBe("idle");
+      expect(hydrateSpy).not.toHaveBeenCalled();
+
+      rerender({ enabled: true });
+
+      expect(result.current.sessionHydrationStatus).toBe("loading");
+      expect(hydrateSpy).toHaveBeenCalledTimes(1);
+    });
+
     it("should create a new session", () => {
       const { result } = renderHook(() => useSessionManager());
 
