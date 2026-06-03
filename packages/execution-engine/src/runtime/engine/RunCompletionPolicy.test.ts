@@ -210,6 +210,63 @@ describe("RunCompletionPolicy", () => {
     );
   });
 
+  it("enriches final terminal metadata with changed files and step hints", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      stopReason: "tool_error",
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "create_code_artifact",
+          status: "completed",
+          mutating: true,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "edit",
+            filePath: "src/App.tsx",
+            additions: 4,
+            deletions: 1,
+          },
+        },
+        {
+          toolCallId: "tool-2",
+          toolName: "npm_test",
+          status: "failed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:01.000Z",
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      text: "Tests failed after the edit.",
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
+        resumeHint: "Fix the failing test and retry.",
+      },
+      deps,
+    });
+
+    expect(run.metadata.terminalMessage).toMatchObject({
+      terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
+      changedFileCount: 1,
+      lastSuccessfulStep: "create_code_artifact",
+      failedStep: "npm_test",
+      nextAction: "Fix the failing test and retry.",
+    });
+    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
+      "assistant",
+      "Tests failed after the edit.",
+      expect.objectContaining({
+        changedFileCount: 1,
+        failedStep: "npm_test",
+      }),
+    );
+  });
+
   it("handles final assistant transcript persistence failure gracefully", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);

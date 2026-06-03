@@ -210,6 +210,53 @@ describe("RunEngineRequestHandler", () => {
     );
   });
 
+  it("includes terminal message metadata in the summary response", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+
+    const run = new Run(
+      "123e4567-e89b-42d3-a456-426614174003",
+      "session-1",
+      "COMPLETED",
+      "coding",
+      {
+        agentType: "coding",
+        prompt: "ship the UI fix",
+        sessionId: "session-1",
+      },
+    );
+    run.metadata.terminalState = "completed";
+    run.metadata.terminalMessage = {
+      terminalState: "completed",
+      changedFileCount: 2,
+      lastSuccessfulStep: "create_code_artifact",
+      nextAction: "Send the next task when ready.",
+    };
+    await runRepo.create(run);
+
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+
+    const response = await handler.handleSummaryRequest(
+      new Request(
+        `https://brain.local/summary?runId=${encodeURIComponent(run.id)}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      terminalState: "completed",
+      terminalMessage: {
+        changedFileCount: 2,
+        lastSuccessfulStep: "create_code_artifact",
+      },
+    });
+  });
+
   it("streams canonical runtime events as NDJSON", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");

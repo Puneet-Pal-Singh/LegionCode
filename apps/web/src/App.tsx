@@ -26,7 +26,10 @@ import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
 import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
-import { resolveShellStartupState } from "./lib/startup-shell-state";
+import {
+  isSessionContextPending,
+  resolveShellStartupState,
+} from "./lib/startup-shell-state";
 import { getBrainHttpBase } from "./lib/platform-endpoints";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
@@ -154,9 +157,11 @@ function App() {
  * Separated to allow useAuth hook access within AuthProvider
  */
 function AppContent() {
+  const { isAuthenticated, isLoading, login, refreshSession, user } = useAuth();
   const {
     sessions,
     activeSessionId,
+    sessionHydrationStatus,
     setActiveSessionId,
     createSession,
     removeSession,
@@ -169,9 +174,9 @@ function AppContent() {
     repositories,
     removeRepository,
     renameRepository,
-  } = useSessionManager();
-
-  const { isAuthenticated, isLoading, login, refreshSession, user } = useAuth();
+  } = useSessionManager({
+    hydrateFromServer: isAuthenticated && !isLoading,
+  });
   const { repo, branch, setContext, clearContext, saveSessionContext } =
     useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
@@ -209,6 +214,8 @@ function AppContent() {
   });
   const [isOnboardingReopened, setIsOnboardingReopened] =
     useState<boolean>(false);
+  const [isWorkspaceContextRepairing, setIsWorkspaceContextRepairing] =
+    useState(false);
   useEffect(() => {
     let cancelled = false;
     try {
@@ -334,8 +341,10 @@ function AppContent() {
   // Sync GitHub context with active session
   // Uses SessionStateService for session-scoped storage
   useEffect(() => {
-    if (!activeSessionId) return;
-    if (!activeSession) return;
+    if (!activeSessionId || !activeSession) {
+      setIsWorkspaceContextRepairing(false);
+      return;
+    }
     const sessionChanged =
       lastSyncedGitHubSessionIdRef.current !== activeSessionId;
     lastSyncedGitHubSessionIdRef.current = activeSessionId;
@@ -360,6 +369,7 @@ function AppContent() {
         return;
       }
 
+      setIsWorkspaceContextRepairing(false);
       // Reconstruct Repository object from stored context
       // Only include fields actually needed; others should be loaded on demand
       const storedRepo: Repository = {
@@ -407,6 +417,7 @@ function AppContent() {
           repoName: repo.name,
         })
       ) {
+        setIsWorkspaceContextRepairing(false);
         const repairedBranch = branch.trim() || repo.default_branch || "main";
         SessionStateService.saveSessionGitHubContext(activeSessionId, {
           repoOwner: repo.owner.login,
@@ -421,6 +432,7 @@ function AppContent() {
       }
 
       if (!activeRepository || activeRepository === "New Project") {
+        setIsWorkspaceContextRepairing(false);
         if (repo) {
           console.log(
             `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
@@ -431,6 +443,7 @@ function AppContent() {
       }
 
       let cancelled = false;
+      setIsWorkspaceContextRepairing(true);
 
       const repairSessionContextFromWorkspace = async (): Promise<void> => {
         try {
@@ -444,6 +457,7 @@ function AppContent() {
             workspaceState,
           );
           if (!workspaceContext) {
+            setIsWorkspaceContextRepairing(false);
             if (repo) {
               clearContext();
             }
@@ -461,6 +475,7 @@ function AppContent() {
             branch: workspaceContext.branch,
           });
           setContext(repairedRepo, workspaceContext.branch);
+          setIsWorkspaceContextRepairing(false);
         } catch (error) {
           console.warn(
             "[App] Failed to repair session GitHub context from workspace state:",
@@ -468,6 +483,9 @@ function AppContent() {
           );
           if (!cancelled && repo) {
             clearContext();
+          }
+          if (!cancelled) {
+            setIsWorkspaceContextRepairing(false);
           }
         }
       };
@@ -986,8 +1004,16 @@ function AppContent() {
     console.log("[App] Skipped repository selection");
   };
 
-  // Show loading state while checking auth
-  if (isLoading) {
+  const isSessionContextLoading = isSessionContextPending({
+    isAuthenticated,
+    isAuthLoading: isLoading,
+    sessionHydrationStatus,
+  });
+  const isShellContextLoading =
+    isLoading || isSessionContextLoading || isWorkspaceContextRepairing;
+
+  // Show loading state while auth, session, or workspace context is settling.
+  if (isShellContextLoading) {
     return <AuthShellLoading />;
   }
 

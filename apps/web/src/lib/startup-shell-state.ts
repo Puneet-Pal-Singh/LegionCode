@@ -12,6 +12,21 @@ export interface ResolveShellStartupStateInput {
   hasRealSession: boolean;
 }
 
+export function isSessionContextPending(input: {
+  isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  sessionHydrationStatus: string;
+}): boolean {
+  if (!input.isAuthenticated || input.isAuthLoading) {
+    return false;
+  }
+
+  return (
+    input.sessionHydrationStatus !== "ready" &&
+    input.sessionHydrationStatus !== "failed"
+  );
+}
+
 export function resolveShellStartupState(
   input: ResolveShellStartupStateInput,
 ): ShellStartupState {

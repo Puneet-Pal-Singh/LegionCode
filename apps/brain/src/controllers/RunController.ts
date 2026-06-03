@@ -13,7 +13,11 @@ import {
   getAuthenticatedUserSession,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
-import type { RunEventRecord, RunRecord, RunStepRecord } from "@repo/persistence";
+import type {
+  RunEventRecord,
+  RunRecord,
+  RunStepRecord,
+} from "@repo/persistence";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
@@ -38,6 +42,8 @@ interface RunSummaryResponse {
   cancelledTasks: number;
   eventCount?: number;
   lastEventType?: string | null;
+  terminalState?: string | null;
+  terminalMessage?: Record<string, unknown> | null;
   permissionContext?: unknown;
   pendingApproval?: unknown;
 }
@@ -81,11 +87,7 @@ export class RunController {
         runId,
         requestedBackend,
       );
-      return jsonResponse(
-        req,
-        env,
-        mergeRunSummary(summary, runtimeSummary),
-      );
+      return jsonResponse(req, env, mergeRunSummary(summary, runtimeSummary));
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
         return errorResponse(req, env, error.message, 503);
@@ -152,7 +154,12 @@ export class RunController {
         return errorResponse(req, env, error.message, error.status);
       }
       if (isStaleApprovalResolutionError(error)) {
-        return errorResponse(req, env, "No pending approval request found.", 409);
+        return errorResponse(
+          req,
+          env,
+          "No pending approval request found.",
+          409,
+        );
       }
       console.error("[RunController:approve] Error:", error);
       return errorResponse(
@@ -295,6 +302,7 @@ function buildPostgresRunSummary(
   events: RunEventRecord[],
   steps: RunStepRecord[],
 ): RunSummaryResponse {
+  const terminalState = resolvePostgresTerminalState(run.status, steps);
   return {
     runId: run.id,
     status: run.status,
@@ -306,6 +314,10 @@ function buildPostgresRunSummary(
     cancelledTasks: countStepsByStatus(steps, "cancelled"),
     eventCount: events.length,
     lastEventType: events.at(-1)?.eventType ?? null,
+    terminalState,
+    terminalMessage: terminalState
+      ? buildPostgresTerminalMessage(terminalState, steps)
+      : null,
   };
 }
 
@@ -314,6 +326,102 @@ function countStepsByStatus(
   status: RunStepRecord["status"],
 ): number {
   return steps.filter((step) => step.status === status).length;
+}
+
+function resolvePostgresTerminalState(
+  status: RunRecord["status"],
+  steps: RunStepRecord[],
+): string | null {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return countStepsByStatus(steps, "failed") > 0
+        ? "failed_tool"
+        : "failed_runtime";
+    case "cancelled":
+      return "cancelled";
+    case "paused":
+      return "interrupted";
+    case "created":
+    case "running":
+      return null;
+  }
+}
+
+function buildPostgresTerminalMessage(
+  terminalState: string,
+  steps: RunStepRecord[],
+): Record<string, unknown> {
+  const message: Record<string, unknown> = {
+    nextAction: resolvePostgresNextAction(terminalState),
+  };
+  const lastSuccessfulStep = findLatestStepLabel(steps, "completed");
+  const failedStep = findLatestStepLabel(steps, "failed");
+
+  if (lastSuccessfulStep) {
+    message.lastSuccessfulStep = lastSuccessfulStep;
+  }
+  if (failedStep) {
+    message.failedStep = failedStep;
+  }
+
+  return message;
+}
+
+function findLatestStepLabel(
+  steps: RunStepRecord[],
+  status: RunStepRecord["status"],
+): string | null {
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+    if (step?.status !== status) {
+      continue;
+    }
+    return readStepLabel(step);
+  }
+  return null;
+}
+
+function readStepLabel(step: RunStepRecord): string {
+  return (
+    readPayloadString(step.payload, "toolName") ??
+    readPayloadString(step.payload, "title") ??
+    readPayloadString(step.payload, "name") ??
+    step.stepType
+  );
+}
+
+function readPayloadString(value: unknown, key: string): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const candidate = value[key];
+  if (typeof candidate !== "string") {
+    return null;
+  }
+  const trimmed = candidate.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolvePostgresNextAction(terminalState: string): string {
+  switch (terminalState) {
+    case "completed":
+      return "Review the changed files, then send the next task when ready.";
+    case "failed_tool":
+    case "failed_runtime":
+      return "Inspect the failed step and retry after fixing the blocker.";
+    case "interrupted":
+      return "Resume or cancel the run from the workflow controls.";
+    case "cancelled":
+      return "Start a new run when you are ready.";
+    default:
+      return "Review the run details before continuing.";
+  }
 }
 
 function mergeRunSummary(
@@ -330,6 +438,10 @@ function mergeRunSummary(
   ) {
     return {
       ...postgresSummary,
+      terminalState:
+        runtimeSummary.terminalState ?? postgresSummary.terminalState,
+      terminalMessage:
+        runtimeSummary.terminalMessage ?? postgresSummary.terminalMessage,
       permissionContext: runtimeSummary.permissionContext,
       pendingApproval: runtimeSummary.pendingApproval,
     };
@@ -349,6 +461,10 @@ function mergeRunSummary(
     eventCount: runtimeSummary.eventCount ?? postgresSummary.eventCount,
     lastEventType:
       runtimeSummary.lastEventType ?? postgresSummary.lastEventType,
+    terminalState:
+      runtimeSummary.terminalState ?? postgresSummary.terminalState,
+    terminalMessage:
+      runtimeSummary.terminalMessage ?? postgresSummary.terminalMessage,
     permissionContext: runtimeSummary.permissionContext,
     pendingApproval: runtimeSummary.pendingApproval,
   };
@@ -381,7 +497,11 @@ async function fetchRunSummaryFromRuntimeBestEffort(
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<RunSummaryResponse | null> {
   try {
-    const response = await fetchRunSummaryFromRuntime(env, runId, requestedBackend);
+    const response = await fetchRunSummaryFromRuntime(
+      env,
+      runId,
+      requestedBackend,
+    );
     if (!response.ok) return null;
     return (await response.json()) as RunSummaryResponse;
   } catch (error) {
@@ -526,7 +646,9 @@ async function fetchRunEventsStreamFromRuntime(
   });
 }
 
-function buildRuntimeForwardHeaders(req: Request): Record<string, string> | null {
+function buildRuntimeForwardHeaders(
+  req: Request,
+): Record<string, string> | null {
   const origin = req.headers.get("Origin");
   if (!origin) {
     return null;
