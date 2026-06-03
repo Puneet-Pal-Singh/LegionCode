@@ -93,7 +93,7 @@ const alphaColumns = [
 
 export function LandingPage() {
   return (
-    <main className="h-screen overflow-y-auto bg-[#050505] text-zinc-100">
+    <main className="h-screen overflow-x-hidden overflow-y-auto bg-[#050505] text-zinc-100">
       <LandingHeader />
       <HeroSection />
       <WorkflowSection />
@@ -137,7 +137,7 @@ export function CloudReservedPage() {
 function LandingHeader() {
   return (
     <header className="sticky top-0 z-30 border-b border-zinc-900 bg-[#050505]/92 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[22rem] items-center justify-between gap-3 px-5 py-4 sm:max-w-7xl sm:px-6 lg:px-8">
         <BrandLockup />
         <nav className="hidden items-center gap-6 text-sm text-zinc-400 md:flex">
           <a className="transition-colors hover:text-white" href="#workflow">
@@ -151,11 +151,11 @@ function LandingHeader() {
           </a>
         </nav>
         <a
-          className="inline-flex items-center gap-2 rounded-md border border-zinc-700 px-3 py-2 text-sm font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-900"
+          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-zinc-700 px-2.5 py-2 text-sm font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-900 sm:px-3"
           href="/agents"
         >
           Open Agents
-          <ArrowRight size={15} />
+          <ArrowRight className="hidden sm:block" size={15} />
         </a>
       </div>
     </header>
@@ -167,7 +167,7 @@ function BrandLockup() {
     <a className="flex items-center gap-3" href="/" aria-label="LegionCode">
       <img
         alt="LegionCode"
-        className="h-8 w-auto"
+        className="h-7 w-auto max-w-[9rem] sm:h-8 sm:max-w-none"
         height="32"
         src="/assets/legioncode-wordmark.png"
         width="131"
@@ -178,16 +178,18 @@ function BrandLockup() {
 
 function HeroSection() {
   return (
-    <section className="mx-auto grid max-w-7xl gap-10 px-5 pb-12 pt-12 sm:px-6 lg:grid-cols-[0.88fr_1.12fr] lg:px-8 lg:pb-14 lg:pt-16">
-      <div className="flex flex-col justify-center">
-        <p className="w-fit rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+    <section className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-10 overflow-hidden px-5 pb-12 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:px-8 lg:pb-14 lg:pt-16">
+      <div className="flex w-full max-w-[22rem] min-w-0 flex-col justify-center sm:max-w-none">
+        <p className="w-fit max-w-full rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
           Private alpha · use test repos or disposable branches
         </p>
         <h1 className="mt-7">
-          <span className="sr-only">LegionCode</span>
+          <span className="block text-5xl font-semibold tracking-normal text-white sm:hidden">
+            LegionCode
+          </span>
           <img
-            alt=""
-            className="h-auto w-full max-w-[34rem]"
+            alt="LegionCode"
+            className="hidden h-auto w-full max-w-full sm:block sm:max-w-[34rem]"
             height="176"
             src="/assets/legioncode-wordmark.png"
             width="720"
@@ -228,8 +230,8 @@ function HeroSection() {
 
 function ProductVisual() {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-[#09090b] p-3 shadow-[0_24px_90px_rgba(0,0,0,0.42)]">
-      <div className="grid min-h-[31rem] gap-3 lg:grid-cols-[0.88fr_1.12fr]">
+    <div className="w-full max-w-[22rem] min-w-0 overflow-hidden rounded-lg border border-zinc-800 bg-[#09090b] p-3 shadow-[0_24px_90px_rgba(0,0,0,0.42)] sm:max-w-none">
+      <div className="grid min-h-[31rem] grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
         <PromptPanel />
         <ReviewPanel />
       </div>
@@ -239,8 +241,8 @@ function ProductVisual() {
 
 function PromptPanel() {
   return (
-    <section className="rounded-md border border-zinc-800 bg-black p-4">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-900 pb-3">
+    <section className="min-w-0 rounded-md border border-zinc-800 bg-black p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-900 pb-3">
         <div className="flex items-center gap-2">
           <FolderGit2 size={15} className="text-cyan-300" />
           <span className="text-xs font-medium text-zinc-300">
@@ -292,9 +294,9 @@ function StatusRow({
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2">
-      <div className="flex items-center gap-2 text-sm text-zinc-300">
+      <div className="flex min-w-0 items-center gap-2 text-sm text-zinc-300">
         <Icon size={15} className="text-zinc-500" />
-        {label}
+        <span className="min-w-0">{label}</span>
       </div>
       <span className={`text-xs font-medium ${stateClassName}`}>
         {stateLabel}
@@ -305,8 +307,8 @@ function StatusRow({
 
 function ReviewPanel() {
   return (
-    <section className="grid gap-3 rounded-md border border-zinc-800 bg-[#0d0d10] p-4 md:grid-cols-[0.52fr_1fr]">
-      <div>
+    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 rounded-md border border-zinc-800 bg-[#0d0d10] p-4 md:grid-cols-[minmax(0,0.52fr)_minmax(0,1fr)]">
+      <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
           Changed files
         </p>
@@ -324,7 +326,7 @@ function ReviewPanel() {
           </p>
         </div>
       </div>
-      <div className="rounded-md border border-zinc-800 bg-black">
+      <div className="min-w-0 rounded-md border border-zinc-800 bg-black">
         <div className="flex items-center justify-between border-b border-zinc-900 px-3 py-2">
           <div className="flex items-center gap-2 text-xs text-zinc-400">
             <FileDiff size={14} className="text-emerald-300" />
@@ -332,7 +334,7 @@ function ReviewPanel() {
           </div>
           <span className="text-[11px] text-zinc-500">saved artifact ready</span>
         </div>
-        <pre className="overflow-hidden p-3 text-[11px] leading-5 text-zinc-300">
+        <pre className="overflow-x-auto p-3 text-[11px] leading-5 text-zinc-300">
           <code>{`+ <p>Private alpha, intentionally.</p>
 + <ReviewSidebar files={changedFiles} />
 + <ApprovalDock state="waiting" />
@@ -393,7 +395,7 @@ function WorkflowCard({
 function ProviderSection() {
   return (
     <section className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8" id="providers">
-      <div className="grid gap-8 lg:grid-cols-[0.75fr_1fr] lg:items-start">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1fr)] lg:items-start">
         <SectionHeading
           align="left"
           eyebrow="BYOK"
@@ -423,7 +425,7 @@ function ProviderSection() {
 function ReviewSection() {
   return (
     <section className="border-y border-zinc-900 bg-[#08080a] px-5 py-16 sm:px-6 lg:px-8" id="review">
-      <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.85fr_1fr] lg:items-center">
+      <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] lg:items-center">
         <SectionHeading
           align="left"
           eyebrow="Review first"
