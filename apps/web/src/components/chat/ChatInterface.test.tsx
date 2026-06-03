@@ -16,6 +16,7 @@ const mockRefreshSession = vi.hoisted(() => vi.fn(async () => undefined));
 const mockGitReviewState = vi.hoisted(() => ({
   status: null as GitStatusResponse | null,
 }));
+const mockOpenPromptArtifactReview = vi.hoisted(() => vi.fn());
 const mockGetGitDiff = vi.hoisted(() =>
   vi.fn(async (input?: unknown) => {
     void input;
@@ -73,7 +74,7 @@ vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
     status: mockGitReviewState.status,
     selectedReviewComments: [],
-    openPromptArtifactReview: vi.fn(),
+    openPromptArtifactReview: mockOpenPromptArtifactReview,
     toggleReviewCommentSelected: vi.fn(),
     markReviewCommentsDispatching: vi.fn(),
     markReviewCommentsDispatched: vi.fn(),
@@ -101,6 +102,29 @@ import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 
+function createEditActivityItem(input: { id: string; filePath: string }) {
+  return {
+    id: input.id,
+    runId: "run-terminal",
+    sessionId: "session-1",
+    turnId: "turn-terminal",
+    kind: "tool" as const,
+    createdAt: "2026-03-24T10:00:01.000Z",
+    updatedAt: "2026-03-24T10:00:02.000Z",
+    source: "brain" as const,
+    toolId: input.id,
+    toolName: "create_code_artifact",
+    status: "completed" as const,
+    metadata: {
+      family: "edit" as const,
+      filePath: input.filePath,
+      additions: 3,
+      deletions: 1,
+      diffPreview: "+ updated line",
+    },
+  };
+}
+
 describe("ChatInterface", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -109,6 +133,7 @@ describe("ChatInterface", () => {
     mockRefreshSession.mockClear();
     mockGitReviewState.status = null;
     mockGetGitDiff.mockClear();
+    mockOpenPromptArtifactReview.mockReset();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -279,6 +304,151 @@ describe("ChatInterface", () => {
     expect(screen.getByText("Plan this repository.")).toBeInTheDocument();
     expect(screen.getByText(/Worked for/)).toBeInTheDocument();
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
+  });
+
+  it("renders a terminal card when only a non-terminal assistant message is visible", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-terminal",
+        status: "COMPLETED",
+        totalTasks: 1,
+        completedTasks: 1,
+        failedTasks: 0,
+        terminalState: "completed",
+        terminalMessage: {
+          changedFileCount: 2,
+          lastSuccessfulStep: "create_code_artifact",
+          nextAction: "Send the next task when you are ready.",
+        },
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "update the workflow UI",
+            },
+            {
+              id: "assistant-progress",
+              role: "assistant",
+              content: "I found the relevant workflow files.",
+            },
+          ],
+          runId: "run-terminal",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByText("I found the relevant workflow files."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Outcome: Run completed\./)).toBeInTheDocument();
+    expect(screen.getByText(/Changed files: 2 files/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Last successful step: create_code_artifact/),
+    ).toBeInTheDocument();
+  });
+
+  it("opens artifact review from a terminal card changed-file list", async () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-terminal",
+        status: "COMPLETED",
+        totalTasks: 1,
+        completedTasks: 1,
+        failedTasks: 0,
+        terminalState: "completed",
+        terminalMessage: {
+          artifactId: "artifact-terminal",
+          changedFileCount: 2,
+          lastSuccessfulStep: "create_code_artifact",
+          nextAction: "Review the changes.",
+        },
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({
+      feed: {
+        runId: "run-terminal",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        items: [
+          createEditActivityItem({
+            id: "edit-hero",
+            filePath: "src/components/Hero.tsx",
+          }),
+          createEditActivityItem({
+            id: "edit-route",
+            filePath: "src/routes/agents.tsx",
+          }),
+        ],
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "assistant-progress",
+              role: "assistant",
+              content: "I found the relevant workflow files.",
+            },
+          ],
+          runId: "run-terminal",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+      />,
+    );
+
+    expect(screen.getByText(/2 files changed/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /expand changes for src\/components\/hero\.tsx/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /expand changes for src\/routes\/agents\.tsx/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("src/unused.ts")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /review/i }));
+
+    await waitFor(() => {
+      expect(mockOpenPromptArtifactReview).toHaveBeenCalledWith(
+        "artifact-terminal",
+      );
+    });
   });
 
   it("replays provider interruption rows from hydrated transcript activity", () => {

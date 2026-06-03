@@ -5,7 +5,7 @@ import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { Run, RunRepository } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
-import type { RunStatus } from "../types.js";
+import type { AgenticLoopToolLifecycleEvent, RunStatus } from "../types.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import {
   recordLifecycleStep,
@@ -122,10 +122,15 @@ async function persistFinalAssistantRun(
     );
     return createStreamResponse("");
   }
+  const finalMetadata = buildTerminalFinalMetadata({
+    run,
+    metadata,
+    terminalState: params.terminalState,
+  });
   const finalMessage = buildFinalAssistantMessage({
     run,
     text,
-    metadata,
+    metadata: finalMetadata,
     terminalState: params.terminalState,
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
@@ -138,6 +143,7 @@ async function persistFinalAssistantRun(
     finalSummary: sanitizedText,
   };
   run.metadata.terminalState = params.terminalState;
+  run.metadata.terminalMessage = finalMessage.metadata;
   if (!(await updateFinalizedRunIfActive(run, deps, params.terminalStatus))) {
     console.log(
       `[run/engine] Skipping assistant completion for terminal run ${run.id}`,
@@ -194,10 +200,15 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
+  const finalMetadata = buildTerminalFinalMetadata({
+    run,
+    metadata,
+    terminalState,
+  });
   const finalMessage = buildFinalAssistantMessage({
     run,
     text,
-    metadata,
+    metadata: finalMetadata,
     terminalState,
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
@@ -219,6 +230,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     finalSummary: sanitizedText,
   };
   run.metadata.terminalState = terminalState;
+  run.metadata.terminalMessage = finalMessage.metadata;
   if (!(await updateRecoveredRunIfActive(run, deps))) {
     console.log(
       `[run/engine] Skipping recovered completion for terminal run ${run.id}`,
@@ -263,6 +275,93 @@ function buildFinalAssistantMessage(input: {
     modelText: input.text,
     metadata: input.metadata,
   });
+}
+
+function buildTerminalFinalMetadata(input: {
+  run: Run;
+  metadata?: Record<string, unknown>;
+  terminalState: RunTerminalState;
+}): Record<string, unknown> {
+  const lifecycle = input.run.metadata.agenticLoop?.toolLifecycle ?? [];
+  const changedFileCount =
+    readNonNegativeInteger(input.metadata?.changedFileCount) ??
+    countChangedFiles(lifecycle);
+  const lastSuccessfulStep =
+    readNonEmptyString(input.metadata?.lastSuccessfulStep) ??
+    getLatestToolName(lifecycle, "completed");
+  const failedStep =
+    readNonEmptyString(input.metadata?.failedStep) ??
+    getLatestToolName(lifecycle, "failed");
+  const nextAction =
+    readNonEmptyString(input.metadata?.nextAction) ??
+    readNonEmptyString(input.metadata?.resumeHint) ??
+    resolveDefaultTerminalNextAction(input.terminalState);
+
+  return {
+    ...(input.metadata ?? {}),
+    terminalState: input.terminalState,
+    changedFileCount,
+    artifactId: input.metadata?.artifactId ?? null,
+    lastSuccessfulStep,
+    failedStep,
+    nextAction,
+  };
+}
+
+function countChangedFiles(
+  lifecycle: AgenticLoopToolLifecycleEvent[],
+): number {
+  const filePaths = new Set<string>();
+  for (const event of lifecycle) {
+    if (
+      event.status === "completed" &&
+      event.metadata?.family === "edit" &&
+      event.metadata.filePath
+    ) {
+      filePaths.add(event.metadata.filePath);
+    }
+  }
+  return filePaths.size;
+}
+
+function getLatestToolName(
+  lifecycle: AgenticLoopToolLifecycleEvent[],
+  status: AgenticLoopToolLifecycleEvent["status"],
+): string | null {
+  for (let index = lifecycle.length - 1; index >= 0; index -= 1) {
+    const event = lifecycle[index];
+    if (event?.status === status) {
+      return event.toolName;
+    }
+  }
+  return null;
+}
+
+function resolveDefaultTerminalNextAction(
+  terminalState: RunTerminalState,
+): string {
+  switch (terminalState) {
+    case RUN_TERMINAL_STATES.COMPLETED:
+      return "Send the next task when you want me to continue.";
+    case RUN_TERMINAL_STATES.APPROVAL_REQUIRED:
+      return "Choose an approval action to continue, or deny to stop this path.";
+    case RUN_TERMINAL_STATES.APPROVAL_DENIED:
+      return "Send a revised instruction or approve a safer action to continue.";
+    case RUN_TERMINAL_STATES.INTERRUPTED:
+      return "Resubmit the request when you want me to continue.";
+    default:
+      return "Review the completed work and retry the failed step.";
+  }
+}
+
+function readNonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 async function isRunCancelledInStore(

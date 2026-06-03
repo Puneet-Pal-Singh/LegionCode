@@ -16,6 +16,11 @@ import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
 
 export type { AgentSession } from "../types/session";
+export type SessionHydrationStatus = "idle" | "loading" | "ready" | "failed";
+
+interface UseSessionManagerOptions {
+  hydrateFromServer?: boolean;
+}
 
 function createSessionsMap(
   sessions: AgentSession[],
@@ -85,11 +90,16 @@ function findNextVisibleSession(
   );
 }
 
-export function useSessionManager() {
+export function useSessionManager(options: UseSessionManagerOptions = {}) {
+  const hydrateFromServer = options.hydrateFromServer ?? true;
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
     const sessionsMap = SessionStateService.loadSessions();
     return Object.values(sessionsMap);
   });
+  const [sessionHydrationStatus, setSessionHydrationStatus] =
+    useState<SessionHydrationStatus>(() =>
+      hydrateFromServer ? "loading" : "idle",
+    );
   const sessionsRef = useRef<AgentSession[]>(sessions);
   const activeSessionIdRef = useRef<string | null>(null);
 
@@ -136,26 +146,38 @@ export function useSessionManager() {
     let cancelled = false;
 
     async function hydrateServerSessions(): Promise<void> {
+      if (!hydrateFromServer) {
+        setSessionHydrationStatus("idle");
+        return;
+      }
+
+      setSessionHydrationStatus("loading");
       try {
         const serverSessions =
           await SessionStateService.hydrateSessionsFromServer();
         const serverSessionList = Object.values(serverSessions);
-        if (cancelled || serverSessionList.length === 0) {
+        if (cancelled) {
           return;
         }
 
-        setSessions((current) => mergeSessions(current, serverSessionList));
-        setRepositories((current) =>
-          mergeRepositories(
-            current,
-            serverSessionList.map((session) => session.repository),
-          ),
-        );
-        if (!activeSessionIdRef.current) {
-          setActiveSessionId(serverSessionList[0]?.id ?? null);
+        if (serverSessionList.length > 0) {
+          setSessions((current) => mergeSessions(current, serverSessionList));
+          setRepositories((current) =>
+            mergeRepositories(
+              current,
+              serverSessionList.map((session) => session.repository),
+            ),
+          );
+          if (!activeSessionIdRef.current) {
+            setActiveSessionId(serverSessionList[0]?.id ?? null);
+          }
         }
+        setSessionHydrationStatus("ready");
       } catch (error) {
         console.warn("[useSessionManager] Failed to hydrate sessions:", error);
+        if (!cancelled) {
+          setSessionHydrationStatus("failed");
+        }
       }
     }
 
@@ -164,7 +186,7 @@ export function useSessionManager() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hydrateFromServer]);
 
   /**
    * Create a new session with v2 schema
@@ -480,6 +502,7 @@ export function useSessionManager() {
   return {
     sessions,
     activeSessionId,
+    sessionHydrationStatus,
     repositories,
     setActiveSessionId,
     createSession,
