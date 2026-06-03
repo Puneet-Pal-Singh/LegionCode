@@ -146,11 +146,11 @@ function LandingHeader() {
           </a>
         </nav>
         <a
-          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-zinc-700 px-2.5 py-2 text-sm font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-900 sm:px-3"
+          className="hidden shrink-0 items-center gap-2 rounded-md border border-zinc-700 px-3 py-2 text-sm font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-900 sm:inline-flex"
           href="/agents"
         >
           Open Agents
-          <ArrowRight className="hidden sm:block" size={15} />
+          <ArrowRight size={15} />
         </a>
       </div>
     </header>
