@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { resolveShellStartupState } from "./startup-shell-state";
+import {
+  isSessionContextPending,
+  resolveShellStartupState,
+} from "./startup-shell-state";
 
 describe("resolveShellStartupState", () => {
   it("returns locked state while unauthenticated", () => {
@@ -48,5 +51,32 @@ describe("resolveShellStartupState", () => {
         hasRealSession: true,
       }),
     ).toBe("shell_ready");
+  });
+
+  it("keeps the shell gated on the first authenticated render before session hydration starts", () => {
+    expect(
+      isSessionContextPending({
+        isAuthenticated: true,
+        isAuthLoading: false,
+        sessionHydrationStatus: "idle",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not keep the shell gated after session hydration reaches a terminal state", () => {
+    expect(
+      isSessionContextPending({
+        isAuthenticated: true,
+        isAuthLoading: false,
+        sessionHydrationStatus: "ready",
+      }),
+    ).toBe(false);
+    expect(
+      isSessionContextPending({
+        isAuthenticated: true,
+        isAuthLoading: false,
+        sessionHydrationStatus: "failed",
+      }),
+    ).toBe(false);
   });
 });

@@ -115,6 +115,8 @@ export class RunEngineRequestHandler {
 
     return runEngineJsonResponse(request, this.env, {
       ...summary,
+      terminalState: run?.metadata.terminalState ?? null,
+      terminalMessage: run?.metadata.terminalMessage ?? null,
       planArtifact: run?.metadata.planArtifact ?? null,
       permissionContext: run?.metadata.permissionContext ?? null,
       pendingApproval,

@@ -278,6 +278,146 @@ describe("secure-agent-api plugin hardening", () => {
     expect(absolute.error).toMatch(/absolute paths are not allowed/i);
   });
 
+  it("returns read windows with line metadata", async () => {
+    const plugin = new FileSystemPlugin();
+    const sandbox = createSandboxMockWithResponder((command) => {
+      if (command.includes("'file'")) {
+        return { exitCode: 0, stdout: "text/plain\n", stderr: "" };
+      }
+      if (command.includes("'awk'")) {
+        return { exitCode: 0, stdout: "line two\nline three\n", stderr: "" };
+      }
+      if (command.includes("'wc'")) {
+        return {
+          exitCode: 0,
+          stdout: "4 /home/sandbox/runs/run-safe-read/a.txt\n",
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "read_file",
+      runId: "run-safe-read",
+      path: "a.txt",
+      offset: 1,
+      limit: 2,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("line two\nline three\n");
+    expect(result.metadata).toMatchObject({
+      offset: 1,
+      limit: 2,
+      returnedLines: 2,
+      totalLines: 4,
+    });
+    expect(result.truncated).toBe(true);
+  });
+
+  it("returns an empty successful read window beyond EOF", async () => {
+    const plugin = new FileSystemPlugin();
+    const sandbox = createSandboxMockWithResponder((command) => {
+      if (command.includes("'file'")) {
+        return { exitCode: 0, stdout: "text/plain\n", stderr: "" };
+      }
+      if (command.includes("'awk'")) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (command.includes("'wc'")) {
+        return {
+          exitCode: 0,
+          stdout: "3 /home/sandbox/runs/run-safe-empty/a.txt\n",
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "read_file",
+      runId: "run-safe-empty",
+      path: "a.txt",
+      offset: 10,
+      limit: 2,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("");
+    expect(result.metadata).toMatchObject({
+      returnedLines: 0,
+      totalLines: 3,
+    });
+  });
+
+  it("routes invalid grep regex errors through filesystem metadata", async () => {
+    const plugin = new FileSystemPlugin();
+    const sandbox = createSandboxMockWithResponder((command) => {
+      if (command.includes("'rg'")) {
+        return {
+          exitCode: 2,
+          stdout: "",
+          stderr: "regex parse error: unclosed character class",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "grep",
+      runId: "run-safe-grep",
+      pattern: "[",
+      path: ".",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Invalid grep regex/);
+    expect(result.metadata).toMatchObject({ reason: "invalid_regex" });
+    expect(result.truncated).toBe(false);
+  });
+
+  it("rejects traversal in fast glob paths", async () => {
+    const plugin = new FileSystemPlugin();
+    const sandbox = createSandboxMock();
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "glob",
+      runId: "run-safe-glob",
+      pattern: "**/*.ts",
+      path: "../outside",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/traversal|Access Denied/i);
+  });
+
+  it("returns an empty successful result for fast glob misses", async () => {
+    const plugin = new FileSystemPlugin();
+    const sandbox = createSandboxMockWithResponder((command) => {
+      if (command.includes("'rg'")) {
+        return { exitCode: 1, stdout: "", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await plugin.execute(asSandbox(sandbox), {
+      action: "glob",
+      runId: "run-safe-glob-empty",
+      pattern: "**/*.not-found",
+      path: ".",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("");
+    expect(result.metadata).toMatchObject({
+      paths: [],
+      total: 0,
+      returned: 0,
+    });
+    expect(result.truncated).toBe(false);
+  });
+
   it("validates git auth token format", async () => {
     const plugin = new GitPlugin();
     const sandbox = createSandboxMock();

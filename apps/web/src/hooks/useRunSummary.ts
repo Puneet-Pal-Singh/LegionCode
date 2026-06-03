@@ -45,6 +45,8 @@ interface RunSummary {
   cancelledTasks?: number;
   eventCount?: number;
   lastEventType?: string | null;
+  terminalState?: string | null;
+  terminalMessage?: Record<string, unknown> | null;
   planArtifact?: RunPlanArtifact | null;
   permissionContext?: {
     state: {

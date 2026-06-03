@@ -568,6 +568,11 @@ describe("RunEngine", () => {
     ).toEqual({
       terminalState: "completed",
       finalMessageSource: "model",
+      artifactId: null,
+      changedFileCount: 0,
+      failedStep: null,
+      lastSuccessfulStep: null,
+      nextAction: "Send the next task when you want me to continue.",
     });
   });
 

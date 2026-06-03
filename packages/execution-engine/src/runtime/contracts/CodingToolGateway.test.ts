@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   enforceGoldenFlowToolFloor,
+  getCodingToolDefinition,
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
@@ -115,6 +116,16 @@ describe("CodingToolGateway", () => {
       plugin: "git",
       action: "git_create_pull_request",
     });
+    expect(getGoldenFlowToolRoute("glob")).toEqual({
+      toolName: "glob",
+      plugin: "filesystem",
+      action: "glob",
+    });
+    expect(getGoldenFlowToolRoute("grep")).toEqual({
+      toolName: "grep",
+      plugin: "filesystem",
+      action: "grep",
+    });
     expect(getGoldenFlowToolRoute("unknown_tool")).toBeNull();
   });
 
@@ -127,7 +138,71 @@ describe("CodingToolGateway", () => {
     expect(isMutatingGoldenFlowToolName("github_cli_pr_comment")).toBe(true);
     expect(isMutatingGoldenFlowToolName("github_pr_get")).toBe(false);
     expect(isMutatingGoldenFlowToolName("read_file")).toBe(false);
+    expect(isMutatingGoldenFlowToolName("glob")).toBe(false);
+    expect(isMutatingGoldenFlowToolName("grep")).toBe(false);
     expect(isMutatingGoldenFlowToolName("git_diff")).toBe(false);
+  });
+
+  it("exposes data-driven registry metadata for read search tools", () => {
+    const readDefinition = getCodingToolDefinition("read_file");
+    const grepDefinition = getCodingToolDefinition("grep");
+
+    expect(readDefinition).toMatchObject({
+      id: "read_file",
+      permission: { mode: "allow", scope: "workspace" },
+      sandboxClass: "read",
+      outputRenderer: "text",
+    });
+    expect(grepDefinition).toMatchObject({
+      id: "grep",
+      description: expect.stringContaining("regular expression"),
+      permission: { mode: "allow", scope: "workspace" },
+      sandboxClass: "read",
+      outputRenderer: "json",
+      route: { plugin: "filesystem", action: "grep" },
+    });
+    expect(grepDefinition?.tokenPolicy).toMatchObject({
+      maxOutputBytes: expect.any(Number),
+      maxLineBytes: expect.any(Number),
+      maxResults: expect.any(Number),
+    });
+  });
+
+  it("adapts legacy plugin responses into required ToolResult shape", async () => {
+    const definition = getCodingToolDefinition("grep");
+    const truncatedResult = await definition?.execute(
+      { pattern: "TODO" },
+      {
+        async execute() {
+          return {
+            success: true,
+            output: "src/index.ts:1:TODO",
+            metadata: { totalMatches: 1 },
+            truncated: true,
+          };
+        },
+      },
+    );
+    const untruncatedResult = await definition?.execute(
+      { pattern: "TODO" },
+      {
+        async execute() {
+          return {
+            success: true,
+            output: "src/index.ts:1:TODO",
+            metadata: { totalMatches: 1 },
+          };
+        },
+      },
+    );
+
+    expect(truncatedResult).toEqual({
+      title: "Grep Files",
+      output: "src/index.ts:1:TODO",
+      metadata: { totalMatches: 1 },
+      truncated: true,
+    });
+    expect(untruncatedResult?.truncated).toBe(false);
   });
 
   it("enforces bounded scope by dropping non-floor tools", () => {
@@ -203,6 +278,17 @@ describe("CodingToolGateway", () => {
       path: ".",
       maxResults: 5,
       caseSensitive: false,
+    });
+
+    const parsedRead = validateGoldenFlowToolInput("read_file", {
+      path: "README.md",
+      offset: 10,
+      limit: 25,
+    });
+    expect(parsedRead).toEqual({
+      path: "README.md",
+      offset: 10,
+      limit: 25,
     });
 
     expect(() =>
