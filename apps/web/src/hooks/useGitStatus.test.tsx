@@ -110,13 +110,10 @@ describe("useGitStatus", () => {
     expect(result.result.current.gitAvailable).toBe(true);
   });
 
-  it("ignores stale status responses after a forced refetch starts", async () => {
+  it("coalesces forced refetches while a status request is already in flight", async () => {
     const initialStatus = createDeferredStatus();
-    const forcedStatus = createDeferredStatus();
     const getGitStatusMock = vi.mocked(getGitStatus);
-    getGitStatusMock
-      .mockReturnValueOnce(initialStatus.promise)
-      .mockReturnValueOnce(forcedStatus.promise);
+    getGitStatusMock.mockReturnValueOnce(initialStatus.promise);
 
     const result = renderHook(() => useGitStatus("run-1", "session-1"));
 
@@ -124,17 +121,17 @@ describe("useGitStatus", () => {
       expect(getGitStatusMock).toHaveBeenCalledTimes(1);
     });
 
-    let refetchPromise!: Promise<void>;
+    let firstRefetchPromise!: Promise<void>;
+    let secondRefetchPromise!: Promise<void>;
     act(() => {
-      refetchPromise = result.result.current.refetch(true);
+      firstRefetchPromise = result.result.current.refetch(true);
+      secondRefetchPromise = result.result.current.refetch(true);
     });
 
-    await waitFor(() => {
-      expect(getGitStatusMock).toHaveBeenCalledTimes(2);
-    });
+    expect(getGitStatusMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      forcedStatus.resolve(
+      initialStatus.resolve(
         buildGitStatus({
           files: [
             {
@@ -148,14 +145,7 @@ describe("useGitStatus", () => {
           hasUnstaged: true,
         }),
       );
-      await refetchPromise;
-    });
-
-    expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
-
-    await act(async () => {
-      initialStatus.resolve(buildGitStatus());
-      await initialStatus.promise;
+      await Promise.all([firstRefetchPromise, secondRefetchPromise]);
     });
 
     expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
@@ -234,7 +224,7 @@ describe("useGitStatus", () => {
     await waitFor(() => {
       expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
     });
-    expect(getGitStatusMock).toHaveBeenCalledTimes(3);
+    expect(getGitStatusMock).toHaveBeenCalledTimes(2);
   });
 
   it("isolates runtime boot listener and localStorage failures", () => {

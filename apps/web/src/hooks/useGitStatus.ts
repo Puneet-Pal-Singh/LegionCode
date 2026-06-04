@@ -96,7 +96,6 @@ export function useGitStatus(
           cacheKey,
           runId,
           sessionId,
-          force,
         );
         if (
           !isActiveCacheKey(requestCacheKey) ||
@@ -227,11 +226,7 @@ async function getOrCreateGitStatusRequest(
   cacheKey: string,
   runId: string,
   sessionId: string,
-  force = false,
 ): Promise<GitStatusResponse> {
-  if (force) {
-    inflightByRunId.delete(cacheKey);
-  }
   const request =
     inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
   inflightByRunId.set(cacheKey, request);
