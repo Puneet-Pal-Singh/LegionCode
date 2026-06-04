@@ -1,9 +1,5 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
-import {
-  type DiffContent,
-  type ProductMode,
-  type RunMode,
-} from "@repo/shared-types";
+import { useRef, useEffect, useState, useMemo } from "react";
+import { type ProductMode, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
@@ -16,11 +12,12 @@ import { Resizer } from "../ui/Resizer";
 import { useWorkspaceState } from "./workspace/useWorkspaceState";
 import { useGitHubTree } from "./workspace/useGitHubTree";
 import { useFileLoader } from "./workspace/useFileLoader";
+import { useStatusSync } from "./workspace/useStatusSync";
+import { useBootstrap } from "./workspace/useBootstrap";
+import { useSidebarOrchestration } from "./workspace/useSidebarOrchestration";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
 import { TabType } from "./workspace/useWorkspaceState";
-import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap";
-import { subscribeRuntimeBootChanges } from "../../lib/runtime-boot-monitor";
 import {
   loadStoredProductMode,
   persistProductMode,
@@ -70,15 +67,8 @@ export function Workspace({
   onTabChange,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const workspaceBootstrapKeyRef = useRef<string | null>(null);
-  const workspaceBootstrapInFlightRef = useRef<string | null>(null);
-  const workspaceBootstrapRecoveryKeyRef = useRef<string | null>(null);
-  const previousChatLoadingRef = useRef(false);
-  const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const sandboxId = sessionId;
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
-  const [isGitWorkspaceRecovering, setIsGitWorkspaceRecovering] =
-    useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
@@ -144,16 +134,19 @@ export function Workspace({
     gitAvailable,
     refetch: refetchGitStatus,
   } = useGitStatus(activeRunId, sessionId);
-  const [locallyStoppedRunId, setLocallyStoppedRunId] = useState<string | null>(
-    null,
-  );
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
   const canonicalRunStatus = runSummaryMatchesActiveRun
     ? normalizeRunStatus(runSummary.status)
     : null;
   const hasPendingApproval =
     runSummaryMatchesActiveRun && Boolean(runSummary?.pendingApproval);
+  const pendingApprovalRequestId = runSummaryMatchesActiveRun
+    ? (runSummary?.pendingApproval?.requestId ?? null)
+    : null;
   const lastMessage = messages[messages.length - 1];
+  const [locallyStoppedRunId, setLocallyStoppedRunId] = useState<string | null>(
+    null,
+  );
   const isLocallyStoppedRun = locallyStoppedRunId === activeRunId;
   const runUiState = useMemo(
     () =>
@@ -200,66 +193,59 @@ export function Workspace({
     setSelectedFile,
   });
 
-  const handleSidebarDiffSelected = useCallback(
-    (path: string, content: DiffContent) => {
-      setSelectedFile(null);
-      setSelectedDiff({ path, content });
-      setIsViewingContent(true);
-      setActiveTab("changes");
-    },
-    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
-  );
+  // Composed orchestration hooks
+  const { handleStopRun } = useStatusSync({
+    activeRunId,
+    canonicalRunStatus,
+    isApprovalWaitingRun,
+    pendingApprovalRequestId,
+    isStaleCanonicalActiveRun,
+    isEffectiveCanonicalRunActive,
+    isLoading,
+    chatError,
+    hasPendingApproval,
+    isLocallyStoppedRun,
+    setLocallyStoppedRunId,
+    stop,
+    refetchGitStatus,
+    onSessionStatusChange,
+  });
+  const isGitWorkspaceRecovering = useBootstrap({
+    sessionId,
+    activeRunId,
+    gitAvailable,
+    isRunLoading,
+    isContextMismatch,
+    isGitHubLoaded,
+    repositoryOwner,
+    repositoryName,
+    repositoryBranch,
+    repositoryBaseUrl,
+    refetchGitStatus,
+  });
 
-  useEffect(() => {
-    if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
-      return;
-    }
-
-    previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
-    setIsRightSidebarOpen?.(true);
-    setActiveTab("review");
-    setIsViewingContent(false);
-    setSelectedFile(null);
-    setSelectedDiff(null);
-  }, [
-    reviewSidebarFocusRequest,
-    setActiveTab,
-    setIsRightSidebarOpen,
+  const { handleSidebarDiffSelected } = useSidebarOrchestration({
+    activeRunId,
+    sessionId,
+    status,
+    repo,
+    branch,
+    isContextMismatch,
+    isGitHubLoaded,
+    isHydrating,
+    isViewingContent,
+    selectedFile,
+    selectedDiff,
+    switchBranch,
+    handleFileClick,
+    explorerRef,
     setIsViewingContent,
-    setSelectedDiff,
+    setActiveTab,
     setSelectedFile,
-  ]);
-
-  const handleStopRun = useCallback(() => {
-    setLocallyStoppedRunId(activeRunId);
-    stop();
-    onSessionStatusChange?.("completed");
-  }, [activeRunId, onSessionStatusChange, stop]);
-
-  useEffect(() => {
-    if (isLoading) {
-      setLocallyStoppedRunId(null);
-    }
-  }, [isLoading]);
-
-  useEffect(() => {
-    // Persist runId to localStorage scoped by sessionId for cross-tab/refreshes persistence
-    if (sessionId && activeRunId) {
-      localStorage.setItem(`shadowbox_runId:${sessionId}`, activeRunId);
-    }
-  }, [sessionId, activeRunId]);
-
-  useEffect(() => {
-    explorerRef.current?.refresh();
-  }, [activeRunId]);
-
-  useEffect(() => {
-    return subscribeRuntimeBootChanges(() => {
-      workspaceBootstrapKeyRef.current = null;
-      workspaceBootstrapRecoveryKeyRef.current = null;
-      void refetchGitStatus(true);
-    });
-  }, [refetchGitStatus]);
+    setSelectedDiff,
+    setIsRightSidebarOpen,
+    reviewSidebarFocusRequest,
+  });
 
   useEffect(() => {
     setProductMode(loadStoredProductMode(sessionId));
@@ -268,319 +254,6 @@ export function Workspace({
   useEffect(() => {
     persistProductMode(sessionId, productMode);
   }, [productMode, sessionId]);
-
-  useEffect(() => {
-    const wasLoading = previousChatLoadingRef.current;
-    previousChatLoadingRef.current = isLoading;
-
-    if (!wasLoading && isLoading) {
-      onSessionStatusChange?.("running");
-      return;
-    }
-
-    if (wasLoading && !isLoading) {
-      if (hasPendingApproval) {
-        onSessionStatusChange?.("waiting_for_approval");
-      } else if (chatError) {
-        onSessionStatusChange?.("failed");
-      } else {
-        onSessionStatusChange?.("completed");
-      }
-      void refetchGitStatus(true);
-    }
-  }, [
-    chatError,
-    hasPendingApproval,
-    isLoading,
-    onSessionStatusChange,
-    refetchGitStatus,
-  ]);
-
-  const lastAppliedCanonicalStatusRef = useRef<{
-    runId: string;
-    status: string;
-  } | null>(null);
-  const lastAppliedChatErrorRef = useRef<{
-    runId: string;
-    error: string;
-  } | null>(null);
-  useEffect(() => {
-    if (!canonicalRunStatus) {
-      return;
-    }
-
-    if (isApprovalWaitingRun) {
-      const approvalWaitingStatus = "APPROVAL_WAITING";
-      const lastApplied = lastAppliedCanonicalStatusRef.current;
-      if (
-        lastApplied &&
-        lastApplied.runId === activeRunId &&
-        lastApplied.status === approvalWaitingStatus
-      ) {
-        return;
-      }
-      lastAppliedCanonicalStatusRef.current = {
-        runId: activeRunId,
-        status: approvalWaitingStatus,
-      };
-      onSessionStatusChange?.("waiting_for_approval");
-      void refetchGitStatus(true);
-      return;
-    }
-
-    if (isStaleCanonicalActiveRun) {
-      const localCompletionStatus = "LOCAL_COMPLETED";
-      const lastApplied = lastAppliedCanonicalStatusRef.current;
-      if (
-        lastApplied &&
-        lastApplied.runId === activeRunId &&
-        lastApplied.status === localCompletionStatus
-      ) {
-        return;
-      }
-      lastAppliedCanonicalStatusRef.current = {
-        runId: activeRunId,
-        status: localCompletionStatus,
-      };
-      onSessionStatusChange?.("completed");
-      void refetchGitStatus(true);
-      return;
-    }
-
-    const lastApplied = lastAppliedCanonicalStatusRef.current;
-    if (
-      lastApplied &&
-      lastApplied.runId === activeRunId &&
-      lastApplied.status === canonicalRunStatus
-    ) {
-      return;
-    }
-    lastAppliedCanonicalStatusRef.current = {
-      runId: activeRunId,
-      status: canonicalRunStatus,
-    };
-
-    if (canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED") {
-      if (isLocallyStoppedRun) {
-        return;
-      }
-      onSessionStatusChange?.("running");
-      return;
-    }
-
-    if (canonicalRunStatus === "PAUSED") {
-      onSessionStatusChange?.("paused");
-      void refetchGitStatus(true);
-      return;
-    }
-
-    if (canonicalRunStatus === "FAILED") {
-      onSessionStatusChange?.("failed");
-      void refetchGitStatus(true);
-      return;
-    }
-
-    if (
-      canonicalRunStatus === "COMPLETED" ||
-      canonicalRunStatus === "CANCELLED"
-    ) {
-      if (canonicalRunStatus === "CANCELLED") {
-        setLocallyStoppedRunId(null);
-      }
-      onSessionStatusChange?.("completed");
-      void refetchGitStatus(true);
-    }
-  }, [
-    activeRunId,
-    canonicalRunStatus,
-    isApprovalWaitingRun,
-    isLocallyStoppedRun,
-    isStaleCanonicalActiveRun,
-    onSessionStatusChange,
-    refetchGitStatus,
-  ]);
-
-  useEffect(() => {
-    if (
-      !chatError ||
-      isLoading ||
-      isEffectiveCanonicalRunActive ||
-      isApprovalWaitingRun
-    ) {
-      return;
-    }
-
-    const lastApplied = lastAppliedChatErrorRef.current;
-    if (
-      lastApplied &&
-      lastApplied.runId === activeRunId &&
-      lastApplied.error === chatError
-    ) {
-      return;
-    }
-
-    lastAppliedChatErrorRef.current = {
-      runId: activeRunId,
-      error: chatError,
-    };
-    onSessionStatusChange?.("failed");
-  }, [
-    activeRunId,
-    chatError,
-    isEffectiveCanonicalRunActive,
-    isApprovalWaitingRun,
-    isLoading,
-    onSessionStatusChange,
-  ]);
-
-  useEffect(() => {
-    if (isContextMismatch) {
-      return;
-    }
-
-    if (!isGitHubLoaded || !repo) {
-      return;
-    }
-
-    const currentWorkspaceBranch = status?.branch?.trim();
-    const currentGitHubContextBranch = branch?.trim();
-    if (!currentWorkspaceBranch || !currentGitHubContextBranch) {
-      return;
-    }
-    if (currentWorkspaceBranch === currentGitHubContextBranch) {
-      return;
-    }
-
-    switchBranch(currentWorkspaceBranch);
-  }, [
-    branch,
-    isContextMismatch,
-    isGitHubLoaded,
-    repo,
-    status?.branch,
-    switchBranch,
-  ]);
-
-  useEffect(() => {
-    if (!sessionId || !activeRunId) {
-      return;
-    }
-
-    if (isRunLoading) {
-      return;
-    }
-
-    if (!isGitHubLoaded) {
-      return;
-    }
-
-    if (isContextMismatch) {
-      return;
-    }
-
-    if (!repositoryOwner || !repositoryName) {
-      return;
-    }
-
-    const bootstrapKey = `${sessionId}:${activeRunId}:${repositoryOwner}/${repositoryName}:${repositoryBranch}`;
-    const shouldRecoverGitWorkspace = gitAvailable === false;
-    if (
-      (!shouldRecoverGitWorkspace &&
-        workspaceBootstrapKeyRef.current === bootstrapKey) ||
-      workspaceBootstrapInFlightRef.current === bootstrapKey
-    ) {
-      return;
-    }
-
-    if (
-      shouldRecoverGitWorkspace &&
-      workspaceBootstrapRecoveryKeyRef.current === bootstrapKey
-    ) {
-      return;
-    }
-
-    workspaceBootstrapInFlightRef.current = bootstrapKey;
-    if (shouldRecoverGitWorkspace) {
-      workspaceBootstrapRecoveryKeyRef.current = bootstrapKey;
-      setIsGitWorkspaceRecovering(true);
-    }
-    const bootstrap = async (): Promise<void> => {
-      let bootstrapReady = false;
-      try {
-        const result = await bootstrapGitWorkspace({
-          runId: activeRunId,
-          sessionId,
-          repositoryOwner,
-          repositoryName,
-          repositoryBranch,
-          repositoryBaseUrl,
-        });
-        if (result.status === "ready") {
-          bootstrapReady = true;
-          workspaceBootstrapKeyRef.current = bootstrapKey;
-          workspaceBootstrapRecoveryKeyRef.current = null;
-        }
-        if (result.status !== "ready" && result.message) {
-          if (result.status === "sync-failed") {
-            console.debug(
-              `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
-            );
-          } else {
-            console.warn(
-              `[workspace/git-bootstrap] ${result.status}: ${result.message}`,
-            );
-          }
-        }
-      } catch (error) {
-        console.warn("[workspace/git-bootstrap] failed", error);
-      } finally {
-        if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
-          workspaceBootstrapInFlightRef.current = null;
-        }
-        if (bootstrapReady) {
-          await refetchGitStatus(true);
-        }
-        if (shouldRecoverGitWorkspace) {
-          setIsGitWorkspaceRecovering(false);
-        }
-      }
-    };
-
-    void bootstrap();
-  }, [
-    activeRunId,
-    gitAvailable,
-    isRunLoading,
-    isContextMismatch,
-    isGitHubLoaded,
-    refetchGitStatus,
-    repositoryBaseUrl,
-    repositoryBranch,
-    repositoryName,
-    repositoryOwner,
-    sessionId,
-  ]);
-
-  // Restore selected file on mount if we were viewing one
-  useEffect(() => {
-    if (isHydrating) return;
-
-    const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
-    console.log(
-      `🧬 [LegionCode] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`,
-    );
-
-    if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
-      console.log(`🧬 [LegionCode] Restoring last viewed file: ${savedPath}`);
-      handleFileClick(savedPath);
-    }
-  }, [
-    isHydrating,
-    isViewingContent,
-    selectedFile,
-    selectedDiff,
-    handleFileClick,
-  ]);
 
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>

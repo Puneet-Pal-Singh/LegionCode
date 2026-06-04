@@ -11,6 +11,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef,
 } from "react";
 import * as GitHubService from "../services/GitHubService";
 import type { GitCommitIdentityState } from "@repo/shared-types";
@@ -39,8 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const checkSessionInFlightRef = useRef(false);
 
   const checkSession = useCallback(async () => {
+    if (checkSessionInFlightRef.current) {
+      return;
+    }
+    checkSessionInFlightRef.current = true;
     try {
       setIsLoading(true);
       const session = await GitHubService.getSession();
@@ -52,6 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(false);
       setUser(null);
     } finally {
+      checkSessionInFlightRef.current = false;
       setIsLoading(false);
     }
   }, []);

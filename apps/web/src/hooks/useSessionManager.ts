@@ -91,7 +91,10 @@ function findNextVisibleSession(
 }
 
 function isMissingServerSessionArchive(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("404");
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return /failed:\s*404\b/.test(error.message);
 }
 
 export function useSessionManager(options: UseSessionManagerOptions = {}) {

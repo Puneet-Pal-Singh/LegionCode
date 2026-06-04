@@ -1,6 +1,8 @@
 import path from "node:path";
 
 const RUN_ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
+const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
+const WINDOWS_UNC_PATH_REGEX = /^[\\/]{2}[^\\/]/;
 
 export function normalizeRunId(input: string | undefined): string {
   const runId = input?.trim() || "default";
@@ -18,12 +20,8 @@ export function resolveWorkspacePath(
   workspaceRoot: string,
   inputPath: string,
 ): string {
-  if (containsIllegalPathChars(inputPath)) {
-    throw new Error("Invalid path: contains illegal characters");
-  }
-  if (path.posix.isAbsolute(inputPath)) {
-    throw new Error("Invalid path: absolute paths are not allowed");
-  }
+  assertSafeRelativePath(inputPath, "path");
+  assertNotWindowsAbsolute(inputPath, "path");
 
   const normalizedPath = path.posix.normalize(inputPath);
   if (normalizedPath === ".." || normalizedPath.startsWith("../")) {
@@ -45,12 +43,8 @@ export function validateRepoRelativePath(inputPath: string): string {
   if (trimmed === ".") {
     return trimmed;
   }
-  if (containsIllegalPathChars(trimmed)) {
-    throw new Error("Invalid file path: contains illegal characters");
-  }
-  if (path.posix.isAbsolute(trimmed)) {
-    throw new Error("Invalid file path: absolute paths are not allowed");
-  }
+  assertSafeRelativePath(trimmed, "file path");
+  assertNotWindowsAbsolute(trimmed, "file path");
 
   const normalized = path.posix.normalize(trimmed);
   if (normalized === ".." || normalized.startsWith("../")) {
@@ -59,13 +53,39 @@ export function validateRepoRelativePath(inputPath: string): string {
   return normalized;
 }
 
-function isWithinWorkspace(workspaceRoot: string, resolvedPath: string): boolean {
+function isWithinWorkspace(
+  workspaceRoot: string,
+  resolvedPath: string,
+): boolean {
   const normalizedRoot = workspaceRoot.endsWith("/")
     ? workspaceRoot
     : `${workspaceRoot}/`;
-  return resolvedPath === workspaceRoot || resolvedPath.startsWith(normalizedRoot);
+  return (
+    resolvedPath === workspaceRoot || resolvedPath.startsWith(normalizedRoot)
+  );
 }
 
 function containsIllegalPathChars(inputPath: string): boolean {
   return /[\0\r\n]/.test(inputPath);
+}
+
+function assertSafeRelativePath(inputPath: string, label: string): void {
+  if (containsIllegalPathChars(inputPath)) {
+    throw new Error(`Invalid ${label}: contains illegal characters`);
+  }
+  if (path.posix.isAbsolute(inputPath)) {
+    throw new Error(`Invalid ${label}: absolute paths are not allowed`);
+  }
+}
+
+function assertNotWindowsAbsolute(inputPath: string, label: string): void {
+  if (
+    inputPath.includes("\\") ||
+    WINDOWS_ABSOLUTE_PATH_REGEX.test(inputPath) ||
+    WINDOWS_UNC_PATH_REGEX.test(inputPath)
+  ) {
+    throw new Error(
+      `Invalid ${label}: backslash and Windows absolute paths are not allowed`,
+    );
+  }
 }

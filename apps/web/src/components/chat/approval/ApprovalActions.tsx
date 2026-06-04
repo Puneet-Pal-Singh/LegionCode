@@ -1,8 +1,6 @@
 import { Check, ShieldCheck, X } from "lucide-react";
 import type { ApprovalDecisionKind } from "@repo/shared-types";
-import {
-  formatApprovalDecisionLabel,
-} from "./approvalDecisions";
+import { formatApprovalDecisionLabel } from "./approvalDecisions";
 import { approvalDecisionButtonClassName } from "./approvalStyles";
 
 interface ApprovalActionsProps {
@@ -18,7 +16,13 @@ export function ApprovalActions({
   isResolutionPending,
   onResolve,
 }: ApprovalActionsProps) {
-  const isDisabled = busyDecision !== null || isResolutionPending;
+  // The whole dock is single-flight: a click on any decision disables
+  // every decision while the parent coroutine is awaiting the network.
+  // The per-decision `busyDecision` is kept for styling continuity but
+  // is treated as a global "any decision in flight" signal here so two
+  // rapid clicks across different decisions cannot both fire.
+  const isSubmittingDecision = busyDecision !== null;
+  const isDisabled = isSubmittingDecision || isResolutionPending;
 
   return (
     <div className="flex flex-wrap gap-2">

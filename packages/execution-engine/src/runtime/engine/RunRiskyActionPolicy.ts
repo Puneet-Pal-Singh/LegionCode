@@ -63,6 +63,7 @@ export interface RiskyActionEvaluationInput {
   currentTurnIntent?: CurrentTurnIntent;
   hasMutationEvidence: boolean;
   allowResumeGitPush?: boolean;
+  ownerUserId?: string;
   approvalStore: PermissionApprovalStore;
 }
 
@@ -260,14 +261,12 @@ function classifyRiskAction(
   ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
-      title:
-        toolName.startsWith("github_")
-          ? "LegionCode wants to inspect GitHub metadata"
-          : "LegionCode wants to inspect repository state",
-      reason:
-        toolName.startsWith("github_")
-          ? "This is a read-only connector metadata action and is allowed under the current policy."
-          : "This is a read-only exploration action and is allowed under the current policy.",
+      title: toolName.startsWith("github_")
+        ? "LegionCode wants to inspect GitHub metadata"
+        : "LegionCode wants to inspect repository state",
+      reason: toolName.startsWith("github_")
+        ? "This is a read-only connector metadata action and is allowed under the current policy."
+        : "This is a read-only exploration action and is allowed under the current policy.",
       affectedPaths,
       actionFingerprint: buildActionFingerprint({
         category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
@@ -502,27 +501,30 @@ async function createApprovalAskResult(
     classified,
     input.toolName,
   );
-  const request = await input.approvalStore.setPendingRequest({
-    requestId: crypto.randomUUID(),
-    runId: input.runId,
-    sessionId: input.sessionId,
-    origin: input.origin,
-    category,
-    title: getApprovalTitle(category, classified),
-    reason: getApprovalReason(category, classified),
-    command: classified.command,
-    cwd: classified.cwd,
-    affectedPaths: classified.affectedPaths,
-    remoteTarget: classified.remoteTarget,
-    actionFingerprint: classified.actionFingerprint,
-    availableDecisions: buildAvailableDecisions(
+  const request = await input.approvalStore.setPendingRequest(
+    {
+      requestId: crypto.randomUUID(),
+      runId: input.runId,
+      sessionId: input.sessionId,
+      origin: input.origin,
       category,
-      Boolean(proposedPersistentRule),
-    ),
-    proposedPersistentRule: proposedPersistentRule ?? undefined,
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + APPROVAL_TTL_MS).toISOString(),
-  });
+      title: getApprovalTitle(category, classified),
+      reason: getApprovalReason(category, classified),
+      command: classified.command,
+      cwd: classified.cwd,
+      affectedPaths: classified.affectedPaths,
+      remoteTarget: classified.remoteTarget,
+      actionFingerprint: classified.actionFingerprint,
+      availableDecisions: buildAvailableDecisions(
+        category,
+        Boolean(proposedPersistentRule),
+      ),
+      proposedPersistentRule: proposedPersistentRule ?? undefined,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + APPROVAL_TTL_MS).toISOString(),
+    },
+    input.ownerUserId,
+  );
   return { kind: "ask", request };
 }
 

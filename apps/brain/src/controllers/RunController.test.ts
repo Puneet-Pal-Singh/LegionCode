@@ -34,7 +34,10 @@ describe("RunController", () => {
     );
     runtimeHelpers.withRunRepository.mockImplementation((_env, callback) =>
       callback({
-        getRun: vi.fn().mockResolvedValue(null),
+        getRun: vi.fn().mockResolvedValue({
+          id: "123e4567-e89b-42d3-a456-426614174100",
+          status: "running",
+        }),
         listRunEvents: vi.fn().mockResolvedValue([]),
         listRunSteps: vi.fn().mockResolvedValue([]),
       }),
@@ -435,5 +438,161 @@ describe("RunController", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "No pending approval request found.",
     });
+  });
+
+  it("rejects cancel without an authenticated session", async () => {
+    authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
+    const env = {} as Env;
+
+    const response = await RunController.cancel(
+      new Request("https://brain.local/api/run/cancel", {
+        method: "POST",
+        body: JSON.stringify({ runId: "123e4567-e89b-42d3-a456-426614174100" }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects cancel when the run is not owned by the user", async () => {
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(null),
+        listRunEvents: vi.fn().mockResolvedValue([]),
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
+    );
+    const env = {} as Env;
+
+    const response = await RunController.cancel(
+      new Request("https://brain.local/api/run/cancel", {
+        method: "POST",
+        body: JSON.stringify({ runId: "victim-run-id" }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects approve without an authenticated session", async () => {
+    authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
+    const env = {} as Env;
+
+    const response = await RunController.approve(
+      new Request("https://brain.local/api/run/approval", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "123e4567-e89b-42d3-a456-426614174100",
+          requestId: "req-1",
+          decision: "allow_once",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects approve when the run is not owned by the user", async () => {
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(null),
+        listRunEvents: vi.fn().mockResolvedValue([]),
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
+    );
+    const env = {} as Env;
+
+    const response = await RunController.approve(
+      new Request("https://brain.local/api/run/approval", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "victim-run-id",
+          requestId: "req-1",
+          decision: "allow_once",
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects getEventsStream without an authenticated session", async () => {
+    authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
+    const env = {} as Env;
+
+    const response = await RunController.getEventsStream(
+      new Request(
+        "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
+        { headers: { Origin: "http://localhost:5173" } },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects getEventsStream when the run is not owned by the user", async () => {
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(null),
+        listRunEvents: vi.fn().mockResolvedValue([]),
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
+    );
+    const env = {} as Env;
+
+    const response = await RunController.getEventsStream(
+      new Request(
+        "https://brain.local/api/run/events/stream?runId=victim-run-id",
+        { headers: { Origin: "http://localhost:5173" } },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects getActivity without an authenticated session", async () => {
+    authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
+    const env = {} as Env;
+
+    const response = await RunController.getActivity(
+      new Request(
+        "https://brain.local/api/run/activity?runId=123e4567-e89b-42d3-a456-426614174100",
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("rejects getActivity when the run is not owned by the user", async () => {
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(null),
+        listRunEvents: vi.fn().mockResolvedValue([]),
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
+    );
+    const env = {} as Env;
+
+    const response = await RunController.getActivity(
+      new Request("https://brain.local/api/run/activity?runId=victim-run-id"),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
   });
 });

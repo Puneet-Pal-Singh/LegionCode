@@ -28,6 +28,7 @@ interface ApprovalState {
   crossRepo: Record<string, string>;
   destructiveExpiresAt?: string;
   pendingRequest?: ApprovalRequest;
+  pendingRequestOwnerUserId?: string;
   resolvedDecisions: Record<
     string,
     {
@@ -160,7 +161,10 @@ export class PermissionApprovalStore {
     });
   }
 
-  async setPendingRequest(request: ApprovalRequest): Promise<ApprovalRequest> {
+  async setPendingRequest(
+    request: ApprovalRequest,
+    ownerUserId?: string,
+  ): Promise<ApprovalRequest> {
     return await this.ctx.blockConcurrencyWhile(async () => {
       const state = await this.loadState();
       const now = Date.now();
@@ -173,6 +177,7 @@ export class PermissionApprovalStore {
             RISKY_ACTION_CATEGORIES.DANGEROUS_RETRY
         ) {
           next.pendingRequest = request;
+          next.pendingRequestOwnerUserId = ownerUserId;
           next.updatedAt = new Date(now).toISOString();
           await this.ctx.storage.put(this.key(), next);
           return request;
@@ -180,6 +185,7 @@ export class PermissionApprovalStore {
         return next.pendingRequest;
       }
       next.pendingRequest = request;
+      next.pendingRequestOwnerUserId = ownerUserId;
       next.updatedAt = new Date(now).toISOString();
       await this.ctx.storage.put(this.key(), next);
       return request;
@@ -198,6 +204,7 @@ export class PermissionApprovalStore {
       }
       const next = this.withPrunedApprovals(state, Date.now());
       delete next.pendingRequest;
+      delete next.pendingRequestOwnerUserId;
       await this.persistIfChanged(state, next);
       return true;
     });
@@ -211,7 +218,11 @@ export class PermissionApprovalStore {
       const state = await this.loadState();
       const now = Date.now();
       const next = this.withPrunedApprovals(state, now);
-      const pending = this.validatePendingDecision(next, decision);
+      const pending = this.validatePendingDecision(
+        next,
+        decision,
+        createdByUserId,
+      );
       const resolution = createPermissionDecisionResult(pending, decision.kind);
 
       this.applyDecisionOutcome(
@@ -350,6 +361,7 @@ export class PermissionApprovalStore {
         crossRepo: { ...(stored.crossRepo ?? {}) },
         destructiveExpiresAt: stored.destructiveExpiresAt,
         pendingRequest: stored.pendingRequest,
+        pendingRequestOwnerUserId: stored.pendingRequestOwnerUserId,
         resolvedDecisions: { ...(stored.resolvedDecisions ?? {}) },
         runAllowances: { ...(stored.runAllowances ?? {}) },
         persistentRules: [...(stored.persistentRules ?? [])],
@@ -376,6 +388,7 @@ export class PermissionApprovalStore {
       updatedAt: state.updatedAt,
       destructiveExpiresAt: state.destructiveExpiresAt,
       pendingRequest: state.pendingRequest,
+      pendingRequestOwnerUserId: state.pendingRequestOwnerUserId,
       resolvedDecisions: {},
       runAllowances: cloneRunAllowances(state.runAllowances ?? {}),
       persistentRules: [...(state.persistentRules ?? [])],
@@ -447,6 +460,7 @@ export class PermissionApprovalStore {
   private validatePendingDecision(
     state: ApprovalState,
     decision: ApprovalDecision,
+    createdByUserId: string | undefined,
   ): ApprovalRequest {
     const pending = state.pendingRequest;
     if (!pending) {
@@ -457,6 +471,12 @@ export class PermissionApprovalStore {
     }
     if (!pending.availableDecisions.includes(decision.kind)) {
       throw new Error("Decision kind is not allowed for this request.");
+    }
+    const ownerUserId = state.pendingRequestOwnerUserId;
+    if (ownerUserId && createdByUserId && ownerUserId !== createdByUserId) {
+      throw new Error(
+        "Approval request owner does not match the resolving user.",
+      );
     }
     return pending;
   }

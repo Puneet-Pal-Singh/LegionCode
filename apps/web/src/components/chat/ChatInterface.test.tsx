@@ -1007,7 +1007,7 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getAllByText("Approval required")).toHaveLength(1);
+    expect(screen.getAllByText("Pending approval")).toHaveLength(1);
     expect(
       screen.getByText("LegionCode wants to commit repository changes"),
     ).toBeInTheDocument();

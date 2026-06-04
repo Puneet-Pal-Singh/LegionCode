@@ -252,9 +252,13 @@ export function ChatInterface({
   const [dismissedApprovalRequestId, setDismissedApprovalRequestId] = useState<
     string | null
   >(null);
+  const [dismissedApprovalCreatedAt, setDismissedApprovalCreatedAt] = useState<
+    string | null
+  >(null);
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const lastReviewDispatchIdsRef = useRef<string[]>([]);
+  const isSubmittingApprovalDecisionRef = useRef(false);
   const pendingChangedFilesRef = useRef<FileStatus[]>([]);
   const turnBaselineFilesRef = useRef<FileStatus[]>([]);
   const lastSettledFilesRef = useRef<FileStatus[]>([]);
@@ -729,10 +733,14 @@ export function ChatInterface({
 
   const resolveApprovalDecision = useCallback(
     async (decision: ApprovalDecisionKind) => {
+      if (isSubmittingApprovalDecisionRef.current) {
+        return;
+      }
       const pending = summary?.pendingApproval ?? pendingApprovalFromEvents;
       if (!pending || pending.requestId === dismissedApprovalRequestId) {
         return;
       }
+      isSubmittingApprovalDecisionRef.current = true;
       setApprovalBusyDecision(decision);
       setApprovalError(null);
       setApprovalNotice(null);
@@ -766,6 +774,7 @@ export function ChatInterface({
                   isNoPendingApprovalError(retryMessage);
                 if (isRetryStaleApproval) {
                   setDismissedApprovalRequestId(latestPending.requestId);
+                  setDismissedApprovalCreatedAt(latestPending.createdAt);
                   setApprovalNotice({
                     kind: "stale",
                     requestId: latestPending.requestId,
@@ -787,6 +796,7 @@ export function ChatInterface({
             }
 
             setDismissedApprovalRequestId(pending.requestId);
+            setDismissedApprovalCreatedAt(pending.createdAt);
             setApprovalNotice({
               kind: "stale",
               requestId: pending.requestId,
@@ -808,6 +818,7 @@ export function ChatInterface({
             : "Failed to resolve approval request.",
         );
       } finally {
+        isSubmittingApprovalDecisionRef.current = false;
         setApprovalBusyDecision(null);
       }
     },
@@ -863,16 +874,26 @@ export function ChatInterface({
     if (!pendingApprovalCandidate) {
       return null;
     }
-    if (pendingApprovalCandidate.requestId === dismissedApprovalRequestId) {
+    if (
+      pendingApprovalCandidate.requestId === dismissedApprovalRequestId &&
+      pendingApprovalCandidate.createdAt === dismissedApprovalCreatedAt
+    ) {
       return null;
     }
     return pendingApprovalCandidate;
-  }, [dismissedApprovalRequestId, pendingApprovalCandidate]);
+  }, [
+    dismissedApprovalCreatedAt,
+    dismissedApprovalRequestId,
+    pendingApprovalCandidate,
+  ]);
 
   useEffect(() => {
     if (!pendingApprovalCandidate) {
       if (dismissedApprovalRequestId !== null) {
         setDismissedApprovalRequestId(null);
+      }
+      if (dismissedApprovalCreatedAt !== null) {
+        setDismissedApprovalCreatedAt(null);
       }
       if (approvalNotice !== null) {
         setApprovalNotice(null);
@@ -881,9 +902,11 @@ export function ChatInterface({
     }
     if (
       dismissedApprovalRequestId &&
-      pendingApprovalCandidate.requestId !== dismissedApprovalRequestId
+      (pendingApprovalCandidate.requestId !== dismissedApprovalRequestId ||
+        pendingApprovalCandidate.createdAt !== dismissedApprovalCreatedAt)
     ) {
       setDismissedApprovalRequestId(null);
+      setDismissedApprovalCreatedAt(null);
       setApprovalError(null);
     }
     if (
@@ -892,7 +915,12 @@ export function ChatInterface({
     ) {
       setApprovalNotice(null);
     }
-  }, [approvalNotice, dismissedApprovalRequestId, pendingApprovalCandidate]);
+  }, [
+    approvalNotice,
+    dismissedApprovalCreatedAt,
+    dismissedApprovalRequestId,
+    pendingApprovalCandidate,
+  ]);
 
   useEffect(() => {
     if (!approvalNotice) {
@@ -973,11 +1001,7 @@ export function ChatInterface({
       return terminalChangedFiles;
     }
     return hasAssistantChangedFileSummary ? [] : terminalChangedFiles;
-  }, [
-    hasAssistantChangedFileSummary,
-    terminalChangedFiles,
-    terminalViewModel,
-  ]);
+  }, [hasAssistantChangedFileSummary, terminalChangedFiles, terminalViewModel]);
   const hasUserMessage = useMemo(
     () =>
       messages.some(

@@ -94,7 +94,12 @@
 	 * - INTERNAL_RUNTIME_EVENT_SECRET: secret shared with Brain for runtime event HMAC signing
 	 *
 	 * Production example (LegionCode launch):
-	 * - CORS_ALLOWED_ORIGINS=https://legioncode.dev,https://staging.legioncode.dev
+	 * - CORS_ALLOWED_ORIGINS=https://agents.legioncode.dev,https://legioncode.dev,https://staging.legioncode.dev
+	 *
+	 * After the landing extraction (plan 018), the agents workspace is on its
+	 * own subdomain (agents.legioncode.dev). The landing app at
+	 * legioncode.dev is the public marketing surface. Add both to CORS so
+	 * preflight requests succeed from each surface.
 	 * 
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/

@@ -68,7 +68,7 @@ interface UseRunSummaryResult {
 
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
-const RUN_SUMMARY_POLL_INTERVAL_MS = 1_500;
+const RUN_SUMMARY_POLL_INTERVAL_MS = 5_000;
 
 export function useRunSummary(
   runId: string,
@@ -83,6 +83,7 @@ export function useRunSummary(
     timestamp: number;
     message: string;
   } | null>(null);
+  const summaryStatusRef = useRef<string | null>(null);
   const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
 
   useEffect(() => {
@@ -157,6 +158,10 @@ export function useRunSummary(
   }, [runId]);
 
   useEffect(() => {
+    summaryStatusRef.current = summary?.status ?? null;
+  }, [summary?.status]);
+
+  useEffect(() => {
     if (!runId) {
       return;
     }
@@ -206,13 +211,20 @@ export function useRunSummary(
       if (document.visibilityState !== "visible") {
         return;
       }
+      if (inFlightRef.current) {
+        return;
+      }
+      const currentStatus = summaryStatusRef.current;
+      if (currentStatus === "COMPLETED" || currentStatus === "CANCELLED") {
+        return;
+      }
       void fetchSummary();
     }, RUN_SUMMARY_POLL_INTERVAL_MS);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchSummary, runId, shouldPoll, summary?.status]);
+  }, [fetchSummary, runId, shouldPoll]);
 
   return { summary };
 }

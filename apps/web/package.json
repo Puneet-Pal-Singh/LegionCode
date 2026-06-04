@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5174 --strictPort",
     "build": "tsc -b && vite build",
     "build:deploy": "tsc -b && SHADOWBOX_REQUIRE_DEPLOY_ENDPOINTS=true vite build",
     "deploy:pages": "pnpm run build:deploy && wrangler pages deploy",

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   FileStatus,
   PromptArtifactReviewSource,
@@ -22,13 +22,21 @@ export function useReviewSourceState({
   sessionId,
   liveGitFiles,
 }: UseReviewSourceStateInput) {
-  const [requestedScope, setRequestedScope] = useState<ReviewScope | null>(null);
+  const [requestedScope, setRequestedScope] = useState<ReviewScope | null>(
+    null,
+  );
   const [openedArtifact, setOpenedArtifact] =
     useState<OpenedReviewArtifact | null>(null);
+
+  useEffect(() => {
+    setRequestedScope(null);
+    setOpenedArtifact(null);
+  }, [runId, sessionId]);
+
   const shouldLoadArtifactSource = Boolean(
     runId &&
-      requestedScope !== "git-changes" &&
-      (openedArtifact || liveGitFiles.length === 0),
+    requestedScope !== "git-changes" &&
+    (openedArtifact || liveGitFiles.length === 0),
   );
   const {
     source: promptArtifactSource,
@@ -52,10 +60,11 @@ export function useReviewSourceState({
     [liveGitFiles, openedArtifact, promptArtifactSource, requestedScope],
   );
   const selectedArtifactId =
-    reviewSource.kind === "prompt_artifact" ? reviewSource.artifactId : undefined;
+    reviewSource.kind === "prompt_artifact"
+      ? reviewSource.artifactId
+      : undefined;
   const artifactDiffState = useEditArtifactDiff(selectedArtifactId);
-  const reviewScope =
-    requestedScope ?? sourceKindToScope(reviewSource.kind);
+  const reviewScope = requestedScope ?? sourceKindToScope(reviewSource.kind);
   const reviewSourceLoading =
     shouldLoadArtifactSource &&
     (artifactSourceLoading || !artifactSourceResolved);
@@ -104,7 +113,9 @@ function useReviewSourceControls({
   const selectReviewScope = useCallback(
     (scope: ReviewScope) => {
       setRequestedScope(scope);
-      setOpenedArtifact(resolveOpenedArtifact(scope, reviewSource, promptArtifactSource));
+      setOpenedArtifact(
+        resolveOpenedArtifact(scope, reviewSource, promptArtifactSource),
+      );
     },
     [promptArtifactSource, reviewSource, setOpenedArtifact, setRequestedScope],
   );

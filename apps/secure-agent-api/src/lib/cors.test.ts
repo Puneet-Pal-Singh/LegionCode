@@ -17,7 +17,7 @@ describe("secure-agent-api cors policy", () => {
     expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
   });
 
-  it("denies non-allowlisted preflight origin", async () => {
+  it("silently blocks non-allowlisted preflight origin", async () => {
     const request = new Request("https://api.shadowbox.dev/tools", {
       method: "OPTIONS",
       headers: { Origin: "https://evil.example" },
@@ -28,9 +28,11 @@ describe("secure-agent-api cors policy", () => {
     });
 
     expect(response).not.toBeNull();
-    expect(response?.status).toBe(403);
-    const body = (await response?.json()) as { error: string };
-    expect(body.error).toContain("Origin not allowed");
+    expect(response?.status).toBe(204);
+    expect(response?.headers.get("Vary")).toBe("Origin");
+    expect(response?.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    const body = await response?.text();
+    expect(body).toBe("");
   });
 
   it("allows localhost only with explicit dev override", () => {

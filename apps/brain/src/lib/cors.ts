@@ -41,7 +41,7 @@ export function getCorsHeaders(
 
   const allowedOrigin = resolveAllowedOrigin(origin, request, env);
   if (!allowedOrigin) {
-    return { ...BASE_CORS_HEADERS };
+    return { Vary: "Origin" };
   }
 
   return {
@@ -61,13 +61,7 @@ export function handleOptions(
 
   const origin = request.headers.get("Origin");
   if (origin && !resolveAllowedOrigin(origin, request, env)) {
-    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
-      status: 403,
-      headers: {
-        ...BASE_CORS_HEADERS,
-        "Content-Type": "application/json",
-      },
-    });
+    return new Response(null, { status: 204, headers: { Vary: "Origin" } });
   }
 
   return new Response(null, {

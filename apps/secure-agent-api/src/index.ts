@@ -162,7 +162,10 @@ export interface Env {
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   RUNTIME_GIT_SHA?: string;
   LAUNCH_RATE_LIMITER?: DurableObjectNamespace;
-  LAUNCH_EMERGENCY_SHUTOFF_MODE?: "off" | "block_session_and_execute" | "block_all";
+  LAUNCH_EMERGENCY_SHUTOFF_MODE?:
+    | "off"
+    | "block_session_and_execute"
+    | "block_all";
   LAUNCH_RATE_LIMIT_REQUIRED?: "true" | "false";
   BRAIN?: Fetcher;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
@@ -280,25 +283,30 @@ export default {
           /^\/api\/chat\/history\/([^/]+)$/,
         );
         if (historyMatch) {
-          // CANONICAL: GET /api/chat/history/:runId and POST /api/chat/history/:runId
-          const runId = decodeURIComponent(historyMatch[1]!);
-
-          if (request.method === "GET") {
-            // Validate query parameters (cursor is optional, limit has defaults)
-            const cursor = url.searchParams.get("cursor") || undefined;
-            const limitStr = url.searchParams.get("limit") || "50";
-            const limitNum = parseInt(limitStr, 10);
-            const limit = Number.isNaN(limitNum)
-              ? 50
-              : Math.min(Math.max(1, limitNum), 100);
-
-            const historyResult = await stub.getHistory(runId, cursor, limit);
-            response = Response.json(historyResult);
-          } else if (request.method === "POST") {
-            // CANONICAL POST: Append message(s) to history (uses shared handler)
-            response = await handleChatAppend(request, stub, runId);
+          const gateResponse = enforceInternalServiceBinding(request, env);
+          if (gateResponse) {
+            response = gateResponse;
           } else {
-            response = new Response("Method Not Allowed", { status: 405 });
+            // CANONICAL: GET /api/chat/history/:runId and POST /api/chat/history/:runId
+            const runId = decodeURIComponent(historyMatch[1]!);
+
+            if (request.method === "GET") {
+              // Validate query parameters (cursor is optional, limit has defaults)
+              const cursor = url.searchParams.get("cursor") || undefined;
+              const limitStr = url.searchParams.get("limit") || "50";
+              const limitNum = parseInt(limitStr, 10);
+              const limit = Number.isNaN(limitNum)
+                ? 50
+                : Math.min(Math.max(1, limitNum), 100);
+
+              const historyResult = await stub.getHistory(runId, cursor, limit);
+              response = Response.json(historyResult);
+            } else if (request.method === "POST") {
+              // CANONICAL POST: Append message(s) to history (uses shared handler)
+              response = await handleChatAppend(request, stub, runId);
+            } else {
+              response = new Response("Method Not Allowed", { status: 405 });
+            }
           }
         } else if (url.pathname === "/chat") {
           // LEGACY (deprecated): Keep for compatibility window
@@ -306,26 +314,35 @@ export default {
           console.warn(
             "[secure-api] /chat endpoint is deprecated; use GET /api/chat/history/:runId instead",
           );
-          const queryValidation = validateQueryParams(
-            url,
-            ChatHistoryQuerySchema,
-          );
-          if (!queryValidation.valid) {
-            response = errorResponse(
-              queryValidation.error,
-              "VALIDATION_ERROR",
-              400,
-            );
+          const gateResponse = enforceInternalServiceBinding(request, env);
+          if (gateResponse) {
+            response = gateResponse;
           } else {
-            const { runId, cursor, limit } = queryValidation.data;
-
-            if (request.method === "GET") {
-              const historyResult = await stub.getHistory(runId, cursor, limit);
-              response = Response.json(historyResult);
-            } else if (request.method === "POST") {
-              response = await handleChatAppend(request, stub, runId);
+            const queryValidation = validateQueryParams(
+              url,
+              ChatHistoryQuerySchema,
+            );
+            if (!queryValidation.valid) {
+              response = errorResponse(
+                queryValidation.error,
+                "VALIDATION_ERROR",
+                400,
+              );
             } else {
-              response = new Response("Method Not Allowed", { status: 405 });
+              const { runId, cursor, limit } = queryValidation.data;
+
+              if (request.method === "GET") {
+                const historyResult = await stub.getHistory(
+                  runId,
+                  cursor,
+                  limit,
+                );
+                response = Response.json(historyResult);
+              } else if (request.method === "POST") {
+                response = await handleChatAppend(request, stub, runId);
+              } else {
+                response = new Response("Method Not Allowed", { status: 405 });
+              }
             }
           }
         } else if (url.pathname === "/artifact") {
@@ -379,4 +396,47 @@ function createRuntimeEventClient(env: Env): InternalRuntimeEventClient {
     brain: env.BRAIN,
     secret,
   });
+}
+
+/**
+ * Gate internal-only routes on a shared secret header. The brain sets this
+ * header on service-binding calls. Any public caller without the secret is
+ * rejected.
+ */
+const INTERNAL_RUNTIME_SECRET_HEADER = "X-Internal-Runtime-Secret";
+
+function isInternalServiceBindingRequest(
+  request: Request,
+  env: Pick<Env, "INTERNAL_RUNTIME_EVENT_SECRET">,
+): boolean {
+  const expected = env.INTERNAL_RUNTIME_EVENT_SECRET?.trim();
+  if (!expected) {
+    return false;
+  }
+  const provided = request.headers.get(INTERNAL_RUNTIME_SECRET_HEADER)?.trim();
+  return Boolean(provided) && provided === expected;
+}
+
+function unauthorizedResponse(request: Request, env: Env): Response {
+  return new Response(
+    JSON.stringify({ error: "Unauthorized", code: "UNAUTHORIZED" }),
+    {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        ...getCorsHeaders(request, env),
+        ...getSecureRuntimeHeaders(env),
+      },
+    },
+  );
+}
+
+function enforceInternalServiceBinding(
+  request: Request,
+  env: Env,
+): Response | null {
+  if (isInternalServiceBindingRequest(request, env)) {
+    return null;
+  }
+  return unauthorizedResponse(request, env);
 }

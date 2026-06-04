@@ -282,6 +282,7 @@ async function executeDirectToolCall(input: {
     currentTurnIntent: input.currentTurnIntent,
     hasMutationEvidence,
     allowResumeGitPush: input.allowResumeGitPush,
+    ownerUserId: input.run.metadata.actorUserId,
     approvalStore: input.permissionApprovalStore,
   });
   if (permissionResult.kind === "ask") {
