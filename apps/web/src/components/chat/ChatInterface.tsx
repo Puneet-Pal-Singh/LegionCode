@@ -965,6 +965,19 @@ export function ChatInterface({
       }),
     [chatEntries, events, runId, summary, terminalChangedFiles.length],
   );
+  const terminalReviewFiles = useMemo(() => {
+    if (!terminalViewModel) {
+      return [];
+    }
+    if (terminalViewModel.artifactId) {
+      return terminalChangedFiles;
+    }
+    return hasAssistantChangedFileSummary ? [] : terminalChangedFiles;
+  }, [
+    hasAssistantChangedFileSummary,
+    terminalChangedFiles,
+    terminalViewModel,
+  ]);
   const hasUserMessage = useMemo(
     () =>
       messages.some(
@@ -1187,9 +1200,7 @@ export function ChatInterface({
                 }}
                 changedFilesSummary={resolveTerminalChangedFilesSummary({
                   terminalViewModel,
-                  files: hasAssistantChangedFileSummary
-                    ? []
-                    : terminalChangedFiles,
+                  files: terminalReviewFiles,
                   loadArtifactFileDiff: loadArtifactChangedFileDiff,
                   loadFallbackFileDiff: (file) =>
                     loadChangedFileDiff(terminalViewModel.id, file),
