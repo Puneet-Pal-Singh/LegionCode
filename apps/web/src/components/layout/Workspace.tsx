@@ -310,6 +310,19 @@ export function Workspace({
     }
 
     if (isApprovalWaitingRun) {
+      const approvalWaitingStatus = "APPROVAL_WAITING";
+      const lastApplied = lastAppliedCanonicalStatusRef.current;
+      if (
+        lastApplied &&
+        lastApplied.runId === activeRunId &&
+        lastApplied.status === approvalWaitingStatus
+      ) {
+        return;
+      }
+      lastAppliedCanonicalStatusRef.current = {
+        runId: activeRunId,
+        status: approvalWaitingStatus,
+      };
       onSessionStatusChange?.("waiting_for_approval");
       void refetchGitStatus(true);
       return;

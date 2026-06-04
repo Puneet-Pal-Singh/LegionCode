@@ -665,7 +665,7 @@ describe("Workspace", () => {
     };
     mockChatState.isLoading = false;
 
-    render(
+    const { rerender } = render(
       <Workspace
         sessionId="session-123"
         runId="run-123"
@@ -688,6 +688,24 @@ describe("Workspace", () => {
         "waiting_for_approval",
       );
     });
+    expect(mockRefetchGitStatus).toHaveBeenCalledTimes(1);
+
+    onSessionStatusChange.mockClear();
+    mockRefetchGitStatus.mockClear();
+
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        isSessionRunning
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onSessionStatusChange).not.toHaveBeenCalled();
+    expect(mockRefetchGitStatus).not.toHaveBeenCalled();
   });
 
   it("clears loading when a stale active summary follows a finished assistant response", () => {
