@@ -51,11 +51,7 @@ import {
   parseRunSummaryStatusSnapshot,
   type RunSummaryStatusSnapshot,
 } from "./lib/run-summary-status-snapshot";
-import { CloudReservedPage, LandingPage } from "./pages/LandingPage";
-import {
-  buildAgentsRedirectUrl,
-  resolveWebRoute,
-} from "./lib/web-route";
+import { buildAgentsRedirectUrl, resolveWebRoute } from "./lib/web-route";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -162,18 +158,13 @@ function RedirectToAgents({ target }: { target: string }) {
 function App() {
   const route = resolveWebRoute(window.location.pathname);
 
-  if (route.kind === "landing") {
-    return <LandingPage />;
-  }
-
-  if (route.kind === "cloud") {
-    return <CloudReservedPage />;
-  }
-
   if (route.kind === "redirect") {
     return (
       <RedirectToAgents
-        target={buildAgentsRedirectUrl(window.location.search, window.location.hash)}
+        target={buildAgentsRedirectUrl(
+          window.location.search,
+          window.location.hash,
+        )}
       />
     );
   }

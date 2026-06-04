@@ -308,12 +308,9 @@ function ReviewPanel() {
           Changed files
         </p>
         <div className="mt-3 space-y-2">
-          <ChangedFile path="apps/web/src/App.tsx" status="+42" />
-          <ChangedFile
-            path="apps/web/src/pages/LandingPage.tsx"
-            status="+280"
-          />
-          <ChangedFile path="apps/web/public/_redirects" status="+2" />
+          <ChangedFile path="apps/landing/src/App.tsx" status="+42" />
+          <ChangedFile path="apps/landing/src/LandingPage.tsx" status="+280" />
+          <ChangedFile path="apps/landing/public/_redirects" status="+4" />
         </div>
         <div className="mt-4 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
           <p className="text-xs font-semibold text-amber-200">

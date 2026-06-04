@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shadowbox-landing",
+  "compatibility_date": "2025-05-06",
+
+  // Cloudflare Pages deploy target for the public landing app.
+  "pages_build_output_dir": "./dist",
+}
