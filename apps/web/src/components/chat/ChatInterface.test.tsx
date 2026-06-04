@@ -30,6 +30,36 @@ const mockGetGitDiff = vi.hoisted(() =>
     };
   }),
 );
+const mockGetEditArtifactDiff = vi.hoisted(() =>
+  vi.fn(async (input?: unknown) => {
+    void input;
+    return {
+      diff: {
+        oldPath: "src/components/Hero.tsx",
+        newPath: "src/components/Hero.tsx",
+        hunks: [
+          {
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 1,
+            header: "@@ -1 +1 @@",
+            lines: [
+              {
+                type: "added" as const,
+                content: "+ saved artifact change",
+                newLineNumber: 1,
+              },
+            ],
+          },
+        ],
+        isBinary: false,
+        isNewFile: false,
+        isDeleted: false,
+      },
+    };
+  }),
+);
 
 vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
@@ -87,7 +117,7 @@ vi.mock("../../lib/git-client.js", () => ({
 }));
 
 vi.mock("../../lib/edit-artifacts-client.js", () => ({
-  getEditArtifactDiff: vi.fn(),
+  getEditArtifactDiff: (input: unknown) => mockGetEditArtifactDiff(input),
   getEditArtifactReviewSourceByMessage: vi.fn(async () => null),
 }));
 
@@ -133,6 +163,7 @@ describe("ChatInterface", () => {
     mockRefreshSession.mockClear();
     mockGitReviewState.status = null;
     mockGetGitDiff.mockClear();
+    mockGetEditArtifactDiff.mockClear();
     mockOpenPromptArtifactReview.mockReset();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
@@ -441,6 +472,20 @@ describe("ChatInterface", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("src/unused.ts")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /expand changes for src\/components\/hero\.tsx/i,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mockGetEditArtifactDiff).toHaveBeenCalledWith({
+        artifactId: "artifact-terminal",
+        path: "src/components/Hero.tsx",
+      });
+    });
+    expect(mockGetGitDiff).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /review/i }));
 
