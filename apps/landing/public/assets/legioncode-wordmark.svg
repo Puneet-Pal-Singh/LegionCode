@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 120" role="img" aria-labelledby="title">
+  <title id="title">LegionCode wordmark</title>
+  <rect width="660" height="120" fill="#000000"/>
+  <g fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M56 38 26 60l30 22"/>
+    <path d="M104 38 134 60 104 82"/>
+    <path d="M80 34v52"/>
+  </g>
+  <text
+    x="178"
+    y="78"
+    fill="#ffffff"
+    font-family="Inter, Arial, Helvetica, sans-serif"
+    font-size="52"
+    font-weight="500"
+    letter-spacing="0"
+  >LegionCode</text>
+</svg>
