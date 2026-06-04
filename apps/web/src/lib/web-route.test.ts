@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { buildAgentsRedirectUrl, resolveWebRoute } from "./web-route";
 
 describe("resolveWebRoute", () => {
-  it("serves the landing page at the root", () => {
-    expect(resolveWebRoute("/")).toEqual({ kind: "landing" });
+  it("serves the agent app at the root for direct app loads", () => {
+    expect(resolveWebRoute("/")).toEqual({ kind: "agents" });
   });
 
   it("serves the agent app under /agents", () => {
@@ -23,8 +23,9 @@ describe("resolveWebRoute", () => {
     });
   });
 
-  it("reserves /cloud for the future cloud agents page", () => {
-    expect(resolveWebRoute("/cloud")).toEqual({ kind: "cloud" });
+  it("keeps non-landing routes inside the agent app shell", () => {
+    expect(resolveWebRoute("/cloud")).toEqual({ kind: "agents" });
+    expect(resolveWebRoute("/run/demo")).toEqual({ kind: "agents" });
   });
 
   it("preserves search and hash when building the agents redirect", () => {
