@@ -743,7 +743,10 @@ export function ChatInterface({
         return;
       }
       const pending = summary?.pendingApproval ?? pendingApprovalFromEvents;
-      if (!pending || pending.requestId === dismissedApprovalRequestId) {
+      const isDismissedApproval =
+        pending?.requestId === dismissedApprovalRequestId &&
+        pending.createdAt === dismissedApprovalCreatedAt;
+      if (!pending || isDismissedApproval) {
         return;
       }
       isSubmittingApprovalDecisionRef.current = true;
@@ -830,6 +833,7 @@ export function ChatInterface({
     },
     [
       dismissedApprovalRequestId,
+      dismissedApprovalCreatedAt,
       pendingApprovalFromEvents,
       runId,
       summary?.pendingApproval,
@@ -993,7 +997,7 @@ export function ChatInterface({
             ? terminalChangedFiles.length
             : undefined,
       }),
-    [chatEntries, events, runId, summary, terminalChangedFiles.length],
+    [conversationTurns, events, runId, summary, terminalChangedFiles.length],
   );
   const terminalReviewFiles = useMemo(() => {
     if (!terminalViewModel) {
