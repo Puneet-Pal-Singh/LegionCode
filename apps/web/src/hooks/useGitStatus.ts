@@ -30,11 +30,12 @@ const STATUS_CACHE_TTL_MS = 10_000;
 export function useGitStatus(
   explicitRunId?: string,
   explicitSessionId?: string,
+  enabled = true,
 ): UseGitStatusResult {
   const { runId: contextRunId, sessionId: contextSessionId } =
     useOptionalRunContext();
-  const runId = explicitRunId ?? contextRunId;
-  const sessionId = explicitSessionId ?? contextSessionId;
+  const runId = enabled ? (explicitRunId ?? contextRunId) : null;
+  const sessionId = enabled ? (explicitSessionId ?? contextSessionId) : null;
   const cacheKey = runId && sessionId ? `${sessionId}:${runId}` : null;
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
   const [gitAvailable, setGitAvailable] = useState(true);
@@ -188,7 +189,7 @@ export function useGitStatus(
 
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        void fetchStatus(true);
+        void fetchStatus();
       }, 800);
     };
 

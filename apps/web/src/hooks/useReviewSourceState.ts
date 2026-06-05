@@ -15,12 +15,14 @@ interface UseReviewSourceStateInput {
   runId?: string;
   sessionId?: string;
   liveGitFiles: FileStatus[];
+  enabled?: boolean;
 }
 
 export function useReviewSourceState({
   runId,
   sessionId,
   liveGitFiles,
+  enabled = true,
 }: UseReviewSourceStateInput) {
   const [requestedScope, setRequestedScope] = useState<ReviewScope | null>(
     null,
@@ -34,6 +36,7 @@ export function useReviewSourceState({
   }, [runId, sessionId]);
 
   const shouldLoadArtifactSource = Boolean(
+    enabled &&
     runId &&
     requestedScope !== "git-changes" &&
     (openedArtifact || liveGitFiles.length === 0),

@@ -3,6 +3,14 @@ import { act, render, waitFor } from "@testing-library/react";
 import { Workspace } from "./Workspace";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
+const mockUseGitStatusInputs = vi.hoisted(
+  () =>
+    [] as Array<{
+      runId?: string;
+      sessionId?: string;
+      enabled?: boolean;
+    }>,
+);
 const mockBootstrapGitWorkspace = vi.hoisted(() => vi.fn());
 const mockChatState = vi.hoisted(() => ({
   messages: [] as Array<{ role: "user" | "assistant"; content: string }>,
@@ -72,11 +80,15 @@ vi.mock("../../hooks/useChat", () => ({
 }));
 
 vi.mock("../../hooks/useGitStatus", () => ({
-  useGitStatus: () => ({
-    status: mockGitStatusState.status,
-    gitAvailable: mockGitStatusState.status.gitAvailable,
-    refetch: mockRefetchGitStatus,
-  }),
+  useGitStatus: (runId?: string, sessionId?: string, enabled?: boolean) => {
+    mockUseGitStatusInputs.push({ runId, sessionId, enabled });
+    return {
+      status: enabled === false ? null : mockGitStatusState.status,
+      gitAvailable:
+        enabled === false ? undefined : mockGitStatusState.status.gitAvailable,
+      refetch: mockRefetchGitStatus,
+    };
+  },
 }));
 
 vi.mock("../../hooks/useRunSummary", () => ({
@@ -214,6 +226,7 @@ describe("Workspace", () => {
   beforeEach(() => {
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
+    mockUseGitStatusInputs.length = 0;
     mockChatState.stop.mockClear();
     Object.values(mockWorkspaceStateSetters).forEach((setter) =>
       setter.mockClear(),
@@ -573,6 +586,26 @@ describe("Workspace", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockBootstrapGitWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch git status while a run is actively loading", () => {
+    mockChatState.isLoading = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    const latestGitStatusInput =
+      mockUseGitStatusInputs[mockUseGitStatusInputs.length - 1];
+    expect(latestGitStatusInput).toEqual({
+      runId: "run-123",
+      sessionId: "session-123",
+      enabled: false,
+    });
   });
 
   it("does not trigger workspace bootstrap when repository context mismatches active workspace", async () => {

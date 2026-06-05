@@ -129,11 +129,6 @@ export function Workspace({
     allowPendingQueryRestore,
   );
   const { summary: runSummary } = useRunSummary(activeRunId, true);
-  const {
-    status,
-    gitAvailable,
-    refetch: refetchGitStatus,
-  } = useGitStatus(activeRunId, sessionId);
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
   const canonicalRunStatus = runSummaryMatchesActiveRun
     ? normalizeRunStatus(runSummary.status)
@@ -174,6 +169,11 @@ export function Workspace({
     isRunLoading,
     canStopRun,
   } = runUiState;
+  const {
+    status,
+    gitAvailable,
+    refetch: refetchGitStatus,
+  } = useGitStatus(activeRunId, sessionId, !isRunLoading);
   const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";

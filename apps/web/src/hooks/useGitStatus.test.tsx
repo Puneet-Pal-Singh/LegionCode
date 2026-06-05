@@ -7,6 +7,7 @@ import {
   observeRuntimeBootId,
   subscribeRuntimeBootChanges,
 } from "../lib/runtime-boot-monitor";
+import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events";
 
 vi.mock("./useRunContext", () => ({
   useOptionalRunContext: () => ({
@@ -29,6 +30,7 @@ describe("useGitStatus", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     _resetGitStatusStateForTests();
     _resetRuntimeBootMonitorForTests();
   });
@@ -108,6 +110,32 @@ describe("useGitStatus", () => {
 
     expect(getGitStatusMock).toHaveBeenCalledTimes(2);
     expect(result.result.current.gitAvailable).toBe(true);
+  });
+
+  it("keeps run summary refreshes inside git status retry backoff", async () => {
+    const getGitStatusMock = vi.mocked(getGitStatus);
+    getGitStatusMock.mockRejectedValue(new Error("temporary git failure"));
+
+    renderHook(() => useGitStatus("run-1", "session-1"));
+
+    await waitFor(() => {
+      expect(getGitStatusMock).toHaveBeenCalledTimes(1);
+    });
+
+    vi.useFakeTimers({ now: Date.now() });
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-1" },
+        }),
+      );
+      vi.advanceTimersByTime(900);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getGitStatusMock).toHaveBeenCalledTimes(1);
   });
 
   it("coalesces forced refetches while a status request is already in flight", async () => {
