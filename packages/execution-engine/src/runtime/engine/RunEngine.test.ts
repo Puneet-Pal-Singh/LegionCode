@@ -26,9 +26,9 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("answers greeting-only prompts without model or workspace execution", async () => {
+  it("answers ordinary chat with the model without workspace execution", async () => {
     const generateText = vi.fn(async () => ({
-      text: "ok",
+      text: "I can help you plan the next task.",
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -45,7 +45,7 @@ describe("RunEngine", () => {
     const llmGateway: ILLMGateway = {
       generateText,
       generateStructured: vi.fn(async () => {
-        throw new Error("structured turn classification should be inactive");
+        throw new Error("structured planning should be inactive");
       }),
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
@@ -72,14 +72,14 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Hi. What would you like to work on?");
-    expect(generateText).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("I can help you plan the next task.");
+    expect(generateText).toHaveBeenCalledTimes(1);
     expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
   });
 
-  it("does not bootstrap a selected repository for obvious chat prompts", async () => {
+  it("does not bootstrap a selected repository for ordinary chat prompts", async () => {
     const generateText = vi.fn(async () => ({
-      text: "unused",
+      text: "I am here and ready to help.",
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -91,7 +91,7 @@ describe("RunEngine", () => {
     const llmGateway: ILLMGateway = {
       generateText,
       generateStructured: vi.fn(async () => {
-        throw new Error("structured turn classification should be inactive");
+        throw new Error("structured planning should be inactive");
       }),
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
@@ -110,7 +110,7 @@ describe("RunEngine", () => {
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "yoyo",
+        prompt: "what should we do today?",
         sessionId: "session-1",
         repositoryContext: {
           owner: "sourcegraph",
@@ -118,13 +118,13 @@ describe("RunEngine", () => {
           branch: "main",
         },
       },
-      [{ role: "user", content: "yoyo" }],
+      [{ role: "user", content: "what should we do today?" }],
       {},
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Yo. What would you like to work on?");
-    expect(generateText).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("I am here and ready to help.");
+    expect(generateText).toHaveBeenCalledTimes(1);
     expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
   });
 
@@ -1993,9 +1993,9 @@ describe("RunEngine", () => {
     });
   });
 
-  it("answers build-mode greetings without invoking model turn classification", async () => {
+  it("answers build-mode chat without invoking structured planning", async () => {
     const generateText = vi.fn(async () => ({
-      text: "Longer budget applied.",
+      text: "I can help from here.",
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -2037,8 +2037,8 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Hi. What would you like to work on?");
-    expect(generateText).not.toHaveBeenCalled();
+    expect(await response.text()).toContain("I can help from here.");
+    expect(generateText).toHaveBeenCalledTimes(1);
     expect(generateStructured).not.toHaveBeenCalled();
   });
 

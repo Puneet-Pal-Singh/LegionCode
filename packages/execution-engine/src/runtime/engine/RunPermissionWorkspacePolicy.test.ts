@@ -3,16 +3,16 @@ import { evaluateWorkspaceBootstrap } from "./RunPermissionWorkspacePolicy.js";
 import type { WorkspaceBootstrapper } from "../types.js";
 
 describe("RunPermissionWorkspacePolicy", () => {
-  it("skips workspace bootstrap for obvious conversational prompts", async () => {
+  it("skips workspace bootstrap for prompts without workspace intent", async () => {
     const workspaceBootstrapper: WorkspaceBootstrapper = {
       bootstrap: async () => {
-        throw new Error("bootstrap should not run for simple chat");
+        throw new Error("bootstrap should not run without workspace intent");
       },
     };
 
     const evaluation = await evaluateWorkspaceBootstrap(
       "run-chat",
-      "yoyo",
+      "what should we do today?",
       {
         owner: "sourcegraph",
         repo: "shadowbox",
