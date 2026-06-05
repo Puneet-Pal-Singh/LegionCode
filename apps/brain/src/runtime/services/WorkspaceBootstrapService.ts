@@ -540,7 +540,7 @@ function buildBootstrapQueueKey(request: WorkspaceBootstrapRequest): string {
   const context = request.repositoryContext;
   const owner = context.owner?.trim() ?? "";
   const repo = context.repo?.trim() ?? "";
-  const branch = context.branch?.trim() ?? "";
+  const branch = context.branch?.trim() || "main";
   const baseUrl = context.baseUrl?.trim() ?? "";
   return [runId, owner, repo, branch, baseUrl].join(":");
 }

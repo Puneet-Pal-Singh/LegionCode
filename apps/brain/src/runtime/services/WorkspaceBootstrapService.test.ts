@@ -521,6 +521,60 @@ describe("WorkspaceBootstrapService", () => {
     });
   });
 
+  it("serializes implicit-main and explicit-main bootstrap calls together", async () => {
+    let releaseStatusCheck: (() => void) | null = null;
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatusCheck = resolve;
+    });
+    const execute = vi.fn(
+      async (
+        _plugin: string,
+        action: string,
+        _payload: Record<string, unknown>,
+      ) => {
+        if (action === "git_status") {
+          await statusGate;
+          return {
+            success: true,
+            output: CLEAN_GIT_STATUS_OUTPUT,
+          };
+        }
+        return { success: true };
+      },
+    );
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const explicitMain = service.bootstrap({
+      runId: "run-implicit-main",
+      mode: "mutation",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+    const implicitMain = service.bootstrap({
+      runId: "run-implicit-main",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+      },
+    });
+
+    await flushBootstrapQueue();
+    expect(execute).toHaveBeenCalledTimes(1);
+    releaseStatusCheck?.();
+
+    const [explicitResult, implicitResult] = await Promise.all([
+      explicitMain,
+      implicitMain,
+    ]);
+    expect(explicitResult.status).toBe("ready");
+    expect(implicitResult.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(7);
+  });
+
   it("coalesces duplicates while serializing mixed-mode workspace bootstrap", async () => {
     let releaseStatusCheck: (() => void) | null = null;
     const statusGate = new Promise<void>((resolve) => {
