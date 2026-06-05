@@ -267,7 +267,8 @@ describe("AgenticLoopToolExecutor", () => {
       toolName: "bash",
       toolInput: {
         description: "Switch branch from bash",
-        command: "git checkout style/redesign-footer -- src/components/layout/Footer.tsx",
+        command:
+          "git checkout style/redesign-footer -- src/components/layout/Footer.tsx",
       },
     });
 
@@ -367,6 +368,78 @@ describe("AgenticLoopToolExecutor", () => {
         action: "read_file",
         payload: {
           path: "src/components/layout/Footer.tsx",
+        },
+      },
+    ]);
+  });
+
+  it("forwards read_file offset and limit to the filesystem route", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { output: "window-content" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-read-window",
+      toolName: "read_file",
+      toolInput: {
+        path: "src/components/landing/hero/index.tsx",
+        offset: 100,
+        limit: 250,
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "filesystem",
+        action: "read_file",
+        payload: {
+          path: "src/components/landing/hero/index.tsx",
+          offset: 100,
+          limit: 250,
+        },
+      },
+    ]);
+  });
+
+  it("clamps oversized read_file limits to the runtime maximum", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { output: "window-content" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-read-large-window",
+      toolName: "read_file",
+      toolInput: {
+        path: "src/components/landing/hero/index.tsx",
+        limit: 10_000,
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "filesystem",
+        action: "read_file",
+        payload: {
+          path: "src/components/landing/hero/index.tsx",
+          limit: 1_000,
         },
       },
     ]);

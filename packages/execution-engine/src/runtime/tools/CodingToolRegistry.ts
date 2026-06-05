@@ -88,7 +88,10 @@ export interface ToolDefinition {
   tokenPolicy: ToolTokenPolicy;
   outputRenderer: ToolOutputRenderer;
   route: ToolGatewayRoute;
-  execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
+  execute(
+    input: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ): Promise<ToolResult>;
 }
 
 function createToolInputSchema<TShape extends z.ZodRawShape>(
@@ -103,10 +106,20 @@ function createToolInputSchema<TShape extends z.ZodRawShape>(
   return z.preprocess((value) => (value == null ? {} : value), baseSchema);
 }
 
+function clampReadLimit(value: unknown): unknown {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return value;
+  }
+  return Math.min(value, MAX_TOOL_READ_LINES);
+}
+
 export const READ_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
   offset: z.number().int().min(0).optional(),
-  limit: z.number().int().min(1).max(MAX_TOOL_READ_LINES).optional(),
+  limit: z.preprocess(
+    clampReadLimit,
+    z.number().int().min(1).max(MAX_TOOL_READ_LINES).optional(),
+  ),
 });
 
 export const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
@@ -169,7 +182,8 @@ export const GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   branch: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
 });
 
-export const GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA = GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA;
+export const GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA =
+  GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA;
 
 export const GIT_STATUS_TOOL_INPUT_SCHEMA = createToolInputSchema(
   {},
@@ -203,12 +217,13 @@ export const GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
   actionsRunId: z.number().int().positive(),
 });
 
-export const GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA = createToolInputSchema({
-  owner: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
-  repo: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
-  actionsJobId: z.number().int().positive(),
-  tailLines: z.number().int().min(1).max(2_000).optional(),
-});
+export const GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA =
+  createToolInputSchema({
+    owner: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+    repo: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+    actionsJobId: z.number().int().positive(),
+    tailLines: z.number().int().min(1).max(2_000).optional(),
+  });
 
 export const GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA = createToolInputSchema({
   owner: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
@@ -310,7 +325,11 @@ function createRoutedToolDefinition(input: {
     ...input,
     route,
     async execute(toolInput, context) {
-      const result = await context.execute(route.plugin, route.action, toolInput);
+      const result = await context.execute(
+        route.plugin,
+        route.action,
+        toolInput,
+      );
       return adaptPluginResult(input.title, result);
     },
   };
@@ -341,14 +360,14 @@ function buildFailedToolResult(
 
 function buildSuccessfulToolResult(title: string, result: unknown): ToolResult {
   const output = isRecord(result) ? result.output : result;
-  const metadata = isRecord(result) && isRecord(result.metadata)
-    ? result.metadata
-    : {};
+  const metadata =
+    isRecord(result) && isRecord(result.metadata) ? result.metadata : {};
   return {
     title,
     output: readString(output) ?? stringifyOutput(output),
     metadata,
-    truncated: readBoolean(isRecord(result) ? result.truncated : undefined) ?? false,
+    truncated:
+      readBoolean(isRecord(result) ? result.truncated : undefined) ?? false,
   };
 }
 

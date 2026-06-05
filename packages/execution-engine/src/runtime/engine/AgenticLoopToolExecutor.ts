@@ -203,10 +203,19 @@ async function executeReadFileTool(
   const path = normalizeToolPath(validatedInput.path);
   validateToolPath(path);
   validateSafePath(path);
+  const payload: Record<string, unknown> = { path };
+  if (validatedInput.offset !== undefined) {
+    payload.offset = validatedInput.offset;
+  }
+  if (validatedInput.limit !== undefined) {
+    payload.limit = validatedInput.limit;
+  }
 
-  const result = await executeGatewayPlugin(executionService, "read_file", {
-    path,
-  });
+  const result = await executeGatewayPlugin(
+    executionService,
+    "read_file",
+    payload,
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
     return buildFailureResult(taskId, failure);
