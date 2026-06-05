@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type {
   FileStatus,
   PromptArtifactReviewSource,
@@ -24,16 +24,37 @@ export function useReviewSourceState({
   liveGitFiles,
   enabled = true,
 }: UseReviewSourceStateInput) {
-  const [requestedScope, setRequestedScope] = useState<ReviewScope | null>(
-    null,
+  const reviewTargetKey = `${runId ?? ""}:${sessionId ?? ""}`;
+  const [requestedScopeState, setRequestedScopeState] =
+    useState<ScopedReviewScope>(() => ({
+      key: reviewTargetKey,
+      scope: null,
+    }));
+  const [openedArtifactState, setOpenedArtifactState] =
+    useState<ScopedOpenedArtifact>(() => ({
+      artifact: null,
+      key: reviewTargetKey,
+    }));
+  const requestedScope =
+    requestedScopeState.key === reviewTargetKey
+      ? requestedScopeState.scope
+      : null;
+  const openedArtifact =
+    openedArtifactState.key === reviewTargetKey
+      ? openedArtifactState.artifact
+      : null;
+  const setRequestedScope = useCallback(
+    (scope: ReviewScope): void => {
+      setRequestedScopeState({ key: reviewTargetKey, scope });
+    },
+    [reviewTargetKey],
   );
-  const [openedArtifact, setOpenedArtifact] =
-    useState<OpenedReviewArtifact | null>(null);
-
-  useEffect(() => {
-    setRequestedScope(null);
-    setOpenedArtifact(null);
-  }, [runId, sessionId]);
+  const setOpenedArtifact = useCallback(
+    (artifact: OpenedReviewArtifact | null): void => {
+      setOpenedArtifactState({ artifact, key: reviewTargetKey });
+    },
+    [reviewTargetKey],
+  );
 
   const shouldLoadArtifactSource = Boolean(
     enabled &&
@@ -87,6 +108,16 @@ export function useReviewSourceState({
     reviewSourceLoading,
     ...controls,
   };
+}
+
+interface ScopedReviewScope {
+  key: string;
+  scope: ReviewScope | null;
+}
+
+interface ScopedOpenedArtifact {
+  artifact: OpenedReviewArtifact | null;
+  key: string;
 }
 
 function useReviewSourceControls({
