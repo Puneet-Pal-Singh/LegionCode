@@ -189,7 +189,7 @@ export function useGitStatus(
 
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        void fetchStatus();
+        void fetchStatus(true);
       }, 800);
     };
 

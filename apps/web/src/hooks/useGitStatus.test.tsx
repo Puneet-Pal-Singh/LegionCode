@@ -112,30 +112,71 @@ describe("useGitStatus", () => {
     expect(result.result.current.gitAvailable).toBe(true);
   });
 
-  it("keeps run summary refreshes inside git status retry backoff", async () => {
+  it("lets run summary refresh bypass git status retry backoff", async () => {
     const getGitStatusMock = vi.mocked(getGitStatus);
-    getGitStatusMock.mockRejectedValue(new Error("temporary git failure"));
+    getGitStatusMock
+      .mockRejectedValueOnce(new Error("temporary git failure"))
+      .mockResolvedValueOnce(buildGitStatus());
 
-    renderHook(() => useGitStatus("run-1", "session-1"));
+    const result = renderHook(() => useGitStatus("run-1", "session-1"));
 
     await waitFor(() => {
-      expect(getGitStatusMock).toHaveBeenCalledTimes(1);
+      expect(result.result.current.error).toBe("temporary git failure");
     });
 
     vi.useFakeTimers({ now: Date.now() });
-    act(() => {
+    await act(async () => {
       window.dispatchEvent(
         new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
           detail: { runId: "run-1" },
         }),
       );
-      vi.advanceTimersByTime(900);
-    });
-    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900);
       await Promise.resolve();
     });
 
-    expect(getGitStatusMock).toHaveBeenCalledTimes(1);
+    expect(getGitStatusMock).toHaveBeenCalledTimes(2);
+    expect(result.result.current.error).toBeNull();
+  });
+
+  it("forces a fresh status fetch after run summary refresh events", async () => {
+    const getGitStatusMock = vi.mocked(getGitStatus);
+    getGitStatusMock
+      .mockResolvedValueOnce(buildGitStatus())
+      .mockResolvedValueOnce(
+        buildGitStatus({
+          files: [
+            {
+              path: "src/app.ts",
+              status: "modified",
+              additions: 2,
+              deletions: 1,
+              isStaged: false,
+            },
+          ],
+          hasUnstaged: true,
+        }),
+      );
+
+    const result = renderHook(() => useGitStatus("run-1", "session-1"));
+
+    await waitFor(() => {
+      expect(result.result.current.status?.files).toEqual([]);
+    });
+
+    vi.useFakeTimers({ now: Date.now() });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-1" },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(900);
+      await Promise.resolve();
+    });
+
+    expect(getGitStatusMock).toHaveBeenCalledTimes(2);
+    expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
   });
 
   it("coalesces forced refetches while a status request is already in flight", async () => {
