@@ -99,9 +99,7 @@ export function useStatusSync({
   const handleStopRun = useCallback(() => {
     setLocallyStoppedRunId(activeRunId);
     stop();
-    queueMicrotask(() => {
-      onSessionStatusChange?.("completed");
-    });
+    onSessionStatusChange?.("completed");
   }, [activeRunId, onSessionStatusChange, setLocallyStoppedRunId, stop]);
 
   useEffect(() => {
