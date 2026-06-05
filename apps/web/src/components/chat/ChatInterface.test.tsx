@@ -60,6 +60,9 @@ const mockGetEditArtifactDiff = vi.hoisted(() =>
     };
   }),
 );
+const mockGetEditArtifactReviewSourceByMessage = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
 
 vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
@@ -118,7 +121,8 @@ vi.mock("../../lib/git-client.js", () => ({
 
 vi.mock("../../lib/edit-artifacts-client.js", () => ({
   getEditArtifactDiff: (input: unknown) => mockGetEditArtifactDiff(input),
-  getEditArtifactReviewSourceByMessage: vi.fn(async () => null),
+  getEditArtifactReviewSourceByMessage: () =>
+    mockGetEditArtifactReviewSourceByMessage(),
 }));
 
 const mockDispatchRunSummaryRefresh = vi.fn();
@@ -164,6 +168,7 @@ describe("ChatInterface", () => {
     mockGitReviewState.status = null;
     mockGetGitDiff.mockClear();
     mockGetEditArtifactDiff.mockClear();
+    mockGetEditArtifactReviewSourceByMessage.mockClear();
     mockOpenPromptArtifactReview.mockReset();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
@@ -452,6 +457,72 @@ describe("ChatInterface", () => {
         isLoading: false,
       }),
     );
+  });
+
+  it("caches missing artifact sources for assistant messages before terminal status", async () => {
+    const messages: Message[] = [
+      {
+        id: "assistant-no-artifact",
+        role: "assistant",
+        content: "Plain response.",
+      },
+    ];
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-active",
+        status: "RUNNING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+      },
+    });
+
+    const { rerender } = render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages: [...messages],
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(1);
   });
 
   it("opens artifact review from a terminal card changed-file list", async () => {

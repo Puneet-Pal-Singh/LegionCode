@@ -481,11 +481,11 @@ export function ChatInterface({
             error: result.reason,
           });
         }
-        if (
-          shouldCacheArtifactMisses &&
-          (result.status === "rejected" ||
-            (result.status === "fulfilled" && result.value === null))
-        ) {
+        const shouldCacheNullArtifactMiss =
+          result.status === "fulfilled" && result.value === null;
+        const shouldCacheFailedArtifactMiss =
+          shouldCacheArtifactMisses && result.status === "rejected";
+        if (shouldCacheNullArtifactMiss || shouldCacheFailedArtifactMiss) {
           artifactLookupMissesRef.current.add(assistantMessageId);
         }
       });
