@@ -4,10 +4,10 @@ import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import { useEditArtifactReviewSource } from "./useEditArtifactReviewSource.js";
 
 const mockGetLatestEditArtifactReviewSource = vi.hoisted(() =>
-  vi.fn(async (_input: unknown) => null),
+  vi.fn<[unknown], Promise<null>>(async () => null),
 );
 const mockGetEditArtifactReviewSourceByMessage = vi.hoisted(() =>
-  vi.fn(async (_input: unknown) => null),
+  vi.fn<[unknown], Promise<null>>(async () => null),
 );
 
 vi.mock("../lib/edit-artifacts-client.js", () => ({
