@@ -67,10 +67,6 @@ export function useBootstrap({
       return;
     }
     inFlightRef.current = bootstrapKey;
-    if (shouldRecover) {
-      recoveryKeyRef.current = bootstrapKey;
-      setIsGitWorkspaceRecovering(true);
-    }
     void runWorkspaceBootstrap({
       bootstrapKey,
       shouldRecover,
@@ -138,6 +134,10 @@ async function runWorkspaceBootstrap({
 }): Promise<void> {
   let bootstrapReady = false;
   try {
+    if (shouldRecover) {
+      await Promise.resolve();
+      onRecoveryStateChange(true);
+    }
     const result = await bootstrapGitWorkspace({
       runId: args.activeRunId,
       sessionId: args.sessionId,
