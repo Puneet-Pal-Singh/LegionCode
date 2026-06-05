@@ -215,7 +215,7 @@ export function useRunSummary(
         return;
       }
       const currentStatus = summaryStatusRef.current;
-      if (currentStatus === "COMPLETED" || currentStatus === "CANCELLED") {
+      if (isTerminalRunStatus(currentStatus)) {
         return;
       }
       void fetchSummary();
