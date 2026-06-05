@@ -694,9 +694,10 @@ VALIDATION RULES:
         maxResults: 15,
       });
       const globFailure = extractExecutionFailure(globResult);
-      const globOutput = globFailure
-        ? ""
-        : formatExecutionResult(globResult).trim();
+      if (globFailure) {
+        return this.buildFailureResult(taskId, globFailure);
+      }
+      const globOutput = formatExecutionResult(globResult).trim();
       if (globOutput.length > 0) {
         sections.push(`Glob matches (${globPattern}):\n${globOutput}`);
       }
@@ -716,9 +717,10 @@ VALIDATION RULES:
       }
       const grepResult = await this.executeGatewayPlugin("grep", grepPayload);
       const grepFailure = extractExecutionFailure(grepResult);
-      const grepOutput = grepFailure
-        ? ""
-        : formatExecutionResult(grepResult).trim();
+      if (grepFailure) {
+        return this.buildFailureResult(taskId, grepFailure);
+      }
+      const grepOutput = formatExecutionResult(grepResult).trim();
       if (grepOutput.length > 0) {
         sections.push(`Grep matches (${grepNeedle}):\n${grepOutput}`);
       }
