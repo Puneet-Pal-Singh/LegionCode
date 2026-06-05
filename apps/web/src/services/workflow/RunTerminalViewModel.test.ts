@@ -21,14 +21,12 @@ describe("buildRunTerminalViewModel", () => {
     });
 
     expect(viewModel?.artifactId).toBe("artifact-1");
-    expect(viewModel?.content).toContain("Outcome: Run completed.");
-    expect(viewModel?.content).toContain("Changed files: 2 files");
+    expect(viewModel?.content).toContain("Run completed.");
+    expect(viewModel?.content).toContain("2 files changed.");
     expect(viewModel?.content).toContain(
       "Last successful step: create_code_artifact",
     );
-    expect(viewModel?.content).toContain(
-      "Next action: Send the next task when ready.",
-    );
+    expect(viewModel?.content).toContain("Send the next task when ready.");
   });
 
   it("does not suppress approval-required as a generic failure", () => {
@@ -91,7 +89,7 @@ describe("buildRunTerminalViewModel", () => {
       changedFileCount: 1,
     });
 
-    expect(viewModel?.content).toContain("Changed files: 1 file");
+    expect(viewModel?.content).toContain("1 file changed.");
     expect(viewModel?.content).toContain("Last successful step: read_file");
     expect(viewModel?.content).toContain("Failed step: npm_test");
   });

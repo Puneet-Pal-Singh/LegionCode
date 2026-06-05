@@ -145,12 +145,10 @@ function buildTerminalContent(input: {
   failedStep: string | null;
   nextAction: string;
 }): string {
-  const lines = [`Outcome: ${resolveOutcome(input.state)}`];
+  const lines = [resolveOutcome(input.state)];
 
   if (input.changedFileCount !== null) {
-    lines.push(
-      `Changed files: ${formatChangedFileCount(input.changedFileCount)}`,
-    );
+    lines.push(`${formatChangedFileCount(input.changedFileCount)} changed.`);
   }
   if (input.lastSuccessfulStep) {
     lines.push(`Last successful step: ${input.lastSuccessfulStep}`);
@@ -158,7 +156,7 @@ function buildTerminalContent(input: {
   if (input.failedStep) {
     lines.push(`Failed step: ${input.failedStep}`);
   }
-  lines.push(`Next action: ${input.nextAction}`);
+  lines.push(input.nextAction);
 
   return lines.join("\n");
 }
