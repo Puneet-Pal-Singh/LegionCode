@@ -188,6 +188,7 @@ export function useStatusSync({
     isLocallyStoppedRun,
     isStaleCanonicalActiveRun,
     onSessionStatusChange,
+    pendingApprovalRequestId,
     refetchGitStatus,
     setLocallyStoppedRunId,
   ]);
