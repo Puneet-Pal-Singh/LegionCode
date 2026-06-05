@@ -232,6 +232,12 @@ export function ChatInterface({
   >({});
 
   const { summary } = useRunSummary(runId, isLoading);
+  const isTerminalSummarySettled = Boolean(
+    summary?.status &&
+      isTerminalRunStatus(summary.status) &&
+      !isApprovalRequiredRunStatus(summary.status),
+  );
+  const activeRunLoading = isLoading && !isTerminalSummarySettled;
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -242,7 +248,7 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, false);
-  const { feed } = useRunActivityFeed(runId, isLoading);
+  const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [approvalBusyDecision, setApprovalBusyDecision] =
@@ -296,10 +302,10 @@ export function ChatInterface({
   const scopedFeed = feed?.runId === runId ? feed : null;
   const displayFeed = useMemo(
     () =>
-      !isLoading && scopedFeed?.status === "RUNNING"
+      !activeRunLoading && scopedFeed?.status === "RUNNING"
         ? { ...scopedFeed, status: "CANCELLED" as const }
         : scopedFeed,
-    [isLoading, scopedFeed],
+    [activeRunLoading, scopedFeed],
   );
   const activityViewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(
@@ -1012,7 +1018,7 @@ export function ChatInterface({
   const showHeroComposer =
     hasHydrated &&
     !hasConversationSignal &&
-    !isLoading &&
+    !activeRunLoading &&
     !pendingApproval &&
     !hasStartedSession;
   const isTranscriptHydrating =
@@ -1090,8 +1096,8 @@ export function ChatInterface({
           onRemoveReviewComment={handleRemoveReviewComment}
           reviewCommentError={reviewCommentError}
           onStop={stop}
-          canStop={canStop ?? isLoading}
-          isLoading={isLoading || isTranscriptHydrating}
+          canStop={activeRunLoading && (canStop ?? true)}
+          isLoading={activeRunLoading || isTranscriptHydrating}
           sessionId={sessionId}
           mode={mode}
           onModeChange={onModeChange}
@@ -1106,7 +1112,7 @@ export function ChatInterface({
         layout={layout}
         permissionMode={permissionMode}
         onPermissionModeChange={onPermissionModeChange}
-        isLoading={isLoading || isTranscriptHydrating}
+        isLoading={activeRunLoading || isTranscriptHydrating}
       />
     </>
   );
@@ -1234,7 +1240,7 @@ export function ChatInterface({
             ) : null}
 
             {/* Loading indicator */}
-            {isLoading && !activeInlineTurn && (
+            {activeRunLoading && !activeInlineTurn && (
               <div className="py-2 text-sm font-medium text-zinc-500">
                 <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
                   Thinking

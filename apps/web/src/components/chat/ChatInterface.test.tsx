@@ -398,6 +398,62 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("settles the loading UI when the run summary is terminal", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-terminal",
+        status: "COMPLETED",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        terminalState: "completed",
+        terminalMessage: {
+          changedFileCount: 0,
+          nextAction: "Send the next task when you are ready.",
+        },
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "yoyo",
+            },
+          ],
+          runId: "run-terminal",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          canStop: true,
+          isLoading: true,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Run completed\./)).not.toBeInTheDocument();
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: false,
+        isLoading: false,
+      }),
+    );
+  });
+
   it("opens artifact review from a terminal card changed-file list", async () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
