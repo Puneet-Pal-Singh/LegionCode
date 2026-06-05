@@ -291,6 +291,33 @@ describe("PermissionApprovalStore", () => {
     );
   });
 
+  it("rejects owned approval resolution without an authenticated user", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-auth");
+
+    await store.setPendingRequest(
+      {
+        requestId: "req-auth",
+        runId: "run-approval-auth",
+        origin: "agent",
+        category: "shell_command",
+        title: "Run tests",
+        reason: "Shell command can mutate state.",
+        actionFingerprint: "shell:pnpm test",
+        availableDecisions: ["allow_once", "deny"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      "user-owner",
+    );
+
+    await expect(
+      store.resolveDecision(
+        { kind: "allow_once", requestId: "req-auth" },
+        undefined,
+      ),
+    ).rejects.toThrow("Authentication required to resolve this approval.");
+  });
+
   it("allows the owning user to resolve the request", async () => {
     const state = new MockRuntimeState();
     const store = new PermissionApprovalStore(state, "run-approval-owner-2");

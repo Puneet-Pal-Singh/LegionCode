@@ -473,7 +473,10 @@ export class PermissionApprovalStore {
       throw new Error("Decision kind is not allowed for this request.");
     }
     const ownerUserId = state.pendingRequestOwnerUserId;
-    if (ownerUserId && createdByUserId && ownerUserId !== createdByUserId) {
+    if (ownerUserId && !createdByUserId) {
+      throw new Error("Authentication required to resolve this approval.");
+    }
+    if (ownerUserId && ownerUserId !== createdByUserId) {
       throw new Error(
         "Approval request owner does not match the resolving user.",
       );
