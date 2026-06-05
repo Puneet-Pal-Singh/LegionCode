@@ -313,6 +313,9 @@ describe("secure-agent-api plugin hardening", () => {
       returnedLines: 2,
       totalLines: 4,
     });
+    expect(sandbox.execCalls.some((command) => command.includes("'stat'"))).toBe(
+      false,
+    );
     expect(result.truncated).toBe(true);
   });
 

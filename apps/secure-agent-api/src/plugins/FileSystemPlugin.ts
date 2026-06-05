@@ -221,37 +221,36 @@ export class FileSystemPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
-    const statResult = await runSafeCommand(
-      sandbox,
-      withToolboxCommandContext(
-        { command: "stat", args: ["-c", "%s", targetPath], runId },
-        toolboxContext,
-        "filesystem.read_file_stat",
-      ),
-      ["stat"],
-    );
-    if (statResult.exitCode !== 0) {
-      return {
-        success: false,
-        error: statResult.stderr || "Unable to stat file",
-      };
-    }
-    const totalBytes = Number(statResult.stdout.trim());
-    if (
-      Number.isFinite(totalBytes) &&
-      totalBytes > MAX_READ_FILE_BYTES &&
-      (payload.offset === undefined || payload.offset === 0) &&
-      (payload.limit === undefined || payload.limit >= DEFAULT_READ_LIMIT)
-    ) {
-      return {
-        success: false,
-        error: `File too large to read unconditionally (${totalBytes} bytes > ${MAX_READ_FILE_BYTES}). Pass offset/limit to stream a window.`,
-        metadata: {
-          path: payload.path,
-          totalBytes,
-          maxReadBytes: MAX_READ_FILE_BYTES,
-        },
-      };
+    let totalBytes: number | undefined;
+    if (shouldGuardUnconditionalRead(payload)) {
+      const statResult = await runSafeCommand(
+        sandbox,
+        withToolboxCommandContext(
+          { command: "stat", args: ["-c", "%s", targetPath], runId },
+          toolboxContext,
+          "filesystem.read_file_stat",
+        ),
+        ["stat"],
+      );
+      if (statResult.exitCode !== 0) {
+        return {
+          success: false,
+          error: statResult.stderr || "Unable to stat file",
+        };
+      }
+      const parsedBytes = Number(statResult.stdout.trim());
+      totalBytes = Number.isFinite(parsedBytes) ? parsedBytes : undefined;
+      if (totalBytes !== undefined && totalBytes > MAX_READ_FILE_BYTES) {
+        return {
+          success: false,
+          error: `File too large to read unconditionally (${totalBytes} bytes > ${MAX_READ_FILE_BYTES}). Pass offset/limit to stream a window.`,
+          metadata: {
+            path: payload.path,
+            totalBytes,
+            maxReadBytes: MAX_READ_FILE_BYTES,
+          },
+        };
+      }
     }
 
     const fileTypeResult = await runSafeCommand(
@@ -322,7 +321,7 @@ export class FileSystemPlugin implements IPlugin {
       metadata: {
         path: payload.path,
         mimeType,
-        totalBytes: Number.isFinite(totalBytes) ? totalBytes : undefined,
+        totalBytes,
         offset,
         limit,
         totalLines,
@@ -431,6 +430,15 @@ const BINARY_MIME_PREFIXES = [
 function isBinaryMimeType(mimeType: string): boolean {
   const normalized = mimeType.toLowerCase();
   return BINARY_MIME_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function shouldGuardUnconditionalRead(
+  payload: Extract<FileSystemPayload, { action: "read_file" }>,
+): boolean {
+  return (
+    (payload.offset === undefined || payload.offset === 0) &&
+    payload.limit === undefined
+  );
 }
 
 function buildReadWindowArgs(
