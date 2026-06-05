@@ -44,8 +44,10 @@ import {
 } from "../memory/index.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
+  buildObviousConversationalResponse,
   getPermissionPolicyMessage,
   evaluateWorkspaceBootstrap,
+  isObviousConversationalPrompt,
   processPermissionDirectives as processPermissionDirectivesPolicy,
 } from "./RunPermissionWorkspacePolicy.js";
 import {
@@ -407,6 +409,17 @@ export class RunEngine implements IRunEngine {
       } else {
         console.log(
           `[run/engine] Skipping platform approval gates for run ${runId} mode=${runMode}`,
+        );
+      }
+
+      if (
+        runMode === "build" &&
+        isObviousConversationalPrompt(effectiveInput.prompt)
+      ) {
+        recordLifecycleStep(run, "SYNTHESIS", "conversational_prompt");
+        return await this.completeRunWithAssistantMessage(
+          run,
+          buildObviousConversationalResponse(effectiveInput.prompt),
         );
       }
 

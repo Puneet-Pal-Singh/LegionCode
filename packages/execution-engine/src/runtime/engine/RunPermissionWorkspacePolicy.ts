@@ -112,6 +112,16 @@ export async function evaluateWorkspaceBootstrap(
   repositoryContext: RepositoryContext | undefined,
   workspaceBootstrapper: WorkspaceBootstrapper | undefined,
 ): Promise<WorkspaceBootstrapEvaluation> {
+  if (isObviousConversationalPrompt(prompt)) {
+    return {
+      status: "skipped",
+      message: null,
+      blocked: false,
+      expectedMiss: false,
+      clonedDuringBootstrap: false,
+    };
+  }
+
   if (!repositoryContext || !workspaceBootstrapper) {
     return {
       status: "skipped",
@@ -163,6 +173,48 @@ export async function evaluateWorkspaceBootstrap(
       clonedDuringBootstrap: false,
     };
   }
+}
+
+export function isObviousConversationalPrompt(prompt: string): boolean {
+  const normalized = normalizeConversationalPrompt(prompt);
+  if (!normalized) {
+    return false;
+  }
+
+  return CONVERSATIONAL_PROMPTS.has(normalized);
+}
+
+const CONVERSATIONAL_PROMPTS = new Set([
+  "hello",
+  "hello there",
+  "hey",
+  "hey there",
+  "hi",
+  "hi there",
+  "how are you",
+  "sup",
+  "thanks",
+  "thank you",
+  "yo",
+  "yoyo",
+]);
+
+export function buildObviousConversationalResponse(prompt: string): string {
+  const normalized = normalizeConversationalPrompt(prompt);
+  if (normalized === "thanks" || normalized === "thank you") {
+    return "You're welcome. What would you like to work on next?";
+  }
+  if (normalized === "how are you") {
+    return "I'm doing well and ready to help. What would you like to work on?";
+  }
+  if (normalized === "yo" || normalized === "yoyo") {
+    return "Yo. What would you like to work on?";
+  }
+  return "Hi. What would you like to work on?";
+}
+
+function normalizeConversationalPrompt(prompt: string): string {
+  return prompt.trim().toLowerCase().replace(/[!?.]+$/g, "").replace(/\s+/g, " ");
 }
 
 function mapBootstrapResultToMessage(

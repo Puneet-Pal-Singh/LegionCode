@@ -26,9 +26,60 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("routes greeting-only prompts through normal build execution", async () => {
+  it("answers greeting-only prompts without model or workspace execution", async () => {
     const generateText = vi.fn(async () => ({
       text: "ok",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const workspaceBootstrapper = {
+      bootstrap: vi.fn(async () => {
+        throw new Error("bootstrap should not run for simple chat");
+      }),
+    };
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: vi.fn(async () => {
+        throw new Error("structured turn classification should be inactive");
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway, workspaceBootstrapper });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hello",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+      },
+      [{ role: "user", content: "hello" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Hi. What would you like to work on?");
+    expect(generateText).not.toHaveBeenCalled();
+    expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
+  });
+
+  it("does not bootstrap a selected repository for obvious chat prompts", async () => {
+    const generateText = vi.fn(async () => ({
+      text: "unused",
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -49,21 +100,32 @@ describe("RunEngine", () => {
           },
         }),
     };
-    const runEngine = createRunEngine({ llmGateway });
+    const workspaceBootstrapper = {
+      bootstrap: vi.fn(async () => {
+        throw new Error("bootstrap should not run for obvious chat");
+      }),
+    };
+    const runEngine = createRunEngine({ llmGateway, workspaceBootstrapper });
 
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "hello",
+        prompt: "yoyo",
         sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
       },
-      [{ role: "user", content: "hello" }],
+      [{ role: "user", content: "yoyo" }],
       {},
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("ok");
-    expect(generateText).toHaveBeenCalled();
+    expect(await response.text()).toContain("Yo. What would you like to work on?");
+    expect(generateText).not.toHaveBeenCalled();
+    expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
   });
 
   it("does not bypass explicit plan mode planning for greeting-only prompts", async () => {
@@ -1931,7 +1993,7 @@ describe("RunEngine", () => {
     });
   });
 
-  it("answers build-mode prompts without invoking structured turn classification", async () => {
+  it("answers build-mode greetings without invoking model turn classification", async () => {
     const generateText = vi.fn(async () => ({
       text: "Longer budget applied.",
       usage: {
@@ -1975,8 +2037,8 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Longer budget applied.");
-    expect(generateText).toHaveBeenCalled();
+    expect(await response.text()).toContain("Hi. What would you like to work on?");
+    expect(generateText).not.toHaveBeenCalled();
     expect(generateStructured).not.toHaveBeenCalled();
   });
 
