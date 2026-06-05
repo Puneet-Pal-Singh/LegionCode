@@ -19,18 +19,40 @@ interface Env {
 }
 
 const DEFAULT_AGENTS_ORIGIN = "https://agents.legioncode.dev";
+const AGENTS_PROXY_TIMEOUT_MS = 30_000;
 
 export const onRequest = async (context: {
   request: Request;
   env: Env;
 }): Promise<Response> => {
-  const origin = (context.env.AGENTS_ORIGIN || DEFAULT_AGENTS_ORIGIN).replace(
-    /\/+$/,
-    "",
-  );
+  const origin = resolveAgentsOrigin(context.env.AGENTS_ORIGIN);
   const url = new URL(context.request.url);
   const target = `${origin}${url.pathname}${url.search}`;
 
   const proxied = new Request(target, context.request);
-  return fetch(proxied);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, AGENTS_PROXY_TIMEOUT_MS);
+  try {
+    return await fetch(proxied, { signal: controller.signal });
+  } catch (error) {
+    const status = isAbortError(error) ? 504 : 502;
+    return new Response("Agents app is unavailable.", { status });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };
+
+function resolveAgentsOrigin(value: string | undefined): string {
+  const rawOrigin = value?.trim() || DEFAULT_AGENTS_ORIGIN;
+  const url = new URL(rawOrigin);
+  if (url.protocol !== "https:" || !url.hostname) {
+    throw new Error("AGENTS_ORIGIN must be a valid HTTPS origin.");
+  }
+  return url.origin;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
