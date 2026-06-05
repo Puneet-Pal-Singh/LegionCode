@@ -98,10 +98,7 @@ function isNoopCompletedTerminal(input: {
   lastSuccessfulStep: string | null;
   failedStep: string | null;
 }): boolean {
-  if (
-    input.state !== "completed" &&
-    input.state !== "completed_with_warnings"
-  ) {
+  if (input.state !== "completed") {
     return false;
   }
 

@@ -62,6 +62,26 @@ describe("buildRunTerminalViewModel", () => {
     expect(viewModel).toBeNull();
   });
 
+  it("keeps warning terminal cards visible even without changed files", () => {
+    const viewModel = buildRunTerminalViewModel({
+      runId: "run-warning",
+      summary: {
+        status: "COMPLETED",
+        terminalState: "completed_with_warnings",
+        terminalMessage: {
+          changedFileCount: 0,
+          nextAction: "Review the warning details.",
+        },
+      },
+      events: [],
+      hasVisibleAssistantMessage: false,
+    });
+
+    expect(viewModel).not.toBeNull();
+    expect(viewModel?.state).toBe("completed_with_warnings");
+    expect(viewModel?.content).toContain("warning");
+  });
+
   it("shows completed and failed work for failed runs", () => {
     const events: RunEvent[] = [
       {
