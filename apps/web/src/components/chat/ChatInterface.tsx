@@ -981,11 +981,7 @@ export function ChatInterface({
         runId,
         summary,
         events,
-        hasVisibleAssistantMessage: chatEntries.some(
-          (entry) =>
-            entry.kind === "message" &&
-            isVisibleTerminalAssistantMessage(entry.message),
-        ),
+        hasVisibleAssistantMessage: hasVisibleAssistantReply(conversationTurns),
         changedFileCount:
           terminalChangedFiles.length > 0
             ? terminalChangedFiles.length
@@ -1678,6 +1674,29 @@ function isVisibleTerminalAssistantMessage(message: Message): boolean {
   return hasTerminalSummaryFrame(message.content);
 }
 
+function isVisibleAssistantMessage(message: Message): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+  if (isVisibleTerminalAssistantMessage(message)) {
+    return true;
+  }
+  return readMessageVisibleText(message).length > 0;
+}
+
+function hasVisibleAssistantReply(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): boolean {
+  return conversationTurns.some(
+    (turn) =>
+      Boolean(turn.userMessage) &&
+      Boolean(
+        turn.assistantMessage &&
+        isVisibleAssistantMessage(turn.assistantMessage),
+      ),
+  );
+}
+
 function readAssistantMessageMetadata(
   message: Message,
 ): Record<string, unknown> | null {
@@ -1692,11 +1711,34 @@ function readAssistantMessageMetadata(
 }
 
 function hasTerminalSummaryFrame(content: Message["content"]): boolean {
-  const text = typeof content === "string" ? content : "";
+  const text = readVisibleText(content);
   return (
     text.includes("Outcome:") &&
     (text.includes("Next action:") || text.includes("Next step:"))
   );
+}
+
+function readMessageVisibleText(message: Message): string {
+  return readVisibleText(message.content);
+}
+
+function readVisibleText(content: unknown): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") {
+        return "";
+      }
+      const record = part as Record<string, unknown>;
+      return typeof record.text === "string" ? record.text : "";
+    })
+    .join("")
+    .trim();
 }
 
 type ChatInterfaceEntry =

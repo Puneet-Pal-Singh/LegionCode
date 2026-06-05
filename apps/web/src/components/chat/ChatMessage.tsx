@@ -117,6 +117,9 @@ export function ChatMessage({
     }
 
     const parsedText = parseThinkingTags(extractedText);
+    const visibleContent = sanitizeAssistantVisibleContent(
+      parsedText.visibleContent,
+    );
     const dedupedThinking = Array.from(
       new Set(
         [...extractedThinking, ...parsedText.thinkingBlocks]
@@ -126,7 +129,7 @@ export function ChatMessage({
     );
 
     return {
-      content: parsedText.visibleContent.trim(),
+      content: visibleContent,
       thinkingBlocks: dedupedThinking,
     };
   }, [message.content, message.role]);
@@ -363,6 +366,26 @@ function ChangedFilesCard({
       )}
     </div>
   );
+}
+
+function sanitizeAssistantVisibleContent(value: string): string {
+  return stripInternalSelfTalkPrefix(value).trim();
+}
+
+function stripInternalSelfTalkPrefix(value: string): string {
+  const normalized = value.trimStart();
+  if (!startsWithInternalSelfTalk(normalized)) {
+    return value;
+  }
+
+  return normalized.replace(
+    /^(?:The user (?:is asking|asked|wants|requested)[\s\S]*?\bI should [^.!?]*[.!?]\s*)+/i,
+    "",
+  );
+}
+
+function startsWithInternalSelfTalk(value: string): boolean {
+  return /^The user (?:is asking|asked|wants|requested)\b/i.test(value);
 }
 
 function useChangedFileDiffStates(
