@@ -423,7 +423,7 @@ describe("WorkspaceBootstrapService", () => {
 
     const firstBootstrap = service.bootstrap(request);
     const secondBootstrap = service.bootstrap(request);
-    await Promise.resolve();
+    await flushBootstrapQueue();
     expect(execute).toHaveBeenCalledTimes(1);
 
     releaseStatusCheck?.();
@@ -448,7 +448,7 @@ describe("WorkspaceBootstrapService", () => {
     });
   });
 
-  it("does not coalesce bootstrap calls when mode differs for the same run", async () => {
+  it("serializes bootstrap calls when mode differs for the same workspace", async () => {
     let releaseStatusCheck: (() => void) | null = null;
     const statusGate = new Promise<void>((resolve) => {
       releaseStatusCheck = resolve;
@@ -490,9 +490,8 @@ describe("WorkspaceBootstrapService", () => {
       },
     });
 
-    await Promise.resolve();
-    // Two independent bootstrap flows should both reach git_status.
-    expect(execute).toHaveBeenCalledTimes(2);
+    await flushBootstrapQueue();
+    expect(execute).toHaveBeenCalledTimes(1);
     releaseStatusCheck?.();
 
     const [mutationResult, gitWriteResult] = await Promise.all([
@@ -501,9 +500,28 @@ describe("WorkspaceBootstrapService", () => {
     ]);
     expect(mutationResult.status).toBe("ready");
     expect(gitWriteResult.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(7);
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
+      remote: "origin",
+    });
+    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
+      branch: "main",
+    });
+    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_fetch", {
+      remote: "origin",
+    });
+    expect(execute).toHaveBeenNthCalledWith(6, "git", "git_branch_switch", {
+      branch: "main",
+    });
+    expect(execute).toHaveBeenNthCalledWith(7, "git", "git_pull", {
+      remote: "origin",
+      branch: "main",
+    });
   });
 
-  it("preserves key-specific coalescing under mixed-key contention", async () => {
+  it("coalesces duplicates while serializing mixed-mode workspace bootstrap", async () => {
     let releaseStatusCheck: (() => void) | null = null;
     const statusGate = new Promise<void>((resolve) => {
       releaseStatusCheck = resolve;
@@ -549,9 +567,8 @@ describe("WorkspaceBootstrapService", () => {
     const firstGitWrite = service.bootstrap(gitWriteRequest);
     const secondMutation = service.bootstrap(mutationRequest);
 
-    await Promise.resolve();
-    // We should have one status call per unique key, not a third duplicate for mutation.
-    expect(execute).toHaveBeenCalledTimes(2);
+    await flushBootstrapQueue();
+    expect(execute).toHaveBeenCalledTimes(1);
     releaseStatusCheck?.();
 
     const [mutationResultA, gitWriteResult, mutationResultB] =
@@ -559,6 +576,7 @@ describe("WorkspaceBootstrapService", () => {
     expect(mutationResultA.status).toBe("ready");
     expect(gitWriteResult.status).toBe("ready");
     expect(mutationResultB.status).toBe("ready");
+    expect(execute).toHaveBeenCalledTimes(7);
   });
 
   it("skips fetch and pull when the existing workspace has local changes", async () => {
@@ -735,3 +753,8 @@ describe("WorkspaceBootstrapService", () => {
     });
   });
 });
+
+async function flushBootstrapQueue(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}

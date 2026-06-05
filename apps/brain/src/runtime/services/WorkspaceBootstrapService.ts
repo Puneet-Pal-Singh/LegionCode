@@ -90,6 +90,7 @@ const GIT_STATUS_MAX_ATTEMPTS = 3;
 const GIT_STATUS_RETRY_DELAY_MS = 250;
 const workspaceSyncCache = new Map<string, WorkspaceSyncCacheEntry>();
 const bootstrapInFlight = new Map<string, Promise<WorkspaceBootstrapResult>>();
+const bootstrapQueues = new Map<string, Promise<void>>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
   files: z.array(z.unknown()),
@@ -124,13 +125,25 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       return existingRequest;
     }
 
-    const bootstrapRequest = this.bootstrapUncoalesced(request);
+    const queueKey = buildBootstrapQueueKey(request);
+    const previousRequest = bootstrapQueues.get(queueKey) ?? Promise.resolve();
+    const bootstrapRequest = previousRequest
+      .catch(() => undefined)
+      .then(() => this.bootstrapUncoalesced(request));
+    const queueRequest = bootstrapRequest.then(
+      () => undefined,
+      () => undefined,
+    );
     bootstrapInFlight.set(inFlightKey, bootstrapRequest);
+    bootstrapQueues.set(queueKey, queueRequest);
     try {
       return await bootstrapRequest;
     } finally {
       if (bootstrapInFlight.get(inFlightKey) === bootstrapRequest) {
         bootstrapInFlight.delete(inFlightKey);
+      }
+      if (bootstrapQueues.get(queueKey) === queueRequest) {
+        bootstrapQueues.delete(queueKey);
       }
     }
   }
@@ -519,13 +532,17 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 }
 
 function buildBootstrapInFlightKey(request: WorkspaceBootstrapRequest): string {
+  return [buildBootstrapQueueKey(request), request.mode].join(":");
+}
+
+function buildBootstrapQueueKey(request: WorkspaceBootstrapRequest): string {
   const runId = request.runId.trim();
   const context = request.repositoryContext;
   const owner = context.owner?.trim() ?? "";
   const repo = context.repo?.trim() ?? "";
   const branch = context.branch?.trim() ?? "";
   const baseUrl = context.baseUrl?.trim() ?? "";
-  return [runId, owner, repo, branch, baseUrl, request.mode].join(":");
+  return [runId, owner, repo, branch, baseUrl].join(":");
 }
 
 function buildWorkspaceSyncCacheKey(
