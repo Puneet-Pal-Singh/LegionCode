@@ -65,6 +65,17 @@ export function buildRunTerminalViewModel(input: {
     readNonEmptyString(terminalMetadata.resumeHint) ??
     resolveDefaultNextAction(state);
   const artifactId = readNonEmptyString(terminalMetadata.artifactId);
+  if (
+    isNoopCompletedTerminal({
+      state,
+      changedFileCount,
+      artifactId,
+      lastSuccessfulStep,
+      failedStep,
+    })
+  ) {
+    return null;
+  }
 
   return {
     id: `terminal:${input.runId}`,
@@ -78,6 +89,28 @@ export function buildRunTerminalViewModel(input: {
       nextAction,
     }),
   };
+}
+
+function isNoopCompletedTerminal(input: {
+  state: TerminalDisplayState;
+  changedFileCount: number | null;
+  artifactId: string | null;
+  lastSuccessfulStep: string | null;
+  failedStep: string | null;
+}): boolean {
+  if (
+    input.state !== "completed" &&
+    input.state !== "completed_with_warnings"
+  ) {
+    return false;
+  }
+
+  return (
+    input.changedFileCount === 0 &&
+    !input.artifactId &&
+    !input.lastSuccessfulStep &&
+    !input.failedStep
+  );
 }
 
 function resolveTerminalDisplayState(

@@ -44,6 +44,24 @@ describe("buildRunTerminalViewModel", () => {
     expect(viewModel?.content).toContain("Approval is required");
   });
 
+  it("suppresses no-op completed terminal cards", () => {
+    const viewModel = buildRunTerminalViewModel({
+      runId: "run-noop",
+      summary: {
+        status: "COMPLETED",
+        terminalState: "completed",
+        terminalMessage: {
+          changedFileCount: 0,
+          nextAction: "Send the next task when you are ready.",
+        },
+      },
+      events: [],
+      hasVisibleAssistantMessage: false,
+    });
+
+    expect(viewModel).toBeNull();
+  });
+
   it("shows completed and failed work for failed runs", () => {
     const events: RunEvent[] = [
       {
