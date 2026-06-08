@@ -48,7 +48,6 @@ function createSlugIdSchema<TName extends string>(
 ): z.ZodBranded<z.ZodString, TName> {
   return z
     .string()
-    .trim()
     .min(1)
     .max(maxLength)
     .regex(pattern, `${name} must be a stable protocol identifier`)

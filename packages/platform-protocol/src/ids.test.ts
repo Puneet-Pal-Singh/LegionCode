@@ -51,6 +51,8 @@ describe("platform protocol IDs", () => {
     );
 
     expect(() => ProviderIdSchema.parse("OpenAI")).toThrow();
+    expect(() => ProviderIdSchema.parse(" openrouter ")).toThrow();
     expect(() => ModelIdSchema.parse("")).toThrow();
+    expect(() => ModelIdSchema.parse(" z-ai/glm-4.5-air:free ")).toThrow();
   });
 });
