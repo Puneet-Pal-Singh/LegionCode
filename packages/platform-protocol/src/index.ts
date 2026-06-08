@@ -9,6 +9,7 @@ export {
 export {
   ArtifactReferenceItemContentSchema,
   JsonRecordSchema,
+  JsonValueSchema,
   RunItemSchema,
   RunModeSchema,
   RunSchema,
@@ -25,6 +26,7 @@ export {
   TurnStatusSchema,
   type ArtifactReferenceItemContent,
   type JsonRecord,
+  type JsonValue,
   type Run,
   type RunItem,
   type RunMode,

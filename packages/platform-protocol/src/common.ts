@@ -5,7 +5,7 @@ export const ProtocolTimestampSchema = z.string().datetime({
 });
 export type ProtocolTimestamp = z.infer<typeof ProtocolTimestampSchema>;
 
-export const EventSequenceSchema = z.number().int().nonnegative();
+export const EventSequenceSchema = z.number().int().safe().nonnegative();
 export type EventSequence = z.infer<typeof EventSequenceSchema>;
 
 export const BranchIdSchema = z

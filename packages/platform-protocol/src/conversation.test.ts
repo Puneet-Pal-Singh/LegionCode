@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ArtifactReferenceItemContentSchema,
+  JsonRecordSchema,
   RunItemSchema,
   RunSchema,
   ThreadItemSchema,
@@ -112,6 +113,24 @@ describe("conversation protocol schemas", () => {
     ).toThrow();
   });
 
+  it("rejects non-JSON protocol payloads", () => {
+    expect(() =>
+      JsonRecordSchema.parse({
+        createdAt: new Date(timestamp),
+      }),
+    ).toThrow();
+    expect(() =>
+      JsonRecordSchema.parse({
+        missing: undefined,
+      }),
+    ).toThrow();
+    expect(() =>
+      JsonRecordSchema.parse({
+        unsafeNumber: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrow();
+  });
+
   it("accepts typed content for tool calls and artifact references", () => {
     const toolCallContent = ToolCallItemContentSchema.parse({
       toolCallId: "toolcall_abc123",
@@ -127,6 +146,52 @@ describe("conversation protocol schemas", () => {
 
     expect(toolCallContent.toolName).toBe("read_file");
     expect(artifactReferenceContent.label).toBe("Diff preview");
+  });
+
+  it("enforces typed content through the thread item boundary", () => {
+    expect(() =>
+      ThreadItemSchema.parse({
+        id: "itm_abc123",
+        threadId: "thr_abc123",
+        runId: "run_abc123",
+        turnId: "trn_abc123",
+        parentItemId: null,
+        branchId: null,
+        type: "tool_call",
+        role: "assistant",
+        status: "running",
+        content: {},
+        createdAt: timestamp,
+        completedAt: null,
+        eventSequence: 2,
+      }),
+    ).toThrow();
+
+    const item = ThreadItemSchema.parse({
+      id: "itm_abc123",
+      threadId: "thr_abc123",
+      runId: "run_abc123",
+      turnId: "trn_abc123",
+      parentItemId: null,
+      branchId: null,
+      type: "artifact_reference",
+      role: "runtime",
+      status: "completed",
+      content: {
+        artifactId: "art_abc123",
+        label: "Patch",
+        metadata: { mimeType: "text/x-diff" },
+      },
+      createdAt: timestamp,
+      completedAt: timestamp,
+      eventSequence: 3,
+    });
+
+    expect(item.type).toBe("artifact_reference");
+    if (item.type !== "artifact_reference") {
+      throw new Error("Expected artifact reference item");
+    }
+    expect(item.content.artifactId).toBe("art_abc123");
   });
 
   it("rejects extra fields at the protocol boundary", () => {
@@ -146,6 +211,26 @@ describe("conversation protocol schemas", () => {
         updatedAt: timestamp,
         lastEventSequence: 0,
         sessionId: "run_abc123",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects unsafe event sequence values", () => {
+    expect(() =>
+      ThreadSchema.parse({
+        id: "thr_abc123",
+        userId: "usr_abc123",
+        workspaceId: "wrk_abc123",
+        title: "Thread",
+        titleSource: "generated",
+        status: "active",
+        pinnedAt: null,
+        archivedAt: null,
+        activeRunId: null,
+        activeLeafItemId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        lastEventSequence: Number.MAX_SAFE_INTEGER + 1,
       }),
     ).toThrow();
   });

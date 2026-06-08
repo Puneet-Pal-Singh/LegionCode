@@ -74,6 +74,19 @@ export const ThreadItemTypeSchema = z.enum([
 ]);
 export type ThreadItemType = z.infer<typeof ThreadItemTypeSchema>;
 
+const GenericThreadItemTypeSchema = z.enum([
+  "user_message",
+  "assistant_message",
+  "reasoning_summary",
+  "tool_result",
+  "approval_request",
+  "approval_decision",
+  "file_change",
+  "git_operation",
+  "context_compaction",
+  "system_marker",
+]);
+
 export const ThreadItemRoleSchema = z.enum([
   "user",
   "assistant",
@@ -92,9 +105,62 @@ export const ThreadItemStatusSchema = z.enum([
 ]);
 export type ThreadItemStatus = z.infer<typeof ThreadItemStatusSchema>;
 
-export const JsonRecordSchema: z.ZodType<Record<string, unknown>> = z
-  .record(z.unknown());
-export type JsonRecord = z.infer<typeof JsonRecordSchema>;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue =
+  | JsonPrimitive
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+export type JsonRecord = Record<string, JsonValue>;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  return Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) {
+    return true;
+  }
+
+  if (typeof value === "string" || typeof value === "boolean") {
+    return true;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+
+  return isJsonRecord(value);
+}
+
+export const JsonValueSchema: z.ZodType<JsonValue> = z.custom<JsonValue>(
+  isJsonValue,
+  "Value must be JSON-serializable",
+);
+export const JsonRecordSchema: z.ZodType<JsonRecord> = z.custom<JsonRecord>(
+  isJsonRecord,
+  "Value must be a JSON object",
+);
 
 export const ThreadSchema = z
   .object({
@@ -152,31 +218,6 @@ export const TurnSchema = z
   .strict();
 export type Turn = z.infer<typeof TurnSchema>;
 
-export const ThreadItemSchema = z
-  .object({
-    id: ItemIdSchema,
-    threadId: ThreadIdSchema,
-    runId: RunIdSchema.nullable(),
-    turnId: TurnIdSchema.nullable(),
-    parentItemId: ItemIdSchema.nullable(),
-    branchId: BranchIdSchema.nullable(),
-    type: ThreadItemTypeSchema,
-    role: ThreadItemRoleSchema,
-    status: ThreadItemStatusSchema,
-    content: JsonRecordSchema,
-    createdAt: ProtocolTimestampSchema,
-    completedAt: ProtocolTimestampSchema.nullable(),
-    eventSequence: EventSequenceSchema,
-  })
-  .strict();
-export type ThreadItem = z.infer<typeof ThreadItemSchema>;
-
-export const RunItemSchema = ThreadItemSchema.extend({
-  runId: RunIdSchema,
-  turnId: TurnIdSchema,
-});
-export type RunItem = z.infer<typeof RunItemSchema>;
-
 export const ToolCallItemContentSchema = z
   .object({
     toolCallId: ToolCallIdSchema,
@@ -198,3 +239,54 @@ export const ArtifactReferenceItemContentSchema = z
 export type ArtifactReferenceItemContent = z.infer<
   typeof ArtifactReferenceItemContentSchema
 >;
+
+const ThreadItemBaseShape = {
+  id: ItemIdSchema,
+  threadId: ThreadIdSchema,
+  runId: RunIdSchema.nullable(),
+  turnId: TurnIdSchema.nullable(),
+  parentItemId: ItemIdSchema.nullable(),
+  branchId: BranchIdSchema.nullable(),
+  role: ThreadItemRoleSchema,
+  status: ThreadItemStatusSchema,
+  createdAt: ProtocolTimestampSchema,
+  completedAt: ProtocolTimestampSchema.nullable(),
+  eventSequence: EventSequenceSchema,
+} as const;
+
+const GenericThreadItemSchema = z
+  .object({
+    ...ThreadItemBaseShape,
+    type: GenericThreadItemTypeSchema,
+    content: JsonRecordSchema,
+  })
+  .strict();
+
+const ToolCallThreadItemSchema = z
+  .object({
+    ...ThreadItemBaseShape,
+    type: z.literal("tool_call"),
+    content: ToolCallItemContentSchema,
+  })
+  .strict();
+
+const ArtifactReferenceThreadItemSchema = z
+  .object({
+    ...ThreadItemBaseShape,
+    type: z.literal("artifact_reference"),
+    content: ArtifactReferenceItemContentSchema,
+  })
+  .strict();
+
+export const ThreadItemSchema = z.discriminatedUnion("type", [
+  GenericThreadItemSchema,
+  ToolCallThreadItemSchema,
+  ArtifactReferenceThreadItemSchema,
+]);
+export type ThreadItem = z.infer<typeof ThreadItemSchema>;
+
+export const RunItemSchema = ThreadItemSchema.and(z.object({
+  runId: RunIdSchema,
+  turnId: TurnIdSchema,
+}));
+export type RunItem = z.infer<typeof RunItemSchema>;
