@@ -22,10 +22,6 @@ import type {
   TaskResult,
 } from "../types.js";
 
-type LineMatcherPatternSource =
-  | "external_user_input"
-  | "deriveGrepPatternFromHint";
-
 const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
   /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
 const INTERNAL_RUNTIME_FEATURE_FLAGS_KEY = "__runtimeFeatureFlags";
@@ -207,10 +203,19 @@ async function executeReadFileTool(
   const path = normalizeToolPath(validatedInput.path);
   validateToolPath(path);
   validateSafePath(path);
+  const payload: Record<string, unknown> = { path };
+  if (validatedInput.offset !== undefined) {
+    payload.offset = validatedInput.offset;
+  }
+  if (validatedInput.limit !== undefined) {
+    payload.limit = validatedInput.limit;
+  }
 
-  const result = await executeGatewayPlugin(executionService, "read_file", {
-    path,
-  });
+  const result = await executeGatewayPlugin(
+    executionService,
+    "read_file",
+    payload,
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
     return buildFailureResult(taskId, failure);
@@ -326,7 +331,10 @@ async function executeBashTool(
 
   const catPath = extractPathFromCatCommand(command);
   if (catPath) {
-    const path = resolveWorkspaceRelativeShellPath(normalizedInput.cwd, catPath);
+    const path = resolveWorkspaceRelativeShellPath(
+      normalizedInput.cwd,
+      catPath,
+    );
     validateSafePath(path);
     return executeReadFileTool(executionService, taskId, {
       description: "Read file from shell shortcut",
@@ -737,7 +745,10 @@ async function executeGitHubPullRequestGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("github_pr_get", taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_pr_get",
+    taskInput,
+  );
   return executeGitHubReadTool(executionService, taskId, "github_pr_get", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -750,7 +761,10 @@ async function executeGitHubPullRequestListTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("github_pr_list", taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_pr_list",
+    taskInput,
+  );
   return executeGitHubReadTool(executionService, taskId, "github_pr_list", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -768,11 +782,16 @@ async function executeGitHubPullRequestChecksGetTool(
     "github_pr_checks_get",
     taskInput,
   );
-  return executeGitHubReadTool(executionService, taskId, "github_pr_checks_get", {
-    owner: validatedInput.owner.trim(),
-    repo: validatedInput.repo.trim(),
-    number: validatedInput.number,
-  });
+  return executeGitHubReadTool(
+    executionService,
+    taskId,
+    "github_pr_checks_get",
+    {
+      owner: validatedInput.owner.trim(),
+      repo: validatedInput.repo.trim(),
+      number: validatedInput.number,
+    },
+  );
 }
 
 async function executeGitHubReviewThreadsGetTool(
@@ -801,7 +820,10 @@ async function executeGitHubIssueGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("github_issue_get", taskInput);
+  const validatedInput = validateGoldenFlowToolInput(
+    "github_issue_get",
+    taskInput,
+  );
   return executeGitHubReadTool(executionService, taskId, "github_issue_get", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -959,7 +981,11 @@ async function executeGitHubReadTool(
     | "github_actions_job_logs_get",
   payload: Record<string, unknown>,
 ): Promise<TaskResult> {
-  const result = await executeGatewayPlugin(executionService, toolName, payload);
+  const result = await executeGatewayPlugin(
+    executionService,
+    toolName,
+    payload,
+  );
   const failure = extractExecutionFailure(result);
   if (failure) {
     return buildFailureResult(taskId, failure, {
@@ -1060,18 +1086,20 @@ async function executeGlobTool(
     validateSafePath(startPath);
   }
 
-  const maxResults = validatedInput.maxResults ?? 50;
-  const matches = await findGlobMatches(
-    executionService,
-    validatedInput.pattern,
-    startPath,
-    maxResults,
-  );
-  const output =
-    matches.length > 0
-      ? matches.join("\n")
-      : `No files matched glob pattern "${validatedInput.pattern}" from ${startPath}.`;
-  return buildSuccessResult(taskId, output);
+  const payload: Record<string, unknown> = {
+    pattern: validatedInput.pattern,
+    path: startPath,
+  };
+  if (validatedInput.maxResults !== undefined) {
+    payload.maxResults = validatedInput.maxResults;
+  }
+
+  const result = await executeGatewayPlugin(executionService, "glob", payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
 }
 
 async function executeGrepTool(
@@ -1085,19 +1113,26 @@ async function executeGrepTool(
     validateSafePath(startPath);
   }
 
-  const matches = await findGrepMatches(executionService, {
+  const payload: Record<string, unknown> = {
     pattern: validatedInput.pattern,
-    startPath,
-    globPattern: validatedInput.glob,
-    caseSensitive: validatedInput.caseSensitive ?? false,
-    maxResults: validatedInput.maxResults ?? 25,
-    patternSource: "external_user_input",
-  });
-  const output =
-    matches.length > 0
-      ? matches.join("\n")
-      : `No matches found for "${validatedInput.pattern}" from ${startPath}.`;
-  return buildSuccessResult(taskId, output);
+    path: startPath,
+  };
+  if (validatedInput.glob) {
+    payload.glob = validatedInput.glob;
+  }
+  if (validatedInput.caseSensitive !== undefined) {
+    payload.caseSensitive = validatedInput.caseSensitive;
+  }
+  if (validatedInput.maxResults !== undefined) {
+    payload.maxResults = validatedInput.maxResults;
+  }
+
+  const result = await executeGatewayPlugin(executionService, "grep", payload);
+  const failure = extractExecutionFailure(result);
+  if (failure) {
+    return buildFailureResult(taskId, failure);
+  }
+  return buildSuccessResult(taskId, formatExecutionResult(result));
 }
 
 interface GitHubCliRuntimeFlags {
@@ -1106,7 +1141,9 @@ interface GitHubCliRuntimeFlags {
   prCommentEnabled: boolean;
 }
 
-function readGitHubCliRuntimeFlags(taskInput: TaskInput): GitHubCliRuntimeFlags {
+function readGitHubCliRuntimeFlags(
+  taskInput: TaskInput,
+): GitHubCliRuntimeFlags {
   const rawFlags = taskInput[INTERNAL_RUNTIME_FEATURE_FLAGS_KEY];
   if (!rawFlags || typeof rawFlags !== "object") {
     return {
@@ -1119,8 +1156,7 @@ function readGitHubCliRuntimeFlags(taskInput: TaskInput): GitHubCliRuntimeFlags 
   const flags = rawFlags as Record<string, unknown>;
   const laneEnabled = readBoolean(flags.ghCliLaneEnabled) ?? false;
   const ciEnabled = readBoolean(flags.ghCliCiEnabled) ?? false;
-  const prCommentEnabled =
-    readBoolean(flags.ghCliPrCommentEnabled) ?? false;
+  const prCommentEnabled = readBoolean(flags.ghCliPrCommentEnabled) ?? false;
   return {
     laneEnabled,
     ciEnabled,
@@ -1160,9 +1196,7 @@ function getDisabledGitHubCliToolFailure(
   return null;
 }
 
-function toGitHubCliFlagPayload(
-  flags: GitHubCliRuntimeFlags,
-): {
+function toGitHubCliFlagPayload(flags: GitHubCliRuntimeFlags): {
   ghCliLaneEnabled: boolean;
   ghCliCiEnabled: boolean;
   ghCliPrCommentEnabled: boolean;
@@ -1201,144 +1235,6 @@ async function readExistingFileContent(
     return "";
   }
   return formatExecutionResult(result);
-}
-
-async function findGlobMatches(
-  executionService: RuntimeExecutionService,
-  pattern: string,
-  startPath: string,
-  maxResults: number,
-): Promise<string[]> {
-  const scanLimit = Math.max(maxResults * 3, 60);
-  const files = await collectWorkspaceFiles(
-    executionService,
-    startPath,
-    scanLimit,
-    4,
-  );
-  const matcher = buildGlobMatcher(pattern);
-  return files.filter((filePath) => matcher(filePath)).slice(0, maxResults);
-}
-
-async function findGrepMatches(
-  executionService: RuntimeExecutionService,
-  input: {
-    pattern: string;
-    startPath: string;
-    globPattern?: string;
-    caseSensitive: boolean;
-    maxResults: number;
-    patternSource: LineMatcherPatternSource;
-  },
-): Promise<string[]> {
-  const scanLimit = Math.max(input.maxResults * 4, 80);
-  const candidates = input.globPattern
-    ? await findGlobMatches(
-        executionService,
-        input.globPattern,
-        input.startPath,
-        scanLimit,
-      )
-    : await collectWorkspaceFiles(
-        executionService,
-        input.startPath,
-        scanLimit,
-        4,
-      );
-  const matches: string[] = [];
-  const lineMatcher = buildLineMatcher(
-    input.pattern,
-    input.caseSensitive,
-    input.patternSource,
-  );
-
-  for (const filePath of candidates) {
-    if (matches.length >= input.maxResults) {
-      break;
-    }
-
-    const readResult = await executeGatewayPlugin(
-      executionService,
-      "read_file",
-      {
-        path: filePath,
-      },
-    );
-    const failure = extractExecutionFailure(readResult);
-    if (failure) {
-      continue;
-    }
-
-    const content = formatExecutionResult(readResult);
-    if (content.includes("[BINARY_FILE_DETECTED]")) {
-      continue;
-    }
-
-    const lines = content.split("\n");
-    for (let index = 0; index < lines.length; index += 1) {
-      if (matches.length >= input.maxResults) {
-        break;
-      }
-      const line = lines[index] ?? "";
-      if (lineMatcher(line)) {
-        matches.push(`${filePath}:${index + 1}: ${line}`);
-      }
-    }
-  }
-
-  return matches;
-}
-
-async function collectWorkspaceFiles(
-  executionService: RuntimeExecutionService,
-  startPath: string,
-  maxFiles: number,
-  maxDepth: number,
-): Promise<string[]> {
-  const discovered = new Set<string>();
-  const queue: Array<{ path: string; depth: number }> = [
-    { path: startPath, depth: 0 },
-  ];
-
-  while (queue.length > 0 && discovered.size < maxFiles) {
-    const current = queue.shift();
-    if (!current) {
-      break;
-    }
-
-    const listResult = await executeGatewayPlugin(
-      executionService,
-      "list_files",
-      {
-        path: current.path,
-      },
-    );
-    const failure = extractExecutionFailure(listResult);
-    if (failure) {
-      continue;
-    }
-
-    const entries = parseDirectoryEntries(formatExecutionResult(listResult));
-    for (const entry of entries) {
-      if (entry.endsWith("/")) {
-        if (current.depth >= maxDepth) {
-          continue;
-        }
-        queue.push({
-          path: joinRelativePath(current.path, entry.slice(0, -1)),
-          depth: current.depth + 1,
-        });
-        continue;
-      }
-
-      discovered.add(joinRelativePath(current.path, entry));
-      if (discovered.size >= maxFiles) {
-        break;
-      }
-    }
-  }
-
-  return Array.from(discovered);
 }
 
 function buildSuccessResult(
@@ -1657,83 +1553,4 @@ function extractPathFromCatCommand(command: string): string | null {
   }
 
   return argument;
-}
-
-function parseDirectoryEntries(output: string): string[] {
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line.length > 0 &&
-        !line.startsWith("... and ") &&
-        !line.startsWith("Total:"),
-    );
-}
-
-function joinRelativePath(basePath: string, entry: string): string {
-  const normalizedBase = basePath
-    .trim()
-    .replace(/^\.\/+/, "")
-    .replace(/\/+$/, "");
-  const normalizedEntry = entry.trim().replace(/^\.\/+/, "");
-  if (!normalizedBase || normalizedBase === ".") {
-    return normalizedEntry;
-  }
-  return `${normalizedBase}/${normalizedEntry}`;
-}
-
-function buildGlobMatcher(pattern: string): (value: string) => boolean {
-  const normalized = pattern.trim();
-  const source: string[] = ["^"];
-
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized.charAt(index);
-    const next = normalized.charAt(index + 1);
-    if (char === "*" && next === "*") {
-      source.push(".*");
-      index += 1;
-      continue;
-    }
-    if (char === "*") {
-      source.push("[^/]*");
-      continue;
-    }
-    if (char === "?") {
-      source.push("[^/]");
-      continue;
-    }
-    source.push(escapeRegexChar(char));
-  }
-
-  source.push("$");
-  const regex = new RegExp(source.join(""), "i");
-  return (value) => regex.test(value);
-}
-
-function buildLineMatcher(
-  pattern: string,
-  caseSensitive: boolean,
-  patternSource: LineMatcherPatternSource,
-): (line: string) => boolean {
-  const safePattern = pattern.trim();
-  if (safePattern.length === 0) {
-    return () => false;
-  }
-
-  const skipExternalScreening = patternSource === "deriveGrepPatternFromHint";
-  const matcherSource = skipExternalScreening
-    ? safePattern
-    : escapeRegex(safePattern);
-  const flags = caseSensitive ? "" : "i";
-  const regex = new RegExp(matcherSource, flags);
-  return (line) => regex.test(line);
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function escapeRegexChar(value: string): string {
-  return /[.*+?^${}()|[\]\\]/.test(value) ? `\\${value}` : value;
 }

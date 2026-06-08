@@ -397,7 +397,7 @@ describe("CodingAgent task-phase model selection", () => {
     });
   });
 
-  it("does not treat unsafe user grep patterns as executable regex", async () => {
+  it("surfaces gateway failures during grep discovery", async () => {
     const llmGateway = createLLMGatewayMock();
     const execute = vi.fn(
       async (
@@ -441,8 +441,10 @@ describe("CodingAgent task-phase model selection", () => {
 
     const result = await agent.executeTask(task, context);
 
-    expect(result.status).toBe("DONE");
-    expect(result.output?.content).toContain('No matches found for "(a+)+$"');
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain(
+      "unexpected call filesystem:grep",
+    );
   });
 
   it("rejects invalid grep input types via golden-flow schema validation", async () => {

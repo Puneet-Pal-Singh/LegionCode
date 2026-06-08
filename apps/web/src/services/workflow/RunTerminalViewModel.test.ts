@@ -21,14 +21,12 @@ describe("buildRunTerminalViewModel", () => {
     });
 
     expect(viewModel?.artifactId).toBe("artifact-1");
-    expect(viewModel?.content).toContain("Outcome: Run completed.");
-    expect(viewModel?.content).toContain("Changed files: 2 files");
+    expect(viewModel?.content).toContain("Run completed.");
+    expect(viewModel?.content).toContain("2 files changed.");
     expect(viewModel?.content).toContain(
       "Last successful step: create_code_artifact",
     );
-    expect(viewModel?.content).toContain(
-      "Next action: Send the next task when ready.",
-    );
+    expect(viewModel?.content).toContain("Send the next task when ready.");
   });
 
   it("does not suppress approval-required as a generic failure", () => {
@@ -44,6 +42,44 @@ describe("buildRunTerminalViewModel", () => {
 
     expect(viewModel?.state).toBe("approval_required");
     expect(viewModel?.content).toContain("Approval is required");
+  });
+
+  it("suppresses no-op completed terminal cards", () => {
+    const viewModel = buildRunTerminalViewModel({
+      runId: "run-noop",
+      summary: {
+        status: "COMPLETED",
+        terminalState: "completed",
+        terminalMessage: {
+          changedFileCount: 0,
+          nextAction: "Send the next task when you are ready.",
+        },
+      },
+      events: [],
+      hasVisibleAssistantMessage: false,
+    });
+
+    expect(viewModel).toBeNull();
+  });
+
+  it("keeps warning terminal cards visible even without changed files", () => {
+    const viewModel = buildRunTerminalViewModel({
+      runId: "run-warning",
+      summary: {
+        status: "COMPLETED",
+        terminalState: "completed_with_warnings",
+        terminalMessage: {
+          changedFileCount: 0,
+          nextAction: "Review the warning details.",
+        },
+      },
+      events: [],
+      hasVisibleAssistantMessage: false,
+    });
+
+    expect(viewModel).not.toBeNull();
+    expect(viewModel?.state).toBe("completed_with_warnings");
+    expect(viewModel?.content).toContain("warning");
   });
 
   it("shows completed and failed work for failed runs", () => {
@@ -91,7 +127,7 @@ describe("buildRunTerminalViewModel", () => {
       changedFileCount: 1,
     });
 
-    expect(viewModel?.content).toContain("Changed files: 1 file");
+    expect(viewModel?.content).toContain("1 file changed.");
     expect(viewModel?.content).toContain("Last successful step: read_file");
     expect(viewModel?.content).toContain("Failed step: npm_test");
   });

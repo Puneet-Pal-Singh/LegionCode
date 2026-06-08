@@ -155,7 +155,16 @@ export class AuthController {
         return errorResponse(request, env, "Invalid or expired session", 400);
       }
 
-      const session: AuthSession = JSON.parse(sessionData);
+      let session: AuthSession;
+      try {
+        session = JSON.parse(sessionData) as AuthSession;
+      } catch (parseError) {
+        console.warn(
+          "[auth/callback] corrupted OAuth state in KV store",
+          parseError instanceof Error ? parseError.message : parseError,
+        );
+        return errorResponse(request, env, "Invalid or expired session", 400);
+      }
 
       // Check session expiration
       if (Date.now() - session.createdAt > SESSION_TTL) {

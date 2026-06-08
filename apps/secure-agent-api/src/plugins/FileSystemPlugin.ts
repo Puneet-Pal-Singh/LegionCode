@@ -20,6 +20,7 @@ const DEFAULT_READ_LIMIT = 200;
 const MAX_READ_LIMIT = 1_000;
 const MAX_READ_LINE_LENGTH = 500;
 const MAX_READ_OUTPUT_BYTES = 24_000;
+const MAX_READ_FILE_BYTES = 1_048_576;
 
 const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
@@ -220,6 +221,38 @@ export class FileSystemPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
+    let totalBytes: number | undefined;
+    if (shouldGuardUnconditionalRead(payload)) {
+      const statResult = await runSafeCommand(
+        sandbox,
+        withToolboxCommandContext(
+          { command: "stat", args: ["-c", "%s", targetPath], runId },
+          toolboxContext,
+          "filesystem.read_file_stat",
+        ),
+        ["stat"],
+      );
+      if (statResult.exitCode !== 0) {
+        return {
+          success: false,
+          error: statResult.stderr || "Unable to stat file",
+        };
+      }
+      const parsedBytes = Number(statResult.stdout.trim());
+      totalBytes = Number.isFinite(parsedBytes) ? parsedBytes : undefined;
+      if (totalBytes !== undefined && totalBytes > MAX_READ_FILE_BYTES) {
+        return {
+          success: false,
+          error: `File too large to read unconditionally (${totalBytes} bytes > ${MAX_READ_FILE_BYTES}). Pass offset/limit to stream a window.`,
+          metadata: {
+            path: payload.path,
+            totalBytes,
+            maxReadBytes: MAX_READ_FILE_BYTES,
+          },
+        };
+      }
+    }
+
     const fileTypeResult = await runSafeCommand(
       sandbox,
       withToolboxCommandContext(
@@ -246,7 +279,7 @@ export class FileSystemPlugin implements IPlugin {
         success: true,
         output: "[BINARY_FILE_DETECTED]",
         isBinary: true,
-        metadata: { path: payload.path, mimeType },
+        metadata: { path: payload.path, mimeType, totalBytes },
         truncated: false,
       };
     }
@@ -288,6 +321,7 @@ export class FileSystemPlugin implements IPlugin {
       metadata: {
         path: payload.path,
         mimeType,
+        totalBytes,
         offset,
         limit,
         totalLines,
@@ -374,11 +408,36 @@ export class FileSystemPlugin implements IPlugin {
   }
 }
 
+const BINARY_MIME_PREFIXES = [
+  "image/",
+  "video/",
+  "audio/",
+  "font/",
+  "application/pdf",
+  "application/zip",
+  "application/x-tar",
+  "application/x-gzip",
+  "application/x-bzip",
+  "application/x-7z-compressed",
+  "application/x-rar",
+  "application/octet-stream",
+  "application/x-executable",
+  "application/x-sharedlib",
+  "application/x-msdownload",
+  "application/vnd.",
+];
+
 function isBinaryMimeType(mimeType: string): boolean {
+  const normalized = mimeType.toLowerCase();
+  return BINARY_MIME_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function shouldGuardUnconditionalRead(
+  payload: Extract<FileSystemPayload, { action: "read_file" }>,
+): boolean {
   return (
-    mimeType.includes("application/octet-stream") ||
-    mimeType.includes("application/x-executable") ||
-    mimeType.includes("application/x-sharedlib")
+    (payload.offset === undefined || payload.offset === 0) &&
+    payload.limit === undefined
   );
 }
 

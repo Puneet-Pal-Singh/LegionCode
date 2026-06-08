@@ -60,6 +60,9 @@ const mockGetEditArtifactDiff = vi.hoisted(() =>
     };
   }),
 );
+const mockGetEditArtifactReviewSourceByMessage = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
 
 vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
@@ -118,7 +121,8 @@ vi.mock("../../lib/git-client.js", () => ({
 
 vi.mock("../../lib/edit-artifacts-client.js", () => ({
   getEditArtifactDiff: (input: unknown) => mockGetEditArtifactDiff(input),
-  getEditArtifactReviewSourceByMessage: vi.fn(async () => null),
+  getEditArtifactReviewSourceByMessage: () =>
+    mockGetEditArtifactReviewSourceByMessage(),
 }));
 
 const mockDispatchRunSummaryRefresh = vi.fn();
@@ -164,6 +168,7 @@ describe("ChatInterface", () => {
     mockGitReviewState.status = null;
     mockGetGitDiff.mockClear();
     mockGetEditArtifactDiff.mockClear();
+    mockGetEditArtifactReviewSourceByMessage.mockClear();
     mockOpenPromptArtifactReview.mockReset();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
@@ -337,7 +342,7 @@ describe("ChatInterface", () => {
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
-  it("renders a terminal card when only a non-terminal assistant message is visible", () => {
+  it("does not render a completed terminal fallback when an assistant message is visible", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
         runId: "run-terminal",
@@ -391,11 +396,133 @@ describe("ChatInterface", () => {
     expect(
       screen.getByText("I found the relevant workflow files."),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Outcome: Run completed\./)).toBeInTheDocument();
-    expect(screen.getByText(/Changed files: 2 files/)).toBeInTheDocument();
+    expect(screen.queryByText(/Run completed\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(/2 files changed\./)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Last successful step: create_code_artifact/),
-    ).toBeInTheDocument();
+      screen.queryByText(/Last successful step: create_code_artifact/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("settles the loading UI when the run summary is terminal", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-terminal",
+        status: "COMPLETED",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+        terminalState: "completed",
+        terminalMessage: {
+          changedFileCount: 0,
+          nextAction: "Send the next task when you are ready.",
+        },
+        planArtifact: null,
+      },
+    });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "yoyo",
+            },
+          ],
+          runId: "run-terminal",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          canStop: true,
+          isLoading: true,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Run completed\./)).not.toBeInTheDocument();
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: false,
+        isLoading: false,
+      }),
+    );
+  });
+
+  it("caches missing artifact sources for assistant messages before terminal status", async () => {
+    const messages: Message[] = [
+      {
+        id: "assistant-no-artifact",
+        role: "assistant",
+        content: "Plain response.",
+      },
+    ];
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-active",
+        status: "RUNNING",
+        totalTasks: 0,
+        completedTasks: 0,
+        failedTasks: 0,
+      },
+    });
+
+    const { rerender } = render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages: [...messages],
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(1);
   });
 
   it("opens artifact review from a terminal card changed-file list", async () => {
@@ -460,7 +587,7 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getByText(/2 files changed/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/2 files changed/i).length).toBeGreaterThan(0);
     expect(
       screen.getByRole("button", {
         name: /expand changes for src\/components\/hero\.tsx/i,
@@ -1007,7 +1134,7 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getAllByText("Approval required")).toHaveLength(1);
+    expect(screen.getAllByText("Pending approval")).toHaveLength(1);
     expect(
       screen.getByText("LegionCode wants to commit repository changes"),
     ).toBeInTheDocument();

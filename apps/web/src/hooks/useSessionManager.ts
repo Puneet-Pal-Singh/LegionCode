@@ -90,6 +90,13 @@ function findNextVisibleSession(
   );
 }
 
+function isMissingServerSessionArchive(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return /failed:\s*404\b/.test(error.message);
+}
+
 export function useSessionManager(options: UseSessionManagerOptions = {}) {
   const hydrateFromServer = options.hydrateFromServer ?? true;
   const [sessions, setSessions] = useState<AgentSession[]>(() => {
@@ -316,6 +323,13 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         return next;
       });
     } catch (error) {
+      if (isMissingServerSessionArchive(error)) {
+        console.warn(
+          "[useSessionManager] Archived local-only session; server record was absent:",
+          error,
+        );
+        return;
+      }
       console.warn("[useSessionManager] Failed to archive session:", error);
       sessionsRef.current = previousSessions;
       setSessions(previousSessions);

@@ -5,4 +5,11 @@
 
   // Cloudflare Pages deploy target for the public landing app.
   "pages_build_output_dir": "./dist",
+
+  // /agents/* dispatch target. apps/landing/functions/agents/[[path]].ts
+  // reads this Pages var to proxy /agents/* to the agents web app.
+  // Override per environment in deploy-specific wrangler configs.
+  "vars": {
+    "AGENTS_ORIGIN": "https://agents.legioncode.dev",
+  },
 }

@@ -17,6 +17,14 @@ const mockGitStatusState = vi.hoisted(() => ({
   loading: false,
   error: null as string | null,
 }));
+const mockGitStatusInputs = vi.hoisted(
+  () =>
+    [] as Array<{
+      runId?: string;
+      sessionId?: string;
+      enabled?: boolean;
+    }>,
+);
 const mockArtifactState = vi.hoisted(() => ({
   source: null as PromptArtifactReviewSource | null,
   loading: false,
@@ -41,13 +49,16 @@ vi.mock("../../hooks/useRunContext", () => ({
 }));
 
 vi.mock("../../hooks/useGitStatus", () => ({
-  useGitStatus: () => ({
-    status: mockGitStatusState.status,
-    gitAvailable: true,
-    loading: mockGitStatusState.loading,
-    error: mockGitStatusState.error,
-    refetch: mockRefetch,
-  }),
+  useGitStatus: (runId?: string, sessionId?: string, enabled?: boolean) => {
+    mockGitStatusInputs.push({ runId, sessionId, enabled });
+    return {
+      status: enabled === false ? null : mockGitStatusState.status,
+      gitAvailable: true,
+      loading: enabled === false ? false : mockGitStatusState.loading,
+      error: enabled === false ? null : mockGitStatusState.error,
+      refetch: mockRefetch,
+    };
+  },
 }));
 
 vi.mock("../../hooks/useGitDiff", () => ({
@@ -114,6 +125,7 @@ describe("GitReviewProvider", () => {
     mockArtifactState.loading = false;
     mockArtifactState.error = null;
     mockArtifactState.resolved = false;
+    mockGitStatusInputs.splice(0, mockGitStatusInputs.length);
     mockArtifactHookInputs.splice(0, mockArtifactHookInputs.length);
     vi.stubGlobal("crypto", {
       randomUUID: () => "comment-1",
@@ -152,7 +164,7 @@ describe("GitReviewProvider", () => {
     mockArtifactState.source = buildArtifactSource();
 
     render(
-      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
@@ -176,7 +188,7 @@ describe("GitReviewProvider", () => {
     mockArtifactState.source = buildArtifactSource();
 
     render(
-      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
@@ -197,7 +209,7 @@ describe("GitReviewProvider", () => {
     mockArtifactState.resolved = false;
 
     render(
-      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
@@ -216,7 +228,7 @@ describe("GitReviewProvider", () => {
     mockArtifactState.resolved = true;
 
     render(
-      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
@@ -234,6 +246,23 @@ describe("GitReviewProvider", () => {
         assistantMessageId: "assistant-chat",
         enabled: true,
       }),
+    );
+  });
+
+  it("does not load git status or saved edit artifacts while review is closed", () => {
+    mockGitStatusState.status = buildGitStatus([]);
+
+    render(
+      <GitReviewProvider isReviewOpen={false} onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
     );
   });
 });
@@ -341,6 +370,10 @@ function buildInput() {
 
 function latestArtifactHookInput() {
   return mockArtifactHookInputs[mockArtifactHookInputs.length - 1];
+}
+
+function latestGitStatusHookInput() {
+  return mockGitStatusInputs[mockGitStatusInputs.length - 1];
 }
 
 function buildGitStatus(files: FileStatus[]): GitStatusResponse {

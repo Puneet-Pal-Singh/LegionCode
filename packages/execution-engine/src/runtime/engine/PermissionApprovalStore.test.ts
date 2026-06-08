@@ -118,12 +118,12 @@ describe("PermissionApprovalStore", () => {
       "user-1",
     );
 
-    await expect(store.getResolvedDecision("req-resolved")).resolves.toMatchObject(
-      {
-        decision: "allow_once",
-        status: "approved",
-      },
-    );
+    await expect(
+      store.getResolvedDecision("req-resolved"),
+    ).resolves.toMatchObject({
+      decision: "allow_once",
+      status: "approved",
+    });
   });
 
   it("rejects broad unsafe persistent shell rules", async () => {
@@ -153,7 +153,9 @@ describe("PermissionApprovalStore", () => {
         { kind: "allow_persistent_rule", requestId: "req-unsafe" },
         "user-1",
       ),
-    ).rejects.toThrow("Persistent rule was rejected because it is too broad or unsafe.");
+    ).rejects.toThrow(
+      "Persistent rule was rejected because it is too broad or unsafe.",
+    );
   });
 
   it("persists validated narrow rules and matches future actions", async () => {
@@ -225,7 +227,9 @@ describe("PermissionApprovalStore", () => {
         { kind: "allow_persistent_rule", requestId: "req-broad-git" },
         "user-1",
       ),
-    ).rejects.toThrow("Persistent rule was rejected because it is too broad or unsafe.");
+    ).rejects.toThrow(
+      "Persistent rule was rejected because it is too broad or unsafe.",
+    );
   });
 
   it("requires an authenticated user id for persistent approvals", async () => {
@@ -256,6 +260,88 @@ describe("PermissionApprovalStore", () => {
         undefined,
       ),
     ).rejects.toThrow("Persistent approval requires an authenticated user id.");
+  });
+
+  it("rejects approval resolution by a non-owner user", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-owner");
+
+    await store.setPendingRequest(
+      {
+        requestId: "req-owner",
+        runId: "run-approval-owner",
+        origin: "agent",
+        category: "shell_command",
+        title: "Run tests",
+        reason: "Shell command can mutate state.",
+        actionFingerprint: "shell:pnpm test",
+        availableDecisions: ["allow_once", "deny"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      "user-owner",
+    );
+
+    await expect(
+      store.resolveDecision(
+        { kind: "allow_once", requestId: "req-owner" },
+        "user-attacker",
+      ),
+    ).rejects.toThrow(
+      "Approval request owner does not match the resolving user.",
+    );
+  });
+
+  it("rejects owned approval resolution without an authenticated user", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-auth");
+
+    await store.setPendingRequest(
+      {
+        requestId: "req-auth",
+        runId: "run-approval-auth",
+        origin: "agent",
+        category: "shell_command",
+        title: "Run tests",
+        reason: "Shell command can mutate state.",
+        actionFingerprint: "shell:pnpm test",
+        availableDecisions: ["allow_once", "deny"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      "user-owner",
+    );
+
+    await expect(
+      store.resolveDecision(
+        { kind: "allow_once", requestId: "req-auth" },
+        undefined,
+      ),
+    ).rejects.toThrow("Authentication required to resolve this approval.");
+  });
+
+  it("allows the owning user to resolve the request", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-owner-2");
+
+    await store.setPendingRequest(
+      {
+        requestId: "req-owner-2",
+        runId: "run-approval-owner-2",
+        origin: "agent",
+        category: "shell_command",
+        title: "Run tests",
+        reason: "Shell command can mutate state.",
+        actionFingerprint: "shell:pnpm test",
+        availableDecisions: ["allow_once", "deny"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      "user-owner",
+    );
+
+    const result = await store.resolveDecision(
+      { kind: "allow_once", requestId: "req-owner-2" },
+      "user-owner",
+    );
+    expect(result.decision).toBe("allow_once");
   });
 });
 

@@ -8,7 +8,8 @@ describe("brain cors policy", () => {
     });
 
     const headers = getCorsHeaders(request, {
-      CORS_ALLOWED_ORIGINS: "https://app.shadowbox.dev,https://staging.shadowbox.dev",
+      CORS_ALLOWED_ORIGINS:
+        "https://app.shadowbox.dev,https://staging.shadowbox.dev",
     });
 
     expect(headers["Access-Control-Allow-Origin"]).toBe(
@@ -19,7 +20,7 @@ describe("brain cors policy", () => {
     expect(headers["Access-Control-Allow-Methods"]).toContain("PATCH");
   });
 
-  it("rejects non-allowlisted origin on preflight", async () => {
+  it("silently blocks non-allowlisted origin on preflight", async () => {
     const request = new Request("https://brain.test/chat", {
       method: "OPTIONS",
       headers: { Origin: "https://evil.example" },
@@ -30,9 +31,10 @@ describe("brain cors policy", () => {
     });
 
     expect(response).not.toBeNull();
-    expect(response?.status).toBe(403);
-    const body = (await response?.json()) as { error: string };
-    expect(body.error).toContain("Origin not allowed");
+    expect(response?.status).toBe(204);
+    expect(response?.headers.get("Vary")).toBe("Origin");
+    expect(response?.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(await response?.text()).toBe("");
   });
 
   it("allows localhost origins only when explicit dev override is enabled", () => {

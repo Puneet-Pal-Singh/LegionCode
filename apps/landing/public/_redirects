@@ -1,5 +1,3 @@
-/agents https://agents.legioncode.dev 302
-/agents/* https://agents.legioncode.dev/:splat 302
 /app /agents 302
 /web-agents /agents 302
 /* /index.html 200

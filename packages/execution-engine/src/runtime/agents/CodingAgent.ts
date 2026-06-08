@@ -12,7 +12,6 @@ import type {
 import type { Task } from "../task/index.js";
 import type { Plan, PlanContext } from "../planner/index.js";
 import { PlanSchema } from "../planner/index.js";
-import safeRegex from "safe-regex";
 import { BaseAgent } from "./BaseAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
 import {
@@ -36,10 +35,6 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
-
-type LineMatcherPatternSource =
-  | "external_user_input"
-  | "deriveGrepPatternFromHint";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -609,13 +604,19 @@ VALIDATION RULES:
     if (startPath !== ".") {
       validateSafePath(startPath);
     }
-    const maxResults = validatedInput.maxResults ?? 50;
-    const matches = await this.findGlobMatches(pattern, startPath, maxResults);
-    const output =
-      matches.length > 0
-        ? matches.join("\n")
-        : `No files matched glob pattern "${pattern}" from ${startPath}.`;
-    return this.buildSuccessResult(task.id, output);
+    const payload: Record<string, unknown> = {
+      pattern,
+      path: startPath,
+    };
+    if (validatedInput.maxResults !== undefined) {
+      payload.maxResults = validatedInput.maxResults;
+    }
+    const result = await this.executeGatewayPlugin("glob", payload);
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeGrepTool(task: Task): Promise<TaskResult> {
@@ -625,22 +626,25 @@ VALIDATION RULES:
     if (startPath !== ".") {
       validateSafePath(startPath);
     }
-    const globPattern = validatedInput.glob;
-    const caseSensitive = validatedInput.caseSensitive ?? false;
-    const maxResults = validatedInput.maxResults ?? 25;
-    const matches = await this.findGrepMatches({
+    const payload: Record<string, unknown> = {
       pattern,
-      startPath,
-      globPattern,
-      caseSensitive,
-      maxResults,
-      patternSource: "external_user_input",
-    });
-    const output =
-      matches.length > 0
-        ? matches.join("\n")
-        : `No matches found for "${pattern}" from ${startPath}.`;
-    return this.buildSuccessResult(task.id, output);
+      path: startPath,
+    };
+    if (validatedInput.glob) {
+      payload.glob = validatedInput.glob;
+    }
+    if (validatedInput.caseSensitive !== undefined) {
+      payload.caseSensitive = validatedInput.caseSensitive;
+    }
+    if (validatedInput.maxResults !== undefined) {
+      payload.maxResults = validatedInput.maxResults;
+    }
+    const result = await this.executeGatewayPlugin("grep", payload);
+    const failure = extractExecutionFailure(result);
+    if (failure) {
+      return this.buildFailureResult(task.id, failure);
+    }
+    return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeReadFileWithFallback(
@@ -684,28 +688,41 @@ VALIDATION RULES:
 
     const globPattern = deriveGlobPatternFromHint(targetHint);
     if (globPattern) {
-      const globMatches = await this.findGlobMatches(globPattern, ".", 15);
-      if (globMatches.length > 0) {
-        sections.push(
-          `Glob matches (${globPattern}):\n${globMatches.join("\n")}`,
-        );
+      const globResult = await this.executeGatewayPlugin("glob", {
+        pattern: globPattern,
+        path: ".",
+        maxResults: 15,
+      });
+      const globFailure = extractExecutionFailure(globResult);
+      if (globFailure) {
+        return this.buildFailureResult(taskId, globFailure);
+      }
+      const globOutput = formatExecutionResult(globResult).trim();
+      if (globOutput.length > 0) {
+        sections.push(`Glob matches (${globPattern}):\n${globOutput}`);
       }
     }
 
     const grepNeedle = deriveGrepPatternFromHint(targetHint);
     if (grepNeedle) {
-      const grepMatches = await this.findGrepMatches({
+      const grepPayload: Record<string, unknown> = {
         pattern: grepNeedle,
-        startPath: ".",
-        globPattern: deriveGlobPatternFromHint(targetHint) ?? undefined,
+        path: ".",
         caseSensitive: false,
         maxResults: 10,
-        patternSource: "deriveGrepPatternFromHint",
-      });
-      if (grepMatches.length > 0) {
-        sections.push(
-          `Grep matches (${grepNeedle}):\n${grepMatches.join("\n")}`,
-        );
+      };
+      const derivedGlob = deriveGlobPatternFromHint(targetHint);
+      if (derivedGlob) {
+        grepPayload.glob = derivedGlob;
+      }
+      const grepResult = await this.executeGatewayPlugin("grep", grepPayload);
+      const grepFailure = extractExecutionFailure(grepResult);
+      if (grepFailure) {
+        return this.buildFailureResult(taskId, grepFailure);
+      }
+      const grepOutput = formatExecutionResult(grepResult).trim();
+      if (grepOutput.length > 0) {
+        sections.push(`Grep matches (${grepNeedle}):\n${grepOutput}`);
       }
     }
 
@@ -817,112 +834,6 @@ VALIDATION RULES:
         error instanceof Error ? error.message : "Invalid tool input";
       throw new TaskInputError(toolName, message);
     }
-  }
-
-  private async findGlobMatches(
-    pattern: string,
-    startPath: string,
-    maxResults: number,
-  ): Promise<string[]> {
-    const scanLimit = Math.max(maxResults * 3, 60);
-    const files = await this.collectWorkspaceFiles(startPath, scanLimit, 4);
-    const matcher = buildGlobMatcher(pattern);
-    return files.filter((filePath) => matcher(filePath)).slice(0, maxResults);
-  }
-
-  private async findGrepMatches(input: {
-    pattern: string;
-    startPath: string;
-    globPattern?: string;
-    caseSensitive: boolean;
-    maxResults: number;
-    patternSource: LineMatcherPatternSource;
-  }): Promise<string[]> {
-    const scanLimit = Math.max(input.maxResults * 4, 80);
-    const candidates = input.globPattern
-      ? await this.findGlobMatches(
-          input.globPattern,
-          input.startPath,
-          scanLimit,
-        )
-      : await this.collectWorkspaceFiles(input.startPath, scanLimit, 4);
-    const matches: string[] = [];
-    const lineMatcher = buildLineMatcher(
-      input.pattern,
-      input.caseSensitive,
-      input.patternSource,
-    );
-
-    for (const filePath of candidates) {
-      if (matches.length >= input.maxResults) {
-        break;
-      }
-      const readResult = await this.executeGatewayPlugin("read_file", {
-        path: filePath,
-      });
-      const failure = extractExecutionFailure(readResult);
-      if (failure) {
-        continue;
-      }
-      const content = formatExecutionResult(readResult);
-      if (content.includes("[BINARY_FILE_DETECTED]")) {
-        continue;
-      }
-      const lines = content.split("\n");
-      for (let index = 0; index < lines.length; index += 1) {
-        if (matches.length >= input.maxResults) {
-          break;
-        }
-        const line = lines[index] ?? "";
-        if (lineMatcher(line)) {
-          matches.push(`${filePath}:${index + 1}: ${line}`);
-        }
-      }
-    }
-    return matches;
-  }
-
-  private async collectWorkspaceFiles(
-    startPath: string,
-    maxFiles: number,
-    maxDepth: number,
-  ): Promise<string[]> {
-    const discovered = new Set<string>();
-    const queue: Array<{ path: string; depth: number }> = [
-      { path: startPath, depth: 0 },
-    ];
-
-    while (queue.length > 0 && discovered.size < maxFiles) {
-      const current = queue.shift();
-      if (!current) {
-        break;
-      }
-      const listResult = await this.executeGatewayPlugin("list_files", {
-        path: current.path,
-      });
-      const listFailure = extractExecutionFailure(listResult);
-      if (listFailure) {
-        continue;
-      }
-
-      const entries = parseDirectoryEntries(formatExecutionResult(listResult));
-      for (const entry of entries) {
-        if (entry.endsWith("/")) {
-          if (current.depth >= maxDepth) {
-            continue;
-          }
-          const dirPath = joinRelativePath(current.path, entry.slice(0, -1));
-          queue.push({ path: dirPath, depth: current.depth + 1 });
-          continue;
-        }
-        discovered.add(joinRelativePath(current.path, entry));
-        if (discovered.size >= maxFiles) {
-          break;
-        }
-      }
-    }
-
-    return Array.from(discovered);
   }
 
   private async executeReview(
@@ -1138,131 +1049,6 @@ function deriveGrepPatternFromHint(targetHint: string): string | null {
     .map((word) => word.replace(/[^a-zA-Z0-9_.-]/g, ""))
     .filter((word) => word.length >= 4);
   return words[0] ?? null;
-}
-
-function parseDirectoryEntries(output: string): string[] {
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line.length > 0 &&
-        !line.startsWith("... and ") &&
-        !line.startsWith("Total:"),
-    );
-}
-
-function joinRelativePath(basePath: string, entry: string): string {
-  const normalizedBase = basePath
-    .trim()
-    .replace(/^\.\/+/, "")
-    .replace(/\/+$/, "");
-  const normalizedEntry = entry.trim().replace(/^\.\/+/, "");
-  if (!normalizedBase || normalizedBase === ".") {
-    return normalizedEntry;
-  }
-  return `${normalizedBase}/${normalizedEntry}`;
-}
-
-function buildGlobMatcher(pattern: string): (value: string) => boolean {
-  const normalized = pattern.trim();
-  const source: string[] = ["^"];
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized.charAt(index);
-    const next = normalized.charAt(index + 1);
-    if (char === "*" && next === "*") {
-      source.push(".*");
-      index += 1;
-      continue;
-    }
-    if (char === "*") {
-      source.push("[^/]*");
-      continue;
-    }
-    if (char === "?") {
-      source.push("[^/]");
-      continue;
-    }
-    source.push(escapeRegexChar(char));
-  }
-  source.push("$");
-  const matcher = new RegExp(source.join(""), "i");
-  return (value: string) => matcher.test(value);
-}
-
-const MAX_UNTRUSTED_REGEX_PATTERN_LENGTH = 200;
-const MAX_REGEX_COMPILE_BUDGET_MS = 10;
-const MAX_REGEX_TEST_BUDGET_MS = 10;
-const MAX_REGEX_TEST_INPUT_LENGTH = 2_000;
-
-function buildLineMatcher(
-  pattern: string,
-  caseSensitive: boolean,
-  patternSource: LineMatcherPatternSource,
-): (line: string) => boolean {
-  const substringMatcher = buildSubstringMatcher(pattern, caseSensitive);
-  const skipExternalScreening = patternSource === "deriveGrepPatternFromHint";
-  if (!skipExternalScreening && !isUserRegexPatternSafe(pattern)) {
-    return substringMatcher;
-  }
-
-  const flags = caseSensitive ? "" : "i";
-  try {
-    const regex = compileRegexWithBudget(pattern, flags);
-    let disableRegex = false;
-    return (line: string) => {
-      if (disableRegex) {
-        return substringMatcher(line);
-      }
-      const candidate =
-        line.length > MAX_REGEX_TEST_INPUT_LENGTH
-          ? line.slice(0, MAX_REGEX_TEST_INPUT_LENGTH)
-          : line;
-      const startedAt = Date.now();
-      const matched = regex.test(candidate);
-      if (Date.now() - startedAt > MAX_REGEX_TEST_BUDGET_MS) {
-        disableRegex = true;
-        return substringMatcher(line);
-      }
-      return matched;
-    };
-  } catch {
-    return substringMatcher;
-  }
-}
-
-function compileRegexWithBudget(pattern: string, flags: string): RegExp {
-  const startedAt = Date.now();
-  const regex = new RegExp(pattern, flags);
-  if (Date.now() - startedAt > MAX_REGEX_COMPILE_BUDGET_MS) {
-    throw new Error("Regex compile budget exceeded");
-  }
-  return regex;
-}
-
-function isUserRegexPatternSafe(pattern: string): boolean {
-  if (
-    pattern.length === 0 ||
-    pattern.length > MAX_UNTRUSTED_REGEX_PATTERN_LENGTH
-  ) {
-    return false;
-  }
-  return safeRegex(pattern);
-}
-
-function buildSubstringMatcher(
-  pattern: string,
-  caseSensitive: boolean,
-): (line: string) => boolean {
-  const needle = caseSensitive ? pattern : pattern.toLowerCase();
-  return (line: string) => {
-    const haystack = caseSensitive ? line : line.toLowerCase();
-    return haystack.includes(needle);
-  };
-}
-
-function escapeRegexChar(char: string): string {
-  return /[\\^$.*+?()[\]{}|]/.test(char) ? `\\${char}` : char;
 }
 
 export class UnsupportedTaskTypeError extends Error {

@@ -232,6 +232,12 @@ export function ChatInterface({
   >({});
 
   const { summary } = useRunSummary(runId, isLoading);
+  const isTerminalSummarySettled = Boolean(
+    summary?.status &&
+      isTerminalRunStatus(summary.status) &&
+      !isApprovalRequiredRunStatus(summary.status),
+  );
+  const activeRunLoading = isLoading && !isTerminalSummarySettled;
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -242,7 +248,7 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, false);
-  const { feed } = useRunActivityFeed(runId, isLoading);
+  const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const [approvalBusyDecision, setApprovalBusyDecision] =
@@ -252,9 +258,13 @@ export function ChatInterface({
   const [dismissedApprovalRequestId, setDismissedApprovalRequestId] = useState<
     string | null
   >(null);
+  const [dismissedApprovalCreatedAt, setDismissedApprovalCreatedAt] = useState<
+    string | null
+  >(null);
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const lastReviewDispatchIdsRef = useRef<string[]>([]);
+  const isSubmittingApprovalDecisionRef = useRef(false);
   const pendingChangedFilesRef = useRef<FileStatus[]>([]);
   const turnBaselineFilesRef = useRef<FileStatus[]>([]);
   const lastSettledFilesRef = useRef<FileStatus[]>([]);
@@ -292,10 +302,10 @@ export function ChatInterface({
   const scopedFeed = feed?.runId === runId ? feed : null;
   const displayFeed = useMemo(
     () =>
-      !isLoading && scopedFeed?.status === "RUNNING"
+      !activeRunLoading && scopedFeed?.status === "RUNNING"
         ? { ...scopedFeed, status: "CANCELLED" as const }
         : scopedFeed,
-    [isLoading, scopedFeed],
+    [activeRunLoading, scopedFeed],
   );
   const activityViewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(
@@ -471,11 +481,11 @@ export function ChatInterface({
             error: result.reason,
           });
         }
-        if (
-          shouldCacheArtifactMisses &&
-          (result.status === "rejected" ||
-            (result.status === "fulfilled" && result.value === null))
-        ) {
+        const shouldCacheNullArtifactMiss =
+          result.status === "fulfilled" && result.value === null;
+        const shouldCacheFailedArtifactMiss =
+          shouldCacheArtifactMisses && result.status === "rejected";
+        if (shouldCacheNullArtifactMiss || shouldCacheFailedArtifactMiss) {
           artifactLookupMissesRef.current.add(assistantMessageId);
         }
       });
@@ -729,10 +739,17 @@ export function ChatInterface({
 
   const resolveApprovalDecision = useCallback(
     async (decision: ApprovalDecisionKind) => {
-      const pending = summary?.pendingApproval ?? pendingApprovalFromEvents;
-      if (!pending || pending.requestId === dismissedApprovalRequestId) {
+      if (isSubmittingApprovalDecisionRef.current) {
         return;
       }
+      const pending = summary?.pendingApproval ?? pendingApprovalFromEvents;
+      const isDismissedApproval =
+        pending?.requestId === dismissedApprovalRequestId &&
+        pending.createdAt === dismissedApprovalCreatedAt;
+      if (!pending || isDismissedApproval) {
+        return;
+      }
+      isSubmittingApprovalDecisionRef.current = true;
       setApprovalBusyDecision(decision);
       setApprovalError(null);
       setApprovalNotice(null);
@@ -766,6 +783,7 @@ export function ChatInterface({
                   isNoPendingApprovalError(retryMessage);
                 if (isRetryStaleApproval) {
                   setDismissedApprovalRequestId(latestPending.requestId);
+                  setDismissedApprovalCreatedAt(latestPending.createdAt);
                   setApprovalNotice({
                     kind: "stale",
                     requestId: latestPending.requestId,
@@ -787,6 +805,7 @@ export function ChatInterface({
             }
 
             setDismissedApprovalRequestId(pending.requestId);
+            setDismissedApprovalCreatedAt(pending.createdAt);
             setApprovalNotice({
               kind: "stale",
               requestId: pending.requestId,
@@ -808,11 +827,13 @@ export function ChatInterface({
             : "Failed to resolve approval request.",
         );
       } finally {
+        isSubmittingApprovalDecisionRef.current = false;
         setApprovalBusyDecision(null);
       }
     },
     [
       dismissedApprovalRequestId,
+      dismissedApprovalCreatedAt,
       pendingApprovalFromEvents,
       runId,
       summary?.pendingApproval,
@@ -863,16 +884,26 @@ export function ChatInterface({
     if (!pendingApprovalCandidate) {
       return null;
     }
-    if (pendingApprovalCandidate.requestId === dismissedApprovalRequestId) {
+    if (
+      pendingApprovalCandidate.requestId === dismissedApprovalRequestId &&
+      pendingApprovalCandidate.createdAt === dismissedApprovalCreatedAt
+    ) {
       return null;
     }
     return pendingApprovalCandidate;
-  }, [dismissedApprovalRequestId, pendingApprovalCandidate]);
+  }, [
+    dismissedApprovalCreatedAt,
+    dismissedApprovalRequestId,
+    pendingApprovalCandidate,
+  ]);
 
   useEffect(() => {
     if (!pendingApprovalCandidate) {
       if (dismissedApprovalRequestId !== null) {
         setDismissedApprovalRequestId(null);
+      }
+      if (dismissedApprovalCreatedAt !== null) {
+        setDismissedApprovalCreatedAt(null);
       }
       if (approvalNotice !== null) {
         setApprovalNotice(null);
@@ -881,9 +912,11 @@ export function ChatInterface({
     }
     if (
       dismissedApprovalRequestId &&
-      pendingApprovalCandidate.requestId !== dismissedApprovalRequestId
+      (pendingApprovalCandidate.requestId !== dismissedApprovalRequestId ||
+        pendingApprovalCandidate.createdAt !== dismissedApprovalCreatedAt)
     ) {
       setDismissedApprovalRequestId(null);
+      setDismissedApprovalCreatedAt(null);
       setApprovalError(null);
     }
     if (
@@ -892,7 +925,12 @@ export function ChatInterface({
     ) {
       setApprovalNotice(null);
     }
-  }, [approvalNotice, dismissedApprovalRequestId, pendingApprovalCandidate]);
+  }, [
+    approvalNotice,
+    dismissedApprovalCreatedAt,
+    dismissedApprovalRequestId,
+    pendingApprovalCandidate,
+  ]);
 
   useEffect(() => {
     if (!approvalNotice) {
@@ -953,17 +991,13 @@ export function ChatInterface({
         runId,
         summary,
         events,
-        hasVisibleAssistantMessage: chatEntries.some(
-          (entry) =>
-            entry.kind === "message" &&
-            isVisibleTerminalAssistantMessage(entry.message),
-        ),
+        hasVisibleAssistantMessage: hasVisibleAssistantReply(conversationTurns),
         changedFileCount:
           terminalChangedFiles.length > 0
             ? terminalChangedFiles.length
             : undefined,
       }),
-    [chatEntries, events, runId, summary, terminalChangedFiles.length],
+    [conversationTurns, events, runId, summary, terminalChangedFiles.length],
   );
   const terminalReviewFiles = useMemo(() => {
     if (!terminalViewModel) {
@@ -973,11 +1007,7 @@ export function ChatInterface({
       return terminalChangedFiles;
     }
     return hasAssistantChangedFileSummary ? [] : terminalChangedFiles;
-  }, [
-    hasAssistantChangedFileSummary,
-    terminalChangedFiles,
-    terminalViewModel,
-  ]);
+  }, [hasAssistantChangedFileSummary, terminalChangedFiles, terminalViewModel]);
   const hasUserMessage = useMemo(
     () =>
       messages.some(
@@ -992,7 +1022,7 @@ export function ChatInterface({
   const showHeroComposer =
     hasHydrated &&
     !hasConversationSignal &&
-    !isLoading &&
+    !activeRunLoading &&
     !pendingApproval &&
     !hasStartedSession;
   const isTranscriptHydrating =
@@ -1070,8 +1100,8 @@ export function ChatInterface({
           onRemoveReviewComment={handleRemoveReviewComment}
           reviewCommentError={reviewCommentError}
           onStop={stop}
-          canStop={canStop ?? isLoading}
-          isLoading={isLoading || isTranscriptHydrating}
+          canStop={activeRunLoading && (canStop ?? true)}
+          isLoading={activeRunLoading || isTranscriptHydrating}
           sessionId={sessionId}
           mode={mode}
           onModeChange={onModeChange}
@@ -1086,7 +1116,7 @@ export function ChatInterface({
         layout={layout}
         permissionMode={permissionMode}
         onPermissionModeChange={onPermissionModeChange}
-        isLoading={isLoading || isTranscriptHydrating}
+        isLoading={activeRunLoading || isTranscriptHydrating}
       />
     </>
   );
@@ -1214,7 +1244,7 @@ export function ChatInterface({
             ) : null}
 
             {/* Loading indicator */}
-            {isLoading && !activeInlineTurn && (
+            {activeRunLoading && !activeInlineTurn && (
               <div className="py-2 text-sm font-medium text-zinc-500">
                 <span className="bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-shimmer">
                   Thinking
@@ -1654,6 +1684,29 @@ function isVisibleTerminalAssistantMessage(message: Message): boolean {
   return hasTerminalSummaryFrame(message.content);
 }
 
+function isVisibleAssistantMessage(message: Message): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+  if (isVisibleTerminalAssistantMessage(message)) {
+    return true;
+  }
+  return readMessageVisibleText(message).length > 0;
+}
+
+function hasVisibleAssistantReply(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): boolean {
+  return conversationTurns.some(
+    (turn) =>
+      Boolean(turn.userMessage) &&
+      Boolean(
+        turn.assistantMessage &&
+        isVisibleAssistantMessage(turn.assistantMessage),
+      ),
+  );
+}
+
 function readAssistantMessageMetadata(
   message: Message,
 ): Record<string, unknown> | null {
@@ -1668,11 +1721,34 @@ function readAssistantMessageMetadata(
 }
 
 function hasTerminalSummaryFrame(content: Message["content"]): boolean {
-  const text = typeof content === "string" ? content : "";
+  const text = readVisibleText(content);
   return (
     text.includes("Outcome:") &&
     (text.includes("Next action:") || text.includes("Next step:"))
   );
+}
+
+function readMessageVisibleText(message: Message): string {
+  return readVisibleText(message.content);
+}
+
+function readVisibleText(content: unknown): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") {
+        return "";
+      }
+      const record = part as Record<string, unknown>;
+      return typeof record.text === "string" ? record.text : "";
+    })
+    .join("")
+    .trim();
 }
 
 type ChatInterfaceEntry =

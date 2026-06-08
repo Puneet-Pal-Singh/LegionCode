@@ -115,6 +115,16 @@ export class RunController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const auth = await getAuthenticatedUserSession(req, env);
+      if (!auth) {
+        return errorResponse(req, env, "Unauthorized", 401);
+      }
+
+      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
+      if (!ownsRun) {
+        return errorResponse(req, env, "Run not found", 404);
+      }
+
       const response = await fetchRunCancelFromRuntime(
         env,
         runId,
@@ -134,6 +144,9 @@ export class RunController {
       const payload = (await response.json()) as unknown;
       return jsonResponse(req, env, payload);
     } catch (error) {
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(req, env, error.message, 503);
+      }
       console.error("[RunController:cancel] Error:", error);
       return errorResponse(
         req,
@@ -146,7 +159,17 @@ export class RunController {
 
   static async approve(req: Request, env: Env): Promise<Response> {
     try {
+      const auth = await getAuthenticatedUserSession(req, env);
+      if (!auth) {
+        return errorResponse(req, env, "Unauthorized", 401);
+      }
+
       const payload = await parseApproveRequest(req);
+      const ownsRun = await verifyRunOwnership(env, payload.runId, auth.userId);
+      if (!ownsRun) {
+        return errorResponse(req, env, "Run not found", 404);
+      }
+
       const responsePayload = await resolveApprovalFromRuntime(env, payload);
       return jsonResponse(req, env, responsePayload);
     } catch (error) {
@@ -160,6 +183,9 @@ export class RunController {
           "No pending approval request found.",
           409,
         );
+      }
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(req, env, error.message, 503);
       }
       console.error("[RunController:approve] Error:", error);
       return errorResponse(
@@ -226,6 +252,16 @@ export class RunController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const auth = await getAuthenticatedUserSession(req, env);
+      if (!auth) {
+        return errorResponse(req, env, "Unauthorized", 401);
+      }
+
+      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
+      if (!ownsRun) {
+        return errorResponse(req, env, "Run not found", 404);
+      }
+
       const response = await fetchRunEventsStreamFromRuntime(
         req,
         env,
@@ -245,6 +281,9 @@ export class RunController {
 
       return response;
     } catch (error) {
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(req, env, error.message, 503);
+      }
       console.error("[RunController:getEventsStream] Error:", error);
       return errorResponse(
         req,
@@ -267,6 +306,16 @@ export class RunController {
         return errorResponse(req, env, "runId is required", 400);
       }
 
+      const auth = await getAuthenticatedUserSession(req, env);
+      if (!auth) {
+        return errorResponse(req, env, "Unauthorized", 401);
+      }
+
+      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
+      if (!ownsRun) {
+        return errorResponse(req, env, "Run not found", 404);
+      }
+
       const response = await fetchRunActivityFromRuntime(
         env,
         runId,
@@ -286,6 +335,9 @@ export class RunController {
       const payload = parseActivityFeedSnapshot(await response.json());
       return jsonResponse(req, env, payload);
     } catch (error) {
+      if (isSessionStoreUnavailableError(error)) {
+        return errorResponse(req, env, error.message, 503);
+      }
       console.error("[RunController:getActivity] Error:", error);
       return errorResponse(
         req,
@@ -478,6 +530,17 @@ function isTerminalSummaryStatus(status: string | null): boolean {
     normalized === "failed" ||
     normalized === "cancelled"
   );
+}
+
+async function verifyRunOwnership(
+  env: Env,
+  runId: string,
+  userId: string,
+): Promise<boolean> {
+  return await withRunRepository(env, async (repo) => {
+    const run = await repo.getRun(runId, userId);
+    return run !== null;
+  });
 }
 
 async function fetchRunSummaryFromRuntime(

@@ -26,9 +26,60 @@ import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
 
 describe("RunEngine", () => {
-  it("routes greeting-only prompts through normal build execution", async () => {
+  it("answers ordinary chat with the model without workspace execution", async () => {
     const generateText = vi.fn(async () => ({
-      text: "ok",
+      text: "I can help you plan the next task.",
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const workspaceBootstrapper = {
+      bootstrap: vi.fn(async () => {
+        throw new Error("bootstrap should not run for simple chat");
+      }),
+    };
+    const llmGateway: ILLMGateway = {
+      generateText,
+      generateStructured: vi.fn(async () => {
+        throw new Error("structured planning should be inactive");
+      }),
+      generateStream: async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+    };
+    const runEngine = createRunEngine({ llmGateway, workspaceBootstrapper });
+
+    const response = await runEngine.execute(
+      {
+        agentType: "coding",
+        prompt: "hello",
+        sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
+      },
+      [{ role: "user", content: "hello" }],
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("I can help you plan the next task.");
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
+  });
+
+  it("does not bootstrap a selected repository for ordinary chat prompts", async () => {
+    const generateText = vi.fn(async () => ({
+      text: "I am here and ready to help.",
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -40,7 +91,7 @@ describe("RunEngine", () => {
     const llmGateway: ILLMGateway = {
       generateText,
       generateStructured: vi.fn(async () => {
-        throw new Error("structured turn classification should be inactive");
+        throw new Error("structured planning should be inactive");
       }),
       generateStream: async () =>
         new ReadableStream<Uint8Array>({
@@ -49,21 +100,32 @@ describe("RunEngine", () => {
           },
         }),
     };
-    const runEngine = createRunEngine({ llmGateway });
+    const workspaceBootstrapper = {
+      bootstrap: vi.fn(async () => {
+        throw new Error("bootstrap should not run for obvious chat");
+      }),
+    };
+    const runEngine = createRunEngine({ llmGateway, workspaceBootstrapper });
 
     const response = await runEngine.execute(
       {
         agentType: "coding",
-        prompt: "hello",
+        prompt: "what should we do today?",
         sessionId: "session-1",
+        repositoryContext: {
+          owner: "sourcegraph",
+          repo: "shadowbox",
+          branch: "main",
+        },
       },
-      [{ role: "user", content: "hello" }],
+      [{ role: "user", content: "what should we do today?" }],
       {},
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("ok");
-    expect(generateText).toHaveBeenCalled();
+    expect(await response.text()).toContain("I am here and ready to help.");
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
   });
 
   it("does not bypass explicit plan mode planning for greeting-only prompts", async () => {
@@ -1931,9 +1993,9 @@ describe("RunEngine", () => {
     });
   });
 
-  it("answers build-mode prompts without invoking structured turn classification", async () => {
+  it("answers build-mode chat without invoking structured planning", async () => {
     const generateText = vi.fn(async () => ({
-      text: "Longer budget applied.",
+      text: "I can help from here.",
       usage: {
         provider: "mock",
         model: "mock-model",
@@ -1975,8 +2037,8 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Longer budget applied.");
-    expect(generateText).toHaveBeenCalled();
+    expect(await response.text()).toContain("I can help from here.");
+    expect(generateText).toHaveBeenCalledTimes(1);
     expect(generateStructured).not.toHaveBeenCalled();
   });
 

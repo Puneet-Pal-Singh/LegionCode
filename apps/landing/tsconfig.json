@@ -18,6 +18,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "vitest.setup.ts"],
+  "include": ["src", "functions", "vitest.setup.ts"],
   "references": []
 }

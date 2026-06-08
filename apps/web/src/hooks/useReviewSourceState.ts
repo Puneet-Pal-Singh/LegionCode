@@ -15,20 +15,52 @@ interface UseReviewSourceStateInput {
   runId?: string;
   sessionId?: string;
   liveGitFiles: FileStatus[];
+  enabled?: boolean;
 }
 
 export function useReviewSourceState({
   runId,
   sessionId,
   liveGitFiles,
+  enabled = true,
 }: UseReviewSourceStateInput) {
-  const [requestedScope, setRequestedScope] = useState<ReviewScope | null>(null);
-  const [openedArtifact, setOpenedArtifact] =
-    useState<OpenedReviewArtifact | null>(null);
+  const reviewTargetKey = `${runId ?? ""}:${sessionId ?? ""}`;
+  const [requestedScopeState, setRequestedScopeState] =
+    useState<ScopedReviewScope>(() => ({
+      key: reviewTargetKey,
+      scope: null,
+    }));
+  const [openedArtifactState, setOpenedArtifactState] =
+    useState<ScopedOpenedArtifact>(() => ({
+      artifact: null,
+      key: reviewTargetKey,
+    }));
+  const requestedScope =
+    requestedScopeState.key === reviewTargetKey
+      ? requestedScopeState.scope
+      : null;
+  const openedArtifact =
+    openedArtifactState.key === reviewTargetKey
+      ? openedArtifactState.artifact
+      : null;
+  const setRequestedScope = useCallback(
+    (scope: ReviewScope): void => {
+      setRequestedScopeState({ key: reviewTargetKey, scope });
+    },
+    [reviewTargetKey],
+  );
+  const setOpenedArtifact = useCallback(
+    (artifact: OpenedReviewArtifact | null): void => {
+      setOpenedArtifactState({ artifact, key: reviewTargetKey });
+    },
+    [reviewTargetKey],
+  );
+
   const shouldLoadArtifactSource = Boolean(
+    enabled &&
     runId &&
-      requestedScope !== "git-changes" &&
-      (openedArtifact || liveGitFiles.length === 0),
+    requestedScope !== "git-changes" &&
+    (openedArtifact || liveGitFiles.length === 0),
   );
   const {
     source: promptArtifactSource,
@@ -52,10 +84,11 @@ export function useReviewSourceState({
     [liveGitFiles, openedArtifact, promptArtifactSource, requestedScope],
   );
   const selectedArtifactId =
-    reviewSource.kind === "prompt_artifact" ? reviewSource.artifactId : undefined;
+    reviewSource.kind === "prompt_artifact"
+      ? reviewSource.artifactId
+      : undefined;
   const artifactDiffState = useEditArtifactDiff(selectedArtifactId);
-  const reviewScope =
-    requestedScope ?? sourceKindToScope(reviewSource.kind);
+  const reviewScope = requestedScope ?? sourceKindToScope(reviewSource.kind);
   const reviewSourceLoading =
     shouldLoadArtifactSource &&
     (artifactSourceLoading || !artifactSourceResolved);
@@ -75,6 +108,16 @@ export function useReviewSourceState({
     reviewSourceLoading,
     ...controls,
   };
+}
+
+interface ScopedReviewScope {
+  key: string;
+  scope: ReviewScope | null;
+}
+
+interface ScopedOpenedArtifact {
+  artifact: OpenedReviewArtifact | null;
+  key: string;
 }
 
 function useReviewSourceControls({
@@ -104,7 +147,9 @@ function useReviewSourceControls({
   const selectReviewScope = useCallback(
     (scope: ReviewScope) => {
       setRequestedScope(scope);
-      setOpenedArtifact(resolveOpenedArtifact(scope, reviewSource, promptArtifactSource));
+      setOpenedArtifact(
+        resolveOpenedArtifact(scope, reviewSource, promptArtifactSource),
+      );
     },
     [promptArtifactSource, reviewSource, setOpenedArtifact, setRequestedScope],
   );

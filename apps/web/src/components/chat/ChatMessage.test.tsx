@@ -19,6 +19,22 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("**Final Report**")).not.toBeInTheDocument();
   });
 
+  it("hides leaked assistant self-talk prefixes", () => {
+    const message = {
+      id: "assistant-self-talk",
+      role: "assistant",
+      content:
+        'The user is asking "how are you?". This is a social greeting. I should respond politely. I am doing well and ready to help.',
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByText(/The user is asking/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/I am doing well and ready to help/),
+    ).toBeInTheDocument();
+  });
+
   it("renders user content as markdown", () => {
     const message = {
       id: "user-1",

@@ -1,6 +1,10 @@
-# LegionCode Web App
+# LegionCode Web App (Agents Workspace)
 
-Frontend for the LegionCode public-alpha workspace experience.
+Frontend for the LegionCode agents workspace. After the landing
+extraction (plan 018), this app is the authenticated product surface
+only — the public marketing site lives in `apps/landing` and is
+served from `legioncode.dev`. The web app is served from
+`agents.legioncode.dev`.
 
 ## Stack
 
@@ -16,6 +20,12 @@ From the repository root:
 ```bash
 pnpm --filter @shadowbox/web dev
 ```
+
+The web app dev server binds to port `5174` with `strictPort: true`.
+The landing app (`apps/landing`) dev server binds to `5173` and
+proxies `/agents/*` to this port, so a single origin serves both
+surfaces in dev. See `apps/landing/vite.config.ts` for the port
+contract.
 
 ## Build
 
@@ -58,7 +68,7 @@ Recommended public copy:
 
 ## Cloudflare Pages Deploy
 
-The web app is configured for Cloudflare Pages in [wrangler.jsonc](./wrangler.jsonc). SPA deep-link fallback is handled by [public/_redirects](./public/_redirects).
+The web app is configured for Cloudflare Pages in [wrangler.jsonc](./wrangler.jsonc). SPA deep-link fallback is handled by [public/\_redirects](./public/_redirects).
 
 One-time project setup:
 
@@ -75,7 +85,7 @@ export VITE_MUSCLE_WS_URL="wss://<secure-agent-api-staging-url>"
 pnpm --filter @shadowbox/web deploy:staging
 ```
 
-Production deploy flow (`legioncode.dev`):
+Production deploy flow (`agents.legioncode.dev`):
 
 ```bash
 export VITE_BRAIN_BASE_URL="https://brain.legioncode.dev"
@@ -87,10 +97,15 @@ pnpm --filter @shadowbox/web exec wrangler pages deploy --branch main
 
 Production domain/OAuth closure checklist:
 
-- Pages project/domain points to `https://legioncode.dev`
-- Brain `FRONTEND_URL` is `https://legioncode.dev`
+- Pages project/domain points to `https://agents.legioncode.dev`
+- Landing Pages project points to `https://legioncode.dev` and
+  proxies `/agents/*` to the web app via
+  `apps/landing/functions/agents/[[path]].ts`
+- Brain `FRONTEND_URL` is `https://agents.legioncode.dev`
 - Brain `GITHUB_REDIRECT_URI` is `https://brain.legioncode.dev/auth/github/callback`
-- Secure API `CORS_ALLOWED_ORIGINS` includes `https://legioncode.dev` (and optional staging origin only)
+- Secure API `CORS_ALLOWED_ORIGINS` includes
+  `https://agents.legioncode.dev` and `https://legioncode.dev`
+  (and optional staging origin only)
 
 Manual Pages deploy with an explicit branch label:
 

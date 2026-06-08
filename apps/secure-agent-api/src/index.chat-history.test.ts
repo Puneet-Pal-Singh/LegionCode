@@ -20,7 +20,7 @@ describe("secure-agent-api chat history routing", () => {
       { method: "GET" },
     );
 
-    const response = await worker.fetch(request, env);
+    const response = await worker.fetch(withInternalSecret(request), env);
     const body = (await response.json()) as {
       messages: Array<{ role: string; content: string }>;
       nextCursor: string | null;
@@ -42,9 +42,11 @@ describe("secure-agent-api chat history routing", () => {
     const runtimeStub = createRuntimeStub();
     const env = createEnv(runtimeStub);
     const response = await worker.fetch(
-      new Request("https://secure.local/api/debug/runtime", {
-        method: "GET",
-      }),
+      withInternalSecret(
+        new Request("https://secure.local/api/debug/runtime", {
+          method: "GET",
+        }),
+      ),
       env,
     );
 
@@ -70,7 +72,7 @@ describe("secure-agent-api chat history routing", () => {
       { method: "GET" },
     );
 
-    const response = await worker.fetch(request, env);
+    const response = await worker.fetch(withInternalSecret(request), env);
     const body = (await response.json()) as {
       messages: Array<{ role: string; content: string }>;
       nextCursor: string | null;
@@ -98,7 +100,7 @@ describe("secure-agent-api chat history routing", () => {
       },
     );
 
-    const response = await worker.fetch(request, env);
+    const response = await worker.fetch(withInternalSecret(request), env);
     expect(response.status).toBe(200);
     expect(runtimeStub.appendMessage).toHaveBeenCalledWith(
       "run/456",
@@ -123,7 +125,7 @@ describe("secure-agent-api chat history routing", () => {
       },
     );
 
-    const response = await worker.fetch(request, env);
+    const response = await worker.fetch(withInternalSecret(request), env);
     expect(response.status).toBe(200);
     expect(runtimeStub.saveHistory).toHaveBeenCalledWith(
       "run/789",
@@ -149,7 +151,7 @@ describe("secure-agent-api chat history routing", () => {
       },
     );
 
-    const response = await worker.fetch(request, env);
+    const response = await worker.fetch(withInternalSecret(request), env);
     expect(response.status).toBe(200);
     expect(runtimeStub.appendMessage).toHaveBeenCalledWith(
       "run/abcd",
@@ -161,17 +163,50 @@ describe("secure-agent-api chat history routing", () => {
   it("rejects canonical POST with invalid payload", async () => {
     const runtimeStub = createRuntimeStub();
     const env = createEnv(runtimeStub);
-    const request = new Request(
-      "https://secure.local/api/chat/history/run%2Fxyz",
-      {
+    const request = withInternalSecret(
+      new Request("https://secure.local/api/chat/history/run%2Fxyz", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ invalidField: "test" }),
-      },
+      }),
     );
 
     const response = await worker.fetch(request, env);
     expect(response.status).toBe(400);
+  });
+
+  it("rejects chat history GET without the internal service secret", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const request = new Request(
+      "https://secure.local/api/chat/history/run%2F123",
+      { method: "GET" },
+    );
+
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(401);
+    expect(runtimeStub.getHistory).not.toHaveBeenCalled();
+  });
+
+  it("rejects chat history POST without the internal service secret", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const request = new Request(
+      "https://secure.local/api/chat/history/run%2F123",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: { role: "user", content: "test" },
+        }),
+      },
+    );
+
+    const response = await worker.fetch(request, env);
+    expect(response.status).toBe(401);
+    expect(runtimeStub.appendMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -198,5 +233,14 @@ function createEnv(runtimeStub: { getHistory: unknown }): Env {
     Sandbox: {} as Env["Sandbox"],
     ARTIFACTS: {} as Env["ARTIFACTS"],
     RUNTIME_GIT_SHA: "test-sha",
+    INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
   };
+}
+
+const INTERNAL_RUNTIME_SECRET_HEADER = "X-Internal-Runtime-Secret";
+
+function withInternalSecret(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.set(INTERNAL_RUNTIME_SECRET_HEADER, "test-internal-secret");
+  return new Request(request, { headers });
 }

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import type { AgentSession } from "../../types/session";
 import { useSessionManager } from "../useSessionManager";
 import { SessionStateService } from "../../services/SessionStateService";
@@ -230,6 +230,27 @@ describe("useSessionManager", () => {
 
       const loaded = SessionStateService.loadSessionPendingQuery(sessionId);
       expect(loaded).toBe("test query");
+    });
+
+    it("keeps local-only sessions archived when the server archive returns not found", async () => {
+      vi.mocked(SessionStateService.archiveSession).mockRejectedValueOnce(
+        new Error("Session archive failed: 404"),
+      );
+      const { result } = renderHook(() => useSessionManager());
+
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Task", "repo");
+      });
+
+      act(() => {
+        result.current.removeSession(sessionId);
+      });
+
+      await waitFor(() => {
+        expect(result.current.sessions[0]?.archivedAt).not.toBeNull();
+      });
+      expect(result.current.activeSessionId).toBeNull();
     });
   });
 

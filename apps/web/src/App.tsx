@@ -44,6 +44,7 @@ import {
   type SettingsSection,
 } from "./lib/settings-dialog-events";
 import {
+  isApprovalRequiredRunStatus,
   isTerminalRunStatus,
   mapRunStatusToSessionStatus,
 } from "./lib/run-status";
@@ -51,7 +52,6 @@ import {
   parseRunSummaryStatusSnapshot,
   type RunSummaryStatusSnapshot,
 } from "./lib/run-summary-status-snapshot";
-import { buildAgentsRedirectUrl, resolveWebRoute } from "./lib/web-route";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -155,18 +155,18 @@ function RedirectToAgents({ target }: { target: string }) {
   );
 }
 
-function App() {
-  const route = resolveWebRoute(window.location.pathname);
+const LEGACY_APP_ALIASES = new Set(["/app", "/web-agents"]);
 
-  if (route.kind === "redirect") {
-    return (
-      <RedirectToAgents
-        target={buildAgentsRedirectUrl(
-          window.location.search,
-          window.location.hash,
-        )}
-      />
-    );
+function isLegacyAppAlias(pathname: string): boolean {
+  const normalized = pathname.trim().replace(/\/+$/, "") || "/";
+  return LEGACY_APP_ALIASES.has(normalized);
+}
+
+function App() {
+  const { pathname, search, hash } = window.location;
+
+  if (isLegacyAppAlias(pathname)) {
+    return <RedirectToAgents target={`/agents${search}${hash}`} />;
   }
 
   return (
@@ -661,20 +661,23 @@ function AppContent() {
     );
     return Object.fromEntries(nextEntries);
   }, [approvalStatesBySessionId, sessions]);
-  const runningSessions = useMemo(
-    () => sessions.filter((session) => session.status === "running"),
+  const reconcilableSessions = useMemo(
+    () =>
+      sessions.filter((session) =>
+        ["running", "waiting_for_approval", "paused"].includes(session.status),
+      ),
     [sessions],
   );
 
   useEffect(() => {
-    if (!isAuthenticated || runningSessions.length === 0) {
+    if (!isAuthenticated || reconcilableSessions.length === 0) {
       return;
     }
 
     let cancelled = false;
     const reconcile = async (): Promise<void> => {
       const updates = await Promise.all(
-        runningSessions.map(async (session) => {
+        reconcilableSessions.map(async (session) => {
           try {
             const snapshot = await fetchRunSummaryStatus(session.activeRunId);
             if (!snapshot) {
@@ -682,6 +685,7 @@ function AppContent() {
             }
             if (
               !snapshot.hasPendingApproval &&
+              !isApprovalRequiredRunStatus(snapshot.status) &&
               !isTerminalRunStatus(snapshot.status)
             ) {
               return null;
@@ -689,10 +693,10 @@ function AppContent() {
 
             return {
               sessionId: session.id,
-              status: mapRunStatusToSessionStatus(
-                snapshot.status,
-                { hasPendingApproval: snapshot.hasPendingApproval },
-              ),
+              status: mapRunStatusToSessionStatus(snapshot.status, {
+                hasPendingApproval: snapshot.hasPendingApproval,
+              }),
+              hasPendingApproval: snapshot.hasPendingApproval,
             };
           } catch (error) {
             console.warn(
@@ -709,10 +713,16 @@ function AppContent() {
       }
 
       updates.forEach((update) => {
-        if (!update?.status) {
+        if (!update) {
           return;
         }
-        updateSession(update.sessionId, { status: update.status });
+        if (update.status) {
+          updateSession(update.sessionId, { status: update.status });
+        }
+        handlePendingApprovalStateChange(
+          update.sessionId,
+          update.hasPendingApproval,
+        );
       });
     };
 
@@ -725,7 +735,12 @@ function AppContent() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [isAuthenticated, runningSessions, updateSession]);
+  }, [
+    handlePendingApprovalStateChange,
+    isAuthenticated,
+    reconcilableSessions,
+    updateSession,
+  ]);
 
   useEffect(() => {
     localStorage.setItem(

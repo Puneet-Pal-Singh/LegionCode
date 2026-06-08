@@ -1,7 +1,7 @@
 import type { ApprovalDecisionKind } from "@repo/shared-types";
 
 const APPROVAL_DECISION_BUTTON_CLASS_NAME =
-  "inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-10 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60";
 
 export function approvalDecisionButtonClassName(
   decision: ApprovalDecisionKind,

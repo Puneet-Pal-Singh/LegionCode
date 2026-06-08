@@ -8,6 +8,8 @@ describe("landing metadata", () => {
 
     expect(html).toContain("LegionCode - The OSS AI coding agents");
     expect(html).toContain("legioncode-og.png");
+    expect(html).toContain('href="https://legioncode.dev/"');
+    expect(html).toContain("legioncode-icon.svg");
     expect(html).toContain("Private alpha");
   });
 });

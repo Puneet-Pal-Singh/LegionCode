@@ -22,42 +22,49 @@ export function ApprovalDock({
   onResolve,
 }: ApprovalDockProps) {
   return (
-    <div className="mb-2">
-      <div className="rounded-xl border border-amber-300/35 bg-zinc-950/95 px-3 py-3 text-zinc-100 shadow-[0_12px_32px_rgba(0,0,0,0.45)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
-              Approval required
-              <span className="ml-2 normal-case tracking-normal text-zinc-400">
-                {buildApprovalCategoryLabel(pendingApproval)}
-              </span>
+    <div className="mb-3">
+      <div className="overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.5)]">
+        <div className="border-b border-zinc-800 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-300">
+            Pending approval
+            <span className="ml-3 normal-case tracking-normal text-zinc-400">
+              {buildApprovalCategoryLabel(pendingApproval)} requested
+            </span>
+          </p>
+        </div>
+        <div className="space-y-4 px-4 py-5">
+          <div>
+            <p className="text-lg font-semibold text-zinc-50">
+              Do you want me to run a shell command?
             </p>
-            <p className="mt-1 truncate text-sm font-semibold text-zinc-100">
+            <p className="mt-2 text-sm text-zinc-400">
               {pendingApproval.title}
             </p>
-            {pendingApproval.command ? (
-              <p className="mt-1 truncate font-mono text-xs text-zinc-400">
-                {pendingApproval.command}
-              </p>
-            ) : null}
           </div>
+          {pendingApproval.command ? (
+            <pre className="max-h-36 overflow-auto rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 font-mono text-sm leading-relaxed text-zinc-100">
+              <code>{pendingApproval.command}</code>
+            </pre>
+          ) : null}
+        </div>
+        <div className="border-t border-zinc-800 px-4 py-4">
           <ApprovalActions
             decisions={decisions}
             busyDecision={busyDecision}
             isResolutionPending={isResolutionPending}
             onResolve={onResolve}
           />
+          {notice ? (
+            <div role="status" aria-live="polite">
+              <p className="mt-3 text-xs text-emerald-200">{notice}</p>
+            </div>
+          ) : null}
+          {error ? (
+            <div role="alert">
+              <p className="mt-3 text-xs text-red-300">{error}</p>
+            </div>
+          ) : null}
         </div>
-        {notice ? (
-          <div role="status" aria-live="polite">
-            <p className="mt-2 text-xs text-emerald-200">{notice}</p>
-          </div>
-        ) : null}
-        {error ? (
-          <div role="alert">
-            <p className="mt-2 text-xs text-red-300">{error}</p>
-          </div>
-        ) : null}
       </div>
     </div>
   );

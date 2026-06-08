@@ -24,10 +24,15 @@ export default defineConfig(({ command, mode }) => {
   }
 
   return {
+    base: '/agents/',
     plugins: [
       react(),
       tailwindcss(),
     ],
+    server: {
+      port: 5174,
+      strictPort: true,
+    },
     test: {
       globals: true,
       environment: 'jsdom',

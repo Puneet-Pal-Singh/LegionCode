@@ -11,6 +11,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef,
 } from "react";
 import * as GitHubService from "../services/GitHubService";
 import type { GitCommitIdentityState } from "@repo/shared-types";
@@ -39,21 +40,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<GitHubUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const checkSessionInFlightRef = useRef<Promise<void> | null>(null);
 
   const checkSession = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const session = await GitHubService.getSession();
-
-      setIsAuthenticated(session.authenticated);
-      setUser(session.user || null);
-    } catch (error) {
-      console.error("Session check failed:", error);
-      setIsAuthenticated(false);
-      setUser(null);
-    } finally {
-      setIsLoading(false);
+    if (checkSessionInFlightRef.current) {
+      return checkSessionInFlightRef.current;
     }
+    const request = (async () => {
+      try {
+        setIsLoading(true);
+        const session = await GitHubService.getSession();
+
+        setIsAuthenticated(session.authenticated);
+        setUser(session.user || null);
+      } catch (error) {
+        console.error("Session check failed:", error);
+        setIsAuthenticated(false);
+        setUser(null);
+      } finally {
+        checkSessionInFlightRef.current = null;
+        setIsLoading(false);
+      }
+    })();
+    checkSessionInFlightRef.current = request;
+    return request;
   }, []);
 
   useEffect(() => {

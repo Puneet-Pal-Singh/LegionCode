@@ -64,7 +64,11 @@ export class RipgrepService {
     input: FilesInput,
   ): Promise<PluginResult> {
     const maxResults = clampMaxResults(input.maxResults);
-    const stdout = capRipgrepStdout(await this.runFilesCommand(context, input));
+    const result = await this.runFilesCommand(context, input);
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+    const stdout = capRipgrepStdout(result.output);
     const paths = sortUnique(stdout.output.split("\n").filter(Boolean));
     return buildPathResult("Files", paths, maxResults, stdout.truncated);
   }
@@ -81,7 +85,11 @@ export class RipgrepService {
     input: FilesInput,
   ): Promise<PluginResult> {
     const maxResults = clampMaxResults(input.maxResults);
-    const stdout = capRipgrepStdout(await this.runFilesCommand(context, input));
+    const result = await this.runFilesCommand(context, input);
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+    const stdout = capRipgrepStdout(result.output);
     const rows = buildTreeRows(
       sortUnique(stdout.output.split("\n").filter(Boolean)),
     );
@@ -108,7 +116,7 @@ export class RipgrepService {
   private async runFilesCommand(
     context: CommandContext,
     input: FilesInput,
-  ): Promise<string> {
+  ): Promise<{ output: string; error?: string }> {
     const result = await runSafeCommand(
       context.sandbox,
       withToolboxCommandContext(
@@ -124,13 +132,16 @@ export class RipgrepService {
       ),
       ["rg"],
     );
-    if (result.exitCode === 1 && result.stderr.trim().length === 0) {
-      return "";
+    if (result.exitCode === 1) {
+      return { output: "" };
     }
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr || "ripgrep file listing failed");
+      return {
+        output: "",
+        error: result.stderr || "ripgrep file listing failed",
+      };
     }
-    return result.stdout;
+    return { output: result.stdout };
   }
 
   private async runGrepCommand(context: CommandContext, input: GrepInput) {
@@ -344,6 +355,9 @@ function resolveSearchPath(inputPath: string | undefined): string {
 function validateSearchPattern(pattern: string): string {
   if (/[\0\r\n]/.test(pattern)) {
     throw new Error("Invalid search pattern: contains illegal characters");
+  }
+  if (/^--/.test(pattern.trimStart())) {
+    throw new Error("Invalid search pattern: flag-like values are not allowed");
   }
   return pattern;
 }

@@ -18,6 +18,7 @@ describe("useRunActivityFeed", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     setVisibilityState(originalVisibilityState);
   });
 
@@ -79,6 +80,60 @@ describe("useRunActivityFeed", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      1,
+      "https://brain.local/api/run/activity?runId=run-1",
+      { credentials: "include" },
+    );
+  });
+
+  it("stops polling the current run after an authorization failure", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("Unauthorized", {
+          status: 401,
+          statusText: "Unauthorized",
+        }),
+    );
+
+    renderHook(() => useRunActivityFeed("run-1", true));
+
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+    });
+    await flushMicrotasks();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("backs off after a temporary network failure while polling", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+
+    renderHook(() => useRunActivityFeed("run-1", true));
+
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+    });
+    await flushMicrotasks();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("does not expose the previous run feed during a run switch", async () => {
@@ -131,6 +186,13 @@ function createResponse(runId: string, items: unknown[]): Response {
     }),
     { status: 200 },
   );
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
 
 function setVisibilityState(state: DocumentVisibilityState): void {

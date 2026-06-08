@@ -65,6 +65,17 @@ export function buildRunTerminalViewModel(input: {
     readNonEmptyString(terminalMetadata.resumeHint) ??
     resolveDefaultNextAction(state);
   const artifactId = readNonEmptyString(terminalMetadata.artifactId);
+  if (
+    isNoopCompletedTerminal({
+      state,
+      changedFileCount,
+      artifactId,
+      lastSuccessfulStep,
+      failedStep,
+    })
+  ) {
+    return null;
+  }
 
   return {
     id: `terminal:${input.runId}`,
@@ -78,6 +89,25 @@ export function buildRunTerminalViewModel(input: {
       nextAction,
     }),
   };
+}
+
+function isNoopCompletedTerminal(input: {
+  state: TerminalDisplayState;
+  changedFileCount: number | null;
+  artifactId: string | null;
+  lastSuccessfulStep: string | null;
+  failedStep: string | null;
+}): boolean {
+  if (input.state !== "completed") {
+    return false;
+  }
+
+  return (
+    input.changedFileCount === 0 &&
+    !input.artifactId &&
+    !input.lastSuccessfulStep &&
+    !input.failedStep
+  );
 }
 
 function resolveTerminalDisplayState(
@@ -145,12 +175,10 @@ function buildTerminalContent(input: {
   failedStep: string | null;
   nextAction: string;
 }): string {
-  const lines = [`Outcome: ${resolveOutcome(input.state)}`];
+  const lines = [resolveOutcome(input.state)];
 
   if (input.changedFileCount !== null) {
-    lines.push(
-      `Changed files: ${formatChangedFileCount(input.changedFileCount)}`,
-    );
+    lines.push(`${formatChangedFileCount(input.changedFileCount)} changed.`);
   }
   if (input.lastSuccessfulStep) {
     lines.push(`Last successful step: ${input.lastSuccessfulStep}`);
@@ -158,7 +186,7 @@ function buildTerminalContent(input: {
   if (input.failedStep) {
     lines.push(`Failed step: ${input.failedStep}`);
   }
-  lines.push(`Next action: ${input.nextAction}`);
+  lines.push(input.nextAction);
 
   return lines.join("\n");
 }

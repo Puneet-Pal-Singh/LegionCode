@@ -125,7 +125,7 @@ export function GitReviewProvider({
     loading: statusLoading,
     error: statusError,
     refetch,
-  } = useGitStatus(runId ?? undefined, sessionId ?? undefined);
+  } = useGitStatus(runId ?? undefined, sessionId ?? undefined, isReviewOpen);
   const {
     diff: liveDiff,
     loading: liveDiffLoading,
@@ -158,6 +158,7 @@ export function GitReviewProvider({
     runId: runId ?? undefined,
     sessionId: sessionId ?? undefined,
     liveGitFiles,
+    enabled: isReviewOpen,
   });
   const {
     diff: artifactDiff,

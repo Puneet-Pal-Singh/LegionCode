@@ -17,7 +17,10 @@ import {
   parsePermissionApprovalDirective,
 } from "./RepositoryPermissionPolicy.js";
 import { hasRepositorySelection } from "./ConversationPolicy.js";
-import { resolveWorkspaceBootstrapMode } from "./WorkspaceBootstrapModePolicy.js";
+import {
+  requiresWorkspaceBootstrap,
+  resolveWorkspaceBootstrapMode,
+} from "./WorkspaceBootstrapModePolicy.js";
 
 export interface WorkspaceBootstrapEvaluation {
   mode?: WorkspaceBootstrapMode;
@@ -112,6 +115,16 @@ export async function evaluateWorkspaceBootstrap(
   repositoryContext: RepositoryContext | undefined,
   workspaceBootstrapper: WorkspaceBootstrapper | undefined,
 ): Promise<WorkspaceBootstrapEvaluation> {
+  if (!requiresWorkspaceBootstrap(prompt)) {
+    return {
+      status: "skipped",
+      message: null,
+      blocked: false,
+      expectedMiss: false,
+      clonedDuringBootstrap: false,
+    };
+  }
+
   if (!repositoryContext || !workspaceBootstrapper) {
     return {
       status: "skipped",

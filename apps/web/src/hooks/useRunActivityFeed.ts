@@ -14,6 +14,8 @@ interface UseRunActivityFeedResult {
 const ACTIVITY_FEED_ERROR_LOG_WINDOW_MS = 30_000;
 const ACTIVITY_FEED_MIN_FETCH_INTERVAL_MS = 800;
 const ACTIVITY_FEED_POLL_INTERVAL_MS = 1_000;
+const ACTIVITY_FEED_RETRY_DELAY_MS = 5_000;
+const AUTH_BLOCKING_STATUS_CODES = new Set([401, 403]);
 
 export function useRunActivityFeed(
   runId: string,
@@ -24,6 +26,7 @@ export function useRunActivityFeed(
   const inFlightRef = useRef(false);
   const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
+  const retryAfterRef = useRef(0);
   const missedRefreshRef = useRef(false);
   const prevShouldPollRef = useRef(shouldPoll);
   const lastErrorLogRef = useRef<{
@@ -42,6 +45,9 @@ export function useRunActivityFeed(
         return;
       }
       const now = Date.now();
+      if (now < retryAfterRef.current) {
+        return;
+      }
       if (
         !options?.force &&
         now - lastFetchAtRef.current < ACTIVITY_FEED_MIN_FETCH_INTERVAL_MS
@@ -53,11 +59,19 @@ export function useRunActivityFeed(
         inFlightRef.current = true;
         inFlightRunIdRef.current = currentRunId;
         lastFetchAtRef.current = now;
-        const response = await fetch(runActivityPath(currentRunId));
+        const response = await fetch(runActivityPath(currentRunId), {
+          credentials: "include",
+        });
         if (activeRunIdRef.current !== currentRunId) {
           return;
         }
         if (!response.ok) {
+          if (AUTH_BLOCKING_STATUS_CODES.has(response.status)) {
+            console.warn(
+              `[run/activity-feed] auth failed for runId=${currentRunId}; retrying after delay`,
+            );
+          }
+          retryAfterRef.current = Date.now() + ACTIVITY_FEED_RETRY_DELAY_MS;
           logActivityFeedWarning(
             currentRunId,
             new Error(`HTTP ${response.status}: ${response.statusText}`),
@@ -73,9 +87,11 @@ export function useRunActivityFeed(
         if (payload.runId !== currentRunId) {
           return;
         }
+        retryAfterRef.current = 0;
         setFeed(payload);
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
+          retryAfterRef.current = Date.now() + ACTIVITY_FEED_RETRY_DELAY_MS;
           logActivityFeedWarning(currentRunId, error, lastErrorLogRef);
         }
       } finally {
@@ -93,6 +109,7 @@ export function useRunActivityFeed(
     inFlightRef.current = false;
     inFlightRunIdRef.current = null;
     lastFetchAtRef.current = 0;
+    retryAfterRef.current = 0;
     missedRefreshRef.current = false;
     lastErrorLogRef.current = null;
     setFeed(null);

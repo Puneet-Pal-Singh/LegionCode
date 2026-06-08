@@ -3,6 +3,31 @@ import { evaluateWorkspaceBootstrap } from "./RunPermissionWorkspacePolicy.js";
 import type { WorkspaceBootstrapper } from "../types.js";
 
 describe("RunPermissionWorkspacePolicy", () => {
+  it("skips workspace bootstrap for prompts without workspace intent", async () => {
+    const workspaceBootstrapper: WorkspaceBootstrapper = {
+      bootstrap: async () => {
+        throw new Error("bootstrap should not run without workspace intent");
+      },
+    };
+
+    const evaluation = await evaluateWorkspaceBootstrap(
+      "run-chat",
+      "what should we do today?",
+      {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+      workspaceBootstrapper,
+    );
+
+    expect(evaluation).toMatchObject({
+      status: "skipped",
+      blocked: false,
+      message: null,
+    });
+  });
+
   it("returns actionable guidance when branch switch is blocked by local checkout conflicts", async () => {
     const workspaceBootstrapper: WorkspaceBootstrapper = {
       bootstrap: async () => ({
