@@ -8,6 +8,7 @@ import {
   type PlatformEvent,
 } from "@repo/platform-protocol";
 import { EventStoreError } from "./errors.js";
+import { createStableEventFingerprint } from "./fingerprint.js";
 import type {
   AppendEventInput,
   EventStore,
@@ -82,7 +83,7 @@ export class MemoryEventStore implements EventStore {
     input: AppendEventInput,
   ): PlatformEvent {
     const scopeKey = buildScopeKey(input);
-    const fingerprint = stableStringify(input);
+    const fingerprint = createStableEventFingerprint(input);
     const existing = state.byIdempotencyKey.get(
       buildIdempotencyKey(scopeKey, input.idempotencyKey),
     );
@@ -229,26 +230,4 @@ function buildIdempotencyKey(scopeKey: string, idempotencyKey: string): string {
 
 function cloneEvent(event: PlatformEvent): PlatformEvent {
   return structuredClone(event);
-}
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(sortJsonValue(value));
-}
-
-function sortJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(sortJsonValue);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, sortJsonValue(entry)]),
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalEventTablesMigration } from "../migrations/0016-canonical-event-tables.js";
 import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js";
-import { ALLOCATE_CANONICAL_EVENT_SEQUENCE_SQL } from "./sequence.js";
+import {
+  ADVANCE_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL,
+  ENSURE_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL,
+  LOCK_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL,
+} from "./sequence.js";
 import {
   CANONICAL_EVENT_SCOPE_TYPES,
   buildCanonicalEventScopeTypeSqlList,
@@ -50,14 +54,12 @@ describe("canonical event table migration", () => {
       "CREATE TABLE IF NOT EXISTS canonical_event_scope_sequences",
     );
     expect(sql).toContain("PRIMARY KEY (scope_type, scope_id)");
-    expect(ALLOCATE_CANONICAL_EVENT_SEQUENCE_SQL).toContain(
-      "ON CONFLICT (scope_type, scope_id)",
+    expect(ENSURE_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL).toContain(
+      "ON CONFLICT (scope_type, scope_id) DO NOTHING",
     );
-    expect(ALLOCATE_CANONICAL_EVENT_SEQUENCE_SQL).toContain(
-      "next_sequence = canonical_event_scope_sequences.next_sequence + 1",
-    );
-    expect(ALLOCATE_CANONICAL_EVENT_SEQUENCE_SQL).toContain(
-      "RETURNING next_sequence - 1 AS sequence",
+    expect(LOCK_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL).toContain("FOR UPDATE");
+    expect(ADVANCE_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL).toContain(
+      "next_sequence = $3::bigint + 1",
     );
   });
 
