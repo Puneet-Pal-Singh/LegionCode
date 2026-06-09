@@ -108,7 +108,14 @@ type EventScopeIdSchemas = {
   provider: typeof ProviderIdSchema;
 };
 
-export const ThreadEventTypeSchema = z.enum(["thread.created"]);
+export const ThreadEventTypeSchema = z.enum([
+  "thread.created",
+  "thread.title.updated",
+  "thread.pinned",
+  "thread.unpinned",
+  "thread.archived",
+  "thread.unarchived",
+]);
 export type ThreadEventType = z.infer<typeof ThreadEventTypeSchema>;
 
 export const RunLifecycleEventTypeSchema = z.enum([
@@ -191,11 +198,14 @@ export type PlatformEventType = z.infer<typeof PlatformEventTypeSchema>;
 
 const SafeCountSchema = z.number().int().safe().nonnegative();
 
-export const ThreadCreatedPayloadSchema = z
+export const ThreadPayloadSchema = z
   .object({
     thread: ThreadSchema,
   })
   .strict();
+export type ThreadPayload = z.infer<typeof ThreadPayloadSchema>;
+
+export const ThreadCreatedPayloadSchema = ThreadPayloadSchema;
 export type ThreadCreatedPayload = z.infer<
   typeof ThreadCreatedPayloadSchema
 >;
@@ -454,6 +464,41 @@ const ThreadCreatedEventSchema = createEventSchema(
   "thread",
   ThreadIdSchema,
 );
+const ThreadTitleUpdatedEventSchema = createEventSchema(
+  "thread.title.updated",
+  ThreadPayloadSchema,
+  RunIdSchema.nullable(),
+  "thread",
+  ThreadIdSchema,
+);
+const ThreadPinnedEventSchema = createEventSchema(
+  "thread.pinned",
+  ThreadPayloadSchema,
+  RunIdSchema.nullable(),
+  "thread",
+  ThreadIdSchema,
+);
+const ThreadUnpinnedEventSchema = createEventSchema(
+  "thread.unpinned",
+  ThreadPayloadSchema,
+  RunIdSchema.nullable(),
+  "thread",
+  ThreadIdSchema,
+);
+const ThreadArchivedEventSchema = createEventSchema(
+  "thread.archived",
+  ThreadPayloadSchema,
+  RunIdSchema.nullable(),
+  "thread",
+  ThreadIdSchema,
+);
+const ThreadUnarchivedEventSchema = createEventSchema(
+  "thread.unarchived",
+  ThreadPayloadSchema,
+  RunIdSchema.nullable(),
+  "thread",
+  ThreadIdSchema,
+);
 
 const RunCreatedEventSchema = createEventSchema(
   "run.created",
@@ -697,12 +742,21 @@ const ArtifactEventSchemas = [
   ArtifactCreatedEventSchema,
 ] as const;
 
-const RawThreadEventSchema = z.discriminatedUnion("type", [
+const ThreadEventSchemas = [
   ThreadCreatedEventSchema,
+  ThreadTitleUpdatedEventSchema,
+  ThreadPinnedEventSchema,
+  ThreadUnpinnedEventSchema,
+  ThreadArchivedEventSchema,
+  ThreadUnarchivedEventSchema,
+] as const;
+
+const RawThreadEventSchema = z.discriminatedUnion("type", [
+  ...ThreadEventSchemas,
 ]);
 const RawRunEventSchema = z.discriminatedUnion("type", RunEventSchemas);
 const RawPlatformEventSchema = z.discriminatedUnion("type", [
-  ThreadCreatedEventSchema,
+  ...ThreadEventSchemas,
   ...RunEventSchemas,
   ...WorkspaceEventSchemas,
   ...ArtifactEventSchemas,
@@ -719,6 +773,10 @@ type TurnProjectionEvent = Extract<
 type ItemProjectionEvent = Extract<
   RawPlatformEvent,
   { type: `item.${string}` }
+>;
+type ThreadProjectionEvent = Extract<
+  RawPlatformEvent,
+  { type: `thread.${string}` }
 >;
 
 function addIdentityMismatch(
@@ -739,21 +797,8 @@ function validateEventIdentity(
 ): void {
   validateScopeIdentity(event, context);
 
-  if (event.type === "thread.created") {
-    if (event.threadId !== event.payload.thread.id) {
-      addIdentityMismatch(
-        context,
-        ["payload", "thread", "id"],
-        "Thread payload ID must match the event thread ID",
-      );
-    }
-    if (event.workspaceId !== event.payload.thread.workspaceId) {
-      addIdentityMismatch(
-        context,
-        ["payload", "thread", "workspaceId"],
-        "Thread payload workspace ID must match the event workspace ID",
-      );
-    }
+  if (isThreadProjectionEvent(event)) {
+    validateThreadIdentity(event, context);
     return;
   }
 
@@ -857,6 +902,39 @@ function isItemProjectionEvent(
     event.type === "item.updated" ||
     event.type === "item.completed"
   );
+}
+
+function isThreadProjectionEvent(
+  event: RawPlatformEvent,
+): event is ThreadProjectionEvent {
+  return (
+    event.type === "thread.created" ||
+    event.type === "thread.title.updated" ||
+    event.type === "thread.pinned" ||
+    event.type === "thread.unpinned" ||
+    event.type === "thread.archived" ||
+    event.type === "thread.unarchived"
+  );
+}
+
+function validateThreadIdentity(
+  event: ThreadProjectionEvent,
+  context: z.RefinementCtx,
+): void {
+  if (event.threadId !== event.payload.thread.id) {
+    addIdentityMismatch(
+      context,
+      ["payload", "thread", "id"],
+      "Thread payload ID must match the event thread ID",
+    );
+  }
+  if (event.workspaceId !== event.payload.thread.workspaceId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "thread", "workspaceId"],
+      "Thread payload workspace ID must match the event workspace ID",
+    );
+  }
 }
 
 function validateRunIdentity(

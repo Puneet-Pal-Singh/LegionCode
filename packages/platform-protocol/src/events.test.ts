@@ -93,6 +93,11 @@ describe("platform event schemas", () => {
     expect(PlatformEventTypeSchema.options).toMatchInlineSnapshot(`
       [
         "thread.created",
+        "thread.title.updated",
+        "thread.pinned",
+        "thread.unpinned",
+        "thread.archived",
+        "thread.unarchived",
         "run.created",
         "run.started",
         "run.completed",
@@ -137,6 +142,68 @@ describe("platform event schemas", () => {
 
     expect(event.schemaVersion).toBe(1);
     expect(event.cursor).toBe("cursor_abc123");
+  });
+
+  it("accepts title pin and archive thread projection events", () => {
+    const titleEvent = ThreadEventSchema.parse({
+      ...envelope,
+      runId: null,
+      scopeType: "thread",
+      scopeId: "thr_abc123",
+      type: "thread.title.updated",
+      payload: {
+        thread: {
+          ...thread,
+          title: "Renamed thread",
+          titleSource: "user",
+          updatedAt: "2026-06-08T16:00:00.000Z",
+          lastEventSequence: 2,
+        },
+      },
+    });
+    const pinnedEvent = ThreadEventSchema.parse({
+      ...envelope,
+      eventId: "evt_def456",
+      cursor: "cursor_def456",
+      idempotencyKey: "thread:pin",
+      runId: null,
+      scopeType: "thread",
+      scopeId: "thr_abc123",
+      type: "thread.pinned",
+      payload: {
+        thread: {
+          ...titleEvent.payload.thread,
+          pinnedAt: "2026-06-08T17:00:00.000Z",
+          updatedAt: "2026-06-08T17:00:00.000Z",
+          lastEventSequence: 3,
+        },
+      },
+    });
+    const archivedEvent = ThreadEventSchema.parse({
+      ...envelope,
+      eventId: "evt_ghi789",
+      cursor: "cursor_ghi789",
+      idempotencyKey: "thread:archive",
+      runId: null,
+      scopeType: "thread",
+      scopeId: "thr_abc123",
+      type: "thread.archived",
+      payload: {
+        thread: {
+          ...pinnedEvent.payload.thread,
+          status: "archived",
+          archivedAt: "2026-06-08T18:00:00.000Z",
+          updatedAt: "2026-06-08T18:00:00.000Z",
+          lastEventSequence: 4,
+        },
+      },
+    });
+
+    expect(titleEvent.payload.thread.title).toBe("Renamed thread");
+    expect(pinnedEvent.payload.thread.pinnedAt).toBe(
+      "2026-06-08T17:00:00.000Z",
+    );
+    expect(archivedEvent.payload.thread.status).toBe("archived");
   });
 
   it("requires run IDs for run-scoped events", () => {
@@ -197,7 +264,7 @@ describe("platform event schemas", () => {
         runId: null,
         scopeType: "thread",
         scopeId: "thr_abc123",
-        type: "thread.created",
+        type: "thread.title.updated",
         payload: {
           thread: {
             ...thread,

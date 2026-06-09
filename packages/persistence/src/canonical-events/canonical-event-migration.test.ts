@@ -21,7 +21,10 @@ const migrationSqlPath = join(
 
 describe("canonical event table migration", () => {
   it("registers the migration after existing persistence migrations", () => {
-    expect(persistenceMigrations.at(-1)).toBe(canonicalEventTablesMigration);
+    expect(persistenceMigrations).toContain(canonicalEventTablesMigration);
+    expect(persistenceMigrations.indexOf(canonicalEventTablesMigration)).toBe(
+      15,
+    );
   });
 
   it("creates append-only canonical event tables with scoped uniqueness", () => {
