@@ -22,6 +22,110 @@ describe("GitPlugin", () => {
     vi.restoreAllMocks();
   });
 
+  it("routes git_status through canonical porcelain-v2 status parsing", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
+      const args = spec.args ?? [];
+      if (spec.command === "mkdir") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("--porcelain=v2")) {
+        return {
+          exitCode: 0,
+          stdout: [
+            "# branch.oid 1234567890abcdef1234567890abcdef12345678",
+            "# branch.head feat/git-service-status-adapter",
+            "# branch.ab +1 -2",
+            "1 M. N... 100644 100644 100644 1234567890abcdef1234567890abcdef12345678 abcdef1234567890abcdef1234567890abcdef12 src/app.ts",
+            "? src/new.ts",
+            "? .shadowbox/edit-artifact.patch",
+            "? nested/.shadowbox/edit-artifact.patch",
+            "",
+          ].join("\0"),
+          stderr: "",
+        };
+      }
+      if (args.includes("remote.origin.url")) {
+        return { exitCode: 1, stdout: "", stderr: "" };
+      }
+      if (args.includes("user.name") || args.includes("user.email")) {
+        return { exitCode: 1, stdout: "", stderr: "" };
+      }
+      if (args.includes("--numstat") && !args.includes("--cached")) {
+        return { exitCode: 0, stdout: "3\t1\tsrc/app.ts\n", stderr: "" };
+      }
+      if (args.includes("--numstat") && args.includes("--cached")) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (spec.command === "wc") {
+        return {
+          exitCode: 0,
+          stdout: "4 /home/sandbox/runs/run_git_status_1/src/new.ts\n",
+          stderr: "",
+        };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const plugin = new GitPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_status",
+      runId: "run_git_status_1",
+    });
+
+    expect(result.success).toBe(true);
+    const output = JSON.parse(String(result.output)) as {
+      branch: string;
+      ahead: number;
+      behind: number;
+      files: Array<{
+        path: string;
+        status: string;
+        additions: number;
+        deletions: number;
+        isStaged: boolean;
+      }>;
+    };
+
+    expect(output).toMatchObject({
+      branch: "feat/git-service-status-adapter",
+      ahead: 1,
+      behind: 2,
+    });
+    expect(output.files).toEqual([
+      {
+        path: "src/app.ts",
+        status: "modified",
+        additions: 3,
+        deletions: 1,
+        isStaged: true,
+      },
+      {
+        path: "src/new.ts",
+        status: "untracked",
+        additions: 4,
+        deletions: 0,
+        isStaged: false,
+      },
+    ]);
+
+    const statusCommand = runSafeCommandMock.mock.calls.find(([, spec]) =>
+      spec.args?.includes("--porcelain=v2"),
+    )?.[1] as { args?: string[]; cwd?: string } | undefined;
+    expect(statusCommand?.cwd).toBe("/home/sandbox/runs/run_git_status_1");
+    expect(statusCommand?.args).toEqual(
+      expect.arrayContaining([
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v2",
+        "-z",
+      ]),
+    );
+    expect(statusCommand?.args).not.toEqual(
+      expect.arrayContaining(["--porcelain", "-b"]),
+    );
+  });
+
   it("uses --cached when requesting staged diff content", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock
@@ -223,7 +327,12 @@ describe("GitPlugin", () => {
       if (args.includes("status")) {
         return {
           exitCode: 0,
-          stdout: "## main\n?? src/new file.ts\n?? src/other.ts\n",
+          stdout: [
+            "# branch.head main",
+            "? src/new file.ts",
+            "? src/other.ts",
+            "",
+          ].join("\0"),
           stderr: "",
         };
       }
@@ -298,7 +407,15 @@ describe("GitPlugin", () => {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
       if (args.includes("status")) {
-        return { exitCode: 0, stdout: "## main\n M src/app.ts\n", stderr: "" };
+        return {
+          exitCode: 0,
+          stdout: [
+            "# branch.head main",
+            "1 .M N... 100644 100644 100644 1234567890abcdef1234567890abcdef12345678 abcdef1234567890abcdef1234567890abcdef12 src/app.ts",
+            "",
+          ].join("\0"),
+          stderr: "",
+        };
       }
       if (args.includes("remote.origin.url")) {
         return { exitCode: 1, stdout: "", stderr: "" };

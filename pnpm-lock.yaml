@@ -167,6 +167,9 @@ importers:
 
   apps/secure-agent-api:
     dependencies:
+      '@repo/git-service':
+        specifier: workspace:*
+        version: link:../../packages/git-service
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types

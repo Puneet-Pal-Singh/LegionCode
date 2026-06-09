@@ -1,4 +1,9 @@
 import { Sandbox } from "@cloudflare/sandbox";
+import {
+  DefaultGitService,
+  type GitStatusEntry,
+  type GitStatusResult,
+} from "@repo/git-service";
 import { z } from "zod";
 import type { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { GitTools } from "../schemas/git";
@@ -20,6 +25,7 @@ import {
   readToolboxCommandContext,
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
+import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
 
 const GIT_ACTIONS = [
   "status",
@@ -353,22 +359,13 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const statusResult = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "status", "--porcelain", "-b"],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.status",
+    const gitService = new DefaultGitService(
+      new SandboxGitCommandExecutor(sandbox, toolboxContext, "git.status"),
     );
-
-    if (statusResult.exitCode !== 0) {
-      return { success: false, error: statusResult.stderr };
-    }
-
+    const statusResult = await gitService.getStatus({
+      runId,
+      workspaceRoot: worktree,
+    });
     const repoIdentity = await this.getRepoIdentity(
       sandbox,
       worktree,
@@ -381,8 +378,8 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       runId,
     );
-    const parsed = this.parseStatus(
-      statusResult.stdout,
+    const parsed = this.buildStatusResponse(
+      statusResult,
       repoIdentity,
       commitIdentity,
     );
@@ -405,6 +402,50 @@ export class GitPlugin implements IPlugin {
     }
 
     return { success: true, output: JSON.stringify(parsed) };
+  }
+
+  private buildStatusResponse(
+    status: GitStatusResult,
+    repoIdentity: string | null,
+    commitIdentity: GitCommitIdentity | null,
+  ): GitStatusResponse {
+    const files = status.entries.flatMap((entry) =>
+      this.toSharedFileStatus(entry),
+    );
+    return {
+      files,
+      ahead: status.branch.ahead ?? 0,
+      behind: status.branch.behind ?? 0,
+      branch: status.branch.head ?? "",
+      repoIdentity,
+      commitIdentity,
+      hasStaged: status.entries.some((entry) => isStatusEntryStaged(entry)),
+      hasUnstaged: status.entries.some((entry) => isStatusEntryUnstaged(entry)),
+      gitAvailable: true,
+    };
+  }
+
+  private toSharedFileStatus(entry: GitStatusEntry): FileStatus[] {
+    if (this.isInternalStatusEntry(entry.path)) {
+      return [];
+    }
+    return [
+      {
+        path: entry.path,
+        status: toSharedStatus(entry),
+        additions: 0,
+        deletions: 0,
+        isStaged: isStatusEntryStaged(entry),
+      },
+    ];
+  }
+
+  private isInternalStatusEntry(filePath: string): boolean {
+    return (
+      filePath === PATCH_WORK_DIR ||
+      filePath.startsWith(`${PATCH_WORK_DIR}/`) ||
+      filePath.includes(`/${PATCH_WORK_DIR}/`)
+    );
   }
 
   private async loadFileChangeLineCounts(
@@ -517,50 +558,6 @@ export class GitPlugin implements IPlugin {
         map.set(filePath, { additions, deletions });
       }
     }
-  }
-
-  private parseStatus(
-    stdout: string,
-    repoIdentity: string | null,
-    commitIdentity: GitCommitIdentity | null,
-  ): GitStatusResponse {
-    const lines = stdout.split("\n").filter((line) => line.trim().length > 0);
-    const branchLine = lines[0];
-    let branch = "main";
-    let ahead = 0;
-    let behind = 0;
-
-    if (branchLine && branchLine.startsWith("##")) {
-      const match = branchLine.match(/##\s*(.+?)(?:\.\.\.|$)/);
-      if (match && match[1]) {
-        branch = match[1];
-      }
-
-      const aheadMatch = branchLine.match(/ahead\s+(\d+)/);
-      const behindMatch = branchLine.match(/behind\s+(\d+)/);
-      if (aheadMatch && aheadMatch[1]) {
-        ahead = Number.parseInt(aheadMatch[1], 10);
-      }
-      if (behindMatch && behindMatch[1]) {
-        behind = Number.parseInt(behindMatch[1], 10);
-      }
-    }
-
-    const files: FileStatus[] = lines
-      .slice(1)
-      .flatMap((line) => parseStatusLine(line));
-
-    return {
-      files,
-      ahead,
-      behind,
-      branch,
-      repoIdentity,
-      commitIdentity,
-      hasStaged: files.some((file) => file.isStaged),
-      hasUnstaged: files.some((file) => !file.isStaged),
-      gitAvailable: true,
-    };
   }
 
   private async readWorkspaceCommitIdentity(
@@ -1909,62 +1906,6 @@ export class GitPlugin implements IPlugin {
   }
 }
 
-function parseStatusLine(line: string): FileStatus[] {
-  if (line.length < 3) {
-    return [];
-  }
-
-  const stagedStatus = line[0];
-  const unstagedStatus = line[1];
-  const isRenamed = stagedStatus === "R" || unstagedStatus === "R";
-
-  let rawPath = line.substring(3).trim();
-
-  if (isRenamed) {
-    const arrowIndex = rawPath.lastIndexOf(" -> ");
-    if (arrowIndex !== -1) {
-      rawPath = rawPath.substring(arrowIndex + 4).trim();
-    }
-  }
-
-  const filePath = stripGitQuotes(rawPath);
-
-  if (filePath.startsWith(".shadowbox") || filePath.includes("/.shadowbox")) {
-    return [];
-  }
-
-  let status: FileStatus["status"] = "modified";
-  let isStaged = stagedStatus !== " " && stagedStatus !== "?";
-
-  if (stagedStatus === "A" || unstagedStatus === "A") {
-    status = "added";
-  } else if (stagedStatus === "D" || unstagedStatus === "D") {
-    status = "deleted";
-  } else if (isRenamed) {
-    status = "renamed";
-  } else if (stagedStatus === "?" || unstagedStatus === "?") {
-    status = "untracked";
-    isStaged = false;
-  }
-
-  return [
-    {
-      path: filePath,
-      status,
-      additions: 0,
-      deletions: 0,
-      isStaged,
-    },
-  ];
-}
-
-function stripGitQuotes(path: string): string {
-  if (path.length >= 2 && path.startsWith('"') && path.endsWith('"')) {
-    return path.slice(1, -1);
-  }
-  return path;
-}
-
 function createDiffLine(
   line: string,
   oldLineNumber: number,
@@ -2050,6 +1991,36 @@ function normalizeFileList(files: string[] | undefined): string[] {
     return ["."];
   }
   return files.map((file) => validateRepoRelativePath(file));
+}
+
+function toSharedStatus(entry: GitStatusEntry): FileStatus["status"] {
+  switch (entry.status) {
+    case "added":
+    case "deleted":
+    case "renamed":
+    case "untracked":
+      return entry.status;
+    case "copied":
+      return "added";
+    case "type_changed":
+    case "modified":
+    case "unmerged":
+      return "modified";
+  }
+}
+
+function isStatusEntryStaged(entry: GitStatusEntry): boolean {
+  if (entry.kind === "untracked") {
+    return false;
+  }
+  return entry.xy.index !== ".";
+}
+
+function isStatusEntryUnstaged(entry: GitStatusEntry): boolean {
+  if (entry.kind === "untracked") {
+    return true;
+  }
+  return entry.xy.worktree !== ".";
 }
 
 function normalizeExplicitCommitIdentity(

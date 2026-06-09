@@ -7,7 +7,7 @@ export interface GitWorkspaceContext {
 }
 
 export interface GitStatusInput {
-  readonly runId: RunId;
+  readonly runId: string;
   readonly workspaceRoot: string;
 }
 
@@ -65,7 +65,7 @@ export interface GitPushResult {
 }
 
 export interface GitBranchValidationInput {
-  readonly runId: RunId;
+  readonly runId: string;
   readonly workspaceRoot: string;
   readonly branchName: string;
 }

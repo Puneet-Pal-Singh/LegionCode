@@ -1,3 +1,5 @@
+import { RunIdSchema } from "@repo/platform-protocol";
+
 import type { GitCommandExecutor } from "./executor.js";
 import { DEFAULT_GIT_COMMAND_TIMEOUT_MS } from "./executor.js";
 import { createInvalidBranchRefError } from "./errors.js";
@@ -51,9 +53,10 @@ export async function validateBranchWithGit(
   input: GitBranchValidationInput,
 ): Promise<GitBranchValidationResult> {
   const branchName = validateBranchNamePolicy(input.branchName);
+  const runId = RunIdSchema.parse(input.runId);
   const workspaceRoot = validateWorkspaceRoot(input.workspaceRoot);
   const result = await executor.execute({
-    runId: input.runId,
+    runId,
     cwd: workspaceRoot,
     args: [...BRANCH_CHECK_ARGS, branchName],
     timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
