@@ -127,6 +127,13 @@
       "when": 1781010000000,
       "tag": "0018_run_projections",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781011800000,
+      "tag": "0019_workspace_manifests_artifact_metadata",
+      "breakpoints": true
     }
   ]
 }

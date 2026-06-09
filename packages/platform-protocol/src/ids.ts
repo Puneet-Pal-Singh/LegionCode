@@ -13,6 +13,7 @@ export const PLATFORM_ID_PREFIXES = {
   toolCall: "toolcall",
   approval: "appr",
   artifact: "art",
+  workspaceManifest: "wsm",
   event: "evt",
   eventCursor: "cursor",
   worker: "worker",
@@ -114,6 +115,14 @@ export const ArtifactIdSchema = createPrefixedIdSchema(
 );
 export type ArtifactId = z.infer<typeof ArtifactIdSchema>;
 
+export const WorkspaceManifestIdSchema = createPrefixedIdSchema(
+  "WorkspaceManifestId",
+  PLATFORM_ID_PREFIXES.workspaceManifest,
+);
+export type WorkspaceManifestId = z.infer<
+  typeof WorkspaceManifestIdSchema
+>;
+
 export const EventIdSchema = createPrefixedIdSchema(
   "EventId",
   PLATFORM_ID_PREFIXES.event,
@@ -165,6 +174,7 @@ export const PlatformIdSchemas = {
   ToolCallId: ToolCallIdSchema,
   ApprovalId: ApprovalIdSchema,
   ArtifactId: ArtifactIdSchema,
+  WorkspaceManifestId: WorkspaceManifestIdSchema,
   EventId: EventIdSchema,
   EventCursor: EventCursorSchema,
   WorkerId: WorkerIdSchema,

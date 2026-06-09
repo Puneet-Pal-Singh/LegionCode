@@ -36,6 +36,7 @@ export { pausedRunAndSessionStatusMigration } from "./migrations/0014-paused-run
 export { providerConnectionConfigMigration } from "./migrations/0015-provider-connection-config.js";
 export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event-tables.js";
 export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
+export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-workspace-manifests-artifact-metadata.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -66,6 +67,9 @@ export { PostgresThreadProjectionRepository } from "./thread-projections/Postgre
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
 export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";
 export { projectRunEvents } from "./run-projections/RunProjectionProjector.js";
+export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
+export { MemoryWorkspaceManifestRepository } from "./workspace-manifests/MemoryWorkspaceManifestRepository.js";
+export { PostgresArtifactMetadataRepository } from "./artifact-metadata/PostgresArtifactMetadataRepository.js";
 export {
   THREAD_PROJECTION_VERSION,
   ThreadProjectionError,
@@ -91,6 +95,23 @@ export {
   type ToolCallProjection,
   type ToolCallProjectionStatus,
 } from "./run-projections/types.js";
+export {
+  WORKSPACE_MANIFEST_VERSION,
+  WorkspaceManifestError,
+  assertWorkspaceManifestIdentityUnchanged,
+  transitionWorkspaceManifestState,
+  type SaveWorkspaceManifestInput,
+  type TransitionWorkspaceManifestInput,
+  type WorkspaceManifestRepository,
+} from "./workspace-manifests/types.js";
+export {
+  ARTIFACT_METADATA_VERSION,
+  ArtifactMetadataRecordSchema,
+  artifactMetadataVersion,
+  projectArtifactMetadataEvent,
+  type ArtifactMetadataRecord,
+  type ArtifactMetadataRepository,
+} from "./artifact-metadata/types.js";
 export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
 export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
 export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";

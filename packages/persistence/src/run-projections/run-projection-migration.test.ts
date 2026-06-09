@@ -10,6 +10,7 @@ import {
 } from "@repo/platform-protocol";
 import { describe, expect, it } from "vitest";
 import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js";
+import { threadProjectionsMigration } from "../migrations/0017-thread-projections.js";
 import { runProjectionsMigration } from "../migrations/0018-run-projections.js";
 import { buildSqlList } from "../sessions/types.js";
 import {
@@ -25,7 +26,9 @@ const migrationSqlPath = join(
 
 describe("run projection migration", () => {
   it("registers after thread projections", () => {
-    expect(persistenceMigrations.at(-1)).toBe(runProjectionsMigration);
+    expect(persistenceMigrations.indexOf(runProjectionsMigration)).toBe(
+      persistenceMigrations.indexOf(threadProjectionsMigration) + 1,
+    );
   });
 
   it("creates canonical run projection tables", () => {

@@ -16,6 +16,7 @@ import { providerConnectionConfigMigration } from "./0015-provider-connection-co
 import { canonicalEventTablesMigration } from "./0016-canonical-event-tables.js";
 import { threadProjectionsMigration } from "./0017-thread-projections.js";
 import { runProjectionsMigration } from "./0018-run-projections.js";
+import { workspaceManifestsArtifactMetadataMigration } from "./0019-workspace-manifests-artifact-metadata.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -76,4 +77,5 @@ export const persistenceMigrations = [
   canonicalEventTablesMigration,
   threadProjectionsMigration,
   runProjectionsMigration,
+  workspaceManifestsArtifactMetadataMigration,
 ] as const;

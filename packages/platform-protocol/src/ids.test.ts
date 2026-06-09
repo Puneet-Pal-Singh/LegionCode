@@ -28,6 +28,7 @@ describe("platform protocol IDs", () => {
         "UserId",
         "WorkerId",
         "WorkspaceId",
+        "WorkspaceManifestId",
       ]
     `);
   });

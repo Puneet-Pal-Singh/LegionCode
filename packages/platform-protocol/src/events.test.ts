@@ -66,6 +66,36 @@ const thread = {
   lastEventSequence: 1,
 };
 
+const artifact = {
+  artifactId: "art_abc123",
+  threadId: "thr_abc123",
+  runId: "run_abc123",
+  workspaceId: "wrk_abc123",
+  itemId: null,
+  kind: "diff",
+  label: "Patch",
+  payloadRef: {
+    backend: "r2",
+    objectKey: "artifacts/run_abc123/diff.patch",
+    uri: null,
+    contentType: "text/x-diff",
+    sizeBytes: 128,
+    sha256: "a".repeat(64),
+  },
+  changedFiles: [
+    {
+      path: "packages/platform-protocol/src/events.ts",
+      status: "modified",
+      additions: 12,
+      deletions: 3,
+      previousPath: null,
+    },
+  ],
+  metadata: { source: "git.diff.updated" },
+  createdAt: timestamp,
+  eventSequence: 1,
+};
+
 describe("platform event schemas", () => {
   it("exports the canonical event type contract", () => {
     expect(EventScopeTypeSchema.options).toEqual([
@@ -303,11 +333,7 @@ describe("platform event schemas", () => {
         type: "artifact.created",
         payload: {
           itemId: null,
-          reference: {
-            artifactId: "art_abc123",
-            label: "Patch",
-            metadata: {},
-          },
+          artifact,
         },
       }),
     ).toThrow();
@@ -387,11 +413,7 @@ describe("platform event schemas", () => {
         type: "artifact.created",
         payload: {
           itemId: null,
-          reference: {
-            artifactId: "art_abc123",
-            label: "Patch",
-            metadata: {},
-          },
+          artifact,
         },
       }),
     ).toThrow();
@@ -464,7 +486,7 @@ describe("platform event schemas", () => {
     expect(event.payload.failure.code).toBe("capability_unsupported");
   });
 
-  it("uses the artifact reference as the canonical artifact identity", () => {
+  it("uses artifact metadata as the canonical artifact identity", () => {
     const event = ArtifactEventSchema.parse({
       ...envelope,
       scopeType: "artifact",
@@ -472,14 +494,12 @@ describe("platform event schemas", () => {
       type: "artifact.created",
       payload: {
         itemId: null,
-        reference: {
-          artifactId: "art_abc123",
-          label: "Patch",
-          metadata: { mimeType: "text/x-diff" },
-        },
+        artifact,
       },
     });
 
-    expect(event.payload.reference.artifactId).toBe("art_abc123");
+    expect(event.payload.artifact.artifactId).toBe("art_abc123");
+    expect(event.payload.artifact.kind).toBe("diff");
+    expect(event.payload.artifact.payloadRef.sha256).toBe("a".repeat(64));
   });
 });

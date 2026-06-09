@@ -29,3 +29,8 @@ export {
   canonicalRunProjections,
   canonicalToolCallProjections,
 } from "./run-projections.js";
+export { workspaceManifests } from "./workspace-manifests.js";
+export {
+  artifactMetadata,
+  artifactMetadataChangedFiles,
+} from "./artifact-metadata.js";
