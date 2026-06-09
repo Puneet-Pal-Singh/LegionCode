@@ -60,6 +60,7 @@ export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
+export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
 export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
 export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";

@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/event-store": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "drizzle-orm": "^0.45.2",

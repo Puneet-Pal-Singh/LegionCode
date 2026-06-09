@@ -4,6 +4,7 @@ export {
   type EventStoreErrorCode,
 } from "./errors.js";
 export { MemoryEventStore } from "./MemoryEventStore.js";
+export { createStableEventFingerprint } from "./fingerprint.js";
 export {
   type AppendEventInput,
   type EventStore,
