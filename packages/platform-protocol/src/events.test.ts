@@ -216,6 +216,31 @@ describe("platform event schemas", () => {
     ).toThrow();
   });
 
+  it("uses the canonical typed error envelope for failures", () => {
+    const event = PlatformEventSchema.parse({
+      ...envelope,
+      type: "tool.call.failed",
+      payload: {
+        itemId: "itm_abc123",
+        toolCallId: "toolcall_abc123",
+        failure: {
+          code: "capability_unsupported",
+          message: "The active worker does not support this tool.",
+          retryable: false,
+          correlationId: "request-123",
+          details: {
+            capability: "browser",
+          },
+        },
+      },
+    });
+
+    if (event.type !== "tool.call.failed") {
+      throw new Error("expected tool.call.failed event");
+    }
+    expect(event.payload.failure.code).toBe("capability_unsupported");
+  });
+
   it("uses the artifact reference as the canonical artifact identity", () => {
     const event = ArtifactEventSchema.parse({
       ...envelope,
