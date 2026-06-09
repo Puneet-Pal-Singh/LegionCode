@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./common": "./src/common.ts",
     "./conversation": "./src/conversation.ts",
+    "./events": "./src/events.ts",
     "./ids": "./src/ids.ts"
   },
   "scripts": {
