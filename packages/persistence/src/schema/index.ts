@@ -19,3 +19,7 @@ export {
   canonicalEventScopeSequences,
   canonicalEvents,
 } from "./canonical-events.js";
+export {
+  canonicalThreadItemProjections,
+  canonicalThreadProjections,
+} from "./thread-projections.js";

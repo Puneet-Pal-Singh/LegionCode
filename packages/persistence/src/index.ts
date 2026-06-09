@@ -61,6 +61,16 @@ export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
+export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
+export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
+export {
+  THREAD_PROJECTION_VERSION,
+  ThreadProjectionError,
+  type RebuildThreadProjectionInput,
+  type ThreadProjectionEventInput,
+  type ThreadProjectionRepository,
+  type ThreadProjectionSnapshot,
+} from "./thread-projections/types.js";
 export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
 export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
 export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";
