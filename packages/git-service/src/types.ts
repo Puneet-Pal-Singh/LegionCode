@@ -1,9 +1,12 @@
-import type { RunId } from "@repo/platform-protocol";
-
 export interface GitWorkspaceContext {
-  readonly runId: RunId;
+  readonly runId: string;
   readonly filesystemRoot: string;
   readonly workingBranch: string;
+}
+
+export interface GitFilesystemContext {
+  readonly runId: string;
+  readonly filesystemRoot: string;
 }
 
 export interface GitStatusInput {
@@ -12,7 +15,7 @@ export interface GitStatusInput {
 }
 
 export interface GitDiffInput {
-  readonly workspace: GitWorkspaceContext;
+  readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];
   readonly staged: boolean;
 }
@@ -31,7 +34,7 @@ export interface GitDiffResult {
 }
 
 export interface GitStageInput {
-  readonly workspace: GitWorkspaceContext;
+  readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];
 }
 
@@ -41,7 +44,7 @@ export interface GitCommitIdentity {
 }
 
 export interface GitCommitInput {
-  readonly workspace: GitWorkspaceContext;
+  readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];
   readonly message: string;
   readonly author: GitCommitIdentity;
@@ -56,6 +59,7 @@ export interface GitCommitResult {
 export interface GitPushInput {
   readonly workspace: GitWorkspaceContext;
   readonly remoteName: string;
+  readonly authArgs?: readonly string[];
 }
 
 export interface GitPushResult {
