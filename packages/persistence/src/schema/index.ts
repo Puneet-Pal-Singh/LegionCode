@@ -15,3 +15,7 @@ export { memoryEvents } from "./memory.js";
 export { contextSnapshots, contextSnapshotSources } from "./context.js";
 export { permissionRequests, permissionDecisions } from "./permissions.js";
 export { artifacts, artifactEvents, artifactChangedFiles } from "./artifacts.js";
+export {
+  canonicalEventScopeSequences,
+  canonicalEvents,
+} from "./canonical-events.js";

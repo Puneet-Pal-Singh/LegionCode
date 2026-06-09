@@ -175,11 +175,26 @@ const UPSERT_RUN_SQL = `
     created_at,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
+  VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    COALESCE($6::text, 'created'),
+    COALESCE($7::text, 'build'),
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13,
+    $13
+  )
   ON CONFLICT (id)
   DO UPDATE SET
-    status = COALESCE(EXCLUDED.status, runs.status),
-    mode = COALESCE(EXCLUDED.mode, runs.mode),
+    status = COALESCE($6::text, runs.status),
+    mode = COALESCE($7::text, runs.mode),
     provider_id = COALESCE(EXCLUDED.provider_id, runs.provider_id),
     model_id = COALESCE(EXCLUDED.model_id, runs.model_id),
     branch = COALESCE(EXCLUDED.branch, runs.branch),

@@ -34,6 +34,7 @@ export { sessionOrganizationMetadataMigration } from "./migrations/0012-session-
 export { artifactReviewMetadataMigration } from "./migrations/0013-artifact-review-metadata.js";
 export { pausedRunAndSessionStatusMigration } from "./migrations/0014-paused-run-and-session-status.js";
 export { providerConnectionConfigMigration } from "./migrations/0015-provider-connection-config.js";
+export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event-tables.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -241,4 +242,6 @@ export {
   artifacts,
   artifactEvents,
   artifactChangedFiles,
+  canonicalEventScopeSequences,
+  canonicalEvents,
 } from "./schema/index.js";
