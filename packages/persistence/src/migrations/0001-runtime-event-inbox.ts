@@ -15,6 +15,7 @@ import { pausedRunAndSessionStatusMigration } from "./0014-paused-run-and-sessio
 import { providerConnectionConfigMigration } from "./0015-provider-connection-config.js";
 import { canonicalEventTablesMigration } from "./0016-canonical-event-tables.js";
 import { threadProjectionsMigration } from "./0017-thread-projections.js";
+import { runProjectionsMigration } from "./0018-run-projections.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -74,4 +75,5 @@ export const persistenceMigrations = [
   providerConnectionConfigMigration,
   canonicalEventTablesMigration,
   threadProjectionsMigration,
+  runProjectionsMigration,
 ] as const;

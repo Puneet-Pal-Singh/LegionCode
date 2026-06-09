@@ -35,6 +35,7 @@ export { artifactReviewMetadataMigration } from "./migrations/0013-artifact-revi
 export { pausedRunAndSessionStatusMigration } from "./migrations/0014-paused-run-and-session-status.js";
 export { providerConnectionConfigMigration } from "./migrations/0015-provider-connection-config.js";
 export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event-tables.js";
+export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -63,6 +64,8 @@ export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepos
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
+export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";
+export { projectRunEvents } from "./run-projections/RunProjectionProjector.js";
 export {
   THREAD_PROJECTION_VERSION,
   ThreadProjectionError,
@@ -71,6 +74,23 @@ export {
   type ThreadProjectionRepository,
   type ThreadProjectionSnapshot,
 } from "./thread-projections/types.js";
+export {
+  ApprovalProjectionStatusSchema,
+  RUN_PROJECTION_VERSION,
+  RunProjectionError,
+  ToolCallProjectionStatusSchema,
+  buildApprovalDecisionSqlList,
+  buildApprovalProjectionStatusSqlList,
+  buildToolCallProjectionStatusSqlList,
+  type ApprovalProjection,
+  type ApprovalProjectionStatus,
+  type RebuildRunProjectionInput,
+  type RunProjectionEventInput,
+  type RunProjectionRepository,
+  type RunProjectionSnapshot,
+  type ToolCallProjection,
+  type ToolCallProjectionStatus,
+} from "./run-projections/types.js";
 export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
 export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
 export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";
@@ -255,4 +275,8 @@ export {
   artifactChangedFiles,
   canonicalEventScopeSequences,
   canonicalEvents,
+  canonicalRunItemProjections,
+  canonicalRunProjections,
+  canonicalToolCallProjections,
+  canonicalApprovalProjections,
 } from "./schema/index.js";

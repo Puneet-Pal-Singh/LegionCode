@@ -23,3 +23,9 @@ export {
   canonicalThreadItemProjections,
   canonicalThreadProjections,
 } from "./thread-projections.js";
+export {
+  canonicalApprovalProjections,
+  canonicalRunItemProjections,
+  canonicalRunProjections,
+  canonicalToolCallProjections,
+} from "./run-projections.js";
