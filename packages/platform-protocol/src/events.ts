@@ -15,9 +15,11 @@ import {
 import { ProtocolErrorSchema } from "./errors.js";
 import {
   ApprovalIdSchema,
+  ArtifactIdSchema,
   EventCursorSchema,
   EventIdSchema,
   ItemIdSchema,
+  ProviderIdSchema,
   RunIdSchema,
   ThreadIdSchema,
   ToolCallIdSchema,
@@ -54,6 +56,57 @@ export const EventProducerSchema = z
   })
   .strict();
 export type EventProducer = z.infer<typeof EventProducerSchema>;
+
+export const EventScopeTypeSchema = z.enum([
+  "thread",
+  "run",
+  "workspace",
+  "artifact",
+  "provider",
+]);
+export type EventScopeType = z.infer<typeof EventScopeTypeSchema>;
+
+export const EventScopeSchema = z.discriminatedUnion("scopeType", [
+  z
+    .object({
+      scopeType: z.literal("thread"),
+      scopeId: ThreadIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      scopeType: z.literal("run"),
+      scopeId: RunIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      scopeType: z.literal("workspace"),
+      scopeId: WorkspaceIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      scopeType: z.literal("artifact"),
+      scopeId: ArtifactIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      scopeType: z.literal("provider"),
+      scopeId: ProviderIdSchema,
+    })
+    .strict(),
+]);
+export type EventScope = z.infer<typeof EventScopeSchema>;
+
+type EventScopeIdSchemas = {
+  thread: typeof ThreadIdSchema;
+  run: typeof RunIdSchema;
+  workspace: typeof WorkspaceIdSchema;
+  artifact: typeof ArtifactIdSchema;
+  provider: typeof ProviderIdSchema;
+};
 
 export const ThreadEventTypeSchema = z.enum(["thread.created"]);
 export type ThreadEventType = z.infer<typeof ThreadEventTypeSchema>;
@@ -362,6 +415,7 @@ export type ContextCompactedPayload = z.infer<
 const EventEnvelopeBaseShape = {
   eventId: EventIdSchema,
   threadId: ThreadIdSchema,
+  workspaceId: WorkspaceIdSchema,
   sequence: EventSequenceSchema,
   cursor: EventCursorSchema,
   idempotencyKey: EventIdempotencyKeySchema,
@@ -373,15 +427,20 @@ const EventEnvelopeBaseShape = {
 function createEventSchema<
   TType extends PlatformEventType,
   TPayloadSchema extends z.ZodType<unknown>,
+  TScopeType extends EventScopeType,
 >(
   type: TType,
   payload: TPayloadSchema,
   runIdSchema: typeof RunIdSchema | z.ZodNullable<typeof RunIdSchema>,
+  scopeType: TScopeType,
+  scopeIdSchema: EventScopeIdSchemas[TScopeType],
 ) {
   return z
     .object({
       ...EventEnvelopeBaseShape,
       runId: runIdSchema,
+      scopeType: z.literal(scopeType),
+      scopeId: scopeIdSchema,
       type: z.literal(type),
       payload,
     })
@@ -392,31 +451,43 @@ const ThreadCreatedEventSchema = createEventSchema(
   "thread.created",
   ThreadCreatedPayloadSchema,
   RunIdSchema.nullable(),
+  "thread",
+  ThreadIdSchema,
 );
 
 const RunCreatedEventSchema = createEventSchema(
   "run.created",
   RunPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const RunStartedEventSchema = createEventSchema(
   "run.started",
   RunPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 const RunCompletedEventSchema = createEventSchema(
   "run.completed",
   RunPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const RunFailedEventSchema = createEventSchema(
   "run.failed",
   RunFailedPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const RunCancelledEventSchema = createEventSchema(
   "run.cancelled",
   RunPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -424,15 +495,21 @@ const TurnStartedEventSchema = createEventSchema(
   "turn.started",
   TurnPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const TurnCompletedEventSchema = createEventSchema(
   "turn.completed",
   TurnPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const TurnFailedEventSchema = createEventSchema(
   "turn.failed",
   TurnFailedPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -440,10 +517,14 @@ const AssistantTextDeltaEventSchema = createEventSchema(
   "assistant.text.delta",
   AssistantTextDeltaPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const AssistantTextCompletedEventSchema = createEventSchema(
   "assistant.text.completed",
   AssistantTextCompletedPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -451,15 +532,21 @@ const ItemStartedEventSchema = createEventSchema(
   "item.started",
   ItemPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const ItemUpdatedEventSchema = createEventSchema(
   "item.updated",
   ItemPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const ItemCompletedEventSchema = createEventSchema(
   "item.completed",
   ItemPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -467,25 +554,35 @@ const ToolCallRequestedEventSchema = createEventSchema(
   "tool.call.requested",
   ToolCallRequestedPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const ToolCallStartedEventSchema = createEventSchema(
   "tool.call.started",
   ToolCallPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 const ToolCallOutputDeltaEventSchema = createEventSchema(
   "tool.call.output.delta",
   ToolCallOutputDeltaPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const ToolCallCompletedEventSchema = createEventSchema(
   "tool.call.completed",
   ToolCallCompletedPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const ToolCallFailedEventSchema = createEventSchema(
   "tool.call.failed",
   ToolCallFailedPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -493,10 +590,14 @@ const ApprovalRequestedEventSchema = createEventSchema(
   "approval.requested",
   ApprovalRequestedPayloadSchema,
   RunIdSchema,
+  "run",
+  RunIdSchema,
 );
 const ApprovalDecidedEventSchema = createEventSchema(
   "approval.decided",
   ApprovalDecidedPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -504,42 +605,58 @@ const WorkspacePreparingEventSchema = createEventSchema(
   "workspace.preparing",
   WorkspacePayloadSchema,
   RunIdSchema,
+  "workspace",
+  WorkspaceIdSchema,
 );
 const WorkspaceReadyEventSchema = createEventSchema(
   "workspace.ready",
   WorkspacePayloadSchema,
   RunIdSchema,
+  "workspace",
+  WorkspaceIdSchema,
 );
 const WorkspaceDirtyEventSchema = createEventSchema(
   "workspace.dirty",
   WorkspacePayloadSchema,
   RunIdSchema,
+  "workspace",
+  WorkspaceIdSchema,
 );
 const WorkspaceFailedEventSchema = createEventSchema(
   "workspace.failed",
   WorkspaceFailedPayloadSchema,
   RunIdSchema,
+  "workspace",
+  WorkspaceIdSchema,
 );
 const GitStatusUpdatedEventSchema = createEventSchema(
   "git.status.updated",
   GitStatusUpdatedPayloadSchema,
   RunIdSchema,
+  "workspace",
+  WorkspaceIdSchema,
 );
 const GitDiffUpdatedEventSchema = createEventSchema(
   "git.diff.updated",
   GitDiffUpdatedPayloadSchema,
   RunIdSchema,
+  "workspace",
+  WorkspaceIdSchema,
 );
 
 const ArtifactCreatedEventSchema = createEventSchema(
   "artifact.created",
   ArtifactCreatedPayloadSchema,
   RunIdSchema,
+  "artifact",
+  ArtifactIdSchema,
 );
 
 const ContextCompactedEventSchema = createEventSchema(
   "context.compacted",
   ContextCompactedPayloadSchema,
+  RunIdSchema,
+  "run",
   RunIdSchema,
 );
 
@@ -564,14 +681,20 @@ const RunEventSchemas = [
   ToolCallFailedEventSchema,
   ApprovalRequestedEventSchema,
   ApprovalDecidedEventSchema,
+  ContextCompactedEventSchema,
+] as const;
+
+const WorkspaceEventSchemas = [
   WorkspacePreparingEventSchema,
   WorkspaceReadyEventSchema,
   WorkspaceDirtyEventSchema,
   WorkspaceFailedEventSchema,
   GitStatusUpdatedEventSchema,
   GitDiffUpdatedEventSchema,
+] as const;
+
+const ArtifactEventSchemas = [
   ArtifactCreatedEventSchema,
-  ContextCompactedEventSchema,
 ] as const;
 
 const RawThreadEventSchema = z.discriminatedUnion("type", [
@@ -581,6 +704,8 @@ const RawRunEventSchema = z.discriminatedUnion("type", RunEventSchemas);
 const RawPlatformEventSchema = z.discriminatedUnion("type", [
   ThreadCreatedEventSchema,
   ...RunEventSchemas,
+  ...WorkspaceEventSchemas,
+  ...ArtifactEventSchemas,
 ]);
 type RawPlatformEvent = z.infer<typeof RawPlatformEventSchema>;
 type RunProjectionEvent = Extract<
@@ -612,6 +737,8 @@ function validateEventIdentity(
   event: RawPlatformEvent,
   context: z.RefinementCtx,
 ): void {
+  validateScopeIdentity(event, context);
+
   if (event.type === "thread.created") {
     if (event.threadId !== event.payload.thread.id) {
       addIdentityMismatch(
@@ -620,7 +747,25 @@ function validateEventIdentity(
         "Thread payload ID must match the event thread ID",
       );
     }
+    if (event.workspaceId !== event.payload.thread.workspaceId) {
+      addIdentityMismatch(
+        context,
+        ["payload", "thread", "workspaceId"],
+        "Thread payload workspace ID must match the event workspace ID",
+      );
+    }
     return;
+  }
+
+  if (
+    event.scopeType === "workspace" &&
+    event.workspaceId !== event.payload.workspaceId
+  ) {
+    addIdentityMismatch(
+      context,
+      ["workspaceId"],
+      "Workspace payload ID must match the event workspace ID",
+    );
   }
 
   if (isRunProjectionEvent(event)) {
@@ -635,6 +780,50 @@ function validateEventIdentity(
 
   if (isItemProjectionEvent(event)) {
     validateItemIdentity(event, context);
+  }
+}
+
+function validateScopeIdentity(
+  event: RawPlatformEvent,
+  context: z.RefinementCtx,
+): void {
+  switch (event.scopeType) {
+    case "thread":
+      validateScopeId(event.scopeId, event.threadId, context);
+      return;
+    case "run":
+      validateScopeId(event.scopeId, event.runId, context);
+      return;
+    case "workspace":
+      validateScopeId(event.scopeId, event.payload.workspaceId, context);
+      return;
+    case "artifact":
+      validateScopeId(
+        event.scopeId,
+        event.payload.reference.artifactId,
+        context,
+      );
+      return;
+    default:
+      assertUnreachable(event);
+  }
+}
+
+function assertUnreachable(value: never): never {
+  throw new Error(`Unsupported event scope: ${JSON.stringify(value)}`);
+}
+
+function validateScopeId(
+  scopeId: string,
+  canonicalId: string | null,
+  context: z.RefinementCtx,
+): void {
+  if (scopeId !== canonicalId) {
+    addIdentityMismatch(
+      context,
+      ["scopeId"],
+      "Event scope ID must match its canonical payload or envelope identity",
+    );
   }
 }
 
@@ -688,6 +877,13 @@ function validateRunIdentity(
       "Run payload thread ID must match the event thread ID",
     );
   }
+  if (event.workspaceId !== event.payload.run.workspaceId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "run", "workspaceId"],
+      "Run payload workspace ID must match the event workspace ID",
+    );
+  }
 }
 
 function validateTurnIdentity(
@@ -739,24 +935,19 @@ export const RunEventSchema =
 export type RunEvent = z.infer<typeof RunEventSchema>;
 
 export const WorkspaceEventSchema = z.discriminatedUnion("type", [
-  WorkspacePreparingEventSchema,
-  WorkspaceReadyEventSchema,
-  WorkspaceDirtyEventSchema,
-  WorkspaceFailedEventSchema,
-  GitStatusUpdatedEventSchema,
-  GitDiffUpdatedEventSchema,
-]);
+  ...WorkspaceEventSchemas,
+]).superRefine(validateEventIdentity);
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>;
 
 export const ArtifactEventSchema = z.discriminatedUnion("type", [
-  ArtifactCreatedEventSchema,
-]);
+  ...ArtifactEventSchemas,
+]).superRefine(validateEventIdentity);
 export type ArtifactEvent = z.infer<typeof ArtifactEventSchema>;
 
 export const ApprovalEventSchema = z.discriminatedUnion("type", [
   ApprovalRequestedEventSchema,
   ApprovalDecidedEventSchema,
-]);
+]).superRefine(validateEventIdentity);
 export type ApprovalEvent = z.infer<typeof ApprovalEventSchema>;
 
 export const PlatformEventSchema =
