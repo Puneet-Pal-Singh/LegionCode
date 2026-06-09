@@ -1,17 +1,18 @@
 import { z } from "zod";
 import {
   EventSequenceSchema,
+  JsonRecordSchema,
   ProtocolTimestampSchema,
 } from "./common.js";
 import {
   ArtifactReferenceItemContentSchema,
-  JsonRecordSchema,
   RunSchema,
   ThreadItemSchema,
   ThreadSchema,
   ToolCallItemContentSchema,
   TurnSchema,
 } from "./conversation.js";
+import { ProtocolErrorSchema } from "./errors.js";
 import {
   ApprovalIdSchema,
   EventCursorSchema,
@@ -135,17 +136,7 @@ export const PlatformEventTypeSchema = z.enum([
 ]);
 export type PlatformEventType = z.infer<typeof PlatformEventTypeSchema>;
 
-const NonEmptyMessageSchema = z.string().min(1).max(10_000);
 const SafeCountSchema = z.number().int().safe().nonnegative();
-
-export const FailurePayloadSchema = z
-  .object({
-    message: NonEmptyMessageSchema,
-    code: z.string().min(1).max(120).nullable(),
-    details: JsonRecordSchema.nullable(),
-  })
-  .strict();
-export type FailurePayload = z.infer<typeof FailurePayloadSchema>;
 
 export const ThreadCreatedPayloadSchema = z
   .object({
@@ -166,7 +157,7 @@ export type RunPayload = z.infer<typeof RunPayloadSchema>;
 export const RunFailedPayloadSchema = z
   .object({
     run: RunSchema,
-    failure: FailurePayloadSchema,
+    failure: ProtocolErrorSchema,
   })
   .strict();
 export type RunFailedPayload = z.infer<typeof RunFailedPayloadSchema>;
@@ -181,7 +172,7 @@ export type TurnPayload = z.infer<typeof TurnPayloadSchema>;
 export const TurnFailedPayloadSchema = z
   .object({
     turn: TurnSchema,
-    failure: FailurePayloadSchema,
+    failure: ProtocolErrorSchema,
   })
   .strict();
 export type TurnFailedPayload = z.infer<typeof TurnFailedPayloadSchema>;
@@ -257,7 +248,7 @@ export const ToolCallFailedPayloadSchema = z
   .object({
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
-    failure: FailurePayloadSchema,
+    failure: ProtocolErrorSchema,
   })
   .strict();
 export type ToolCallFailedPayload = z.infer<
@@ -315,7 +306,7 @@ export type WorkspacePayload = z.infer<typeof WorkspacePayloadSchema>;
 export const WorkspaceFailedPayloadSchema = z
   .object({
     workspaceId: WorkspaceIdSchema,
-    failure: FailurePayloadSchema,
+    failure: ProtocolErrorSchema,
   })
   .strict();
 export type WorkspaceFailedPayload = z.infer<

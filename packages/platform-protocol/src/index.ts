@@ -1,15 +1,38 @@
 export {
+  CapabilityConfidenceSchema,
+  CapabilityEntrySchema,
+  CapabilityEvidenceSourceSchema,
+  CapabilitySupportStateSchema,
+  ModelCapabilitySnapshotSchema,
+  ProviderCapabilitySnapshotSchema,
+  WorkerCapabilitySnapshotSchema,
+  WorkerExecutionLocationSchema,
+  WorkerIsolationStrengthSchema,
+  type CapabilityConfidence,
+  type CapabilityEntry,
+  type CapabilityEvidenceSource,
+  type CapabilitySupportState,
+  type ModelCapabilitySnapshot,
+  type ProviderCapabilitySnapshot,
+  type WorkerCapabilitySnapshot,
+  type WorkerExecutionLocation,
+  type WorkerIsolationStrength,
+} from "./capabilities.js";
+export {
   BranchIdSchema,
   EventSequenceSchema,
+  JsonRecordSchema,
+  JsonValueSchema,
   ProtocolTimestampSchema,
   type BranchId,
   type EventSequence,
+  type JsonPrimitive,
+  type JsonRecord,
+  type JsonValue,
   type ProtocolTimestamp,
 } from "./common.js";
 export {
   ArtifactReferenceItemContentSchema,
-  JsonRecordSchema,
-  JsonValueSchema,
   RunItemSchema,
   RunModeSchema,
   RunSchema,
@@ -25,8 +48,6 @@ export {
   TurnSchema,
   TurnStatusSchema,
   type ArtifactReferenceItemContent,
-  type JsonRecord,
-  type JsonValue,
   type Run,
   type RunItem,
   type RunMode,
@@ -42,6 +63,12 @@ export {
   type Turn,
   type TurnStatus,
 } from "./conversation.js";
+export {
+  ProtocolErrorCodeSchema,
+  ProtocolErrorSchema,
+  type ProtocolError,
+  type ProtocolErrorCode,
+} from "./errors.js";
 export {
   ApprovalDecidedPayloadSchema,
   ApprovalDecisionSchema,
@@ -62,7 +89,6 @@ export {
   EventProducerKindSchema,
   EventProducerSchema,
   EventSchemaVersionSchema,
-  FailurePayloadSchema,
   GitDiffUpdatedPayloadSchema,
   GitStatusUpdatedPayloadSchema,
   ItemEventTypeSchema,
@@ -107,7 +133,6 @@ export {
   type EventProducer,
   type EventProducerKind,
   type EventSchemaVersion,
-  type FailurePayload,
   type GitDiffUpdatedPayload,
   type GitStatusUpdatedPayload,
   type ItemEventType,
@@ -174,3 +199,13 @@ export {
   type WorkerId,
   type WorkspaceId,
 } from "./ids.js";
+export {
+  PermissionDecisionSourceSchema,
+  PermissionEffectSchema,
+  PermissionPolicyDecisionSchema,
+  PermissionRiskLevelSchema,
+  type PermissionDecisionSource,
+  type PermissionEffect,
+  type PermissionPolicyDecision,
+  type PermissionRiskLevel,
+} from "./permissions.js";

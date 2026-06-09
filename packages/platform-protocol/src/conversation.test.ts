@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   ArtifactReferenceItemContentSchema,
-  JsonRecordSchema,
   RunItemSchema,
   RunSchema,
   ThreadItemSchema,
@@ -109,24 +108,6 @@ describe("conversation protocol schemas", () => {
         createdAt: timestamp,
         completedAt: null,
         eventSequence: 2,
-      }),
-    ).toThrow();
-  });
-
-  it("rejects non-JSON protocol payloads", () => {
-    expect(() =>
-      JsonRecordSchema.parse({
-        createdAt: new Date(timestamp),
-      }),
-    ).toThrow();
-    expect(() =>
-      JsonRecordSchema.parse({
-        missing: undefined,
-      }),
-    ).toThrow();
-    expect(() =>
-      JsonRecordSchema.parse({
-        unsafeNumber: Number.POSITIVE_INFINITY,
       }),
     ).toThrow();
   });

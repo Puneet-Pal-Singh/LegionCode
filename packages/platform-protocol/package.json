@@ -7,10 +7,13 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./capabilities": "./src/capabilities.ts",
     "./common": "./src/common.ts",
     "./conversation": "./src/conversation.ts",
+    "./errors": "./src/errors.ts",
     "./events": "./src/events.ts",
-    "./ids": "./src/ids.ts"
+    "./ids": "./src/ids.ts",
+    "./permissions": "./src/permissions.ts"
   },
   "scripts": {
     "build": "tsc",
