@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ArtifactEventSchema,
   EVENT_SCHEMA_VERSION,
   PlatformEventSchema,
   PlatformEventTypeSchema,
@@ -135,6 +136,42 @@ describe("platform event schemas", () => {
         schemaVersion: 2,
       }),
     ).toThrow();
+    expect(() =>
+      PlatformEventSchema.parse({
+        ...envelope,
+        producer: { kind: "sdk", id: "web-client" },
+        type: "run.created",
+        payload: { run },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects projection IDs that disagree with the event envelope", () => {
+    expect(() =>
+      PlatformEventSchema.parse({
+        ...envelope,
+        type: "run.started",
+        payload: {
+          run: {
+            ...run,
+            id: "run_other123",
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      ThreadEventSchema.parse({
+        ...envelope,
+        runId: null,
+        type: "thread.created",
+        payload: {
+          thread: {
+            ...thread,
+            id: "thr_other123",
+          },
+        },
+      }),
+    ).toThrow();
   });
 
   it("enforces typed tool call payloads through the event boundary", () => {
@@ -177,5 +214,22 @@ describe("platform event schemas", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("uses the artifact reference as the canonical artifact identity", () => {
+    const event = ArtifactEventSchema.parse({
+      ...envelope,
+      type: "artifact.created",
+      payload: {
+        itemId: null,
+        reference: {
+          artifactId: "art_abc123",
+          label: "Patch",
+          metadata: { mimeType: "text/x-diff" },
+        },
+      },
+    });
+
+    expect(event.payload.reference.artifactId).toBe("art_abc123");
   });
 });

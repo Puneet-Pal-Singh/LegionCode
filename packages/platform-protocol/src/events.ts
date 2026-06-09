@@ -14,7 +14,6 @@ import {
 } from "./conversation.js";
 import {
   ApprovalIdSchema,
-  ArtifactIdSchema,
   EventCursorSchema,
   EventIdSchema,
   ItemIdSchema,
@@ -42,7 +41,6 @@ export const EventProducerKindSchema = z.enum([
   "control_plane",
   "runtime_kernel",
   "worker",
-  "sdk",
   "hook",
   "system",
 ]);
@@ -350,7 +348,6 @@ export type GitDiffUpdatedPayload = z.infer<
 
 export const ArtifactCreatedPayloadSchema = z
   .object({
-    artifactId: ArtifactIdSchema,
     itemId: ItemIdSchema.nullable(),
     reference: ArtifactReferenceItemContentSchema,
   })
@@ -400,156 +397,156 @@ function createEventSchema<
     .strict();
 }
 
-export const ThreadCreatedEventSchema = createEventSchema(
+const ThreadCreatedEventSchema = createEventSchema(
   "thread.created",
   ThreadCreatedPayloadSchema,
   RunIdSchema.nullable(),
 );
 
-export const RunCreatedEventSchema = createEventSchema(
+const RunCreatedEventSchema = createEventSchema(
   "run.created",
   RunPayloadSchema,
   RunIdSchema,
 );
-export const RunStartedEventSchema = createEventSchema(
+const RunStartedEventSchema = createEventSchema(
   "run.started",
   RunPayloadSchema,
   RunIdSchema,
 );
-export const RunCompletedEventSchema = createEventSchema(
+const RunCompletedEventSchema = createEventSchema(
   "run.completed",
   RunPayloadSchema,
   RunIdSchema,
 );
-export const RunFailedEventSchema = createEventSchema(
+const RunFailedEventSchema = createEventSchema(
   "run.failed",
   RunFailedPayloadSchema,
   RunIdSchema,
 );
-export const RunCancelledEventSchema = createEventSchema(
+const RunCancelledEventSchema = createEventSchema(
   "run.cancelled",
   RunPayloadSchema,
   RunIdSchema,
 );
 
-export const TurnStartedEventSchema = createEventSchema(
+const TurnStartedEventSchema = createEventSchema(
   "turn.started",
   TurnPayloadSchema,
   RunIdSchema,
 );
-export const TurnCompletedEventSchema = createEventSchema(
+const TurnCompletedEventSchema = createEventSchema(
   "turn.completed",
   TurnPayloadSchema,
   RunIdSchema,
 );
-export const TurnFailedEventSchema = createEventSchema(
+const TurnFailedEventSchema = createEventSchema(
   "turn.failed",
   TurnFailedPayloadSchema,
   RunIdSchema,
 );
 
-export const AssistantTextDeltaEventSchema = createEventSchema(
+const AssistantTextDeltaEventSchema = createEventSchema(
   "assistant.text.delta",
   AssistantTextDeltaPayloadSchema,
   RunIdSchema,
 );
-export const AssistantTextCompletedEventSchema = createEventSchema(
+const AssistantTextCompletedEventSchema = createEventSchema(
   "assistant.text.completed",
   AssistantTextCompletedPayloadSchema,
   RunIdSchema,
 );
 
-export const ItemStartedEventSchema = createEventSchema(
+const ItemStartedEventSchema = createEventSchema(
   "item.started",
   ItemPayloadSchema,
   RunIdSchema,
 );
-export const ItemUpdatedEventSchema = createEventSchema(
+const ItemUpdatedEventSchema = createEventSchema(
   "item.updated",
   ItemPayloadSchema,
   RunIdSchema,
 );
-export const ItemCompletedEventSchema = createEventSchema(
+const ItemCompletedEventSchema = createEventSchema(
   "item.completed",
   ItemPayloadSchema,
   RunIdSchema,
 );
 
-export const ToolCallRequestedEventSchema = createEventSchema(
+const ToolCallRequestedEventSchema = createEventSchema(
   "tool.call.requested",
   ToolCallRequestedPayloadSchema,
   RunIdSchema,
 );
-export const ToolCallStartedEventSchema = createEventSchema(
+const ToolCallStartedEventSchema = createEventSchema(
   "tool.call.started",
   ToolCallPayloadSchema,
   RunIdSchema,
 );
-export const ToolCallOutputDeltaEventSchema = createEventSchema(
+const ToolCallOutputDeltaEventSchema = createEventSchema(
   "tool.call.output.delta",
   ToolCallOutputDeltaPayloadSchema,
   RunIdSchema,
 );
-export const ToolCallCompletedEventSchema = createEventSchema(
+const ToolCallCompletedEventSchema = createEventSchema(
   "tool.call.completed",
   ToolCallCompletedPayloadSchema,
   RunIdSchema,
 );
-export const ToolCallFailedEventSchema = createEventSchema(
+const ToolCallFailedEventSchema = createEventSchema(
   "tool.call.failed",
   ToolCallFailedPayloadSchema,
   RunIdSchema,
 );
 
-export const ApprovalRequestedEventSchema = createEventSchema(
+const ApprovalRequestedEventSchema = createEventSchema(
   "approval.requested",
   ApprovalRequestedPayloadSchema,
   RunIdSchema,
 );
-export const ApprovalDecidedEventSchema = createEventSchema(
+const ApprovalDecidedEventSchema = createEventSchema(
   "approval.decided",
   ApprovalDecidedPayloadSchema,
   RunIdSchema,
 );
 
-export const WorkspacePreparingEventSchema = createEventSchema(
+const WorkspacePreparingEventSchema = createEventSchema(
   "workspace.preparing",
   WorkspacePayloadSchema,
   RunIdSchema,
 );
-export const WorkspaceReadyEventSchema = createEventSchema(
+const WorkspaceReadyEventSchema = createEventSchema(
   "workspace.ready",
   WorkspacePayloadSchema,
   RunIdSchema,
 );
-export const WorkspaceDirtyEventSchema = createEventSchema(
+const WorkspaceDirtyEventSchema = createEventSchema(
   "workspace.dirty",
   WorkspacePayloadSchema,
   RunIdSchema,
 );
-export const WorkspaceFailedEventSchema = createEventSchema(
+const WorkspaceFailedEventSchema = createEventSchema(
   "workspace.failed",
   WorkspaceFailedPayloadSchema,
   RunIdSchema,
 );
-export const GitStatusUpdatedEventSchema = createEventSchema(
+const GitStatusUpdatedEventSchema = createEventSchema(
   "git.status.updated",
   GitStatusUpdatedPayloadSchema,
   RunIdSchema,
 );
-export const GitDiffUpdatedEventSchema = createEventSchema(
+const GitDiffUpdatedEventSchema = createEventSchema(
   "git.diff.updated",
   GitDiffUpdatedPayloadSchema,
   RunIdSchema,
 );
 
-export const ArtifactCreatedEventSchema = createEventSchema(
+const ArtifactCreatedEventSchema = createEventSchema(
   "artifact.created",
   ArtifactCreatedPayloadSchema,
   RunIdSchema,
 );
 
-export const ContextCompactedEventSchema = createEventSchema(
+const ContextCompactedEventSchema = createEventSchema(
   "context.compacted",
   ContextCompactedPayloadSchema,
   RunIdSchema,
@@ -586,12 +583,168 @@ const RunEventSchemas = [
   ContextCompactedEventSchema,
 ] as const;
 
-export const ThreadEventSchema = z.discriminatedUnion("type", [
+const RawThreadEventSchema = z.discriminatedUnion("type", [
   ThreadCreatedEventSchema,
 ]);
+const RawRunEventSchema = z.discriminatedUnion("type", RunEventSchemas);
+const RawPlatformEventSchema = z.discriminatedUnion("type", [
+  ThreadCreatedEventSchema,
+  ...RunEventSchemas,
+]);
+type RawPlatformEvent = z.infer<typeof RawPlatformEventSchema>;
+type RunProjectionEvent = Extract<
+  RawPlatformEvent,
+  { type: `run.${string}` }
+>;
+type TurnProjectionEvent = Extract<
+  RawPlatformEvent,
+  { type: `turn.${string}` }
+>;
+type ItemProjectionEvent = Extract<
+  RawPlatformEvent,
+  { type: `item.${string}` }
+>;
+
+function addIdentityMismatch(
+  context: z.RefinementCtx,
+  path: Array<string | number>,
+  message: string,
+): void {
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path,
+    message,
+  });
+}
+
+function validateEventIdentity(
+  event: RawPlatformEvent,
+  context: z.RefinementCtx,
+): void {
+  if (event.type === "thread.created") {
+    if (event.threadId !== event.payload.thread.id) {
+      addIdentityMismatch(
+        context,
+        ["payload", "thread", "id"],
+        "Thread payload ID must match the event thread ID",
+      );
+    }
+    return;
+  }
+
+  if (isRunProjectionEvent(event)) {
+    validateRunIdentity(event, context);
+    return;
+  }
+
+  if (isTurnProjectionEvent(event)) {
+    validateTurnIdentity(event, context);
+    return;
+  }
+
+  if (isItemProjectionEvent(event)) {
+    validateItemIdentity(event, context);
+  }
+}
+
+function isRunProjectionEvent(
+  event: RawPlatformEvent,
+): event is RunProjectionEvent {
+  return (
+    event.type === "run.created" ||
+    event.type === "run.started" ||
+    event.type === "run.completed" ||
+    event.type === "run.failed" ||
+    event.type === "run.cancelled"
+  );
+}
+
+function isTurnProjectionEvent(
+  event: RawPlatformEvent,
+): event is TurnProjectionEvent {
+  return (
+    event.type === "turn.started" ||
+    event.type === "turn.completed" ||
+    event.type === "turn.failed"
+  );
+}
+
+function isItemProjectionEvent(
+  event: RawPlatformEvent,
+): event is ItemProjectionEvent {
+  return (
+    event.type === "item.started" ||
+    event.type === "item.updated" ||
+    event.type === "item.completed"
+  );
+}
+
+function validateRunIdentity(
+  event: RunProjectionEvent,
+  context: z.RefinementCtx,
+): void {
+  if (event.runId !== event.payload.run.id) {
+    addIdentityMismatch(
+      context,
+      ["payload", "run", "id"],
+      "Run payload ID must match the event run ID",
+    );
+  }
+  if (event.threadId !== event.payload.run.threadId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "run", "threadId"],
+      "Run payload thread ID must match the event thread ID",
+    );
+  }
+}
+
+function validateTurnIdentity(
+  event: TurnProjectionEvent,
+  context: z.RefinementCtx,
+): void {
+  if (event.runId !== event.payload.turn.runId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "turn", "runId"],
+      "Turn payload run ID must match the event run ID",
+    );
+  }
+  if (event.threadId !== event.payload.turn.threadId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "turn", "threadId"],
+      "Turn payload thread ID must match the event thread ID",
+    );
+  }
+}
+
+function validateItemIdentity(
+  event: ItemProjectionEvent,
+  context: z.RefinementCtx,
+): void {
+  if (event.runId !== event.payload.item.runId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "item", "runId"],
+      "Item payload run ID must match the event run ID",
+    );
+  }
+  if (event.threadId !== event.payload.item.threadId) {
+    addIdentityMismatch(
+      context,
+      ["payload", "item", "threadId"],
+      "Item payload thread ID must match the event thread ID",
+    );
+  }
+}
+
+export const ThreadEventSchema =
+  RawThreadEventSchema.superRefine(validateEventIdentity);
 export type ThreadEvent = z.infer<typeof ThreadEventSchema>;
 
-export const RunEventSchema = z.discriminatedUnion("type", RunEventSchemas);
+export const RunEventSchema =
+  RawRunEventSchema.superRefine(validateEventIdentity);
 export type RunEvent = z.infer<typeof RunEventSchema>;
 
 export const WorkspaceEventSchema = z.discriminatedUnion("type", [
@@ -615,8 +768,6 @@ export const ApprovalEventSchema = z.discriminatedUnion("type", [
 ]);
 export type ApprovalEvent = z.infer<typeof ApprovalEventSchema>;
 
-export const PlatformEventSchema = z.discriminatedUnion("type", [
-  ThreadCreatedEventSchema,
-  ...RunEventSchemas,
-]);
+export const PlatformEventSchema =
+  RawPlatformEventSchema.superRefine(validateEventIdentity);
 export type PlatformEvent = z.infer<typeof PlatformEventSchema>;
