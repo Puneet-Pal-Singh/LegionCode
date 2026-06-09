@@ -20,7 +20,15 @@ const migrationSqlPath = join(
 
 describe("thread projection migration", () => {
   it("registers after canonical event tables", () => {
-    expect(persistenceMigrations.at(-1)).toBe(threadProjectionsMigration);
+    const migrationIds = persistenceMigrations.map((migration) => migration.id);
+    const canonicalEventsIndex = migrationIds.indexOf(
+      "0016_canonical_event_tables",
+    );
+
+    expect(canonicalEventsIndex).toBeGreaterThanOrEqual(0);
+    expect(persistenceMigrations[canonicalEventsIndex + 1]).toBe(
+      threadProjectionsMigration,
+    );
   });
 
   it("creates canonical thread and item projection tables", () => {
