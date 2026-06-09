@@ -28,6 +28,13 @@ import {
   type CodingToolId,
   type ToolGatewayRoute,
 } from "../tools/CodingToolRegistry.js";
+import {
+  buildToolCatalogSnapshot,
+  createCloudSandboxRunCapabilityManifest,
+  type RunCapabilityManifest,
+  type RunCapabilityManifestInput,
+  type ToolCatalogSnapshot,
+} from "../capabilities/index.js";
 
 export {
   getCodingToolDefinition,
@@ -61,7 +68,9 @@ export type GoldenFlowToolInputByName = {
   github_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
   github_review_threads_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
   github_issue_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
-  github_actions_run_get: z.infer<typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_run_get: z.infer<
+    typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
   github_actions_job_logs_get: z.infer<
     typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
   >;
@@ -72,7 +81,9 @@ export type GoldenFlowToolInputByName = {
   github_cli_actions_job_logs_get: z.infer<
     typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
   >;
-  github_cli_pr_comment: z.infer<typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA>;
+  github_cli_pr_comment: z.infer<
+    typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA
+  >;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
   grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
 };
@@ -105,6 +116,21 @@ export function getGoldenFlowToolRoute(
 
 export function getGoldenFlowToolRegistry(): Record<string, CoreTool> {
   return getCodingCoreToolRegistry();
+}
+
+export function getGoldenFlowRunCapabilityManifest(
+  input: RunCapabilityManifestInput,
+): RunCapabilityManifest {
+  return createCloudSandboxRunCapabilityManifest({
+    ...input,
+    availableToolIds: input.availableToolIds ?? CODING_TOOL_IDS,
+  });
+}
+
+export function getGoldenFlowToolCatalogSnapshot(
+  input: RunCapabilityManifestInput,
+): ToolCatalogSnapshot {
+  return buildToolCatalogSnapshot(getGoldenFlowRunCapabilityManifest(input));
 }
 
 export function enforceGoldenFlowToolFloor(
