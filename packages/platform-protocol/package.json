@@ -8,12 +8,14 @@
   "exports": {
     ".": "./src/index.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./artifacts": "./src/artifacts.ts",
     "./common": "./src/common.ts",
     "./conversation": "./src/conversation.ts",
     "./errors": "./src/errors.ts",
     "./events": "./src/events.ts",
     "./ids": "./src/ids.ts",
-    "./permissions": "./src/permissions.ts"
+    "./permissions": "./src/permissions.ts",
+    "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {
     "build": "tsc",

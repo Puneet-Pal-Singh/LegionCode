@@ -1,11 +1,11 @@
 import { z } from "zod";
+import { ArtifactMetadataSchema } from "./artifacts.js";
 import {
   EventSequenceSchema,
   JsonRecordSchema,
   ProtocolTimestampSchema,
 } from "./common.js";
 import {
-  ArtifactReferenceItemContentSchema,
   RunSchema,
   ThreadItemSchema,
   ThreadSchema,
@@ -403,7 +403,7 @@ export type GitDiffUpdatedPayload = z.infer<
 export const ArtifactCreatedPayloadSchema = z
   .object({
     itemId: ItemIdSchema.nullable(),
-    reference: ArtifactReferenceItemContentSchema,
+    artifact: ArtifactMetadataSchema,
   })
   .strict();
 export type ArtifactCreatedPayload = z.infer<
@@ -843,11 +843,7 @@ function validateScopeIdentity(
       validateScopeId(event.scopeId, event.payload.workspaceId, context);
       return;
     case "artifact":
-      validateScopeId(
-        event.scopeId,
-        event.payload.reference.artifactId,
-        context,
-      );
+      validateScopeId(event.scopeId, event.payload.artifact.artifactId, context);
       return;
     default:
       assertUnreachable(event);

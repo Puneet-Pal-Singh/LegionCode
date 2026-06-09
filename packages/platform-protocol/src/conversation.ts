@@ -6,6 +6,12 @@ import {
   ProtocolTimestampSchema,
 } from "./common.js";
 import {
+  ArtifactKindSchema,
+  ArtifactPayloadRefSchema,
+  type ArtifactKind,
+  type ArtifactPayloadRef,
+} from "./artifacts.js";
+import {
   ArtifactIdSchema,
   ItemIdSchema,
   ModelIdSchema,
@@ -176,13 +182,18 @@ export type ToolCallItemContent = z.infer<
 export const ArtifactReferenceItemContentSchema = z
   .object({
     artifactId: ArtifactIdSchema,
+    kind: ArtifactKindSchema,
     label: z.string().min(1).max(240),
+    payloadRef: ArtifactPayloadRefSchema,
     metadata: JsonRecordSchema,
   })
   .strict();
 export type ArtifactReferenceItemContent = z.infer<
   typeof ArtifactReferenceItemContentSchema
 >;
+
+export type ArtifactReferenceKind = ArtifactKind;
+export type ArtifactReferencePayloadRef = ArtifactPayloadRef;
 
 const ThreadItemBaseShape = {
   id: ItemIdSchema,

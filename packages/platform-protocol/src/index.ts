@@ -1,4 +1,19 @@
 export {
+  ArtifactChangedFileSchema,
+  ArtifactKindSchema,
+  ArtifactMetadataSchema,
+  ArtifactPayloadBackendSchema,
+  ArtifactPayloadRefSchema,
+  buildArtifactChangedFileStatusSqlList,
+  buildArtifactKindSqlList,
+  buildArtifactPayloadBackendSqlList,
+  type ArtifactChangedFile,
+  type ArtifactKind,
+  type ArtifactMetadata,
+  type ArtifactPayloadBackend,
+  type ArtifactPayloadRef,
+} from "./artifacts.js";
+export {
   CapabilityConfidenceSchema,
   CapabilityEntrySchema,
   CapabilityEvidenceSourceSchema,
@@ -184,6 +199,7 @@ export {
   UserIdSchema,
   WorkerIdSchema,
   WorkspaceIdSchema,
+  WorkspaceManifestIdSchema,
   PLATFORM_ID_PREFIXES,
   PLATFORM_SLUG_LIMITS,
   type ApprovalId,
@@ -204,7 +220,17 @@ export {
   type UserId,
   type WorkerId,
   type WorkspaceId,
+  type WorkspaceManifestId,
 } from "./ids.js";
+export {
+  GitCommitShaSchema,
+  WorkspaceManifestSchema,
+  WorkspaceManifestStateSchema,
+  buildWorkspaceManifestStateSqlList,
+  type GitCommitSha,
+  type WorkspaceManifest,
+  type WorkspaceManifestState,
+} from "./workspaces.js";
 export {
   PermissionDecisionSourceSchema,
   PermissionEffectSchema,

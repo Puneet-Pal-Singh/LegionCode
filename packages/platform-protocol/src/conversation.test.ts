@@ -10,6 +10,14 @@ import {
 } from "./conversation.js";
 
 const timestamp = "2026-06-08T15:00:00.000Z";
+const payloadRef = {
+  backend: "r2",
+  objectKey: "artifacts/run_abc123/diff.patch",
+  uri: null,
+  contentType: "text/x-diff",
+  sizeBytes: 128,
+  sha256: "a".repeat(64),
+};
 
 describe("conversation protocol schemas", () => {
   it("accepts a durable thread projection shape", () => {
@@ -121,7 +129,9 @@ describe("conversation protocol schemas", () => {
     const artifactReferenceContent =
       ArtifactReferenceItemContentSchema.parse({
         artifactId: "art_abc123",
+        kind: "diff",
         label: "Diff preview",
+        payloadRef,
         metadata: { mimeType: "text/x-diff" },
       });
 
@@ -160,7 +170,9 @@ describe("conversation protocol schemas", () => {
       status: "completed",
       content: {
         artifactId: "art_abc123",
+        kind: "git_patch",
         label: "Patch",
+        payloadRef,
         metadata: { mimeType: "text/x-diff" },
       },
       createdAt: timestamp,
