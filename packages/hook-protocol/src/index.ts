@@ -21,6 +21,15 @@ export {
   type ModelContextAddition,
 } from "./context.js";
 export {
+  HookDispatcher,
+  HookDispatcherFailurePolicySchema,
+  InternalHookHandlerRegistrationSchema,
+  type HookDispatchResult,
+  type HookDispatcherFailurePolicy,
+  type InternalHookHandler,
+  type InternalHookHandlerRegistration,
+} from "./dispatcher.js";
+export {
   HOOK_EVENT_NAMES,
   HookEventNameSchema,
   MATCHER_AWARE_HOOK_EVENT_NAMES,

@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./audit": "./src/audit.ts",
     "./context": "./src/context.ts",
+    "./dispatcher": "./src/dispatcher.ts",
     "./events": "./src/events.ts",
     "./outcomes": "./src/outcomes.ts",
     "./requests": "./src/requests.ts"
