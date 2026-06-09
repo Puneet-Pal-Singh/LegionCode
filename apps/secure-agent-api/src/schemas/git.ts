@@ -12,11 +12,6 @@ export const GitTools: ToolDefinition[] = [
           type: "string",
           description: "Optional GitHub access token for private repos",
         },
-        replaceExisting: {
-          type: "boolean",
-          description:
-            "When true, replace an existing non-empty workspace directory before cloning (bootstrap recovery).",
-        },
       },
       required: ["url"],
     },

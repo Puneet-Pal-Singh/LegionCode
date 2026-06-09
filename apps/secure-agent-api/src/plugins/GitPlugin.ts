@@ -58,7 +58,6 @@ const GitPayloadSchema = z.object({
   runId: z.string().optional(),
   url: z.string().optional(),
   token: z.string().optional(),
-  replaceExisting: z.boolean().optional(),
   message: z.string().optional(),
   authorName: z.string().optional(),
   authorEmail: z.string().optional(),
@@ -74,8 +73,6 @@ const GitPayloadSchema = z.object({
 type GitPayload = z.infer<typeof GitPayloadSchema>;
 
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
-const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
-  /destination path .* already exists and is not an empty directory/i;
 const BRANCH_PATHSPEC_MISSING_PATTERN =
   /pathspec .* did not match any file(?:\(s\))? known to git/i;
 const MISSING_GIT_AUTHOR_ERROR =
@@ -180,7 +177,6 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.url,
             parsed.token,
-            parsed.replaceExisting,
             toolboxContext,
             runId,
             onLog,
@@ -270,7 +266,6 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     url: string | undefined,
     token: string | undefined,
-    replaceExisting: boolean | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
     onLog?: LogCallback,
@@ -290,38 +285,6 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       runId,
     );
-    if (
-      result.exitCode !== 0 &&
-      replaceExisting === true &&
-      CLONE_DESTINATION_NOT_EMPTY_PATTERN.test(result.stderr)
-    ) {
-      const clearResult = await runSafeCommand(
-        sandbox,
-        withToolboxCommandContext(
-          { command: "rm", args: ["-rf", worktree], runId },
-          toolboxContext,
-          "git.clear_workspace",
-        ),
-        ["rm"],
-      );
-      if (clearResult.exitCode !== 0) {
-        return {
-          success: false,
-          error:
-            clearResult.stderr ||
-            "Failed to clear existing workspace before clone.",
-        };
-      }
-      const retryResult = await this.runCloneCommand(
-        sandbox,
-        authArgs,
-        safeUrl,
-        worktree,
-        toolboxContext,
-        runId,
-      );
-      return buildGitResult(retryResult, "Repository cloned successfully");
-    }
     return buildGitResult(result, "Repository cloned successfully");
   }
 
