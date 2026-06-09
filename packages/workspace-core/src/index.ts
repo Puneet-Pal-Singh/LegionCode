@@ -4,6 +4,8 @@ export {
   createInvalidTransitionError,
   createMissingRunIdError,
   WorkspaceCoreError,
+  createManifestAlreadyExistsError,
+  createManifestNotFoundError,
   type WorkspaceCoreErrorCode,
   type WorkspaceCoreErrorContext,
   type WorkspaceCoreErrorContextValue,
@@ -17,6 +19,10 @@ export {
   type ImmutableWorkspaceManifestField,
   type WorkspaceManifest,
 } from "./manifest.js";
+export {
+  MemoryWorkspaceManifestRepository,
+  type WorkspaceManifestRepository,
+} from "./repository.js";
 export {
   WorkspaceCloseUnresolvedChangesPolicySchema,
   WorkspaceStateSchema,

@@ -1,4 +1,6 @@
 export type WorkspaceCoreErrorCode =
+  | "workspace_manifest_already_exists"
+  | "workspace_manifest_not_found"
   | "workspace_immutable_field_changed"
   | "workspace_manifest_invalid"
   | "workspace_missing_run_id"
@@ -38,6 +40,26 @@ export function createInvalidManifestError(
     "workspace_manifest_invalid",
     "Workspace manifest is invalid",
     { issues },
+  );
+}
+
+export function createManifestAlreadyExistsError(
+  workspaceId: string,
+): WorkspaceCoreError {
+  return new WorkspaceCoreError(
+    "workspace_manifest_already_exists",
+    "Workspace manifest already exists",
+    { workspaceId },
+  );
+}
+
+export function createManifestNotFoundError(
+  workspaceId: string,
+): WorkspaceCoreError {
+  return new WorkspaceCoreError(
+    "workspace_manifest_not_found",
+    "Workspace manifest does not exist",
+    { workspaceId },
   );
 }
 
