@@ -58,6 +58,10 @@
       "tag": "v4-run-admission-limiter",
       "new_sqlite_classes": ["RunAdmissionLimiter"],
     },
+    {
+      "tag": "v5-delete-session-memory-runtime",
+      "deleted_classes": ["SessionMemoryRuntime"],
+    },
   ],
   "vars": {
     "FRONTEND_URL": "https://legioncode.dev/agents",
