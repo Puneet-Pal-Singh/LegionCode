@@ -438,9 +438,6 @@ function AppContent() {
         !hasCurrentBranch;
 
       if (shouldHydrateFromSession) {
-        console.log(
-          `[App] Switching GitHub context to session ${activeSessionId}: ${sessionContext.fullName}`,
-        );
         setContext(storedRepo, sessionContext.branch);
       } else if (branch !== sessionContext.branch) {
         SessionStateService.saveSessionGitHubContext(activeSessionId, {
@@ -475,9 +472,6 @@ function AppContent() {
       if (!activeRepository || activeRepository === "New Project") {
         scheduleWorkspaceContextRepairState(false);
         if (repo) {
-          console.log(
-            `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
-          );
           clearContext();
         }
         return;
@@ -934,7 +928,6 @@ function AppContent() {
       return;
     }
 
-    console.log("[App] handleNewTask called with:", repositoryName);
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
 
@@ -943,7 +936,6 @@ function AppContent() {
     const targetRepo = resolveTaskRepositoryFullName(repositoryName, repo);
 
     if (targetRepo) {
-      console.log("[App] Creating new task for repo:", targetRepo);
       setShowRepoPicker(false);
       clearSetupSessionState();
       // Create a session for this specific repository
@@ -976,9 +968,6 @@ function AppContent() {
     } else {
       // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
-      console.log(
-        "[App] No valid target repo found for new task, showing picker",
-      );
       handleOpenRepositoryPicker();
     }
   };
@@ -1055,9 +1044,6 @@ function AppContent() {
       branch: selectedBranch,
     });
 
-    console.log(
-      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
-    );
   };
 
   /**
@@ -1065,7 +1051,6 @@ function AppContent() {
    */
   const handleSkipRepoPicker = () => {
     setShowRepoPicker(false);
-    console.log("[App] Skipped repository selection");
   };
 
   const isSessionContextLoading = isSessionContextPending({
