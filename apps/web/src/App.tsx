@@ -1163,14 +1163,10 @@ function AppContent() {
                         status: "running",
                         mode: config.mode,
                       });
-                      void SessionStateService.persistSession({
-                        ...activeSession,
+                      void SessionStateService.updateGeneratedSessionTitle(
+                        activeSessionId,
                         name,
-                        titleSource: "generated",
-                        status: "running",
-                        mode: config.mode,
-                        updatedAt: new Date().toISOString(),
-                      }).catch((error) => {
+                      ).catch((error) => {
                         console.warn(
                           "[App] Failed to persist generated title:",
                           error,

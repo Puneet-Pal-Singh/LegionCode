@@ -37,6 +37,7 @@ const ArchiveSessionParamsSchema = z.object({
 
 const RenameSessionRequestSchema = z.object({
   title: z.string().trim().min(1).max(80),
+  titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
 });
 
 export class TranscriptController {
@@ -86,21 +87,29 @@ export class TranscriptController {
         readSessionParams(request.url),
       );
       const body = RenameSessionRequestSchema.parse(await request.json());
-      const session = await withTranscriptRepository(env, (repository) =>
-        repository.renameSessionTitle({
+      const session = await withTranscriptRepository(env, (repository) => {
+        if (body.titleSource === "generated") {
+          return repository.updateGeneratedSessionTitle({
+            userId: auth.userId,
+            sessionId,
+            title: body.title,
+            titleSource: "generated",
+          });
+        }
+        return repository.renameSessionTitle({
           userId: auth.userId,
           sessionId,
           title: body.title,
           titleSource: "user",
-        }),
-      );
+        });
+      });
 
       if (!session) {
         return errorResponse(request, env, "Session not found", 404);
       }
 
       console.log(
-        `[chat/title] renamed sessionId=${sessionId} titleLength=${body.title.length}`,
+        `[chat/title] updated sessionId=${sessionId} source=${body.titleSource ?? "user"} titleLength=${body.title.length}`,
       );
       return jsonResponse(request, env, { session });
     } catch (error) {

@@ -140,6 +140,29 @@ describe("TranscriptController", () => {
     });
   });
 
+  it("updates generated titles without converting them to user titles", async () => {
+    await TranscriptController.createSession(createSessionRequest(), env);
+
+    const response = await TranscriptController.renameSessionTitle(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            title: "Generated from prompt",
+            titleSource: "generated",
+          }),
+        },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      session: { title: "Generated from prompt", titleSource: "generated" },
+    });
+  });
+
   it("hydrates transcript messages in session sequence order", async () => {
     await repository.appendMessage({
       sessionId: TEST_SESSION_ID,

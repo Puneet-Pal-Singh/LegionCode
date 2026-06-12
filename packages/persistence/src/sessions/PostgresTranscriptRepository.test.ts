@@ -101,7 +101,7 @@ describe("PostgresTranscriptRepository", () => {
     expect(statement).not.toContain("UPDATE tasks");
   });
 
-  it("keeps generated title updates from overwriting user titles", async () => {
+  it("keeps session upserts from overwriting titles", async () => {
     const client = new CapturingSqlClient();
     const repository = new PostgresTranscriptRepository(client, {
       now: () => NOW,
@@ -115,8 +115,8 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     const statement = client.queries[1]?.statement ?? "";
-    expect(statement).toContain("sessions.title_source = 'generated'");
-    expect(statement).toContain("EXCLUDED.title_source = 'generated'");
+    expect(statement).not.toContain("title = EXCLUDED.title");
+    expect(statement).not.toContain("title_source = EXCLUDED.title_source");
   });
 
   it("keeps transcript list filters on the outer message part join", async () => {

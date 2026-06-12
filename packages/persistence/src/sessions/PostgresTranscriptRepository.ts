@@ -749,16 +749,6 @@ const UPSERT_SESSION_SQL = `
       WHEN $13::boolean THEN EXCLUDED.task_id
       ELSE sessions.task_id
     END,
-    title = CASE
-      WHEN $14::boolean AND sessions.title_source = 'generated' AND EXCLUDED.title_source = 'generated'
-        THEN EXCLUDED.title
-      ELSE sessions.title
-    END,
-    title_source = CASE
-      WHEN $14::boolean AND sessions.title_source = 'generated' AND EXCLUDED.title_source = 'generated'
-        THEN EXCLUDED.title_source
-      ELSE sessions.title_source
-    END,
     repository = CASE
       WHEN $15::boolean THEN EXCLUDED.repository
       ELSE sessions.repository
