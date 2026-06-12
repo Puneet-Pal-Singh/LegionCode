@@ -92,4 +92,29 @@ describe("useRunSummary", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("stops requesting a run after Brain reports it is missing", async () => {
+    let now = 2_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetchSpy = vi
+      .mocked(globalThis.fetch)
+      .mockResolvedValue(new Response("Not Found", { status: 404 }));
+
+    renderHook(() => useRunSummary("missing-run", true));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    now += 2_000;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "missing-run" },
+        }),
+      );
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });

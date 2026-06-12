@@ -136,6 +136,25 @@ describe("useRunActivityFeed", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  it("stops polling after Brain reports the run is missing", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("Not Found", { status: 404 }));
+
+    renderHook(() => useRunActivityFeed("missing-run", true));
+
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    await flushMicrotasks();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("does not expose the previous run feed during a run switch", async () => {
     let resolveRunTwoFetch: ((response: Response) => void) | null = null;
     vi.spyOn(globalThis, "fetch")
