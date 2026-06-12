@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GitReviewProvider, useGitReview } from "./GitReviewContext";
 import type { ReviewCommentAnchor } from "./reviewComments";
@@ -181,6 +181,20 @@ describe("GitReviewProvider", () => {
 
     expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+  });
+
+  it("fetches the first live diff when review files arrive", async () => {
+    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+
+    render(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockFetchLiveDiff).toHaveBeenCalledWith("src/live.ts", false);
+    });
   });
 
   it("keeps explicit live git selection even when a saved edit exists", () => {

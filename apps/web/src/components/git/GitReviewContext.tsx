@@ -271,19 +271,20 @@ export function GitReviewProvider({
   );
 
   useEffect(() => {
-    if (
-      reviewSource.kind !== "prompt_artifact" ||
-      selectedFilePath ||
-      !activeSelectedFilePath
-    ) {
+    if (!isReviewOpen || selectedFilePath || !activeSelectedFilePath) {
       return;
     }
-    void fetchArtifactDiff(activeSelectedFilePath);
+
+    void selectFilePathForReview(
+      activeSelectedFilePath,
+      stagedFiles.has(activeSelectedFilePath),
+    );
   }, [
     activeSelectedFilePath,
-    fetchArtifactDiff,
-    reviewSource.kind,
+    isReviewOpen,
+    selectFilePathForReview,
     selectedFilePath,
+    stagedFiles,
   ]);
 
   const openLiveGitReview = useCallback(() => {
