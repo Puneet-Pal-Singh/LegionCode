@@ -57,8 +57,7 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([false, false]);
-    expect(client.queries[1]?.params.slice(11, 16)).toEqual([
-      false,
+    expect(client.queries[1]?.params.slice(11, 15)).toEqual([
       false,
       false,
       false,
@@ -75,9 +74,8 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([true, false]);
-    expect(client.queries[1]?.params.slice(11, 16)).toEqual([
+    expect(client.queries[1]?.params.slice(11, 15)).toEqual([
       true,
-      false,
       false,
       true,
       true,
@@ -117,6 +115,8 @@ describe("PostgresTranscriptRepository", () => {
     const statement = client.queries[1]?.statement ?? "";
     expect(statement).not.toContain("title = EXCLUDED.title");
     expect(statement).not.toContain("title_source = EXCLUDED.title_source");
+    expect(statement).not.toContain("$16");
+    expect(client.queries[1]?.params).toHaveLength(15);
   });
 
   it("keeps transcript list filters on the outer message part join", async () => {

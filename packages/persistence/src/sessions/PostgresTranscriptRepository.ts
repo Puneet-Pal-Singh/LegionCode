@@ -254,7 +254,6 @@ async function ensureSessionWithClient(
   const task = await upsertTask(client, input, now);
   const workspaceProvided = input.workspaceId !== undefined;
   const taskIdProvided = input.taskId !== undefined && input.taskId !== null;
-  const titleProvided = input.title !== undefined && input.title !== null;
   const repositoryProvided = input.repository !== undefined;
   const activeRunIdProvided = input.activeRunId !== undefined;
   const titleSource = input.titleSource ?? "generated";
@@ -272,7 +271,6 @@ async function ensureSessionWithClient(
     now,
     workspaceProvided,
     taskIdProvided,
-    titleProvided,
     repositoryProvided,
     activeRunIdProvided,
   ]);
@@ -750,11 +748,11 @@ const UPSERT_SESSION_SQL = `
       ELSE sessions.task_id
     END,
     repository = CASE
-      WHEN $15::boolean THEN EXCLUDED.repository
+      WHEN $14::boolean THEN EXCLUDED.repository
       ELSE sessions.repository
     END,
     active_run_id = CASE
-      WHEN $16::boolean THEN EXCLUDED.active_run_id
+      WHEN $15::boolean THEN EXCLUDED.active_run_id
       ELSE sessions.active_run_id
     END,
     mode = EXCLUDED.mode,
