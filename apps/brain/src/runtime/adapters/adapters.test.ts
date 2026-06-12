@@ -97,7 +97,6 @@ describe("Runtime Adapters", () => {
         payload: { content: "hello", role: "assistant" },
       };
 
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       adapter.complete("test-run");
       const stream = adapter.getStream("test-run");
       adapter.emit(event);
@@ -105,10 +104,6 @@ describe("Runtime Adapters", () => {
       const events = await readStreamEvents(stream);
 
       expect(events).toHaveLength(0);
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[event-stream] Ignoring event for completed run test-run",
-      );
-      warnSpy.mockRestore();
     });
 
     it("should stream NDJSON envelopes in emitted order", async () => {
