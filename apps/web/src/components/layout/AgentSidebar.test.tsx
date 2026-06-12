@@ -15,6 +15,7 @@ function createSession(overrides?: Partial<AgentSession>): AgentSession {
     mode: "build",
     pinnedAt: null,
     archivedAt: null,
+    createdAt: "2026-04-14T11:00:00.000Z",
     updatedAt: "2026-04-14T12:00:00.000Z",
     ...overrides,
   };

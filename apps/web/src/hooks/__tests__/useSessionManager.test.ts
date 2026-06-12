@@ -575,6 +575,7 @@ function createArchivedServerSession(
     mode: "build",
     pinnedAt: null,
     archivedAt,
+    createdAt: "2026-05-14T00:00:00.000Z",
     updatedAt: archivedAt,
   };
 }
