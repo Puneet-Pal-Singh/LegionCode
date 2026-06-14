@@ -29,12 +29,6 @@ import {
 import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
 
 const GIT_ACTIONS = [
-  "status",
-  "diff",
-  "stage",
-  "unstage",
-  "commit",
-  "push",
   "git_clone",
   "git_diff",
   "git_commit",
@@ -45,10 +39,10 @@ const GIT_ACTIONS = [
   "git_branch_switch",
   "git_branch_list",
   "git_stage",
+  "git_unstage",
   "git_status",
   "git_patch_capture",
   "git_patch_apply",
-  "git_config",
 ] as const;
 
 type GitAction = (typeof GIT_ACTIONS)[number];
@@ -101,7 +95,6 @@ export class GitPlugin implements IPlugin {
       await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 
       switch (parsed.action) {
-        case "status":
         case "git_status":
           return await this.getStatus(sandbox, worktree, toolboxContext, runId);
         case "git_patch_capture":
@@ -120,7 +113,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "diff":
         case "git_diff":
           return await this.getDiff(
             sandbox,
@@ -130,7 +122,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "stage":
         case "git_stage":
           return await this.stageFiles(
             sandbox,
@@ -139,7 +130,7 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "unstage":
+        case "git_unstage":
           return await this.unstageFiles(
             sandbox,
             worktree,
@@ -147,7 +138,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "commit":
         case "git_commit":
           return await this.commit(
             sandbox,
@@ -160,7 +150,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "push":
         case "git_push":
           return await this.push(
             sandbox,
@@ -223,8 +212,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "git_config":
-          return this.validateTokenOnly(parsed.token);
         default:
           return { success: false, error: "Unsupported git action" };
       }
@@ -246,19 +233,6 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       "git.prepare_workspace",
     );
-  }
-
-  private validateTokenOnly(token: string | undefined): PluginResult {
-    if (!token || token.trim().length === 0) {
-      return { success: false, error: "Token is required for git_config" };
-    }
-    if (containsIllegalTokenChars(token)) {
-      return { success: false, error: "Invalid token format" };
-    }
-    return {
-      success: true,
-      output: "Token validated for authenticated git actions",
-    };
   }
 
   private async clone(

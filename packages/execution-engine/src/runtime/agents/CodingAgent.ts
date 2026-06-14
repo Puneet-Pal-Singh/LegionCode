@@ -202,7 +202,7 @@ GIT: MUST have the git action (git_commit, git_push, git_status, git_clone, git_
 IMPORTANT TOOL ROUTING:
 - NEVER use shell tasks for git commands (git ...)
 - Use task type "git" for repository status/diff/branch/commit actions
-- Valid git actions: status, diff, stage, unstage, commit, push, git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_status, git_config
+- Valid git actions: git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_unstage, git_status
 - Use analyze tasks for file inspection and directory listing
 
 REVIEW: Only LLM task, no input needed - just use description

@@ -421,27 +421,18 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.truncated).toBe(false);
   });
 
-  it("validates git auth token format", async () => {
+  it("validates git auth token format on authenticated git actions", async () => {
     const plugin = new GitPlugin();
     const sandbox = createSandboxMock();
 
     const invalidToken = await plugin.execute(asSandbox(sandbox), {
-      action: "git_config",
+      action: "git_push",
       runId: "run-safe-4",
+      branch: "main",
       token: "bad\ntoken",
     });
     expect(invalidToken.success).toBe(false);
     expect(invalidToken.error).toMatch(/Invalid token format/i);
-
-    const validToken = await plugin.execute(asSandbox(sandbox), {
-      action: "git_config",
-      runId: "run-safe-4",
-      token: "ghp_validToken123",
-    });
-    expect(validToken.success).toBe(true);
-    expect(validToken.output).toBe(
-      "Token validated for authenticated git actions",
-    );
   });
 
   it("fails git commits when the workspace author is not configured", async () => {
@@ -452,6 +443,7 @@ describe("secure-agent-api plugin hardening", () => {
       action: "git_commit",
       runId: "run-safe-5",
       message: "feat: test commit",
+      files: ["src/app.ts"],
     });
 
     expect(result.success).toBe(false);

@@ -34,10 +34,6 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
-import {
-  canRestoreEditArtifacts,
-  EditArtifactRestoreService,
-} from "../services/edit-artifacts/EditArtifactRestoreService";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -496,22 +492,6 @@ export class GitController {
         }
       }
 
-      if (result.status === "ready" && canRestoreEditArtifacts(env)) {
-        const currentStatus = await getCurrentGitStatus(
-          env,
-          muscleSession,
-          normalizedRunId,
-        );
-        await restoreLatestEditArtifactIfNeeded(
-          req,
-          env,
-          muscleSession,
-          normalizedRunId,
-          currentStatus,
-          "bootstrap",
-        );
-      }
-
       return corsJsonResponse(req, env, result);
     } catch (error) {
       return handleGitControllerError(req, env, error, "bootstrap");
@@ -624,47 +604,6 @@ async function getCurrentGitStatus(
     runId,
   );
   return parseGitPayload<GitStatusResponse>(rawPayload, "status");
-}
-
-async function restoreLatestEditArtifactIfNeeded(
-  request: Request,
-  env: Env,
-  muscleSession: string,
-  runId: string,
-  currentStatus: GitStatusResponse,
-  logScope: "bootstrap",
-): Promise<"not-needed" | "restored" | "requires-user-resolution"> {
-  try {
-    const authenticatedSession = await getAuthenticatedUserSession(
-      request,
-      env,
-      { warnOnMissingCookie: false },
-    );
-    const restoreService = new EditArtifactRestoreService(env);
-    const result = await restoreService.restoreLatestIfWorkspaceIsEmpty({
-      userId: authenticatedSession?.userId,
-      runId,
-      muscleSession,
-      currentStatus,
-    });
-    if (result === "restored") {
-      logWarnRateLimited(
-        `GitController:${logScope}:artifact-restored:${runId}`,
-        `[GitController:${logScope}] Restored saved edit artifact into workspace`,
-        undefined,
-        ERROR_LOG_WINDOW_MS,
-      );
-    }
-    return result;
-  } catch (error) {
-    logWarnRateLimited(
-      `GitController:${logScope}:artifact-restore-failed:${runId}`,
-      `[GitController:${logScope}] Edit artifact restore did not complete`,
-      { error: sanitizeUnknownError(error) },
-      ERROR_LOG_WINDOW_MS,
-    );
-    return "requires-user-resolution";
-  }
 }
 
 async function executeGitStatusViaCanonicalApiWithRetry(
