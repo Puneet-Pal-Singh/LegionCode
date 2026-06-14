@@ -87,6 +87,23 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return this.updateSessionTitle(input, "generated");
   }
 
+  async updateSessionStatus(input: {
+    userId: string;
+    sessionId: string;
+    status: SessionRecord["status"];
+  }): Promise<SessionRecord | null> {
+    const session = this.readUserSession(input.userId, input.sessionId);
+    if (!session) {
+      return null;
+    }
+    const now = this.clock.now().toISOString();
+    return this.storeSession({
+      ...session,
+      status: input.status,
+      updatedAt: now,
+    });
+  }
+
   async renameSessionTitle(input: {
     userId: string;
     sessionId: string;

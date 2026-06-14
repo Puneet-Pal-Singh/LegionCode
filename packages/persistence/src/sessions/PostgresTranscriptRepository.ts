@@ -118,6 +118,19 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     );
   }
 
+  async updateSessionStatus(input: {
+    userId: string;
+    sessionId: string;
+    status: SessionRecord["status"];
+  }): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(this.client, UPDATE_SESSION_STATUS_SQL, [
+      input.userId,
+      input.sessionId,
+      input.status,
+      this.clock.now(),
+    ]);
+  }
+
   async renameSessionTitle(input: {
     userId: string;
     sessionId: string;
@@ -776,6 +789,16 @@ const UPDATE_GENERATED_SESSION_TITLE_SQL = `
   WHERE user_id = $1
     AND id = $2
     AND title_source = 'generated'
+    AND archived_at IS NULL
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const UPDATE_SESSION_STATUS_SQL = `
+  UPDATE sessions
+  SET status = $3,
+      updated_at = $4
+  WHERE user_id = $1
+    AND id = $2
     AND archived_at IS NULL
   RETURNING ${SESSION_COLUMNS}
 `;

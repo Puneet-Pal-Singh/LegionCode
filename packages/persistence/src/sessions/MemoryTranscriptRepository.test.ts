@@ -134,6 +134,27 @@ describe("MemoryTranscriptRepository", () => {
     expect(result.sessions[0]?.title).toBe("My Custom Title");
   });
 
+  it("updates persisted session status", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      title: "Run task",
+      status: "running",
+    });
+
+    const updated = await repository.updateSessionStatus({
+      userId: "user-1",
+      sessionId: "session-1",
+      status: "completed",
+    });
+
+    expect(updated?.status).toBe("completed");
+    expect((await repository.listSessions("user-1")).sessions[0]?.status).toBe(
+      "completed",
+    );
+  });
+
   it("orders pinned sessions and clears pin state when archived", async () => {
     const repository = new MemoryTranscriptRepository({
       now: () => new Date("2026-05-15T00:00:01.000Z"),

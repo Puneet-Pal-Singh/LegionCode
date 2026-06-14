@@ -119,6 +119,22 @@ describe("PostgresTranscriptRepository", () => {
     expect(client.queries[1]?.params).toHaveLength(15);
   });
 
+  it("persists session status updates", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.updateSessionStatus({
+      userId: "123e4567-e89b-42d3-a456-426614174001",
+      sessionId: "123e4567-e89b-42d3-a456-426614174000",
+      status: "completed",
+    });
+
+    expect(client.queries[0]?.statement).toContain("SET status = $3");
+    expect(client.queries[0]?.params[2]).toBe("completed");
+  });
+
   it("keeps transcript list filters on the outer message part join", async () => {
     const client = new CapturingSqlClient();
     const repository = new PostgresTranscriptRepository(client, {
