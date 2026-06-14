@@ -94,6 +94,7 @@ const bootstrapQueues = new Map<string, Promise<void>>();
 const gitStatusOutputSchema = z.object({
   branch: z.string(),
   files: z.array(z.unknown()),
+  ahead: z.number().int().nonnegative().optional(),
   repoIdentity: z.string().min(1).nullish(),
   hasStaged: z.boolean(),
   hasUnstaged: z.boolean(),
@@ -286,12 +287,13 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       return bootstrapResult;
     }
 
-    if (isMatchingWorkspaceStatus(workspaceStatus, normalized)) {
-      const hasLocalChanges =
+    if (isMatchingWorkspaceRepository(workspaceStatus, normalized)) {
+      const hasRunOwnedChanges =
         workspaceStatus.hasStaged ||
         workspaceStatus.hasUnstaged ||
-        workspaceStatus.files.length > 0;
-      if (hasLocalChanges) {
+        workspaceStatus.files.length > 0 ||
+        (workspaceStatus.ahead ?? 0) > 0;
+      if (hasRunOwnedChanges) {
         setWorkspaceSyncCache(cacheKey);
         bootstrapResult = {
           status: "ready",
@@ -709,7 +711,7 @@ function buildRepoIdentity(
   }
 }
 
-function isMatchingWorkspaceStatus(
+function isMatchingWorkspaceRepository(
   workspaceStatus: z.infer<typeof gitStatusOutputSchema> | null,
   normalized: NormalizedRepositoryContext,
 ): workspaceStatus is z.infer<typeof gitStatusOutputSchema> {
@@ -717,9 +719,16 @@ function isMatchingWorkspaceStatus(
     return false;
   }
 
+  return workspaceStatus.repoIdentity === normalized.repoIdentity;
+}
+
+function isMatchingWorkspaceStatus(
+  workspaceStatus: z.infer<typeof gitStatusOutputSchema> | null,
+  normalized: NormalizedRepositoryContext,
+): workspaceStatus is z.infer<typeof gitStatusOutputSchema> {
   return (
-    workspaceStatus.branch === normalized.branch &&
-    workspaceStatus.repoIdentity === normalized.repoIdentity
+    isMatchingWorkspaceRepository(workspaceStatus, normalized) &&
+    workspaceStatus.branch === normalized.branch
   );
 }
 
