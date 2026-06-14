@@ -462,6 +462,53 @@ describe("useSessionManager", () => {
 
       expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
     });
+
+    it("replaces stale local sessions with the authoritative server snapshot", async () => {
+      const staleSession = SessionStateService.createSession("Stale", "repo");
+      const serverSession = SessionStateService.createSession("Server", "repo");
+      SessionStateService.saveSessions(
+        { [staleSession.id]: staleSession },
+        staleSession.id,
+      );
+      SessionStateService.saveActiveSessionId(staleSession.id, {
+        [staleSession.id]: staleSession,
+      });
+      vi.mocked(
+        SessionStateService.hydrateSessionsFromServer,
+      ).mockResolvedValueOnce({ [serverSession.id]: serverSession });
+
+      const { result } = renderHook(() => useSessionManager());
+
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("ready");
+      });
+      expect(result.current.sessions).toEqual([serverSession]);
+      expect(result.current.activeSessionId).toBe(serverSession.id);
+      expect(SessionStateService.loadSessions()).toEqual({
+        [serverSession.id]: serverSession,
+      });
+    });
+
+    it("clears stale local sessions when the server snapshot is empty", async () => {
+      const staleSession = SessionStateService.createSession("Stale", "repo");
+      SessionStateService.saveSessions(
+        { [staleSession.id]: staleSession },
+        staleSession.id,
+      );
+      SessionStateService.saveActiveSessionId(staleSession.id, {
+        [staleSession.id]: staleSession,
+      });
+
+      const { result } = renderHook(() => useSessionManager());
+
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("ready");
+      });
+      expect(result.current.sessions).toEqual([]);
+      expect(result.current.activeSessionId).toBeNull();
+      expect(SessionStateService.loadSessions()).toEqual({});
+      expect(SessionStateService.loadActiveSessionId()).toBeNull();
+    });
   });
 
   describe("Multi-Session Isolation", () => {
