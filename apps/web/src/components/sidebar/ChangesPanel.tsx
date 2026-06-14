@@ -237,16 +237,16 @@ function getEmptyReviewLabel({
 }): string {
   if (isSavedEditMode || reviewScope === "prompt-artifact") {
     return reviewSourceLoading
-      ? "Loading saved edit..."
-      : (reviewSourceError ?? "No saved edit for this run");
+      ? "Loading last turn..."
+      : (reviewSourceError ?? "No saved changes for the last turn");
   }
 
   if (reviewSourceReason === "explicit") {
-    return "No live Git changes";
+    return "No working tree changes";
   }
 
   if (reviewSourceLoading) {
-    return "Checking saved edits...";
+    return "Checking last-turn changes...";
   }
 
   return "No reviewed changes yet";

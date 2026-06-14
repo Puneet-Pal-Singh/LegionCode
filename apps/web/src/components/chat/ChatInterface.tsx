@@ -52,6 +52,7 @@ import { dispatchRunSummaryRefresh } from "../../lib/run-summary-events.js";
 import {
   isApprovalRequiredRunStatus,
   isTerminalRunStatus,
+  normalizeRunStatus,
 } from "../../lib/run-status.js";
 import { useGitReview } from "../git/GitReviewContext";
 import {
@@ -237,7 +238,13 @@ export function ChatInterface({
       isTerminalRunStatus(summary.status) &&
       !isApprovalRequiredRunStatus(summary.status),
   );
-  const activeRunLoading = isLoading && !isTerminalSummarySettled;
+  const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
+  const isCanonicalRunActive =
+    normalizedSummaryStatus === "RUNNING" ||
+    isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
+    Boolean(summary?.pendingApproval);
+  const activeRunLoading =
+    !isTerminalSummarySettled && (isLoading || isCanonicalRunActive);
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -247,7 +254,7 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, false);
+  const { events } = useRunEvents(runId, activeRunLoading);
   const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";

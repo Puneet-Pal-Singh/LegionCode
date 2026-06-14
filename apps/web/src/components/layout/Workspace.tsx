@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
@@ -39,6 +39,7 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   allowPendingQueryRestore?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
+  onPromptSubmitted?: (prompt: string) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
@@ -58,6 +59,7 @@ export function Workspace({
   hasStartedSession = false,
   allowPendingQueryRestore = true,
   onSessionStatusChange,
+  onPromptSubmitted,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
@@ -255,6 +257,16 @@ export function Workspace({
     persistProductMode(sessionId, productMode);
   }, [productMode, sessionId]);
 
+  const handleSubmitWithSessionMetadata = useCallback<
+    typeof handleSubmit
+  >(
+    async (...args) => {
+      onPromptSubmitted?.(input);
+      return await handleSubmit(...args);
+    },
+    [handleSubmit, input, onPromptSubmitted],
+  );
+
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <GitReviewProvider
@@ -272,7 +284,7 @@ export function Workspace({
                 runId: activeRunId,
                 input,
                 handleInputChange,
-                handleSubmit,
+                handleSubmit: handleSubmitWithSessionMetadata,
                 append,
                 stop: handleStopRun,
                 canStop: canStopRun,

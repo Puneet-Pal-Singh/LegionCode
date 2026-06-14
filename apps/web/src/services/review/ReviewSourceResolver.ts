@@ -11,12 +11,12 @@ export const REVIEW_SOURCE_LABELS: Record<
   { scope: string; badge: string }
 > = {
   live_git: {
-    scope: "Live Git changes",
-    badge: "Live Git",
+    scope: "Working tree",
+    badge: "Working tree",
   },
   prompt_artifact: {
-    scope: "Saved edit",
-    badge: "Saved edit",
+    scope: "Last turn",
+    badge: "Last turn",
   },
 };
 

@@ -1236,6 +1236,28 @@ function AppContent() {
                   onSessionStatusChange={(status) =>
                     updateSession(activeSessionId, { status })
                   }
+                  onPromptSubmitted={(prompt) => {
+                    if (activeSession?.name !== "New Task") {
+                      return;
+                    }
+                    const name = generateChatTitleFromPrompt(prompt);
+                    if (name === "New Task") {
+                      return;
+                    }
+                    updateSession(activeSessionId, {
+                      name,
+                      titleSource: "generated",
+                    });
+                    void SessionStateService.updateGeneratedSessionTitle(
+                      activeSessionId,
+                      name,
+                    ).catch((error) => {
+                      console.warn(
+                        "[App] Failed to persist generated title:",
+                        error,
+                      );
+                    });
+                  }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
                       activeSessionId,
