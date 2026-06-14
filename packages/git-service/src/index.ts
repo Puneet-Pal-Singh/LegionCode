@@ -36,6 +36,7 @@ export type {
   GitDiffFile,
   GitDiffInput,
   GitDiffResult,
+  GitFilesystemContext,
   GitPushInput,
   GitPushResult,
   GitService,

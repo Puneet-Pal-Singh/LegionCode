@@ -722,7 +722,7 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
 
-  packages/worker-protocol:
+  packages/workspace-core:
     dependencies:
       '@repo/platform-protocol':
         specifier: workspace:*
