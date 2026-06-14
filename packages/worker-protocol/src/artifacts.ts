@@ -1,8 +1,4 @@
-import {
-  ArtifactIdSchema,
-  JsonRecordSchema,
-  RunIdSchema,
-} from "@repo/platform-protocol";
+import { ArtifactIdSchema, JsonRecordSchema } from "@repo/platform-protocol";
 import { z } from "zod";
 import {
   ByteCountSchema,
@@ -25,7 +21,6 @@ export type WorkerArtifactKind = z.infer<typeof WorkerArtifactKindSchema>;
 
 export const ArtifactUploadRequestSchema = z
   .object({
-    runId: RunIdSchema,
     kind: WorkerArtifactKindSchema,
     contentType: z.string().min(1).max(255),
     encoding: FileContentEncodingSchema,
@@ -34,9 +29,7 @@ export const ArtifactUploadRequestSchema = z
     metadata: JsonRecordSchema,
   })
   .strict();
-export type ArtifactUploadRequest = z.infer<
-  typeof ArtifactUploadRequestSchema
->;
+export type ArtifactUploadRequest = z.infer<typeof ArtifactUploadRequestSchema>;
 
 export const WorkerArtifactRefSchema = z
   .object({
@@ -80,7 +73,6 @@ export type ArtifactDownloadResponse = z.infer<
 
 export const ArtifactListRequestSchema = z
   .object({
-    runId: RunIdSchema,
     kinds: z.array(WorkerArtifactKindSchema).max(32),
     cursor: z.string().min(1).max(512).nullable(),
     limit: z.number().int().min(1).max(200),
@@ -94,6 +86,4 @@ export const ArtifactListResponseSchema = z
     nextCursor: z.string().min(1).max(512).nullable(),
   })
   .strict();
-export type ArtifactListResponse = z.infer<
-  typeof ArtifactListResponseSchema
->;
+export type ArtifactListResponse = z.infer<typeof ArtifactListResponseSchema>;

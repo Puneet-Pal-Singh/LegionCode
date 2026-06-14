@@ -6,9 +6,7 @@ import {
 } from "./common.js";
 
 export const FileContentEncodingSchema = z.enum(["utf8", "base64"]);
-export type FileContentEncoding = z.infer<
-  typeof FileContentEncodingSchema
->;
+export type FileContentEncoding = z.infer<typeof FileContentEncodingSchema>;
 
 export const FileReadRequestSchema = z
   .object({
@@ -50,6 +48,30 @@ export const FileWriteResponseSchema = z
   })
   .strict();
 export type FileWriteResponse = z.infer<typeof FileWriteResponseSchema>;
+
+export const FileListRequestSchema = z
+  .object({
+    path: WorkspaceRelativePathSchema.nullable(),
+    recursive: z.boolean(),
+  })
+  .strict();
+export type FileListRequest = z.infer<typeof FileListRequestSchema>;
+
+export const FileListEntrySchema = z
+  .object({
+    path: WorkspaceRelativePathSchema,
+    kind: z.enum(["file", "directory", "symlink"]),
+    sizeBytes: ByteCountSchema.nullable(),
+  })
+  .strict();
+export type FileListEntry = z.infer<typeof FileListEntrySchema>;
+
+export const FileListResponseSchema = z
+  .object({
+    entries: z.array(FileListEntrySchema).max(10_000),
+  })
+  .strict();
+export type FileListResponse = z.infer<typeof FileListResponseSchema>;
 
 export const PatchChangedFileStatusSchema = z.enum([
   "added",

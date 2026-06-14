@@ -4,7 +4,12 @@ import { z } from "zod";
 export const WorkerProtocolErrorCodeSchema = z.enum([
   "validation_failed",
   "worker_unavailable",
+  "worker_degraded",
   "workspace_unavailable",
+  "workspace_prepare_failed",
+  "workspace_snapshot_failed",
+  "workspace_revert_failed",
+  "workspace_close_failed",
   "capability_unsupported",
   "path_denied",
   "file_not_found",
@@ -32,6 +37,4 @@ export const WorkerProtocolErrorSchema = z
     details: JsonRecordSchema.nullable(),
   })
   .strict();
-export type WorkerProtocolError = z.infer<
-  typeof WorkerProtocolErrorSchema
->;
+export type WorkerProtocolError = z.infer<typeof WorkerProtocolErrorSchema>;

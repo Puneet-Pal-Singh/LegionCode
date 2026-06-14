@@ -3,16 +3,21 @@ import { z } from "zod";
 export const WORKER_PROTOCOL_VERSION = "2026-06-01";
 
 export const WorkerProtocolVersionSchema = z.literal(WORKER_PROTOCOL_VERSION);
-export type WorkerProtocolVersion = z.infer<
-  typeof WorkerProtocolVersionSchema
->;
+export type WorkerProtocolVersion = z.infer<typeof WorkerProtocolVersionSchema>;
 
 export const WORKER_OPERATION_NAMES = [
   "worker.capabilities",
+  "worker.health",
+  "workspace.prepare",
+  "workspace.snapshot",
+  "workspace.revert",
+  "workspace.close",
   "command.run",
+  "command.cancel",
   "file.read",
   "file.write",
-  "patch.apply",
+  "file.applyPatch",
+  "file.list",
   "git.status",
   "git.diff",
   "git.stage",
@@ -24,9 +29,7 @@ export const WORKER_OPERATION_NAMES = [
 ] as const;
 
 export const WorkerOperationNameSchema = z.enum(WORKER_OPERATION_NAMES);
-export type WorkerOperationName = z.infer<
-  typeof WorkerOperationNameSchema
->;
+export type WorkerOperationName = z.infer<typeof WorkerOperationNameSchema>;
 
 export const WorkerRequestIdSchema = z
   .string()
@@ -61,9 +64,7 @@ export const WorkspaceRelativePathSchema = z
   .min(1)
   .max(2_048)
   .refine(isWorkspaceRelativePath, "path must stay inside the workspace");
-export type WorkspaceRelativePath = z.infer<
-  typeof WorkspaceRelativePathSchema
->;
+export type WorkspaceRelativePath = z.infer<typeof WorkspaceRelativePathSchema>;
 
 export const WorkerEnvironmentSchema = z.record(
   z

@@ -49,10 +49,11 @@ describe("worker capability schemas", () => {
       artifactStoreKind: "local_blob",
       supportedOperations: [
         "worker.capabilities",
+        "worker.health",
         "command.run",
         "file.read",
         "file.write",
-        "patch.apply",
+        "file.applyPatch",
         "git.status",
       ],
       capturedAt,

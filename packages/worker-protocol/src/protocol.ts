@@ -1,3 +1,4 @@
+import { RunIdSchema } from "@repo/platform-protocol";
 import { z } from "zod";
 import {
   ArtifactDownloadRequestSchema,
@@ -10,8 +11,12 @@ import {
 import {
   WorkerCapabilitiesRequestSchema,
   WorkerCapabilitySnapshotSchema,
+  WorkerHealthRequestSchema,
+  WorkerHealthResponseSchema,
 } from "./capabilities.js";
 import {
+  CommandCancelRequestSchema,
+  CommandCancelResponseSchema,
   CommandRunRequestSchema,
   CommandRunResponseSchema,
 } from "./commands.js";
@@ -24,6 +29,8 @@ import { WorkerProtocolErrorSchema } from "./errors.js";
 import {
   FileReadRequestSchema,
   FileReadResponseSchema,
+  FileListRequestSchema,
+  FileListResponseSchema,
   FileWriteRequestSchema,
   FileWriteResponseSchema,
   PatchApplyRequestSchema,
@@ -41,10 +48,21 @@ import {
   GitStatusRequestSchema,
   GitStatusResponseSchema,
 } from "./git.js";
+import {
+  WorkspaceCloseRequestSchema,
+  WorkspaceCloseResponseSchema,
+  WorkspacePrepareRequestSchema,
+  WorkspacePrepareResponseSchema,
+  WorkspaceRevertRequestSchema,
+  WorkspaceRevertResponseSchema,
+  WorkspaceSnapshotRequestSchema,
+  WorkspaceSnapshotResponseSchema,
+} from "./workspaces.js";
 
 const WorkerRequestBaseSchema = z.object({
   requestId: WorkerRequestIdSchema,
   protocolVersion: WorkerProtocolVersionSchema,
+  runId: RunIdSchema,
 });
 
 const WorkerSuccessResponseBaseSchema = WorkerRequestBaseSchema.extend({
@@ -57,10 +75,47 @@ export const WorkerCapabilitiesRequestEnvelopeSchema =
     payload: WorkerCapabilitiesRequestSchema,
   }).strict();
 
+export const WorkerHealthRequestEnvelopeSchema = WorkerRequestBaseSchema.extend(
+  {
+    operation: z.literal("worker.health"),
+    payload: WorkerHealthRequestSchema,
+  },
+).strict();
+
+export const WorkspacePrepareRequestEnvelopeSchema =
+  WorkerRequestBaseSchema.extend({
+    operation: z.literal("workspace.prepare"),
+    payload: WorkspacePrepareRequestSchema,
+  }).strict();
+
+export const WorkspaceSnapshotRequestEnvelopeSchema =
+  WorkerRequestBaseSchema.extend({
+    operation: z.literal("workspace.snapshot"),
+    payload: WorkspaceSnapshotRequestSchema,
+  }).strict();
+
+export const WorkspaceRevertRequestEnvelopeSchema =
+  WorkerRequestBaseSchema.extend({
+    operation: z.literal("workspace.revert"),
+    payload: WorkspaceRevertRequestSchema,
+  }).strict();
+
+export const WorkspaceCloseRequestEnvelopeSchema =
+  WorkerRequestBaseSchema.extend({
+    operation: z.literal("workspace.close"),
+    payload: WorkspaceCloseRequestSchema,
+  }).strict();
+
 export const CommandRunRequestEnvelopeSchema = WorkerRequestBaseSchema.extend({
   operation: z.literal("command.run"),
   payload: CommandRunRequestSchema,
 }).strict();
+
+export const CommandCancelRequestEnvelopeSchema =
+  WorkerRequestBaseSchema.extend({
+    operation: z.literal("command.cancel"),
+    payload: CommandCancelRequestSchema,
+  }).strict();
 
 export const FileReadRequestEnvelopeSchema = WorkerRequestBaseSchema.extend({
   operation: z.literal("file.read"),
@@ -73,8 +128,13 @@ export const FileWriteRequestEnvelopeSchema = WorkerRequestBaseSchema.extend({
 }).strict();
 
 export const PatchApplyRequestEnvelopeSchema = WorkerRequestBaseSchema.extend({
-  operation: z.literal("patch.apply"),
+  operation: z.literal("file.applyPatch"),
   payload: PatchApplyRequestSchema,
+}).strict();
+
+export const FileListRequestEnvelopeSchema = WorkerRequestBaseSchema.extend({
+  operation: z.literal("file.list"),
+  payload: FileListRequestSchema,
 }).strict();
 
 export const GitStatusRequestEnvelopeSchema = WorkerRequestBaseSchema.extend({
@@ -114,30 +174,49 @@ export const ArtifactDownloadRequestEnvelopeSchema =
     payload: ArtifactDownloadRequestSchema,
   }).strict();
 
-export const ArtifactListRequestEnvelopeSchema =
-  WorkerRequestBaseSchema.extend({
+export const ArtifactListRequestEnvelopeSchema = WorkerRequestBaseSchema.extend(
+  {
     operation: z.literal("artifact.list"),
     payload: ArtifactListRequestSchema,
-  }).strict();
+  },
+).strict();
 
-export const WorkerProtocolRequestSchema = z.discriminatedUnion("operation", [
-  WorkerCapabilitiesRequestEnvelopeSchema,
-  CommandRunRequestEnvelopeSchema,
-  FileReadRequestEnvelopeSchema,
-  FileWriteRequestEnvelopeSchema,
-  PatchApplyRequestEnvelopeSchema,
-  GitStatusRequestEnvelopeSchema,
-  GitDiffRequestEnvelopeSchema,
-  GitStageRequestEnvelopeSchema,
-  GitCommitRequestEnvelopeSchema,
-  GitPushRequestEnvelopeSchema,
-  ArtifactUploadRequestEnvelopeSchema,
-  ArtifactDownloadRequestEnvelopeSchema,
-  ArtifactListRequestEnvelopeSchema,
-]);
-export type WorkerProtocolRequest = z.infer<
-  typeof WorkerProtocolRequestSchema
->;
+export const WorkerProtocolRequestSchema = z
+  .discriminatedUnion("operation", [
+    WorkerCapabilitiesRequestEnvelopeSchema,
+    WorkerHealthRequestEnvelopeSchema,
+    WorkspacePrepareRequestEnvelopeSchema,
+    WorkspaceSnapshotRequestEnvelopeSchema,
+    WorkspaceRevertRequestEnvelopeSchema,
+    WorkspaceCloseRequestEnvelopeSchema,
+    CommandRunRequestEnvelopeSchema,
+    CommandCancelRequestEnvelopeSchema,
+    FileReadRequestEnvelopeSchema,
+    FileWriteRequestEnvelopeSchema,
+    PatchApplyRequestEnvelopeSchema,
+    FileListRequestEnvelopeSchema,
+    GitStatusRequestEnvelopeSchema,
+    GitDiffRequestEnvelopeSchema,
+    GitStageRequestEnvelopeSchema,
+    GitCommitRequestEnvelopeSchema,
+    GitPushRequestEnvelopeSchema,
+    ArtifactUploadRequestEnvelopeSchema,
+    ArtifactDownloadRequestEnvelopeSchema,
+    ArtifactListRequestEnvelopeSchema,
+  ])
+  .superRefine((request, context) => {
+    if (
+      request.operation === "workspace.prepare" &&
+      request.payload.manifest.runId !== request.runId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "workspace manifest runId must match request runId",
+        path: ["payload", "manifest", "runId"],
+      });
+    }
+  });
+export type WorkerProtocolRequest = z.infer<typeof WorkerProtocolRequestSchema>;
 
 export const WorkerCapabilitiesSuccessResponseSchema =
   WorkerSuccessResponseBaseSchema.extend({
@@ -145,10 +224,46 @@ export const WorkerCapabilitiesSuccessResponseSchema =
     payload: WorkerCapabilitySnapshotSchema,
   }).strict();
 
+export const WorkerHealthSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("worker.health"),
+    payload: WorkerHealthResponseSchema,
+  }).strict();
+
+export const WorkspacePrepareSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("workspace.prepare"),
+    payload: WorkspacePrepareResponseSchema,
+  }).strict();
+
+export const WorkspaceSnapshotSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("workspace.snapshot"),
+    payload: WorkspaceSnapshotResponseSchema,
+  }).strict();
+
+export const WorkspaceRevertSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("workspace.revert"),
+    payload: WorkspaceRevertResponseSchema,
+  }).strict();
+
+export const WorkspaceCloseSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("workspace.close"),
+    payload: WorkspaceCloseResponseSchema,
+  }).strict();
+
 export const CommandRunSuccessResponseSchema =
   WorkerSuccessResponseBaseSchema.extend({
     operation: z.literal("command.run"),
     payload: CommandRunResponseSchema,
+  }).strict();
+
+export const CommandCancelSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("command.cancel"),
+    payload: CommandCancelResponseSchema,
   }).strict();
 
 export const FileReadSuccessResponseSchema =
@@ -165,8 +280,14 @@ export const FileWriteSuccessResponseSchema =
 
 export const PatchApplySuccessResponseSchema =
   WorkerSuccessResponseBaseSchema.extend({
-    operation: z.literal("patch.apply"),
+    operation: z.literal("file.applyPatch"),
     payload: PatchApplyResponseSchema,
+  }).strict();
+
+export const FileListSuccessResponseSchema =
+  WorkerSuccessResponseBaseSchema.extend({
+    operation: z.literal("file.list"),
+    payload: FileListResponseSchema,
   }).strict();
 
 export const GitStatusSuccessResponseSchema =
@@ -221,10 +342,17 @@ export const WorkerProtocolSuccessResponseSchema = z.discriminatedUnion(
   "operation",
   [
     WorkerCapabilitiesSuccessResponseSchema,
+    WorkerHealthSuccessResponseSchema,
+    WorkspacePrepareSuccessResponseSchema,
+    WorkspaceSnapshotSuccessResponseSchema,
+    WorkspaceRevertSuccessResponseSchema,
+    WorkspaceCloseSuccessResponseSchema,
     CommandRunSuccessResponseSchema,
+    CommandCancelSuccessResponseSchema,
     FileReadSuccessResponseSchema,
     FileWriteSuccessResponseSchema,
     PatchApplySuccessResponseSchema,
+    FileListSuccessResponseSchema,
     GitStatusSuccessResponseSchema,
     GitDiffSuccessResponseSchema,
     GitStageSuccessResponseSchema,
@@ -239,12 +367,13 @@ export type WorkerProtocolSuccessResponse = z.infer<
   typeof WorkerProtocolSuccessResponseSchema
 >;
 
-export const WorkerProtocolErrorResponseSchema =
-  WorkerRequestBaseSchema.extend({
+export const WorkerProtocolErrorResponseSchema = WorkerRequestBaseSchema.extend(
+  {
     operation: WorkerOperationNameSchema,
     ok: z.literal(false),
     error: WorkerProtocolErrorSchema,
-  }).strict();
+  },
+).strict();
 export type WorkerProtocolErrorResponse = z.infer<
   typeof WorkerProtocolErrorResponseSchema
 >;

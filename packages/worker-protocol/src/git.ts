@@ -25,18 +25,14 @@ export const GitChangedFileStatusSchema = z.enum([
   "unmerged",
   "untracked",
 ]);
-export type GitChangedFileStatus = z.infer<
-  typeof GitChangedFileStatusSchema
->;
+export type GitChangedFileStatus = z.infer<typeof GitChangedFileStatusSchema>;
 
 export const GitPathFilterRequestSchema = z
   .object({
     paths: z.array(WorkspaceRelativePathSchema).max(2_000),
   })
   .strict();
-export type GitPathFilterRequest = z.infer<
-  typeof GitPathFilterRequestSchema
->;
+export type GitPathFilterRequest = z.infer<typeof GitPathFilterRequestSchema>;
 
 export const GitStatusRequestSchema = GitPathFilterRequestSchema;
 export type GitStatusRequest = z.infer<typeof GitStatusRequestSchema>;

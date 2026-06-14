@@ -45,6 +45,17 @@ export type WorkerCapabilitiesRequest = z.infer<
   typeof WorkerCapabilitiesRequestSchema
 >;
 
+export const WorkerHealthRequestSchema = z.object({}).strict();
+export type WorkerHealthRequest = z.infer<typeof WorkerHealthRequestSchema>;
+
+export const WorkerHealthResponseSchema = z
+  .object({
+    status: z.enum(["healthy", "degraded"]),
+    checkedAt: ProtocolTimestampSchema,
+  })
+  .strict();
+export type WorkerHealthResponse = z.infer<typeof WorkerHealthResponseSchema>;
+
 export const WorkerCapabilitySnapshotSchema = z
   .object({
     workerId: WorkerIdSchema,

@@ -3,6 +3,7 @@ import {
   DurationMsSchema,
   TimeoutMsSchema,
   WorkerEnvironmentSchema,
+  WorkerRequestIdSchema,
   WorkspaceRelativePathSchema,
 } from "./common.js";
 
@@ -28,3 +29,18 @@ export const CommandRunResponseSchema = z
   })
   .strict();
 export type CommandRunResponse = z.infer<typeof CommandRunResponseSchema>;
+
+export const CommandCancelRequestSchema = z
+  .object({
+    commandRequestId: WorkerRequestIdSchema,
+  })
+  .strict();
+export type CommandCancelRequest = z.infer<typeof CommandCancelRequestSchema>;
+
+export const CommandCancelResponseSchema = z
+  .object({
+    commandRequestId: WorkerRequestIdSchema,
+    cancelled: z.boolean(),
+  })
+  .strict();
+export type CommandCancelResponse = z.infer<typeof CommandCancelResponseSchema>;

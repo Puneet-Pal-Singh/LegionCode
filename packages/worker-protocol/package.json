@@ -14,7 +14,8 @@
     "./errors": "./src/errors.ts",
     "./files": "./src/files.ts",
     "./git": "./src/git.ts",
-    "./protocol": "./src/protocol.ts"
+    "./protocol": "./src/protocol.ts",
+    "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {
     "build": "tsc",
