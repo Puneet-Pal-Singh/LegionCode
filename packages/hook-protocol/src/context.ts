@@ -38,7 +38,6 @@ export type ModelContextAddition = z.infer<typeof ModelContextAdditionSchema>;
 
 export const HookRuntimeContextSchema = z
   .object({
-    sessionId: ThreadIdSchema,
     threadId: ThreadIdSchema,
     runId: RunIdSchema,
     turnId: TurnIdSchema.nullable(),

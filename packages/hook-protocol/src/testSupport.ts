@@ -9,7 +9,6 @@ import {
 
 export function createTestContext(): HookRuntimeContext {
   return HookRuntimeContextSchema.parse({
-    sessionId: "thr_abcdef",
     threadId: "thr_abcdef",
     runId: "run_abcdef",
     turnId: null,

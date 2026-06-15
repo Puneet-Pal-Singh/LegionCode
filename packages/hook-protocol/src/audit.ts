@@ -42,7 +42,6 @@ export const HookInvocationSchema = z
     invocationId: HookInvocationIdSchema,
     eventId: EventIdSchema,
     runId: RunIdSchema,
-    sessionId: ThreadIdSchema,
     threadId: ThreadIdSchema,
     handlerId: HookHandlerIdSchema,
     eventName: HookEventNameSchema,

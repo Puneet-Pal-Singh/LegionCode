@@ -64,7 +64,6 @@ describe("hook protocol schemas", () => {
       invocationId: "hki_abcdef",
       eventId: "evt_abcdef",
       runId: "run_abcdef",
-      sessionId: "thr_abcdef",
       threadId: "thr_abcdef",
       handlerId: "system.session_context",
       eventName: "SessionStart",
