@@ -188,62 +188,12 @@ describe("WorkspaceBootstrapService", () => {
     expect(result.status).toBe("needs-auth");
   });
 
-  it("retries clone with replaceExisting when workspace directory is non-empty", async () => {
+  it("fails fast when clone finds a non-empty non-repository workspace", async () => {
     const execute = vi
       .fn()
       .mockResolvedValueOnce({
         success: false,
         error: "fatal: not a git repository",
-      })
-      .mockResolvedValueOnce({
-        success: false,
-        error:
-          "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
-      })
-      .mockResolvedValueOnce({ success: true }) // forced clone
-      .mockResolvedValueOnce({ success: true }) // fetch
-      .mockResolvedValueOnce({ success: true }); // switch
-    const service = new WorkspaceBootstrapService({ execute }, 0);
-
-    const result = await service.bootstrap({
-      runId: "run-1",
-      mode: "git_write",
-      repositoryContext: {
-        owner: "sourcegraph",
-        repo: "shadowbox",
-        branch: "dev",
-      },
-    });
-
-    expect(result.status).toBe("ready");
-    expect(result.clonedDuringBootstrap).toBe(true);
-    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
-      url: "https://github.com/sourcegraph/shadowbox.git",
-    });
-    expect(execute).toHaveBeenNthCalledWith(3, "git", "git_clone", {
-      url: "https://github.com/sourcegraph/shadowbox.git",
-      replaceExisting: true,
-    });
-    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_fetch", {
-      remote: "origin",
-    });
-    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_branch_switch", {
-      branch: "dev",
-    });
-    expect(execute).toHaveBeenCalledTimes(5);
-  });
-
-  it("returns a friendly sync failure when replace clone still fails", async () => {
-    const execute = vi
-      .fn()
-      .mockResolvedValueOnce({
-        success: false,
-        error: "fatal: not a git repository",
-      })
-      .mockResolvedValueOnce({
-        success: false,
-        error:
-          "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
       })
       .mockResolvedValueOnce({
         success: false,
@@ -265,6 +215,38 @@ describe("WorkspaceBootstrapService", () => {
     expect(result.status).toBe("sync-failed");
     expect(result.message).toContain("Workspace initialization conflict");
     expect(result.message).not.toContain("fatal:");
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
+      url: "https://github.com/sourcegraph/shadowbox.git",
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry clone recovery requests", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: false,
+        error: "fatal: not a git repository",
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        error:
+          "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
+      });
+    const service = new WorkspaceBootstrapService({ execute }, 0);
+
+    const result = await service.bootstrap({
+      runId: "run-1",
+      mode: "git_write",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "dev",
+      },
+    });
+
+    expect(result.status).toBe("sync-failed");
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 
   it("creates branch when switch fails due to missing local branch", async () => {

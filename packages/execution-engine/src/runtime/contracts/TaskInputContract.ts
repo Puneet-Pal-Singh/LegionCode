@@ -1,12 +1,6 @@
 import type { TaskType } from "../types.js";
 
 export const VALID_GIT_ACTIONS = [
-  "status",
-  "diff",
-  "stage",
-  "unstage",
-  "commit",
-  "push",
   "git_clone",
   "git_diff",
   "git_commit",
@@ -18,8 +12,8 @@ export const VALID_GIT_ACTIONS = [
   "git_branch_switch",
   "git_branch_list",
   "git_stage",
+  "git_unstage",
   "git_status",
-  "git_config",
 ] as const;
 
 const VAGUE_PATH_INPUT_PATTERNS = [

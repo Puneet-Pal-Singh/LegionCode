@@ -87,6 +87,56 @@ describe("GitController", () => {
     });
   });
 
+  it("maps the unstage API operation to canonical git_unstage execution", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-git-unstage",
+            token: "tok-git-unstage",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "git-unstage-task",
+            status: "success",
+            output: "Files unstaged",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const response = await GitController.stageFiles(
+      new Request("https://brain.local/api/git/stage", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run-unstage",
+          files: ["src/app.ts"],
+          unstage: true,
+        }),
+      }),
+      {
+        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
+        NODE_ENV: "test",
+      } as Env,
+    );
+
+    expect(response.status).toBe(200);
+    const executeInit = fetchMock.mock.calls[1]?.[1];
+    expect(JSON.parse(String(executeInit?.body))).toMatchObject({
+      action: "git.execute",
+      params: {
+        action: "git_unstage",
+        runId: "run-unstage",
+        files: ["src/app.ts"],
+      },
+    });
+  });
+
   it("maps git contract failures to a typed controller error", async () => {
     fetchMock
       .mockResolvedValueOnce(

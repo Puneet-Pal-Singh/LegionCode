@@ -126,6 +126,24 @@ describe("DefaultGitService", () => {
     expect(executor.calls).toHaveLength(0);
   });
 
+  it("unstages only explicit paths through the canonical service", async () => {
+    const executor = new QueueGitExecutor([
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "# branch.head main\0", stderr: "" },
+    ]);
+    const service = new DefaultGitService(executor);
+
+    await service.unstageFiles({
+      workspace: WORKSPACE,
+      paths: ["src/app.ts"],
+    });
+
+    expect(executor.calls.map((call) => call.args)).toEqual([
+      ["reset", "HEAD", "--", "src/app.ts"],
+      GIT_STATUS_PORCELAIN_V2_ARGS,
+    ]);
+  });
+
   it("stages files before committing with an explicit author", async () => {
     const executor = new QueueGitExecutor([
       { exitCode: 0, stdout: "", stderr: "" },

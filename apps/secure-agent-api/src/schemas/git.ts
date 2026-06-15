@@ -12,11 +12,6 @@ export const GitTools: ToolDefinition[] = [
           type: "string",
           description: "Optional GitHub access token for private repos",
         },
-        replaceExisting: {
-          type: "boolean",
-          description:
-            "When true, replace an existing non-empty workspace directory before cloning (bootstrap recovery).",
-        },
       },
       required: ["url"],
     },
@@ -158,6 +153,21 @@ export const GitTools: ToolDefinition[] = [
     },
   },
   {
+    name: "git_unstage",
+    description: "Unstage explicit files while preserving workspace changes.",
+    parameters: {
+      type: "object",
+      properties: {
+        files: {
+          type: "array",
+          items: { type: "string" },
+          description: "Repository-relative files to unstage",
+        },
+      },
+      required: ["files"],
+    },
+  },
+  {
     name: "git_patch_capture",
     description: "Capture uncommitted workspace changes as a binary git patch.",
     parameters: {
@@ -168,7 +178,7 @@ export const GitTools: ToolDefinition[] = [
   },
   {
     name: "git_patch_apply",
-    description: "Apply a saved binary git patch after workspace recovery.",
+    description: "Apply an explicitly supplied binary git patch.",
     parameters: {
       type: "object",
       properties: {
@@ -179,17 +189,6 @@ export const GitTools: ToolDefinition[] = [
         },
       },
       required: ["patch"],
-    },
-  },
-  {
-    name: "git_config",
-    description: "Configure git authentication with token (internal use).",
-    parameters: {
-      type: "object",
-      properties: {
-        token: { type: "string", description: "GitHub access token" },
-      },
-      required: ["token"],
     },
   },
 ];

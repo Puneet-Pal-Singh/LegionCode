@@ -22,6 +22,55 @@ describe("GitPlugin", () => {
     vi.restoreAllMocks();
   });
 
+  it("rejects non-canonical git action aliases", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    const plugin = new GitPlugin();
+
+    const result = await plugin.execute(asSandbox(), {
+      action: "status",
+      runId: "run_git_alias_rejected",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/invalid enum value/i);
+    expect(runSafeCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("routes git_unstage through GitService", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
+      const args = spec.args ?? [];
+      if (spec.command === "mkdir") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("reset")) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("--porcelain=v2")) {
+        return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const plugin = new GitPlugin();
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_unstage",
+      runId: "run_git_unstage_1",
+      files: ["src/app.ts"],
+    });
+
+    expect(result).toMatchObject({ success: true, output: "Files unstaged" });
+    const unstageCommand = runSafeCommandMock.mock.calls.find(([, spec]) =>
+      spec.args?.includes("reset"),
+    )?.[1];
+    expect(unstageCommand?.args).toEqual([
+      "reset",
+      "HEAD",
+      "--",
+      "src/app.ts",
+    ]);
+  });
+
   it("routes git_status through canonical porcelain-v2 status parsing", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {

@@ -225,7 +225,10 @@ export function GitCommitDialog({ isOpen, onClose }: GitCommitDialogProps) {
             authorEmail: authorEmail.trim(),
           }
         : undefined;
-      const committed = await submitCommit(identityOverride);
+      const files = includeUnstaged
+        ? (status?.files.map((file) => file.path) ?? [])
+        : Array.from(stagedFiles);
+      const committed = await submitCommit({ ...identityOverride, files });
       if (!committed) {
         return;
       }
