@@ -34,31 +34,38 @@ export const GitTools: ToolDefinition[] = [
   {
     name: "git_stage",
     description:
-      "Stage files for commit. If no files specified, stages all changes.",
+      "Stage explicit files for commit. File paths are required.",
     parameters: {
       type: "object",
       properties: {
         files: {
           type: "array",
           items: { type: "string" },
-          description: "Optional array of file paths to stage",
+          description: "Array of explicit repo-relative file paths to stage",
         },
       },
-      required: [],
+      required: ["files"],
     },
   },
   {
     name: "git_commit",
-    description: "Commit staged changes with a descriptive message.",
+    description: "Stage explicit files and commit them with a descriptive message.",
     parameters: {
       type: "object",
-      properties: { message: { type: "string" } },
-      required: ["message"],
+      properties: {
+        message: { type: "string" },
+        files: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of explicit repo-relative file paths to commit",
+        },
+      },
+      required: ["message", "files"],
     },
   },
   {
     name: "git_push",
-    description: "Push committed changes to remote repository.",
+    description: "Push committed changes to the explicit working branch.",
     parameters: {
       type: "object",
       properties: {
@@ -68,10 +75,10 @@ export const GitTools: ToolDefinition[] = [
         },
         branch: {
           type: "string",
-          description: "Branch name (default: current)",
+          description: "Explicit working branch name to push",
         },
       },
-      required: [],
+      required: ["branch"],
     },
   },
   {

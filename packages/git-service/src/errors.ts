@@ -38,7 +38,7 @@ export function createGitCommandFailedError(
   stderr: string,
 ): GitServiceError {
   return new GitServiceError("git_command_failed", "Git command failed", {
-    args,
+    args: redactSensitiveGitArgs(args),
     exitCode,
     stderr,
   });
@@ -62,5 +62,13 @@ export function createMalformedStatusOutputError(
     "malformed_status_output",
     "Malformed porcelain-v2 status output",
     { reason, record },
+  );
+}
+
+function redactSensitiveGitArgs(args: readonly string[]): readonly string[] {
+  return args.map((arg) =>
+    arg.toLowerCase().startsWith("http.extraheader=")
+      ? "http.extraheader=<redacted>"
+      : arg,
   );
 }
