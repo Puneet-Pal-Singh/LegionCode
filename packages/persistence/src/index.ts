@@ -67,8 +67,6 @@ export { PostgresThreadProjectionRepository } from "./thread-projections/Postgre
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
 export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";
 export { projectRunEvents } from "./run-projections/RunProjectionProjector.js";
-export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
-export { MemoryWorkspaceManifestRepository } from "./workspace-manifests/MemoryWorkspaceManifestRepository.js";
 export { PostgresArtifactMetadataRepository } from "./artifact-metadata/PostgresArtifactMetadataRepository.js";
 export {
   THREAD_PROJECTION_VERSION,
@@ -95,15 +93,6 @@ export {
   type ToolCallProjection,
   type ToolCallProjectionStatus,
 } from "./run-projections/types.js";
-export {
-  WORKSPACE_MANIFEST_VERSION,
-  WorkspaceManifestError,
-  assertWorkspaceManifestIdentityUnchanged,
-  transitionWorkspaceManifestState,
-  type SaveWorkspaceManifestInput,
-  type TransitionWorkspaceManifestInput,
-  type WorkspaceManifestRepository,
-} from "./workspace-manifests/types.js";
 export {
   ARTIFACT_METADATA_VERSION,
   ArtifactMetadataRecordSchema,
