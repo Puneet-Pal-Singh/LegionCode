@@ -7,6 +7,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./platform/client": "./src/platform/client.ts",
+    "./platform/errors": "./src/platform/errors.ts",
+    "./platform/http-transport": "./src/platform/http-transport.ts",
+    "./platform/types": "./src/platform/types.ts",
     "./providers/client": "./src/providers/client.ts",
     "./providers/cloud-transport": "./src/providers/cloud-transport.ts",
     "./providers/http-transport": "./src/providers/http-transport.ts",
@@ -21,6 +25,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "zod": "^3.25.0"

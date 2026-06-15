@@ -573,6 +573,28 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
 
+  packages/permission-policy:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.1
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+
   packages/persistence:
     dependencies:
       '@repo/event-store':
@@ -631,6 +653,9 @@ importers:
 
   packages/platform-client-sdk:
     dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
       '@repo/provider-core':
         specifier: workspace:*
         version: link:../provider-core
@@ -734,6 +759,50 @@ importers:
 
   packages/ui-kit:
     devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/worker-protocol:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.1
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/workspace-core:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.1
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
