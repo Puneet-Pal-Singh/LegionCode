@@ -159,11 +159,11 @@ describe("GitReviewProvider", () => {
     );
   });
 
-  it("uses saved edit files when live git status is empty", () => {
+  it("uses saved edit files and automatically fetches their diff", async () => {
     mockGitStatusState.status = buildGitStatus([]);
     mockArtifactState.source = buildArtifactSource();
 
-    render(
+    const view = render(
       <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
@@ -177,9 +177,16 @@ describe("GitReviewProvider", () => {
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
 
-    fireEvent.click(screen.getByRole("button", { name: "select first file" }));
+    await waitFor(() => {
+      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
+    });
+    view.rerender(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
 
-    expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
+    expect(mockFetchArtifactDiff).toHaveBeenCalledTimes(1);
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
   });
 

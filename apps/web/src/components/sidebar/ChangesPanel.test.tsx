@@ -234,7 +234,7 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("No working tree changes")).toBeInTheDocument();
+    expect(screen.getByText("No Git changes")).toBeInTheDocument();
     expect(screen.queryByText("Checking last-turn changes...")).toBeNull();
   });
 

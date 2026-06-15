@@ -242,7 +242,7 @@ function getEmptyReviewLabel({
   }
 
   if (reviewSourceReason === "explicit") {
-    return "No working tree changes";
+    return "No Git changes";
   }
 
   if (reviewSourceLoading) {
