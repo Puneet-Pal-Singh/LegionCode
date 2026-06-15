@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-interface WorkspaceManifest {
+interface WorkspaceManifestFixture {
   runId: string;
   workspaceId: string;
   repoOwner: string;
@@ -22,9 +22,9 @@ interface WorkspaceManifest {
 }
 
 interface WorkspaceManifestRepositoryContract {
-  create(manifest: WorkspaceManifest): Promise<WorkspaceManifest>;
-  update(manifest: WorkspaceManifest): Promise<WorkspaceManifest>;
-  getLatestByRunId(runId: string): Promise<WorkspaceManifest | null>;
+  create(manifest: WorkspaceManifestFixture): Promise<WorkspaceManifestFixture>;
+  update(manifest: WorkspaceManifestFixture): Promise<WorkspaceManifestFixture>;
+  getLatestByRunId(runId: string): Promise<WorkspaceManifestFixture | null>;
 }
 
 export function registerWorkspaceRepositoryConformance(
@@ -66,7 +66,7 @@ export function registerWorkspaceRepositoryConformance(
   });
 }
 
-function createManifest(): WorkspaceManifest {
+function createManifest(): WorkspaceManifestFixture {
   return {
     runId: "run_conformance",
     workspaceId: "wrk_conformance",

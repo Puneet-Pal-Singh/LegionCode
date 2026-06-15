@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-interface CreateThreadRequest {
+interface CreateThreadRequestFixture {
   userId: string;
   workspaceId: string;
   title: string;
 }
 
 interface PlatformClientTransportContract {
-  createThread(request: CreateThreadRequest): Promise<unknown>;
+  createThread(request: CreateThreadRequestFixture): Promise<unknown>;
 }
 
 export interface PlatformTransportConformanceFixture {
@@ -65,7 +65,7 @@ export function registerPlatformTransportConformance(
   });
 }
 
-function createThreadRequest(): CreateThreadRequest {
+function createThreadRequest(): CreateThreadRequestFixture {
   return {
     userId: "usr_conformance",
     workspaceId: "wrk_conformance",

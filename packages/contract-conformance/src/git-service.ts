@@ -1,20 +1,20 @@
 import type { RunId } from "@repo/platform-protocol";
 import { describe, expect, it } from "vitest";
 
-interface GitCommandExecutionInput {
+interface GitCommandExecutionFixture {
   readonly runId: RunId;
   readonly cwd: string;
   readonly args: readonly string[];
 }
 
-interface GitCommandExecutionResult {
+interface GitCommandResultFixture {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
 }
 
-interface GitCommandExecutorContract {
-  execute(input: GitCommandExecutionInput): Promise<GitCommandExecutionResult>;
+interface GitCommandExecutorPort {
+  execute(input: GitCommandExecutionFixture): Promise<GitCommandResultFixture>;
 }
 
 interface GitServiceContract {
@@ -26,7 +26,7 @@ interface GitServiceContract {
 
 export function registerGitServiceConformance(
   implementation: string,
-  createService: (executor: GitCommandExecutorContract) => unknown,
+  createService: (executor: GitCommandExecutorPort) => unknown,
 ): void {
   describe(`${implementation} GitService conformance`, () => {
     it("scopes status commands to the declared run and workspace", async () => {
@@ -69,12 +69,12 @@ export function registerGitServiceConformance(
   });
 }
 
-class ConformanceGitExecutor implements GitCommandExecutorContract {
-  readonly calls: GitCommandExecutionInput[] = [];
+class ConformanceGitExecutor implements GitCommandExecutorPort {
+  readonly calls: GitCommandExecutionFixture[] = [];
 
-  constructor(private readonly result: GitCommandExecutionResult) {}
+  constructor(private readonly result: GitCommandResultFixture) {}
 
-  async execute(input: GitCommandExecutionInput): Promise<GitCommandExecutionResult> {
+  async execute(input: GitCommandExecutionFixture): Promise<GitCommandResultFixture> {
     this.calls.push(input);
     return this.result;
   }
