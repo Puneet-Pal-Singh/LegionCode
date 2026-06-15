@@ -55,7 +55,12 @@ LEAK_COUNT=0
 
 # Adapters should be the ONLY place importing cloudflare:workers directly
 # Core orchestration logic should use ports
-if ! grep -r "from ['\"]cloudflare:workers" "$PORTS_ROOT" 2>/dev/null > /dev/null; then
+if [[ ! -d "$PORTS_ROOT" ]]; then
+  echo -e "${RED}[portability-boundary-gate] ✗ Ports directory not found: $PORTS_ROOT${NC}"
+  exit 1
+fi
+
+if ! grep -r "from ['\"]cloudflare:workers" "$PORTS_ROOT" > /dev/null; then
   echo -e "${GREEN}[portability-boundary-gate] ✓ Port interfaces don't import cloudflare:workers${NC}"
 else
   echo -e "${RED}[portability-boundary-gate] ✗ Cloudflare imports found in port interfaces (should be in adapters only)${NC}"
