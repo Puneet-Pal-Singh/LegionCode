@@ -211,7 +211,11 @@ export function useRunSummary(
   ]);
 
   useEffect(() => {
-    if (!runId || !shouldPoll) {
+    const shouldSettleCanonicalStatus =
+      Boolean(summary?.status) &&
+      !isTerminalRunStatus(summary?.status) &&
+      !isApprovalRequiredRunStatus(summary?.status);
+    if (!runId || (!shouldPoll && !shouldSettleCanonicalStatus)) {
       return;
     }
 
@@ -232,7 +236,7 @@ export function useRunSummary(
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId, shouldPoll, summary?.status]);
 
   return { summary };
 }

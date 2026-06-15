@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { agentStore } from "../store/agentStore";
 import { useChatCore } from "./useChatCore";
 
 const { mockUseChat, mockResolveForChat } = vi.hoisted(() => ({
@@ -66,6 +67,7 @@ describe("useChatCore", () => {
       append: appendSpy,
     });
     localStorage.clear();
+    agentStore.clearAllMessages();
   });
 
   it("configures chat requests with cookie credentials", async () => {
@@ -176,6 +178,50 @@ describe("useChatCore", () => {
     });
 
     expect(setMessagesSpy).toHaveBeenCalledWith([]);
+  });
+
+  it("does not expose previous-run messages during a scope switch", () => {
+    const staleMessages = [
+      {
+        id: "old-message",
+        role: "assistant" as const,
+        content: "wrong chat",
+      },
+    ];
+    const currentMessages = [
+      {
+        id: "current-message",
+        role: "assistant" as const,
+        content: "current chat",
+      },
+    ];
+    mockUseChat.mockReturnValue({
+      messages: staleMessages,
+      input: "",
+      handleInputChange: vi.fn(),
+      isLoading: false,
+      stop: stopStreamSpy,
+      setMessages: setMessagesSpy,
+      append: appendSpy,
+    });
+    agentStore.setMessages("run-2", currentMessages);
+
+    const { result, rerender } = renderHook(
+      ({ sessionId, runId }) => useChatCore(sessionId, runId),
+      {
+        initialProps: {
+          sessionId: "session-1",
+          runId: "run-1",
+        },
+      },
+    );
+
+    act(() => {
+      rerender({ sessionId: "session-2", runId: "run-2" });
+    });
+
+    expect(result.current.messages).toEqual(currentMessages);
+    expect(result.current.messages).not.toEqual(staleMessages);
   });
 
   it("sends explicit plan mode in request overrides", async () => {
