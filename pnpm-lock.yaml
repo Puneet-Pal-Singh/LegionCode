@@ -379,6 +379,28 @@ importers:
         specifier: 4.1.0
         version: 4.1.0(react@19.2.4)(zod@4.3.6)
 
+  packages/contract-conformance:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.1
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
   packages/eslint-config:
     devDependencies:
       '@eslint/js':
@@ -421,6 +443,9 @@ importers:
         specifier: workspace:*
         version: link:../platform-protocol
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
@@ -477,6 +502,9 @@ importers:
         specifier: workspace:*
         version: link:../platform-protocol
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
@@ -613,6 +641,9 @@ importers:
         specifier: ^8.16.3
         version: 8.20.0
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
@@ -666,6 +697,9 @@ importers:
         specifier: ^3.25.0
         version: 3.25.1
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
@@ -803,6 +837,9 @@ importers:
         specifier: ^3.25.0
         version: 3.25.1
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
@@ -825,6 +862,9 @@ importers:
         specifier: ^3.25.0
         version: 3.25.1
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config

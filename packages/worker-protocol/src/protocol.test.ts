@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { registerWorkerProtocolConformance } from "@repo/contract-conformance";
 import { WORKER_OPERATION_NAMES, WORKER_PROTOCOL_VERSION } from "./common.js";
 import {
   WorkerProtocolRequestSchema,
@@ -197,3 +198,10 @@ describe("worker protocol envelopes", () => {
     expect(response.ok).toBe(false);
   });
 });
+
+registerWorkerProtocolConformance(
+  "canonical",
+  WorkerProtocolRequestSchema,
+  WorkerProtocolResponseSchema,
+  WORKER_PROTOCOL_VERSION,
+);

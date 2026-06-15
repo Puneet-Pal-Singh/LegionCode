@@ -6,6 +6,7 @@ import {
   type EventId,
 } from "@repo/platform-protocol";
 import { EventStoreError } from "@repo/event-store";
+import { registerEventStoreConformance } from "@repo/contract-conformance";
 import { describe, expect, it } from "vitest";
 import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 import { PostgresEventStore } from "./PostgresEventStore.js";
@@ -274,6 +275,10 @@ describe("PostgresEventStore", () => {
     ).rejects.toThrow();
   });
 });
+
+registerEventStoreConformance("PostgresEventStore", () =>
+  createStore(new CanonicalEventSqlClient()),
+);
 
 function createStore(
   client: SqlClient,

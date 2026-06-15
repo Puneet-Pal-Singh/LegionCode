@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { registerPlatformTransportConformance } from "@repo/contract-conformance";
 import { createPlatformClient } from "./client.js";
 import {
   PlatformClientOperationError,
@@ -260,6 +261,24 @@ describe("createPlatformHttpTransport", () => {
     );
   });
 });
+
+registerPlatformTransportConformance(
+  "Platform HTTP transport",
+  (response) => {
+    const calls: FetchCall[] = [];
+    return {
+      transport: createPlatformHttpTransport({
+        baseUrl: "https://conformance.test",
+        fetchImpl: createFetch(response, calls),
+      }),
+      readCalls: () =>
+        calls.map((call) => ({
+          url: call.url,
+          method: call.init.method,
+        })),
+    };
+  },
+);
 
 async function readAll<T>(stream: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
