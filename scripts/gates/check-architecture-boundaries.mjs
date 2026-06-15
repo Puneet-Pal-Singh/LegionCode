@@ -7,9 +7,18 @@ import {
   PACKAGE_DEPENDENCY_POLICY,
 } from "./architecture-policy.mjs";
 
-const SOURCE_EXTENSIONS = new Set([".cjs", ".js", ".jsx", ".mjs", ".ts", ".tsx"]);
-const REPO_IMPORT_PATTERN = /(?:from\s+|import\s*\(|require\s*\()\s*["'](@repo\/[^/"']+)(?:\/[^"']*)?["']/g;
-const IMPORT_SPECIFIER_PATTERN = /(?:from\s+|import\s*\(|require\s*\()\s*["']([^"']+)["']/g;
+const SOURCE_EXTENSIONS = new Set([
+  ".cjs",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".ts",
+  ".tsx",
+]);
+const REPO_IMPORT_PATTERN =
+  /(?:from\s+|import\s*\(|require\s*\()\s*["'](@repo\/[^/"']+)(?:\/[^"']*)?["']/g;
+const IMPORT_SPECIFIER_PATTERN =
+  /(?:from\s+|import\s*\(|require\s*\()\s*["']([^"']+)["']/g;
 
 export async function validateArchitecture(root) {
   const violations = [];
@@ -20,12 +29,14 @@ export async function validateArchitecture(root) {
 }
 
 async function validatePackageDependencies(root, violations) {
-  for (const [packageName, allowedDependencies] of Object.entries(PACKAGE_DEPENDENCY_POLICY)) {
+  for (const [packageName, allowedDependencies] of Object.entries(
+    PACKAGE_DEPENDENCY_POLICY,
+  )) {
     const packageRoot = await findPackageRoot(root, "packages", packageName);
     const manifest = await readJson(join(packageRoot, "package.json"));
-    const internalDependencies = Object.keys(manifest.dependencies ?? {}).filter((name) =>
-      name.startsWith("@repo/"),
-    );
+    const internalDependencies = Object.keys(
+      manifest.dependencies ?? {},
+    ).filter((name) => name.startsWith("@repo/"));
 
     for (const dependency of internalDependencies) {
       if (!allowedDependencies.includes(dependency)) {
@@ -60,7 +71,10 @@ async function validateAppImports(root, violations) {
 }
 
 async function validateCanonicalAuthorities(root, violations) {
-  const sourceFiles = await listSourceFiles(join(root, "apps"), join(root, "packages"));
+  const sourceFiles = await listSourceFiles(
+    join(root, "apps"),
+    join(root, "packages"),
+  );
   for (const authority of CANONICAL_AUTHORITIES) {
     for (const file of sourceFiles) {
       const source = await readFile(file, "utf8");
@@ -86,7 +100,9 @@ async function findPackageRoot(root, collection, packageName) {
       return candidate;
     }
   }
-  throw new Error(`Architecture policy references missing package: ${packageName}`);
+  throw new Error(
+    `Architecture policy references missing package: ${packageName}`,
+  );
 }
 
 async function listSourceFiles(...roots) {
@@ -99,7 +115,7 @@ async function listSourceFiles(...roots) {
 
 async function collectSourceFiles(root, files) {
   for (const entry of await readdir(root, { withFileTypes: true })) {
-    if (entry.name === "dist" || entry.name === "node_modules") {
+    if (isIgnoredSourceEntry(entry.name)) {
       continue;
     }
     const path = join(root, entry.name);
@@ -111,12 +127,22 @@ async function collectSourceFiles(root, files) {
   }
 }
 
+function isIgnoredSourceEntry(name) {
+  return (
+    name === "dist" ||
+    name === "node_modules" ||
+    /\.timestamp-\d+-[a-f0-9]+\.mjs$/.test(name)
+  );
+}
+
 function findRepoImports(source) {
   return [...source.matchAll(REPO_IMPORT_PATTERN)].map((match) => match[1]);
 }
 
 function findImportSpecifiers(source) {
-  return [...source.matchAll(IMPORT_SPECIFIER_PATTERN)].map((match) => match[1]);
+  return [...source.matchAll(IMPORT_SPECIFIER_PATTERN)].map(
+    (match) => match[1],
+  );
 }
 
 function isDeepPackageSourceImport(specifier) {
@@ -142,7 +168,9 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log("OK: Architecture boundaries and canonical authorities are valid.");
+  console.log(
+    "OK: Architecture boundaries and canonical authorities are valid.",
+  );
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

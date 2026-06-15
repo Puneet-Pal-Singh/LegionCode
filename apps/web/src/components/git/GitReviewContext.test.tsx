@@ -223,7 +223,9 @@ describe("GitReviewProvider", () => {
   });
 
   it("pins chat-opened artifacts even when live git has files", () => {
-    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/live.ts"),
+    ]);
     mockArtifactState.source = buildArtifactSource();
     mockArtifactState.resolved = true;
 
@@ -246,6 +248,25 @@ describe("GitReviewProvider", () => {
         assistantMessageId: "assistant-chat",
         enabled: true,
       }),
+    );
+  });
+
+  it("preserves every changed file in a multi-file live review", () => {
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/first.ts"),
+      buildFileStatus("src/second.ts"),
+      buildFileStatus("src/third.ts"),
+    ]);
+
+    render(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
+    expect(screen.getByTestId("review-files")).toHaveTextContent(
+      "src/first.ts,src/second.ts,src/third.ts",
     );
   });
 
@@ -281,7 +302,10 @@ function ReviewCommentSelectionProbe() {
       <span data-testid="delivery-state">
         {comment?.deliveryState ?? "none"}
       </span>
-      <button type="button" onClick={() => review.addReviewComment(buildInput())}>
+      <button
+        type="button"
+        onClick={() => review.addReviewComment(buildInput())}
+      >
         add comment
       </button>
       <button
@@ -330,7 +354,10 @@ function ReviewSourceProbe() {
       >
         select first file
       </button>
-      <button type="button" onClick={() => review.setReviewScope("git-changes")}>
+      <button
+        type="button"
+        onClick={() => review.setReviewScope("git-changes")}
+      >
         select live git
       </button>
       <button
