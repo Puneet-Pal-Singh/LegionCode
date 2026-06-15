@@ -1,25 +1,17 @@
 import { z } from "zod";
 import {
   ApprovalDecisionSchema,
-  ApprovalEventTypeSchema,
-  AssistantTextEventTypeSchema,
-  ContextEventTypeSchema,
   ApprovalIdSchema,
+  ArtifactMetadataSchema,
   EventCursorSchema,
-  EventIdempotencyKeySchema,
-  EventProducerSchema,
-  EventSchemaVersionSchema,
-  ItemEventTypeSchema,
   JsonRecordSchema,
   ModelIdSchema,
   PermissionProfileIdSchema,
   ProviderIdSchema,
   RunIdSchema,
-  RunLifecycleEventTypeSchema,
   RunModeSchema,
   ThreadIdSchema,
-  ToolCallEventTypeSchema,
-  TurnEventTypeSchema,
+  ThreadSchema,
   UserIdSchema,
   WorkerIdSchema,
   WorkspaceIdSchema,
@@ -34,15 +26,14 @@ import {
 } from "@repo/platform-protocol";
 
 const MAX_EVENT_REPLAY_LIMIT = 1_000;
-const RunEventTypeSchema = z.enum([
-  ...RunLifecycleEventTypeSchema.options,
-  ...TurnEventTypeSchema.options,
-  ...AssistantTextEventTypeSchema.options,
-  ...ItemEventTypeSchema.options,
-  ...ToolCallEventTypeSchema.options,
-  ...ApprovalEventTypeSchema.options,
-  ...ContextEventTypeSchema.options,
-]);
+const MAX_LIST_LIMIT = 200;
+export const StreamRetryPolicySchema = z
+  .object({
+    maxAttempts: z.number().int().min(1).max(10),
+    delayMs: z.number().int().min(0).max(30_000),
+  })
+  .strict();
+export type StreamRetryPolicy = z.infer<typeof StreamRetryPolicySchema>;
 
 export const CreateThreadRequestSchema = z
   .object({
@@ -69,34 +60,23 @@ export const CreateRunRequestSchema = z
   .strict();
 export type CreateRunRequest = z.infer<typeof CreateRunRequestSchema>;
 
-export const AppendRunEventRequestSchema = z
+export const ListThreadsRequestSchema = z
   .object({
-    threadId: ThreadIdSchema,
-    workspaceId: WorkspaceIdSchema,
-    runId: RunIdSchema,
-    scopeType: z.literal("run"),
-    scopeId: RunIdSchema,
-    type: RunEventTypeSchema,
-    idempotencyKey: EventIdempotencyKeySchema,
-    producer: EventProducerSchema,
-    schemaVersion: EventSchemaVersionSchema,
-    payload: JsonRecordSchema,
+    userId: UserIdSchema,
+    workspaceId: WorkspaceIdSchema.optional(),
+    afterCursor: EventCursorSchema.nullable().optional(),
+    limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
   })
-  .strict()
-  .superRefine((request, context) => {
-    if (request.scopeId !== request.runId) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["scopeId"],
-        message: "Run event scopeId must match runId",
-      });
-    }
-  });
+  .strict();
+export type ListThreadsRequest = z.infer<typeof ListThreadsRequestSchema>;
 
-export type AppendRunEventRequest = Omit<
-  RunEvent,
-  "eventId" | "sequence" | "cursor" | "createdAt"
->;
+export const ListThreadsResponseSchema = z
+  .object({
+    threads: z.array(ThreadSchema),
+    nextCursor: EventCursorSchema.nullable(),
+  })
+  .strict();
+export type ListThreadsResponse = z.infer<typeof ListThreadsResponseSchema>;
 
 export const AttachRunStreamRequestSchema = z
   .object({
@@ -118,6 +98,23 @@ export const ReplayRunEventsRequestSchema = z
 export type ReplayRunEventsRequest = z.infer<
   typeof ReplayRunEventsRequestSchema
 >;
+
+export const ListArtifactsRequestSchema = z
+  .object({
+    runId: RunIdSchema,
+    afterCursor: EventCursorSchema.nullable().optional(),
+    limit: z.number().int().min(1).max(MAX_LIST_LIMIT).optional(),
+  })
+  .strict();
+export type ListArtifactsRequest = z.infer<typeof ListArtifactsRequestSchema>;
+
+export const ListArtifactsResponseSchema = z
+  .object({
+    artifacts: z.array(ArtifactMetadataSchema),
+    nextCursor: EventCursorSchema.nullable(),
+  })
+  .strict();
+export type ListArtifactsResponse = z.infer<typeof ListArtifactsResponseSchema>;
 
 export const ReplayRunEventsResponseSchema = z
   .object({
@@ -145,6 +142,7 @@ export type SubmitApprovalRequest = z.infer<
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
+  streamRetry?: StreamRetryPolicy;
 }
 
 export interface PlatformClientTransport {
@@ -156,8 +154,16 @@ export interface PlatformClientTransport {
     request: CreateRunRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
-  appendRunEvent(
-    request: AppendRunEventRequest,
+  getThread(
+    threadId: Thread["id"],
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  listThreads(
+    request: ListThreadsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  getRun(
+    runId: Run["id"],
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
   attachRunStream(
@@ -176,6 +182,10 @@ export interface PlatformClientTransport {
     artifactId: ArtifactId,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
+  listArtifacts(
+    request: ListArtifactsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
   getWorkspaceManifest(
     runId: Run["id"],
     options?: PlatformClientOperationOptions,
@@ -191,10 +201,18 @@ export interface PlatformClient {
     request: CreateRunRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<Run>;
-  appendRunEvent(
-    request: AppendRunEventRequest,
+  getThread(
+    threadId: Thread["id"],
     options?: PlatformClientOperationOptions,
-  ): Promise<RunEvent>;
+  ): Promise<Thread>;
+  listThreads(
+    request: ListThreadsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ListThreadsResponse>;
+  getRun(
+    runId: Run["id"],
+    options?: PlatformClientOperationOptions,
+  ): Promise<Run>;
   attachRunStream(
     request: AttachRunStreamRequest,
     options?: PlatformClientOperationOptions,
@@ -211,6 +229,10 @@ export interface PlatformClient {
     artifactId: ArtifactId,
     options?: PlatformClientOperationOptions,
   ): Promise<ArtifactMetadata>;
+  listArtifacts(
+    request: ListArtifactsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ListArtifactsResponse>;
   getWorkspaceManifest(
     runId: Run["id"],
     options?: PlatformClientOperationOptions,

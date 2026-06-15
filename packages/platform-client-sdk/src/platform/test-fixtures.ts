@@ -18,7 +18,6 @@ import type {
   WorkspaceManifestId,
 } from "@repo/platform-protocol";
 import type {
-  AppendRunEventRequest,
   CreateRunRequest,
   CreateThreadRequest,
   SubmitApprovalRequest,
@@ -120,15 +119,6 @@ export function createRunEvent(): RunEvent {
     type: "run.created",
     payload: { run },
   };
-}
-
-export function createAppendRunEventRequest(): AppendRunEventRequest {
-  const { eventId, sequence, cursor, createdAt, ...request } = createRunEvent();
-  void eventId;
-  void sequence;
-  void cursor;
-  void createdAt;
-  return request;
 }
 
 export function createApprovalRequest(): SubmitApprovalRequest {

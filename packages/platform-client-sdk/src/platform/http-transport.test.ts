@@ -6,7 +6,7 @@ import {
 import { createPlatformHttpTransport } from "./http-transport.js";
 import {
   TEST_IDS,
-  createAppendRunEventRequest,
+  createArtifact,
   createApprovalEvent,
   createApprovalRequest,
   createRun,
@@ -89,21 +89,51 @@ describe("createPlatformHttpTransport", () => {
     ]);
   });
 
-  it("posts appendRunEvent to the run-scoped event endpoint", async () => {
+  it("constructs thread, run, and artifact read endpoints", async () => {
     const calls: FetchCall[] = [];
     const transport = createPlatformHttpTransport({
       baseUrl: "https://control-plane.test",
-      fetchImpl: createFetch(createJsonResponse(createRunEvent()), calls),
+      fetchImpl: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(input), init: init ?? {} });
+        if (String(input).includes("artifacts")) {
+          return createJsonResponse({
+            artifacts: [createArtifact()],
+            nextCursor: TEST_IDS.nextCursor,
+          });
+        }
+        if (String(input).includes("threads?")) {
+          return createJsonResponse({
+            threads: [createThread()],
+            nextCursor: TEST_IDS.nextCursor,
+          });
+        }
+        if (String(input).includes("threads/")) {
+          return createJsonResponse(createThread());
+        }
+        return createJsonResponse(createRun());
+      }),
     });
     const client = createPlatformClient(transport);
-    const request = createAppendRunEventRequest();
 
-    await client.appendRunEvent(request);
+    await client.getThread(TEST_IDS.threadId);
+    await client.listThreads({
+      userId: TEST_IDS.userId,
+      workspaceId: TEST_IDS.workspaceId,
+      limit: 20,
+    });
+    await client.getRun(TEST_IDS.runId);
+    await client.listArtifacts({
+      runId: TEST_IDS.runId,
+      afterCursor: TEST_IDS.cursor,
+      limit: 20,
+    });
 
-    expect(calls[0]?.url).toBe(
-      "https://control-plane.test/runs/run_123456/events",
-    );
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual(request);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://control-plane.test/threads/thr_123456",
+      "https://control-plane.test/threads?userId=usr_123456&workspaceId=wrk_123456&limit=20",
+      "https://control-plane.test/runs/run_123456",
+      "https://control-plane.test/runs/run_123456/artifacts?afterCursor=cursor_123456&limit=20",
+    ]);
   });
 
   it("attaches run streams as typed NDJSON events", async () => {

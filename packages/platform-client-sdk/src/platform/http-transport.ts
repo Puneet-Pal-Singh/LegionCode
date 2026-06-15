@@ -1,6 +1,7 @@
 import {
   ArtifactIdSchema,
   RunIdSchema,
+  ThreadIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
 import {
@@ -10,6 +11,8 @@ import {
 } from "./errors.js";
 import type {
   AttachRunStreamRequest,
+  ListArtifactsRequest,
+  ListThreadsRequest,
   PlatformClientOperationOptions,
   PlatformClientTransport,
   ReplayRunEventsRequest,
@@ -37,8 +40,12 @@ export function createPlatformHttpTransport(
       request.json("POST", "/threads", payload, options),
     createRun: (payload, options) =>
       request.json("POST", "/runs", payload, options),
-    appendRunEvent: (payload, options) =>
-      request.json("POST", buildRunEventsPath(payload.runId), payload, options),
+    getThread: (threadId, options) =>
+      request.json("GET", buildThreadPath(threadId), undefined, options),
+    listThreads: (payload, options) =>
+      request.json("GET", buildListThreadsPath(payload), undefined, options),
+    getRun: (runId, options) =>
+      request.json("GET", buildRunPath(runId), undefined, options),
     attachRunStream: (payload, options) =>
       request.stream(buildRunEventsStreamPath(payload), options),
     replayRunEvents: (payload, options) =>
@@ -47,6 +54,8 @@ export function createPlatformHttpTransport(
       request.json("POST", buildApprovalPath(payload), payload, options),
     getArtifact: (artifactId, options) =>
       request.json("GET", buildArtifactPath(artifactId), undefined, options),
+    listArtifacts: (payload, options) =>
+      request.json("GET", buildListArtifactsPath(payload), undefined, options),
     getWorkspaceManifest: (runId, options) =>
       request.json(
         "GET",
@@ -429,7 +438,31 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 function buildRunEventsPath(runId: string | null): string {
-  return `/runs/${encodeURIComponent(RunIdSchema.parse(runId))}/events`;
+  return `${buildRunPath(RunIdSchema.parse(runId))}/events`;
+}
+
+function buildThreadPath(threadId: string): string {
+  return `/threads/${encodeURIComponent(ThreadIdSchema.parse(threadId))}`;
+}
+
+function buildRunPath(runId: string): string {
+  return `/runs/${encodeURIComponent(RunIdSchema.parse(runId))}`;
+}
+
+function buildListThreadsPath(request: ListThreadsRequest): string {
+  return addListQuery("/threads", {
+    userId: request.userId,
+    workspaceId: request.workspaceId,
+    afterCursor: request.afterCursor ?? undefined,
+    limit: request.limit,
+  });
+}
+
+function buildListArtifactsPath(request: ListArtifactsRequest): string {
+  return addListQuery(`${buildRunPath(request.runId)}/artifacts`, {
+    afterCursor: request.afterCursor ?? undefined,
+    limit: request.limit,
+  });
 }
 
 function buildRunEventsStreamPath(request: AttachRunStreamRequest): string {
@@ -469,6 +502,20 @@ function addCursorQuery(path: string, cursor: string | null): string {
     return path;
   }
   return `${path}?afterCursor=${encodeURIComponent(cursor)}`;
+}
+
+function addListQuery(
+  path: string,
+  values: Readonly<Record<string, string | number | undefined>>,
+): string {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(values)) {
+    if (value !== undefined) {
+      params.set(name, String(value));
+    }
+  }
+  const query = params.toString();
+  return query.length > 0 ? `${path}?${query}` : path;
 }
 
 function formatPreview(preview: string): string {

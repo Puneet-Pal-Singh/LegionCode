@@ -2,10 +2,12 @@ import { z } from "zod";
 import {
   ArtifactIdSchema,
   ArtifactMetadataSchema,
+  EventCursorSchema,
   RunEventSchema,
   RunIdSchema,
   RunSchema,
   ThreadSchema,
+  ThreadIdSchema,
   WorkspaceManifestSchema,
   type ArtifactId,
   type RunEvent,
@@ -15,17 +17,22 @@ import {
   normalizePlatformClientOperationError,
 } from "./errors.js";
 import {
-  AppendRunEventRequestSchema,
   AttachRunStreamRequestSchema,
   CreateRunRequestSchema,
   CreateThreadRequestSchema,
+  ListArtifactsRequestSchema,
+  ListArtifactsResponseSchema,
+  ListThreadsRequestSchema,
+  ListThreadsResponseSchema,
   ReplayRunEventsRequestSchema,
   ReplayRunEventsResponseSchema,
+  StreamRetryPolicySchema,
   SubmitApprovalRequestSchema,
-  type AppendRunEventRequest,
   type AttachRunStreamRequest,
   type CreateRunRequest,
   type CreateThreadRequest,
+  type ListArtifactsRequest,
+  type ListThreadsRequest,
   type PlatformClient,
   type PlatformClientOperationOptions,
   type PlatformClientTransport,
@@ -67,19 +74,42 @@ export class DefaultPlatformClient implements PlatformClient {
     return parseResponse(payload, RunSchema, "createRun");
   }
 
-  async appendRunEvent(
-    request: AppendRunEventRequest,
+  async getThread(
+    threadId: string,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedThreadId = parseRequest(
+      threadId,
+      ThreadIdSchema,
+      "getThread",
+    );
+    const payload = await this.invoke("getThread", () =>
+      this.transport.getThread(normalizedThreadId, options),
+    );
+    return parseResponse(payload, ThreadSchema, "getThread");
+  }
+
+  async listThreads(
+    request: ListThreadsRequest,
     options?: PlatformClientOperationOptions,
   ) {
     const normalizedRequest = parseRequest(
       request,
-      AppendRunEventRequestSchema,
-      "appendRunEvent",
-    ) as AppendRunEventRequest;
-    const payload = await this.invoke("appendRunEvent", () =>
-      this.transport.appendRunEvent(normalizedRequest, options),
+      ListThreadsRequestSchema,
+      "listThreads",
     );
-    return parseResponse(payload, RunEventSchema, "appendRunEvent");
+    const payload = await this.invoke("listThreads", () =>
+      this.transport.listThreads(normalizedRequest, options),
+    );
+    return parseResponse(payload, ListThreadsResponseSchema, "listThreads");
+  }
+
+  async getRun(runId: string, options?: PlatformClientOperationOptions) {
+    const normalizedRunId = parseRequest(runId, RunIdSchema, "getRun");
+    const payload = await this.invoke("getRun", () =>
+      this.transport.getRun(normalizedRunId, options),
+    );
+    return parseResponse(payload, RunSchema, "getRun");
   }
 
   async *attachRunStream(
@@ -91,12 +121,41 @@ export class DefaultPlatformClient implements PlatformClient {
       AttachRunStreamRequestSchema,
       "attachRunStream",
     );
-    const stream = await this.invoke("attachRunStream", () =>
-      this.transport.attachRunStream(normalizedRequest, options),
-    );
-
-    for await (const event of stream) {
-      yield parseResponse(event, RunEventSchema, "attachRunStream");
+    let afterCursor = normalizedRequest.afterCursor ?? null;
+    const retry = options?.streamRetry
+      ? parseRequest(
+          options.streamRetry,
+          StreamRetryPolicySchema,
+          "attachRunStream",
+        )
+      : undefined;
+    const maxAttempts = retry?.maxAttempts ?? 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const stream = this.transport.attachRunStream(
+          { ...normalizedRequest, afterCursor },
+          options,
+        );
+        for await (const event of stream) {
+          const parsed = parseResponse(
+            event,
+            RunEventSchema,
+            "attachRunStream",
+          );
+          afterCursor = EventCursorSchema.parse(parsed.cursor);
+          yield parsed;
+        }
+        return;
+      } catch (error) {
+        const normalized = normalizePlatformClientOperationError(
+          error,
+          "attachRunStream",
+        );
+        if (!normalized.retryable || attempt === maxAttempts) {
+          throw normalized;
+        }
+        await waitForRetry(retry?.delayMs ?? 0, options?.signal);
+      }
     }
   }
 
@@ -155,6 +214,25 @@ export class DefaultPlatformClient implements PlatformClient {
     return parseResponse(payload, ArtifactMetadataSchema, "getArtifact");
   }
 
+  async listArtifacts(
+    request: ListArtifactsRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      ListArtifactsRequestSchema,
+      "listArtifacts",
+    );
+    const payload = await this.invoke("listArtifacts", () =>
+      this.transport.listArtifacts(normalizedRequest, options),
+    );
+    return parseResponse(
+      payload,
+      ListArtifactsResponseSchema,
+      "listArtifacts",
+    );
+  }
+
   async getWorkspaceManifest(
     runId: string,
     options?: PlatformClientOperationOptions,
@@ -184,6 +262,29 @@ export class DefaultPlatformClient implements PlatformClient {
       throw normalizePlatformClientOperationError(error, operation);
     }
   }
+}
+
+async function waitForRetry(
+  delayMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) {
+    throw new DOMException("Request was aborted", "AbortError");
+  }
+  if (delayMs === 0) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(resolve, delayMs);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        reject(new DOMException("Request was aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
 }
 
 export function createPlatformClient(
