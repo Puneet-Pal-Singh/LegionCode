@@ -30,7 +30,7 @@ export type Artifact = z.infer<typeof ArtifactSchema>
 /**
  * Abstract artifact store interface
  */
-export interface ArtifactStore {
+export interface ExecutionArtifactStore {
   /**
    * Save execution state snapshot
    */
