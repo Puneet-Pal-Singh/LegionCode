@@ -1,20 +1,29 @@
+import {
+  PermissionEffectSchema,
+  PermissionRiskLevelSchema,
+  type PermissionEffect,
+  type PermissionRiskLevel,
+} from "@repo/platform-protocol";
 import { z } from "zod";
 
-export const PermissionEffectSchema = z.enum(["allow", "ask", "deny"]);
-export type PermissionEffect = z.infer<typeof PermissionEffectSchema>;
+export {
+  PermissionEffectSchema,
+  PermissionRiskLevelSchema,
+  type PermissionEffect,
+  type PermissionRiskLevel,
+};
 
 export const PolicyDomainSchema = z.enum([
   "command",
   "path",
   "network",
   "git",
+  "package_manager",
   "secret",
+  "external_service",
   "tool",
 ]);
 export type PolicyDomain = z.infer<typeof PolicyDomainSchema>;
-
-export const RiskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
-export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 
 export const PermissionRuleSchema = z
   .object({
@@ -22,7 +31,7 @@ export const PermissionRuleSchema = z
     pattern: z.string().min(1).max(2_000),
     effect: PermissionEffectSchema,
     reason: z.string().min(1).max(2_000).optional(),
-    riskLevel: RiskLevelSchema.optional(),
+    riskLevel: PermissionRiskLevelSchema.optional(),
     approvalPrompt: z.string().min(1).max(2_000).optional(),
   })
   .strict();
@@ -31,24 +40,21 @@ export type PermissionRule = z.infer<typeof PermissionRuleSchema>;
 export const RuleSetPolicySchema = z
   .object({
     defaultEffect: PermissionEffectSchema,
+    defaultRiskLevel: PermissionRiskLevelSchema,
     rules: z.array(PermissionRuleSchema),
   })
   .strict();
 export type RuleSetPolicy = z.infer<typeof RuleSetPolicySchema>;
 
-export const NetworkPolicySchema = RuleSetPolicySchema.extend({
-  allowLocalNetwork: z.boolean(),
-}).strict();
-export type NetworkPolicy = z.infer<typeof NetworkPolicySchema>;
-
 export const PermissionPolicySchema = z
   .object({
-    defaultEffect: PermissionEffectSchema,
     commands: RuleSetPolicySchema,
     paths: RuleSetPolicySchema,
-    network: NetworkPolicySchema,
+    network: RuleSetPolicySchema,
     git: RuleSetPolicySchema,
+    packageManagers: RuleSetPolicySchema,
     secrets: RuleSetPolicySchema,
+    externalServices: RuleSetPolicySchema,
     tools: RuleSetPolicySchema,
   })
   .strict();
@@ -80,9 +86,23 @@ export const PermissionRequestSchema = z.discriminatedUnion("domain", [
     .strict(),
   z
     .object({
+      domain: z.literal("package_manager"),
+      manager: SubjectSchema,
+      operation: SubjectSchema,
+    })
+    .strict(),
+  z
+    .object({
       domain: z.literal("secret"),
       secretRef: SubjectSchema,
       operation: z.enum(["read", "write", "use", "reveal"]),
+    })
+    .strict(),
+  z
+    .object({
+      domain: z.literal("external_service"),
+      service: SubjectSchema,
+      operation: SubjectSchema,
     })
     .strict(),
   z
@@ -104,13 +124,12 @@ type DecisionBase = {
   domain: PolicyDomain;
   subject: string;
   reason: string;
-  riskLevel: RiskLevel;
+  riskLevel: PermissionRiskLevel;
   matchedRule: MatchedRule | null;
 };
 
 export type ApprovalRequest = {
   prompt: string;
-  suggestedRules: readonly PermissionRule[];
 };
 
 export type PolicyDecisionResult =

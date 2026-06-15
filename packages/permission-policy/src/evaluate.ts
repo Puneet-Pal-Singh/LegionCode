@@ -3,16 +3,14 @@ import {
   matchesWildcardPattern,
   normalizePolicySubject,
 } from "./patterns.js";
-import { classifyToolAction, riskLevelForDomain } from "./risk.js";
 import type {
-  NetworkPolicy,
   PermissionEffect,
+  PermissionRiskLevel,
   PermissionPolicy,
   PermissionRequest,
   PermissionRule,
   PolicyDecisionResult,
   PolicyDomain,
-  RiskLevel,
   RuleSetPolicy,
 } from "./types.js";
 
@@ -24,15 +22,43 @@ export function evaluatePermission(
     case "command":
       return evaluateRuleSet("command", request.command, policy.commands);
     case "path":
-      return evaluatePathPermission(policy.paths, request.path, request.operation);
+      return evaluatePathPermission(
+        policy.paths,
+        request.path,
+        request.operation,
+      );
     case "network":
-      return evaluateNetworkPermission(policy.network, request.url);
+      return evaluateNetworkPermission(
+        policy.network,
+        request.url,
+        request.operation,
+      );
     case "git":
       return evaluateRuleSet("git", request.operation, policy.git);
+    case "package_manager":
+      return evaluateRuleSet(
+        "package_manager",
+        `${request.manager}:${request.operation}`,
+        policy.packageManagers,
+      );
     case "secret":
-      return evaluateRuleSet("secret", request.secretRef, policy.secrets);
+      return evaluateRuleSet(
+        "secret",
+        `${request.operation}:${request.secretRef}`,
+        policy.secrets,
+      );
+    case "external_service":
+      return evaluateRuleSet(
+        "external_service",
+        `${request.service}:${request.operation}`,
+        policy.externalServices,
+      );
     case "tool":
-      return evaluateToolPermission(policy.tools, request.toolName, request.action);
+      return evaluateToolPermission(
+        policy.tools,
+        request.toolName,
+        request.action,
+      );
   }
 }
 
@@ -44,7 +70,7 @@ export function evaluateRuleSet(
   const subject = normalizePolicySubject(rawSubject);
   const matchedRule = findLastMatchingRule(policy.rules, subject);
   const effect = matchedRule?.effect ?? policy.defaultEffect;
-  const riskLevel = matchedRule?.riskLevel ?? riskLevelForDomain(domain);
+  const riskLevel = matchedRule?.riskLevel ?? policy.defaultRiskLevel;
 
   return createDecision({ domain, subject, effect, matchedRule, riskLevel });
 }
@@ -57,19 +83,31 @@ export function evaluatePathPermission(
   const subject = normalizePolicySubject(rawPath);
 
   if (isPathTraversal(subject)) {
-    return deny("path", subject, "Path traversal outside the workspace is denied.");
+    return deny(
+      "path",
+      subject,
+      "Path traversal outside the workspace is denied.",
+    );
   }
 
-  const matchedRule = findLastMatchingRule(policy.rules, subject);
+  const operationSubject = `${operation}:${subject}`;
+  const matchedRule = findLastMatchingRule(policy.rules, operationSubject);
   const effect = matchedRule?.effect ?? policy.defaultEffect;
-  const riskLevel = matchedRule?.riskLevel ?? pathRiskLevel(operation);
+  const riskLevel = matchedRule?.riskLevel ?? policy.defaultRiskLevel;
 
-  return createDecision({ domain: "path", subject, effect, matchedRule, riskLevel });
+  return createDecision({
+    domain: "path",
+    subject: operationSubject,
+    effect,
+    matchedRule,
+    riskLevel,
+  });
 }
 
 export function evaluateNetworkPermission(
-  policy: NetworkPolicy,
+  policy: RuleSetPolicy,
   rawUrl: string,
+  operation: string,
 ): PolicyDecisionResult {
   const parsedUrl = parsePolicyUrl(rawUrl);
 
@@ -77,18 +115,29 @@ export function evaluateNetworkPermission(
     return deny("network", rawUrl, "Invalid URLs are denied.");
   }
 
-  const matchedRule = findLastMatchingNetworkRule(policy.rules, parsedUrl);
+  const matchedRule = findLastMatchingNetworkRule(
+    policy.rules,
+    parsedUrl,
+    operation,
+  );
 
-  if (isLocalNetworkHost(parsedUrl.hostname) && matchedRule?.effect !== "allow") {
-    return deny("network", parsedUrl.href, "Local network access requires an allow rule.");
+  if (
+    isLocalNetworkHost(parsedUrl.hostname) &&
+    matchedRule?.effect !== "allow"
+  ) {
+    return deny(
+      "network",
+      `${operation}:${parsedUrl.href}`,
+      "Local network access requires an allow rule.",
+    );
   }
 
   const effect = matchedRule?.effect ?? policy.defaultEffect;
-  const riskLevel = matchedRule?.riskLevel ?? "high";
+  const riskLevel = matchedRule?.riskLevel ?? policy.defaultRiskLevel;
 
   return createDecision({
     domain: "network",
-    subject: parsedUrl.href,
+    subject: `${operation}:${parsedUrl.href}`,
     effect,
     matchedRule,
     riskLevel,
@@ -100,13 +149,20 @@ export function evaluateToolPermission(
   toolName: string,
   action?: string,
 ): PolicyDecisionResult {
-  const subject = normalizePolicySubject(action ? `${toolName}:${action}` : toolName);
+  const subject = normalizePolicySubject(
+    action ? `${toolName}:${action}` : toolName,
+  );
   const matchedRule = findLastMatchingToolRule(policy.rules, toolName, subject);
   const effect = matchedRule?.effect ?? policy.defaultEffect;
-  const risk = classifyToolAction({ domain: "tool", toolName, action });
-  const riskLevel = matchedRule?.riskLevel ?? risk.level;
+  const riskLevel = matchedRule?.riskLevel ?? policy.defaultRiskLevel;
 
-  return createDecision({ domain: "tool", subject, effect, matchedRule, riskLevel });
+  return createDecision({
+    domain: "tool",
+    subject,
+    effect,
+    matchedRule,
+    riskLevel,
+  });
 }
 
 function createDecision(input: {
@@ -114,7 +170,7 @@ function createDecision(input: {
   subject: string;
   effect: PermissionEffect;
   matchedRule: PermissionRule | null;
-  riskLevel: RiskLevel;
+  riskLevel: PermissionRiskLevel;
 }): PolicyDecisionResult {
   const reason = input.matchedRule?.reason ?? defaultReason(input);
 
@@ -142,14 +198,6 @@ function buildApprovalRequest(
     prompt:
       input.matchedRule?.approvalPrompt ??
       `Allow ${input.domain} action for "${input.subject}"? ${reason}`,
-    suggestedRules: [
-      {
-        id: `${input.domain}.session.${input.subject}`,
-        pattern: input.subject,
-        effect: "allow",
-        reason: "Session-scoped approval suggestion.",
-      },
-    ],
   } as const;
 }
 
@@ -184,13 +232,16 @@ function defaultReason(input: {
 function findLastMatchingNetworkRule(
   rules: readonly PermissionRule[],
   url: URL,
+  operation: string,
 ): PermissionRule | null {
   let matchedRule: PermissionRule | null = null;
 
   for (const rule of rules) {
-    if (matchesWildcardPattern(rule.pattern, url.hostname)) {
+    if (matchesWildcardPattern(rule.pattern, `${operation}:${url.hostname}`)) {
       matchedRule = rule;
-    } else if (matchesWildcardPattern(rule.pattern, url.href)) {
+    } else if (
+      matchesWildcardPattern(rule.pattern, `${operation}:${url.href}`)
+    ) {
       matchedRule = rule;
     }
   }
@@ -229,20 +280,23 @@ function isPathTraversal(path: string): boolean {
 }
 
 function isLocalNetworkHost(hostname: string): boolean {
+  const normalized = hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/gu, "")
+    .replace(/\.$/u, "");
   return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.startsWith("10.") ||
-    hostname.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./u.test(hostname)
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "0.0.0.0" ||
+    normalized.startsWith("10.") ||
+    normalized.startsWith("127.") ||
+    normalized.startsWith("169.254.") ||
+    normalized.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./u.test(normalized) ||
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    /^fe[89ab]/u.test(normalized)
   );
-}
-
-function pathRiskLevel(operation: string): RiskLevel {
-  if (operation === "read" || operation === "list") {
-    return "low";
-  }
-
-  return "medium";
 }
