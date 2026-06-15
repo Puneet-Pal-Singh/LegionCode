@@ -32,7 +32,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run lint
         run: pnpm lint
@@ -55,7 +55,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
         run: pnpm build
@@ -81,7 +81,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run import boundary checks
         run: pnpm check:boundaries
@@ -111,7 +111,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
         run: pnpm build
@@ -119,13 +119,9 @@ jobs:
       - name: Run runtime conformance gate
         run: pnpm gate:runtime-conformance
 
-  test-smoke-report:
-    name: Test (smoke, report-only)
+  dev-smoke:
+    name: Dev Smoke Gate
     runs-on: ubuntu-latest
-    continue-on-error: true
-    env:
-      QUARANTINE_OWNER: "@shadowbox/brain"
-      QUARANTINE_EXPIRES_ON: "2026-03-07"
     steps:
       - uses: actions/checkout@v4
 
@@ -141,23 +137,51 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Run smoke tests
-        run: |
-          pnpm --filter @shadowbox/web test -- --run
-          pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
+      - name: Run deterministic dev smoke gate
+        run: pnpm gate:dev-smoke
 
-      - name: Smoke quarantine metadata
+  full-web-test-report:
+    name: Full Web Tests (report-only)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      QUARANTINE_OWNER: "@shadowbox/web"
+      QUARANTINE_EXPIRES_ON: "2026-07-15"
+      PROMOTION_CRITERIA: "Three consecutive green dev runs with no timeout-dependent failures."
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run full web tests
+        run: pnpm --filter @shadowbox/web test -- --run
+
+      - name: Report-only gate metadata
+        if: always()
         run: |
-          echo "Smoke checks are report-only during integration stabilization."
+          echo "Full web tests remain report-only while existing flaky and failing tests are stabilized."
           echo "Owner: ${QUARANTINE_OWNER}"
           echo "Expires on: ${QUARANTINE_EXPIRES_ON}"
+          echo "Promotion criteria: ${PROMOTION_CRITERIA}"
 
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, check-types, boundaries, runtime-conformance]
+    needs: [lint, check-types, boundaries, runtime-conformance, dev-smoke]
     steps:
       - uses: actions/checkout@v4
 
@@ -173,7 +197,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build project
         run: pnpm build
@@ -199,7 +223,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
         run: pnpm build
@@ -214,6 +238,7 @@ jobs:
 
       - name: Run smoke checks (strict)
         run: |
+          pnpm gate:dev-smoke
           pnpm --filter @shadowbox/web test -- --run
 
       - name: Run runtime conformance gate (strict)

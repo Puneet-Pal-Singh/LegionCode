@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PORTS_ROOT="$PROJECT_ROOT/apps/secure-agent-api/src/ports"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -35,9 +38,9 @@ echo -e "${GREEN}[portability-boundary-gate] ✓ TypeScript compilation passed${
 
 # 2. Run conformance tests
 echo -e "${YELLOW}[portability-boundary-gate] Running conformance tests...${NC}"
-if ! pnpm --filter @shadowbox/secure-agent-api vitest run --dir src/conformance > /dev/null 2>&1; then
+if ! pnpm --filter @shadowbox/secure-agent-api exec vitest run --dir src/conformance > /dev/null 2>&1; then
   echo -e "${RED}[portability-boundary-gate] ✗ Conformance tests failed${NC}"
-  echo "Run: pnpm --filter @shadowbox/secure-agent-api vitest run --dir src/conformance"
+  echo "Run: pnpm --filter @shadowbox/secure-agent-api exec vitest run --dir src/conformance"
   exit 1
 fi
 echo -e "${GREEN}[portability-boundary-gate] ✓ Conformance tests passed${NC}"
@@ -52,7 +55,7 @@ LEAK_COUNT=0
 
 # Adapters should be the ONLY place importing cloudflare:workers directly
 # Core orchestration logic should use ports
-if ! grep -r "from ['\"]cloudflare:workers" /Users/puneetpalsingh/Documents/Code/dev/Shadowbox/shadowbox/apps/secure-agent-api/src/ports/ 2>/dev/null > /dev/null; then
+if ! grep -r "from ['\"]cloudflare:workers" "$PORTS_ROOT" 2>/dev/null > /dev/null; then
   echo -e "${GREEN}[portability-boundary-gate] ✓ Port interfaces don't import cloudflare:workers${NC}"
 else
   echo -e "${RED}[portability-boundary-gate] ✗ Cloudflare imports found in port interfaces (should be in adapters only)${NC}"
