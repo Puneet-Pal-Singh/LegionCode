@@ -1,4 +1,5 @@
 import type { RunId } from "@repo/platform-protocol";
+import { registerGitServiceConformance } from "@repo/contract-conformance";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -252,6 +253,11 @@ describe("DefaultGitService", () => {
     expect(executor.calls).toHaveLength(0);
   });
 });
+
+registerGitServiceConformance(
+  "DefaultGitService",
+  (executor) => new DefaultGitService(executor),
+);
 
 class QueueGitExecutor implements GitCommandExecutor {
   readonly calls: GitCommandExecutionInput[] = [];

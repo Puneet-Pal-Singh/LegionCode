@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { registerWorkspaceRepositoryConformance } from "@repo/contract-conformance";
 import { RunIdSchema, WorkspaceIdSchema } from "@repo/platform-protocol";
 import { WorkspaceCoreError } from "./errors.js";
 import { parseWorkspaceManifest, type WorkspaceManifest } from "./manifest.js";
@@ -103,3 +104,8 @@ describe("memory workspace manifest repository", () => {
     );
   });
 });
+
+registerWorkspaceRepositoryConformance(
+  "MemoryWorkspaceManifestRepository",
+  () => new MemoryWorkspaceManifestRepository(),
+);

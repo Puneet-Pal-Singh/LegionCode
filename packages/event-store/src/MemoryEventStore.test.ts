@@ -5,6 +5,7 @@ import {
   type EventCursor,
   type EventId,
 } from "@repo/platform-protocol";
+import { registerEventStoreConformance } from "@repo/contract-conformance";
 import { describe, expect, it } from "vitest";
 import { MemoryEventStore } from "./MemoryEventStore.js";
 import type {
@@ -146,6 +147,8 @@ describe("MemoryEventStore", () => {
     });
   });
 });
+
+registerEventStoreConformance("MemoryEventStore", createStore);
 
 function createStore(
   overrides: {
