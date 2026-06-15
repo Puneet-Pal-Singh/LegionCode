@@ -259,6 +259,58 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(false);
   });
 
+  it("suppresses completed generated workflow labels after the run settles", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-generic-workflow",
+      sessionId: "session-generic-workflow",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-generic-workflow",
+          sessionId: "session-generic-workflow",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "hello",
+        },
+        {
+          id: "reasoning-execution",
+          runId: "run-generic-workflow",
+          sessionId: "session-generic-workflow",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          label: "Preparing next action",
+          summary: "Preparing the next concrete workspace action.",
+          phase: "execution",
+          status: "completed",
+        },
+        {
+          id: "reasoning-synthesis",
+          runId: "run-generic-workflow",
+          sessionId: "session-generic-workflow",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          label: "Summarizing the change",
+          summary: "Preparing the final user-facing answer from the observed results.",
+          phase: "synthesis",
+          status: "completed",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows).toEqual([]);
+  });
+
   it("renders thinking only while it remains the latest unresolved state", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-active-thinking",
@@ -334,6 +386,44 @@ describe("ActivityFeedViewModel", () => {
         (row) => row.kind === "reasoning" && row.label === "Thinking",
       ),
     ).toHaveLength(1);
+  });
+
+  it("removes completed thinking rows even when they contain a summary", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-completed-thinking-summary",
+      sessionId: "session-completed-thinking-summary",
+      status: "COMPLETED",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-completed-thinking-summary",
+          sessionId: "session-completed-thinking-summary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "hey",
+        },
+        {
+          id: "reasoning-thinking",
+          runId: "run-completed-thinking-summary",
+          sessionId: "session-completed-thinking-summary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "This is internal model analysis.",
+          phase: "execution",
+          status: "completed",
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows).toEqual([]);
   });
 
   it("surfaces the plugin badge label for dedicated git tool rows", () => {
@@ -474,7 +564,7 @@ describe("ActivityFeedViewModel", () => {
     );
   });
 
-  it("keeps explicit execution progress rows and recovery-coded assistant messages visible", () => {
+  it("removes settled thinking while keeping recovery-coded assistant messages visible", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-progress",
       sessionId: "session-progress",
@@ -533,7 +623,7 @@ describe("ActivityFeedViewModel", () => {
           row.summary ===
             "Inspecting the workspace before answering.",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       viewModel.turns[0]?.rows.some(
         (row) =>

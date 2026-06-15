@@ -91,13 +91,12 @@ function buildTurns(
     const sortedEvents = [...events].sort(
       (left, right) => left.sequence - right.sequence,
     );
-    const rows = sortedEvents.flatMap((event) => {
-      const row = eventToRow(event);
-      return row ? [row] : [];
-    });
-    if (rows.length === 0) {
-      return [];
-    }
+    const rows = dedupeTranscriptRows(
+      sortedEvents.flatMap((event) => {
+        const row = eventToRow(event);
+        return row ? [row] : [];
+      }),
+    );
     const hasProviderError = rows.some(
       (row) =>
         row.kind === "commentary" &&
@@ -153,7 +152,7 @@ function isProviderUnavailableRow(row: ActivityFeedRowViewModel): boolean {
 }
 
 function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
-  if (event.displayMode === "debug") {
+  if (event.displayMode === "debug" || event.kind === "thinking") {
     return null;
   }
 
@@ -186,9 +185,35 @@ function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
     kind: "reasoning",
     key: event.id,
     label: event.title,
-    summary: event.detail ?? event.title,
+    summary: normalizeRowSummary(event.title, event.detail),
     status: event.status === "running" ? "active" : "completed",
   };
+}
+
+function normalizeRowSummary(title: string, detail: string | undefined): string {
+  const normalizedDetail = detail?.trim() ?? "";
+  return normalizedDetail === title.trim() ? "" : normalizedDetail;
+}
+
+function dedupeTranscriptRows(
+  rows: ActivityFeedRowViewModel[],
+): ActivityFeedRowViewModel[] {
+  return rows.filter((row, index) => {
+    const previous = rows[index - 1];
+    return !areEquivalentReasoningRows(previous, row);
+  });
+}
+
+function areEquivalentReasoningRows(
+  left: ActivityFeedRowViewModel | undefined,
+  right: ActivityFeedRowViewModel,
+): boolean {
+  return (
+    left?.kind === "reasoning" &&
+    right.kind === "reasoning" &&
+    left.label.trim() === right.label.trim() &&
+    left.summary.trim() === right.summary.trim()
+  );
 }
 
 function readMetadataString(
@@ -218,13 +243,18 @@ function formatTurnElapsed(events: TurnActivityEvent[]): string {
   const first = events[0]?.createdAt;
   const last = events[events.length - 1]?.updatedAt;
   if (!first || !last) {
-    return "Activity";
+    return "Worked";
   }
   const elapsedMs = Math.max(0, Date.parse(last) - Date.parse(first));
   if (elapsedMs < 1_000) {
-    return "Just now";
+    return "Worked for 1s";
   }
-  return `${Math.round(elapsedMs / 1_000)}s`;
+  const totalSeconds = Math.max(1, Math.floor(elapsedMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes === 0
+    ? `Worked for ${seconds}s`
+    : `Worked for ${minutes}m ${seconds}s`;
 }
 
 function buildSummaryLabel(rows: ActivityFeedRowViewModel[]): string {
@@ -235,6 +265,9 @@ function buildSummaryLabel(rows: ActivityFeedRowViewModel[]): string {
   );
   if (providerErrors.length > 0) {
     return "Paused after provider interruption";
+  }
+  if (rows.length === 0) {
+    return "Workflow captured";
   }
   return `${rows.length} activity ${rows.length === 1 ? "row" : "rows"}`;
 }
