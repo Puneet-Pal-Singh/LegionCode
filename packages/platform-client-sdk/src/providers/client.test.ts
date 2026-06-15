@@ -156,6 +156,7 @@ describe("ProviderClient", () => {
     expect(transport.discoverProviderModels).toHaveBeenCalledWith("openai", {
       view: "popular",
       limit: 50,
+      surface: "picker",
     }, undefined);
   });
 

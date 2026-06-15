@@ -1,4 +1,47 @@
 export {
+  DefaultPlatformClient,
+  createPlatformClient,
+} from "./platform/client.js";
+export {
+  PlatformClientContractError,
+  PlatformClientOperationError,
+  normalizePlatformClientOperationError,
+  parsePlatformOperationErrorCode,
+  parseProtocolErrorEnvelope,
+  type PlatformClientOperationErrorCode,
+} from "./platform/errors.js";
+export {
+  createPlatformHttpTransport,
+  type PlatformHttpTransportOptions,
+} from "./platform/http-transport.js";
+export {
+  AttachRunStreamRequestSchema,
+  CreateRunRequestSchema,
+  CreateThreadRequestSchema,
+  ListArtifactsRequestSchema,
+  ListArtifactsResponseSchema,
+  ListThreadsRequestSchema,
+  ListThreadsResponseSchema,
+  ReplayRunEventsRequestSchema,
+  ReplayRunEventsResponseSchema,
+  StreamRetryPolicySchema,
+  SubmitApprovalRequestSchema,
+  type AttachRunStreamRequest,
+  type CreateRunRequest,
+  type CreateThreadRequest,
+  type ListArtifactsRequest,
+  type ListArtifactsResponse,
+  type ListThreadsRequest,
+  type ListThreadsResponse,
+  type PlatformClient,
+  type PlatformClientOperationOptions,
+  type PlatformClientTransport,
+  type ReplayRunEventsRequest,
+  type ReplayRunEventsResponse,
+  type SubmitApprovalRequest,
+  type StreamRetryPolicy,
+} from "./platform/types.js";
+export {
   ProviderClient,
   createProviderClient,
   type ProviderClientTransport,
