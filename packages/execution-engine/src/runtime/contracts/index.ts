@@ -16,6 +16,8 @@ export {
 } from "./TaskInputContract.js";
 export {
   enforceGoldenFlowToolFloor,
+  getGoldenFlowRunCapabilityManifest,
+  getGoldenFlowToolCatalogSnapshot,
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
@@ -25,6 +27,20 @@ export {
   type GoldenFlowToolInputByName,
   type ToolGatewayRoute,
 } from "./CodingToolGateway.js";
+export {
+  buildCorrectionHintText,
+  buildInvalidToolInputError,
+  buildPurposeBuiltToolWarning,
+  buildRuntimeCapabilityPromptSection,
+  buildToolCatalogSnapshot,
+  buildToolCorrectionHint,
+  buildUnavailableToolError,
+  createCloudSandboxRunCapabilityManifest,
+  type RunCapabilityManifest,
+  type StructuredToolError,
+  type ToolCatalogSnapshot,
+  type ToolCorrectionHint,
+} from "../capabilities/index.js";
 export {
   getCodingToolDefinition,
   getCodingToolDefinitions,

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   enforceGoldenFlowToolFloor,
   getCodingToolDefinition,
+  getGoldenFlowRunCapabilityManifest,
+  getGoldenFlowToolCatalogSnapshot,
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
@@ -168,6 +170,53 @@ describe("CodingToolGateway", () => {
     });
   });
 
+  it("projects the golden-flow registry into a runtime capability manifest", () => {
+    const manifest = getGoldenFlowRunCapabilityManifest({
+      runId: "run-1",
+      availableToolIds: ["read_file", "bash", "git_status"],
+    });
+
+    expect(manifest.executionLocation).toBe("cloud_sandbox");
+    expect(manifest.availableTools.map((tool) => tool.logicalName)).toEqual([
+      "read_file",
+      "bash",
+      "git_status",
+    ]);
+    expect(manifest.availableTools).toContainEqual(
+      expect.objectContaining({
+        logicalName: "bash",
+        availability: "approval_required",
+        avoidWhen: expect.arrayContaining(["simple file inspection"]),
+      }),
+    );
+    expect(manifest.unavailableCapabilities).toContainEqual(
+      expect.objectContaining({ id: "desktop_local" }),
+    );
+  });
+
+  it("builds a prompt-facing tool catalog snapshot from the manifest", () => {
+    const snapshot = getGoldenFlowToolCatalogSnapshot({
+      runId: "run-1",
+      availableToolIds: ["read_file", "grep"],
+    });
+
+    expect(snapshot.tools).toEqual([
+      expect.objectContaining({
+        name: "read_file",
+        preferredFor: ["file inspection", "line range reads"],
+      }),
+      expect.objectContaining({
+        name: "grep",
+        preferredFor: ["content search", "symbol or text discovery"],
+      }),
+    ]);
+    expect(snapshot.unavailableCapabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "outside_workspace_files" }),
+      ]),
+    );
+  });
+
   it("adapts legacy plugin responses into required ToolResult shape", async () => {
     const definition = getCodingToolDefinition("grep");
     const truncatedResult = await definition?.execute(
@@ -206,63 +255,75 @@ describe("CodingToolGateway", () => {
   });
 
   it("enforces bounded scope by dropping non-floor tools", () => {
-    const filtered = enforceGoldenFlowToolFloor({
-      read_file: {
-        description: "custom read",
-        parameters: {},
-      } as unknown as import("ai").CoreTool,
-      web_search: {
-        description: "unsupported",
-        parameters: {},
-      } as unknown as import("ai").CoreTool,
-    }, {
-      featureFlags: {
-        ghCliLaneEnabled: true,
-        ghCliCiEnabled: true,
-        ghCliPrCommentEnabled: true,
+    const filtered = enforceGoldenFlowToolFloor(
+      {
+        read_file: {
+          description: "custom read",
+          parameters: {},
+        } as unknown as import("ai").CoreTool,
+        web_search: {
+          description: "unsupported",
+          parameters: {},
+        } as unknown as import("ai").CoreTool,
       },
-    });
+      {
+        featureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
+      },
+    );
 
     expect(filtered.read_file?.description).toBe("custom read");
-    expect(Object.keys(filtered)).toEqual(getGoldenFlowToolNames());
+    expect(Object.keys(filtered)).toEqual(["read_file"]);
     expect("web_search" in filtered).toBe(false);
   });
 
   it("applies GitHub CLI lane feature flags to the tool floor", () => {
-    const allDisabled = enforceGoldenFlowToolFloor({}, {
-      featureFlags: {
-        ghCliLaneEnabled: false,
-        ghCliCiEnabled: false,
-        ghCliPrCommentEnabled: false,
+    const allDisabled = enforceGoldenFlowToolFloor(
+      {},
+      {
+        featureFlags: {
+          ghCliLaneEnabled: false,
+          ghCliCiEnabled: false,
+          ghCliPrCommentEnabled: false,
+        },
       },
-    });
+    );
     expect(allDisabled.github_cli_pr_checks_get).toBeUndefined();
     expect(allDisabled.github_cli_actions_run_get).toBeUndefined();
     expect(allDisabled.github_cli_actions_job_logs_get).toBeUndefined();
     expect(allDisabled.github_cli_pr_comment).toBeUndefined();
 
-    const ciOnly = enforceGoldenFlowToolFloor({}, {
-      featureFlags: {
-        ghCliLaneEnabled: true,
-        ghCliCiEnabled: true,
-        ghCliPrCommentEnabled: false,
+    const ciOnly = enforceGoldenFlowToolFloor(
+      {},
+      {
+        featureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: false,
+        },
       },
-    });
-    expect(ciOnly.github_cli_pr_checks_get).toBeDefined();
-    expect(ciOnly.github_cli_actions_run_get).toBeDefined();
-    expect(ciOnly.github_cli_actions_job_logs_get).toBeDefined();
+    );
+    expect(ciOnly.github_cli_pr_checks_get).toBeUndefined();
+    expect(ciOnly.github_cli_actions_run_get).toBeUndefined();
+    expect(ciOnly.github_cli_actions_job_logs_get).toBeUndefined();
     expect(ciOnly.github_cli_pr_comment).toBeUndefined();
 
-    const missingCiFlag = enforceGoldenFlowToolFloor({}, {
-      featureFlags: {
-        ghCliLaneEnabled: true,
-        ghCliPrCommentEnabled: true,
+    const missingCiFlag = enforceGoldenFlowToolFloor(
+      {},
+      {
+        featureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
       },
-    });
+    );
     expect(missingCiFlag.github_cli_pr_checks_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_run_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_job_logs_get).toBeUndefined();
-    expect(missingCiFlag.github_cli_pr_comment).toBeDefined();
+    expect(missingCiFlag.github_cli_pr_comment).toBeUndefined();
   });
 
   it("validates tool inputs against canonical schemas", () => {
@@ -307,7 +368,9 @@ describe("CodingToolGateway", () => {
 
     const registry = getGoldenFlowToolRegistry();
     expect(registry.git_status?.parameters.safeParse(null).success).toBe(true);
-    expect(registry.git_stage?.parameters.safeParse(undefined).success).toBe(true);
+    expect(registry.git_stage?.parameters.safeParse(undefined).success).toBe(
+      true,
+    );
     expect(registry.list_files?.parameters.safeParse(null).success).toBe(true);
     expect(registry.git_diff?.parameters.safeParse(null).success).toBe(true);
   });
