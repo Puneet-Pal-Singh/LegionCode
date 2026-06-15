@@ -29,12 +29,6 @@ import {
 import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
 
 const GIT_ACTIONS = [
-  "status",
-  "diff",
-  "stage",
-  "unstage",
-  "commit",
-  "push",
   "git_clone",
   "git_diff",
   "git_commit",
@@ -45,10 +39,10 @@ const GIT_ACTIONS = [
   "git_branch_switch",
   "git_branch_list",
   "git_stage",
+  "git_unstage",
   "git_status",
   "git_patch_capture",
   "git_patch_apply",
-  "git_config",
 ] as const;
 
 type GitAction = (typeof GIT_ACTIONS)[number];
@@ -58,7 +52,6 @@ const GitPayloadSchema = z.object({
   runId: z.string().optional(),
   url: z.string().optional(),
   token: z.string().optional(),
-  replaceExisting: z.boolean().optional(),
   message: z.string().optional(),
   authorName: z.string().optional(),
   authorEmail: z.string().optional(),
@@ -74,8 +67,6 @@ const GitPayloadSchema = z.object({
 type GitPayload = z.infer<typeof GitPayloadSchema>;
 
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
-const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
-  /destination path .* already exists and is not an empty directory/i;
 const BRANCH_PATHSPEC_MISSING_PATTERN =
   /pathspec .* did not match any file(?:\(s\))? known to git/i;
 const MISSING_GIT_AUTHOR_ERROR =
@@ -104,7 +95,6 @@ export class GitPlugin implements IPlugin {
       await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 
       switch (parsed.action) {
-        case "status":
         case "git_status":
           return await this.getStatus(sandbox, worktree, toolboxContext, runId);
         case "git_patch_capture":
@@ -123,7 +113,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "diff":
         case "git_diff":
           return await this.getDiff(
             sandbox,
@@ -133,7 +122,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "stage":
         case "git_stage":
           return await this.stageFiles(
             sandbox,
@@ -142,7 +130,7 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "unstage":
+        case "git_unstage":
           return await this.unstageFiles(
             sandbox,
             worktree,
@@ -150,7 +138,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "commit":
         case "git_commit":
           return await this.commit(
             sandbox,
@@ -163,7 +150,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "push":
         case "git_push":
           return await this.push(
             sandbox,
@@ -180,7 +166,6 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.url,
             parsed.token,
-            parsed.replaceExisting,
             toolboxContext,
             runId,
             onLog,
@@ -227,8 +212,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "git_config":
-          return this.validateTokenOnly(parsed.token);
         default:
           return { success: false, error: "Unsupported git action" };
       }
@@ -252,25 +235,11 @@ export class GitPlugin implements IPlugin {
     );
   }
 
-  private validateTokenOnly(token: string | undefined): PluginResult {
-    if (!token || token.trim().length === 0) {
-      return { success: false, error: "Token is required for git_config" };
-    }
-    if (containsIllegalTokenChars(token)) {
-      return { success: false, error: "Invalid token format" };
-    }
-    return {
-      success: true,
-      output: "Token validated for authenticated git actions",
-    };
-  }
-
   private async clone(
     sandbox: Sandbox,
     worktree: string,
     url: string | undefined,
     token: string | undefined,
-    replaceExisting: boolean | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
     onLog?: LogCallback,
@@ -290,38 +259,6 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       runId,
     );
-    if (
-      result.exitCode !== 0 &&
-      replaceExisting === true &&
-      CLONE_DESTINATION_NOT_EMPTY_PATTERN.test(result.stderr)
-    ) {
-      const clearResult = await runSafeCommand(
-        sandbox,
-        withToolboxCommandContext(
-          { command: "rm", args: ["-rf", worktree], runId },
-          toolboxContext,
-          "git.clear_workspace",
-        ),
-        ["rm"],
-      );
-      if (clearResult.exitCode !== 0) {
-        return {
-          success: false,
-          error:
-            clearResult.stderr ||
-            "Failed to clear existing workspace before clone.",
-        };
-      }
-      const retryResult = await this.runCloneCommand(
-        sandbox,
-        authArgs,
-        safeUrl,
-        worktree,
-        toolboxContext,
-        runId,
-      );
-      return buildGitResult(retryResult, "Repository cloned successfully");
-    }
     return buildGitResult(result, "Repository cloned successfully");
   }
 

@@ -77,7 +77,7 @@ const gitDiffRequestContextSchema = gitRequestContextSchema.extend({
 const commitPayloadSchema = z
   .object({
     message: z.string().min(1),
-    files: z.array(z.string().min(1)).optional(),
+    files: z.array(z.string().min(1)),
     authorName: z.string().min(1).optional(),
     authorEmail: z.string().email().optional(),
   })
@@ -106,7 +106,7 @@ const gitBranchRequestContextSchema = gitRequestContextSchema.extend({
 });
 
 const pushPayloadSchema = z.object({
-  branch: z.string().min(1).optional(),
+  branch: z.string().min(1),
   remote: z.string().min(1).optional(),
 });
 

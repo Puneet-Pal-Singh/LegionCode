@@ -98,7 +98,7 @@ TEST: { "command": "npm test src/feature.test.ts" }
   Example: { "type": "test", "description": "Test feature", "input": { "command": "npm test src/feature.test.ts" } }
 
 GIT: { "action": "git_status|git_commit|git_push|git_clone|git_branch_list|etc" }
-  Valid git actions: status, diff, stage, unstage, commit, push, git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_status, git_config
+  Valid git actions: git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_unstage, git_status
   Example: { "type": "git", "description": "Commit changes", "input": { "action": "git_commit", "message": "feat: add feature" } }
 
 REVIEW: No input needed (LLM-only task)

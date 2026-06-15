@@ -34,10 +34,6 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
-import {
-  canRestoreEditArtifacts,
-  EditArtifactRestoreService,
-} from "../services/edit-artifacts/EditArtifactRestoreService";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -53,7 +49,7 @@ const GitCommitRequestBodySchema = z
     runId: z.string().min(1),
     sessionId: z.string().min(1).optional(),
     message: z.string().min(1),
-    files: z.array(z.string().min(1)).optional(),
+    files: z.array(z.string().min(1)),
     authorName: z.string().optional(),
     authorEmail: z.string().optional(),
   })
@@ -78,7 +74,7 @@ const GitCreateBranchRequestBodySchema = z.object({
 const GitPushRequestBodySchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1).optional(),
-  branch: z.string().min(1).optional(),
+  branch: z.string().min(1),
   remote: z.string().min(1).optional(),
 });
 
@@ -97,8 +93,6 @@ type GitBootstrapResult = Awaited<
   ReturnType<WorkspaceBootstrapService["bootstrap"]>
 >;
 const bootstrapRequestsByRun = new Map<string, Promise<GitBootstrapResult>>();
-const statusRestoreAttemptsByRun = new Map<string, number>();
-const STATUS_RESTORE_TTL_MS = 30_000;
 const ERROR_LOG_WINDOW_MS = 30_000;
 const GIT_SESSION_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_ATTEMPTS = 3;
@@ -153,20 +147,7 @@ export class GitController {
       }
 
       const muscleSession = resolveMuscleSessionId(runId);
-      let data = await getCurrentGitStatus(env, muscleSession, runId);
-      if (canRestoreEditArtifacts(env) && shouldAttemptStatusRestore(runId, data)) {
-        const restoreResult = await restoreLatestEditArtifactIfNeeded(
-          req,
-          env,
-          muscleSession,
-          runId,
-          data,
-          "status",
-        );
-        if (restoreResult === "restored") {
-          data = await getCurrentGitStatus(env, muscleSession, runId);
-        }
-      }
+      const data = await getCurrentGitStatus(env, muscleSession, runId);
 
       return corsJsonResponse(req, env, data);
     } catch (error) {
@@ -352,9 +333,7 @@ export class GitController {
         env.GITHUB_TOKEN_ENCRYPTION_KEY,
       );
       const muscleSession = resolveMuscleSessionId(runId);
-      const branch =
-        body.branch?.trim() ||
-        (await getCurrentGitBranch(env, muscleSession, runId));
+      const branch = body.branch.trim();
       const rawPayload = await executeGitViaCanonicalApi(
         env,
         muscleSession,
@@ -368,15 +347,10 @@ export class GitController {
         MUSCLE_GIT_TIMEOUT_MS,
       );
       assertPluginResultSuccess(rawPayload, "push");
-      const resolvedBranch = await getCurrentGitBranch(
-        env,
-        muscleSession,
-        runId,
-      );
 
       return corsJsonResponse(req, env, {
         success: true,
-        branch: resolvedBranch,
+        branch,
         remote,
       } satisfies GitPushMutationResult);
     } catch (error) {
@@ -518,49 +492,9 @@ export class GitController {
         }
       }
 
-      if (result.status === "ready" && canRestoreEditArtifacts(env)) {
-        const currentStatus = await getCurrentGitStatus(
-          env,
-          muscleSession,
-          normalizedRunId,
-        );
-        await restoreLatestEditArtifactIfNeeded(
-          req,
-          env,
-          muscleSession,
-          normalizedRunId,
-          currentStatus,
-          "bootstrap",
-        );
-      }
-
       return corsJsonResponse(req, env, result);
     } catch (error) {
       return handleGitControllerError(req, env, error, "bootstrap");
-    }
-  }
-}
-
-function shouldAttemptStatusRestore(
-  runId: string,
-  status: GitStatusResponse,
-): boolean {
-  if (!status.gitAvailable || status.files.length > 0) {
-    return false;
-  }
-  evictExpiredStatusRestoreAttempts();
-  if (statusRestoreAttemptsByRun.has(runId)) {
-    return false;
-  }
-  statusRestoreAttemptsByRun.set(runId, Date.now());
-  return true;
-}
-
-function evictExpiredStatusRestoreAttempts(): void {
-  const cutoff = Date.now() - STATUS_RESTORE_TTL_MS;
-  for (const [runId, timestamp] of statusRestoreAttemptsByRun) {
-    if (timestamp < cutoff) {
-      statusRestoreAttemptsByRun.delete(runId);
     }
   }
 }
@@ -670,47 +604,6 @@ async function getCurrentGitStatus(
     runId,
   );
   return parseGitPayload<GitStatusResponse>(rawPayload, "status");
-}
-
-async function restoreLatestEditArtifactIfNeeded(
-  request: Request,
-  env: Env,
-  muscleSession: string,
-  runId: string,
-  currentStatus: GitStatusResponse,
-  logScope: "bootstrap" | "status",
-): Promise<"not-needed" | "restored" | "requires-user-resolution"> {
-  try {
-    const authenticatedSession = await getAuthenticatedUserSession(
-      request,
-      env,
-      { warnOnMissingCookie: false },
-    );
-    const restoreService = new EditArtifactRestoreService(env);
-    const result = await restoreService.restoreLatestIfWorkspaceIsEmpty({
-      userId: authenticatedSession?.userId,
-      runId,
-      muscleSession,
-      currentStatus,
-    });
-    if (result === "restored") {
-      logWarnRateLimited(
-        `GitController:${logScope}:artifact-restored:${runId}`,
-        `[GitController:${logScope}] Restored saved edit artifact into workspace`,
-        undefined,
-        ERROR_LOG_WINDOW_MS,
-      );
-    }
-    return result;
-  } catch (error) {
-    logWarnRateLimited(
-      `GitController:${logScope}:artifact-restore-failed:${runId}`,
-      `[GitController:${logScope}] Edit artifact restore did not complete`,
-      { error: sanitizeUnknownError(error) },
-      ERROR_LOG_WINDOW_MS,
-    );
-    return "requires-user-resolution";
-  }
 }
 
 async function executeGitStatusViaCanonicalApiWithRetry(

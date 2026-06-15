@@ -10,7 +10,14 @@ describe("TaskInputContract", () => {
     expect(hasValidTaskInput("analyze", { path: "src/main.ts" })).toBe(true);
     expect(hasValidTaskInput("shell", { command: "pnpm test" })).toBe(true);
     expect(hasValidTaskInput("git", { action: "git_status" })).toBe(true);
+    expect(hasValidTaskInput("git", { action: "git_unstage" })).toBe(true);
     expect(hasValidTaskInput("review", undefined)).toBe(true);
+  });
+
+  it("rejects non-canonical git action aliases", () => {
+    expect(hasValidTaskInput("git", { action: "status" })).toBe(false);
+    expect(hasValidTaskInput("git", { action: "unstage" })).toBe(false);
+    expect(hasValidTaskInput("git", { action: "git_config" })).toBe(false);
   });
 
   it("rejects vague descriptions as executable input", () => {

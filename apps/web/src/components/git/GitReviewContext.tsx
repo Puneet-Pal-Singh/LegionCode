@@ -99,10 +99,11 @@ interface GitReviewContextValue {
   stageAll: () => Promise<boolean>;
   unstageAll: () => Promise<boolean>;
   createBranch: (branch: string) => Promise<string>;
-  pushBranch: (branch?: string) => Promise<string>;
+  pushBranch: (branch: string) => Promise<string>;
   submitCommit: (identityOverride?: {
     authorName?: string;
     authorEmail?: string;
+    files?: string[];
   }) => Promise<boolean>;
   setCommitMessage: (message: string) => void;
   refetch: () => Promise<void>;
@@ -547,11 +548,20 @@ export function GitReviewProvider({
     async (identityOverride?: {
       authorName?: string;
       authorEmail?: string;
+      files?: string[];
     }): Promise<boolean> => {
       setStageError(null);
       const message =
         commitMessage.trim() || generateCommitMessage(status?.files ?? []);
-      const committed = await commit({ message, ...identityOverride });
+      const { files: explicitFiles, ...authorOverride } =
+        identityOverride ?? {};
+      const files = explicitFiles ?? Array.from(stagedFiles);
+      if (files.length === 0) {
+        setStageError("Select at least one staged file before committing.");
+        return false;
+      }
+
+      const committed = await commit({ message, files, ...authorOverride });
       if (!committed) {
         return false;
       }
@@ -561,7 +571,7 @@ export function GitReviewProvider({
       await refetch(true);
       return true;
     },
-    [commit, commitMessage, refetch, status?.files],
+    [commit, commitMessage, refetch, stagedFiles, status?.files],
   );
 
   const createBranchForRun = useCallback(
@@ -584,7 +594,7 @@ export function GitReviewProvider({
   );
 
   const pushBranchForRun = useCallback(
-    async (branch?: string): Promise<string> => {
+    async (branch: string): Promise<string> => {
       if (!runId || !sessionId) {
         throw new Error(
           !runId ? "No run context available" : "No session context available",
