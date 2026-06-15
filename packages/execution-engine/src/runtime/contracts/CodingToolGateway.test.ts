@@ -173,7 +173,6 @@ describe("CodingToolGateway", () => {
   it("projects the golden-flow registry into a runtime capability manifest", () => {
     const manifest = getGoldenFlowRunCapabilityManifest({
       runId: "run-1",
-      sessionId: "session-1",
       availableToolIds: ["read_file", "bash", "git_status"],
     });
 
@@ -198,7 +197,6 @@ describe("CodingToolGateway", () => {
   it("builds a prompt-facing tool catalog snapshot from the manifest", () => {
     const snapshot = getGoldenFlowToolCatalogSnapshot({
       runId: "run-1",
-      sessionId: "session-1",
       availableToolIds: ["read_file", "grep"],
     });
 
@@ -278,7 +276,7 @@ describe("CodingToolGateway", () => {
     );
 
     expect(filtered.read_file?.description).toBe("custom read");
-    expect(Object.keys(filtered)).toEqual(getGoldenFlowToolNames());
+    expect(Object.keys(filtered)).toEqual(["read_file"]);
     expect("web_search" in filtered).toBe(false);
   });
 
@@ -308,9 +306,9 @@ describe("CodingToolGateway", () => {
         },
       },
     );
-    expect(ciOnly.github_cli_pr_checks_get).toBeDefined();
-    expect(ciOnly.github_cli_actions_run_get).toBeDefined();
-    expect(ciOnly.github_cli_actions_job_logs_get).toBeDefined();
+    expect(ciOnly.github_cli_pr_checks_get).toBeUndefined();
+    expect(ciOnly.github_cli_actions_run_get).toBeUndefined();
+    expect(ciOnly.github_cli_actions_job_logs_get).toBeUndefined();
     expect(ciOnly.github_cli_pr_comment).toBeUndefined();
 
     const missingCiFlag = enforceGoldenFlowToolFloor(
@@ -325,7 +323,7 @@ describe("CodingToolGateway", () => {
     expect(missingCiFlag.github_cli_pr_checks_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_run_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_job_logs_get).toBeUndefined();
-    expect(missingCiFlag.github_cli_pr_comment).toBeDefined();
+    expect(missingCiFlag.github_cli_pr_comment).toBeUndefined();
   });
 
   it("validates tool inputs against canonical schemas", () => {

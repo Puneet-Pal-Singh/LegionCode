@@ -21,7 +21,10 @@ import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
-import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
+import {
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolRegistry,
+} from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
   RunStatus,
@@ -456,7 +459,10 @@ export class RunEngine implements IRunEngine {
           run,
           effectiveInput,
           messages,
-          enforceGoldenFlowToolFloor(tools, effectiveInput.metadata),
+          enforceGoldenFlowToolFloor(
+            { ...getGoldenFlowToolRegistry(), ...tools },
+            effectiveInput.metadata,
+          ),
           finalSummaryContractEnabled,
         );
       }

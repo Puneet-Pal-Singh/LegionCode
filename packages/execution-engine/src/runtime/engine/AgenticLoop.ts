@@ -200,7 +200,6 @@ export class AgenticLoop {
       latestTurnRequestsCiLogs(initialMessages);
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: this.config.runId,
-      sessionId: this.config.sessionId,
       availableToolIds: Object.keys(tools),
       providerId: context.providerId,
       modelId: context.runtimeModelId ?? context.modelId,

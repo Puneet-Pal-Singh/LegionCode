@@ -159,7 +159,6 @@ export type ExecutionLocation = z.infer<typeof ExecutionLocationSchema>;
 export const RunCapabilityManifestSchema = z
   .object({
     runId: z.string().min(1),
-    sessionId: z.string().min(1),
     executionLocation: ExecutionLocationSchema,
     backendId: z.string().min(1),
     workspaceRoot: z.string().min(1),
@@ -171,7 +170,7 @@ export const RunCapabilityManifestSchema = z
     networkPolicy: NetworkPolicySnapshotSchema,
     gitPolicy: GitPolicySnapshotSchema,
     approvalPolicy: ApprovalPolicySnapshotSchema,
-    modelToolProfile: ModelToolProfileSchema,
+    modelToolProfile: ModelToolProfileSchema.nullable(),
     costBudget: CostBudgetSnapshotSchema,
     runtimeLimits: RuntimeLimitSnapshotSchema,
   })
@@ -180,38 +179,35 @@ export type RunCapabilityManifest = z.infer<typeof RunCapabilityManifestSchema>;
 
 export interface RunCapabilityManifestInput {
   runId: string;
-  sessionId: string;
   backendId?: string;
   workspaceRoot?: string;
   artifactRoot?: string;
   availableToolIds?: readonly string[];
-  toolDefinitions?: readonly ToolDefinition[];
   providerId?: string;
   modelId?: string;
 }
-
-const DEFAULT_WORKSPACE_ROOT = "/home/sandbox/runs/{runId}";
-const DEFAULT_ARTIFACT_ROOT = "/home/sandbox/runs/{runId}/artifacts";
 
 export function createCloudSandboxRunCapabilityManifest(
   input: RunCapabilityManifestInput,
 ): RunCapabilityManifest {
   const availableTools = buildToolCapabilities(input);
+  const workspaceRoot =
+    input.workspaceRoot ?? `/home/sandbox/runs/${input.runId}`;
+  const artifactRoot = input.artifactRoot ?? `${workspaceRoot}/artifacts`;
   const manifest: RunCapabilityManifest = {
     runId: input.runId,
-    sessionId: input.sessionId,
     executionLocation: "cloud_sandbox",
     backendId: input.backendId ?? "cloud_sandbox_free",
-    workspaceRoot: input.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT,
-    artifactRoot: input.artifactRoot ?? DEFAULT_ARTIFACT_ROOT,
+    workspaceRoot,
+    artifactRoot,
     availableTools,
     unavailableCapabilities: buildCloudSandboxUnavailableCapabilities(),
-    filesystemPolicy: buildFilesystemPolicy(input),
+    filesystemPolicy: buildFilesystemPolicy(workspaceRoot, artifactRoot),
     commandPolicy: buildCommandPolicy(availableTools),
     networkPolicy: buildNetworkPolicy(availableTools),
     gitPolicy: buildGitPolicy(availableTools),
     approvalPolicy: buildApprovalPolicy(availableTools),
-    modelToolProfile: createDefaultModelToolProfile(input),
+    modelToolProfile: createModelToolProfileIfConfigured(input),
     costBudget: { runBudgetUsd: null, sessionBudgetUsd: null },
     runtimeLimits: buildRuntimeLimits(),
   };
@@ -219,11 +215,11 @@ export function createCloudSandboxRunCapabilityManifest(
 }
 
 export function createDefaultModelToolProfile(
-  input: Pick<RunCapabilityManifestInput, "providerId" | "modelId"> = {},
+  input: Required<Pick<RunCapabilityManifestInput, "providerId" | "modelId">>,
 ): ModelToolProfile {
   return {
-    providerId: input.providerId ?? "unknown",
-    modelId: input.modelId ?? "unknown",
+    providerId: input.providerId,
+    modelId: input.modelId,
     schemaReliability: "medium",
     toolSelectionReliability: "medium",
     correctionReliability: "medium",
@@ -234,10 +230,22 @@ export function createDefaultModelToolProfile(
   };
 }
 
+function createModelToolProfileIfConfigured(
+  input: RunCapabilityManifestInput,
+): ModelToolProfile | null {
+  if (!input.providerId || !input.modelId) {
+    return null;
+  }
+  return createDefaultModelToolProfile({
+    providerId: input.providerId,
+    modelId: input.modelId,
+  });
+}
+
 function buildToolCapabilities(
   input: RunCapabilityManifestInput,
 ): ToolCapability[] {
-  const definitions = input.toolDefinitions ?? getCodingToolDefinitions();
+  const definitions = getCodingToolDefinitions();
   const allowedIds = input.availableToolIds
     ? new Set(input.availableToolIds)
     : null;
@@ -277,11 +285,12 @@ function normalizeSandboxClass(
 }
 
 function buildFilesystemPolicy(
-  input: RunCapabilityManifestInput,
+  workspaceRoot: string,
+  artifactRoot: string,
 ): FilesystemPolicySnapshot {
   return {
-    workspaceRoot: input.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT,
-    artifactRoot: input.artifactRoot ?? DEFAULT_ARTIFACT_ROOT,
+    workspaceRoot,
+    artifactRoot,
     writable: true,
     pathTraversalDenied: true,
   };

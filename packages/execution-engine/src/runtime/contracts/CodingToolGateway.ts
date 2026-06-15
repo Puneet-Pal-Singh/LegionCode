@@ -119,16 +119,13 @@ export function getGoldenFlowToolRegistry(): Record<string, CoreTool> {
 }
 
 export function getGoldenFlowRunCapabilityManifest(
-  input: RunCapabilityManifestInput,
+  input: RunCapabilityManifestInput & { availableToolIds: readonly string[] },
 ): RunCapabilityManifest {
-  return createCloudSandboxRunCapabilityManifest({
-    ...input,
-    availableToolIds: input.availableToolIds ?? CODING_TOOL_IDS,
-  });
+  return createCloudSandboxRunCapabilityManifest(input);
 }
 
 export function getGoldenFlowToolCatalogSnapshot(
-  input: RunCapabilityManifestInput,
+  input: RunCapabilityManifestInput & { availableToolIds: readonly string[] },
 ): ToolCatalogSnapshot {
   return buildToolCatalogSnapshot(getGoldenFlowRunCapabilityManifest(input));
 }
@@ -137,7 +134,6 @@ export function enforceGoldenFlowToolFloor(
   incomingTools: Record<string, CoreTool>,
   metadata?: Record<string, unknown>,
 ): Record<string, CoreTool> {
-  const defaults = getGoldenFlowToolRegistry();
   const constrained: Record<string, CoreTool> = {};
   const githubCliFlags = resolveGitHubCliFlags(metadata);
   for (const toolName of CODING_TOOL_IDS) {
@@ -145,9 +141,8 @@ export function enforceGoldenFlowToolFloor(
       continue;
     }
     const incoming = incomingTools[toolName];
-    const fallback = defaults[toolName];
-    if (fallback) {
-      constrained[toolName] = incoming ?? fallback;
+    if (incoming) {
+      constrained[toolName] = incoming;
     }
   }
   return constrained;
