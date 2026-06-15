@@ -1,6 +1,7 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import {
   DefaultGitService,
+  GitServiceError,
   type GitStatusEntry,
   type GitStatusResult,
 } from "@repo/git-service";
@@ -28,12 +29,6 @@ import {
 import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
 
 const GIT_ACTIONS = [
-  "status",
-  "diff",
-  "stage",
-  "unstage",
-  "commit",
-  "push",
   "git_clone",
   "git_diff",
   "git_commit",
@@ -44,10 +39,10 @@ const GIT_ACTIONS = [
   "git_branch_switch",
   "git_branch_list",
   "git_stage",
+  "git_unstage",
   "git_status",
   "git_patch_capture",
   "git_patch_apply",
-  "git_config",
 ] as const;
 
 type GitAction = (typeof GIT_ACTIONS)[number];
@@ -57,7 +52,6 @@ const GitPayloadSchema = z.object({
   runId: z.string().optional(),
   url: z.string().optional(),
   token: z.string().optional(),
-  replaceExisting: z.boolean().optional(),
   message: z.string().optional(),
   authorName: z.string().optional(),
   authorEmail: z.string().optional(),
@@ -73,14 +67,10 @@ const GitPayloadSchema = z.object({
 type GitPayload = z.infer<typeof GitPayloadSchema>;
 
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
-const CLONE_DESTINATION_NOT_EMPTY_PATTERN =
-  /destination path .* already exists and is not an empty directory/i;
 const BRANCH_PATHSPEC_MISSING_PATTERN =
   /pathspec .* did not match any file(?:\(s\))? known to git/i;
 const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
-const WRITE_GIT_AUTHOR_ERROR =
-  "Git commit author could not be written to this workspace before committing.";
 const PATCH_WORK_DIR = ".shadowbox";
 
 type CommitIdentityResolutionResult =
@@ -105,7 +95,6 @@ export class GitPlugin implements IPlugin {
       await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 
       switch (parsed.action) {
-        case "status":
         case "git_status":
           return await this.getStatus(sandbox, worktree, toolboxContext, runId);
         case "git_patch_capture":
@@ -124,7 +113,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "diff":
         case "git_diff":
           return await this.getDiff(
             sandbox,
@@ -134,7 +122,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "stage":
         case "git_stage":
           return await this.stageFiles(
             sandbox,
@@ -143,7 +130,7 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "unstage":
+        case "git_unstage":
           return await this.unstageFiles(
             sandbox,
             worktree,
@@ -151,7 +138,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "commit":
         case "git_commit":
           return await this.commit(
             sandbox,
@@ -164,7 +150,6 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "push":
         case "git_push":
           return await this.push(
             sandbox,
@@ -181,7 +166,6 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.url,
             parsed.token,
-            parsed.replaceExisting,
             toolboxContext,
             runId,
             onLog,
@@ -228,15 +212,11 @@ export class GitPlugin implements IPlugin {
             toolboxContext,
             runId,
           );
-        case "git_config":
-          return this.validateTokenOnly(parsed.token);
         default:
           return { success: false, error: "Unsupported git action" };
       }
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Git operation failed";
-      return { success: false, error: message };
+      return { success: false, error: getGitServiceErrorMessage(error) };
     }
   }
 
@@ -255,25 +235,11 @@ export class GitPlugin implements IPlugin {
     );
   }
 
-  private validateTokenOnly(token: string | undefined): PluginResult {
-    if (!token || token.trim().length === 0) {
-      return { success: false, error: "Token is required for git_config" };
-    }
-    if (containsIllegalTokenChars(token)) {
-      return { success: false, error: "Invalid token format" };
-    }
-    return {
-      success: true,
-      output: "Token validated for authenticated git actions",
-    };
-  }
-
   private async clone(
     sandbox: Sandbox,
     worktree: string,
     url: string | undefined,
     token: string | undefined,
-    replaceExisting: boolean | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
     onLog?: LogCallback,
@@ -293,38 +259,6 @@ export class GitPlugin implements IPlugin {
       toolboxContext,
       runId,
     );
-    if (
-      result.exitCode !== 0 &&
-      replaceExisting === true &&
-      CLONE_DESTINATION_NOT_EMPTY_PATTERN.test(result.stderr)
-    ) {
-      const clearResult = await runSafeCommand(
-        sandbox,
-        withToolboxCommandContext(
-          { command: "rm", args: ["-rf", worktree], runId },
-          toolboxContext,
-          "git.clear_workspace",
-        ),
-        ["rm"],
-      );
-      if (clearResult.exitCode !== 0) {
-        return {
-          success: false,
-          error:
-            clearResult.stderr ||
-            "Failed to clear existing workspace before clone.",
-        };
-      }
-      const retryResult = await this.runCloneCommand(
-        sandbox,
-        authArgs,
-        safeUrl,
-        worktree,
-        toolboxContext,
-        runId,
-      );
-      return buildGitResult(retryResult, "Repository cloned successfully");
-    }
     return buildGitResult(result, "Repository cloned successfully");
   }
 
@@ -359,8 +293,10 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const gitService = new DefaultGitService(
-      new SandboxGitCommandExecutor(sandbox, toolboxContext, "git.status"),
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.status",
     );
     const statusResult = await gitService.getStatus({
       runId,
@@ -402,6 +338,16 @@ export class GitPlugin implements IPlugin {
     }
 
     return { success: true, output: JSON.stringify(parsed) };
+  }
+
+  private createGitService(
+    sandbox: Sandbox,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    operation: string,
+  ): DefaultGitService {
+    return new DefaultGitService(
+      new SandboxGitCommandExecutor(sandbox, toolboxContext, operation),
+    );
   }
 
   private buildStatusResponse(
@@ -627,36 +573,21 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const args = [
-      "-C",
-      worktree,
-      "diff",
-      "--no-ext-diff",
-      "--find-renames",
-      "--unified=999999",
-    ];
-    if (staged) {
-      args.push("--cached");
-    }
     const safeFilePath = filePath
       ? validateRepoRelativePath(filePath)
       : undefined;
-    if (filePath) {
-      args.push("--", safeFilePath ?? filePath);
-    }
-
-    const diffResult = await this.runToolboxCommand(
+    const gitService = this.createGitService(
       sandbox,
-      { command: "git", args, runId },
-      ["git"],
       toolboxContext,
       "git.diff",
     );
-    if (diffResult.exitCode !== 0) {
-      return { success: false, error: diffResult.stderr };
-    }
+    const diffResult = await gitService.getDiff({
+      workspace: { runId, filesystemRoot: worktree },
+      paths: safeFilePath ? [safeFilePath] : [],
+      staged: staged === true,
+    });
 
-    if (safeFilePath && !staged && diffResult.stdout.trim().length === 0) {
+    if (safeFilePath && !staged && diffResult.patch.trim().length === 0) {
       const untrackedDiff = await this.getUntrackedFileDiff(
         sandbox,
         worktree,
@@ -669,7 +600,7 @@ export class GitPlugin implements IPlugin {
       }
     }
 
-    const parsedDiff = this.parseDiff(diffResult.stdout, filePath);
+    const parsedDiff = this.parseDiff(diffResult.patch, filePath);
     return { success: true, output: JSON.stringify(parsedDiff) };
   }
 
@@ -1287,20 +1218,17 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const safeFiles = normalizeFileList(files);
-    const result = await this.runToolboxCommand(
+    const safeFiles = normalizeExplicitFileList(files);
+    const gitService = this.createGitService(
       sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "add", "--", ...safeFiles],
-        runId,
-      },
-      ["git"],
       toolboxContext,
       "git.stage",
     );
-
-    return buildGitResult(result, "Files staged");
+    await gitService.stageFiles({
+      workspace: { runId, filesystemRoot: worktree },
+      paths: safeFiles,
+    });
+    return { success: true, output: "Files staged" };
   }
 
   private async unstageFiles(
@@ -1310,20 +1238,17 @@ export class GitPlugin implements IPlugin {
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const safeFiles = normalizeFileList(files);
-    const result = await this.runToolboxCommand(
+    const safeFiles = normalizeExplicitFileList(files);
+    const gitService = this.createGitService(
       sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "reset", "HEAD", "--", ...safeFiles],
-        runId,
-      },
-      ["git"],
       toolboxContext,
       "git.unstage",
     );
-
-    return buildGitResult(result, "Files unstaged");
+    await gitService.unstageFiles({
+      workspace: { runId, filesystemRoot: worktree },
+      paths: safeFiles,
+    });
+    return { success: true, output: "Files unstaged" };
   }
 
   private async commit(
@@ -1346,19 +1271,7 @@ export class GitPlugin implements IPlugin {
         error: "Commit message contains invalid characters",
       };
     }
-
-    if (files && files.length > 0) {
-      const stageResult = await this.stageFiles(
-        sandbox,
-        worktree,
-        files,
-        toolboxContext,
-        runId,
-      );
-      if (!stageResult.success) {
-        return stageResult;
-      }
-    }
+    const safeFiles = normalizeExplicitFileList(files);
 
     const commitIdentityResult = await this.ensureCommitIdentity(
       sandbox,
@@ -1376,19 +1289,36 @@ export class GitPlugin implements IPlugin {
       };
     }
 
-    const result = await this.runToolboxCommand(
+    const gitService = this.createGitService(
       sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "commit", "-m", message],
-        runId,
-      },
-      ["git"],
       toolboxContext,
       "git.commit",
     );
+    const result = await gitService.commit({
+      workspace: { runId, filesystemRoot: worktree },
+      paths: safeFiles,
+      message,
+      author: {
+        name: commitIdentityResult.identity.authorName,
+        email: commitIdentityResult.identity.authorEmail,
+      },
+    });
 
-    return buildGitCommitResult(result, commitIdentityResult.identity);
+    return {
+      success: true,
+      output: {
+        content: "Changes committed",
+        commitIdentity: {
+          source: commitIdentityResult.identity.source,
+          verified: commitIdentityResult.identity.verified,
+        },
+      },
+      metadata: {
+        commitSha: result.commitSha,
+        branchName: result.branchName,
+        commitIdentity: commitIdentityResult.identity,
+      },
+    };
   }
 
   private async ensureCommitIdentity(
@@ -1437,58 +1367,6 @@ export class GitPlugin implements IPlugin {
       return {
         success: false,
         error: MISSING_GIT_AUTHOR_ERROR,
-      };
-    }
-
-    if (
-      existingIdentity &&
-      existingIdentity.authorName === preferredIdentity.authorName &&
-      existingIdentity.authorEmail === preferredIdentity.authorEmail
-    ) {
-      return {
-        success: true,
-        identity: preferredIdentity,
-      };
-    }
-
-    const writeNameResult = await this.writeGitConfigValue(
-      sandbox,
-      worktree,
-      "user.name",
-      preferredIdentity.authorName,
-      toolboxContext,
-      runId,
-      "git.commit_author_name.write",
-    );
-    if (!writeNameResult.success) {
-      return {
-        success: false,
-        error: WRITE_GIT_AUTHOR_ERROR,
-      };
-    }
-
-    const writeEmailResult = await this.writeGitConfigValue(
-      sandbox,
-      worktree,
-      "user.email",
-      preferredIdentity.authorEmail,
-      toolboxContext,
-      runId,
-      "git.commit_author_email.write",
-    );
-    if (!writeEmailResult.success) {
-      await this.restoreGitConfigValue(
-        sandbox,
-        worktree,
-        "user.name",
-        existingAuthorName,
-        toolboxContext,
-        runId,
-        "git.commit_author_name.rollback",
-      );
-      return {
-        success: false,
-        error: WRITE_GIT_AUTHOR_ERROR,
       };
     }
 
@@ -1610,71 +1488,6 @@ export class GitPlugin implements IPlugin {
     return result.stdout.trim();
   }
 
-  private async writeGitConfigValue(
-    sandbox: Sandbox,
-    worktree: string,
-    key: "user.name" | "user.email",
-    value: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-    toolName: string,
-  ): Promise<PluginResult> {
-    const result = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "config", key, value],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      toolName,
-    );
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    return {
-      success: false,
-      error: WRITE_GIT_AUTHOR_ERROR,
-    };
-  }
-
-  private async restoreGitConfigValue(
-    sandbox: Sandbox,
-    worktree: string,
-    key: "user.name" | "user.email",
-    previousValue: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-    toolName: string,
-  ): Promise<void> {
-    if (previousValue.length > 0) {
-      await this.writeGitConfigValue(
-        sandbox,
-        worktree,
-        key,
-        previousValue,
-        toolboxContext,
-        runId,
-        toolName,
-      );
-      return;
-    }
-
-    await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "config", "--unset", key],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      toolName,
-    );
-  }
-
   private async push(
     sandbox: Sandbox,
     worktree: string,
@@ -1685,41 +1498,43 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
-    const safeBranch =
-      branch && branch.trim().length > 0
-        ? sanitizeRef(branch, "branch")
-        : undefined;
-    const authArgs = this.buildGitAuthArgs(token);
-    const args = [...authArgs, "-C", worktree, "push"];
-
-    if (safeBranch) {
-      args.push("-u");
-      args.push(safeRemote);
-      args.push(`HEAD:${safeBranch}`);
-    } else {
-      args.push(safeRemote);
+    if (!branch || branch.trim().length === 0) {
+      return {
+        success: false,
+        error: "Working branch is required for git_push",
+      };
     }
-
-    const result = await this.runToolboxCommand(
+    const safeBranch = sanitizeRef(branch, "branch");
+    const authArgs = this.buildGitAuthArgs(token);
+    const gitService = this.createGitService(
       sandbox,
-      { command: "git", args, runId },
-      ["git"],
       toolboxContext,
       "git.push",
     );
-
-    if (result.exitCode === 0) {
-      return buildGitResult(result, "Changes pushed");
-    }
-
-    if (isNonFastForwardGitPushError(result.stderr)) {
+    try {
+      await gitService.push({
+        workspace: {
+          runId,
+          filesystemRoot: worktree,
+          workingBranch: safeBranch,
+        },
+        remoteName: safeRemote,
+        authArgs,
+      });
+      return { success: true, output: "Changes pushed" };
+    } catch (error) {
+      const message = getGitServiceErrorMessage(error);
+      if (isNonFastForwardGitPushError(message)) {
+        return {
+          success: false,
+          error: buildNonFastForwardPushError(safeRemote, safeBranch),
+        };
+      }
       return {
         success: false,
-        error: buildNonFastForwardPushError(safeRemote, safeBranch),
+        error: message,
       };
     }
-
-    return buildGitResult(result, "Changes pushed");
   }
 
   private async pull(
@@ -1986,9 +1801,9 @@ function createUntrackedFileDiff(
   };
 }
 
-function normalizeFileList(files: string[] | undefined): string[] {
+function normalizeExplicitFileList(files: string[] | undefined): string[] {
   if (!files || files.length === 0) {
-    return ["."];
+    throw new Error("Explicit file paths are required for this git operation");
   }
   return files.map((file) => validateRepoRelativePath(file));
 }
@@ -2152,10 +1967,9 @@ function validatePatchPayload(
 
 function buildNonFastForwardPushError(
   remote: string,
-  branch: string | undefined,
+  branch: string,
 ): string {
-  const branchLabel = branch ?? "current branch";
-  return `Push failed because ${remote}/${branchLabel} already has newer commits. Your file changes are already committed locally. Sync the branch with git pull --ff-only and retry the push. If the branch cannot be fast-forwarded, resolve the branch conflict manually before retrying.`;
+  return `Push failed because ${remote}/${branch} already has newer commits. Your file changes are already committed locally. Sync the branch with git pull --ff-only and retry the push. If the branch cannot be fast-forwarded, resolve the branch conflict manually before retrying.`;
 }
 
 function buildGitResult(
@@ -2165,27 +1979,6 @@ function buildGitResult(
   return {
     success: result.exitCode === 0,
     output: result.exitCode === 0 ? successMessage : undefined,
-    error:
-      result.exitCode === 0 ? undefined : buildGitCommandFailureMessage(result),
-  };
-}
-
-function buildGitCommitResult(
-  result: { exitCode: number; stdout: string; stderr: string },
-  identity: GitCommitIdentity,
-): PluginResult {
-  return {
-    success: result.exitCode === 0,
-    output:
-      result.exitCode === 0
-        ? {
-            content: "Changes committed",
-            commitIdentity: {
-              source: identity.source,
-              verified: identity.verified,
-            },
-          }
-        : undefined,
     error:
       result.exitCode === 0 ? undefined : buildGitCommandFailureMessage(result),
   };
@@ -2206,6 +1999,17 @@ function buildGitCommandFailureMessage(result: {
   }
 
   return "Git command failed.";
+}
+
+function getGitServiceErrorMessage(error: unknown): string {
+  if (error instanceof GitServiceError) {
+    const stderr = error.context.stderr;
+    if (typeof stderr === "string" && stderr.trim().length > 0) {
+      return stderr.trim();
+    }
+    return error.message;
+  }
+  return error instanceof Error ? error.message : "Git operation failed";
 }
 
 function readStringValue(value: unknown): string | null {

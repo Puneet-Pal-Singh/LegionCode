@@ -96,7 +96,7 @@ export interface GitMutationErrorResponse {
 
 export interface CommitPayload {
   message: string;
-  files?: string[];
+  files: string[];
   authorName?: string;
   authorEmail?: string;
 }
@@ -111,7 +111,7 @@ export interface GitBranchMutationResult {
 }
 
 export interface PushPayload {
-  branch?: string;
+  branch: string;
   remote?: string;
 }
 

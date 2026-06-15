@@ -31,18 +31,12 @@ describe('Plugin: Security Hardening', { skip: !API_AVAILABLE }, () => {
 
   it('validates git token format for auth path', async () => {
     const invalid = await sendCommand(sessionId, 'git', {
-      action: 'git_config',
+      action: 'git_push',
       runId: sessionId,
+      branch: 'main',
       token: 'bad\ntoken',
     });
     assert.strictEqual(invalid.success, false);
     assert.match(invalid.error, /Invalid token format/i);
-
-    const valid = await sendCommand(sessionId, 'git', {
-      action: 'git_config',
-      runId: sessionId,
-      token: 'ghp_validToken123',
-    });
-    assert.strictEqual(valid.success, true);
   });
 });

@@ -69,7 +69,7 @@ describe("git-client", () => {
       commitGitChanges({
         runId: "run-123",
         sessionId: "session-123",
-        payload: { message: "feat: test" },
+        payload: { message: "feat: test", files: ["src/main.ts"] },
       }),
     ).rejects.toThrow("Not Found");
   });
@@ -150,7 +150,17 @@ describe("git-client", () => {
       commitGitChanges({
         runId: "",
         sessionId: "session-123",
-        payload: { message: "feat: test" },
+        payload: { message: "feat: test", files: ["src/main.ts"] },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("validates commit files before posting", async () => {
+    await expect(
+      commitGitChanges({
+        runId: "run-123",
+        sessionId: "session-123",
+        payload: { message: "feat: test", files: [] },
       }),
     ).rejects.toThrow();
   });
