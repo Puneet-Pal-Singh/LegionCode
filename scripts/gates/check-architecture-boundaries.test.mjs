@@ -57,6 +57,11 @@ async function createFixture(context) {
     "event-store": { "@repo/platform-protocol": "workspace:*" },
     "git-service": { "@repo/platform-protocol": "workspace:*" },
     "permission-policy": { "@repo/platform-protocol": "workspace:*" },
+    persistence: {
+      "@repo/event-store": "workspace:*",
+      "@repo/platform-protocol": "workspace:*",
+      "@repo/shared-types": "workspace:*",
+    },
     "platform-client-sdk": {
       "@repo/platform-protocol": "workspace:*",
       "@repo/provider-core": "workspace:*",
@@ -73,7 +78,6 @@ async function createFixture(context) {
   })) {
     await writeManifest(fixtureRoot, "packages", name, `@repo/${name}`, dependencies);
   }
-  await writeManifest(fixtureRoot, "packages", "persistence", "@repo/persistence", {});
   await writeSource(fixtureRoot, "packages/event-store/src/types.ts", "export interface EventStore {}");
   await writeSource(fixtureRoot, "packages/git-service/src/types.ts", "export interface GitService {}");
   await writeSource(fixtureRoot, "packages/runtime-kernel/src/RuntimeKernel.ts", "export class RuntimeKernel {}");

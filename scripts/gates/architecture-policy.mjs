@@ -2,6 +2,12 @@ export const PACKAGE_DEPENDENCY_POLICY = {
   "@repo/event-store": ["@repo/platform-protocol"],
   "@repo/git-service": ["@repo/platform-protocol"],
   "@repo/permission-policy": ["@repo/platform-protocol"],
+  "@repo/persistence": [
+    "@repo/event-store",
+    "@repo/platform-protocol",
+    "@repo/shared-types",
+    "@repo/workspace-core",
+  ],
   "@repo/platform-client-sdk": [
     "@repo/platform-protocol",
     "@repo/provider-core",
