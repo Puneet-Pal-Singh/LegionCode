@@ -325,7 +325,7 @@ function buildTurnRows(
 
     if (item.kind === ACTIVITY_PART_KINDS.REASONING) {
       const reasoningRow = createNonToolRow(item);
-      if (isThinkingReasoningRow(reasoningRow)) {
+      if (isTrailingThinkingIndicatorRow(reasoningRow)) {
         // "Thinking" is only a live trailing state indicator. Once commentary
         // or concrete work happens after it, we drop it from transcript history.
         trailingThinkingRow = reasoningRow;
@@ -373,7 +373,12 @@ function shouldRenderTrailingThinkingRow(
   row: ActivityReasoningRowViewModel | null,
   isActiveTurn: boolean,
 ): row is ActivityReasoningRowViewModel {
-  return Boolean(row && isActiveTurn && row.status === "active");
+  return Boolean(
+    row &&
+      isTrailingThinkingIndicatorRow(row) &&
+      isActiveTurn &&
+      row.status === "active",
+  );
 }
 
 function finalizeTurnRows(
@@ -464,6 +469,12 @@ function isThinkingReasoningRow(
   row: ActivityFeedRowViewModel | undefined,
 ): row is ActivityReasoningRowViewModel {
   return row?.kind === "reasoning" && row.label === "Thinking";
+}
+
+function isTrailingThinkingIndicatorRow(
+  row: ActivityFeedRowViewModel | undefined,
+): row is ActivityReasoningRowViewModel {
+  return isThinkingReasoningRow(row) && row.summary === "";
 }
 
 function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {

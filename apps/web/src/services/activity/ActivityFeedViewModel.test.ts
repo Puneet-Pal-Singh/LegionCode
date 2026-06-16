@@ -388,6 +388,71 @@ describe("ActivityFeedViewModel", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps meaningful active thinking summaries visible during later work", () => {
+    const viewModel = buildActivityFeedViewModel({
+      runId: "run-active-thinking-summary",
+      sessionId: "session-active-thinking-summary",
+      status: "RUNNING",
+      items: [
+        {
+          id: "text-user",
+          runId: "run-active-thinking-summary",
+          sessionId: "session-active-thinking-summary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TEXT,
+          createdAt: "2026-03-24T10:00:00.000Z",
+          updatedAt: "2026-03-24T10:00:00.000Z",
+          source: "brain",
+          role: "user",
+          content: "inspect the architecture",
+        },
+        {
+          id: "thinking-meaningful",
+          runId: "run-active-thinking-summary",
+          sessionId: "session-active-thinking-summary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.REASONING,
+          createdAt: "2026-03-24T10:00:01.000Z",
+          updatedAt: "2026-03-24T10:00:01.000Z",
+          source: "brain",
+          label: "Thinking",
+          summary: "Thinking about architecture",
+          phase: "execution",
+          status: "active",
+        },
+        {
+          id: "tool-read",
+          runId: "run-active-thinking-summary",
+          sessionId: "session-active-thinking-summary",
+          turnId: "turn-1",
+          kind: ACTIVITY_PART_KINDS.TOOL,
+          createdAt: "2026-03-24T10:00:02.000Z",
+          updatedAt: "2026-03-24T10:00:02.000Z",
+          source: "brain",
+          toolId: "tool-read",
+          toolName: "read_file",
+          status: "completed",
+          metadata: {
+            family: TOOL_ACTIVITY_FAMILIES.READ,
+            count: 1,
+            truncated: false,
+            preview: "architecture",
+            loadedPaths: ["./AGENTS.md"],
+            path: "./AGENTS.md",
+          },
+        },
+      ],
+    });
+
+    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
+      kind: "reasoning",
+      label: "Thinking",
+      summary: "Thinking about architecture",
+      status: "active",
+    });
+    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("tool");
+  });
+
   it("removes completed thinking rows even when they contain a summary", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-completed-thinking-summary",
