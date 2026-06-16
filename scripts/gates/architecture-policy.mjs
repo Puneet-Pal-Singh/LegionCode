@@ -26,6 +26,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
     "@repo/persistence",
+    "@repo/provider-core",
     "@repo/runtime-kernel",
     "@repo/shared-types",
   ],
@@ -38,6 +39,11 @@ export const APP_IMPORT_POLICY = {
 };
 
 export const CANONICAL_AUTHORITIES = [
+  {
+    symbol: "ProviderRegistry",
+    owner: "packages/provider-core/src/registry.ts",
+    declaration: /\bclass\s+ProviderRegistry\s*\{/,
+  },
   {
     symbol: "EventStore",
     owner: "packages/event-store/src/types.ts",

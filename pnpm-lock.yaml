@@ -42,6 +42,9 @@ importers:
       '@repo/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@repo/provider-core':
+        specifier: workspace:*
+        version: link:../../packages/provider-core
       '@shadowbox/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
@@ -734,6 +737,9 @@ importers:
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      zod:
+        specifier: ^3.25.1
+        version: 3.25.1
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
