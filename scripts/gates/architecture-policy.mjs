@@ -39,23 +39,32 @@ export const APP_IMPORT_POLICY = {
 
 export const CANONICAL_AUTHORITIES = [
   {
+    symbol: "CodingToolRegistry",
+    owner: "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
+    declaration: /\bclass\s+CodingToolRegistry\s*\{/,
+  },
+  {
     symbol: "EventStore",
     owner: "packages/event-store/src/types.ts",
-    declaration: /\b(?:interface|class)\s+EventStore\s*\{|\btype\s+EventStore\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+EventStore\s*\{|\btype\s+EventStore\s*=/,
   },
   {
     symbol: "GitService",
     owner: "packages/git-service/src/types.ts",
-    declaration: /\b(?:interface|class)\s+GitService\s*\{|\btype\s+GitService\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+GitService\s*\{|\btype\s+GitService\s*=/,
   },
   {
     symbol: "RuntimeKernel",
     owner: "packages/runtime-kernel/src/RuntimeKernel.ts",
-    declaration: /\b(?:interface|class)\s+RuntimeKernel\s*\{|\btype\s+RuntimeKernel\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+RuntimeKernel\s*\{|\btype\s+RuntimeKernel\s*=/,
   },
   {
     symbol: "WorkspaceManifestRepository",
     owner: "packages/workspace-core/src/repository.ts",
-    declaration: /\b(?:interface|class)\s+WorkspaceManifestRepository\s*\{|\btype\s+WorkspaceManifestRepository\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+WorkspaceManifestRepository\s*\{|\btype\s+WorkspaceManifestRepository\s*=/,
   },
 ];
