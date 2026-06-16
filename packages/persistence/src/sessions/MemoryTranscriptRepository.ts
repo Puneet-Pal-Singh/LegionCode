@@ -56,7 +56,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
         existing?.workspaceId ?? null,
       ),
       taskId: task.id,
-      title: resolveSessionTitle(input, existing, task.title),
+      title: existing?.title ?? input.title ?? task.title,
       titleSource,
       repository: readNullableInput(
         input.repository,
@@ -393,21 +393,4 @@ function readNullableInput<T>(
   fallback: T | null,
 ): T | null {
   return value === undefined ? fallback : value;
-}
-
-function resolveSessionTitle(
-  input: EnsureTranscriptSessionInput,
-  existing: SessionRecord | undefined,
-  taskTitle: string,
-): string {
-  if (!input.title) {
-    return existing?.title ?? taskTitle;
-  }
-  if (!existing) {
-    return input.title;
-  }
-  if (existing.titleSource === "generated" && input.titleSource !== "user") {
-    return input.title;
-  }
-  return existing.title;
 }

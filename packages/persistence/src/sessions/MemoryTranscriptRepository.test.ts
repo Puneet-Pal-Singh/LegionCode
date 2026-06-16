@@ -134,6 +134,32 @@ describe("MemoryTranscriptRepository", () => {
     expect(result.sessions[0]?.title).toBe("My Custom Title");
   });
 
+  it("keeps ensureSession from overwriting generated titles", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      title: "Original title",
+      titleSource: "generated",
+    });
+
+    const ensured = await repository.ensureSession({
+      sessionId: "session-1",
+      userId: "user-1",
+      title: "Incidental title",
+      titleSource: "generated",
+    });
+    const updated = await repository.updateGeneratedSessionTitle({
+      userId: "user-1",
+      sessionId: "session-1",
+      title: "Explicit title",
+      titleSource: "generated",
+    });
+
+    expect(ensured.title).toBe("Original title");
+    expect(updated?.title).toBe("Explicit title");
+  });
+
   it("updates persisted session status", async () => {
     const repository = new MemoryTranscriptRepository();
     await repository.ensureSession({
