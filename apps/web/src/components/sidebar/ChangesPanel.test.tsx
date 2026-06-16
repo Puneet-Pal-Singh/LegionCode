@@ -11,6 +11,21 @@ const mockGitReviewState = vi.hoisted(() => ({
   statusLoading: false,
   isGitWorkspaceRecovering: false,
   statusError: null as string | null,
+  selectedFile: null as {
+    path: string;
+    status: "modified";
+    isStaged: boolean;
+    additions: number;
+    deletions: number;
+  } | null,
+  diff: null as {
+    oldPath: string;
+    newPath: string;
+    hunks: unknown[];
+    isBinary: boolean;
+    isNewFile: boolean;
+    isDeleted: boolean;
+  } | null,
   reviewSourceLoading: false,
   reviewScope: "git-changes" as "git-changes" | "prompt-artifact",
   reviewSourceReason: "live_git_has_changes" as
@@ -50,13 +65,13 @@ vi.mock("../git/GitReviewContext", () => ({
     statusLoading: mockGitReviewState.statusLoading,
     isGitWorkspaceRecovering: mockGitReviewState.isGitWorkspaceRecovering,
     statusError: mockGitReviewState.statusError,
-    diff: null,
+    diff: mockGitReviewState.diff,
     diffLoading: false,
     diffError: null,
     stageError: null,
     commitError: null,
     committing: false,
-    selectedFile: null,
+    selectedFile: mockGitReviewState.selectedFile,
     reviewFiles: mockStatusFiles,
     stagedFiles: new Set<string>(),
     commitMessage: "feat: ship it",
@@ -154,6 +169,8 @@ describe("ChangesPanel", () => {
     mockGitReviewState.statusLoading = false;
     mockGitReviewState.isGitWorkspaceRecovering = false;
     mockGitReviewState.statusError = null;
+    mockGitReviewState.selectedFile = null;
+    mockGitReviewState.diff = null;
     mockGitReviewState.reviewSourceLoading = false;
     mockGitReviewState.reviewScope = "git-changes";
     mockGitReviewState.reviewSourceReason = "live_git_has_changes";
@@ -196,6 +213,22 @@ describe("ChangesPanel", () => {
     fireEvent.click(screen.getByTestId("set-scope"));
 
     expect(mockSetReviewScope).toHaveBeenCalledWith("git-changes");
+  });
+
+  it("renders the selected diff in sidebar mode", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+    mockGitReviewState.diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+
+    render(<ChangesPanel />);
+
+    expect(screen.getByText("diff-viewer")).toBeInTheDocument();
   });
 
   it("selects the first changed file when the stacked modal hides the file tree", () => {

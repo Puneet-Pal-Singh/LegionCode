@@ -223,6 +223,52 @@ describe("GitReviewProvider", () => {
     expect(screen.getByTestId("review-files")).toHaveTextContent("none");
   });
 
+  it("loads review sources while the sidebar review surface is active", () => {
+    mockGitStatusState.status = buildGitStatus([]);
+    mockArtifactState.source = buildArtifactSource();
+    mockArtifactState.resolved = true;
+
+    render(
+      <GitReviewProvider
+        isReviewOpen={false}
+        isReviewActive
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
+  });
+
+  it("loads an explicit saved edit selection even when live git has files", () => {
+    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    mockArtifactState.source = buildArtifactSource();
+    mockArtifactState.resolved = true;
+
+    render(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
+
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(screen.getByTestId("review-scope")).toHaveTextContent(
+      "prompt-artifact",
+    );
+    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
+  });
+
   it("starts saved edit lookup before live git status resolves empty", () => {
     mockGitStatusState.status = null;
     mockGitStatusState.loading = true;
@@ -353,6 +399,12 @@ function ReviewSourceProbe() {
       </button>
       <button type="button" onClick={() => review.setReviewScope("git-changes")}>
         select live git
+      </button>
+      <button
+        type="button"
+        onClick={() => review.setReviewScope("prompt-artifact")}
+      >
+        select saved edit
       </button>
       <button
         type="button"

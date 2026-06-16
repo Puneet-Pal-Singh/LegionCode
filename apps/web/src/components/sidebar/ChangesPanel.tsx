@@ -68,7 +68,7 @@ export function ChangesPanel({
   const files = useMemo(() => reviewFiles, [reviewFiles]);
 
   useEffect(() => {
-    if (showChangesList || selectedFile || files.length === 0) {
+    if (selectedFile || files.length === 0) {
       return;
     }
 
@@ -76,7 +76,7 @@ export function ChangesPanel({
     if (firstFile) {
       selectFile(firstFile);
     }
-  }, [files, selectFile, selectedFile, showChangesList]);
+  }, [files, selectFile, selectedFile]);
 
   const isSavedEditMode = reviewSource.kind === "prompt_artifact";
   const emptyReviewLabel = getEmptyReviewLabel({
@@ -86,7 +86,7 @@ export function ChangesPanel({
     reviewSourceLoading,
     reviewSourceError,
   });
-  const modalDiffMessage = getModalDiffMessage({
+  const diffMessage = getDiffMessage({
     selectedFile,
     diffLoading,
     diffError,
@@ -166,13 +166,15 @@ export function ChangesPanel({
       ) : null}
       <div
         className={`flex-1 flex min-h-0 overflow-hidden ${
-          mode === "modal" && layout === "stacked" ? "flex-col gap-3" : "gap-4"
+          mode === "sidebar" || (mode === "modal" && layout === "stacked")
+            ? "flex-col gap-3"
+            : "gap-4"
         }`}
       >
         {showChangesList ? (
           <div
             className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
-              mode === "sidebar" ? "w-full" : "w-80"
+              mode === "sidebar" ? "max-h-56 w-full shrink-0" : "w-80"
             }`}
           >
             <ChangesList
@@ -192,7 +194,7 @@ export function ChangesPanel({
           </div>
         ) : null}
 
-        {mode === "modal" && (
+        {(mode === "modal" || mode === "sidebar") && (
           <div className="ui-surface-section flex-1 flex flex-col overflow-hidden">
             {selectedFile && diff ? (
               <DiffViewer
@@ -212,7 +214,7 @@ export function ChangesPanel({
               />
             ) : (
               <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-                {modalDiffMessage}
+                {diffMessage}
               </div>
             )}
           </div>
@@ -252,7 +254,7 @@ function getEmptyReviewLabel({
   return "No reviewed changes yet";
 }
 
-function getModalDiffMessage({
+function getDiffMessage({
   selectedFile,
   diffLoading,
   diffError,
