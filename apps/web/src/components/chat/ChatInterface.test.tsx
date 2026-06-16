@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
 import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
 import { ChatInterface } from "./ChatInterface.js";
 import { runApprovalPath } from "../../lib/platform-endpoints.js";
+import type { ReviewCommentDraft } from "../git/reviewComments.js";
 
 const mockChatInputBar = vi.hoisted(() =>
   vi.fn((props: unknown) => {
@@ -15,8 +16,12 @@ const mockLogin = vi.hoisted(() => vi.fn());
 const mockRefreshSession = vi.hoisted(() => vi.fn(async () => undefined));
 const mockGitReviewState = vi.hoisted(() => ({
   status: null as GitStatusResponse | null,
+  selectedReviewComments: [] as ReviewCommentDraft[],
 }));
 const mockOpenPromptArtifactReview = vi.hoisted(() => vi.fn());
+const mockMarkReviewCommentsDispatching = vi.hoisted(() => vi.fn());
+const mockMarkReviewCommentsDispatched = vi.hoisted(() => vi.fn());
+const mockMarkReviewCommentsDispatchFailed = vi.hoisted(() => vi.fn());
 const mockGetGitDiff = vi.hoisted(() =>
   vi.fn(async (input?: unknown) => {
     void input;
@@ -106,12 +111,12 @@ vi.mock("../../contexts/AuthContext.js", () => ({
 vi.mock("../git/GitReviewContext", () => ({
   useGitReview: () => ({
     status: mockGitReviewState.status,
-    selectedReviewComments: [],
+    selectedReviewComments: mockGitReviewState.selectedReviewComments,
     openPromptArtifactReview: mockOpenPromptArtifactReview,
     toggleReviewCommentSelected: vi.fn(),
-    markReviewCommentsDispatching: vi.fn(),
-    markReviewCommentsDispatched: vi.fn(),
-    markReviewCommentsDispatchFailed: vi.fn(),
+    markReviewCommentsDispatching: mockMarkReviewCommentsDispatching,
+    markReviewCommentsDispatched: mockMarkReviewCommentsDispatched,
+    markReviewCommentsDispatchFailed: mockMarkReviewCommentsDispatchFailed,
   }),
 }));
 
@@ -166,10 +171,14 @@ describe("ChatInterface", () => {
     mockLogin.mockClear();
     mockRefreshSession.mockClear();
     mockGitReviewState.status = null;
+    mockGitReviewState.selectedReviewComments = [];
     mockGetGitDiff.mockClear();
     mockGetEditArtifactDiff.mockClear();
     mockGetEditArtifactReviewSourceByMessage.mockClear();
     mockOpenPromptArtifactReview.mockReset();
+    mockMarkReviewCommentsDispatching.mockReset();
+    mockMarkReviewCommentsDispatched.mockReset();
+    mockMarkReviewCommentsDispatchFailed.mockReset();
     mockDispatchRunSummaryRefresh.mockReset();
     vi.mocked(useRunEvents).mockReturnValue({ events: [] });
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -1622,6 +1631,71 @@ describe("ChatInterface", () => {
     });
   });
 
+  it("clears the composer immediately when submitting review comments", async () => {
+    let resolveAppend: (() => void) | undefined;
+    const append = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    const handleInputChange = vi.fn();
+    mockGitReviewState.selectedReviewComments = [buildReviewCommentDraft()];
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "Make my hero page pretty.",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Done.",
+            },
+          ],
+          runId: "run-1",
+          input: "Check this?",
+          handleInputChange,
+          handleSubmit: vi.fn(),
+          append,
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const inputProps = latestChatInputBarProps();
+    let submitPromise: boolean | void | Promise<boolean | void> = undefined;
+    act(() => {
+      submitPromise = inputProps.onSubmit();
+    });
+
+    expect(readLastInputChangeValue(handleInputChange)).toBe("");
+
+    const finishAppend = resolveAppend;
+    if (!finishAppend) {
+      throw new Error("append promise was not created");
+    }
+    finishAppend();
+    await submitPromise;
+
+    expect(append).toHaveBeenCalledWith({
+      role: "user",
+      content: expect.stringContaining("Please address the following review comments:"),
+    });
+    expect(mockMarkReviewCommentsDispatched).toHaveBeenCalledWith([
+      "comment-1",
+    ]);
+  });
+
   it("renders completed transcript rows without the workflow overview panel", () => {
     render(
       <ChatInterface
@@ -2726,3 +2800,55 @@ describe("ChatInterface", () => {
     );
   });
 });
+
+function latestChatInputBarProps(): {
+  onSubmit: () => boolean | void | Promise<boolean | void>;
+} {
+  const lastCall =
+    mockChatInputBar.mock.calls[mockChatInputBar.mock.calls.length - 1];
+  if (!lastCall) {
+    throw new Error("ChatInputBar was not rendered");
+  }
+  return lastCall[0] as {
+    onSubmit: () => boolean | void | Promise<boolean | void>;
+  };
+}
+
+function readLastInputChangeValue(handleInputChange: ReturnType<typeof vi.fn>) {
+  const lastCall =
+    handleInputChange.mock.calls[handleInputChange.mock.calls.length - 1];
+  const event = lastCall?.[0] as
+    | { target?: { value?: unknown } }
+    | undefined;
+  return event?.target?.value;
+}
+
+function buildReviewCommentDraft(): ReviewCommentDraft {
+  const anchor = {
+    hunkIndex: 0,
+    lineIndex: 0,
+    rowKey: "0:0",
+    newLineNumber: 152,
+    side: "right" as const,
+    linePreview: "className=\"absolute bottom-1/3\"",
+  };
+
+  return {
+    id: "comment-1",
+    filePath: "src/components/landing/hero/index.tsx",
+    line: 152,
+    side: "right",
+    note: "Check if this class CSS is correct?",
+    createdAt: "2026-06-16T08:53:00.000Z",
+    linePreview: anchor.linePreview,
+    selected: true,
+    anchors: [anchor],
+    primaryAnchor: anchor,
+    selectionMode: "single",
+    runId: "run-1",
+    sessionId: "session-1",
+    diffFingerprint: "fingerprint-1",
+    stale: false,
+    deliveryState: "draft",
+  };
+}
