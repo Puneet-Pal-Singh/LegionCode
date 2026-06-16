@@ -12,11 +12,20 @@ test("accepts canonical package dependencies and app imports", async (context) =
 
 test("rejects forbidden canonical package dependencies", async (context) => {
   const root = await createFixture(context);
-  await writeManifest(root, "packages", "runtime-kernel", "@repo/runtime-kernel", {
-    "@repo/git-service": "workspace:*",
-  });
+  await writeManifest(
+    root,
+    "packages",
+    "runtime-kernel",
+    "@repo/runtime-kernel",
+    {
+      "@repo/git-service": "workspace:*",
+    },
+  );
 
-  assert.match((await validateArchitecture(root)).join("\n"), /runtime-kernel.*must not depend on @repo\/git-service/);
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /runtime-kernel.*must not depend on @repo\/git-service/,
+  );
 });
 
 test("rejects forbidden app imports", async (context) => {
@@ -26,7 +35,10 @@ test("rejects forbidden app imports", async (context) => {
     'import { RuntimeKernel } from "@repo/runtime-kernel";\n',
   );
 
-  assert.match((await validateArchitecture(root)).join("\n"), /@shadowbox\/web must not import @repo\/runtime-kernel/);
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /@shadowbox\/web must not import @repo\/runtime-kernel/,
+  );
 });
 
 test("rejects competing canonical authority declarations", async (context) => {
@@ -36,7 +48,10 @@ test("rejects competing canonical authority declarations", async (context) => {
     "export interface WorkspaceManifestRepository {}\n",
   );
 
-  assert.match((await validateArchitecture(root)).join("\n"), /WorkspaceManifestRepository is owned by packages\/workspace-core/);
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /WorkspaceManifestRepository is owned by packages\/workspace-core/,
+  );
 });
 
 test("rejects app deep imports into package source", async (context) => {
@@ -46,7 +61,20 @@ test("rejects app deep imports into package source", async (context) => {
     'import { value } from "../../../packages/shared-types/src/index.js";\n',
   );
 
-  assert.match((await validateArchitecture(root)).join("\n"), /apps must import packages through public package exports/);
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /apps must import packages through public package exports/,
+  );
+});
+
+test("ignores transient Vite timestamp modules", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "apps", "web", "vite.config.ts.timestamp-1234-abcdef.mjs"),
+    "export class RuntimeKernel {}\n",
+  );
+
+  assert.deepEqual(await validateArchitecture(root), []);
 });
 
 async function createFixture(context) {
@@ -80,15 +108,47 @@ async function createFixture(context) {
     },
     "workspace-core": { "@repo/platform-protocol": "workspace:*" },
   })) {
-    await writeManifest(fixtureRoot, "packages", name, `@repo/${name}`, dependencies);
+    await writeManifest(
+      fixtureRoot,
+      "packages",
+      name,
+      `@repo/${name}`,
+      dependencies,
+    );
   }
-  await writeSource(fixtureRoot, "packages/event-store/src/types.ts", "export interface EventStore {}");
-  await writeSource(fixtureRoot, "packages/artifact-store/src/types.ts", "export interface ArtifactStore {}");
-  await writeSource(fixtureRoot, "packages/git-service/src/types.ts", "export interface GitService {}");
-  await writeSource(fixtureRoot, "packages/runtime-kernel/src/RuntimeKernel.ts", "export class RuntimeKernel {}");
-  await writeSource(fixtureRoot, "packages/workspace-core/src/repository.ts", "export interface WorkspaceManifestRepository {}");
+  await writeSource(
+    fixtureRoot,
+    "packages/event-store/src/types.ts",
+    "export interface EventStore {}",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/artifact-store/src/types.ts",
+    "export interface ArtifactStore {}",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/git-service/src/types.ts",
+    "export interface GitService {}",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/runtime-kernel/src/RuntimeKernel.ts",
+    "export class RuntimeKernel {}",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/workspace-core/src/repository.ts",
+    "export interface WorkspaceManifestRepository {}",
+  );
   await writeManifest(fixtureRoot, "apps", "brain", "@shadowbox/brain", {});
-  await writeManifest(fixtureRoot, "apps", "secure-agent-api", "@shadowbox/secure-agent-api", {});
+  await writeManifest(
+    fixtureRoot,
+    "apps",
+    "secure-agent-api",
+    "@shadowbox/secure-agent-api",
+    {},
+  );
   await writeManifest(fixtureRoot, "apps", "web", "@shadowbox/web", {});
   return fixtureRoot;
 }
@@ -96,7 +156,10 @@ async function createFixture(context) {
 async function writeManifest(root, collection, directory, name, dependencies) {
   const packageRoot = join(root, collection, directory);
   await mkdir(join(packageRoot, "src"), { recursive: true });
-  await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name, dependencies }));
+  await writeFile(
+    join(packageRoot, "package.json"),
+    JSON.stringify({ name, dependencies }),
+  );
   await writeFile(join(packageRoot, "src", "index.ts"), "");
 }
 
