@@ -1363,7 +1363,9 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
-  it("does not subscribe to live run events from the chat render path", () => {
+  it("subscribes to live run events while the chat run is active", () => {
+    vi.mocked(useRunSummary).mockReturnValue({ summary: null });
+
     render(
       <ChatInterface
         chatProps={{
@@ -1383,7 +1385,7 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", false);
+    expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", true);
   });
 
   it("shows event-based pending approval when summary is temporarily stale during an active run", () => {

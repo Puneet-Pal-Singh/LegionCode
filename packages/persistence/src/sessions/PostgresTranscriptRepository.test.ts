@@ -57,8 +57,7 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([false, false]);
-    expect(client.queries[1]?.params.slice(11, 16)).toEqual([
-      false,
+    expect(client.queries[1]?.params.slice(11, 15)).toEqual([
       false,
       false,
       false,
@@ -75,9 +74,8 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([true, false]);
-    expect(client.queries[1]?.params.slice(11, 16)).toEqual([
+    expect(client.queries[1]?.params.slice(11, 15)).toEqual([
       true,
-      false,
       false,
       true,
       true,
@@ -101,7 +99,7 @@ describe("PostgresTranscriptRepository", () => {
     expect(statement).not.toContain("UPDATE tasks");
   });
 
-  it("keeps generated title updates from overwriting user titles", async () => {
+  it("keeps session upserts from overwriting titles", async () => {
     const client = new CapturingSqlClient();
     const repository = new PostgresTranscriptRepository(client, {
       now: () => NOW,
@@ -115,8 +113,26 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     const statement = client.queries[1]?.statement ?? "";
-    expect(statement).toContain("sessions.title_source = 'generated'");
-    expect(statement).toContain("EXCLUDED.title_source = 'generated'");
+    expect(statement).not.toContain("title = EXCLUDED.title");
+    expect(statement).not.toContain("title_source = EXCLUDED.title_source");
+    expect(statement).not.toContain("$16");
+    expect(client.queries[1]?.params).toHaveLength(15);
+  });
+
+  it("persists session status updates", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client, {
+      now: () => NOW,
+    });
+
+    await repository.updateSessionStatus({
+      userId: "123e4567-e89b-42d3-a456-426614174001",
+      sessionId: "123e4567-e89b-42d3-a456-426614174000",
+      status: "completed",
+    });
+
+    expect(client.queries[0]?.statement).toContain("SET status = $3");
+    expect(client.queries[0]?.params[2]).toBe("completed");
   });
 
   it("keeps transcript list filters on the outer message part join", async () => {

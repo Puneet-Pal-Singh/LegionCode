@@ -43,7 +43,7 @@ describe("TranscriptActivityParts", () => {
     });
   });
 
-  it("drops turns that only contain debug activity", () => {
+  it("keeps a completed duration header when a turn only has hidden activity", () => {
     const turns = buildTranscriptActivityTurns([
       createMessage("user", "check CI"),
       createAssistantMessageWithActivity(
@@ -58,7 +58,12 @@ describe("TranscriptActivityParts", () => {
       ),
     ]);
 
-    expect(turns).toEqual([]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      elapsedLabel: "Worked for 1s",
+      hasVisibleRows: true,
+      rows: [],
+    });
   });
 
   it("builds transcript turns with the latest preceding user prompt", () => {
@@ -77,6 +82,52 @@ describe("TranscriptActivityParts", () => {
       kind: "tool",
       title: "Inspecting checks",
     });
+    expect(turns[0]?.elapsedLabel).toBe("Worked for 1s");
+  });
+
+  it("hides terminal workflow placeholders and deduplicates progress rows", () => {
+    const turns = buildTranscriptActivityTurns([
+      createMessage("user", "say hello"),
+      createAssistantMessageWithActivity(
+        createPart("turn-1", [
+          createProgressEvent({
+            id: "execution-state",
+            sequence: 1,
+            kind: "thinking",
+            title: "Working through execution",
+          }),
+          createProgressEvent({
+            id: "progress-1",
+            sequence: 2,
+            title: "Inspecting repository",
+            detail: "Inspecting repository",
+          }),
+          createProgressEvent({
+            id: "progress-2",
+            sequence: 3,
+            title: "Inspecting repository",
+            detail: "Inspecting repository",
+          }),
+          createProgressEvent({
+            id: "synthesis-state",
+            sequence: 4,
+            kind: "thinking",
+            title: "Working through synthesis",
+            updatedAt: "2026-05-24T00:00:06.000Z",
+          }),
+        ]),
+      ),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.elapsedLabel).toBe("Worked for 6s");
+    expect(turns[0]?.rows).toEqual([
+      expect.objectContaining({
+        kind: "reasoning",
+        label: "Inspecting repository",
+        summary: "",
+      }),
+    ]);
   });
 
   it("keeps transcript rows when the matching live turn is less complete", () => {

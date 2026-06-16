@@ -58,8 +58,8 @@ class CapturingSqlClient implements SqlClient {
           workspace_id: params[2],
           session_id: params[3],
           task_id: params[4],
-          status: params[5],
-          mode: params[6],
+          status: params[5] ?? "created",
+          mode: params[6] ?? "build",
           provider_id: params[7],
           model_id: params[8],
           branch: params[9],
@@ -94,8 +94,8 @@ describe("PostgresRunRepository", () => {
 
     expect(run.status).toBe("created");
     expect(run.mode).toBe("build");
-    expect(client.queries[0]?.params[5]).toBe("created");
-    expect(client.queries[0]?.params[6]).toBe("build");
+    expect(client.queries[0]?.params[5]).toBeNull();
+    expect(client.queries[0]?.params[6]).toBeNull();
   });
 
   it("qualifies run step columns when listing joined rows", async () => {

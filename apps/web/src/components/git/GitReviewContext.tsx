@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type {
@@ -143,6 +144,7 @@ export function GitReviewProvider({
   const [commitMessage, setCommitMessage] = useState("");
   const [stageError, setStageError] = useState<string | null>(null);
   const [reviewComments, setReviewComments] = useState<ReviewCommentDraft[]>([]);
+  const autoFetchedDiffKeyRef = useRef<string | null>(null);
   const liveGitFiles = status?.files ?? EMPTY_FILE_STATUSES;
   const {
     artifactDiffState,
@@ -174,6 +176,12 @@ export function GitReviewProvider({
     [liveGitFiles, promptArtifactSource?.files, reviewSource.kind],
   );
   const diff = reviewSource.kind === "prompt_artifact" ? artifactDiff : liveDiff;
+  const activeDiffLoading =
+    reviewSource.kind === "prompt_artifact"
+      ? artifactDiffLoading
+      : liveDiffLoading;
+  const activeDiffError =
+    reviewSource.kind === "prompt_artifact" ? artifactDiffError : liveDiffError;
   const diffLoading =
     reviewSource.kind === "prompt_artifact"
       ? artifactDiffLoading || reviewSourceLoading
@@ -271,19 +279,45 @@ export function GitReviewProvider({
   );
 
   useEffect(() => {
+    const staged = activeSelectedFilePath
+      ? stagedFiles.has(activeSelectedFilePath)
+      : false;
+    const sourceIdentity =
+      reviewSource.kind === "prompt_artifact"
+        ? (promptArtifactSource?.artifactId ?? "pending-artifact")
+        : "live-git";
+    const autoFetchKey = activeSelectedFilePath
+      ? `${sourceIdentity}:${activeSelectedFilePath}:${staged ? "staged" : "unstaged"}`
+      : null;
     if (
-      reviewSource.kind !== "prompt_artifact" ||
-      selectedFilePath ||
-      !activeSelectedFilePath
+      !isReviewOpen ||
+      !activeSelectedFilePath ||
+      !autoFetchKey ||
+      autoFetchedDiffKeyRef.current === autoFetchKey ||
+      diff ||
+      activeDiffLoading ||
+      activeDiffError
     ) {
       return;
     }
-    void fetchArtifactDiff(activeSelectedFilePath);
+
+    autoFetchedDiffKeyRef.current = autoFetchKey;
+    if (reviewSource.kind === "prompt_artifact") {
+      void fetchArtifactDiff(activeSelectedFilePath);
+      return;
+    }
+    void fetchLiveDiff(activeSelectedFilePath, staged);
   }, [
     activeSelectedFilePath,
+    activeDiffError,
+    activeDiffLoading,
+    diff,
     fetchArtifactDiff,
+    fetchLiveDiff,
+    isReviewOpen,
+    promptArtifactSource?.artifactId,
     reviewSource.kind,
-    selectedFilePath,
+    stagedFiles,
   ]);
 
   const openLiveGitReview = useCallback(() => {

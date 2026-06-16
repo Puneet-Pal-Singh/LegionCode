@@ -19,7 +19,7 @@ const HYDRATION_RETRY_DELAY_MS = 300;
 export function useChatHydration(
   sessionId: string,
   runId: string,
-  messagesLength: number,
+  _messagesLength: number,
   setMessages: (messages: Message[]) => void,
 ): UseChatHydrationResult {
   const [isHydrating, setIsHydrating] = useState(false);
@@ -45,13 +45,6 @@ export function useChatHydration(
   // Perform hydration
   useEffect(() => {
     if (hasHydratedRef.current) return;
-    if (messagesLength > 0) {
-      hasHydratedRef.current = true;
-      resetRetry();
-      setIsHydrating(false);
-      setHasHydrated(true);
-      return;
-    }
 
     let cancelled = false;
     const requestScopeKey = scopeKey;
@@ -87,9 +80,7 @@ export function useChatHydration(
           return;
         }
 
-        if (result.messages.length > 0) {
-          setMessages(result.messages);
-        }
+        setMessages(result.messages);
 
         hasHydratedRef.current = true;
         resetRetry();
@@ -112,7 +103,15 @@ export function useChatHydration(
       cancelled = true;
       window.clearTimeout(loadingTimer);
     };
-  }, [sessionId, runId, scopeKey, messagesLength, retrySignal, setMessages, scheduleRetry, resetRetry]);
+  }, [
+    resetRetry,
+    retrySignal,
+    runId,
+    scheduleRetry,
+    scopeKey,
+    sessionId,
+    setMessages,
+  ]);
 
   return { isHydrating, hasHydrated };
 }

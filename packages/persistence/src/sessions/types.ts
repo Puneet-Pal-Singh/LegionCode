@@ -158,6 +158,11 @@ export interface ListSessionsResult {
 
 export interface TranscriptRepository {
   ensureSession(input: EnsureTranscriptSessionInput): Promise<SessionRecord>;
+  updateSessionStatus(input: {
+    userId: string;
+    sessionId: string;
+    status: SessionStatus;
+  }): Promise<SessionRecord | null>;
   updateGeneratedSessionTitle(input: {
     userId: string;
     sessionId: string;

@@ -114,11 +114,7 @@ export function useSidebarOrchestration({
   useEffect(() => {
     if (isHydrating) return;
     const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
-    console.log(
-      `🧬 [LegionCode] Restoration Check: isViewing=${isViewingContent}, path=${savedPath}, selectedFile=${!!selectedFile}`,
-    );
     if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
-      console.log(`🧬 [LegionCode] Restoring last viewed file: ${savedPath}`);
       void handleFileClick(savedPath);
     }
   }, [

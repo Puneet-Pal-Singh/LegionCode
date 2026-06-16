@@ -158,6 +158,32 @@ describe("EditArtifactReviewService", () => {
 
     expect(source).toBeNull();
   });
+
+  it("resolves the run artifact when the live assistant id differs", async () => {
+    const env = createEnv();
+    const artifact = createArtifact("sha-1");
+    const repository = createRepository(artifact);
+    repository.getReviewArtifactByMessage = vi.fn(async () => null);
+    artifactFactory.withArtifactRepository.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: ArtifactRepository) => Promise<unknown>,
+      ) => await callback(repository),
+    );
+
+    const service = new EditArtifactReviewService(env);
+    const source = await service.getReviewSourceByMessage({
+      runId: artifact.runId,
+      assistantMessageId: "live-assistant-message",
+      userId: artifact.userId,
+    });
+
+    expect(source?.artifactId).toBe(artifact.id);
+    expect(repository.getLatestReviewArtifact).toHaveBeenCalledWith({
+      runId: artifact.runId,
+      userId: artifact.userId,
+    });
+  });
 });
 
 async function createStoredArtifact(

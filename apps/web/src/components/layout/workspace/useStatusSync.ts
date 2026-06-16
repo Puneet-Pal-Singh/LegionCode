@@ -134,10 +134,6 @@ export function useStatusSync({
   ]);
 
   useEffect(() => {
-    if (isLoading) setLocallyStoppedRunId(null);
-  }, [isLoading, setLocallyStoppedRunId]);
-
-  useEffect(() => {
     setLocallyStoppedRunId(null);
   }, [activeRunId, setLocallyStoppedRunId]);
 

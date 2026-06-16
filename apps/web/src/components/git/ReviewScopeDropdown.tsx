@@ -11,12 +11,20 @@ interface ReviewScopeDropdownProps {
 }
 
 const REVIEW_SCOPE_OPTIONS: Array<{
-  value: ReviewScope | "branch-changes" | "last-turn-changes";
+  value: ReviewScope | "branch-changes";
   label: string;
   disabled: boolean;
 }> = [
-  { value: "git-changes", label: REVIEW_SOURCE_LABELS.live_git.scope, disabled: false },
-  { value: "prompt-artifact", label: REVIEW_SOURCE_LABELS.prompt_artifact.scope, disabled: false },
+  {
+    value: "git-changes",
+    label: REVIEW_SOURCE_LABELS.live_git.scope,
+    disabled: false,
+  },
+  {
+    value: "prompt-artifact",
+    label: REVIEW_SOURCE_LABELS.prompt_artifact.scope,
+    disabled: false,
+  },
   { value: "branch-changes", label: "Branch changes", disabled: true },
 ];
 

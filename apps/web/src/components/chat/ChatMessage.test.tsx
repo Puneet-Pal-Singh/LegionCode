@@ -35,6 +35,43 @@ describe("ChatMessage", () => {
     ).toBeInTheDocument();
   });
 
+  it("hides leaked greeting analysis before the final reply", () => {
+    const message = {
+      id: "assistant-greeting-self-talk",
+      role: "assistant",
+      content:
+        'The user is greeting me with "yoyo how are you?". This is a casual greeting and does not require tools. I should respond politely. I am doing great, thank you for asking!',
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByText(/The user is greeting/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/casual greeting/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/I should respond/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/I am doing great, thank you for asking/),
+    ).toBeInTheDocument();
+  });
+
+  it("hides malformed greeting analysis with orphan punctuation", () => {
+    const message = {
+      id: "assistant-malformed-greeting-self-talk",
+      role: "assistant",
+      content:
+        ". This is a greeting. I should respond politely and ask how I can help them with their project Puneet-Pal-Singh/career-crew.Hello! How can I help you with the career-crew project today?",
+    } as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByText(/This is a greeting/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/I should respond/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Hello! How can I help you with the career-crew project today/,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("renders user content as markdown", () => {
     const message = {
       id: "user-1",

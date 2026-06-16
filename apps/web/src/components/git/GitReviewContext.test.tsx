@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GitReviewProvider, useGitReview } from "./GitReviewContext";
 import type { ReviewCommentAnchor } from "./reviewComments";
@@ -159,11 +159,11 @@ describe("GitReviewProvider", () => {
     );
   });
 
-  it("uses saved edit files when live git status is empty", () => {
+  it("uses saved edit files and automatically fetches their diff", async () => {
     mockGitStatusState.status = buildGitStatus([]);
     mockArtifactState.source = buildArtifactSource();
 
-    render(
+    const view = render(
       <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
@@ -177,10 +177,31 @@ describe("GitReviewProvider", () => {
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
 
-    fireEvent.click(screen.getByRole("button", { name: "select first file" }));
+    await waitFor(() => {
+      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
+    });
+    view.rerender(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
 
-    expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
+    expect(mockFetchArtifactDiff).toHaveBeenCalledTimes(1);
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+  });
+
+  it("fetches the first live diff when review files arrive", async () => {
+    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+
+    render(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockFetchLiveDiff).toHaveBeenCalledWith("src/live.ts", false);
+    });
   });
 
   it("keeps explicit live git selection even when a saved edit exists", () => {

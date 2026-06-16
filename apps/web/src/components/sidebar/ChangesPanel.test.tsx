@@ -223,7 +223,7 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("Checking saved edits...")).toBeInTheDocument();
+    expect(screen.getByText("Checking last-turn changes...")).toBeInTheDocument();
     expect(screen.queryByText("No reviewed changes yet")).toBeNull();
   });
 
@@ -234,8 +234,8 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("No live Git changes")).toBeInTheDocument();
-    expect(screen.queryByText("Checking saved edits...")).toBeNull();
+    expect(screen.getByText("No Git changes")).toBeInTheDocument();
+    expect(screen.queryByText("Checking last-turn changes...")).toBeNull();
   });
 
   it("shows a recovery state while git availability is being refreshed", () => {
