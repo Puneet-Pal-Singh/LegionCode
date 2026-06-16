@@ -786,6 +786,34 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
 
+  packages/runtime-cloudflare-worker:
+    dependencies:
+      '@repo/artifact-store':
+        specifier: workspace:*
+        version: link:../artifact-store
+      '@repo/git-service':
+        specifier: workspace:*
+        version: link:../git-service
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+
   packages/runtime-kernel:
     dependencies:
       '@repo/event-store':
