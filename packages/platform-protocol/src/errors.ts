@@ -23,6 +23,7 @@ export const ProtocolErrorCodeSchema = z.enum([
   "tool_unavailable_in_backend",
   "policy_denied",
   "approval_required",
+  "illegal_lifecycle_transition",
   "internal_error",
 ]);
 export type ProtocolErrorCode = z.infer<typeof ProtocolErrorCodeSchema>;

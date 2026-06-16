@@ -21,6 +21,7 @@ describe("platform protocol IDs", () => {
         "OrganizationId",
         "PermissionProfileId",
         "ProviderId",
+        "RunAttemptId",
         "RunId",
         "ThreadId",
         "ToolCallId",
