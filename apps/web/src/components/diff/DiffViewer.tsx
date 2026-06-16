@@ -30,7 +30,6 @@ interface DiffViewerProps {
   wordWrap?: boolean;
   onWordWrapChange?: (enabled: boolean) => void;
   showHeader?: boolean;
-  useFileSummaryHunkHeader?: boolean;
   hunkExpansionRequest?: {
     action: "collapse" | "expand";
     id: number;
@@ -80,7 +79,6 @@ export function DiffViewer({
   wordWrap: controlledWordWrap,
   onWordWrapChange,
   showHeader = true,
-  useFileSummaryHunkHeader = false,
   hunkExpansionRequest,
   onCreateReviewComment,
   onDeleteReviewComment,
@@ -164,7 +162,6 @@ export function DiffViewer({
     [diff.newPath, diff.oldPath],
   );
   const diffPath = diff.newPath || diff.oldPath || "Unknown file";
-  const showFileSummaryHunkHeader = useFileSummaryHunkHeader || !showHeader;
   const deletions = useMemo(
     () =>
       diff.hunks.reduce(
@@ -214,88 +211,87 @@ export function DiffViewer({
     <div className={`flex h-full bg-black ${className}`}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg">
         {showHeader ? (
-        <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-mono text-zinc-200">
-                {diff.newPath || diff.oldPath}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                {diff.isNewFile ? (
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
-                    New file
-                  </span>
-                ) : null}
-                {diff.isDeleted ? (
-                  <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-300">
-                    Deleted file
-                  </span>
-                ) : null}
-                <span className="text-emerald-400">+{additions}</span>
-                <span className="text-red-400">-{deletions}</span>
-              </div>
-            </div>
+          <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <DiffFileSummary
+                additions={additions}
+                deletions={deletions}
+                diffPath={diffPath}
+                isDeleted={diff.isDeleted}
+                isNewFile={diff.isNewFile}
+              />
 
-            <div className="flex items-center gap-2 text-xs">
-              <div className="relative">
+              <div className="flex items-center gap-2 text-xs">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowViewMenu((previous) => !previous)}
+                    className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
+                    aria-haspopup="menu"
+                    aria-expanded={showViewMenu}
+                    aria-label="Diff view options"
+                  >
+                    <Ellipsis size={14} />
+                  </button>
+                  {showViewMenu ? (
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-9 z-20 min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setWordWrap((previous) => !previous);
+                          setShowViewMenu(false);
+                        }}
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
+                      >
+                        {wordWrap ? "Disable word wrap" : "Enable word wrap"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowViewMenu((previous) => !previous)}
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
-                  aria-haspopup="menu"
-                  aria-expanded={showViewMenu}
-                  aria-label="Diff view options"
+                  onClick={() => setLayout("split")}
+                  disabled={!canChangeLayout}
+                  className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
+                    layout === "split"
+                      ? "border-zinc-600 bg-zinc-800 text-white"
+                      : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                  }`}
                 >
-                  <Ellipsis size={14} />
+                  <SquareSplitHorizontal size={14} />
+                  Split
                 </button>
-                {showViewMenu ? (
-                  <div
-                    role="menu"
-                    className="absolute right-0 top-9 z-20 min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setWordWrap((previous) => !previous);
-                        setShowViewMenu(false);
-                      }}
-                      className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
-                    >
-                      {wordWrap ? "Disable word wrap" : "Enable word wrap"}
-                    </button>
-                  </div>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setLayout("stacked")}
+                  disabled={!canChangeLayout}
+                  className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
+                    layout === "stacked"
+                      ? "border-zinc-600 bg-zinc-800 text-white"
+                      : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  <Rows3 size={14} />
+                  Stacked
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setLayout("split")}
-                disabled={!canChangeLayout}
-                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
-                  layout === "split"
-                    ? "border-zinc-600 bg-zinc-800 text-white"
-                    : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                <SquareSplitHorizontal size={14} />
-                Split
-              </button>
-              <button
-                type="button"
-                onClick={() => setLayout("stacked")}
-                disabled={!canChangeLayout}
-                className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 transition-colors disabled:cursor-not-allowed disabled:border-zinc-900 disabled:text-zinc-700 ${
-                  layout === "stacked"
-                    ? "border-zinc-600 bg-zinc-800 text-white"
-                    : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                <Rows3 size={14} />
-                Stacked
-              </button>
             </div>
           </div>
-        </div>
+        ) : null}
+        {!showHeader ? (
+          <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
+            <DiffFileSummary
+              additions={additions}
+              deletions={deletions}
+              diffPath={diffPath}
+              isDeleted={diff.isDeleted}
+              isNewFile={diff.isNewFile}
+            />
+          </div>
         ) : null}
 
         <div className="flex-1 overflow-x-auto overflow-y-auto">
@@ -309,72 +305,101 @@ export function DiffViewer({
               }
 
               return (
-              <div key={plan.hunkIndex} className="border-b border-zinc-800 last:border-b-0">
-                <button
-                  type="button"
-                  onClick={() => toggleHunk(plan.hunkIndex)}
-                  className="flex w-full items-center gap-2 bg-zinc-900 px-4 py-2 font-mono text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
+                <div
+                  key={plan.hunkIndex}
+                  className="border-b border-zinc-800 last:border-b-0"
                 >
-                  {expandedHunks.has(plan.hunkIndex) ? (
-                    <ChevronDown size={16} />
-                  ) : (
-                    <ChevronRight size={16} />
-                  )}
-                  {showFileSummaryHunkHeader ? (
-                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                      <span className="truncate text-zinc-100">{diffPath}</span>
-                      <span className="flex shrink-0 items-center gap-2">
-                        <span className="text-emerald-400">+{additions}</span>
-                        <span className="text-red-400">-{deletions}</span>
-                      </span>
-                    </span>
-                  ) : (
-                    <span>{hunk.header}</span>
-                  )}
-                </button>
-
-                {expandedHunks.has(plan.hunkIndex) ? (
-                  <div className="border-t border-zinc-800">
-                    {layout === "stacked" ? (
-                      <StackedHunkView
-                        plan={plan}
-                        language={language}
-                        wrap={wordWrap}
-                        canCreateReviewComment={canCreateReviewComment}
-                        selectedRowKeys={selectedRowKeys}
-                        annotationsByAnchor={annotationsByAnchor}
-                        annotationCounts={annotationCounts}
-                        onRowSelect={handleRowSelection}
-                        onOpenInlineComment={openInlineComment}
-                        onAddAnnotation={addAnnotation}
-                        onClearSelection={clearSelection}
-                        onReplyToAnnotation={restoreAnnotationSelection}
-                        onResolveAnnotation={resolveAnnotation}
-                      />
+                  <button
+                    type="button"
+                    onClick={() => toggleHunk(plan.hunkIndex)}
+                    className="flex w-full items-center gap-2 bg-zinc-900 px-4 py-2 font-mono text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
+                  >
+                    {expandedHunks.has(plan.hunkIndex) ? (
+                      <ChevronDown size={16} />
                     ) : (
-                      <SplitHunkView
-                        plan={plan}
-                        language={language}
-                        wrap={wordWrap}
-                        canCreateReviewComment={canCreateReviewComment}
-                        selectedRowKeys={selectedRowKeys}
-                        annotationsByAnchor={annotationsByAnchor}
-                        annotationCounts={annotationCounts}
-                        onRowSelect={handleRowSelection}
-                        onOpenInlineComment={openInlineComment}
-                        onAddAnnotation={addAnnotation}
-                        onClearSelection={clearSelection}
-                        onReplyToAnnotation={restoreAnnotationSelection}
-                        onResolveAnnotation={resolveAnnotation}
-                      />
+                      <ChevronRight size={16} />
                     )}
-                  </div>
-                ) : null}
-              </div>
+                    <span>{hunk.header || `Hunk ${plan.hunkIndex + 1}`}</span>
+                  </button>
+
+                  {expandedHunks.has(plan.hunkIndex) ? (
+                    <div className="border-t border-zinc-800">
+                      {layout === "stacked" ? (
+                        <StackedHunkView
+                          plan={plan}
+                          language={language}
+                          wrap={wordWrap}
+                          canCreateReviewComment={canCreateReviewComment}
+                          selectedRowKeys={selectedRowKeys}
+                          annotationsByAnchor={annotationsByAnchor}
+                          annotationCounts={annotationCounts}
+                          onRowSelect={handleRowSelection}
+                          onOpenInlineComment={openInlineComment}
+                          onAddAnnotation={addAnnotation}
+                          onClearSelection={clearSelection}
+                          onReplyToAnnotation={restoreAnnotationSelection}
+                          onResolveAnnotation={resolveAnnotation}
+                        />
+                      ) : (
+                        <SplitHunkView
+                          plan={plan}
+                          language={language}
+                          wrap={wordWrap}
+                          canCreateReviewComment={canCreateReviewComment}
+                          selectedRowKeys={selectedRowKeys}
+                          annotationsByAnchor={annotationsByAnchor}
+                          annotationCounts={annotationCounts}
+                          onRowSelect={handleRowSelection}
+                          onOpenInlineComment={openInlineComment}
+                          onAddAnnotation={addAnnotation}
+                          onClearSelection={clearSelection}
+                          onReplyToAnnotation={restoreAnnotationSelection}
+                          onResolveAnnotation={resolveAnnotation}
+                        />
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               );
             })
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface DiffFileSummaryProps {
+  additions: number;
+  deletions: number;
+  diffPath: string;
+  isDeleted: boolean;
+  isNewFile: boolean;
+}
+
+function DiffFileSummary({
+  additions,
+  deletions,
+  diffPath,
+  isDeleted,
+  isNewFile,
+}: DiffFileSummaryProps) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-sm font-mono text-zinc-200">{diffPath}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+        {isNewFile ? (
+          <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
+            New file
+          </span>
+        ) : null}
+        {isDeleted ? (
+          <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-300">
+            Deleted file
+          </span>
+        ) : null}
+        <span className="text-emerald-400">+{additions}</span>
+        <span className="text-red-400">-{deletions}</span>
       </div>
     </div>
   );

@@ -190,6 +190,29 @@ describe("GitReviewProvider", () => {
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
   });
 
+  it("refetches the saved edit diff after switching scopes away and back", async () => {
+    mockGitStatusState.status = buildGitStatus([]);
+    mockArtifactState.source = buildArtifactSource();
+
+    render(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    await waitFor(() => {
+      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
+    });
+    mockFetchArtifactDiff.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "select live git" }));
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
+
+    await waitFor(() => {
+      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
+    });
+  });
+
   it("fetches the first live diff when review files arrive", async () => {
     mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
 

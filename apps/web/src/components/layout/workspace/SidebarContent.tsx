@@ -113,7 +113,6 @@ export function SidebarContent({
               <DiffViewer
                 diff={selectedDiff.content}
                 className="flex-1"
-                useFileSummaryHunkHeader
               />
             ) : null}
           </motion.div>

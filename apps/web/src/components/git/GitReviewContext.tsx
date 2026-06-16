@@ -256,6 +256,14 @@ export function GitReviewProvider({
       (comment) => comment.filePath === activeSelectedFilePath,
     );
   }, [activeSelectedFilePath, effectiveReviewComments]);
+  const reviewDiffSourceKey =
+    reviewSource.kind === "prompt_artifact"
+      ? (promptArtifactSource?.artifactId ?? "pending-artifact")
+      : "live-git";
+
+  useEffect(() => {
+    autoFetchedDiffKeyRef.current = null;
+  }, [reviewDiffSourceKey]);
 
   const selectSavedFileForReview = useCallback(
     async (path: string): Promise<void> => {
@@ -289,12 +297,8 @@ export function GitReviewProvider({
     const staged = activeSelectedFilePath
       ? stagedFiles.has(activeSelectedFilePath)
       : false;
-    const sourceIdentity =
-      reviewSource.kind === "prompt_artifact"
-        ? (promptArtifactSource?.artifactId ?? "pending-artifact")
-        : "live-git";
     const autoFetchKey = activeSelectedFilePath
-      ? `${sourceIdentity}:${activeSelectedFilePath}:${staged ? "staged" : "unstaged"}`
+      ? `${reviewDiffSourceKey}:${activeSelectedFilePath}:${staged ? "staged" : "unstaged"}`
       : null;
     if (
       !shouldLoadReviewData ||
@@ -322,7 +326,7 @@ export function GitReviewProvider({
     fetchArtifactDiff,
     fetchLiveDiff,
     shouldLoadReviewData,
-    promptArtifactSource?.artifactId,
+    reviewDiffSourceKey,
     reviewSource.kind,
     stagedFiles,
   ]);

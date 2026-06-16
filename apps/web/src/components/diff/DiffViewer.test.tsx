@@ -79,7 +79,7 @@ describe("DiffViewer", () => {
     expect(screen.getByRole("menuitem", { name: "Disable word wrap" })).toBeInTheDocument();
   });
 
-  it("uses file summary headers when the full diff header is hidden", () => {
+  it("renders one file summary when the full diff header is hidden", () => {
     render(
       <DiffViewer
         showHeader={false}
@@ -117,13 +117,13 @@ describe("DiffViewer", () => {
     expect(screen.getByText("src/example.ts")).toBeInTheDocument();
     expect(screen.getByText("+1")).toBeInTheDocument();
     expect(screen.getByText("-1")).toBeInTheDocument();
-    expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
+    expect(screen.getByText("@@ -1,2 +1,2 @@")).toBeInTheDocument();
   });
 
-  it("can use file summary hunk headers with the full diff header visible", () => {
+  it("does not render each hunk as a separate file", () => {
     render(
       <DiffViewer
-        useFileSummaryHunkHeader
+        showHeader={false}
         diff={{
           oldPath: "src/example.ts",
           newPath: "src/example.ts",
@@ -150,12 +150,32 @@ describe("DiffViewer", () => {
                 },
               ],
             },
+            {
+              oldStart: 20,
+              oldLines: 2,
+              newStart: 20,
+              newLines: 2,
+              header: "@@ -20,2 +20,2 @@",
+              lines: [
+                {
+                  type: "deleted",
+                  content: "const oldName = true;",
+                  oldLineNumber: 20,
+                },
+                {
+                  type: "added",
+                  content: "const newName = true;",
+                  newLineNumber: 20,
+                },
+              ],
+            },
           ],
         }}
       />,
     );
 
-    expect(screen.getAllByText("src/example.ts")).toHaveLength(2);
-    expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
+    expect(screen.getAllByText("src/example.ts")).toHaveLength(1);
+    expect(screen.getByText("@@ -1,2 +1,2 @@")).toBeInTheDocument();
+    expect(screen.getByText("@@ -20,2 +20,2 @@")).toBeInTheDocument();
   });
 });
