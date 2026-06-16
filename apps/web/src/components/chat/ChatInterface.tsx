@@ -271,6 +271,7 @@ export function ChatInterface({
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const lastReviewDispatchIdsRef = useRef<string[]>([]);
+  const latestComposerInputRef = useRef(input);
   const isSubmittingApprovalDecisionRef = useRef(false);
   const pendingChangedFilesRef = useRef<FileStatus[]>([]);
   const turnBaselineFilesRef = useRef<FileStatus[]>([]);
@@ -293,6 +294,10 @@ export function ChatInterface({
     setArtifactSourcesByAssistantMessageId,
   ] = useState<Record<string, PromptArtifactReviewSource>>({});
   const previousScrollScopeKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    latestComposerInputRef.current = input;
+  }, [input]);
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -363,19 +368,28 @@ export function ChatInterface({
   const loadChangedFileDiff = useCallback(
     async (messageId: string, file: FileStatus): Promise<DiffContent> => {
       const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
-      const cachedDiff = diffSnapshotsByMessageRef.current[cacheKey];
-      if (cachedDiff) {
-        return cachedDiff;
-      }
-
       const artifactSource = artifactSourcesByAssistantMessageId[messageId];
       if (artifactSource) {
+        const artifactCacheKey = buildArtifactChangedFileDiffCacheKey(
+          artifactSource.artifactId,
+          file,
+        );
+        const cachedArtifactDiff =
+          diffSnapshotsByMessageRef.current[artifactCacheKey];
+        if (cachedArtifactDiff) {
+          return cachedArtifactDiff;
+        }
         const response = await getEditArtifactDiff({
           artifactId: artifactSource.artifactId,
           path: file.path,
         });
-        diffSnapshotsByMessageRef.current[cacheKey] = response.diff;
+        diffSnapshotsByMessageRef.current[artifactCacheKey] = response.diff;
         return response.diff;
+      }
+
+      const cachedDiff = diffSnapshotsByMessageRef.current[cacheKey];
+      if (cachedDiff) {
+        return cachedDiff;
       }
 
       const activityPreviewDiff = buildDiffFromActivityPreview(file);
@@ -579,6 +593,7 @@ export function ChatInterface({
 
   const handleInputChangeWrapper = useCallback(
     (value: string) => {
+      latestComposerInputRef.current = value;
       if (reviewCommentError) {
         setReviewCommentError(null);
       }
@@ -630,7 +645,9 @@ export function ChatInterface({
       } catch (submitError) {
         markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
         lastReviewDispatchIdsRef.current = [];
-        handleInputChangeWrapper(previousInput);
+        if (latestComposerInputRef.current === "") {
+          handleInputChangeWrapper(previousInput);
+        }
         const message =
           submitError instanceof Error
             ? submitError.message

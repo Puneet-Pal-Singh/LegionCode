@@ -1696,6 +1696,75 @@ describe("ChatInterface", () => {
     ]);
   });
 
+  it("does not clobber composer text typed while review comment submission fails", async () => {
+    let rejectAppend: ((error: Error) => void) | undefined;
+    const append = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAppend = reject;
+        }),
+    );
+    const handleInputChange = vi.fn();
+    mockGitReviewState.selectedReviewComments = [buildReviewCommentDraft()];
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "Make my hero page pretty.",
+            },
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "Done.",
+            },
+          ],
+          runId: "run-1",
+          input: "Check this?",
+          handleInputChange,
+          handleSubmit: vi.fn(),
+          append,
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const inputProps = latestChatInputBarProps();
+    let submitPromise: boolean | void | Promise<boolean | void> = undefined;
+    act(() => {
+      submitPromise = inputProps.onSubmit();
+    });
+    act(() => {
+      inputProps.onChange("Do another thing");
+    });
+
+    const failAppend = rejectAppend;
+    if (!failAppend) {
+      throw new Error("append promise was not created");
+    }
+    await act(async () => {
+      failAppend(new Error("send failed"));
+      await submitPromise;
+    });
+
+    expect(readInputChangeValues(handleInputChange)).toEqual([
+      "",
+      "Do another thing",
+    ]);
+    expect(mockMarkReviewCommentsDispatchFailed).toHaveBeenCalledWith(
+      ["comment-1"],
+      { reselect: true },
+    );
+  });
+
   it("renders completed transcript rows without the workflow overview panel", () => {
     render(
       <ChatInterface
@@ -2803,6 +2872,7 @@ describe("ChatInterface", () => {
 
 function latestChatInputBarProps(): {
   onSubmit: () => boolean | void | Promise<boolean | void>;
+  onChange: (value: string) => void;
 } {
   const lastCall =
     mockChatInputBar.mock.calls[mockChatInputBar.mock.calls.length - 1];
@@ -2811,7 +2881,15 @@ function latestChatInputBarProps(): {
   }
   return lastCall[0] as {
     onSubmit: () => boolean | void | Promise<boolean | void>;
+    onChange: (value: string) => void;
   };
+}
+
+function readInputChangeValues(handleInputChange: ReturnType<typeof vi.fn>) {
+  return handleInputChange.mock.calls.map((call) => {
+    const event = call[0] as { target?: { value?: unknown } } | undefined;
+    return event?.target?.value;
+  });
 }
 
 function readLastInputChangeValue(handleInputChange: ReturnType<typeof vi.fn>) {
