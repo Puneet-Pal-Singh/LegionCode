@@ -8,7 +8,7 @@ import type {
   ExecutionState,
   ExecutionContext,
   StepResult,
-  ArtifactStore
+  ExecutionArtifactStore
 } from '../types/index.js'
 import { initializeExecutionState } from '../types/index.js'
 import type { ModelProvider } from '../adapters/index.js'
@@ -17,7 +17,7 @@ export interface PlanExecutionEngineConfig {
   maxIterations?: number
   maxExecutionTimeMs?: number
   maxTokens?: number
-  artifactStore?: ArtifactStore
+  artifactStore?: ExecutionArtifactStore
   modelProvider?: ModelProvider
 }
 
@@ -25,7 +25,7 @@ export class PlanExecutionEngine {
   private maxIterations: number
   private maxExecutionTimeMs: number
   private maxTokens: number
-  private artifactStore: ArtifactStore | null
+  private artifactStore: ExecutionArtifactStore | null
   private modelProvider: ModelProvider | null
 
   constructor(config: PlanExecutionEngineConfig = {}) {

@@ -3,7 +3,7 @@
  * Persists execution snapshots and enables replay capability
  */
 
-import type { ExecutionState, ArtifactStore, Artifact } from '../types/index.js'
+import type { ExecutionState, ExecutionArtifactStore, Artifact } from '../types/index.js'
 import { createArtifact } from '../types/index.js'
 
 export class ExecutionStateTracker {
@@ -11,7 +11,7 @@ export class ExecutionStateTracker {
   private artifacts: Artifact[] = []
 
   constructor(
-    private artifactStore: ArtifactStore | null,
+    private artifactStore: ExecutionArtifactStore | null,
     private runId: string
   ) {}
 

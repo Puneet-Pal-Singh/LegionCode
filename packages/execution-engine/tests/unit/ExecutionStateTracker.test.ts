@@ -5,11 +5,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ExecutionStateTracker } from '../../src/core/ExecutionStateTracker'
 import { initializeExecutionState, createArtifact } from '../../src/types'
-import type { ArtifactStore, ExecutionState } from '../../src/types'
+import type { ExecutionArtifactStore, ExecutionState } from '../../src/types'
 
 describe('ExecutionStateTracker', () => {
   let tracker: ExecutionStateTracker
-  let mockStore: ArtifactStore
+  let mockStore: ExecutionArtifactStore
 
   beforeEach(() => {
     mockStore = {
