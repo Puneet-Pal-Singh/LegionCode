@@ -5,7 +5,7 @@
 
 import { promises as fs } from 'fs'
 import { join, dirname } from 'path'
-import type { ArtifactStore, Artifact } from '../types/index.js'
+import type { ExecutionArtifactStore, Artifact } from '../types/index.js'
 import type { ExecutionState } from '../types/index.js'
 
 /**
@@ -27,7 +27,7 @@ export interface FileArtifactStoreConfig {
  * File-based artifact store for persistent local storage
  * Organizes artifacts by run ID in a predictable directory structure
  */
-export class FileArtifactStore implements ArtifactStore {
+export class FileArtifactStore implements ExecutionArtifactStore {
   private basePath: string
   private autoCreate: boolean
 

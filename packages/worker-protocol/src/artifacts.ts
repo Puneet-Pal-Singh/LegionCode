@@ -1,22 +1,13 @@
+import {
+  ArtifactKindSchema,
+  ArtifactMetadataSchema,
+} from "@repo/artifact-store";
 import { ArtifactIdSchema, JsonRecordSchema } from "@repo/platform-protocol";
 import { z } from "zod";
-import {
-  ByteCountSchema,
-  Sha256Schema,
-  WorkspaceRelativePathSchema,
-} from "./common.js";
+import { WorkspaceRelativePathSchema } from "./common.js";
 import { FileContentEncodingSchema } from "./files.js";
 
-export const WorkerArtifactKindSchema = z.enum([
-  "diff",
-  "patch",
-  "command_log",
-  "screenshot",
-  "generated_file",
-  "context_checkpoint",
-  "workspace_snapshot",
-  "final_report",
-]);
+export const WorkerArtifactKindSchema = ArtifactKindSchema;
 export type WorkerArtifactKind = z.infer<typeof WorkerArtifactKindSchema>;
 
 export const ArtifactUploadRequestSchema = z
@@ -26,23 +17,12 @@ export const ArtifactUploadRequestSchema = z
     encoding: FileContentEncodingSchema,
     content: z.string(),
     workspacePath: WorkspaceRelativePathSchema.nullable(),
-    metadata: JsonRecordSchema,
+    properties: JsonRecordSchema,
   })
   .strict();
 export type ArtifactUploadRequest = z.infer<typeof ArtifactUploadRequestSchema>;
 
-export const WorkerArtifactRefSchema = z
-  .object({
-    artifactId: ArtifactIdSchema,
-    kind: WorkerArtifactKindSchema,
-    contentType: z.string().min(1).max(255),
-    sizeBytes: ByteCountSchema,
-    sha256: Sha256Schema,
-    storageKey: z.string().min(1).max(1_024),
-    workspacePath: WorkspaceRelativePathSchema.nullable(),
-    metadata: JsonRecordSchema,
-  })
-  .strict();
+export const WorkerArtifactRefSchema = ArtifactMetadataSchema;
 export type WorkerArtifactRef = z.infer<typeof WorkerArtifactRefSchema>;
 
 export const ArtifactUploadResponseSchema = WorkerArtifactRefSchema;
@@ -62,7 +42,7 @@ export type ArtifactDownloadRequest = z.infer<
 
 export const ArtifactDownloadResponseSchema = z
   .object({
-    artifact: WorkerArtifactRefSchema,
+    artifact: ArtifactMetadataSchema,
     encoding: FileContentEncodingSchema,
     content: z.string(),
   })

@@ -11,6 +11,7 @@ run() {
 }
 
 run pnpm --filter @repo/contract-conformance check-types
+run pnpm --filter @repo/artifact-store test -- src/InMemoryArtifactStore.test.ts
 run pnpm --filter @repo/event-store test -- src/MemoryEventStore.test.ts
 run pnpm --filter @repo/persistence test -- src/canonical-events/PostgresEventStore.test.ts
 run pnpm --filter @repo/workspace-core test -- src/repository.test.ts
