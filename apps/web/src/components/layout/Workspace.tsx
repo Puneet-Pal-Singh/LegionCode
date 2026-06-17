@@ -272,6 +272,9 @@ export function Workspace({
       <GitReviewProvider
         key={`${sessionId}:${activeRunId}`}
         isReviewOpen={isGitReviewOpen}
+        isReviewActive={
+          isGitReviewOpen || activeTab === "review" || activeTab === "changes"
+        }
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={isGitWorkspaceRecovering}
       >

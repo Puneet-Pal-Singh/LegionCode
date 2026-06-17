@@ -42,6 +42,7 @@ interface GitReviewProviderProps {
   children: React.ReactNode;
   isReviewOpen: boolean;
   onReviewOpenChange: (open: boolean) => void;
+  isReviewActive?: boolean;
   isGitWorkspaceRecovering?: boolean;
 }
 
@@ -116,9 +117,11 @@ export function GitReviewProvider({
   children,
   isReviewOpen,
   onReviewOpenChange,
+  isReviewActive = false,
   isGitWorkspaceRecovering = false,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
+  const shouldLoadReviewData = isReviewOpen || isReviewActive;
 
   const {
     status,
@@ -126,7 +129,11 @@ export function GitReviewProvider({
     loading: statusLoading,
     error: statusError,
     refetch,
-  } = useGitStatus(runId ?? undefined, sessionId ?? undefined, isReviewOpen);
+  } = useGitStatus(
+    runId ?? undefined,
+    sessionId ?? undefined,
+    shouldLoadReviewData,
+  );
   const {
     diff: liveDiff,
     loading: liveDiffLoading,
@@ -160,7 +167,7 @@ export function GitReviewProvider({
     runId: runId ?? undefined,
     sessionId: sessionId ?? undefined,
     liveGitFiles,
-    enabled: isReviewOpen,
+    enabled: shouldLoadReviewData,
   });
   const {
     diff: artifactDiff,
@@ -249,6 +256,14 @@ export function GitReviewProvider({
       (comment) => comment.filePath === activeSelectedFilePath,
     );
   }, [activeSelectedFilePath, effectiveReviewComments]);
+  const reviewDiffSourceKey =
+    reviewSource.kind === "prompt_artifact"
+      ? (promptArtifactSource?.artifactId ?? "pending-artifact")
+      : "live-git";
+
+  useEffect(() => {
+    autoFetchedDiffKeyRef.current = null;
+  }, [reviewDiffSourceKey]);
 
   const selectSavedFileForReview = useCallback(
     async (path: string): Promise<void> => {
@@ -282,15 +297,11 @@ export function GitReviewProvider({
     const staged = activeSelectedFilePath
       ? stagedFiles.has(activeSelectedFilePath)
       : false;
-    const sourceIdentity =
-      reviewSource.kind === "prompt_artifact"
-        ? (promptArtifactSource?.artifactId ?? "pending-artifact")
-        : "live-git";
     const autoFetchKey = activeSelectedFilePath
-      ? `${sourceIdentity}:${activeSelectedFilePath}:${staged ? "staged" : "unstaged"}`
+      ? `${reviewDiffSourceKey}:${activeSelectedFilePath}:${staged ? "staged" : "unstaged"}`
       : null;
     if (
-      !isReviewOpen ||
+      !shouldLoadReviewData ||
       !activeSelectedFilePath ||
       !autoFetchKey ||
       autoFetchedDiffKeyRef.current === autoFetchKey ||
@@ -314,8 +325,8 @@ export function GitReviewProvider({
     diff,
     fetchArtifactDiff,
     fetchLiveDiff,
-    isReviewOpen,
-    promptArtifactSource?.artifactId,
+    shouldLoadReviewData,
+    reviewDiffSourceKey,
     reviewSource.kind,
     stagedFiles,
   ]);

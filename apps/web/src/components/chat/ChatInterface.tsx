@@ -271,6 +271,7 @@ export function ChatInterface({
   const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
   const lastAutoSwitchedPlanFailureKeyRef = useRef<string | null>(null);
   const lastReviewDispatchIdsRef = useRef<string[]>([]);
+  const latestComposerInputRef = useRef(input);
   const isSubmittingApprovalDecisionRef = useRef(false);
   const pendingChangedFilesRef = useRef<FileStatus[]>([]);
   const turnBaselineFilesRef = useRef<FileStatus[]>([]);
@@ -293,6 +294,10 @@ export function ChatInterface({
     setArtifactSourcesByAssistantMessageId,
   ] = useState<Record<string, PromptArtifactReviewSource>>({});
   const previousScrollScopeKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    latestComposerInputRef.current = input;
+  }, [input]);
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -363,41 +368,44 @@ export function ChatInterface({
   const loadChangedFileDiff = useCallback(
     async (messageId: string, file: FileStatus): Promise<DiffContent> => {
       const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
+      const artifactSource = artifactSourcesByAssistantMessageId[messageId];
+      if (artifactSource) {
+        const artifactCacheKey = buildArtifactChangedFileDiffCacheKey(
+          artifactSource.artifactId,
+          file,
+        );
+        const cachedArtifactDiff =
+          diffSnapshotsByMessageRef.current[artifactCacheKey];
+        if (cachedArtifactDiff) {
+          return cachedArtifactDiff;
+        }
+        const response = await getEditArtifactDiff({
+          artifactId: artifactSource.artifactId,
+          path: file.path,
+        });
+        diffSnapshotsByMessageRef.current[artifactCacheKey] = response.diff;
+        return response.diff;
+      }
+
       const cachedDiff = diffSnapshotsByMessageRef.current[cacheKey];
       if (cachedDiff) {
         return cachedDiff;
       }
 
-      const artifactSource = artifactSourcesByAssistantMessageId[messageId];
-      if (artifactSource) {
-        const response = await getEditArtifactDiff({
-          artifactId: artifactSource.artifactId,
-          path: file.path,
-        });
-        diffSnapshotsByMessageRef.current[cacheKey] = response.diff;
-        return response.diff;
+      const activityPreviewDiff = buildDiffFromActivityPreview(file);
+      if (activityPreviewDiff) {
+        diffSnapshotsByMessageRef.current[cacheKey] = activityPreviewDiff;
+        return activityPreviewDiff;
       }
 
-      const activityPreviewDiff = buildDiffFromActivityPreview(file);
-      try {
-        const liveDiff = await getGitDiff({
-          runId,
-          sessionId,
-          path: file.path,
-          staged: file.isStaged,
-        });
-        const diff = shouldUseActivityPreviewDiff(liveDiff, activityPreviewDiff)
-          ? activityPreviewDiff
-          : liveDiff;
-        diffSnapshotsByMessageRef.current[cacheKey] = diff;
-        return diff;
-      } catch (error) {
-        if (activityPreviewDiff) {
-          diffSnapshotsByMessageRef.current[cacheKey] = activityPreviewDiff;
-          return activityPreviewDiff;
-        }
-        throw error;
-      }
+      const liveDiff = await getGitDiff({
+        runId,
+        sessionId,
+        path: file.path,
+        staged: file.isStaged,
+      });
+      diffSnapshotsByMessageRef.current[cacheKey] = liveDiff;
+      return liveDiff;
     },
     [artifactSourcesByAssistantMessageId, runId, sessionId],
   );
@@ -418,13 +426,6 @@ export function ChatInterface({
     },
     [],
   );
-  const liveChangedFiles = useMemo(() => {
-    return collectChangedFilesSinceBaseline(
-      gitStatus?.files ?? [],
-      turnBaselineFilesRef.current,
-    );
-  }, [gitStatus?.files]);
-
   useEffect(() => {
     pendingChangedFilesRef.current = [];
     turnBaselineFilesRef.current = [];
@@ -592,6 +593,7 @@ export function ChatInterface({
 
   const handleInputChangeWrapper = useCallback(
     (value: string) => {
+      latestComposerInputRef.current = value;
       if (reviewCommentError) {
         setReviewCommentError(null);
       }
@@ -633,15 +635,19 @@ export function ChatInterface({
       lastReviewDispatchIdsRef.current = selectedIds;
       setReviewCommentError(null);
       markReviewCommentsDispatching(selectedIds);
+      const previousInput = input;
+      handleInputChangeWrapper("");
 
       try {
         await append({ role: "user", content: prompt });
         markReviewCommentsDispatched(selectedIds);
-        handleInputChangeWrapper("");
         return true;
       } catch (submitError) {
         markReviewCommentsDispatchFailed(selectedIds, { reselect: true });
         lastReviewDispatchIdsRef.current = [];
+        if (latestComposerInputRef.current === "") {
+          handleInputChangeWrapper(previousInput);
+        }
         const message =
           submitError instanceof Error
             ? submitError.message
@@ -980,16 +986,10 @@ export function ChatInterface({
   const hasAssistantChangedFileSummary = useMemo(
     () =>
       hasChangedFileSnapshot(changedFileSnapshotsByAssistantMessageId) ||
-      hasArtifactChangedFileSnapshot(artifactSourcesByAssistantMessageId) ||
-      (!isLoading &&
-        Boolean(latestAssistantMessageId) &&
-        liveChangedFiles.length > 0),
+      hasArtifactChangedFileSnapshot(artifactSourcesByAssistantMessageId),
     [
       artifactSourcesByAssistantMessageId,
       changedFileSnapshotsByAssistantMessageId,
-      isLoading,
-      latestAssistantMessageId,
-      liveChangedFiles.length,
     ],
   );
   const terminalViewModel = useMemo(
@@ -1210,9 +1210,6 @@ export function ChatInterface({
                   onReviewOpen={onReviewOpen}
                   changedFilesSummary={resolveChangedFilesSummary({
                     messageId: entry.message.id,
-                    latestAssistantMessageId,
-                    isLoading,
-                    liveFiles: liveChangedFiles,
                     snapshots: changedFileSnapshotsByAssistantMessageId,
                     artifacts: artifactSourcesByAssistantMessageId,
                     loadFileDiff: (file) =>
@@ -1314,9 +1311,6 @@ async function submitApprovalDecision(input: {
 
 function resolveChangedFilesSummary(input: {
   messageId: string;
-  latestAssistantMessageId: string | null;
-  isLoading: boolean;
-  liveFiles: FileStatus[] | undefined;
   snapshots: Record<string, FileStatus[]>;
   artifacts: Record<string, PromptArtifactReviewSource>;
   loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
@@ -1337,13 +1331,7 @@ function resolveChangedFilesSummary(input: {
     };
   }
 
-  const liveFiles =
-    !input.isLoading &&
-    input.messageId === input.latestAssistantMessageId &&
-    input.liveFiles?.length
-      ? input.liveFiles
-      : undefined;
-  const files = input.snapshots[input.messageId] ?? liveFiles;
+  const files = input.snapshots[input.messageId];
   if (!files?.length) {
     return undefined;
   }
@@ -1511,19 +1499,6 @@ function buildDiffLinesFromActivityPreview(
       newLineNumber += 1;
       return diffLine;
     });
-}
-
-function shouldUseActivityPreviewDiff(
-  liveDiff: DiffContent,
-  activityPreviewDiff: DiffContent | null,
-): activityPreviewDiff is DiffContent {
-  return Boolean(activityPreviewDiff) && !hasChangedDiffLines(liveDiff);
-}
-
-function hasChangedDiffLines(diff: DiffContent): boolean {
-  return diff.hunks.some((hunk) =>
-    hunk.lines.some((line) => line.type === "added" || line.type === "deleted"),
-  );
 }
 
 function collectChangedFilesSinceBaseline(

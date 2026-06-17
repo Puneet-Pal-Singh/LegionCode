@@ -782,6 +782,9 @@ export function AgentSetup({
     <GitReviewProvider
       key={`${sessionId}:${activeRunId}`}
       isReviewOpen={isGitReviewOpen}
+      isReviewActive={
+        isGitReviewOpen || activeTab === "review" || activeTab === "changes"
+      }
       onReviewOpenChange={setIsGitReviewOpen}
     >
       <motion.div
