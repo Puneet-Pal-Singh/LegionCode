@@ -1,4 +1,8 @@
-import type { ProtocolError, ProtocolErrorCode } from "@repo/platform-protocol";
+import {
+  ProtocolErrorSchema,
+  type ProtocolError,
+  type ProtocolErrorCode,
+} from "@repo/platform-protocol";
 
 export const RUNTIME_KERNEL_ERROR_CODES = [
   "invalid_turn_identity",
@@ -25,6 +29,9 @@ export class RuntimeKernelError extends Error {
 
 export function toProtocolError(error: unknown): ProtocolError {
   if (error instanceof RuntimeKernelError) {
+    if (error.code === "worker_failed") {
+      return mapWorkerFailure(error);
+    }
     return {
       code: mapProtocolErrorCode(error.code),
       message: error.message,
@@ -41,6 +48,31 @@ export function toProtocolError(error: unknown): ProtocolError {
     correlationId: null,
     details: null,
   };
+}
+
+function mapWorkerFailure(error: RuntimeKernelError): ProtocolError {
+  const failure = parseWorkerFailure(error.causeError);
+  if (failure === null) {
+    return {
+      code: "command_failed",
+      message: error.message,
+      retryable: true,
+      correlationId: null,
+      details: { runtimeKernelCode: error.code },
+    };
+  }
+  return {
+    ...failure,
+    details: {
+      ...(failure.details ?? {}),
+      runtimeKernelCode: error.code,
+    },
+  };
+}
+
+function parseWorkerFailure(value: unknown): ProtocolError | null {
+  const parsed = ProtocolErrorSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {

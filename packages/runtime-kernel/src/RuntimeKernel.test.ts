@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ArtifactIdSchema,
   ItemIdSchema,
   RunIdSchema,
   ToolCallIdSchema,
@@ -127,5 +128,142 @@ describe("RuntimeKernel package behavior", () => {
       "tool.call.failed",
       "turn.failed",
     ]);
+    const failure = replay.events.find(
+      (event) => event.type === "tool.call.failed",
+    );
+    expect(failure?.payload).toMatchObject({
+      failure: {
+        code: "command_failed",
+        message: "Write failed",
+        details: { runtimeKernelCode: "worker_failed" },
+      },
+    });
+  });
+
+  it("maps worker command output before completing the tool call", async () => {
+    const eventStore = createEventStore();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: "tool_call" as const,
+        itemId: ItemIdSchema.parse("itm_runtime001"),
+        content: {
+          toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+          toolName: "run_command",
+          input: { argv: ["pnpm", "test"] },
+        },
+      })
+      .mockResolvedValueOnce({ kind: "complete" as const, output: "Done" });
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "completed" as const,
+      output: {
+        exitCode: 0,
+        stdout: "tests passed",
+        stderr: "",
+        durationMs: 10,
+        timedOut: false,
+        signal: null,
+      },
+    }));
+    const kernel = new RuntimeKernel({
+      eventStore,
+      workspaceManifests: await createManifestRepository(),
+      ...ports,
+      producerId: "runtime-kernel-test",
+    });
+
+    await expect(kernel.startTurn({ run, turn })).resolves.toMatchObject({
+      status: "completed",
+    });
+    const replay = await eventStore.replay({
+      scope: { scopeType: "run", scopeId: run.id },
+      afterCursor: null,
+      limit: 20,
+    });
+    expect(replay.events.map((event) => event.type)).toEqual([
+      "turn.started",
+      "tool.call.requested",
+      "tool.call.started",
+      "tool.call.output.delta",
+      "tool.call.completed",
+      "turn.completed",
+    ]);
+    expect(replay.events[3]?.payload).toMatchObject({
+      itemId: "itm_runtime001",
+      toolCallId: "toolcall_runtime001",
+      delta: "tests passed",
+    });
+  });
+
+  it("emits artifact-created events separately from tool output", async () => {
+    const eventStore = createEventStore();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: "tool_call" as const,
+        itemId: ItemIdSchema.parse("itm_runtime001"),
+        content: {
+          toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+          toolName: "artifact_upload",
+          input: { path: "logs/command.log" },
+        },
+      })
+      .mockResolvedValueOnce({ kind: "complete" as const, output: "Done" });
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "completed" as const,
+      output: {
+        artifactId: "art_runtime001",
+        kind: "command_log",
+        ownership: {
+          createdBy: run.userId,
+          workspaceId: run.workspaceId,
+          threadId: run.threadId,
+          runId: run.id,
+        },
+        visibility: "run",
+        payload: {
+          backend: "memory",
+          storageKey: "artifacts/run_runtime001/command.log",
+          contentType: "text/plain",
+          byteSize: 12,
+          sha256: "a".repeat(64),
+        },
+        properties: { label: "Command log" },
+        createdAt: timestamp,
+      },
+    }));
+    const kernel = new RuntimeKernel({
+      eventStore,
+      workspaceManifests: await createManifestRepository(),
+      ...ports,
+      producerId: "runtime-kernel-test",
+    });
+
+    await expect(kernel.startTurn({ run, turn })).resolves.toMatchObject({
+      status: "completed",
+    });
+    const artifactReplay = await eventStore.replay({
+      scope: {
+        scopeType: "artifact",
+        scopeId: ArtifactIdSchema.parse("art_runtime001"),
+      },
+      afterCursor: null,
+      limit: 10,
+    });
+    expect(artifactReplay.events.map((event) => event.type)).toEqual([
+      "artifact.created",
+    ]);
+    expect(artifactReplay.events[0]?.payload).toMatchObject({
+      itemId: "itm_runtime001",
+      artifact: {
+        artifactId: "art_runtime001",
+        payloadRef: {
+          objectKey: "artifacts/run_runtime001/command.log",
+          sha256: "a".repeat(64),
+        },
+      },
+    });
   });
 });
