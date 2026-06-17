@@ -11,7 +11,6 @@ import {
   canShowProviderInPrimaryUi,
   canUseProviderAtRuntime,
   canUseProviderRuntimeFallback,
-  findBuiltinProvider,
   type ProviderRegistryEntry,
   type BYOKCredential,
   type BYOKPreference,
@@ -53,6 +52,7 @@ import {
   type BYOKDiscoveredProviderModelsQuery,
   BYOKProviderSlugSchema,
 } from "@repo/shared-types";
+import { builtinProviderRegistry } from "@repo/provider-core";
 import type { Env } from "../types/ai";
 import { jsonResponse, withEngineHeaders } from "../http/response";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
@@ -1420,7 +1420,7 @@ async function fetchRuntimeAxisQuota(
 function mapCatalogEntryToRegistry(
   entry: ProviderCatalogResponse["providers"][number],
 ): ProviderRegistryEntry {
-  const builtin = findBuiltinProvider(entry.providerId);
+  const builtin = builtinProviderRegistry.getProvider(entry.providerId);
   return {
     providerId: entry.providerId,
     displayName: entry.displayName,

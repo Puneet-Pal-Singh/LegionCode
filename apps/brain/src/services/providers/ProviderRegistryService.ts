@@ -1,5 +1,4 @@
 import {
-  getBuiltinRegistry,
   isLaunchSupportedProvider,
   isLaunchVisibleProvider,
   type ProviderAdapterFamily,
@@ -7,6 +6,7 @@ import {
   type ProviderRegistryEntry,
   type ProviderValidationAuthMode,
 } from "@repo/shared-types";
+import { builtinProviderRegistry } from "@repo/provider-core";
 import type {
   ProviderExecutionProfile,
   ProviderExecutionLaneSupport,
@@ -32,7 +32,7 @@ export class ProviderRegistryService {
   private readonly entriesById: Map<string, ProviderRegistryEntry>;
 
   constructor(
-    entries: ProviderRegistryEntry[] = getBuiltinRegistry().providers,
+    entries: ProviderRegistryEntry[] = builtinProviderRegistry.listProviders(),
   ) {
     this.entriesById = new Map(
       entries.map((entry) => [entry.providerId, { ...entry }]),
