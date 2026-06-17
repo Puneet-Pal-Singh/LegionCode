@@ -143,6 +143,20 @@ function applyLifecycleEvent(state: ReplayState, event: LifecycleEvent): ReplayS
     assertTurnAcceptsLifecycleEvent(state.status, event.type);
   }
 
+  const next =
+    applyTurnEvent(state, event) ??
+    applyRunAttemptEvent(state, event) ??
+    applyItemEvent(state, event) ??
+    applyToolCallEvent(state, event) ??
+    applyApprovalEvent(state, event) ??
+    applyRequestEvent(state, event);
+  return next ?? advance(state, event.sequence);
+}
+
+function applyTurnEvent(
+  state: ReplayState,
+  event: LifecycleEvent,
+): ReplayState | null {
   switch (event.type) {
     case "turn.queued":
       return applyTurnQueued(state);
@@ -150,6 +164,22 @@ function applyLifecycleEvent(state: ReplayState, event: LifecycleEvent): ReplayS
       return applyTurnStarted(state);
     case "turn.blocking_changed":
       return applyBlockingChanged(state, event.payload);
+    case "turn.completed":
+      return applyTerminalTurn(state, "completed", event.payload.outcome);
+    case "turn.interrupted":
+      return applyTerminalTurn(state, "interrupted", event.payload.outcome);
+    case "turn.failed":
+      return applyTerminalTurn(state, "failed", event.payload.outcome);
+    default:
+      return null;
+  }
+}
+
+function applyRunAttemptEvent(
+  state: ReplayState,
+  event: LifecycleEvent,
+): ReplayState | null {
+  switch (event.type) {
     case "run_attempt.started":
       return setRunAttemptStatus(state, event.runAttemptId, "running");
     case "run_attempt.succeeded":
@@ -158,6 +188,16 @@ function applyLifecycleEvent(state: ReplayState, event: LifecycleEvent): ReplayS
       return setRunAttemptStatus(state, event.runAttemptId, "interrupted");
     case "run_attempt.failed":
       return setRunAttemptStatus(state, event.runAttemptId, "failed");
+    default:
+      return null;
+  }
+}
+
+function applyItemEvent(
+  state: ReplayState,
+  event: LifecycleEvent,
+): ReplayState | null {
+  switch (event.type) {
     case "item.started":
       return applyItemStarted(state, event.itemId, event.payload);
     case "item.updated":
@@ -172,6 +212,32 @@ function applyLifecycleEvent(state: ReplayState, event: LifecycleEvent): ReplayS
         event.sequence,
       );
     case "tool_call.started":
+    case "tool_call.input_delta":
+    case "tool_call.output_delta":
+    case "tool_call.completed":
+    case "tool_call.failed":
+    case "tool_call.declined":
+    case "tool_call.interrupted":
+      return null;
+    case "item.completed":
+      return setItemStatus(state, event.itemId, "completed");
+    case "item.failed":
+      return setItemStatus(state, event.itemId, "failed");
+    case "item.declined":
+      return setItemStatus(state, event.itemId, "declined");
+    case "item.interrupted":
+      return setItemStatus(state, event.itemId, "interrupted");
+    default:
+      return null;
+  }
+}
+
+function applyToolCallEvent(
+  state: ReplayState,
+  event: LifecycleEvent,
+): ReplayState | null {
+  switch (event.type) {
+    case "tool_call.started":
       return applyToolCallStarted(state, event.itemId, event.toolCallId);
     case "tool_call.input_delta":
     case "tool_call.output_delta":
@@ -184,32 +250,38 @@ function applyLifecycleEvent(state: ReplayState, event: LifecycleEvent): ReplayS
       return setToolCallStatus(state, event.toolCallId, "declined");
     case "tool_call.interrupted":
       return setToolCallStatus(state, event.toolCallId, "interrupted");
-    case "item.completed":
-      return setItemStatus(state, event.itemId, "completed");
-    case "item.failed":
-      return setItemStatus(state, event.itemId, "failed");
-    case "item.declined":
-      return setItemStatus(state, event.itemId, "declined");
-    case "item.interrupted":
-      return setItemStatus(state, event.itemId, "interrupted");
+    default:
+      return null;
+  }
+}
+
+function applyApprovalEvent(
+  state: ReplayState,
+  event: LifecycleEvent,
+): ReplayState | null {
+  switch (event.type) {
     case "approval.requested":
       return applyApprovalRequested(state, event.itemId, event.approvalId);
     case "approval.decided":
       return applyApprovalDecided(state, event.approvalId, event.payload);
+    default:
+      return null;
+  }
+}
+
+function applyRequestEvent(
+  state: ReplayState,
+  event: LifecycleEvent,
+): ReplayState | null {
+  switch (event.type) {
     case "user_input.requested":
       return applyUserInputRequested(state, event.itemId, event.requestId);
     case "user_input.responded":
       return requirePendingRequest(state, event.requestId, event.sequence);
     case "request.resolved":
       return setRequestResolved(state, event.requestId);
-    case "turn.completed":
-      return applyTerminalTurn(state, "completed", event.payload.outcome);
-    case "turn.interrupted":
-      return applyTerminalTurn(state, "interrupted", event.payload.outcome);
-    case "turn.failed":
-      return applyTerminalTurn(state, "failed", event.payload.outcome);
     default:
-      return advance(state, event.sequence);
+      return null;
   }
 }
 
