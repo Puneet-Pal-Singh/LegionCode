@@ -190,7 +190,7 @@ jobs:
       - name: Collect PR governance context
         if: github.event_name == 'pull_request'
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
+          git fetch origin "${{ github.base_ref }}"
           {
             echo "REBUILD_CHANGED_FILES<<EOF"
             git diff --name-only "origin/${{ github.base_ref }}...HEAD"
@@ -241,7 +241,7 @@ jobs:
 
       - name: Collect PR metadata context
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
+          git fetch origin "${{ github.base_ref }}"
           {
             echo "REBUILD_CHANGED_FILES<<EOF"
             git diff --name-only "origin/${{ github.base_ref }}...HEAD"
