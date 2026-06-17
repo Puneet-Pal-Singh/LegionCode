@@ -102,6 +102,12 @@ async function createFixture(context) {
       "@repo/platform-protocol": "workspace:*",
       "@repo/workspace-core": "workspace:*",
     },
+    "runtime-cloudflare-worker": {
+      "@repo/artifact-store": "workspace:*",
+      "@repo/git-service": "workspace:*",
+      "@repo/platform-protocol": "workspace:*",
+      "@repo/worker-protocol": "workspace:*",
+    },
     "worker-protocol": {
       "@repo/artifact-store": "workspace:*",
       "@repo/platform-protocol": "workspace:*",

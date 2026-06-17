@@ -20,6 +20,12 @@ export const PACKAGE_DEPENDENCY_POLICY = {
     "@repo/platform-protocol",
     "@repo/workspace-core",
   ],
+  "@repo/runtime-cloudflare-worker": [
+    "@repo/artifact-store",
+    "@repo/git-service",
+    "@repo/platform-protocol",
+    "@repo/worker-protocol",
+  ],
   "@repo/worker-protocol": ["@repo/artifact-store", "@repo/platform-protocol"],
   "@repo/workspace-core": ["@repo/platform-protocol"],
 };
