@@ -747,7 +747,9 @@ function failedTurnEvents(): readonly LifecycleEvent[] {
 }
 
 function terminalWithActiveItemEvents(): readonly LifecycleEvent[] {
-  return completedTurnEvents().filter((event) => event.sequence !== 9);
+  return renumberEvents(
+    completedTurnEvents().filter((event) => event.sequence !== 9),
+  );
 }
 
 function terminalWithPendingApprovalEvents(): readonly LifecycleEvent[] {
@@ -759,7 +761,7 @@ function terminalWithPendingApprovalEvents(): readonly LifecycleEvent[] {
 }
 
 function terminalWithActiveToolEvents(): readonly LifecycleEvent[] {
-  return toolTurnEvents().filter((event) => event.sequence !== 8);
+  return renumberEvents(toolTurnEvents().filter((event) => event.sequence !== 8));
 }
 
 function terminalWithPendingRequestEvents(): readonly LifecycleEvent[] {
@@ -890,6 +892,18 @@ function lifecycleEvent(
     createdAt: timestamp,
     type,
     ...extra,
+  });
+}
+
+function renumberEvents(events: readonly LifecycleEvent[]): readonly LifecycleEvent[] {
+  return events.map((event, index) => {
+    const sequence = index + 1;
+    return LifecycleEventSchema.parse({
+      ...event,
+      eventId: `evt_lifecycle${String(sequence).padStart(3, "0")}`,
+      sequence,
+      idempotencyKey: `lifecycle:${sequence}`,
+    });
   });
 }
 
