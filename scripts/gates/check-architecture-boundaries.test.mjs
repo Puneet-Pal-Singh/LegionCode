@@ -82,6 +82,7 @@ async function createFixture(context) {
   context.after(() => rm(fixtureRoot, { force: true, recursive: true }));
 
   for (const [name, dependencies] of Object.entries({
+    "artifact-store": { "@repo/platform-protocol": "workspace:*" },
     "event-store": { "@repo/platform-protocol": "workspace:*" },
     "git-service": { "@repo/platform-protocol": "workspace:*" },
     "permission-policy": { "@repo/platform-protocol": "workspace:*" },
@@ -101,7 +102,16 @@ async function createFixture(context) {
       "@repo/platform-protocol": "workspace:*",
       "@repo/workspace-core": "workspace:*",
     },
-    "worker-protocol": { "@repo/platform-protocol": "workspace:*" },
+    "runtime-cloudflare-worker": {
+      "@repo/artifact-store": "workspace:*",
+      "@repo/git-service": "workspace:*",
+      "@repo/platform-protocol": "workspace:*",
+      "@repo/worker-protocol": "workspace:*",
+    },
+    "worker-protocol": {
+      "@repo/artifact-store": "workspace:*",
+      "@repo/platform-protocol": "workspace:*",
+    },
     "workspace-core": { "@repo/platform-protocol": "workspace:*" },
   })) {
     await writeManifest(
@@ -116,6 +126,11 @@ async function createFixture(context) {
     fixtureRoot,
     "packages/event-store/src/types.ts",
     "export interface EventStore {}",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/artifact-store/src/types.ts",
+    "export interface ArtifactStore {}",
   );
   await writeSource(
     fixtureRoot,

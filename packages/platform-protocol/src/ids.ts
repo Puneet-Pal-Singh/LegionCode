@@ -8,6 +8,7 @@ export const PLATFORM_ID_PREFIXES = {
   workspace: "wrk",
   thread: "thr",
   run: "run",
+  runAttempt: "attempt",
   turn: "trn",
   item: "itm",
   toolCall: "toolcall",
@@ -85,6 +86,12 @@ export const RunIdSchema = createPrefixedIdSchema(
 );
 export type RunId = z.infer<typeof RunIdSchema>;
 
+export const RunAttemptIdSchema = createPrefixedIdSchema(
+  "RunAttemptId",
+  PLATFORM_ID_PREFIXES.runAttempt,
+);
+export type RunAttemptId = z.infer<typeof RunAttemptIdSchema>;
+
 export const TurnIdSchema = createPrefixedIdSchema(
   "TurnId",
   PLATFORM_ID_PREFIXES.turn,
@@ -119,9 +126,7 @@ export const WorkspaceManifestIdSchema = createPrefixedIdSchema(
   "WorkspaceManifestId",
   PLATFORM_ID_PREFIXES.workspaceManifest,
 );
-export type WorkspaceManifestId = z.infer<
-  typeof WorkspaceManifestIdSchema
->;
+export type WorkspaceManifestId = z.infer<typeof WorkspaceManifestIdSchema>;
 
 export const EventIdSchema = createPrefixedIdSchema(
   "EventId",
@@ -159,9 +164,7 @@ export const PermissionProfileIdSchema = createPrefixedIdSchema(
   "PermissionProfileId",
   PLATFORM_ID_PREFIXES.permissionProfile,
 );
-export type PermissionProfileId = z.infer<
-  typeof PermissionProfileIdSchema
->;
+export type PermissionProfileId = z.infer<typeof PermissionProfileIdSchema>;
 
 export const PlatformIdSchemas = {
   UserId: UserIdSchema,
@@ -169,6 +172,7 @@ export const PlatformIdSchemas = {
   WorkspaceId: WorkspaceIdSchema,
   ThreadId: ThreadIdSchema,
   RunId: RunIdSchema,
+  RunAttemptId: RunAttemptIdSchema,
   TurnId: TurnIdSchema,
   ItemId: ItemIdSchema,
   ToolCallId: ToolCallIdSchema,

@@ -2,7 +2,7 @@ import { RUN_TERMINAL_STATES, type RunTerminalState } from "@repo/shared-types";
 
 const DEFAULT_DETAIL_FALLBACK =
   "The runtime finished without additional diagnostics.";
-const FEATURE_FLAG_KEYS = [
+const FINAL_SUMMARY_FEATURE_FLAG_KEYS = [
   "finalSummaryContractV1",
   "final_summary_contract_v1",
 ] as const;
@@ -29,7 +29,9 @@ export function isFinalSummaryContractEnabled(
     return false;
   }
 
-  return FEATURE_FLAG_KEYS.some((key) => readBooleanLike(featureFlags[key]));
+  return FINAL_SUMMARY_FEATURE_FLAG_KEYS.some((key) =>
+    readBooleanLike(featureFlags[key]),
+  );
 }
 
 export function buildFinalSummaryFrame(input: FinalSummaryFrameInput): string {

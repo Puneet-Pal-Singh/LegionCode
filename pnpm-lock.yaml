@@ -42,6 +42,9 @@ importers:
       '@repo/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@repo/provider-core':
+        specifier: workspace:*
+        version: link:../../packages/provider-core
       '@shadowbox/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
@@ -322,6 +325,31 @@ importers:
       wrangler:
         specifier: ^4.61.0
         version: 4.61.0(@cloudflare/workers-types@4.20260128.0)
+
+  packages/artifact-store:
+    dependencies:
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.1
+    devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
 
   packages/context-assembly:
     devDependencies:
@@ -734,6 +762,9 @@ importers:
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      zod:
+        specifier: ^3.25.1
+        version: 3.25.1
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
@@ -760,6 +791,34 @@ importers:
       vitest:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
+
+  packages/runtime-cloudflare-worker:
+    dependencies:
+      '@repo/artifact-store':
+        specifier: workspace:*
+        version: link:../artifact-store
+      '@repo/git-service':
+        specifier: workspace:*
+        version: link:../git-service
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      '@repo/worker-protocol':
+        specifier: workspace:*
+        version: link:../worker-protocol
+    devDependencies:
+      '@repo/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
 
   packages/runtime-kernel:
     dependencies:
@@ -830,6 +889,9 @@ importers:
 
   packages/worker-protocol:
     dependencies:
+      '@repo/artifact-store':
+        specifier: workspace:*
+        version: link:../artifact-store
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol

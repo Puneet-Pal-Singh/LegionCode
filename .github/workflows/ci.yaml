@@ -165,6 +165,47 @@ jobs:
       - name: Run demo-critical capability preservation suites
         run: pnpm gate:capability-preservation
 
+  rebuild-governance:
+    name: Rebuild Governance Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Collect PR governance context
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          {
+            echo "REBUILD_CHANGED_FILES<<EOF"
+            git diff --name-only "origin/${{ github.base_ref }}...HEAD"
+            echo "EOF"
+            echo "REBUILD_PR_BODY<<EOF"
+            node -e 'const fs = require("node:fs"); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")); process.stdout.write(event.pull_request?.body ?? "");'
+            echo
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Run rebuild governance gate
+        env:
+          REBUILD_PR_METADATA_MODE: report-only
+        run: pnpm gate:rebuild-governance
+
   dev-smoke:
     name: Dev Smoke Gate
     runs-on: ubuntu-latest
@@ -187,6 +228,34 @@ jobs:
 
       - name: Run deterministic dev smoke gate
         run: pnpm gate:dev-smoke
+
+  pr-metadata-governance:
+    name: PR Metadata Governance (report-only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect PR metadata context
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          {
+            echo "REBUILD_CHANGED_FILES<<EOF"
+            git diff --name-only "origin/${{ github.base_ref }}...HEAD"
+            echo "EOF"
+            echo "REBUILD_PR_BODY<<EOF"
+            node -e 'const fs = require("node:fs"); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")); process.stdout.write(event.pull_request?.body ?? "");'
+            echo
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate PR metadata
+        env:
+          REBUILD_PR_METADATA_MODE: blocking
+        run: node scripts/gates/check-rebuild-governance.mjs
 
   full-web-test-report:
     name: Full Web Tests (report-only)
@@ -235,6 +304,7 @@ jobs:
         runtime-conformance,
         contract-conformance,
         capability-preservation,
+        rebuild-governance,
         dev-smoke,
       ]
     steps:
@@ -301,3 +371,6 @@ jobs:
         run: |
           pnpm gate:runtime-conformance
           pnpm gate:contract-conformance
+
+      - name: Run rebuild governance gate (strict)
+        run: pnpm gate:rebuild-governance

@@ -24,6 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/artifact-store": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "zod": "^3.25.0"
   },

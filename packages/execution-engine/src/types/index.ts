@@ -75,7 +75,7 @@ export type {
   ArtifactType,
   ArtifactFormat,
   Artifact,
-  ArtifactStore
+  ExecutionArtifactStore
 } from './artifacts.js'
 
 export {

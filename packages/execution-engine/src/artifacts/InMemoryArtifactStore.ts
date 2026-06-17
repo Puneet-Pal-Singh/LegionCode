@@ -3,14 +3,14 @@
  * Stores artifacts and snapshots in memory for testing and development
  */
 
-import type { ArtifactStore, Artifact } from '../types/index.js'
+import type { ExecutionArtifactStore, Artifact } from '../types/index.js'
 import type { ExecutionState } from '../types/index.js'
 
 /**
  * In-memory artifact store for testing and development
  * Useful for unit tests and scenarios where persistence is not required
  */
-export class InMemoryArtifactStore implements ArtifactStore {
+export class InMemoryArtifactStore implements ExecutionArtifactStore {
   private artifacts: Map<string, Artifact[]> = new Map()
   private snapshots: Map<string, ExecutionState> = new Map()
 
