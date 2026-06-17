@@ -10,6 +10,7 @@
     "check-types": "turbo run check-types --continue",
     "check:boundaries": "bash scripts/check-import-boundaries.sh",
     "gate:dev-smoke": "bash scripts/gates/run-dev-smoke.sh",
+    "gate:rebuild-governance": "bash scripts/gates/run-rebuild-governance.sh",
     "gate:capability-preservation": "node scripts/gates/run-capability-preservation.mjs",
     "gate:contract-conformance": "bash scripts/gates/run-contract-conformance.sh",
     "gate:portability-boundary": "bash scripts/gate-portability-boundary.sh",
