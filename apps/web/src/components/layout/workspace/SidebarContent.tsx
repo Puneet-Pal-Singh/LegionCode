@@ -7,7 +7,7 @@ import { ChangesPanel } from "../../sidebar/ChangesPanel";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
 import { RepoFileTree } from "../../github/RepoFileTree";
-import { useGitReview } from "../../git/GitReviewContext";
+import { useGitReview } from "../../git/useGitReview";
 import type { TabType, SelectedFile, SelectedDiff } from "./useWorkspaceState";
 import type { Repository } from "../../../services/GitHubService";
 
@@ -184,7 +184,8 @@ export function SidebarContent({
             className="absolute inset-0 overflow-y-auto"
           >
             <ChangesPanel
-              mode="sidebar"
+              mode="modal"
+              layout="stacked"
               showToolbar={false}
               onFileSelect={handleChangedFileSelect}
             />

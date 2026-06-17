@@ -53,7 +53,7 @@ function buildChangedFile() {
   };
 }
 
-vi.mock("../git/GitReviewContext", () => ({
+vi.mock("../git/useGitReview", () => ({
   useGitReview: () => ({
     status: mockGitReviewState.hasStatus
       ? {
@@ -158,7 +158,14 @@ vi.mock("../diff/ChangesList", () => ({
 }));
 
 vi.mock("../diff/DiffViewer", () => ({
-  DiffViewer: () => <div>diff-viewer</div>,
+  DiffViewer: ({
+    diff,
+  }: {
+    diff: {
+      oldPath: string;
+      newPath: string;
+    };
+  }) => <div>diff-viewer:{diff.newPath || diff.oldPath}</div>,
 }));
 
 describe("ChangesPanel", () => {
@@ -228,7 +235,62 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel />);
 
-    expect(screen.getByText("diff-viewer")).toBeInTheDocument();
+    expect(screen.getByText("diff-viewer:src/main.ts")).toBeInTheDocument();
+  });
+
+  it("lists every changed file in stacked review mode", () => {
+    mockStatusFiles.splice(
+      0,
+      mockStatusFiles.length,
+      buildChangedFile(),
+      {
+        path: "src/secondary.ts",
+        status: "modified",
+        isStaged: false,
+        additions: 3,
+        deletions: 2,
+      },
+    );
+    mockGitReviewState.selectedFile = buildChangedFile();
+    mockGitReviewState.diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    expect(screen.getByText("src/main.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/secondary.ts")).toBeInTheDocument();
+    expect(screen.getByText("diff-viewer:src/main.ts")).toBeInTheDocument();
+  });
+
+  it("selects another file from the stacked review list", () => {
+    mockStatusFiles.splice(
+      0,
+      mockStatusFiles.length,
+      buildChangedFile(),
+      {
+        path: "src/secondary.ts",
+        status: "modified",
+        isStaged: false,
+        additions: 3,
+        deletions: 2,
+      },
+    );
+    mockGitReviewState.selectedFile = buildChangedFile();
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /src\/secondary.ts/ }));
+
+    expect(mockSelectFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "src/secondary.ts" }),
+    );
+    expect(mockOpenReview).not.toHaveBeenCalled();
   });
 
   it("selects the first changed file when the stacked modal hides the file tree", () => {
