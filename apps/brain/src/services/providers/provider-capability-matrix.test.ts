@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PROVIDER_IDS } from "../../schemas/provider-registry";
+import { PROVIDER_IDS } from "@repo/provider-core";
 import {
   PROVIDER_CAPABILITY_MATRIX,
   isModelAllowedByCapabilityMatrix,

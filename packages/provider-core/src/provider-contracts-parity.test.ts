@@ -30,7 +30,7 @@ import {
   type ProviderErrorCode,
   type ProviderId,
   type ProviderRegistryEntry,
-  type ProviderRegistry,
+  type ProviderRegistrySnapshot,
   type ProviderValidationAuthMode,
 } from "./index.js";
 import {
@@ -112,6 +112,6 @@ describe("provider-core contract parity", () => {
     expectTypeOf<ProviderConnectionsResponse>().toEqualTypeOf<SharedProviderConnectionsResponse>();
     expectTypeOf<ProviderErrorCode>().toEqualTypeOf<SharedProviderErrorCode>();
     expectTypeOf<ProviderRegistryEntry>().toEqualTypeOf<SharedProviderRegistryEntry>();
-    expectTypeOf<ProviderRegistry>().toEqualTypeOf<SharedProviderRegistry>();
+    expectTypeOf<ProviderRegistrySnapshot>().toEqualTypeOf<SharedProviderRegistry>();
   });
 });

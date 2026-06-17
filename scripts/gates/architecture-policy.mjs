@@ -33,6 +33,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
     "@repo/persistence",
+    "@repo/provider-core",
     "@repo/runtime-kernel",
     "@repo/shared-types",
   ],
@@ -48,26 +49,36 @@ export const CANONICAL_AUTHORITIES = [
   {
     symbol: "ArtifactStore",
     owner: "packages/artifact-store/src/types.ts",
-    declaration: /\b(?:interface|class)\s+ArtifactStore\s*\{|\btype\s+ArtifactStore\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+ArtifactStore\s*\{|\btype\s+ArtifactStore\s*=/,
+  },
+  {
+    symbol: "ProviderRegistry",
+    owner: "packages/provider-core/src/registry.ts",
+    declaration: /\bclass\s+ProviderRegistry\s*\{/,
   },
   {
     symbol: "EventStore",
     owner: "packages/event-store/src/types.ts",
-    declaration: /\b(?:interface|class)\s+EventStore\s*\{|\btype\s+EventStore\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+EventStore\s*\{|\btype\s+EventStore\s*=/,
   },
   {
     symbol: "GitService",
     owner: "packages/git-service/src/types.ts",
-    declaration: /\b(?:interface|class)\s+GitService\s*\{|\btype\s+GitService\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+GitService\s*\{|\btype\s+GitService\s*=/,
   },
   {
     symbol: "RuntimeKernel",
     owner: "packages/runtime-kernel/src/RuntimeKernel.ts",
-    declaration: /\b(?:interface|class)\s+RuntimeKernel\s*\{|\btype\s+RuntimeKernel\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+RuntimeKernel\s*\{|\btype\s+RuntimeKernel\s*=/,
   },
   {
     symbol: "WorkspaceManifestRepository",
     owner: "packages/workspace-core/src/repository.ts",
-    declaration: /\b(?:interface|class)\s+WorkspaceManifestRepository\s*\{|\btype\s+WorkspaceManifestRepository\s*=/,
+    declaration:
+      /\b(?:interface|class)\s+WorkspaceManifestRepository\s*\{|\btype\s+WorkspaceManifestRepository\s*=/,
   },
 ];
