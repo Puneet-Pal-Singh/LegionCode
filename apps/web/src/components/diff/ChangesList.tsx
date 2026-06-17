@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import type { FileStatus } from "@repo/shared-types";
 import { ChangeItem } from "./ChangeItem";
 import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
-import type { ReviewScope } from "../git/GitReviewContext";
+import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
 
 interface ChangesListProps {
   files: FileStatus[];
