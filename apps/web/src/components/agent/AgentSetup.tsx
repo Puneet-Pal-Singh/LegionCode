@@ -44,7 +44,8 @@ import {
   findActiveFileMention,
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
-import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
+import { GitReviewProvider } from "../git/GitReviewContext";
+import { useGitReview } from "../git/useGitReview";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import {
   isProviderModelBootstrapLoading,

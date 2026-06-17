@@ -108,7 +108,7 @@ vi.mock("../../contexts/AuthContext.js", () => ({
   }),
 }));
 
-vi.mock("../git/GitReviewContext", () => ({
+vi.mock("../git/useGitReview", () => ({
   useGitReview: () => ({
     status: mockGitReviewState.status,
     selectedReviewComments: mockGitReviewState.selectedReviewComments,

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { FileDiff, GitBranch, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
-import { useGitReview } from "./GitReviewContext";
+import { useGitReview } from "./useGitReview";
 
 export function GitReviewDialog() {
   const {
@@ -140,7 +140,7 @@ export function GitReviewDialog() {
         </div>
 
         <div className="min-h-0 flex-1">
-          <ChangesPanel className="h-full p-5" mode="modal" />
+          <ChangesPanel className="h-full p-5" mode="modal" layout="stacked" />
         </div>
       </div>
     </div>

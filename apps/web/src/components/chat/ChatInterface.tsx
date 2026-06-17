@@ -54,7 +54,7 @@ import {
   isTerminalRunStatus,
   normalizeRunStatus,
 } from "../../lib/run-status.js";
-import { useGitReview } from "../git/GitReviewContext";
+import { useGitReview } from "../git/useGitReview";
 import {
   buildReviewCommentPrompt,
   validateReviewPromptBudget,

@@ -152,6 +152,9 @@ vi.mock("../git/GitReviewContext", () => ({
   GitReviewProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+}));
+
+vi.mock("../git/useGitReview", () => ({
   useGitReview: () => ({
     status: {
       branch: "main",
