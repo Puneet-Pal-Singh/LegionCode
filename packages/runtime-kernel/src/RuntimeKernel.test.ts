@@ -13,6 +13,7 @@ import type { LifecycleEventSink } from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   MemoryLifecycleEventSink,
+  approvalRequest,
   createLifecycleSink,
   createManifestRepository,
   createPorts,
@@ -29,7 +30,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = createLifecycleSink();
     const kernel = await createKernel(sink);
 
-    await expect(kernel.startTurn({ run, turn, runAttemptId })).resolves.toEqual({
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toEqual({
       status: "completed",
       output: "Done",
       toolCallCount: 0,
@@ -59,7 +62,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
     }));
     const kernel = await createKernel(sink, ports);
 
-    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toMatchObject({
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({
       code: "worker_failed",
     });
 
@@ -72,13 +77,82 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(terminalEvents(sink)).toHaveLength(1);
   });
 
+  it("emits approval lifecycle events before policy-gated execution", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: approvalRequest,
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(ports.worker.executeTool).toHaveBeenCalledTimes(1);
+    expect(ports.worker.executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approval: expect.objectContaining({ decision: "approved" }),
+      }),
+    );
+    expect(eventTypes(sink)).toContain("approval.requested");
+    expect(eventTypes(sink)).toContain("approval.decided");
+    expect(sink.events.at(-1)?.type).toBe("turn.completed");
+  });
+
+  it("settles typed policy denial without calling the worker", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => toolStep());
+    ports.toolAuthorization.authorize = vi.fn(async () => ({
+      status: "rejected" as const,
+      code: "tool_policy_denied" as const,
+      reason: "Read-only runs cannot write files.",
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({
+      code: "tool_policy_denied",
+    });
+
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+    expect(eventTypes(sink).slice(-4)).toEqual([
+      "tool_call.failed",
+      "item.failed",
+      "run_attempt.failed",
+      "turn.failed",
+    ]);
+    expect(sink.events.at(-1)?.payload).toMatchObject({
+      outcome: {
+        failure: {
+          code: "policy_denied",
+          details: { runtimeKernelCode: "tool_policy_denied" },
+        },
+      },
+    });
+  });
+
   it("emits canonical tool output and settles its item before completion", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi
       .fn()
       .mockResolvedValueOnce(toolStep())
-      .mockResolvedValueOnce({ kind: "complete", itemId: finalItemId, output: "Done" });
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
     ports.worker.executeTool = vi.fn(async () => ({
       kind: "completed" as const,
       output: { stdout: "tests passed" },
@@ -98,7 +172,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = new FailingCompletedSettlementSink(1);
     const kernel = await createKernel(sink);
 
-    await expect(kernel.startTurn({ run, turn, runAttemptId })).resolves.toMatchObject({
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toMatchObject({
       status: "completed",
     });
 
@@ -110,9 +186,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const sink = new FailingCompletedSettlementSink(2);
     const kernel = await createKernel(sink);
 
-    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toBeInstanceOf(
-      RuntimeLifecycleSettlementError,
-    );
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toBeInstanceOf(RuntimeLifecycleSettlementError);
 
     expect(eventTypes(sink).slice(-2)).toEqual([
       "run_attempt.failed",
@@ -161,7 +237,8 @@ describe("RuntimeKernel canonical lifecycle", () => {
   it("interrupts active tool work and rejects its later completion write", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
-    const worker = deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
+    const worker =
+      deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
     ports.provider.generateNext = vi.fn(async () => toolStep());
     ports.worker.executeTool = vi.fn(() => worker.promise);
     const kernel = await createKernel(sink, ports);
@@ -186,17 +263,26 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ports.provider.generateNext = vi
       .fn()
       .mockResolvedValueOnce(toolStep())
-      .mockResolvedValueOnce({ kind: "complete", itemId: finalItemId, output: "Done" });
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
     const kernel = await createKernel(sink, ports);
     const execution = kernel.startTurn({ run, turn, runAttemptId });
     await sink.waitUntilBlocked();
 
-    const interruption = kernel.interruptTurn(turn.id, "User cancelled the turn");
+    const interruption = kernel.interruptTurn(
+      turn.id,
+      "User cancelled the turn",
+    );
     sink.release();
     await interruption;
 
     await expect(execution).rejects.toBeInstanceOf(LifecycleTransitionError);
-    expect(eventTypes(sink).filter((type) => type === "tool_call.completed")).toHaveLength(1);
+    expect(
+      eventTypes(sink).filter((type) => type === "tool_call.completed"),
+    ).toHaveLength(1);
     expect(eventTypes(sink)).not.toContain("tool_call.interrupted");
     expect(sink.events.map((event) => event.sequence)).toEqual(
       sink.events.map((_, index) => index + 1),
@@ -296,7 +382,10 @@ class BlockingToolCompletionSink extends MemoryLifecycleEventSink {
   override async appendBatch(
     events: readonly LifecycleEvent[],
   ): Promise<readonly LifecycleEvent[]> {
-    if (this.shouldBlock && events.some((event) => event.type === "tool_call.completed")) {
+    if (
+      this.shouldBlock &&
+      events.some((event) => event.type === "tool_call.completed")
+    ) {
       this.shouldBlock = false;
       this.blocked.resolve(undefined);
       await this.released.promise;

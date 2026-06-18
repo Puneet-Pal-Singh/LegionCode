@@ -78,6 +78,9 @@
     "test:coverage": "vitest --coverage"
   },
   "dependencies": {
+    "@repo/permission-policy": "workspace:*",
+    "@repo/platform-protocol": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
     "@repo/shared-types": "workspace:*",
     "@shadowbox/orchestrator-core": "workspace:*",
     "safe-regex": "^2.1.1",

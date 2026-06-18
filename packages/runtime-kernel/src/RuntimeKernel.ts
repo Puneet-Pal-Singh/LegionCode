@@ -18,6 +18,7 @@ import type {
   ProviderPort,
   LifecycleEventSink,
   RuntimeKernelClock,
+  ToolAuthorizationPort,
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
@@ -34,6 +35,7 @@ export interface RuntimeKernelDependencies {
   readonly contextAssembly: ContextAssemblyPort;
   readonly provider: ProviderPort;
   readonly worker: WorkerProtocolPort;
+  readonly toolAuthorization: ToolAuthorizationPort;
   readonly approvals: ApprovalWaitPort;
   readonly producerId: string;
   readonly maxToolCalls?: number;
@@ -64,6 +66,7 @@ export class RuntimeKernel {
     );
     const tools = new ToolExecutionCoordinator(
       this.dependencies.worker,
+      this.dependencies.toolAuthorization,
       approvals,
       lifecycle,
     );
@@ -118,7 +121,9 @@ export class RuntimeKernel {
     workspace: StartTurnResult["workspace"],
     context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
     tools: ToolExecutionCoordinator,
-  ): Promise<Omit<StartTurnResult, "workspace"> & { finalItemId: ProviderStepItemId }> {
+  ): Promise<
+    Omit<StartTurnResult, "workspace"> & { finalItemId: ProviderStepItemId }
+  > {
     const toolResults: ToolResult[] = [];
     for (
       let toolCallCount = 0;

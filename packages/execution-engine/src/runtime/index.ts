@@ -11,4 +11,8 @@ export * from "./memory/index.js";
 export * from "./events/index.js";
 export * from "./scale/index.js";
 export * from "./capabilities/index.js";
+export {
+  RegistryToolAuthorization,
+  type PermissionPolicyResolver,
+} from "./contracts/RegistryToolAuthorization.js";
 export * from "./types.js";

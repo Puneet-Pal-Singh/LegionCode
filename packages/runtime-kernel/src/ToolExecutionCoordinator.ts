@@ -9,7 +9,7 @@ import type {
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
 import { RuntimeKernelError, toProtocolError } from "./errors.js";
-import type { WorkerProtocolPort } from "./ports.js";
+import type { ToolAuthorizationPort, WorkerProtocolPort } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type {
   ApprovalResolution,
@@ -21,6 +21,7 @@ import { mapWorkerResultEvents } from "./WorkerResultEventMapper.js";
 export class ToolExecutionCoordinator {
   constructor(
     private readonly worker: WorkerProtocolPort,
+    private readonly authorization: ToolAuthorizationPort,
     private readonly approvals: ApprovalCoordinator,
     private readonly lifecycle: RuntimeLifecycleCoordinator,
   ) {}
@@ -33,9 +34,13 @@ export class ToolExecutionCoordinator {
     itemId: ItemId,
     toolCall: ToolCallItemContent,
   ): Promise<ToolResult> {
-    await this.lifecycle.startToolCall(itemId, toolCall.toolCallId, toolCall.input);
+    await this.lifecycle.startToolCall(
+      itemId,
+      toolCall.toolCallId,
+      toolCall.input,
+    );
     try {
-      const result = await this.executeToCompletion(
+      return await this.executeAuthorizedTool(
         run,
         runAttemptId,
         turn,
@@ -43,17 +48,68 @@ export class ToolExecutionCoordinator {
         itemId,
         toolCall,
       );
-      await this.emitWorkerResultEvents(run, itemId, toolCall, result);
-      await this.lifecycle.completeToolCall(toolCall.toolCallId, result.output);
-      return { toolCallId: toolCall.toolCallId, output: result.output };
     } catch (error) {
-      if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
-        await this.lifecycle.declineToolCall(toolCall.toolCallId, error.message);
+      if (
+        error instanceof RuntimeKernelError &&
+        error.code === "approval_denied"
+      ) {
+        await this.lifecycle.declineToolCall(
+          toolCall.toolCallId,
+          error.message,
+        );
       } else {
-        await this.lifecycle.failToolCall(toolCall.toolCallId, toProtocolError(error));
+        await this.lifecycle.failToolCall(
+          toolCall.toolCallId,
+          toProtocolError(error),
+        );
       }
       throw error;
     }
+  }
+
+  private async executeAuthorizedTool(
+    run: Run,
+    runAttemptId: RunAttemptId,
+    turn: Turn,
+    workspace: WorkspaceManifest,
+    itemId: ItemId,
+    toolCall: ToolCallItemContent,
+  ): Promise<ToolResult> {
+    const authorization = await this.authorization.authorize({
+      run,
+      itemId,
+      toolCall,
+    });
+    if (authorization.status === "rejected") {
+      throw new RuntimeKernelError(authorization.code, authorization.reason);
+    }
+    const approval =
+      authorization.status === "approval_required"
+        ? await this.approvals.requestAndWait(
+            run,
+            runAttemptId,
+            turn,
+            itemId,
+            authorization.request,
+          )
+        : null;
+    const result = await this.executeToCompletion(
+      run,
+      runAttemptId,
+      turn,
+      workspace,
+      itemId,
+      authorization.toolCall,
+      approval,
+    );
+    await this.emitWorkerResultEvents(
+      run,
+      itemId,
+      authorization.toolCall,
+      result,
+    );
+    await this.lifecycle.completeToolCall(toolCall.toolCallId, result.output);
+    return { toolCallId: toolCall.toolCallId, output: result.output };
   }
 
   private async executeToCompletion(
@@ -63,6 +119,7 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
+    approval: ApprovalResolution | null,
   ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
     const initial = await this.callWorker(
       run,
@@ -70,7 +127,7 @@ export class ToolExecutionCoordinator {
       turn,
       workspace,
       toolCall,
-      null,
+      approval,
     );
     if (initial.kind === "completed") {
       return initial;
@@ -78,7 +135,13 @@ export class ToolExecutionCoordinator {
     if (initial.kind === "failed") {
       throw this.workerFailure(initial.failure);
     }
-    const approval = await this.approvals.requestAndWait(
+    if (approval !== null) {
+      throw new RuntimeKernelError(
+        "approval_retry_required",
+        `Worker requested approval again for ${toolCall.toolCallId}`,
+      );
+    }
+    const workerApproval = await this.approvals.requestAndWait(
       run,
       runAttemptId,
       turn,
@@ -91,7 +154,7 @@ export class ToolExecutionCoordinator {
       turn,
       workspace,
       toolCall,
-      approval,
+      workerApproval,
     );
   }
 

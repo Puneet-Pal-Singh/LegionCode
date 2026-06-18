@@ -10,6 +10,9 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "workspace_not_executable",
   "tool_loop_limit_exceeded",
   "worker_failed",
+  "tool_not_registered",
+  "invalid_tool_input",
+  "tool_policy_denied",
   "approval_denied",
   "approval_retry_required",
   "invalid_approval_item",
@@ -99,6 +102,11 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
       return "conflict";
     case "worker_failed":
       return "command_failed";
+    case "tool_not_registered":
+      return "not_found";
+    case "invalid_tool_input":
+      return "validation_failed";
+    case "tool_policy_denied":
     case "approval_denied":
       return "policy_denied";
     case "approval_retry_required":

@@ -19,6 +19,7 @@ import type {
   ContextAssemblyPort,
   LifecycleEventSink,
   ProviderPort,
+  ToolAuthorizationPort,
   WorkerProtocolPort,
 } from "./ports.js";
 
@@ -105,6 +106,7 @@ export function createPorts(): {
   provider: ProviderPort;
   worker: WorkerProtocolPort;
   approvals: ApprovalWaitPort;
+  toolAuthorization: ToolAuthorizationPort;
 } {
   return {
     contextAssembly: {
@@ -131,6 +133,12 @@ export function createPorts(): {
         decision: "approved" as const,
         decidedBy: run.userId,
         reason: null,
+      })),
+    },
+    toolAuthorization: {
+      authorize: vi.fn(async ({ toolCall }) => ({
+        status: "authorized" as const,
+        toolCall,
       })),
     },
   };

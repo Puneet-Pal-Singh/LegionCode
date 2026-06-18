@@ -489,6 +489,15 @@ importers:
 
   packages/execution-engine:
     dependencies:
+      '@repo/permission-policy':
+        specifier: workspace:*
+        version: link:../permission-policy
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../platform-protocol
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../runtime-kernel
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../shared-types
