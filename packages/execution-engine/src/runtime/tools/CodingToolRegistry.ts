@@ -1,6 +1,21 @@
 import type { CoreTool } from "ai";
 import { z } from "zod";
 
+const PermissionRiskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
+type PermissionRiskLevel = z.infer<typeof PermissionRiskLevelSchema>;
+
+const PolicyDomainSchema = z.enum([
+  "command",
+  "path",
+  "network",
+  "git",
+  "package_manager",
+  "secret",
+  "external_service",
+  "tool",
+]);
+type PolicyDomain = z.infer<typeof PolicyDomainSchema>;
+
 export const MAX_TOOL_PATH_LENGTH = 500;
 export const MAX_TOOL_COMMAND_LENGTH = 500;
 export const MAX_TOOL_PATTERN_LENGTH = 200;
@@ -35,6 +50,48 @@ export type ToolOutputRenderer =
   | "shell"
   | "git"
   | "github";
+
+export const ToolBackendCapabilitySchema = z.enum([
+  "filesystem_read",
+  "filesystem_write",
+  "shell",
+  "git",
+  "network",
+  "github",
+  "github_cli",
+  "approval",
+]);
+export type ToolBackendCapability = z.infer<typeof ToolBackendCapabilitySchema>;
+
+export const ToolParallelismSchema = z.enum([
+  "parallel_safe",
+  "exclusive_workspace_write",
+  "exclusive_git_mutation",
+  "serial_remote_mutation",
+]);
+export type ToolParallelism = z.infer<typeof ToolParallelismSchema>;
+
+export const ToolRendererHintSchema = z.enum([
+  "text",
+  "json",
+  "diff",
+  "shell",
+  "git",
+  "github",
+]);
+export type ToolRendererHint = z.infer<typeof ToolRendererHintSchema>;
+
+export const ToolPermissionMetadataSchema = z
+  .object({
+    domain: PolicyDomainSchema,
+    subject: z.string().min(1),
+    action: z.string().min(1).optional(),
+    riskLevel: PermissionRiskLevelSchema,
+  })
+  .strict();
+export interface ToolPermissionMetadata extends z.infer<
+  typeof ToolPermissionMetadataSchema
+> {}
 
 export interface ToolArtifact {
   title: string;
@@ -84,15 +141,47 @@ export interface ToolDefinition {
   description: string;
   inputSchema: z.ZodTypeAny;
   permission: ToolPermissionPolicy;
+  permissionMetadata: ToolPermissionMetadata;
   sandboxClass: ToolSandboxClass;
+  requiredBackendCapabilities: readonly ToolBackendCapability[];
+  riskLevel: PermissionRiskLevel;
+  parallelism: ToolParallelism;
   tokenPolicy: ToolTokenPolicy;
-  outputRenderer: ToolOutputRenderer;
+  outputRenderer: ToolRendererHint;
+  rendererHint: ToolRendererHint;
+  preferredFor: readonly string[];
+  avoidWhen?: readonly string[];
+  alternatives?: readonly string[];
   route: ToolGatewayRoute;
   execute(
     input: Record<string, unknown>,
     context: ToolExecutionContext,
   ): Promise<ToolResult>;
 }
+
+export const ToolDefinitionSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    description: z.string().min(1),
+    permissionMetadata: ToolPermissionMetadataSchema,
+    sandboxClass: z.enum([
+      "read",
+      "write",
+      "shell",
+      "network",
+      "git",
+      "approval",
+    ]),
+    requiredBackendCapabilities: z.array(ToolBackendCapabilitySchema).min(1),
+    riskLevel: PermissionRiskLevelSchema,
+    parallelism: ToolParallelismSchema,
+    rendererHint: ToolRendererHintSchema,
+    preferredFor: z.array(z.string().min(1)).min(1),
+    avoidWhen: z.array(z.string().min(1)).optional(),
+    alternatives: z.array(z.string().min(1)).optional(),
+  })
+  .passthrough();
 
 function createToolInputSchema<TShape extends z.ZodRawShape>(
   shape: TShape,
@@ -316,15 +405,41 @@ function createRoutedToolDefinition(input: {
   inputSchema: z.ZodTypeAny;
   permission: ToolPermissionPolicy;
   sandboxClass: ToolSandboxClass;
+  requiredBackendCapabilities?: readonly ToolBackendCapability[];
+  riskLevel?: PermissionRiskLevel;
+  parallelism?: ToolParallelism;
   tokenPolicy: ToolTokenPolicy;
-  outputRenderer: ToolOutputRenderer;
+  outputRenderer?: ToolRendererHint;
+  rendererHint?: ToolRendererHint;
+  preferredFor?: readonly string[];
+  avoidWhen?: readonly string[];
+  alternatives?: readonly string[];
   route: Omit<ToolGatewayRoute, "toolName">;
 }): ToolDefinition {
   const route = { toolName: input.id, ...input.route };
-  return {
+  const usage = describeToolUsage(input);
+  const riskLevel = input.riskLevel ?? deriveRiskLevel(input.permission);
+  const rendererHint = input.rendererHint ?? input.outputRenderer;
+  if (!rendererHint) {
+    throw new Error(`Tool "${input.id}" must define a renderer hint.`);
+  }
+  const definition = {
     ...input,
+    permissionMetadata: buildPermissionMetadata({ ...input, riskLevel }),
+    requiredBackendCapabilities:
+      input.requiredBackendCapabilities ?? deriveBackendCapabilities(input),
+    riskLevel,
+    parallelism: input.parallelism ?? deriveParallelism(input),
+    outputRenderer: rendererHint,
+    rendererHint,
+    preferredFor: input.preferredFor ?? usage.preferredFor,
+    avoidWhen: input.avoidWhen ?? usage.avoidWhen,
+    alternatives: input.alternatives ?? usage.alternatives,
     route,
-    async execute(toolInput, context) {
+    async execute(
+      toolInput: Record<string, unknown>,
+      context: ToolExecutionContext,
+    ) {
       const result = await context.execute(
         route.plugin,
         route.action,
@@ -333,6 +448,165 @@ function createRoutedToolDefinition(input: {
       return adaptPluginResult(input.title, result);
     },
   };
+  ToolDefinitionSchema.parse(definition);
+  return definition;
+}
+
+function buildPermissionMetadata(input: {
+  id: CodingToolId;
+  route: Omit<ToolGatewayRoute, "toolName">;
+  sandboxClass: ToolSandboxClass;
+  riskLevel: PermissionRiskLevel;
+}): ToolPermissionMetadata {
+  return ToolPermissionMetadataSchema.parse({
+    domain: resolvePolicyDomain(input),
+    subject: input.id,
+    action: input.route.action,
+    riskLevel: input.riskLevel,
+  });
+}
+
+function deriveRiskLevel(
+  permission: ToolPermissionPolicy,
+): PermissionRiskLevel {
+  if (permission.mode === "deny") {
+    return "critical";
+  }
+  if (permission.mode === "approval_required") {
+    return "high";
+  }
+  return "low";
+}
+
+function deriveBackendCapabilities(input: {
+  route: Omit<ToolGatewayRoute, "toolName">;
+  permission: ToolPermissionPolicy;
+  sandboxClass: ToolSandboxClass;
+}): ToolBackendCapability[] {
+  const capabilities = new Set<ToolBackendCapability>();
+  if (input.sandboxClass === "read") {
+    capabilities.add("filesystem_read");
+  }
+  if (input.sandboxClass === "write") {
+    capabilities.add("filesystem_write").add("approval");
+  }
+  if (input.sandboxClass === "shell") {
+    capabilities.add("shell").add("approval");
+  }
+  if (input.sandboxClass === "git") {
+    capabilities.add("git");
+  }
+  if (input.sandboxClass === "network") {
+    capabilities.add("network");
+  }
+  if (input.route.plugin === "github") {
+    capabilities.add("github");
+  }
+  if (input.route.plugin === "github_cli") {
+    capabilities.add("github_cli");
+  }
+  if (input.permission.mode === "approval_required") {
+    capabilities.add("approval");
+  }
+  return Array.from(capabilities);
+}
+
+function deriveParallelism(input: {
+  permission: ToolPermissionPolicy;
+  sandboxClass: ToolSandboxClass;
+  route: Omit<ToolGatewayRoute, "toolName">;
+}): ToolParallelism {
+  if (input.sandboxClass === "write" || input.sandboxClass === "shell") {
+    return "exclusive_workspace_write";
+  }
+  if (
+    input.sandboxClass === "git" &&
+    input.permission.mode === "approval_required"
+  ) {
+    return "exclusive_git_mutation";
+  }
+  if (
+    input.sandboxClass === "network" &&
+    input.permission.mode === "approval_required"
+  ) {
+    return "serial_remote_mutation";
+  }
+  return "parallel_safe";
+}
+
+function describeToolUsage(input: {
+  id: CodingToolId;
+  sandboxClass: ToolSandboxClass;
+}): {
+  preferredFor: string[];
+  avoidWhen?: string[];
+  alternatives?: string[];
+} {
+  if (input.id === "read_file") {
+    return {
+      preferredFor: ["file inspection", "line range reads"],
+      alternatives: ["bash"],
+    };
+  }
+  if (input.id === "glob" || input.id === "list_files") {
+    return {
+      preferredFor: ["file discovery", "directory inspection"],
+      alternatives: ["grep", "bash"],
+    };
+  }
+  if (input.id === "grep") {
+    return {
+      preferredFor: ["content search", "symbol or text discovery"],
+      alternatives: ["read_file", "bash"],
+    };
+  }
+  return describeNonReadToolUsage(input);
+}
+
+function describeNonReadToolUsage(input: { sandboxClass: ToolSandboxClass }): {
+  preferredFor: string[];
+  avoidWhen?: string[];
+  alternatives?: string[];
+} {
+  if (input.sandboxClass === "shell") {
+    return {
+      preferredFor: ["tests", "builds", "package scripts"],
+      avoidWhen: ["simple file inspection", "git status or diff"],
+      alternatives: ["read_file", "list_files", "glob", "grep", "git_status"],
+    };
+  }
+  if (input.sandboxClass === "git") {
+    return {
+      preferredFor: ["repository status", "diffs", "branch and PR workflow"],
+      alternatives: ["bash"],
+    };
+  }
+  if (input.sandboxClass === "network") {
+    return {
+      preferredFor: ["remote GitHub metadata", "CI checks", "review threads"],
+      alternatives: ["bash"],
+    };
+  }
+  return {
+    preferredFor: ["workspace mutation"],
+    alternatives: ["bash"],
+  };
+}
+
+function resolvePolicyDomain(input: {
+  route: Omit<ToolGatewayRoute, "toolName">;
+  sandboxClass: ToolSandboxClass;
+}): PolicyDomain {
+  if (input.sandboxClass === "shell") {
+    return "command";
+  }
+  if (input.sandboxClass === "git") {
+    return "git";
+  }
+  if (input.sandboxClass === "network") {
+    return input.route.plugin === "github_cli" ? "external_service" : "network";
+  }
+  return "tool";
 }
 
 function adaptPluginResult(title: string, result: unknown): ToolResult {
@@ -696,29 +970,70 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   }),
 ];
 
-const TOOL_DEFINITION_MAP = new Map(
-  CODING_TOOL_DEFINITIONS.map((tool) => [tool.id, tool]),
+export class CodingToolRegistry {
+  private readonly definitionsById: ReadonlyMap<string, ToolDefinition>;
+
+  constructor(definitions: readonly ToolDefinition[]) {
+    const parsedDefinitions = definitions.map((definition) => {
+      ToolDefinitionSchema.parse(definition);
+      return definition;
+    });
+    this.definitionsById = createUniqueDefinitionMap(parsedDefinitions);
+  }
+
+  listDefinitions(): ToolDefinition[] {
+    return Array.from(this.definitionsById.values());
+  }
+
+  getDefinition(id: string): ToolDefinition | null {
+    return this.definitionsById.get(id) ?? null;
+  }
+
+  hasDefinition(id: string): boolean {
+    return this.definitionsById.has(id);
+  }
+
+  toCoreToolRegistry(): Record<string, CoreTool> {
+    const registry: Record<string, CoreTool> = {};
+    for (const tool of this.definitionsById.values()) {
+      registry[tool.id] = {
+        description: tool.description,
+        parameters: tool.inputSchema,
+      } as CoreTool;
+    }
+    return registry;
+  }
+}
+
+export const codingToolRegistry = new CodingToolRegistry(
+  CODING_TOOL_DEFINITIONS,
 );
 
 export function getCodingToolDefinition(id: string): ToolDefinition | null {
-  return TOOL_DEFINITION_MAP.get(id as CodingToolId) ?? null;
+  return codingToolRegistry.getDefinition(id);
 }
 
 export function getCodingToolDefinitions(): ToolDefinition[] {
-  return [...CODING_TOOL_DEFINITIONS];
+  return codingToolRegistry.listDefinitions();
 }
 
 export function getCodingCoreToolRegistry(): Record<string, CoreTool> {
-  const registry: Record<string, CoreTool> = {};
-  for (const tool of CODING_TOOL_DEFINITIONS) {
-    registry[tool.id] = {
-      description: tool.description,
-      parameters: tool.inputSchema,
-    } as CoreTool;
-  }
-  return registry;
+  return codingToolRegistry.toCoreToolRegistry();
 }
 
 export function isCodingToolId(value: string): value is CodingToolId {
   return CODING_TOOL_IDS.includes(value as CodingToolId);
+}
+
+function createUniqueDefinitionMap(
+  definitions: readonly ToolDefinition[],
+): ReadonlyMap<string, ToolDefinition> {
+  const definitionsById = new Map<string, ToolDefinition>();
+  for (const definition of definitions) {
+    if (definitionsById.has(definition.id)) {
+      throw new Error(`Duplicate tool registration: "${definition.id}".`);
+    }
+    definitionsById.set(definition.id, definition);
+  }
+  return definitionsById;
 }

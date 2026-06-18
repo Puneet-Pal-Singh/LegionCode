@@ -4,6 +4,10 @@ import {
   MAX_TOOL_READ_LINES,
   MAX_TOOL_SEARCH_RESULTS,
   MAX_TOOL_WRITE_CONTENT_LENGTH,
+  ToolBackendCapabilitySchema,
+  ToolParallelismSchema,
+  ToolPermissionMetadataSchema,
+  ToolRendererHintSchema,
   type ToolDefinition,
   type ToolPermissionPolicy,
   type ToolSandboxClass,
@@ -48,6 +52,11 @@ export const ToolCapabilitySchema = z
     inputSchemaVersion: z.string().min(1),
     sandboxClass: RuntimeToolSandboxClassSchema,
     availability: RuntimeToolAvailabilitySchema,
+    permissionMetadata: ToolPermissionMetadataSchema,
+    requiredBackendCapabilities: z.array(ToolBackendCapabilitySchema).min(1),
+    riskLevel: z.enum(["low", "medium", "high", "critical"]),
+    parallelism: ToolParallelismSchema,
+    rendererHint: ToolRendererHintSchema,
     preferredFor: z.array(z.string().min(1)),
     avoidWhen: z.array(z.string().min(1)).optional(),
     alternatives: z.array(z.string().min(1)).optional(),
@@ -255,7 +264,6 @@ function buildToolCapabilities(
 }
 
 function buildToolCapability(definition: ToolDefinition): ToolCapability {
-  const usage = describeToolUsage(definition);
   return {
     id: definition.id,
     logicalName: definition.id,
@@ -263,9 +271,16 @@ function buildToolCapability(definition: ToolDefinition): ToolCapability {
     inputSchemaVersion: "zod:v1",
     sandboxClass: normalizeSandboxClass(definition.sandboxClass),
     availability: mapPermissionAvailability(definition.permission),
-    preferredFor: usage.preferredFor,
-    avoidWhen: usage.avoidWhen,
-    alternatives: usage.alternatives,
+    permissionMetadata: definition.permissionMetadata,
+    requiredBackendCapabilities: [...definition.requiredBackendCapabilities],
+    riskLevel: definition.riskLevel,
+    parallelism: definition.parallelism,
+    rendererHint: definition.rendererHint,
+    preferredFor: [...definition.preferredFor],
+    avoidWhen: definition.avoidWhen ? [...definition.avoidWhen] : undefined,
+    alternatives: definition.alternatives
+      ? [...definition.alternatives]
+      : undefined,
   };
 }
 
@@ -377,60 +392,4 @@ function buildCloudSandboxUnavailableCapabilities(): UnavailableCapability[] {
       alternatives: ["read_file", "list_files", "glob", "grep"],
     },
   ];
-}
-
-function describeToolUsage(definition: ToolDefinition): {
-  preferredFor: string[];
-  avoidWhen?: string[];
-  alternatives?: string[];
-} {
-  if (definition.id === "read_file") {
-    return {
-      preferredFor: ["file inspection", "line range reads"],
-      alternatives: ["bash"],
-    };
-  }
-  if (definition.id === "glob" || definition.id === "list_files") {
-    return {
-      preferredFor: ["file discovery", "directory inspection"],
-      alternatives: ["grep", "bash"],
-    };
-  }
-  if (definition.id === "grep") {
-    return {
-      preferredFor: ["content search", "symbol or text discovery"],
-      alternatives: ["read_file", "bash"],
-    };
-  }
-  return describeNonReadToolUsage(definition);
-}
-
-function describeNonReadToolUsage(definition: ToolDefinition): {
-  preferredFor: string[];
-  avoidWhen?: string[];
-  alternatives?: string[];
-} {
-  if (definition.sandboxClass === "shell") {
-    return {
-      preferredFor: ["tests", "builds", "package scripts"],
-      avoidWhen: ["simple file inspection", "git status or diff"],
-      alternatives: ["read_file", "list_files", "glob", "grep", "git_status"],
-    };
-  }
-  if (definition.sandboxClass === "git") {
-    return {
-      preferredFor: ["repository status", "diffs", "branch and PR workflow"],
-      alternatives: ["bash"],
-    };
-  }
-  if (definition.sandboxClass === "network") {
-    return {
-      preferredFor: ["remote GitHub metadata", "CI checks", "review threads"],
-      alternatives: ["bash"],
-    };
-  }
-  return {
-    preferredFor: ["workspace mutation"],
-    alternatives: ["bash"],
-  };
 }

@@ -47,6 +47,11 @@ export const APP_IMPORT_POLICY = {
 
 export const CANONICAL_AUTHORITIES = [
   {
+    symbol: "CodingToolRegistry",
+    owner: "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
+    declaration: /\bclass\s+CodingToolRegistry\s*\{/,
+  },
+  {
     symbol: "ArtifactStore",
     owner: "packages/artifact-store/src/types.ts",
     declaration:
