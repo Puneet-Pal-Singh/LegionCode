@@ -59,7 +59,7 @@ export function SplitDiffCell({
           </button>
         ) : null}
       </div>
-      <div className="w-12 shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
+      <div className="w-12 shrink-0 px-2 py-1 text-right text-xs text-zinc-500">
         {lineNumber ?? ""}
       </div>
       <div className={`flex-1 px-3 py-1 ${getSplitLineText(line.type)}`}>
@@ -102,10 +102,10 @@ function EmptySplitCell({
 
 function getSplitLineBackground(type: DiffLineType["type"]): string {
   if (type === "added") {
-    return "bg-emerald-500/16";
+    return "bg-emerald-500/10";
   }
 
-  return type === "deleted" ? "bg-rose-500/16" : "bg-black";
+  return type === "deleted" ? "bg-rose-500/10" : "bg-black";
 }
 
 function getSplitLineText(type: DiffLineType["type"]): string {

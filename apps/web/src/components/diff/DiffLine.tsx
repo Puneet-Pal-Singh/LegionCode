@@ -29,9 +29,9 @@ const DiffLine = memo(
   }: DiffLineProps) => {
     const bgColor =
       line.type === "added"
-        ? "bg-emerald-500/16"
+        ? "bg-emerald-500/10"
         : line.type === "deleted"
-          ? "bg-rose-500/16"
+          ? "bg-rose-500/10"
           : "bg-black";
 
     const borderColor =
@@ -89,10 +89,10 @@ const DiffLine = memo(
             </span>
           </span>
         ) : null}
-        <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
+        <div className="w-12 flex-shrink-0 px-2 py-1 text-right text-xs text-zinc-500">
           {line.oldLineNumber && <span>{line.oldLineNumber}</span>}
         </div>
-        <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
+        <div className="w-12 flex-shrink-0 px-2 py-1 text-right text-xs text-zinc-500">
           {line.newLineNumber && <span>{line.newLineNumber}</span>}
         </div>
         <div className={`flex-1 px-3 py-1 ${textColor}`}>

@@ -95,7 +95,11 @@ export function ChangesPanel({
   }
 
   return (
-    <div className={`flex h-full flex-col gap-4 bg-transparent p-4 ${className}`}>
+    <div
+      className={`flex h-full min-h-0 flex-col gap-4 overflow-hidden bg-transparent ${
+        showStackedReview ? "py-4" : "p-4"
+      } ${className}`}
+    >
       {mode === "modal" && showToolbar ? (
         <ReviewDiffToolbar
           reviewScope={review.reviewScope}
@@ -155,6 +159,7 @@ export function ChangesPanel({
               review={review}
               viewState={viewState}
               diffMessage={diffMessage}
+              showFileSummary={false}
             />
           </ReviewFileStack>
         ) : mode === "modal" || mode === "sidebar" ? (
@@ -175,10 +180,12 @@ function ReviewDiffContent({
   review,
   viewState,
   diffMessage,
+  showFileSummary = true,
 }: {
   review: ReturnType<typeof useGitReview>;
   viewState: ReturnType<typeof useChangesPanelViewState>;
   diffMessage: string;
+  showFileSummary?: boolean;
 }) {
   if (!review.selectedFile || !review.diff) {
     return <ReviewDiffPlaceholder message={diffMessage} />;
@@ -188,12 +195,13 @@ function ReviewDiffContent({
     <DiffViewer
       key={`${review.diff.oldPath}:${review.diff.newPath}:${review.diff.hunks.length}`}
       diff={review.diff}
-      className="min-h-[420px] flex-1 overflow-hidden"
+      className="min-h-[420px] w-full overflow-hidden"
       layout={viewState.diffLayout}
       onLayoutChange={viewState.setDiffLayout}
       wordWrap={viewState.wordWrap}
       onWordWrapChange={viewState.setWordWrap}
       showHeader={false}
+      showFileSummary={showFileSummary}
       hunkExpansionRequest={viewState.hunkExpansionRequest}
       reviewComments={review.selectedReviewCommentsForFile}
       diffFingerprint={review.currentDiffFingerprint}

@@ -33,7 +33,7 @@ export function ReviewDiffToolbar({
   const [showViewMenu, setShowViewMenu] = useState(false);
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 pb-3">
       <ReviewScopeDropdown value={reviewScope} onChange={onReviewScopeChange} />
       <div className="flex items-center gap-2">
         <div className="relative">
