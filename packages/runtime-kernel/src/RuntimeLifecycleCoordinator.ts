@@ -303,11 +303,7 @@ export class RuntimeLifecycleCoordinator {
       this.createEvent({ type: `run_attempt.${attemptStatus}`, payload: attemptPayload }, 1),
       this.createEvent({ type: `turn.${outcome.status}`, payload: { outcome } }, 2),
     ];
-    try {
-      await this.options.sink.appendBatch(events);
-    } catch (error) {
-      throw new RuntimeLifecycleSettlementError(outcome.status, error);
-    }
+    await this.appendTerminalBatch(events, outcome.status);
     this.sequence += events.length;
     this.runAttemptStatus = nextAttempt;
     this.status = nextTurn;
@@ -316,6 +312,22 @@ export class RuntimeLifecycleCoordinator {
   private async changeBlocking(blockingState: TurnBlockingState): Promise<void> {
     await this.emit({ type: "turn.blocking_changed", payload: { blockingState } });
     this.blockingState = blockingState;
+  }
+
+  private async appendTerminalBatch(
+    events: readonly LifecycleEvent[],
+    intendedStatus: TurnTerminalOutcome["status"],
+  ): Promise<void> {
+    let failure: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await this.options.sink.appendBatch(events);
+        return;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    throw new RuntimeLifecycleSettlementError(intendedStatus, failure);
   }
 
   private requireActiveToolCall(toolCallId: ToolCallId): "active" {

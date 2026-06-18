@@ -94,8 +94,20 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
   });
 
-  it("recovers a failed completion batch as one failed terminal settlement", async () => {
-    const sink = new FailCompletedSettlementOnceSink();
+  it("retries a transient terminal append without duplicating settlement", async () => {
+    const sink = new FailingCompletedSettlementSink(1);
+    const kernel = await createKernel(sink);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).resolves.toMatchObject({
+      status: "completed",
+    });
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)?.type).toBe("turn.completed");
+  });
+
+  it("recovers exhausted completion settlement as one failed outcome", async () => {
+    const sink = new FailingCompletedSettlementSink(2);
     const kernel = await createKernel(sink);
 
     await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toBeInstanceOf(
@@ -225,14 +237,19 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-class FailCompletedSettlementOnceSink extends MemoryLifecycleEventSink {
-  private shouldFail = true;
+class FailingCompletedSettlementSink extends MemoryLifecycleEventSink {
+  constructor(private remainingFailures: number) {
+    super();
+  }
 
   override async appendBatch(
     events: readonly LifecycleEvent[],
   ): Promise<readonly LifecycleEvent[]> {
-    if (this.shouldFail && events.some((event) => event.type === "turn.completed")) {
-      this.shouldFail = false;
+    if (
+      this.remainingFailures > 0 &&
+      events.some((event) => event.type === "turn.completed")
+    ) {
+      this.remainingFailures -= 1;
       throw new Error("simulated atomic append failure");
     }
     return await super.appendBatch(events);
