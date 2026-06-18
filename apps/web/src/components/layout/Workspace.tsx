@@ -1,4 +1,12 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
@@ -25,7 +33,6 @@ import {
 import { normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
-import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 
@@ -43,6 +50,8 @@ interface WorkspaceProps {
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
+  rightSidebarWidth?: number;
+  setRightSidebarWidth?: Dispatch<SetStateAction<number>>;
   reviewSidebarFocusRequest?: number;
   isGitReviewOpen?: boolean;
   onGitReviewOpenChange?: (open: boolean) => void;
@@ -63,6 +72,8 @@ export function Workspace({
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
+  rightSidebarWidth,
+  setRightSidebarWidth,
   reviewSidebarFocusRequest = 0,
   isGitReviewOpen = false,
   onGitReviewOpenChange,
@@ -70,7 +81,6 @@ export function Workspace({
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
@@ -79,8 +89,8 @@ export function Workspace({
   const {
     activeTab,
     setActiveTab,
-    sidebarWidth,
-    setSidebarWidth,
+    sidebarWidth: internalSidebarWidth,
+    setSidebarWidth: setInternalSidebarWidth,
     isResizing,
     setIsResizing,
     selectedFile,
@@ -92,6 +102,8 @@ export function Workspace({
     isLoadingContent,
     setIsLoadingContent,
   } = useWorkspaceState();
+  const sidebarWidth = rightSidebarWidth ?? internalSidebarWidth;
+  const setSidebarWidth = setRightSidebarWidth ?? setInternalSidebarWidth;
 
   useEffect(() => {
     onTabChange?.(activeTab);
@@ -176,7 +188,6 @@ export function Workspace({
     gitAvailable,
     refetch: refetchGitStatus,
   } = useGitStatus(activeRunId, sessionId, !isRunLoading);
-  const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
   const repositoryBranch = (
@@ -321,6 +332,38 @@ export function Workspace({
             />
           </main>
 
+          {isRightSidebarOpen ? (
+            <SidebarHeader
+              sidebarWidth={sidebarWidth}
+              isViewingContent={isViewingContent}
+              contentTitle={selectedFile?.path ?? selectedDiff?.path}
+              onSelectReview={() => {
+                setIsViewingContent(false);
+                setActiveTab("review");
+              }}
+              onSelectContent={() => {
+                if (selectedFile || selectedDiff) {
+                  setIsViewingContent(true);
+                  setActiveTab("review");
+                }
+              }}
+              onCloseReview={() => setIsRightSidebarOpen?.(false)}
+              onCloseContent={() => {
+                setIsViewingContent(false);
+                setSelectedFile(null);
+                setSelectedDiff(null);
+                setActiveTab("review");
+              }}
+              onOpenFiles={() => setActiveTab("files")}
+              onOpenChanges={() => setActiveTab("changes")}
+              onExpand={() => {
+                setIsRightSidebarOpen?.(true);
+                onGitReviewOpenChange?.(true);
+              }}
+              onCloseSidebar={() => setIsRightSidebarOpen?.(false)}
+            />
+          ) : null}
+
           {/* Combined Sidebar */}
           <motion.aside
             initial={false}
@@ -354,24 +397,6 @@ export function Workspace({
               className="flex-1 flex flex-col min-w-[280px]"
               style={{ width: sidebarWidth }}
             >
-              <SidebarHeader
-                isViewingContent={isViewingContent}
-                activeTab={activeTab}
-                changesCount={changesCount}
-                hasPendingApproval={isApprovalWaitingRun}
-                onExpand={() => {
-                  setIsRightSidebarOpen?.(true);
-                  onGitReviewOpenChange?.(true);
-                }}
-                onCommit={() => setIsCommitDialogOpen(true)}
-                onBack={() => {
-                  setIsViewingContent(false);
-                  setSelectedFile(null);
-                  setSelectedDiff(null);
-                }}
-                onTabChange={setActiveTab}
-              />
-
               <SidebarContent
                 isViewingContent={isViewingContent}
                 activeTab={activeTab}
@@ -395,10 +420,6 @@ export function Workspace({
           </motion.aside>
           <GitReviewDialog
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
-          />
-          <GitCommitDialog
-            isOpen={isCommitDialogOpen}
-            onClose={() => setIsCommitDialogOpen(false)}
           />
         </div>
       </GitReviewProvider>

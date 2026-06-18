@@ -1,5 +1,10 @@
 import { motion } from "framer-motion";
-import { FileDiff, PanelLeftOpen, PanelRight } from "lucide-react";
+import {
+  FileDiff,
+  PanelLeftOpen,
+  PanelRight,
+  SlidersHorizontal,
+} from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
@@ -11,6 +16,7 @@ interface TopNavBarProps {
   isSidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   isRightSidebarOpen?: boolean;
+  rightSidebarWidth?: number;
   onToggleRightSidebar?: () => void;
   threadTitle?: string;
   taskTitle?: string;
@@ -29,6 +35,7 @@ export function TopNavBar({
   isSidebarOpen = true,
   onToggleSidebar,
   isRightSidebarOpen = false,
+  rightSidebarWidth = 0,
   onToggleRightSidebar,
   taskTitle,
   activeSession,
@@ -76,7 +83,11 @@ export function TopNavBar({
       <div className="flex-1" />
 
       {/* Right Section */}
-      <div className="flex items-center gap-3">
+      <div
+        data-testid="top-nav-actions"
+        className="flex items-center gap-2 transition-[margin] duration-150"
+        style={{ marginRight: isRightSidebarOpen ? rightSidebarWidth : 0 }}
+      >
         {!isAuthenticated && onConnectGitHub && (
           <GitHubLoginButton
             onClick={onConnectGitHub}
@@ -85,7 +96,16 @@ export function TopNavBar({
           />
         )}
         <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
-        <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+        <button
+          type="button"
+          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+          aria-label="Toggle summary"
+          title="Toggle summary"
+        >
+          <SlidersHorizontal size={16} />
+        </button>
+        {!isRightSidebarOpen ? (
+          <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
           <motion.button
             onClick={onReview}
             whileHover={{ scale: 1.02 }}
@@ -119,7 +139,8 @@ export function TopNavBar({
           >
             <PanelRight size={17} />
           </motion.button>
-        </div>
+          </div>
+        ) : null}
       </div>
     </motion.header>
   );

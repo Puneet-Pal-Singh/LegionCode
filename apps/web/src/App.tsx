@@ -647,6 +647,7 @@ function AppContent() {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
 
   const scopedApprovalStatesBySessionId = useMemo(() => {
     const validSessionIds = new Set(sessions.map((session) => session.id));
@@ -1104,7 +1105,8 @@ function AppContent() {
           onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
-          isRightSidebarOpen={isRightSidebarOpen}
+          isRightSidebarOpen={showWorkspace && isRightSidebarOpen}
+          rightSidebarWidth={rightSidebarWidth}
           onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
           taskTitle={taskTitle}
@@ -1266,6 +1268,8 @@ function AppContent() {
                   }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  rightSidebarWidth={rightSidebarWidth}
+                  setRightSidebarWidth={setRightSidebarWidth}
                   reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                   isGitReviewOpen={
                     isGitReviewOpen && gitReviewSessionId === activeSessionId

@@ -25,11 +25,7 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap.js";
-import {
-  type TabType,
-  useWorkspaceState,
-} from "../layout/workspace/useWorkspaceState";
-import { SidebarHeader } from "../layout/workspace/SidebarHeader";
+import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
 import { SidebarContent } from "../layout/workspace/SidebarContent";
 import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
@@ -45,8 +41,6 @@ import {
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider } from "../git/GitReviewContext";
-import { useGitReview } from "../git/useGitReview";
-import { GitCommitDialog } from "../git/GitCommitDialog";
 import {
   isProviderModelBootstrapLoading,
 } from "../../lib/provider-model-bootstrap-loading.js";
@@ -68,38 +62,6 @@ interface AgentSetupProps {
     mode: RunMode;
   }) => void;
   onRepoClick?: () => void;
-}
-
-interface SetupSidebarHeaderProps {
-  isViewingContent: boolean;
-  activeTab: TabType;
-  changesCount: number;
-  onCommit: () => void;
-  onBack: () => void;
-  onTabChange: (tab: TabType) => void;
-}
-
-function SetupSidebarHeader({
-  isViewingContent,
-  activeTab,
-  changesCount,
-  onCommit,
-  onBack,
-  onTabChange,
-}: SetupSidebarHeaderProps) {
-  const { openReview } = useGitReview();
-
-  return (
-    <SidebarHeader
-      isViewingContent={isViewingContent}
-      activeTab={activeTab}
-      changesCount={changesCount}
-      onExpand={() => openReview()}
-      onCommit={onCommit}
-      onBack={onBack}
-      onTabChange={onTabChange}
-    />
-  );
 }
 
 export function AgentSetup({
@@ -137,7 +99,6 @@ export function AgentSetup({
     "full" | "connect-only" | "manage-models-only"
   >("full");
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const {
     catalog,
@@ -208,11 +169,10 @@ export function AgentSetup({
     branch: githubBranch,
     isGitHubLoaded,
   } = useGitHubTree();
-  const { status: gitStatus, refetch: refetchGitStatus } = useGitStatus(
+  const { refetch: refetchGitStatus } = useGitStatus(
     activeRunId || undefined,
     sessionId,
   );
-  const changesCount = gitStatus?.files?.length ?? 0;
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId: sessionId,
     runId: activeRunId,
@@ -896,19 +856,6 @@ export function AgentSetup({
             className="flex-1 flex flex-col min-w-[280px]"
             style={{ width: sidebarWidth }}
           >
-            <SetupSidebarHeader
-              isViewingContent={isViewingContent}
-              activeTab={activeTab}
-              changesCount={changesCount}
-              onCommit={() => setIsCommitDialogOpen(true)}
-              onBack={() => {
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
-              }}
-              onTabChange={setActiveTab}
-            />
-
             <SidebarContent
               isViewingContent={isViewingContent}
               activeTab={activeTab}
@@ -939,10 +886,6 @@ export function AgentSetup({
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
         />
 
-        <GitCommitDialog
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
-        />
 
         <ProviderDialog
           isOpen={showProviderDialog}

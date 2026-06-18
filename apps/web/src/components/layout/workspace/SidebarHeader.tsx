@@ -1,177 +1,167 @@
-import { motion } from "framer-motion";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
-  ArrowLeft,
+  FileCode2,
   FileDiff,
   Folder,
-  GitCommitHorizontal,
   GitBranch,
   Maximize2,
+  PanelRight,
+  Plus,
+  X,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import type { TabType } from "./useWorkspaceState";
-
-const REVIEW_COMMIT_ENTRY_POINT_ENABLED = false;
 
 interface SidebarHeaderProps {
+  sidebarWidth: number;
   isViewingContent: boolean;
-  activeTab: TabType;
-  changesCount: number;
-  hasPendingApproval?: boolean;
-  onBack: () => void;
-  onTabChange: (tab: TabType) => void;
-  onCommit?: () => void;
+  contentTitle?: string;
+  onSelectReview: () => void;
+  onSelectContent: () => void;
+  onCloseReview: () => void;
+  onCloseContent: () => void;
+  onOpenFiles: () => void;
+  onOpenChanges: () => void;
   onExpand?: () => void;
+  onCloseSidebar: () => void;
 }
 
 export function SidebarHeader({
+  sidebarWidth,
   isViewingContent,
-  activeTab,
-  changesCount,
-  hasPendingApproval = false,
-  onBack,
-  onTabChange,
-  onCommit,
+  contentTitle,
+  onSelectReview,
+  onSelectContent,
+  onCloseReview,
+  onCloseContent,
+  onOpenFiles,
+  onOpenChanges,
   onExpand,
+  onCloseSidebar,
 }: SidebarHeaderProps) {
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+
   return (
-    <div className="h-10 border-b ui-muted-divider flex items-center justify-between px-3 bg-transparent shrink-0">
-      {isViewingContent ? (
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
-        >
-          <ArrowLeft size={14} />
-          Back
-        </button>
-      ) : (
-        <SidebarSurfaceControls
-          activeTab={activeTab}
-          changesCount={changesCount}
-          hasPendingApproval={hasPendingApproval}
-          onTabChange={onTabChange}
-          onCommit={onCommit}
-          onExpand={onExpand}
+    <header
+      className="fixed right-0 top-0 z-[60] flex h-10 items-center border-b border-l border-zinc-800 bg-[#0c0c0e] shadow-sm shadow-black/20"
+      style={{ width: sidebarWidth }}
+    >
+      <div
+        role="tablist"
+        aria-label="Right sidebar tabs"
+        className="flex min-w-0 flex-1 items-stretch overflow-x-auto scrollbar-hide"
+      >
+        <SidebarTab
+          label="Review"
+          icon={<FileDiff size={15} />}
+          active={!isViewingContent}
+          onSelect={onSelectReview}
+          onClose={onCloseReview}
         />
+        {contentTitle ? (
+          <SidebarTab
+            label={formatContentTitle(contentTitle)}
+            icon={<FileCode2 size={15} />}
+            active={isViewingContent}
+            onSelect={onSelectContent}
+            onClose={onCloseContent}
+          />
+        ) : null}
+      </div>
+
+      <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">
+        <IconButton
+          label="Add sidebar tab"
+          onClick={() => setIsAddMenuOpen((previous) => !previous)}
+        >
+          <Plus size={17} />
+        </IconButton>
+        {isAddMenuOpen ? (
+          <div
+            role="menu"
+            className="absolute right-20 top-9 z-20 w-44 rounded-md border border-zinc-800 bg-zinc-950 p-1 shadow-2xl"
+          >
+            <MenuButton
+              label="Files"
+              icon={<Folder size={15} />}
+              onClick={() => {
+                onOpenFiles();
+                setIsAddMenuOpen(false);
+              }}
+            />
+            <MenuButton
+              label="File changes"
+              icon={<GitBranch size={15} />}
+              onClick={() => {
+                onOpenChanges();
+                setIsAddMenuOpen(false);
+              }}
+            />
+          </div>
+        ) : null}
+        <IconButton label="Fullscreen review" onClick={onExpand} disabled={!onExpand}>
+          <Maximize2 size={15} />
+        </IconButton>
+        <IconButton label="Close right sidebar" onClick={onCloseSidebar} active>
+          <PanelRight size={17} />
+        </IconButton>
+      </div>
+    </header>
+  );
+}
+
+function SidebarTab({
+  label,
+  icon,
+  active,
+  onSelect,
+  onClose,
+}: {
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      className={cn(
+        "group flex h-full max-w-56 shrink-0 items-center border-r border-zinc-800",
+        active ? "bg-zinc-900/70 text-zinc-100" : "text-zinc-500",
       )}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-2 px-3 text-sm transition-colors hover:text-zinc-100"
+      >
+        <span className="shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        className="mr-1 rounded p-1 text-zinc-600 opacity-0 transition-all hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100 focus:opacity-100"
+        aria-label={`Close ${label} tab`}
+      >
+        <X size={13} />
+      </button>
     </div>
   );
 }
 
-function SidebarSurfaceControls({
-  activeTab,
-  changesCount,
-  hasPendingApproval,
-  onTabChange,
-  onCommit,
-  onExpand,
-}: {
-  activeTab: TabType;
-  changesCount: number;
-  hasPendingApproval: boolean;
-  onTabChange: (tab: TabType) => void;
-  onCommit?: () => void;
-  onExpand?: () => void;
-}) {
-  return (
-    <>
-      <div className="flex h-full">
-        <SidebarTabButton
-          activeTab={activeTab}
-          tab="review"
-          label="Review"
-          icon={<FileDiff size={14} />}
-          count={changesCount}
-          onTabChange={onTabChange}
-        />
-      </div>
-      <div className="flex items-center gap-1">
-        {hasPendingApproval ? (
-          <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
-            Approval
-          </span>
-        ) : null}
-        <SidebarIconTabButton
-          activeTab={activeTab}
-          tab="changes"
-          label="File changes"
-          icon={<GitBranch size={14} />}
-          onTabChange={onTabChange}
-        />
-        <SidebarIconTabButton
-          activeTab={activeTab}
-          tab="files"
-          label="Files"
-          icon={<Folder size={14} />}
-          onTabChange={onTabChange}
-        />
-        {/* TODO: Set REVIEW_COMMIT_ENTRY_POINT_ENABLED true after commit flow reliability is production-ready. */}
-        {REVIEW_COMMIT_ENTRY_POINT_ENABLED ? (
-          <HeaderIconButton
-            title="Git actions"
-            onClick={onCommit}
-            disabled={!onCommit}
-            className="hover:text-emerald-300"
-          >
-            <GitCommitHorizontal size={15} />
-          </HeaderIconButton>
-        ) : null}
-        <HeaderIconButton
-          title="Fullscreen review"
-          onClick={onExpand}
-          disabled={!onExpand}
-        >
-          <Maximize2 size={15} />
-        </HeaderIconButton>
-      </div>
-    </>
-  );
-}
-
-function SidebarIconTabButton({
-  activeTab,
-  tab,
+function IconButton({
   label,
-  icon,
-  onTabChange,
-}: {
-  activeTab: TabType;
-  tab: TabType;
-  label: string;
-  icon: ReactNode;
-  onTabChange: (tab: TabType) => void;
-}) {
-  const isActive = activeTab === tab;
-  return (
-    <button
-      type="button"
-      onClick={() => onTabChange(isActive ? "review" : tab)}
-      className={cn(
-        "rounded-md p-1.5 transition-colors",
-        isActive
-          ? "bg-zinc-800 text-white"
-          : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200",
-      )}
-      aria-label={label}
-      title={label}
-      aria-pressed={isActive}
-    >
-      {icon}
-    </button>
-  );
-}
-
-function HeaderIconButton({
-  title,
   onClick,
   disabled = false,
-  className,
+  active = false,
   children,
 }: {
-  title: string;
+  label: string;
   onClick?: () => void;
   disabled?: boolean;
-  className?: string;
+  active?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -180,55 +170,41 @@ function HeaderIconButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-700 disabled:hover:bg-transparent",
-        className,
+        "rounded-md p-1.5 transition-colors disabled:cursor-not-allowed disabled:text-zinc-700",
+        active
+          ? "bg-zinc-800 text-white"
+          : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200",
       )}
-      title={title}
+      aria-label={label}
+      title={label}
     >
       {children}
     </button>
   );
 }
 
-function SidebarTabButton({
-  activeTab,
-  tab,
+function MenuButton({
   label,
   icon,
-  count,
-  onTabChange,
+  onClick,
 }: {
-  activeTab: TabType;
-  tab: TabType;
   label: string;
   icon: ReactNode;
-  count?: number;
-  onTabChange: (tab: TabType) => void;
+  onClick: () => void;
 }) {
-  const isActive = activeTab === tab;
-
   return (
     <button
       type="button"
-      onClick={() => onTabChange(tab)}
-      className={cn(
-        "relative flex h-full items-center gap-1.5 px-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-        isActive ? "text-white" : "text-zinc-500 hover:text-zinc-300",
-      )}
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
     >
-      <span className="text-zinc-500">{icon}</span>
-      <span>{label}</span>
-      {count ? (
-        <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300">
-          {count}
-        </span>
-      ) : null}
-      {isActive && (
-        <motion.div
-          layoutId="activeTab"
-          className="absolute bottom-0 left-1 right-1 h-0.5 bg-zinc-400"
-        />
-      )}
+      {icon}
+      {label}
     </button>
   );
+}
+
+function formatContentTitle(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
 }
