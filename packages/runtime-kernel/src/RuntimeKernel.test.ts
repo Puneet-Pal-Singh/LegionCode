@@ -179,6 +179,30 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "turn.interrupted",
     ]);
   });
+
+  it("serializes an interrupt racing tool completion without conflicting settlement", async () => {
+    const sink = new BlockingToolCompletionSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({ kind: "complete", itemId: finalItemId, output: "Done" });
+    const kernel = await createKernel(sink, ports);
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await sink.waitUntilBlocked();
+
+    const interruption = kernel.interruptTurn(turn.id, "User cancelled the turn");
+    sink.release();
+    await interruption;
+
+    await expect(execution).rejects.toBeInstanceOf(LifecycleTransitionError);
+    expect(eventTypes(sink).filter((type) => type === "tool_call.completed")).toHaveLength(1);
+    expect(eventTypes(sink)).not.toContain("tool_call.interrupted");
+    expect(sink.events.map((event) => event.sequence)).toEqual(
+      sink.events.map((_, index) => index + 1),
+    );
+    expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+  });
 });
 
 async function createKernel(
@@ -251,6 +275,31 @@ class FailingCompletedSettlementSink extends MemoryLifecycleEventSink {
     ) {
       this.remainingFailures -= 1;
       throw new Error("simulated atomic append failure");
+    }
+    return await super.appendBatch(events);
+  }
+}
+
+class BlockingToolCompletionSink extends MemoryLifecycleEventSink {
+  private readonly blocked = deferred<void>();
+  private readonly released = deferred<void>();
+  private shouldBlock = true;
+
+  async waitUntilBlocked(): Promise<void> {
+    await this.blocked.promise;
+  }
+
+  release(): void {
+    this.released.resolve(undefined);
+  }
+
+  override async appendBatch(
+    events: readonly LifecycleEvent[],
+  ): Promise<readonly LifecycleEvent[]> {
+    if (this.shouldBlock && events.some((event) => event.type === "tool_call.completed")) {
+      this.shouldBlock = false;
+      this.blocked.resolve(undefined);
+      await this.released.promise;
     }
     return await super.appendBatch(events);
   }
