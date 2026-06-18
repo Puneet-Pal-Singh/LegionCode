@@ -10,6 +10,7 @@ import {
   isMutatingGoldenFlowToolName,
   validateGoldenFlowToolInput,
 } from "./CodingToolGateway.js";
+import { ToolDefinitionSchema } from "../tools/CodingToolRegistry.js";
 
 describe("CodingToolGateway", () => {
   it("exposes the canonical golden-flow tool floor", () => {
@@ -168,6 +169,29 @@ describe("CodingToolGateway", () => {
       maxLineBytes: expect.any(Number),
       maxResults: expect.any(Number),
     });
+    expect(ToolDefinitionSchema.parse(grepDefinition)).toMatchObject({
+      id: "grep",
+      permissionMetadata: {
+        domain: "tool",
+        subject: "grep",
+        action: "grep",
+        riskLevel: "low",
+      },
+      requiredBackendCapabilities: ["filesystem_read"],
+      riskLevel: "low",
+      parallelism: "parallel_safe",
+      rendererHint: "json",
+    });
+  });
+
+  it("validates every native tool registry definition", () => {
+    for (const toolName of getGoldenFlowToolNames()) {
+      const definition = getCodingToolDefinition(toolName);
+      expect(definition).toBeDefined();
+      expect(ToolDefinitionSchema.safeParse(definition).success).toBe(true);
+      expect(definition?.permissionMetadata.subject).toBe(toolName);
+      expect(definition?.requiredBackendCapabilities.length).toBeGreaterThan(0);
+    }
   });
 
   it("projects the golden-flow registry into a runtime capability manifest", () => {

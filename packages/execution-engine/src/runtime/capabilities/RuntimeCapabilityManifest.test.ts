@@ -30,6 +30,18 @@ describe("runtime capability manifest", () => {
       "git_status",
       "grep",
     ]);
+    expect(
+      manifest.availableTools.find((tool) => tool.logicalName === "bash"),
+    ).toMatchObject({
+      permissionMetadata: {
+        domain: "command",
+        subject: "bash",
+        riskLevel: "high",
+      },
+      requiredBackendCapabilities: ["shell", "approval"],
+      parallelism: "exclusive_workspace_write",
+      rendererHint: "shell",
+    });
     expect(manifest.commandPolicy).toMatchObject({
       shellAvailable: true,
       mode: "ask",
