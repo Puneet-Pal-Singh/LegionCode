@@ -53,6 +53,7 @@ const baseProps = {
   onGitHubFileSelect: vi.fn(),
   onLocalFileSelect: vi.fn(),
   onChangedFileSelect: vi.fn(),
+  onClose: vi.fn(),
 };
 
 describe("SidebarTreeOverlay", () => {
@@ -60,7 +61,8 @@ describe("SidebarTreeOverlay", () => {
     render(<SidebarTreeOverlay {...baseProps} activeTab="changes" />);
 
     const drawer = screen.getByRole("complementary");
-    expect(drawer).toHaveClass("w-1/2");
+    expect(drawer).toHaveStyle({ width: "50%" });
+    expect(drawer).toHaveClass("top-[76px]");
 
     fireEvent.click(screen.getByRole("button", { name: "src/changed.ts" }));
     expect(mockSelectFile).toHaveBeenCalledWith(
@@ -72,5 +74,17 @@ describe("SidebarTreeOverlay", () => {
     render(<SidebarTreeOverlay {...baseProps} activeTab="files" />);
 
     expect(screen.getByText("workspace files")).toBeInTheDocument();
+    expect(screen.getByRole("complementary")).toHaveClass("top-10");
+  });
+
+  it("closes when the resize handle is dragged fully right", () => {
+    render(<SidebarTreeOverlay {...baseProps} activeTab="files" />);
+
+    const resizeHandle = document.querySelector<HTMLElement>(".cursor-col-resize");
+    expect(resizeHandle).not.toBeNull();
+    fireEvent.mouseDown(resizeHandle!, { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 500 });
+
+    expect(baseProps.onClose).toHaveBeenCalledTimes(1);
   });
 });
