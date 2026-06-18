@@ -12,6 +12,9 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "worker_failed",
   "approval_denied",
   "approval_retry_required",
+  "invalid_approval_item",
+  "turn_not_active",
+  "turn_already_owned",
 ] as const;
 export type RuntimeKernelErrorCode =
   (typeof RUNTIME_KERNEL_ERROR_CODES)[number];
@@ -24,6 +27,18 @@ export class RuntimeKernelError extends Error {
   ) {
     super(message);
     this.name = "RuntimeKernelError";
+  }
+}
+
+export class RuntimeLifecycleSettlementError extends Error {
+  readonly code = "lifecycle_settlement_failed" as const;
+
+  constructor(
+    readonly intendedStatus: "completed" | "interrupted" | "failed",
+    readonly causeError: unknown,
+  ) {
+    super(`Runtime lifecycle settlement failed for ${intendedStatus}`);
+    this.name = "RuntimeLifecycleSettlementError";
   }
 }
 
@@ -88,6 +103,10 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
       return "policy_denied";
     case "approval_retry_required":
       return "approval_required";
+    case "invalid_approval_item":
+    case "turn_not_active":
+    case "turn_already_owned":
+      return "conflict";
     case "tool_loop_limit_exceeded":
       return "internal_error";
   }

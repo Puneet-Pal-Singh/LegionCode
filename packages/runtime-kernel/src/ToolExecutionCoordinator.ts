@@ -2,6 +2,7 @@ import type {
   ItemId,
   ProtocolError,
   Run,
+  RunAttemptId,
   ToolCallItemContent,
   Turn,
 } from "@repo/platform-protocol";
@@ -9,7 +10,7 @@ import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
 import { RuntimeKernelError, toProtocolError } from "./errors.js";
 import type { WorkerProtocolPort } from "./ports.js";
-import { RuntimeEventEmitter } from "./RuntimeEventEmitter.js";
+import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type {
   ApprovalResolution,
   ToolResult,
@@ -21,53 +22,56 @@ export class ToolExecutionCoordinator {
   constructor(
     private readonly worker: WorkerProtocolPort,
     private readonly approvals: ApprovalCoordinator,
-    private readonly events: RuntimeEventEmitter,
+    private readonly lifecycle: RuntimeLifecycleCoordinator,
   ) {}
 
   async execute(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
   ): Promise<ToolResult> {
-    await this.events.toolRequested(run, turn, itemId, toolCall);
-    await this.events.toolStarted(run, turn, itemId, toolCall.toolCallId);
+    await this.lifecycle.startToolCall(itemId, toolCall.toolCallId, toolCall.input);
     try {
       const result = await this.executeToCompletion(
         run,
+        runAttemptId,
         turn,
         workspace,
+        itemId,
         toolCall,
       );
-      await this.emitWorkerResultEvents(run, turn, itemId, toolCall, result);
-      await this.events.toolCompleted(
-        run,
-        turn,
-        itemId,
-        toolCall.toolCallId,
-        result.output,
-      );
+      await this.emitWorkerResultEvents(run, itemId, toolCall, result);
+      await this.lifecycle.completeToolCall(toolCall.toolCallId, result.output);
       return { toolCallId: toolCall.toolCallId, output: result.output };
     } catch (error) {
-      await this.events.toolFailed(
-        run,
-        turn,
-        itemId,
-        toolCall.toolCallId,
-        toProtocolError(error),
-      );
+      if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
+        await this.lifecycle.declineToolCall(toolCall.toolCallId, error.message);
+      } else {
+        await this.lifecycle.failToolCall(toolCall.toolCallId, toProtocolError(error));
+      }
       throw error;
     }
   }
 
   private async executeToCompletion(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
+    itemId: ItemId,
     toolCall: ToolCallItemContent,
   ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
-    const initial = await this.callWorker(run, turn, workspace, toolCall, null);
+    const initial = await this.callWorker(
+      run,
+      runAttemptId,
+      turn,
+      workspace,
+      toolCall,
+      null,
+    );
     if (initial.kind === "completed") {
       return initial;
     }
@@ -76,11 +80,14 @@ export class ToolExecutionCoordinator {
     }
     const approval = await this.approvals.requestAndWait(
       run,
+      runAttemptId,
       turn,
+      itemId,
       initial.request,
     );
     return await this.resolveApprovedRetry(
       run,
+      runAttemptId,
       turn,
       workspace,
       toolCall,
@@ -90,6 +97,7 @@ export class ToolExecutionCoordinator {
 
   private async resolveApprovedRetry(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
@@ -97,6 +105,7 @@ export class ToolExecutionCoordinator {
   ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
     const result = await this.callWorker(
       run,
+      runAttemptId,
       turn,
       workspace,
       toolCall,
@@ -116,6 +125,7 @@ export class ToolExecutionCoordinator {
 
   private async callWorker(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
@@ -123,6 +133,7 @@ export class ToolExecutionCoordinator {
   ): Promise<WorkerToolResult> {
     return await this.worker.executeTool({
       runId: run.id,
+      runAttemptId,
       turnId: turn.id,
       workspace,
       toolCall,
@@ -136,7 +147,6 @@ export class ToolExecutionCoordinator {
 
   private async emitWorkerResultEvents(
     run: Run,
-    turn: Turn,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     result: Extract<WorkerToolResult, { kind: "completed" }>,
@@ -147,18 +157,11 @@ export class ToolExecutionCoordinator {
       result.output,
       result.events,
     );
-    for (const [index, delta] of projection.outputDeltas.entries()) {
-      await this.events.toolOutputDelta(
-        run,
-        turn,
-        itemId,
-        toolCall.toolCallId,
-        delta,
-        index,
-      );
+    for (const delta of projection.outputDeltas) {
+      await this.lifecycle.appendToolOutput(toolCall.toolCallId, delta);
     }
     for (const artifact of projection.artifacts) {
-      await this.events.artifactCreated(run, itemId, artifact);
+      await this.lifecycle.createArtifact(itemId, artifact);
     }
   }
 }

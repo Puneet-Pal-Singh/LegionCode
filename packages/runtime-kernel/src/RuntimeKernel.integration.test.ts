@@ -1,18 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
-  createEventStore,
+  createLifecycleSink,
   createManifestRepository,
   createPorts,
+  finalItemId,
   manifest,
   run,
+  runAttemptId,
   turn,
 } from "./test-fixtures.js";
 
 describe("runtime kernel integration", () => {
-  it("connects workspace-core, worker protocol port, and event-store", async () => {
-    const eventStore = createEventStore();
-    const repository = await createManifestRepository();
+  it("connects canonical lifecycle, workspace, and worker boundaries", async () => {
+    const lifecycleEvents = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi
       .fn()
@@ -25,32 +26,31 @@ describe("runtime kernel integration", () => {
           input: { path: "package.json" },
         },
       })
-      .mockResolvedValueOnce({ kind: "complete", output: "Inspected package" });
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Inspected package",
+      });
     const kernel = new RuntimeKernel({
-      eventStore,
-      workspaceManifests: repository,
+      lifecycleEvents,
+      workspaceManifests: await createManifestRepository(),
       ...ports,
       producerId: "runtime-kernel-integration",
     });
 
-    const result = await kernel.startTurn({ run, turn });
+    const result = await kernel.startTurn({ run, turn, runAttemptId });
 
     expect(result.workspace).toEqual(manifest);
     expect(ports.worker.executeTool).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: run.id,
-        workspace: manifest,
-      }),
+      expect.objectContaining({ runAttemptId, workspace: manifest }),
     );
-    const replay = await eventStore.replay({
-      scope: { scopeType: "run", scopeId: run.id },
-      afterCursor: null,
-      limit: 20,
-    });
-    expect(replay.events.at(0)?.producer).toEqual({
+    expect(lifecycleEvents.events.at(0)?.producer).toEqual({
       kind: "runtime_kernel",
       id: "runtime-kernel-integration",
     });
-    expect(replay.events.at(-1)?.type).toBe("turn.completed");
+    expect(lifecycleEvents.events.at(-1)?.type).toBe("turn.completed");
+    expect(
+      lifecycleEvents.events.filter((event) => event.type === "turn.completed"),
+    ).toHaveLength(1);
   });
 });
