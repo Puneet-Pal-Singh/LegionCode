@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import type { FileExplorerHandle } from "../../FileExplorer";
 import { ChangesPanel } from "../../sidebar/ChangesPanel";
@@ -10,6 +10,7 @@ import { useGitReview } from "../../git/useGitReview";
 import type { TabType, SelectedFile, SelectedDiff } from "./useWorkspaceState";
 import type { Repository } from "../../../services/GitHubService";
 import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
+import { FileNavigationBar } from "./FileNavigationBar";
 
 interface SidebarContentProps {
   isViewingContent: boolean;
@@ -17,7 +18,6 @@ interface SidebarContentProps {
   isLoadingContent: boolean;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
-  onCloseContent: () => void;
   
   // GitHub / File Tree props
   repo: Repository | null;
@@ -35,6 +35,9 @@ interface SidebarContentProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   sandboxId: string;
   runId: string;
+  onOpenFiles: () => void;
+  onCloseTree: () => void;
+  onToggleChanges: () => void;
 }
 
 export function SidebarContent({
@@ -43,7 +46,6 @@ export function SidebarContent({
   isLoadingContent,
   selectedFile,
   selectedDiff,
-  onCloseContent,
   repo,
   isGitHubLoaded,
   repoTree,
@@ -55,8 +57,12 @@ export function SidebarContent({
   explorerRef,
   sandboxId,
   runId,
+  onOpenFiles,
+  onCloseTree,
+  onToggleChanges,
 }: SidebarContentProps) {
   const { diff } = useGitReview();
+  const [wordWrap, setWordWrap] = useState(true);
   const pendingDiffPathRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -85,7 +91,16 @@ export function SidebarContent({
   };
 
   return (
-    <div className="flex-1 overflow-hidden relative">
+    <div className="relative flex flex-1 flex-col overflow-hidden">
+      {isViewingContent || activeTab === "files" ? (
+        <FileNavigationBar
+          path={selectedFile?.path ?? selectedDiff?.path ?? "/"}
+          wordWrap={wordWrap}
+          onWordWrapChange={setWordWrap}
+          onOpenFiles={onOpenFiles}
+        />
+      ) : null}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
       <AnimatePresence mode="wait" initial={false}>
         {isViewingContent ? (
           <motion.div
@@ -105,14 +120,17 @@ export function SidebarContent({
             ) : selectedFile ? (
               <ArtifactView
                 isOpen={true}
-                onClose={onCloseContent}
                 title={selectedFile.path}
                 content={selectedFile.content}
+                wordWrap={wordWrap}
               />
             ) : selectedDiff ? (
               <DiffViewer
                 diff={selectedDiff.content}
                 className="flex-1"
+                wordWrap={wordWrap}
+                onWordWrapChange={setWordWrap}
+                showHeader={false}
               />
             ) : null}
           </motion.div>
@@ -129,10 +147,13 @@ export function SidebarContent({
               mode="modal"
               layout="stacked"
               className="min-h-0 w-full"
+              isChangesOpen={activeTab === "changes"}
+              onToggleChanges={onToggleChanges}
             />
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
       <SidebarTreeOverlay
         activeTab={activeTab}
         repo={repo}
@@ -146,6 +167,7 @@ export function SidebarContent({
         onGitHubFileSelect={handleGitHubFileSelect}
         onLocalFileSelect={handleFileClick}
         onChangedFileSelect={handleChangedFileSelect}
+        onClose={onCloseTree}
       />
     </div>
   );

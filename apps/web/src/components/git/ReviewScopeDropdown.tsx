@@ -49,7 +49,7 @@ export function ReviewScopeDropdown({
       <button
         type="button"
         onClick={() => setIsOpen((previous) => !previous)}
-        className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
+        className="inline-flex items-center gap-2 rounded-lg bg-transparent px-2 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-900"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >

@@ -1,15 +1,10 @@
-import {
-  ChevronDown,
-  ChevronUp,
-  Ellipsis,
-  Rows3,
-  SquareSplitHorizontal,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Ellipsis, Rows3, SquareSplitHorizontal } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
 import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
 import type { DiffLayout } from "./useChangesPanelViewState";
+import { FileChangesIcon } from "./FileChangesIcon";
 
 export function ReviewDiffToolbar({
   reviewScope,
@@ -20,6 +15,8 @@ export function ReviewDiffToolbar({
   onWordWrapChange,
   hunksCollapsed,
   onToggleHunks,
+  isChangesOpen,
+  onToggleChanges,
 }: {
   reviewScope: ReviewScope;
   onReviewScopeChange: (scope: ReviewScope) => void;
@@ -29,6 +26,8 @@ export function ReviewDiffToolbar({
   onWordWrapChange: (enabled: boolean) => void;
   hunksCollapsed: boolean;
   onToggleHunks: () => void;
+  isChangesOpen: boolean;
+  onToggleChanges: () => void;
 }) {
   const [showViewMenu, setShowViewMenu] = useState(false);
 
@@ -63,6 +62,18 @@ export function ReviewDiffToolbar({
               >
                 {wordWrap ? "Disable word wrap" : "Enable word wrap"}
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onToggleHunks();
+                  setShowViewMenu(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
+              >
+                {hunksCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                {hunksCollapsed ? "Expand all" : "Collapse all"}
+              </button>
             </div>
           ) : null}
         </div>
@@ -96,11 +107,16 @@ export function ReviewDiffToolbar({
         </div>
         <button
           type="button"
-          onClick={onToggleHunks}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
+          onClick={onToggleChanges}
+          className={cn(
+            "rounded-md p-1.5 transition-colors hover:bg-zinc-900 hover:text-white",
+            isChangesOpen ? "bg-zinc-800 text-white" : "text-zinc-500",
+          )}
+          aria-label="Toggle file changes sidebar"
+          aria-pressed={isChangesOpen}
+          title="File changes"
         >
-          {hunksCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-          {hunksCollapsed ? "Expand all" : "Collapse all"}
+          <FileChangesIcon size={16} />
         </button>
       </div>
     </div>

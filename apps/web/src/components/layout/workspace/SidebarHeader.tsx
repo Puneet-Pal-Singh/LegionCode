@@ -3,13 +3,13 @@ import {
   FileCode2,
   FileDiff,
   Folder,
-  GitBranch,
   Maximize2,
   PanelRight,
   Plus,
   X,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
+import { FileChangesIcon } from "../../sidebar/FileChangesIcon";
 
 interface SidebarHeaderProps {
   sidebarWidth: number;
@@ -42,7 +42,7 @@ export function SidebarHeader({
 
   return (
     <header
-      className="fixed right-0 top-0 z-[60] flex h-10 items-center border-b border-l border-zinc-800 bg-[#0c0c0e] shadow-sm shadow-black/20"
+      className="fixed right-0 top-0 z-[60] flex h-10 items-center border-b border-l border-zinc-800 bg-[#111113] shadow-sm shadow-black/20"
       style={{ width: sidebarWidth }}
     >
       <div
@@ -90,7 +90,7 @@ export function SidebarHeader({
             />
             <MenuButton
               label="File changes"
-              icon={<GitBranch size={15} />}
+              icon={<FileChangesIcon />}
               onClick={() => {
                 onOpenChanges();
                 setIsAddMenuOpen(false);
@@ -127,8 +127,8 @@ function SidebarTab({
       role="tab"
       aria-selected={active}
       className={cn(
-        "group flex h-full max-w-56 shrink-0 items-center border-r border-zinc-800",
-        active ? "bg-zinc-900/70 text-zinc-100" : "text-zinc-500",
+        "group my-1 ml-1 flex h-8 max-w-56 shrink-0 items-center rounded-xl",
+        active ? "bg-[#242426] text-zinc-100" : "text-zinc-500 hover:bg-zinc-900/60",
       )}
     >
       <button

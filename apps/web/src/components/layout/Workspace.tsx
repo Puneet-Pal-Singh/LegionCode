@@ -403,7 +403,6 @@ export function Workspace({
                 isLoadingContent={isLoadingContent}
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
-                onCloseContent={() => setIsViewingContent(false)}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}
@@ -415,6 +414,13 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
+                onOpenFiles={() => setActiveTab("files")}
+                onCloseTree={() => setActiveTab("review")}
+                onToggleChanges={() =>
+                  setActiveTab((current) =>
+                    current === "changes" ? "review" : "changes",
+                  )
+                }
               />
             </div>
           </motion.aside>

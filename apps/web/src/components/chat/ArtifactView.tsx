@@ -1,76 +1,33 @@
-import { X, Code2, Copy, Check } from "lucide-react";
-import { useState } from "react";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface ArtifactViewProps {
   isOpen: boolean;
-  onClose: () => void;
   title: string;
   content: string;
   language?: string;
+  wordWrap?: boolean;
 }
 
-export function ArtifactView({ isOpen, onClose, title, content, language }: ArtifactViewProps) {
-  const [copied, setCopied] = useState(false);
-  
+export function ArtifactView({
+  isOpen,
+  title,
+  content,
+  language,
+  wordWrap = true,
+}: ArtifactViewProps) {
   if (!isOpen) return null;
-
-  // Better language detection
-  const getLanguage = (filename: string) => {
-    if (language) return language;
-    const ext = filename.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'js':
-      case 'jsx': return 'javascript';
-      case 'ts':
-      case 'tsx': return 'typescript';
-      case 'py': return 'python';
-      case 'rs': return 'rust';
-      case 'go': return 'go';
-      case 'md': return 'markdown';
-      case 'json': return 'json';
-      case 'css': return 'css';
-      case 'html': return 'html';
-      default: return 'typescript';
-    }
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   return (
     <div className="flex h-full flex-col bg-black">
-      {/* Header */}
-      <div className="h-14 shrink-0 border-b border-zinc-800 bg-black/90 px-4 backdrop-blur flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
-          <Code2 size={16} className="text-emerald-500" />
-          <span className="font-mono text-xs truncate max-w-50">{title}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={handleCopy}
-            className="p-2 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-white transition-colors"
-            title="Copy Code"
-          >
-            {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
-          </button>
-          <button onClick={onClose} className="p-2 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-white transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-      </div>
-
-      {/* Code Editor View */}
       <div className="flex-1 overflow-auto scrollbar-hide">
         <SyntaxHighlighter
-          language={getLanguage(title)}
+          language={language ?? getLanguage(title)}
           style={vscDarkPlus}
           PreTag="div"
           showLineNumbers={true}
+          wrapLongLines={wordWrap}
+          wrapLines={wordWrap}
           customStyle={{
             margin: 0,
             width: '100%',
@@ -90,4 +47,14 @@ export function ArtifactView({ isOpen, onClose, title, content, language }: Arti
       </div>
     </div>
   );
+}
+
+function getLanguage(filename: string): string {
+  const extension = filename.split('.').pop()?.toLowerCase();
+  const languages: Record<string, string> = {
+    js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
+    py: 'python', rs: 'rust', go: 'go', md: 'markdown', json: 'json',
+    css: 'css', html: 'html',
+  };
+  return extension ? languages[extension] ?? 'typescript' : 'typescript';
 }

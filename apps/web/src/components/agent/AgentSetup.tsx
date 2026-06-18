@@ -862,11 +862,6 @@ export function AgentSetup({
               isLoadingContent={isLoadingContent}
               selectedFile={selectedFile}
               selectedDiff={selectedDiff}
-              onCloseContent={() => {
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
-              }}
               repo={githubRepo}
               isGitHubLoaded={isGitHubLoaded}
               repoTree={repoTree}
@@ -878,6 +873,13 @@ export function AgentSetup({
               explorerRef={explorerRef}
               sandboxId={sessionId}
               runId={activeRunId}
+              onOpenFiles={() => setActiveTab("files")}
+              onCloseTree={() => setActiveTab("review")}
+              onToggleChanges={() =>
+                setActiveTab((current) =>
+                  current === "changes" ? "review" : "changes",
+                )
+              }
             />
           </div>
         </motion.aside>

@@ -1,6 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, useState, type RefObject } from "react";
 import { Search } from "lucide-react";
+import { Resizer } from "../../ui/Resizer";
+import { cn } from "../../../lib/utils";
 import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
 import { ChangesList } from "../../diff/ChangesList";
 import { RepoFileTree } from "../../github/RepoFileTree";
@@ -21,10 +23,25 @@ interface SidebarTreeOverlayProps {
   onGitHubFileSelect: (path: string) => void;
   onLocalFileSelect: (path: string) => void;
   onChangedFileSelect: (path: string) => void;
+  onClose: () => void;
 }
 
 export function SidebarTreeOverlay(props: SidebarTreeOverlayProps) {
   const isOpen = props.activeTab === "changes" || props.activeTab === "files";
+  const [drawerWidth, setDrawerWidth] = useState<number | null>(null);
+  const resizeDrawer = (delta: number) => {
+    setDrawerWidth((currentWidth) => {
+      const drawer = document.querySelector<HTMLElement>("[data-sidebar-tree-drawer]");
+      const parentWidth = drawer?.parentElement?.clientWidth ?? 0;
+      const nextWidth = Math.min(parentWidth, (currentWidth ?? drawer?.offsetWidth ?? 0) + delta);
+      if (nextWidth <= 80) {
+        props.onClose();
+        return null;
+      }
+      return nextWidth;
+    });
+  };
+
   return (
     <AnimatePresence>
       {isOpen ? (
@@ -34,8 +51,14 @@ export function SidebarTreeOverlay(props: SidebarTreeOverlayProps) {
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: "100%", opacity: 0 }}
           transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
-          className="absolute inset-y-0 right-0 z-30 flex w-1/2 min-w-0 flex-col overflow-hidden border-l border-zinc-800 bg-black shadow-[-18px_0_36px_rgba(0,0,0,0.35)]"
+          data-sidebar-tree-drawer
+          className={cn(
+            "absolute bottom-0 right-0 z-30 flex min-w-0 max-w-full flex-col overflow-hidden border-l border-zinc-800 bg-black shadow-[-18px_0_36px_rgba(0,0,0,0.35)]",
+            props.activeTab === "files" ? "top-10" : "top-[76px]",
+          )}
+          style={{ width: drawerWidth ?? "50%" }}
         >
+          <Resizer side="right" onResize={resizeDrawer} />
           {props.activeTab === "changes" ? (
             <ChangedFilesTree onFileSelect={props.onChangedFileSelect} />
           ) : (

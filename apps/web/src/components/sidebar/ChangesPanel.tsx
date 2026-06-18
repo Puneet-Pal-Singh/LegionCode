@@ -23,6 +23,8 @@ interface ChangesPanelProps {
   layout?: "side-by-side" | "stacked";
   onFileSelect?: (path: string) => void;
   showToolbar?: boolean;
+  isChangesOpen?: boolean;
+  onToggleChanges?: () => void;
 }
 
 export function ChangesPanel({
@@ -31,6 +33,8 @@ export function ChangesPanel({
   layout = "side-by-side",
   onFileSelect,
   showToolbar = true,
+  isChangesOpen = false,
+  onToggleChanges = () => undefined,
 }: ChangesPanelProps) {
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
@@ -110,6 +114,8 @@ export function ChangesPanel({
           onWordWrapChange={viewState.setWordWrap}
           hunksCollapsed={viewState.hunksCollapsed}
           onToggleHunks={viewState.toggleHunks}
+          isChangesOpen={isChangesOpen}
+          onToggleChanges={onToggleChanges}
         />
       ) : null}
       <div
