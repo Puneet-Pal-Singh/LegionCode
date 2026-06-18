@@ -6,6 +6,7 @@ import { InlineCommentComposer } from "./InlineCommentComposer";
 import { getComposerAnchor } from "./diffSelection";
 import type { HunkRenderPlan } from "./diffRenderPlan";
 import type { ReviewCommentDraft } from "../git/reviewComments";
+import { useCollapsedDiffRows } from "./useCollapsedDiffRows";
 
 interface StackedHunkViewProps {
   plan: HunkRenderPlan;
@@ -42,16 +43,37 @@ export function StackedHunkView({
   onResolveAnnotation,
 }: StackedHunkViewProps) {
   const composerAnchor = getComposerAnchor(plan.selectableRowKeys, selectedRowKeys);
+  const collapsedRows = useCollapsedDiffRows();
 
   return (
     <>
-      {plan.rows.map((row) => {
+      {plan.rows.map((row, rowIndex) => {
         if (row.kind === "collapsed") {
+          const expanded = collapsedRows.isExpanded(row.key);
           return (
+            <Fragment key={row.key}>
             <CollapsedLinesBanner
-              key={row.key}
               count={row.hiddenLineCount}
+              onToggle={() => collapsedRows.toggleExpanded(row.key)}
+              expanded={expanded}
+              placement={getCollapsedRowPlacement(rowIndex, plan.rows.length)}
             />
+            {expanded
+              ? row.lines.map((hiddenRow) => (
+                  <DiffLine
+                    key={hiddenRow.key}
+                    line={hiddenRow.line}
+                    hunksIndex={plan.hunkIndex}
+                    lineIndex={hiddenRow.lineIndex}
+                    language={language}
+                    wrap={wrap}
+                    isSelected={selectedRowKeys.includes(hiddenRow.key)}
+                    annotationCount={0}
+                    onClick={(event) => onRowSelect([hiddenRow.key], event)}
+                  />
+                ))
+              : null}
+            </Fragment>
           );
         }
 
@@ -97,4 +119,14 @@ export function StackedHunkView({
       })}
     </>
   );
+}
+
+function getCollapsedRowPlacement(
+  rowIndex: number,
+  rowCount: number,
+): "start" | "middle" | "end" {
+  if (rowIndex === 0) {
+    return "start";
+  }
+  return rowIndex === rowCount - 1 ? "end" : "middle";
 }

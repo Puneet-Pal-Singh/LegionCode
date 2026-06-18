@@ -7,6 +7,7 @@ import { getComposerAnchor } from "./diffSelection";
 import type { HunkRenderPlan } from "./diffRenderPlan";
 import { buildSplitRows } from "./splitRows";
 import type { ReviewCommentDraft } from "../git/reviewComments";
+import { useCollapsedDiffRows } from "./useCollapsedDiffRows";
 
 interface SplitHunkViewProps {
   plan: HunkRenderPlan;
@@ -47,6 +48,7 @@ export function SplitHunkView({
     rows.map((row) => row.key),
     selectedRowKeys,
   );
+  const collapsedRows = useCollapsedDiffRows();
 
   return (
     <div
@@ -54,14 +56,43 @@ export function SplitHunkView({
         wrap ? "w-full grid-cols-2" : "min-w-[960px] w-full grid-cols-2"
       }`}
     >
-      {rows.map((row) => {
+      {rows.map((row, rowIndex) => {
         if (row.kind === "collapsed") {
+          const expanded = collapsedRows.isExpanded(row.key);
           return (
-            <CollapsedLinesBanner
-              key={row.key}
-              count={row.hiddenLineCount}
-              split
-            />
+            <Fragment key={row.key}>
+              <CollapsedLinesBanner
+                count={row.hiddenLineCount}
+                split
+                onToggle={() => collapsedRows.toggleExpanded(row.key)}
+                expanded={expanded}
+                placement={getCollapsedRowPlacement(rowIndex, rows.length)}
+              />
+              {expanded
+                ? row.lines.flatMap((hiddenRow) => [
+                    <SplitDiffCell
+                      key={`${hiddenRow.key}:left`}
+                      line={hiddenRow.line}
+                      side="left"
+                      language={language}
+                      wrap={wrap}
+                      isSelected={selectedRowKeys.includes(hiddenRow.key)}
+                      annotationCount={0}
+                      onClick={(event) => onRowSelect([hiddenRow.key], event)}
+                    />,
+                    <SplitDiffCell
+                      key={`${hiddenRow.key}:right`}
+                      line={hiddenRow.line}
+                      side="right"
+                      language={language}
+                      wrap={wrap}
+                      isSelected={selectedRowKeys.includes(hiddenRow.key)}
+                      annotationCount={0}
+                      onClick={(event) => onRowSelect([hiddenRow.key], event)}
+                    />,
+                  ])
+                : null}
+            </Fragment>
           );
         }
 
@@ -133,6 +164,16 @@ export function SplitHunkView({
       })}
     </div>
   );
+}
+
+function getCollapsedRowPlacement(
+  rowIndex: number,
+  rowCount: number,
+): "start" | "middle" | "end" {
+  if (rowIndex === 0) {
+    return "start";
+  }
+  return rowIndex === rowCount - 1 ? "end" : "middle";
 }
 
 function getSplitRowSelection({

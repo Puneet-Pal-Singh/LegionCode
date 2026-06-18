@@ -17,6 +17,7 @@ export interface CollapsedDiffRow {
   kind: "collapsed";
   key: string;
   hiddenLineCount: number;
+  lines: VisibleDiffRow[];
 }
 
 export type DiffRenderRow = VisibleDiffRow | CollapsedDiffRow;
@@ -56,7 +57,7 @@ function buildHunkRenderPlan(
   const ranges = buildVisibleRanges(hunk.lines, hunkIndex, commentedRowKeys);
   const rows = buildRenderRows(hunk.lines, hunkIndex, ranges);
   const selectableRowKeys = rows.flatMap((row) =>
-    row.kind === "line" ? [row.key] : [],
+    row.kind === "line" ? [row.key] : row.lines.map((line) => line.key),
   );
   return { hunkIndex, rows, selectableRowKeys };
 }
@@ -104,6 +105,7 @@ function buildRenderRows(
         kind: "collapsed",
         key: `${hunkIndex}:all-collapsed`,
         hiddenLineCount: lines.length,
+        lines: buildVisibleRows(lines, hunkIndex, 0, lines.length),
       },
     ];
   }
@@ -111,16 +113,31 @@ function buildRenderRows(
   const rows: DiffRenderRow[] = [];
   let nextLineIndex = 0;
   ranges.forEach((range, rangeIndex) => {
-    appendCollapsedRows(rows, hunkIndex, nextLineIndex, range.start, rangeIndex);
+    appendCollapsedRows(
+      rows,
+      lines,
+      hunkIndex,
+      nextLineIndex,
+      range.start,
+      rangeIndex,
+    );
     appendVisibleRows(rows, lines, hunkIndex, range);
     nextLineIndex = range.end + 1;
   });
-  appendCollapsedRows(rows, hunkIndex, nextLineIndex, lines.length, ranges.length);
+  appendCollapsedRows(
+    rows,
+    lines,
+    hunkIndex,
+    nextLineIndex,
+    lines.length,
+    ranges.length,
+  );
   return rows;
 }
 
 function appendCollapsedRows(
   rows: DiffRenderRow[],
+  lines: DiffLineType[],
   hunkIndex: number,
   start: number,
   end: number,
@@ -135,6 +152,24 @@ function appendCollapsedRows(
     kind: "collapsed",
     key: `${hunkIndex}:collapsed:${position}:${start}-${end}`,
     hiddenLineCount,
+    lines: buildVisibleRows(lines, hunkIndex, start, end),
+  });
+}
+
+function buildVisibleRows(
+  lines: DiffLineType[],
+  hunkIndex: number,
+  start: number,
+  end: number,
+): VisibleDiffRow[] {
+  return lines.slice(start, end).map((line, offset) => {
+    const lineIndex = start + offset;
+    return {
+      kind: "line",
+      key: buildLineKey(hunkIndex, lineIndex),
+      line,
+      lineIndex,
+    };
   });
 }
 

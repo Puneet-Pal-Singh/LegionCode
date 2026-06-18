@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ChevronDown,
   ChevronRight,
   Ellipsis,
   Rows3,
   SquareSplitHorizontal,
 } from "lucide-react";
-import type { DiffContent, DiffHunk } from "@repo/shared-types";
+import type { DiffContent } from "@repo/shared-types";
 import { resolveDiffLanguage } from "./resolveDiffLanguage";
 import { useAnchorIndex } from "../../lib/diff/useAnchorIndex";
 import { useSelectionManager } from "../../lib/diff/useSelectionManager";
@@ -20,6 +19,9 @@ import {
   collectCommentedRowKeys,
 } from "./diffRenderPlan";
 import { countDiffAdditions, countDiffDeletions } from "./diffStats";
+import { countUnmodifiedLinesBeforeHunk } from "./diffHunkGaps";
+import { CollapsedLinesBanner } from "./CollapsedLinesBanner";
+import { useCollapsedDiffRows } from "./useCollapsedDiffRows";
 import { DiffFileSummary } from "./DiffFileSummary";
 import { SplitHunkView } from "./SplitHunkView";
 import { StackedHunkView } from "./StackedHunkView";
@@ -34,6 +36,7 @@ interface DiffViewerProps {
   wordWrap?: boolean;
   onWordWrapChange?: (enabled: boolean) => void;
   showHeader?: boolean;
+  showFileSummary?: boolean;
   hunkExpansionRequest?: {
     action: "collapse" | "expand";
     id: number;
@@ -52,12 +55,13 @@ export function DiffViewer({
   wordWrap: controlledWordWrap,
   onWordWrapChange,
   showHeader = true,
+  showFileSummary = true,
   hunkExpansionRequest,
   onCreateReviewComment,
   onDeleteReviewComment,
 }: DiffViewerProps) {
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(
-    new Set(diff.hunks.map((_: DiffHunk, index: number) => index)),
+    new Set(diff.hunks.map((_, index) => index)),
   );
   const [internalLayout, setInternalLayout] = useState<"stacked" | "split">("stacked");
   const [internalWordWrap, setInternalWordWrap] = useState(true);
@@ -128,6 +132,7 @@ export function DiffViewer({
   );
   const diffPath = diff.newPath || diff.oldPath || "Unknown file";
   const deletions = useMemo(() => countDiffDeletions(diff), [diff]);
+  const hunkGaps = useCollapsedDiffRows();
 
   const toggleHunk = (index: number) => {
     setExpandedHunks((previous) => {
@@ -154,7 +159,7 @@ export function DiffViewer({
 
       setExpandedHunks(
         hunkExpansionRequest.action === "expand"
-          ? new Set(diff.hunks.map((_: DiffHunk, index: number) => index))
+          ? new Set(diff.hunks.map((_, index) => index))
           : new Set(),
       );
     });
@@ -165,18 +170,22 @@ export function DiffViewer({
   }, [diff.hunks, hunkExpansionRequest]);
 
   return (
-    <div className={`flex h-full bg-black ${className}`}>
+    <div className={`flex min-h-0 bg-black ${className}`}>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg">
         {showHeader ? (
           <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <DiffFileSummary
-                additions={additions}
-                deletions={deletions}
-                diffPath={diffPath}
-                isDeleted={diff.isDeleted}
-                isNewFile={diff.isNewFile}
-              />
+              {showFileSummary ? (
+                <DiffFileSummary
+                  additions={additions}
+                  deletions={deletions}
+                  diffPath={diffPath}
+                  isDeleted={diff.isDeleted}
+                  isNewFile={diff.isNewFile}
+                />
+              ) : (
+                <div />
+              )}
 
               <div className="flex items-center gap-2 text-xs">
                 <div className="relative">
@@ -239,7 +248,7 @@ export function DiffViewer({
             </div>
           </div>
         ) : null}
-        {!showHeader ? (
+        {!showHeader && showFileSummary ? (
           <div className="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950 px-4 py-3">
             <DiffFileSummary
               additions={additions}
@@ -260,27 +269,43 @@ export function DiffViewer({
               if (!hunk) {
                 return null;
               }
+              const unmodifiedLineCount = countUnmodifiedLinesBeforeHunk(
+                diff.hunks,
+                plan.hunkIndex,
+              );
+              const hunkGapKey = `hunk-gap:${plan.hunkIndex}`;
+              const isHunkGapExpanded = hunkGaps.isExpanded(hunkGapKey);
 
               return (
-                <div
-                  key={plan.hunkIndex}
-                  className="border-b border-zinc-800 last:border-b-0"
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggleHunk(plan.hunkIndex)}
-                    className="flex w-full items-center gap-2 bg-zinc-900 px-4 py-2 font-mono text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
-                  >
-                    {expandedHunks.has(plan.hunkIndex) ? (
-                      <ChevronDown size={16} />
-                    ) : (
+                <div key={plan.hunkIndex}>
+                  {unmodifiedLineCount > 0 ? (
+                    <>
+                      <CollapsedLinesBanner
+                        count={unmodifiedLineCount}
+                        onToggle={() => hunkGaps.toggleExpanded(hunkGapKey)}
+                        expanded={isHunkGapExpanded}
+                        placement={plan.hunkIndex === 0 ? "start" : "middle"}
+                      />
+                      {isHunkGapExpanded ? (
+                        <div className="border-y border-zinc-900 px-4 py-3 font-mono text-xs text-zinc-500">
+                          Omitted source context is not included in this saved patch.
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {!expandedHunks.has(plan.hunkIndex) ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleHunk(plan.hunkIndex)}
+                      className="m-2 flex min-h-10 w-[calc(100%_-_1rem)] items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 font-mono text-xs text-zinc-400 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
+                    >
                       <ChevronRight size={16} />
-                    )}
-                    <span>{hunk.header || `Hunk ${plan.hunkIndex + 1}`}</span>
-                  </button>
+                      <span>Show diff section</span>
+                    </button>
+                  ) : null}
 
                   {expandedHunks.has(plan.hunkIndex) ? (
-                    <div className="border-t border-zinc-800">
+                    <div>
                       {layout === "stacked" ? (
                         <StackedHunkView
                           plan={plan}
