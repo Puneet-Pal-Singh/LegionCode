@@ -8,7 +8,7 @@ import type {
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
 import { RuntimeKernelError, toProtocolError } from "./errors.js";
-import type { WorkerProtocolPort } from "./ports.js";
+import type { ToolAuthorizationPort, WorkerProtocolPort } from "./ports.js";
 import { RuntimeEventEmitter } from "./RuntimeEventEmitter.js";
 import type {
   ApprovalResolution,
@@ -20,6 +20,7 @@ import { mapWorkerResultEvents } from "./WorkerResultEventMapper.js";
 export class ToolExecutionCoordinator {
   constructor(
     private readonly worker: WorkerProtocolPort,
+    private readonly authorization: ToolAuthorizationPort,
     private readonly approvals: ApprovalCoordinator,
     private readonly events: RuntimeEventEmitter,
   ) {}
@@ -34,21 +35,13 @@ export class ToolExecutionCoordinator {
     await this.events.toolRequested(run, turn, itemId, toolCall);
     await this.events.toolStarted(run, turn, itemId, toolCall.toolCallId);
     try {
-      const result = await this.executeToCompletion(
+      return await this.executeAuthorizedTool(
         run,
         turn,
         workspace,
+        itemId,
         toolCall,
       );
-      await this.emitWorkerResultEvents(run, turn, itemId, toolCall, result);
-      await this.events.toolCompleted(
-        run,
-        turn,
-        itemId,
-        toolCall.toolCallId,
-        result.output,
-      );
-      return { toolCallId: toolCall.toolCallId, output: result.output };
     } catch (error) {
       await this.events.toolFailed(
         run,
@@ -61,20 +54,76 @@ export class ToolExecutionCoordinator {
     }
   }
 
+  private async executeAuthorizedTool(
+    run: Run,
+    turn: Turn,
+    workspace: WorkspaceManifest,
+    itemId: ItemId,
+    toolCall: ToolCallItemContent,
+  ): Promise<ToolResult> {
+    const authorization = await this.authorization.authorize({
+      run,
+      itemId,
+      toolCall,
+    });
+    if (authorization.status === "rejected") {
+      throw new RuntimeKernelError(authorization.code, authorization.reason);
+    }
+    const approval =
+      authorization.status === "approval_required"
+        ? await this.approvals.requestAndWait(run, turn, authorization.request)
+        : null;
+    const result = await this.executeToCompletion(
+      run,
+      turn,
+      workspace,
+      authorization.toolCall,
+      approval,
+    );
+    await this.emitWorkerResultEvents(
+      run,
+      turn,
+      itemId,
+      authorization.toolCall,
+      result,
+    );
+    await this.events.toolCompleted(
+      run,
+      turn,
+      itemId,
+      toolCall.toolCallId,
+      result.output,
+    );
+    return { toolCallId: toolCall.toolCallId, output: result.output };
+  }
+
   private async executeToCompletion(
     run: Run,
     turn: Turn,
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
+    approval: ApprovalResolution | null,
   ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
-    const initial = await this.callWorker(run, turn, workspace, toolCall, null);
+    const initial = await this.callWorker(
+      run,
+      turn,
+      workspace,
+      toolCall,
+      approval,
+    );
     if (initial.kind === "completed") {
       return initial;
     }
     if (initial.kind === "failed") {
       throw this.workerFailure(initial.failure);
     }
-    const approval = await this.approvals.requestAndWait(
+    if (approval !== null) {
+      throw new RuntimeKernelError(
+        "approval_retry_required",
+        `Worker requested approval again for ${toolCall.toolCallId}`,
+      );
+    }
+    const workerApproval = await this.approvals.requestAndWait(
       run,
       turn,
       initial.request,
@@ -84,7 +133,7 @@ export class ToolExecutionCoordinator {
       turn,
       workspace,
       toolCall,
-      approval,
+      workerApproval,
     );
   }
 

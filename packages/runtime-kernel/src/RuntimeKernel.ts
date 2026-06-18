@@ -12,6 +12,7 @@ import type {
   ContextAssemblyPort,
   ProviderPort,
   RuntimeKernelClock,
+  ToolAuthorizationPort,
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeEventEmitter } from "./RuntimeEventEmitter.js";
@@ -28,6 +29,7 @@ export interface RuntimeKernelDependencies {
   readonly contextAssembly: ContextAssemblyPort;
   readonly provider: ProviderPort;
   readonly worker: WorkerProtocolPort;
+  readonly toolAuthorization: ToolAuthorizationPort;
   readonly approvals: ApprovalWaitPort;
   readonly producerId: string;
   readonly maxToolCalls?: number;
@@ -54,6 +56,7 @@ export class RuntimeKernel {
     this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
     this.tools = new ToolExecutionCoordinator(
       dependencies.worker,
+      dependencies.toolAuthorization,
       this.approvals,
       this.events,
     );

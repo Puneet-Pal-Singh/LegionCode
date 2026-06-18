@@ -9,6 +9,7 @@ export {
   type ContextAssemblyPort,
   type ProviderPort,
   type RuntimeKernelClock,
+  type ToolAuthorizationPort,
   type WorkerProtocolPort,
 } from "./ports.js";
 export {
@@ -22,6 +23,8 @@ export {
   type RuntimeContext,
   type StartTurnInput,
   type StartTurnResult,
+  type ToolAuthorizationErrorCode,
+  type ToolAuthorizationResult,
   type ToolResult,
   type WorkerToolResult,
 } from "./types.js";

@@ -22,6 +22,27 @@ export interface ToolResult {
   readonly output: JsonRecord;
 }
 
+export type ToolAuthorizationErrorCode =
+  | "tool_not_registered"
+  | "invalid_tool_input"
+  | "tool_policy_denied";
+
+export type ToolAuthorizationResult =
+  | {
+      readonly status: "authorized";
+      readonly toolCall: ToolCallItemContent;
+    }
+  | {
+      readonly status: "approval_required";
+      readonly toolCall: ToolCallItemContent;
+      readonly request: ApprovalRequestedPayload;
+    }
+  | {
+      readonly status: "rejected";
+      readonly code: ToolAuthorizationErrorCode;
+      readonly reason: string;
+    };
+
 export type ProviderStep =
   | {
       readonly kind: "complete";

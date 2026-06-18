@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ApprovalIdSchema,
   ArtifactIdSchema,
   ItemIdSchema,
   RunIdSchema,
@@ -136,6 +137,115 @@ describe("RuntimeKernel package behavior", () => {
         code: "command_failed",
         message: "Write failed",
         details: { runtimeKernelCode: "worker_failed" },
+      },
+    });
+  });
+
+  it("emits approval events before executing a policy-gated tool", async () => {
+    const eventStore = createEventStore();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: "tool_call" as const,
+        itemId: ItemIdSchema.parse("itm_runtime001"),
+        content: {
+          toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+          toolName: "write_file",
+          input: { path: "src/index.ts", content: "export {};" },
+        },
+      })
+      .mockResolvedValueOnce({ kind: "complete" as const, output: "Done" });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: {
+        approvalId: ApprovalIdSchema.parse("appr_runtime001"),
+        itemId: ItemIdSchema.parse("itm_runtime001"),
+        question: "Allow this write?",
+        options: [
+          { id: "approve", label: "Approve", description: null },
+          { id: "deny", label: "Deny", description: null },
+        ],
+        metadata: { toolName: "write_file" },
+      },
+    }));
+    const kernel = new RuntimeKernel({
+      eventStore,
+      workspaceManifests: await createManifestRepository(),
+      ...ports,
+      producerId: "runtime-kernel-test",
+    });
+
+    await expect(kernel.startTurn({ run, turn })).resolves.toMatchObject({
+      status: "completed",
+    });
+    expect(ports.worker.executeTool).toHaveBeenCalledTimes(1);
+    expect(ports.worker.executeTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approval: expect.objectContaining({ decision: "approved" }),
+      }),
+    );
+    const replay = await eventStore.replay({
+      scope: { scopeType: "run", scopeId: run.id },
+      afterCursor: null,
+      limit: 20,
+    });
+    expect(replay.events.map((event) => event.type)).toEqual([
+      "turn.started",
+      "tool.call.requested",
+      "tool.call.started",
+      "approval.requested",
+      "approval.decided",
+      "tool.call.completed",
+      "turn.completed",
+    ]);
+  });
+
+  it("emits a typed policy failure without calling the worker", async () => {
+    const eventStore = createEventStore();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => ({
+      kind: "tool_call" as const,
+      itemId: ItemIdSchema.parse("itm_runtime001"),
+      content: {
+        toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+        toolName: "write_file",
+        input: { path: "src/index.ts", content: "export {};" },
+      },
+    }));
+    ports.toolAuthorization.authorize = vi.fn(async () => ({
+      status: "rejected" as const,
+      code: "tool_policy_denied" as const,
+      reason: "Read-only runs cannot write files.",
+    }));
+    const kernel = new RuntimeKernel({
+      eventStore,
+      workspaceManifests: await createManifestRepository(),
+      ...ports,
+      producerId: "runtime-kernel-test",
+    });
+
+    await expect(kernel.startTurn({ run, turn })).rejects.toMatchObject({
+      code: "tool_policy_denied",
+    });
+    expect(ports.worker.executeTool).not.toHaveBeenCalled();
+    const replay = await eventStore.replay({
+      scope: { scopeType: "run", scopeId: run.id },
+      afterCursor: null,
+      limit: 20,
+    });
+    expect(replay.events.map((event) => event.type)).toEqual([
+      "turn.started",
+      "tool.call.requested",
+      "tool.call.started",
+      "tool.call.failed",
+      "turn.failed",
+    ]);
+    expect(replay.events[3]?.payload).toMatchObject({
+      failure: {
+        code: "policy_denied",
+        details: { runtimeKernelCode: "tool_policy_denied" },
       },
     });
   });

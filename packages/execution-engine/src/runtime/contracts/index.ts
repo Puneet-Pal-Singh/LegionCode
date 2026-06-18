@@ -59,3 +59,7 @@ export {
   type ToolTokenPolicy,
   type ToolOutputRenderer,
 } from "../tools/CodingToolRegistry.js";
+export {
+  RegistryToolAuthorization,
+  type PermissionPolicyResolver,
+} from "./RegistryToolAuthorization.js";

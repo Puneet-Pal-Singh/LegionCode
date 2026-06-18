@@ -1,10 +1,16 @@
-import type { Run, ToolCallItemContent, Turn } from "@repo/platform-protocol";
+import type {
+  ItemId,
+  Run,
+  ToolCallItemContent,
+  Turn,
+} from "@repo/platform-protocol";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import type {
   ApprovalResolution,
   ProviderCallInput,
   ProviderStep,
   RuntimeContext,
+  ToolAuthorizationResult,
   WorkerToolResult,
 } from "./types.js";
 
@@ -18,6 +24,14 @@ export interface ContextAssemblyPort {
 
 export interface ProviderPort {
   generateNext(input: ProviderCallInput): Promise<ProviderStep>;
+}
+
+export interface ToolAuthorizationPort {
+  authorize(input: {
+    run: Run;
+    itemId: ItemId;
+    toolCall: ToolCallItemContent;
+  }): Promise<ToolAuthorizationResult>;
 }
 
 export interface WorkerProtocolPort {
