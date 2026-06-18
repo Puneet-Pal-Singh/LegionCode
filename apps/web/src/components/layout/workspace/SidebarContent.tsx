@@ -2,14 +2,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useEffect, useRef, type RefObject } from "react";
 import type { DiffContent } from "@repo/shared-types";
-import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
+import type { FileExplorerHandle } from "../../FileExplorer";
 import { ChangesPanel } from "../../sidebar/ChangesPanel";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
-import { RepoFileTree } from "../../github/RepoFileTree";
 import { useGitReview } from "../../git/useGitReview";
 import type { TabType, SelectedFile, SelectedDiff } from "./useWorkspaceState";
 import type { Repository } from "../../../services/GitHubService";
+import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
 
 interface SidebarContentProps {
   isViewingContent: boolean;
@@ -116,82 +116,37 @@ export function SidebarContent({
               />
             ) : null}
           </motion.div>
-        ) : activeTab === "review" ? (
+        ) : (
           <motion.div
             key="review"
             initial={{ opacity: 0, x: 10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 10 }}
             transition={{ duration: 0.15 }}
-            className="absolute inset-0 overflow-hidden"
+            className="absolute inset-0 flex min-h-0 flex-col overflow-hidden"
           >
             <ChangesPanel
               mode="modal"
               layout="stacked"
-              className="p-3"
-            />
-          </motion.div>
-        ) : activeTab === "files" ? (
-          <motion.div
-            key="files"
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -10 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 overflow-y-auto"
-          >
-            <AnimatePresence>
-              {repo && isGitHubLoaded ? (
-                <motion.div
-                  key="repo-tree"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <RepoFileTree
-                    owner={repo.owner.login}
-                    repo={repo.name}
-                    branch={branch}
-                    tree={repoTree}
-                    isLoading={isLoadingTree}
-                    onFileSelect={handleGitHubFileSelect}
-                  />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="local-explorer"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <FileExplorer
-                    ref={explorerRef}
-                    sessionId={sandboxId}
-                    runId={runId}
-                    onFileClick={handleFileClick}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="changes"
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 10 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 overflow-y-auto"
-          >
-            <ChangesPanel
-              mode="modal"
-              layout="stacked"
-              showToolbar={false}
-              onFileSelect={handleChangedFileSelect}
+              className="min-h-0 w-full"
             />
           </motion.div>
         )}
       </AnimatePresence>
+      <SidebarTreeOverlay
+        activeTab={activeTab}
+        repo={repo}
+        isGitHubLoaded={isGitHubLoaded}
+        repoTree={repoTree}
+        isLoadingTree={isLoadingTree}
+        branch={branch}
+        explorerRef={explorerRef}
+        sandboxId={sandboxId}
+        runId={runId}
+        onGitHubFileSelect={handleGitHubFileSelect}
+        onLocalFileSelect={handleFileClick}
+        onChangedFileSelect={handleChangedFileSelect}
+      />
     </div>
   );
 }

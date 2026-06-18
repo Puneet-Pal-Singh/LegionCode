@@ -44,15 +44,6 @@ export function SidebarHeader({
           <ArrowLeft size={14} />
           Back
         </button>
-      ) : activeTab === "review" ? (
-        <SidebarSurfaceControls
-          activeTab={activeTab}
-          changesCount={changesCount}
-          hasPendingApproval={hasPendingApproval}
-          onTabChange={onTabChange}
-          onCommit={onCommit}
-          onExpand={onExpand}
-        />
       ) : (
         <SidebarSurfaceControls
           activeTab={activeTab}
@@ -84,28 +75,13 @@ function SidebarSurfaceControls({
 }) {
   return (
     <>
-      <div className="flex h-full gap-1.5">
+      <div className="flex h-full">
         <SidebarTabButton
           activeTab={activeTab}
           tab="review"
           label="Review"
           icon={<FileDiff size={14} />}
           count={changesCount}
-          onTabChange={onTabChange}
-        />
-        <SidebarTabButton
-          activeTab={activeTab}
-          tab="changes"
-          label="File changes"
-          icon={<GitBranch size={14} />}
-          count={changesCount}
-          onTabChange={onTabChange}
-        />
-        <SidebarTabButton
-          activeTab={activeTab}
-          tab="files"
-          label="Files"
-          icon={<Folder size={14} />}
           onTabChange={onTabChange}
         />
       </div>
@@ -115,6 +91,20 @@ function SidebarSurfaceControls({
             Approval
           </span>
         ) : null}
+        <SidebarIconTabButton
+          activeTab={activeTab}
+          tab="changes"
+          label="File changes"
+          icon={<GitBranch size={14} />}
+          onTabChange={onTabChange}
+        />
+        <SidebarIconTabButton
+          activeTab={activeTab}
+          tab="files"
+          label="Files"
+          icon={<Folder size={14} />}
+          onTabChange={onTabChange}
+        />
         {/* TODO: Set REVIEW_COMMIT_ENTRY_POINT_ENABLED true after commit flow reliability is production-ready. */}
         {REVIEW_COMMIT_ENTRY_POINT_ENABLED ? (
           <HeaderIconButton
@@ -135,6 +125,39 @@ function SidebarSurfaceControls({
         </HeaderIconButton>
       </div>
     </>
+  );
+}
+
+function SidebarIconTabButton({
+  activeTab,
+  tab,
+  label,
+  icon,
+  onTabChange,
+}: {
+  activeTab: TabType;
+  tab: TabType;
+  label: string;
+  icon: ReactNode;
+  onTabChange: (tab: TabType) => void;
+}) {
+  const isActive = activeTab === tab;
+  return (
+    <button
+      type="button"
+      onClick={() => onTabChange(isActive ? "review" : tab)}
+      className={cn(
+        "rounded-md p-1.5 transition-colors",
+        isActive
+          ? "bg-zinc-800 text-white"
+          : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200",
+      )}
+      aria-label={label}
+      title={label}
+      aria-pressed={isActive}
+    >
+      {icon}
+    </button>
   );
 }
 
