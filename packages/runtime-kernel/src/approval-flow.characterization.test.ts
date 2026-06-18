@@ -12,7 +12,7 @@ import {
 } from "./test-fixtures.js";
 
 describe("approval continuation characterization", () => {
-  it("keeps approval waiting non-terminal and clears it before retry", async () => {
+  it("records request and decision before retrying the exact worker call", async () => {
     const lifecycleEvents = createLifecycleSink();
     const ports = createPorts();
     ports.provider.generateNext = vi
