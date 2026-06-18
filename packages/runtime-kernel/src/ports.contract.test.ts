@@ -6,7 +6,14 @@ import type {
   ProviderPort,
   WorkerProtocolPort,
 } from "./ports.js";
-import { approvalRequest, manifest, run, turn } from "./test-fixtures.js";
+import {
+  approvalRequest,
+  finalItemId,
+  manifest,
+  run,
+  runAttemptId,
+  turn,
+} from "./test-fixtures.js";
 
 describe("runtime kernel port contracts", () => {
   it("keeps worker execution run-scoped and manifest-backed", async () => {
@@ -22,6 +29,7 @@ describe("runtime kernel port contracts", () => {
     await expect(
       worker.executeTool({
         runId: run.id,
+        runAttemptId,
         turnId: turn.id,
         workspace: manifest,
         toolCall: {
@@ -39,7 +47,11 @@ describe("runtime kernel port contracts", () => {
       assemble: async () => ({ instructions: "test", metadata: {} }),
     };
     const provider: ProviderPort = {
-      generateNext: async () => ({ kind: "complete", output: "done" }),
+      generateNext: async () => ({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "done",
+      }),
     };
     const approvals: ApprovalWaitPort = {
       waitForDecision: async () => ({
@@ -55,6 +67,7 @@ describe("runtime kernel port contracts", () => {
     await expect(
       provider.generateNext({
         run,
+        runAttemptId,
         turn,
         workspace: manifest,
         context: { instructions: "test", metadata: {} },
@@ -64,6 +77,7 @@ describe("runtime kernel port contracts", () => {
     await expect(
       approvals.waitForDecision({
         runId: run.id,
+        runAttemptId,
         turnId: turn.id,
         request: approvalRequest,
       }),
