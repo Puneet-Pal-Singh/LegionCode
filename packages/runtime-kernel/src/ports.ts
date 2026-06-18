@@ -1,6 +1,8 @@
 import type {
   ItemId,
+  LifecycleEvent,
   Run,
+  RunAttemptId,
   ToolCallItemContent,
   Turn,
 } from "@repo/platform-protocol";
@@ -37,6 +39,7 @@ export interface ToolAuthorizationPort {
 export interface WorkerProtocolPort {
   executeTool(input: {
     runId: Run["id"];
+    runAttemptId: RunAttemptId;
     turnId: Turn["id"];
     workspace: WorkspaceManifest;
     toolCall: ToolCallItemContent;
@@ -47,6 +50,7 @@ export interface WorkerProtocolPort {
 export interface ApprovalWaitPort {
   waitForDecision(input: {
     runId: Run["id"];
+    runAttemptId: RunAttemptId;
     turnId: Turn["id"];
     request: Extract<
       WorkerToolResult,
@@ -57,4 +61,10 @@ export interface ApprovalWaitPort {
 
 export interface RuntimeKernelClock {
   now(): string;
+}
+
+export interface LifecycleEventSink {
+  appendBatch(
+    events: readonly LifecycleEvent[],
+  ): Promise<readonly LifecycleEvent[]>;
 }

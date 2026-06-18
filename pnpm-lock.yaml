@@ -831,9 +831,6 @@ importers:
 
   packages/runtime-kernel:
     dependencies:
-      '@repo/event-store':
-        specifier: workspace:*
-        version: link:../event-store
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol
@@ -841,6 +838,9 @@ importers:
         specifier: workspace:*
         version: link:../workspace-core
     devDependencies:
+      '@repo/contract-conformance':
+        specifier: workspace:*
+        version: link:../contract-conformance
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config

@@ -1,7 +1,11 @@
-import { MemoryEventStore } from "@repo/event-store";
-import type { ApprovalRequestedPayload } from "@repo/platform-protocol";
+import type {
+  ApprovalRequestedPayload,
+  LifecycleEvent,
+} from "@repo/platform-protocol";
 import {
   ApprovalRequestedPayloadSchema,
+  ItemIdSchema,
+  RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
 } from "@repo/platform-protocol";
@@ -13,12 +17,15 @@ import { vi } from "vitest";
 import type {
   ApprovalWaitPort,
   ContextAssemblyPort,
+  LifecycleEventSink,
   ProviderPort,
   ToolAuthorizationPort,
   WorkerProtocolPort,
 } from "./ports.js";
 
 export const timestamp = "2026-06-14T10:00:00.000Z";
+export const runAttemptId = RunAttemptIdSchema.parse("attempt_runtime001");
+export const finalItemId = ItemIdSchema.parse("itm_assistant001");
 
 export const run = RunSchema.parse({
   id: "run_runtime001",
@@ -75,7 +82,7 @@ export const manifest = parseWorkspaceManifest({
 export const approvalRequest: ApprovalRequestedPayload =
   ApprovalRequestedPayloadSchema.parse({
     approvalId: "appr_runtime001",
-    itemId: "itm_runtime001",
+    itemId: "itm_approval001",
     question: "Allow the worker to write the requested file?",
     options: [
       {
@@ -111,6 +118,7 @@ export function createPorts(): {
     provider: {
       generateNext: vi.fn(async () => ({
         kind: "complete" as const,
+        itemId: finalItemId,
         output: "Done",
       })),
     },
@@ -136,6 +144,36 @@ export function createPorts(): {
   };
 }
 
-export function createEventStore(): MemoryEventStore {
-  return new MemoryEventStore();
+export class MemoryLifecycleEventSink implements LifecycleEventSink {
+  readonly events: LifecycleEvent[] = [];
+
+  async appendBatch(
+    events: readonly LifecycleEvent[],
+  ): Promise<readonly LifecycleEvent[]> {
+    const existingKeys = new Set(this.events.map((event) => event.idempotencyKey));
+    const newEvents = events.filter(
+      (event) => !existingKeys.has(event.idempotencyKey),
+    );
+    this.events.push(...newEvents);
+    return events;
+  }
+
+  async replay(input: {
+    afterSequence: number | null;
+    limit: number;
+  }): Promise<{
+    events: readonly LifecycleEvent[];
+    nextSequence: number | null;
+  }> {
+    const events = this.events
+      .filter((event) =>
+        input.afterSequence === null ? true : event.sequence > input.afterSequence,
+      )
+      .slice(0, input.limit);
+    return { events, nextSequence: events.at(-1)?.sequence ?? null };
+  }
+}
+
+export function createLifecycleSink(): MemoryLifecycleEventSink {
+  return new MemoryLifecycleEventSink();
 }

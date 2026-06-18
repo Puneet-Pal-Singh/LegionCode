@@ -116,7 +116,7 @@ describe("RegistryToolAuthorization", () => {
       status: "approval_required",
       request: {
         approvalId: "appr_runtime001",
-        itemId,
+        itemId: "itm_approval_runtime001",
         metadata: {
           toolName: "write_file",
           permissionProfileId: run.permissionProfileId,

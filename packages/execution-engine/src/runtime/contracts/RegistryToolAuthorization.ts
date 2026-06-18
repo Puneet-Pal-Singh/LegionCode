@@ -6,6 +6,7 @@ import {
 } from "@repo/permission-policy";
 import {
   ApprovalIdSchema,
+  ItemIdSchema,
   JsonRecordSchema,
   type PermissionProfileId,
   type RunMode,
@@ -101,7 +102,7 @@ function mapPolicyDecision(
     toolCall,
     request: {
       approvalId: createApprovalId(toolCall.toolCallId),
-      itemId: input.itemId,
+      itemId: createApprovalItemId(toolCall.toolCallId),
       question: decision.approval.prompt,
       options: [
         {
@@ -184,6 +185,10 @@ function readString(value: unknown): string | null {
 
 function createApprovalId(toolCallId: string) {
   return ApprovalIdSchema.parse(toolCallId.replace(/^toolcall_/, "appr_"));
+}
+
+function createApprovalItemId(toolCallId: string) {
+  return ItemIdSchema.parse(toolCallId.replace(/^toolcall_/, "itm_approval_"));
 }
 
 function reject(

@@ -6,6 +6,7 @@ import type {
   JsonRecord,
   ProtocolError,
   Run,
+  RunAttemptId,
   ToolCallItemContent,
   Turn,
   UserId,
@@ -46,6 +47,7 @@ export type ToolAuthorizationResult =
 export type ProviderStep =
   | {
       readonly kind: "complete";
+      readonly itemId: ItemId;
       readonly output: string;
     }
   | {
@@ -88,6 +90,7 @@ export interface ApprovalResolution {
 export interface StartTurnInput {
   readonly run: Run;
   readonly turn: Turn;
+  readonly runAttemptId: RunAttemptId;
 }
 
 export interface StartTurnResult {
@@ -99,6 +102,7 @@ export interface StartTurnResult {
 
 export interface ProviderCallInput {
   readonly run: Run;
+  readonly runAttemptId: RunAttemptId;
   readonly turn: Turn;
   readonly workspace: WorkspaceManifest;
   readonly context: RuntimeContext;

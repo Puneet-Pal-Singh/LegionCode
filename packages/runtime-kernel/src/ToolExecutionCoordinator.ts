@@ -2,6 +2,7 @@ import type {
   ItemId,
   ProtocolError,
   Run,
+  RunAttemptId,
   ToolCallItemContent,
   Turn,
 } from "@repo/platform-protocol";
@@ -9,7 +10,7 @@ import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
 import { RuntimeKernelError, toProtocolError } from "./errors.js";
 import type { ToolAuthorizationPort, WorkerProtocolPort } from "./ports.js";
-import { RuntimeEventEmitter } from "./RuntimeEventEmitter.js";
+import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type {
   ApprovalResolution,
   ToolResult,
@@ -22,40 +23,53 @@ export class ToolExecutionCoordinator {
     private readonly worker: WorkerProtocolPort,
     private readonly authorization: ToolAuthorizationPort,
     private readonly approvals: ApprovalCoordinator,
-    private readonly events: RuntimeEventEmitter,
+    private readonly lifecycle: RuntimeLifecycleCoordinator,
   ) {}
 
   async execute(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
   ): Promise<ToolResult> {
-    await this.events.toolRequested(run, turn, itemId, toolCall);
-    await this.events.toolStarted(run, turn, itemId, toolCall.toolCallId);
+    await this.lifecycle.startToolCall(
+      itemId,
+      toolCall.toolCallId,
+      toolCall.input,
+    );
     try {
       return await this.executeAuthorizedTool(
         run,
+        runAttemptId,
         turn,
         workspace,
         itemId,
         toolCall,
       );
     } catch (error) {
-      await this.events.toolFailed(
-        run,
-        turn,
-        itemId,
-        toolCall.toolCallId,
-        toProtocolError(error),
-      );
+      if (
+        error instanceof RuntimeKernelError &&
+        error.code === "approval_denied"
+      ) {
+        await this.lifecycle.declineToolCall(
+          toolCall.toolCallId,
+          error.message,
+        );
+      } else {
+        await this.lifecycle.failToolCall(
+          toolCall.toolCallId,
+          toProtocolError(error),
+        );
+      }
       throw error;
     }
   }
 
   private async executeAuthorizedTool(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     itemId: ItemId,
@@ -71,41 +85,45 @@ export class ToolExecutionCoordinator {
     }
     const approval =
       authorization.status === "approval_required"
-        ? await this.approvals.requestAndWait(run, turn, authorization.request)
+        ? await this.approvals.requestAndWait(
+            run,
+            runAttemptId,
+            turn,
+            itemId,
+            authorization.request,
+          )
         : null;
     const result = await this.executeToCompletion(
       run,
+      runAttemptId,
       turn,
       workspace,
+      itemId,
       authorization.toolCall,
       approval,
     );
     await this.emitWorkerResultEvents(
       run,
-      turn,
       itemId,
       authorization.toolCall,
       result,
     );
-    await this.events.toolCompleted(
-      run,
-      turn,
-      itemId,
-      toolCall.toolCallId,
-      result.output,
-    );
+    await this.lifecycle.completeToolCall(toolCall.toolCallId, result.output);
     return { toolCallId: toolCall.toolCallId, output: result.output };
   }
 
   private async executeToCompletion(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
+    itemId: ItemId,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
   ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
     const initial = await this.callWorker(
       run,
+      runAttemptId,
       turn,
       workspace,
       toolCall,
@@ -125,11 +143,14 @@ export class ToolExecutionCoordinator {
     }
     const workerApproval = await this.approvals.requestAndWait(
       run,
+      runAttemptId,
       turn,
+      itemId,
       initial.request,
     );
     return await this.resolveApprovedRetry(
       run,
+      runAttemptId,
       turn,
       workspace,
       toolCall,
@@ -139,6 +160,7 @@ export class ToolExecutionCoordinator {
 
   private async resolveApprovedRetry(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
@@ -146,6 +168,7 @@ export class ToolExecutionCoordinator {
   ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
     const result = await this.callWorker(
       run,
+      runAttemptId,
       turn,
       workspace,
       toolCall,
@@ -165,6 +188,7 @@ export class ToolExecutionCoordinator {
 
   private async callWorker(
     run: Run,
+    runAttemptId: RunAttemptId,
     turn: Turn,
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
@@ -172,6 +196,7 @@ export class ToolExecutionCoordinator {
   ): Promise<WorkerToolResult> {
     return await this.worker.executeTool({
       runId: run.id,
+      runAttemptId,
       turnId: turn.id,
       workspace,
       toolCall,
@@ -185,7 +210,6 @@ export class ToolExecutionCoordinator {
 
   private async emitWorkerResultEvents(
     run: Run,
-    turn: Turn,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     result: Extract<WorkerToolResult, { kind: "completed" }>,
@@ -196,18 +220,11 @@ export class ToolExecutionCoordinator {
       result.output,
       result.events,
     );
-    for (const [index, delta] of projection.outputDeltas.entries()) {
-      await this.events.toolOutputDelta(
-        run,
-        turn,
-        itemId,
-        toolCall.toolCallId,
-        delta,
-        index,
-      );
+    for (const delta of projection.outputDeltas) {
+      await this.lifecycle.appendToolOutput(toolCall.toolCallId, delta);
     }
     for (const artifact of projection.artifacts) {
-      await this.events.artifactCreated(run, itemId, artifact);
+      await this.lifecycle.createArtifact(itemId, artifact);
     }
   }
 }
