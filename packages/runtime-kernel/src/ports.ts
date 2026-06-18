@@ -1,4 +1,10 @@
-import type { Run, ToolCallItemContent, Turn } from "@repo/platform-protocol";
+import type {
+  LifecycleEvent,
+  Run,
+  RunAttemptId,
+  ToolCallItemContent,
+  Turn,
+} from "@repo/platform-protocol";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import type {
   ApprovalResolution,
@@ -23,6 +29,7 @@ export interface ProviderPort {
 export interface WorkerProtocolPort {
   executeTool(input: {
     runId: Run["id"];
+    runAttemptId: RunAttemptId;
     turnId: Turn["id"];
     workspace: WorkspaceManifest;
     toolCall: ToolCallItemContent;
@@ -33,6 +40,7 @@ export interface WorkerProtocolPort {
 export interface ApprovalWaitPort {
   waitForDecision(input: {
     runId: Run["id"];
+    runAttemptId: RunAttemptId;
     turnId: Turn["id"];
     request: Extract<
       WorkerToolResult,
@@ -43,4 +51,10 @@ export interface ApprovalWaitPort {
 
 export interface RuntimeKernelClock {
   now(): string;
+}
+
+export interface LifecycleEventSink {
+  appendBatch(
+    events: readonly LifecycleEvent[],
+  ): Promise<readonly LifecycleEvent[]>;
 }

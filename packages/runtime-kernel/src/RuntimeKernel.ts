@@ -1,4 +1,5 @@
 import {
+  RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
   type Run,
@@ -6,15 +7,20 @@ import {
 } from "@repo/platform-protocol";
 import type { WorkspaceManifestRepository } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
-import { RuntimeKernelError, toProtocolError } from "./errors.js";
+import {
+  RuntimeKernelError,
+  RuntimeLifecycleSettlementError,
+  toProtocolError,
+} from "./errors.js";
 import type {
   ApprovalWaitPort,
   ContextAssemblyPort,
   ProviderPort,
+  LifecycleEventSink,
   RuntimeKernelClock,
   WorkerProtocolPort,
 } from "./ports.js";
-import { RuntimeEventEmitter } from "./RuntimeEventEmitter.js";
+import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type { StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
 import { WorkspaceCoordinator } from "./WorkspaceCoordinator.js";
@@ -23,7 +29,7 @@ const DEFAULT_MAX_TOOL_CALLS = 32;
 const systemClock: RuntimeKernelClock = { now: () => new Date().toISOString() };
 
 export interface RuntimeKernelDependencies {
-  readonly eventStore: ConstructorParameters<typeof RuntimeEventEmitter>[0];
+  readonly lifecycleEvents: LifecycleEventSink;
   readonly workspaceManifests: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
   readonly provider: ProviderPort;
@@ -35,28 +41,13 @@ export interface RuntimeKernelDependencies {
 }
 
 export class RuntimeKernel {
-  private readonly events: RuntimeEventEmitter;
-  private readonly approvals: ApprovalCoordinator;
   private readonly workspaces: WorkspaceCoordinator;
-  private readonly tools: ToolExecutionCoordinator;
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
+  private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
 
   constructor(private readonly dependencies: RuntimeKernelDependencies) {
-    this.events = new RuntimeEventEmitter(
-      dependencies.eventStore,
-      dependencies.producerId,
-    );
-    this.approvals = new ApprovalCoordinator(
-      dependencies.approvals,
-      this.events,
-    );
     this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
-    this.tools = new ToolExecutionCoordinator(
-      dependencies.worker,
-      this.approvals,
-      this.events,
-    );
     this.maxToolCalls = dependencies.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
     this.clock = dependencies.clock ?? systemClock;
   }
@@ -64,45 +55,70 @@ export class RuntimeKernel {
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
     const run = RunSchema.parse(input.run);
     const turn = TurnSchema.parse(input.turn);
+    const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
     this.assertTurnIdentity(run, turn);
-    const runningTurn = this.transitionTurn(turn, "running");
-    await this.events.turnStarted(run, runningTurn);
+    const lifecycle = this.createLifecycle(run, turn, runAttemptId);
+    const approvals = new ApprovalCoordinator(
+      this.dependencies.approvals,
+      lifecycle,
+    );
+    const tools = new ToolExecutionCoordinator(
+      this.dependencies.worker,
+      approvals,
+      lifecycle,
+    );
+    await lifecycle.start();
 
     try {
       const workspace = await this.workspaces.loadExecutableManifest(run.id);
       this.assertWorkspaceIdentity(run, workspace);
       const context = await this.dependencies.contextAssembly.assemble({
         run,
-        turn: runningTurn,
+        turn,
         workspace,
       });
       const result = await this.executeLoop(
         run,
-        runningTurn,
+        runAttemptId,
+        turn,
         workspace,
         context,
+        tools,
       );
-      await this.events.turnCompleted(
-        run,
-        this.transitionTurn(runningTurn, "completed"),
-      );
-      return { ...result, workspace };
+      await lifecycle.complete(result.output, result.finalItemId);
+      return {
+        status: result.status,
+        output: result.output,
+        toolCallCount: result.toolCallCount,
+        workspace,
+      };
     } catch (error) {
-      await this.events.turnFailed(
-        run,
-        this.transitionTurn(runningTurn, "failed"),
-        toProtocolError(error),
-      );
+      if (!lifecycle.isTerminal) {
+        await this.recoverFailedTurn(lifecycle, error);
+      }
       throw error;
     }
   }
 
+  async interruptTurn(turnId: Turn["id"], reason: string): Promise<void> {
+    const lifecycle = this.lifecycles.get(turnId);
+    if (!lifecycle) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime kernel`,
+      );
+    }
+    await lifecycle.interrupt(reason);
+  }
+
   private async executeLoop(
     run: Run,
+    runAttemptId: StartTurnInput["runAttemptId"],
     turn: Turn,
     workspace: StartTurnResult["workspace"],
     context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
-  ): Promise<Omit<StartTurnResult, "workspace">> {
+    tools: ToolExecutionCoordinator,
+  ): Promise<Omit<StartTurnResult, "workspace"> & { finalItemId: ProviderStepItemId }> {
     const toolResults: ToolResult[] = [];
     for (
       let toolCallCount = 0;
@@ -111,13 +127,19 @@ export class RuntimeKernel {
     ) {
       const step = await this.dependencies.provider.generateNext({
         run,
+        runAttemptId,
         turn,
         workspace,
         context,
         toolResults,
       });
       if (step.kind === "complete") {
-        return { status: "completed", output: step.output, toolCallCount };
+        return {
+          status: "completed",
+          output: step.output,
+          toolCallCount,
+          finalItemId: step.itemId,
+        };
       }
       if (toolCallCount === this.maxToolCalls) {
         throw new RuntimeKernelError(
@@ -126,8 +148,9 @@ export class RuntimeKernel {
         );
       }
       toolResults.push(
-        await this.tools.execute(
+        await tools.execute(
           run,
+          runAttemptId,
           turn,
           workspace,
           step.itemId,
@@ -162,14 +185,47 @@ export class RuntimeKernel {
     }
   }
 
-  private transitionTurn(turn: Turn, status: Turn["status"]): Turn {
-    const now = this.clock.now();
-    return {
-      ...turn,
-      status,
-      startedAt: status === "running" ? now : turn.startedAt,
-      completedAt: status === "completed" || status === "failed" ? now : null,
-      updatedAt: now,
-    };
+  private createLifecycle(
+    run: Run,
+    turn: Turn,
+    runAttemptId: StartTurnInput["runAttemptId"],
+  ): RuntimeLifecycleCoordinator {
+    if (this.lifecycles.has(turn.id)) {
+      throw new RuntimeKernelError(
+        "turn_already_owned",
+        `Turn ${turn.id} already has a lifecycle coordinator`,
+      );
+    }
+    const lifecycle = new RuntimeLifecycleCoordinator({
+      sink: this.dependencies.lifecycleEvents,
+      producerId: this.dependencies.producerId,
+      clock: this.clock,
+      threadId: run.threadId,
+      workspaceId: run.workspaceId,
+      turnId: turn.id,
+      runAttemptId,
+      initialSequence: turn.lastEventSequence,
+    });
+    this.lifecycles.set(turn.id, lifecycle);
+    return lifecycle;
+  }
+
+  private async recoverFailedTurn(
+    lifecycle: RuntimeLifecycleCoordinator,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await lifecycle.fail(toProtocolError(error));
+    } catch (settlementError) {
+      if (settlementError instanceof RuntimeLifecycleSettlementError) {
+        throw settlementError;
+      }
+      throw new RuntimeLifecycleSettlementError("failed", settlementError);
+    }
   }
 }
+
+type ProviderStepItemId = Extract<
+  Awaited<ReturnType<ProviderPort["generateNext"]>>,
+  { kind: "complete" }
+>["itemId"];
