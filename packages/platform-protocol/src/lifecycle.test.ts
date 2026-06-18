@@ -304,6 +304,14 @@ describe("canonical lifecycle event identifiers", () => {
       LifecycleEventSchema.parse({
         ...envelope,
         itemId: "itm_abc123",
+        type: "tool_call.completed",
+        payload: {},
+      }),
+    ).toThrow();
+    expect(() =>
+      LifecycleEventSchema.parse({
+        ...envelope,
+        itemId: "itm_abc123",
         type: "tool_call.output_delta",
         payload: { delta: "output" },
       }),
@@ -317,6 +325,15 @@ describe("canonical lifecycle event identifiers", () => {
       }),
     ).toThrow();
 
+    expect(
+      LifecycleEventSchema.parse({
+        ...envelope,
+        itemId: "itm_abc123",
+        toolCallId: "toolcall_abc123",
+        type: "tool_call.completed",
+        payload: { result: { exitCode: 0 } },
+      }),
+    ).toMatchObject({ toolCallId: "toolcall_abc123" });
     expect(
       LifecycleEventSchema.parse({
         ...envelope,

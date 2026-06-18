@@ -540,11 +540,16 @@ export const LifecycleEventTypeSchema = z.enum([
   "item.failed",
   "item.declined",
   "item.interrupted",
+  "tool_call.started",
   "assistant_message.delta",
   "reasoning.summary_delta",
   "plan.updated",
   "tool_call.input_delta",
   "tool_call.output_delta",
+  "tool_call.completed",
+  "tool_call.failed",
+  "tool_call.declined",
+  "tool_call.interrupted",
   "command_execution.output_delta",
   "file_change.patch_updated",
   "turn.diff_updated",
@@ -642,8 +647,52 @@ const ToolCallLifecycleEventSchema = z
     ...LifecycleEventEnvelopeShape,
     itemId: ItemIdSchema,
     toolCallId: ToolCallIdSchema,
-    type: z.enum(["tool_call.input_delta", "tool_call.output_delta"]),
+    type: z.enum([
+      "tool_call.started",
+      "tool_call.input_delta",
+      "tool_call.output_delta",
+    ]),
     payload: JsonRecordSchema,
+  })
+  .strict();
+
+const ToolCallCompletedEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    toolCallId: ToolCallIdSchema,
+    type: z.literal("tool_call.completed"),
+    payload: z.object({ result: JsonRecordSchema }).strict(),
+  })
+  .strict();
+
+const ToolCallFailedEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    toolCallId: ToolCallIdSchema,
+    type: z.literal("tool_call.failed"),
+    payload: z.object({ failure: ProtocolErrorSchema }).strict(),
+  })
+  .strict();
+
+const ToolCallDeclinedEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    toolCallId: ToolCallIdSchema,
+    type: z.literal("tool_call.declined"),
+    payload: z.object({ reason: z.string().min(1).max(2_000) }).strict(),
+  })
+  .strict();
+
+const ToolCallInterruptedEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    toolCallId: ToolCallIdSchema,
+    type: z.literal("tool_call.interrupted"),
+    payload: z.object({ reason: z.string().min(1).max(2_000) }).strict(),
   })
   .strict();
 
@@ -714,8 +763,13 @@ const TurnLifecycleEventSchema = z
     itemId: ItemIdSchema.optional(),
     type: LifecycleEventTypeSchema.exclude([
       ...ItemLifecycleEventTypeSchema.options,
+      "tool_call.started",
       "tool_call.input_delta",
       "tool_call.output_delta",
+      "tool_call.completed",
+      "tool_call.failed",
+      "tool_call.declined",
+      "tool_call.interrupted",
       "approval.requested",
       "approval.decided",
       "user_input.requested",
@@ -740,6 +794,10 @@ export const LifecycleEventSchema = z.union([
   ItemDeclinedEventSchema,
   ItemInterruptedEventSchema,
   ToolCallLifecycleEventSchema,
+  ToolCallCompletedEventSchema,
+  ToolCallFailedEventSchema,
+  ToolCallDeclinedEventSchema,
+  ToolCallInterruptedEventSchema,
   ApprovalLifecycleEventSchema,
   RequestLifecycleEventSchema,
   TurnCompletedEventSchema,
