@@ -15,6 +15,7 @@ import type {
   ToolResult,
   WorkerToolResult,
 } from "./types.js";
+import { mapWorkerResultEvents } from "./WorkerResultEventMapper.js";
 
 export class ToolExecutionCoordinator {
   constructor(
@@ -39,6 +40,7 @@ export class ToolExecutionCoordinator {
         workspace,
         toolCall,
       );
+      await this.emitWorkerResultEvents(run, turn, itemId, toolCall, result);
       await this.events.toolCompleted(
         run,
         turn,
@@ -130,5 +132,33 @@ export class ToolExecutionCoordinator {
 
   private workerFailure(failure: ProtocolError): RuntimeKernelError {
     return new RuntimeKernelError("worker_failed", failure.message, failure);
+  }
+
+  private async emitWorkerResultEvents(
+    run: Run,
+    turn: Turn,
+    itemId: ItemId,
+    toolCall: ToolCallItemContent,
+    result: Extract<WorkerToolResult, { kind: "completed" }>,
+  ): Promise<void> {
+    const projection = mapWorkerResultEvents(
+      run,
+      itemId,
+      result.output,
+      result.events,
+    );
+    for (const [index, delta] of projection.outputDeltas.entries()) {
+      await this.events.toolOutputDelta(
+        run,
+        turn,
+        itemId,
+        toolCall.toolCallId,
+        delta,
+        index,
+      );
+    }
+    for (const artifact of projection.artifacts) {
+      await this.events.artifactCreated(run, itemId, artifact);
+    }
   }
 }

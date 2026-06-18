@@ -1,6 +1,7 @@
 import type { AppendEventInput, EventStore } from "@repo/event-store";
 import {
   EVENT_SCHEMA_VERSION,
+  type ArtifactMetadata,
   type ApprovalRequestedPayload,
   type ItemId,
   type JsonRecord,
@@ -86,6 +87,22 @@ export class RuntimeEventEmitter {
     );
   }
 
+  async toolOutputDelta(
+    run: Run,
+    turn: Turn,
+    itemId: ItemId,
+    toolCallId: ToolCallItemContent["toolCallId"],
+    delta: string,
+    index: number,
+  ): Promise<void> {
+    await this.appendRunEvent(
+      run,
+      "tool.call.output.delta",
+      `turn:${turn.id}:tool:${toolCallId}:output:${index}`,
+      { itemId, toolCallId, delta },
+    );
+  }
+
   async toolFailed(
     run: Run,
     turn: Turn,
@@ -99,6 +116,25 @@ export class RuntimeEventEmitter {
       `turn:${turn.id}:tool:${toolCallId}:failed`,
       { itemId, toolCallId, failure },
     );
+  }
+
+  async artifactCreated(
+    run: Run,
+    itemId: ItemId | null,
+    artifact: ArtifactMetadata,
+  ): Promise<void> {
+    await this.eventStore.append({
+      threadId: run.threadId,
+      workspaceId: run.workspaceId,
+      runId: run.id,
+      scopeType: "artifact",
+      scopeId: artifact.artifactId,
+      idempotencyKey: `artifact:${artifact.artifactId}:created`,
+      producer: { kind: "runtime_kernel", id: this.producerId },
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      type: "artifact.created",
+      payload: { itemId, artifact },
+    });
   }
 
   async approvalRequested(
