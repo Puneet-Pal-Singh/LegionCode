@@ -1,6 +1,7 @@
 import type {
   ApprovalDecision,
   ApprovalRequestedPayload,
+  ArtifactMetadata,
   ItemId,
   JsonRecord,
   ProtocolError,
@@ -36,6 +37,7 @@ export type WorkerToolResult =
   | {
       readonly kind: "completed";
       readonly output: JsonRecord;
+      readonly events?: readonly WorkerToolRuntimeEvent[];
     }
   | {
       readonly kind: "failed";
@@ -44,6 +46,16 @@ export type WorkerToolResult =
   | {
       readonly kind: "approval_required";
       readonly request: ApprovalRequestedPayload;
+    };
+
+export type WorkerToolRuntimeEvent =
+  | {
+      readonly type: "tool_output_delta";
+      readonly delta: string;
+    }
+  | {
+      readonly type: "artifact_created";
+      readonly artifact: ArtifactMetadata;
     };
 
 export interface ApprovalResolution {
