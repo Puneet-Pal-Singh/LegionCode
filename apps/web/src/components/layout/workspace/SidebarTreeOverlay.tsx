@@ -2,7 +2,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, useState, type RefObject } from "react";
 import { Search } from "lucide-react";
 import { Resizer } from "../../ui/Resizer";
-import { cn } from "../../../lib/utils";
 import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
 import { ChangesList } from "../../diff/ChangesList";
 import { RepoFileTree } from "../../github/RepoFileTree";
@@ -57,10 +56,7 @@ export function SidebarTreeOverlay(props: SidebarTreeOverlayProps) {
           exit={{ x: "100%", opacity: 0 }}
           transition={{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
           data-sidebar-tree-drawer
-          className={cn(
-            "absolute bottom-0 right-0 z-30 flex min-w-0 max-w-full flex-col overflow-hidden border-l border-zinc-800 bg-black shadow-[-18px_0_36px_rgba(0,0,0,0.35)]",
-            props.activeTab === "files" ? "top-10" : "top-[76px]",
-          )}
+          className="absolute bottom-0 right-0 top-[60px] z-30 flex min-w-0 max-w-full flex-col overflow-hidden border-l border-zinc-800 bg-black shadow-[-18px_0_36px_rgba(0,0,0,0.35)]"
           style={{ width: drawerWidth ?? "50%" }}
         >
           <Resizer side="right" onResize={resizeDrawer} />

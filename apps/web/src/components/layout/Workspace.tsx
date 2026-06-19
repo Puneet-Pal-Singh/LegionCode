@@ -103,6 +103,7 @@ export function Workspace({
     selectedFile,
     selectedDiff,
     openFileTab,
+    openFilesTab,
     selectContentTab,
     closeContentTab,
     isViewingContent,
@@ -234,6 +235,16 @@ export function Workspace({
     setIsViewingContent(false);
     setActiveTab((current) => (current === "changes" ? "review" : "changes"));
   }, [setActiveTab, setIsViewingContent]);
+  const toggleFilesPanel = useCallback(() => {
+    if (activeTab === "files") {
+      setActiveTab("review");
+      return;
+    }
+    if (!isViewingContent) {
+      openFilesTab();
+    }
+    setActiveTab("files");
+  }, [activeTab, isViewingContent, openFilesTab, setActiveTab]);
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
@@ -384,11 +395,7 @@ export function Workspace({
               }}
               onCloseReview={() => setIsRightSidebarOpen?.(false)}
               onCloseContent={closeContentTab}
-              onOpenFiles={() =>
-                setActiveTab((current) =>
-                  current === "files" ? "review" : "files",
-                )
-              }
+              onOpenFiles={toggleFilesPanel}
               onOpenChanges={toggleChangesPanel}
               onExpand={() => {
                 setIsRightSidebarOpen?.(true);
@@ -448,11 +455,7 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
-                onOpenFiles={() =>
-                  setActiveTab((current) =>
-                    current === "files" ? "review" : "files",
-                  )
-                }
+                onOpenFiles={toggleFilesPanel}
                 onCloseTree={() => setActiveTab("review")}
                 onToggleChanges={toggleChangesPanel}
               />
@@ -464,6 +467,7 @@ export function Workspace({
             isLoadingContent={isLoadingContent}
             onSelectContent={selectContentTab}
             onCloseContent={closeContentTab}
+            onOpenFilesTab={openFilesTab}
             renderFilesRail={(onFileOpened) => (
               <WorkspaceFilesTree
                 repo={repo}

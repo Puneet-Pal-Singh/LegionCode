@@ -16,10 +16,11 @@ export interface SelectedDiff {
 }
 
 export type SidebarContentTab =
+  | { id: "files"; kind: "empty"; path: "Open file" }
   | ({ id: string; kind: "file" } & SelectedFile)
   | ({ id: string; kind: "diff" } & SelectedDiff);
 
-function getContentTabId(kind: SidebarContentTab["kind"], path: string): string {
+function getContentTabId(kind: "file" | "diff", path: string): string {
   return `${kind}:${path}`;
 }
 
@@ -27,7 +28,9 @@ export function useWorkspaceState() {
   // Sidebar states
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const storedTab = localStorage.getItem("shadowbox_active_tab");
-    return storedTab && VALID_TABS.has(storedTab) ? (storedTab as TabType) : "files";
+    return storedTab && VALID_TABS.has(storedTab)
+      ? (storedTab as TabType)
+      : "files";
   });
 
   useEffect(() => {
@@ -44,7 +47,7 @@ export function useWorkspaceState() {
   const [isViewingContent, setIsViewingContent] = useState(() => {
     return localStorage.getItem("shadowbox_is_viewing_content") === "true";
   });
-  
+
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   const activeContentTab = useMemo(
@@ -63,7 +66,9 @@ export function useWorkspaceState() {
         return [...current, tab];
       }
 
-      return current.map((item, index) => (index === existingIndex ? tab : item));
+      return current.map((item, index) =>
+        index === existingIndex ? tab : item,
+      );
     });
     setActiveContentTabId(tab.id);
     setIsViewingContent(true);
@@ -79,6 +84,10 @@ export function useWorkspaceState() {
     },
     [openContentTab],
   );
+
+  const openFilesTab = useCallback(() => {
+    openContentTab({ id: "files", kind: "empty", path: "Open file" });
+  }, [openContentTab]);
 
   const openDiffTab = useCallback(
     (diff: SelectedDiff) => {
@@ -137,6 +146,7 @@ export function useWorkspaceState() {
     selectedFile,
     selectedDiff,
     openFileTab,
+    openFilesTab,
     openDiffTab,
     selectContentTab,
     closeContentTab,

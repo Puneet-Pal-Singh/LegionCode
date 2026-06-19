@@ -22,5 +22,10 @@ describe("WorkspaceContentView", () => {
     const rail = screen.getByText("workspace tree").closest("aside");
 
     expect(navigation?.nextElementSibling).toContainElement(rail);
+    expect(rail).toHaveClass("w-[45%]", "border-l");
+    expect(screen.getByText("Open file")).toBeInTheDocument();
+    expect(
+      screen.getByText("Select a file from the workspace tree"),
+    ).toBeInTheDocument();
   });
 });

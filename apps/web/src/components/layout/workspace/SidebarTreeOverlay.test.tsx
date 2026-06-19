@@ -23,7 +23,10 @@ vi.mock("../../git/useGitReview", () => ({
 }));
 
 vi.mock("../../diff/ChangesList", () => ({
-  ChangesList: ({ files, onSelectFile }: {
+  ChangesList: ({
+    files,
+    onSelectFile,
+  }: {
     files: Array<{ path: string }>;
     onSelectFile: (file: { path: string }) => void;
   }) => (
@@ -62,7 +65,7 @@ describe("SidebarTreeOverlay", () => {
 
     const drawer = screen.getByRole("complementary");
     expect(drawer).toHaveStyle({ width: "50%" });
-    expect(drawer).toHaveClass("top-[76px]");
+    expect(drawer).toHaveClass("top-[60px]");
 
     fireEvent.click(screen.getByRole("button", { name: "src/changed.ts" }));
     expect(mockSelectFile).toHaveBeenCalledWith(
@@ -74,13 +77,14 @@ describe("SidebarTreeOverlay", () => {
     render(<SidebarTreeOverlay {...baseProps} activeTab="files" />);
 
     expect(screen.getByText("workspace files")).toBeInTheDocument();
-    expect(screen.getByRole("complementary")).toHaveClass("top-10");
+    expect(screen.getByRole("complementary")).toHaveClass("top-[60px]");
   });
 
   it("closes when the resize handle is dragged fully right", () => {
     render(<SidebarTreeOverlay {...baseProps} activeTab="files" />);
 
-    const resizeHandle = document.querySelector<HTMLElement>(".cursor-col-resize");
+    const resizeHandle =
+      document.querySelector<HTMLElement>(".cursor-col-resize");
     expect(resizeHandle).not.toBeNull();
     fireEvent.mouseDown(resizeHandle!, { clientX: 100 });
     fireEvent.mouseMove(window, { clientX: 500 });

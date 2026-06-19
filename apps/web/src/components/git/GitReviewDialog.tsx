@@ -12,6 +12,7 @@ interface GitReviewDialogProps {
   isLoadingContent?: boolean;
   onSelectContent?: (id: string) => void;
   onCloseContent?: (id: string) => void;
+  onOpenFilesTab?: () => void;
 }
 
 type ReviewRail = "changes" | "files" | null;
@@ -22,6 +23,7 @@ export function GitReviewDialog({
   isLoadingContent = false,
   onSelectContent,
   onCloseContent,
+  onOpenFilesTab,
 }: GitReviewDialogProps) {
   const {
     isReviewOpen,
@@ -121,6 +123,15 @@ export function GitReviewDialog({
     onCloseContent?.(id);
     if (activeWorkspaceTabId === id) setActiveWorkspaceTabId("review");
   };
+  const toggleFilesWorkspace = () => {
+    if (activeWorkspaceTabId === "review") {
+      onOpenFilesTab?.();
+      setActiveWorkspaceTabId("files");
+      setActiveRail("files");
+      return;
+    }
+    setActiveRail((current) => (current === "files" ? null : "files"));
+  };
 
   return (
     <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center p-6">
@@ -148,9 +159,7 @@ export function GitReviewDialog({
           onSelectReview={() => selectWorkspaceTab("review")}
           onSelectContent={selectWorkspaceTab}
           onCloseContent={closeWorkspaceTab}
-          onOpenFiles={() =>
-            setActiveRail((current) => (current === "files" ? null : "files"))
-          }
+          onOpenFiles={toggleFilesWorkspace}
           onOpenChanges={() => {
             setActiveWorkspaceTabId("review");
             setActiveRail((current) =>
@@ -189,11 +198,7 @@ export function GitReviewDialog({
                   )
                 }
                 isFilesOpen={activeRail === "files"}
-                onToggleFiles={() =>
-                  setActiveRail((current) =>
-                    current === "files" ? null : "files",
-                  )
-                }
+                onToggleFiles={toggleFilesWorkspace}
                 filesRail={renderFilesRail?.(openFileTab)}
               />
             }

@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { Folders, Loader2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
@@ -61,12 +61,7 @@ export function WorkspaceContentView({
         }
       />
       <div className="flex min-h-0 flex-1">
-        {filesOpen && railPlacement === "inline" ? (
-          <aside className="flex w-72 shrink-0 overflow-hidden border-r border-zinc-800 bg-black">
-            {filesRail}
-          </aside>
-        ) : null}
-        <div className="min-w-0 flex-1 overflow-y-auto">
+        <div className="min-w-0 flex-1 overflow-y-auto bg-[#111113]">
           {isLoading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2 size={24} className="animate-spin text-zinc-600" />
@@ -87,9 +82,28 @@ export function WorkspaceContentView({
               onWordWrapChange={setWordWrap}
               showHeader={false}
             />
-          ) : null}
+          ) : (
+            <EmptyFilePreview />
+          )}
         </div>
+        {filesOpen && railPlacement === "inline" ? (
+          <aside className="flex w-[45%] min-w-72 max-w-[520px] shrink-0 overflow-hidden border-l border-zinc-800 bg-[#111113]">
+            {filesRail}
+          </aside>
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+function EmptyFilePreview() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+      <Folders size={38} className="text-zinc-500" />
+      <p className="text-sm font-semibold text-zinc-100">Open file</p>
+      <p className="text-xs text-zinc-500">
+        Select a file from the workspace tree
+      </p>
     </div>
   );
 }

@@ -27,7 +27,7 @@ export function FileNavigationBar({
   onOpenIde,
 }: FileNavigationBarProps) {
   return (
-    <div className="relative z-40 flex h-[60px] shrink-0 items-center justify-between gap-2 border-b border-zinc-800 bg-[#111113] px-4 py-3">
+    <div className="relative z-40 flex h-[60px] shrink-0 items-center justify-between gap-2 border-b border-zinc-800 bg-black px-4 py-3">
       <FileBreadcrumbs path={path} />
 
       <div className="flex shrink-0 items-center gap-2">

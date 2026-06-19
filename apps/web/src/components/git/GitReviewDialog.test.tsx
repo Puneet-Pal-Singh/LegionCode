@@ -110,14 +110,8 @@ describe("GitReviewDialog", () => {
     expect(
       screen.getByRole("button", { name: "Open example file" }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
-      "data-files-open",
-      "true",
-    );
-    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
-      "data-changes-open",
-      "false",
-    );
+    expect(screen.queryByTestId("changes-panel")).not.toBeInTheDocument();
+    expect(screen.getByText("Open file")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open example file" }));
     expect(screen.getByRole("tab", { name: "example.ts" })).toHaveAttribute(
