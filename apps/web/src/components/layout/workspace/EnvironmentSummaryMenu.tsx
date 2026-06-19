@@ -59,11 +59,11 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
         aria-label="Toggle environment summary"
         aria-expanded={isOpen}
         className={cn(
-          "rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white",
+          "rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white",
           isOpen && "bg-zinc-800 text-white",
         )}
       >
-        <ListIcon size={18} />
+        <ListIcon size={16} />
       </button>
       {isOpen ? (
         <EnvironmentPanel
@@ -77,7 +77,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           branches={branches}
           currentBranch={props.branch}
           isLoading={loading}
-          className="left-3 top-[88px]"
+          className="left-2 top-[72px]"
           onBranchSelect={(branch) => {
             props.onBranchChange(branch);
             setIsBranchOpen(false);
@@ -124,11 +124,11 @@ function EnvironmentPanelView({
     <div
       role="dialog"
       aria-label="Environment summary"
-      className="absolute right-0 top-11 z-50 w-[420px] rounded-2xl border border-zinc-700/80 bg-[#171719] p-2 shadow-2xl"
+      className="absolute right-0 top-10 z-50 w-[340px] rounded-xl border border-zinc-700/80 bg-[#171719] p-1.5 shadow-2xl"
     >
-      <div className="flex items-center justify-between px-3 py-2 text-sm text-zinc-400">
+      <div className="flex items-center justify-between px-2.5 py-1.5 text-xs text-zinc-400">
         <span>Environment</span>
-        <Plus size={20} />
+        <Plus size={17} />
       </div>
       <EnvironmentActions {...actions} />
     </div>
@@ -183,7 +183,7 @@ function ChangesAction({
   if (count === 0) return null;
   return (
     <SummaryButton
-      icon={<FileDiff size={17} />}
+      icon={<FileDiff size={15} />}
       label="Changes"
       detail={`${count}`}
       onClick={onClick}
@@ -201,7 +201,7 @@ function RuntimeAction({
   return (
     <>
       <SummaryButton
-        icon={<Cloud size={17} />}
+        icon={<Cloud size={15} />}
         label="LegionCode cloud"
         chevron
         onClick={onToggle}
@@ -224,7 +224,7 @@ function BranchAction({
   return (
     <>
       <SummaryButton
-        icon={<GitBranch size={18} />}
+        icon={<GitBranch size={16} />}
         label={branch || repo.default_branch}
         chevron
         onClick={onToggle}
@@ -242,7 +242,7 @@ function CommitAction({
 }) {
   return visible ? (
     <SummaryButton
-      icon={<GitCommitHorizontal size={18} />}
+      icon={<GitCommitHorizontal size={16} />}
       label="Commit or push"
       onClick={onClick}
     />
@@ -258,7 +258,7 @@ function PullRequestStatus({
 }) {
   if (loading)
     return (
-      <div className="flex items-center gap-2 px-3 py-3 text-sm text-zinc-500">
+      <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-zinc-500">
         <Loader2 size={15} className="animate-spin" />
         Checking pull request...
       </div>
@@ -283,7 +283,7 @@ function SummaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-zinc-100 transition-colors hover:bg-zinc-800"
+      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-zinc-100 transition-colors hover:bg-zinc-800"
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -295,17 +295,17 @@ function SummaryButton({
 
 function RuntimeOptions() {
   return (
-    <div className="mx-2 rounded-xl border border-zinc-700 bg-zinc-900/70 p-1">
-      <div className="flex items-center gap-3 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-white">
-        <Cloud size={16} />
+    <div className="mx-1.5 rounded-lg border border-zinc-700 bg-zinc-900/70 p-1">
+      <div className="flex items-center gap-2.5 rounded-md bg-zinc-800 px-2.5 py-1.5 text-xs text-white">
+        <Cloud size={14} />
         <span className="flex-1">LegionCode cloud</span>
         <Check size={15} />
       </div>
       <div
         aria-disabled="true"
-        className="flex items-center gap-3 px-3 py-2 text-sm text-zinc-600"
+        className="flex items-center gap-2.5 px-2.5 py-1.5 text-xs text-zinc-600"
       >
-        <Laptop size={16} />
+        <Laptop size={14} />
         Work locally
       </div>
     </div>
@@ -318,9 +318,9 @@ function PullRequestLink({ pullRequest }: { pullRequest: PullRequestSummary }) {
       href={pullRequest.url}
       target="_blank"
       rel="noreferrer"
-      className="mt-2 flex items-center gap-3 rounded-xl border-t border-zinc-700 px-3 py-3 text-sm text-zinc-200 hover:bg-zinc-700/60"
+      className="mt-1.5 flex items-center gap-2.5 rounded-lg border-t border-zinc-700 px-2.5 py-2 text-xs text-zinc-200 hover:bg-zinc-700/60"
     >
-      <GitBranch size={17} />
+      <GitBranch size={15} />
       <span className="min-w-0 flex-1 truncate">{pullRequest.title}</span>
       <ExternalLink size={15} className="text-zinc-500" />
     </a>
