@@ -1,5 +1,5 @@
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../../lib/utils";
@@ -57,18 +57,29 @@ export function ArtifactView({
           showLineNumbers={true}
           wrapLongLines={wordWrap}
           wrapLines={wordWrap}
+          lineProps={{
+            style: {
+              display: "block",
+              whiteSpace: wordWrap ? "pre-wrap" : "pre",
+              overflowWrap: wordWrap ? "anywhere" : "normal",
+              wordBreak: "normal",
+            },
+          }}
           customStyle={{
             margin: 0,
-            width: '100%',
-            background: 'transparent',
-            padding: '1.5rem',
-            fontSize: '13px',
-            fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
+            width: "100%",
+            background: "transparent",
+            padding: "1.5rem",
+            fontSize: "13px",
+            fontFamily: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
           }}
           codeTagProps={{
             style: {
-              background: 'transparent',
-            }
+              background: "transparent",
+              whiteSpace: wordWrap ? "pre-wrap" : "pre",
+              overflowWrap: wordWrap ? "anywhere" : "normal",
+              wordBreak: "normal",
+            },
           }}
         >
           {content}
@@ -83,11 +94,19 @@ function isMarkdown(filename: string): boolean {
 }
 
 function getLanguage(filename: string): string {
-  const extension = filename.split('.').pop()?.toLowerCase();
+  const extension = filename.split(".").pop()?.toLowerCase();
   const languages: Record<string, string> = {
-    js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
-    py: 'python', rs: 'rust', go: 'go', md: 'markdown', json: 'json',
-    css: 'css', html: 'html',
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    py: "python",
+    rs: "rust",
+    go: "go",
+    md: "markdown",
+    json: "json",
+    css: "css",
+    html: "html",
   };
-  return extension ? languages[extension] ?? 'typescript' : 'typescript';
+  return extension ? (languages[extension] ?? "typescript") : "typescript";
 }

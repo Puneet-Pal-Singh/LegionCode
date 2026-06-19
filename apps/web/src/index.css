@@ -127,6 +127,15 @@
     display: none;
   }
 
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
   .glass {
     @apply bg-zinc-950/40 backdrop-blur-sm border border-zinc-800/50;
   }

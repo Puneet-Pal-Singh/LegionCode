@@ -1,6 +1,13 @@
-import { ChevronDown, ChevronUp, Ellipsis, Rows3, SquareSplitHorizontal } from "lucide-react";
-import { useState } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Ellipsis,
+  Rows3,
+  SquareSplitHorizontal,
+} from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { cn } from "../../lib/utils";
+import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
 import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
 import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
 import type { DiffLayout } from "./useChangesPanelViewState";
@@ -30,12 +37,15 @@ export function ReviewDiffToolbar({
   onToggleChanges: () => void;
 }) {
   const [showViewMenu, setShowViewMenu] = useState(false);
+  const viewMenuRef = useRef<HTMLDivElement>(null);
+  const closeViewMenu = useCallback(() => setShowViewMenu(false), []);
+  useOutsideDismiss(viewMenuRef, showViewMenu, closeViewMenu);
 
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 pb-3">
       <ReviewScopeDropdown value={reviewScope} onChange={onReviewScopeChange} />
       <div className="flex items-center gap-2">
-        <div className="relative">
+        <div ref={viewMenuRef} className="relative">
           <button
             type="button"
             onClick={() => setShowViewMenu((previous) => !previous)}
@@ -71,7 +81,11 @@ export function ReviewDiffToolbar({
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
               >
-                {allDiffsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                {allDiffsCollapsed ? (
+                  <ChevronDown size={13} />
+                ) : (
+                  <ChevronUp size={13} />
+                )}
                 {allDiffsCollapsed ? "Expand All Diffs" : "Collapse All Diffs"}
               </button>
             </div>
