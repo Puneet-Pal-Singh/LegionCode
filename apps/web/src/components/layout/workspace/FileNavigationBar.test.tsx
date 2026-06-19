@@ -27,6 +27,11 @@ describe("FileNavigationBar", () => {
 
     expect(screen.getByText("apps")).toBeInTheDocument();
     expect(screen.getByText("App.tsx")).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("button", { name: "Toggle files" })
+        .querySelector(".lucide-folders"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Toggle files" }));
     expect(onOpenFiles).toHaveBeenCalledTimes(1);
   });
@@ -48,7 +53,9 @@ describe("FileNavigationBar", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("src/App.tsx"));
 
     fireEvent.click(screen.getByRole("button", { name: "File options" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Disable word wrap" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Disable word wrap" }),
+    );
     expect(onWordWrapChange).toHaveBeenCalledWith(false);
   });
 
@@ -68,11 +75,15 @@ describe("FileNavigationBar", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "File options" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy file contents" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Copy file contents" }),
+    );
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("# Hello"));
 
     fireEvent.click(screen.getByRole("button", { name: "File options" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Disable rich preview" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Disable rich preview" }),
+    );
     expect(onRichPreviewChange).toHaveBeenCalledWith(false);
   });
 });

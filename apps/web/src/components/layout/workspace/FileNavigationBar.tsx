@@ -4,6 +4,7 @@ import {
   Copy,
   Ellipsis,
   Folder,
+  Folders,
   Image,
   WrapText,
 } from "lucide-react";
@@ -98,7 +99,7 @@ export function FileNavigationBar({
           aria-pressed={filesOpen}
           title={filesOpen ? "Hide files" : "Show files"}
         >
-          <Folder size={17} />
+          <Folders size={19} />
         </button>
       </div>
 

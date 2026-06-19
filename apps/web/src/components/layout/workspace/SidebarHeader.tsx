@@ -1,10 +1,9 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
-import { FileDiff, Folder, Maximize2, PanelRight, Plus, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Maximize2, PanelRight } from "lucide-react";
 import { cn } from "../../../lib/utils";
-import { FileChangesIcon } from "../../sidebar/FileChangesIcon";
-import { FileTypeIcon } from "../../ui/FileTypeIcon";
 import type { SidebarContentTab } from "./useWorkspaceState";
-import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
+import { WorkspaceAddMenu } from "./WorkspaceAddMenu";
+import { WorkspaceTabStrip } from "./WorkspaceTabStrip";
 
 interface SidebarHeaderProps {
   sidebarWidth: number;
@@ -35,74 +34,30 @@ export function SidebarHeader({
   onExpand,
   onCloseSidebar,
 }: SidebarHeaderProps) {
-  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
-  const addMenuRef = useRef<HTMLDivElement>(null);
-  const closeAddMenu = useCallback(() => setIsAddMenuOpen(false), []);
-  useOutsideDismiss(addMenuRef, isAddMenuOpen, closeAddMenu);
-
   return (
     <header
       className="fixed right-0 top-0 z-[60] flex h-12 items-center border-b border-l border-zinc-800 bg-[#111113] shadow-sm shadow-black/20"
       style={{ width: sidebarWidth }}
     >
-      <div
-        role="tablist"
-        aria-label="Right sidebar tabs"
-        className="flex min-w-0 flex-1 items-stretch overflow-x-auto scrollbar-hide"
-      >
-        <SidebarTab
-          label="Review"
-          icon={<FileDiff size={15} />}
-          active={!isViewingContent}
-          leading
-          onSelect={onSelectReview}
-          onClose={onCloseReview}
-        />
-        {contentTabs.map((tab) => (
-          <SidebarTab
-            key={tab.id}
-            label={formatContentTitle(tab.path)}
-            icon={<FileTypeIcon path={tab.path} size={15} />}
-            active={isViewingContent && activeContentTabId === tab.id}
-            onSelect={() => onSelectContent(tab.id)}
-            onClose={() => onCloseContent(tab.id)}
-          />
-        ))}
-      </div>
+      <WorkspaceTabStrip
+        ariaLabel="Right sidebar tabs"
+        reviewActive={!isViewingContent}
+        contentTabs={contentTabs}
+        activeContentTabId={activeContentTabId}
+        onSelectReview={onSelectReview}
+        onSelectContent={onSelectContent}
+        onCloseReview={onCloseReview}
+        onCloseContent={onCloseContent}
+      />
 
-      <div
-        ref={addMenuRef}
-        className="relative flex shrink-0 items-center gap-0.5 px-1.5"
-      >
-        <IconButton
-          label="Add sidebar tab"
-          onClick={() => setIsAddMenuOpen((previous) => !previous)}
-        >
-          <Plus size={17} />
-        </IconButton>
-        {isAddMenuOpen ? (
-          <div
-            role="menu"
-            className="absolute right-20 top-9 z-20 w-44 rounded-md border border-zinc-800 bg-zinc-950 p-1 shadow-2xl"
-          >
-            <MenuButton
-              label="Files"
-              icon={<Folder size={15} />}
-              onClick={() => {
-                onOpenFiles();
-                setIsAddMenuOpen(false);
-              }}
-            />
-            <MenuButton
-              label="File changes"
-              icon={<FileChangesIcon />}
-              onClick={() => {
-                onOpenChanges();
-                setIsAddMenuOpen(false);
-              }}
-            />
-          </div>
-        ) : null}
+      <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">
+        <WorkspaceAddMenu
+          align="right"
+          triggerLabel="Add sidebar tab"
+          triggerClassName="p-1.5"
+          onOpenFiles={onOpenFiles}
+          onOpenChanges={onOpenChanges}
+        />
         <IconButton
           label="Fullscreen review"
           onClick={onExpand}
@@ -115,53 +70,6 @@ export function SidebarHeader({
         </IconButton>
       </div>
     </header>
-  );
-}
-
-function SidebarTab({
-  label,
-  icon,
-  active,
-  leading = false,
-  onSelect,
-  onClose,
-}: {
-  label: string;
-  icon: ReactNode;
-  active: boolean;
-  leading?: boolean;
-  onSelect: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div
-      role="tab"
-      aria-selected={active}
-      className={cn(
-        "group my-1 flex h-8 max-w-56 shrink-0 items-center rounded-xl",
-        leading ? "ml-4" : "ml-1",
-        active
-          ? "bg-[#242426] text-zinc-100"
-          : "text-zinc-500 hover:bg-zinc-900/60",
-      )}
-    >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 items-center gap-2 px-3 text-sm transition-colors hover:text-zinc-100"
-      >
-        <span className="shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
-      </button>
-      <button
-        type="button"
-        onClick={onClose}
-        className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-zinc-600 text-zinc-950 opacity-0 transition-all duration-150 hover:bg-zinc-400 hover:text-black group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
-        aria-label={`Close ${label} tab`}
-      >
-        <X size={14} strokeWidth={2.5} />
-      </button>
-    </div>
   );
 }
 
@@ -195,30 +103,4 @@ function IconButton({
       {children}
     </button>
   );
-}
-
-function MenuButton({
-  label,
-  icon,
-  onClick,
-}: {
-  label: string;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick}
-      className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-function formatContentTitle(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
 }
