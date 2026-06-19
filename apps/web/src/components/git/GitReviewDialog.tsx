@@ -10,6 +10,7 @@ interface GitReviewDialogProps {
   renderFilesRail?: (onFileOpened: (path: string) => void) => ReactNode;
   contentTabs?: SidebarContentTab[];
   isLoadingContent?: boolean;
+  contentError?: string | null;
   onSelectContent?: (id: string) => void;
   onCloseContent?: (id: string) => void;
   onOpenFilesTab?: () => void;
@@ -21,6 +22,7 @@ export function GitReviewDialog({
   renderFilesRail,
   contentTabs = [],
   isLoadingContent = false,
+  contentError,
   onSelectContent,
   onCloseContent,
   onOpenFilesTab,
@@ -209,6 +211,7 @@ export function GitReviewDialog({
               activeContentTab?.kind === "diff" ? activeContentTab : null
             }
             isLoadingContent={isLoadingContent}
+            contentError={contentError}
             filesOpen={activeRail === "files"}
             onToggleFiles={() =>
               setActiveRail((current) => (current === "files" ? null : "files"))

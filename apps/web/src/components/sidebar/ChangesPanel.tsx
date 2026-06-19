@@ -113,7 +113,7 @@ export function ChangesPanel({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden bg-transparent ${
+      className={`flex h-full min-h-0 flex-col overflow-visible bg-transparent ${
         mode === "modal"
           ? "p-0"
           : showStackedReview

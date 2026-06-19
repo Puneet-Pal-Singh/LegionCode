@@ -49,6 +49,7 @@ export function useWorkspaceState() {
   });
 
   const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
 
   const activeContentTab = useMemo(
     () => contentTabs.find((tab) => tab.id === activeContentTabId) ?? null,
@@ -72,6 +73,7 @@ export function useWorkspaceState() {
     });
     setActiveContentTabId(tab.id);
     setIsViewingContent(true);
+    setContentError(null);
   }, []);
 
   const openFileTab = useCallback(
@@ -103,6 +105,7 @@ export function useWorkspaceState() {
   const selectContentTab = useCallback((id: string) => {
     setActiveContentTabId(id);
     setIsViewingContent(true);
+    setContentError(null);
   }, []);
 
   const closeContentTab = useCallback(
@@ -154,5 +157,7 @@ export function useWorkspaceState() {
     setIsViewingContent,
     isLoadingContent,
     setIsLoadingContent,
+    contentError,
+    setContentError,
   };
 }

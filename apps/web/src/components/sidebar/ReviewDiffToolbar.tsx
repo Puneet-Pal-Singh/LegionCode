@@ -54,7 +54,7 @@ export function ReviewDiffToolbar({
   useOutsideDismiss(viewMenuRef, showViewMenu, closeViewMenu);
 
   return (
-    <div className="flex h-[60px] shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-zinc-800 px-4 py-3 scrollbar-hide">
+    <div className="relative z-50 flex h-[60px] shrink-0 flex-nowrap items-center justify-between gap-2 overflow-visible border-b border-zinc-800 px-4 py-3">
       <div className="flex min-w-0 items-center gap-2">
         {branch ? (
           <span className="inline-flex max-w-52 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5 text-xs font-medium text-zinc-300">
@@ -82,7 +82,7 @@ export function ReviewDiffToolbar({
           {showViewMenu ? (
             <div
               role="menu"
-              className="absolute right-0 top-9 z-20 min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
+              className="absolute right-0 top-9 z-[70] min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
             >
               <button
                 type="button"

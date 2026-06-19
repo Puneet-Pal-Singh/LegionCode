@@ -8,6 +8,7 @@ interface WorkspaceSurfaceBodyProps {
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
   isLoadingContent: boolean;
+  contentError?: string | null;
   filesOpen: boolean;
   onToggleFiles: () => void;
   filesRail?: ReactNode;
@@ -21,6 +22,7 @@ export function WorkspaceSurfaceBody({
   selectedFile,
   selectedDiff,
   isLoadingContent,
+  contentError,
   filesOpen,
   onToggleFiles,
   filesRail,
@@ -42,6 +44,7 @@ export function WorkspaceSurfaceBody({
         selectedFile={selectedFile}
         selectedDiff={selectedDiff}
         isLoading={isLoadingContent}
+        error={contentError}
         filesOpen={filesOpen}
         onToggleFiles={onToggleFiles}
         filesRail={filesRail}

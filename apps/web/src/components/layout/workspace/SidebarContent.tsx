@@ -13,6 +13,7 @@ interface SidebarContentProps {
   isViewingContent: boolean;
   activeTab: TabType;
   isLoadingContent: boolean;
+  contentError?: string | null;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
 
@@ -41,6 +42,7 @@ export function SidebarContent({
   isViewingContent,
   activeTab,
   isLoadingContent,
+  contentError,
   selectedFile,
   selectedDiff,
   repo,
@@ -141,6 +143,7 @@ export function SidebarContent({
               selectedFile={selectedFile}
               selectedDiff={selectedDiff}
               isLoadingContent={isLoadingContent}
+              contentError={contentError}
               filesOpen={activeTab === "files"}
               onToggleFiles={onOpenFiles}
               overlay={treeOverlay}

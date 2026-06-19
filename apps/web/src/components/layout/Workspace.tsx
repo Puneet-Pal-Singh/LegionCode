@@ -110,6 +110,8 @@ export function Workspace({
     setIsViewingContent,
     isLoadingContent,
     setIsLoadingContent,
+    contentError,
+    setContentError,
   } = useWorkspaceState();
   const sidebarWidth = rightSidebarWidth ?? internalSidebarWidth;
   const setSidebarWidth = setRightSidebarWidth ?? setInternalSidebarWidth;
@@ -250,6 +252,7 @@ export function Workspace({
     sandboxId,
     runId: activeRunId,
     setIsLoadingContent,
+    setContentError,
     openFileTab: handleOpenFileTab,
   });
   const {
@@ -259,6 +262,7 @@ export function Workspace({
     sandboxId,
     runId: activeRunId,
     setIsLoadingContent,
+    setContentError,
     openFileTab,
   });
 
@@ -303,6 +307,7 @@ export function Workspace({
     isGitHubLoaded,
     isHydrating,
     isViewingContent,
+    activeContentTabId,
     selectedFile,
     selectedDiff,
     switchBranch,
@@ -442,6 +447,7 @@ export function Workspace({
                 isViewingContent={isViewingContent}
                 activeTab={activeTab}
                 isLoadingContent={isLoadingContent}
+                contentError={contentError}
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
                 repo={repo}
@@ -465,6 +471,7 @@ export function Workspace({
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
             contentTabs={contentTabs}
             isLoadingContent={isLoadingContent}
+            contentError={contentError}
             onSelectContent={selectContentTab}
             onCloseContent={closeContentTab}
             onOpenFilesTab={openFilesTab}

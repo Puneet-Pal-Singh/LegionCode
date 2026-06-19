@@ -152,6 +152,8 @@ export function AgentSetup({
     setIsViewingContent,
     isLoadingContent,
     setIsLoadingContent,
+    contentError,
+    setContentError,
   } = useWorkspaceState();
   const {
     repoTree,
@@ -179,6 +181,7 @@ export function AgentSetup({
     sandboxId: sessionId,
     runId: activeRunId,
     setIsLoadingContent,
+    setContentError,
     openFileTab: handleOpenFileTab,
   });
 
@@ -859,6 +862,7 @@ export function AgentSetup({
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               isLoadingContent={isLoadingContent}
+              contentError={contentError}
               selectedFile={selectedFile}
               selectedDiff={selectedDiff}
               repo={githubRepo}

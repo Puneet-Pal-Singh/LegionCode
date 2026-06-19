@@ -1,4 +1,4 @@
-import { Folders, Loader2 } from "lucide-react";
+import { AlertCircle, Folders, Loader2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
@@ -9,6 +9,7 @@ interface WorkspaceContentViewProps {
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
   isLoading: boolean;
+  error?: string | null;
   filesOpen: boolean;
   onToggleFiles: () => void;
   onOpenIde?: (ide: string) => void;
@@ -20,6 +21,7 @@ export function WorkspaceContentView({
   selectedFile,
   selectedDiff,
   isLoading,
+  error,
   filesOpen,
   onToggleFiles,
   onOpenIde,
@@ -66,6 +68,8 @@ export function WorkspaceContentView({
             <div className="flex h-full items-center justify-center">
               <Loader2 size={24} className="animate-spin text-zinc-600" />
             </div>
+          ) : error ? (
+            <FileLoadError message={error} />
           ) : selectedFile ? (
             <ArtifactView
               isOpen
@@ -92,6 +96,16 @@ export function WorkspaceContentView({
           </aside>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function FileLoadError({ message }: { message: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+      <AlertCircle size={32} className="text-rose-400" />
+      <p className="text-sm font-semibold text-zinc-100">Unable to open file</p>
+      <p className="max-w-sm text-xs text-zinc-500">{message}</p>
     </div>
   );
 }

@@ -15,6 +15,7 @@ interface UseSidebarOrchestrationProps {
   isGitHubLoaded: boolean;
   isHydrating: boolean;
   isViewingContent: boolean;
+  activeContentTabId: string | null;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
   switchBranch: (branch: string) => void;
@@ -40,6 +41,7 @@ export function useSidebarOrchestration({
   isGitHubLoaded,
   isHydrating,
   isViewingContent,
+  activeContentTabId,
   selectedFile,
   selectedDiff,
   switchBranch,
@@ -52,14 +54,11 @@ export function useSidebarOrchestration({
 }: UseSidebarOrchestrationProps): UseSidebarOrchestrationResult {
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
 
-  const handleSidebarDiffSelected = useCallback(
-    () => {
-      setActiveTab("review");
-      setIsViewingContent(false);
-      setIsRightSidebarOpen?.(true);
-    },
-    [setActiveTab, setIsRightSidebarOpen, setIsViewingContent],
-  );
+  const handleSidebarDiffSelected = useCallback(() => {
+    setActiveTab("review");
+    setIsViewingContent(false);
+    setIsRightSidebarOpen?.(true);
+  }, [setActiveTab, setIsRightSidebarOpen, setIsViewingContent]);
 
   useEffect(() => {
     if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
@@ -105,12 +104,19 @@ export function useSidebarOrchestration({
   useEffect(() => {
     if (isHydrating) return;
     const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
-    if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
+    if (
+      isViewingContent &&
+      activeContentTabId !== "files" &&
+      savedPath &&
+      !selectedFile &&
+      !selectedDiff
+    ) {
       void handleFileClick(savedPath);
     }
   }, [
     isHydrating,
     isViewingContent,
+    activeContentTabId,
     selectedFile,
     selectedDiff,
     handleFileClick,

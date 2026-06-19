@@ -31,11 +31,21 @@ describe("ReviewDiffToolbar", () => {
     expect(
       screen.queryByRole("button", { name: "Collapse All Diffs" }),
     ).not.toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("button", { name: "Diff view options" })
+        .closest(".overflow-visible"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Diff view options" }));
     fireEvent.click(
       screen.getByRole("menuitem", { name: "Collapse All Diffs" }),
     );
     expect(onToggleAllDiffs).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Last turn changes" }));
+    expect(
+      screen.getByRole("menuitem", { name: "Git changes" }),
+    ).toBeInTheDocument();
 
     expect(
       screen.queryByRole("menuitem", { name: "File changes" }),

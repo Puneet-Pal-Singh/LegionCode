@@ -28,4 +28,20 @@ describe("WorkspaceContentView", () => {
       screen.getByText("Select a file from the workspace tree"),
     ).toBeInTheDocument();
   });
+
+  it("prioritizes loading over a previous file error", () => {
+    const { container } = render(
+      <WorkspaceContentView
+        selectedFile={null}
+        selectedDiff={null}
+        isLoading
+        error="The file could not be opened."
+        filesOpen={false}
+        onToggleFiles={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+    expect(screen.queryByText("Unable to open file")).not.toBeInTheDocument();
+  });
 });
