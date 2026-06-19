@@ -7,6 +7,8 @@ import {
   READ_FILE_TOOL_INPUT_SCHEMA,
   LIST_FILES_TOOL_INPUT_SCHEMA,
   WRITE_FILE_TOOL_INPUT_SCHEMA,
+  EDIT_FILE_TOOL_INPUT_SCHEMA,
+  MULTI_EDIT_TOOL_INPUT_SCHEMA,
   BASH_TOOL_INPUT_SCHEMA,
   GIT_STAGE_TOOL_INPUT_SCHEMA,
   GIT_COMMIT_TOOL_INPUT_SCHEMA,
@@ -51,6 +53,8 @@ export type GoldenFlowToolInputByName = {
   read_file: z.infer<typeof READ_FILE_TOOL_INPUT_SCHEMA>;
   list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
   write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
+  edit_file: z.infer<typeof EDIT_FILE_TOOL_INPUT_SCHEMA>;
+  multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
   git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
   git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;

@@ -19,6 +19,8 @@ describe("CodingToolGateway", () => {
       "read_file",
       "list_files",
       "write_file",
+      "edit_file",
+      "multi_edit",
       "bash",
       "git_stage",
       "git_commit",
@@ -53,6 +55,16 @@ describe("CodingToolGateway", () => {
       toolName: "read_file",
       plugin: "filesystem",
       action: "read_file",
+    });
+    expect(getGoldenFlowToolRoute("edit_file")).toEqual({
+      toolName: "edit_file",
+      plugin: "filesystem",
+      action: "edit_file",
+    });
+    expect(getGoldenFlowToolRoute("multi_edit")).toEqual({
+      toolName: "multi_edit",
+      plugin: "filesystem",
+      action: "multi_edit",
     });
     expect(getGoldenFlowToolRoute("bash")).toEqual({
       toolName: "bash",
@@ -134,6 +146,8 @@ describe("CodingToolGateway", () => {
 
   it("classifies mutating golden-flow tools conservatively", () => {
     expect(isMutatingGoldenFlowToolName("write_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("edit_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("multi_edit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("bash")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_commit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_pull")).toBe(true);
@@ -374,6 +388,20 @@ describe("CodingToolGateway", () => {
       path: "README.md",
       offset: 10,
       limit: 25,
+    });
+
+    expect(
+      validateGoldenFlowToolInput("edit_file", {
+        path: "src/app.ts",
+        oldText: "before",
+        newText: "after",
+        expectedReplacements: 1,
+      }),
+    ).toEqual({
+      path: "src/app.ts",
+      oldText: "before",
+      newText: "after",
+      expectedReplacements: 1,
     });
 
     expect(() =>

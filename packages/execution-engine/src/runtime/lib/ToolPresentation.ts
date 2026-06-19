@@ -70,9 +70,15 @@ const TOOL_PRESENTERS: Record<
   grep: (input) =>
     presentGrepOrSearchCode(validateToolPresentationInput("grep", input)),
   search_code: (input) =>
-    presentGrepOrSearchCode(validateToolPresentationInput("search_code", input)),
+    presentGrepOrSearchCode(
+      validateToolPresentationInput("search_code", input),
+    ),
   write_file: (input) =>
     presentWriteFile(validateToolPresentationInput("write_file", input)),
+  edit_file: (input) =>
+    presentEditFile(validateToolPresentationInput("edit_file", input)),
+  multi_edit: (input) =>
+    presentMultiEdit(validateToolPresentationInput("multi_edit", input)),
   bash: (input) => presentBash(validateToolPresentationInput("bash", input)),
   git_stage: (input) =>
     presentGitStage(validateToolPresentationInput("git_stage", input)),
@@ -217,7 +223,30 @@ function presentWriteFile(
   };
 }
 
-function presentBash(input: ToolPresentationInputByName["bash"]): ToolPresentation {
+function presentEditFile(
+  input: ToolPresentationInputByName["edit_file"],
+): ToolPresentation {
+  return {
+    description: `Edit ${input.path}`,
+    displayText: `Editing ${input.path}`,
+    summary: `Replacing exact text in ${input.path}.`,
+  };
+}
+
+function presentMultiEdit(
+  input: ToolPresentationInputByName["multi_edit"],
+): ToolPresentation {
+  const fileCount = input.edits.length;
+  return {
+    description: `Edit ${fileCount} files`,
+    displayText: `Editing ${fileCount} files`,
+    summary: `Applying coordinated exact edits across ${fileCount} files.`,
+  };
+}
+
+function presentBash(
+  input: ToolPresentationInputByName["bash"],
+): ToolPresentation {
   const command = input.command;
   return {
     description: command ? `Run ${command}` : "Run command",
@@ -475,12 +504,19 @@ function validateToolPresentationInput<T extends ToolPresentationToolName>(
 ): ToolPresentationInputByName[T] {
   try {
     if (toolName === "search_code") {
-      return validateGoldenFlowToolInput("grep", input) as ToolPresentationInputByName[T];
+      return validateGoldenFlowToolInput(
+        "grep",
+        input,
+      ) as ToolPresentationInputByName[T];
     }
 
-    return validateGoldenFlowToolInput(toolName, input) as ToolPresentationInputByName[T];
+    return validateGoldenFlowToolInput(
+      toolName,
+      input,
+    ) as ToolPresentationInputByName[T];
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown validation error";
+    const message =
+      error instanceof Error ? error.message : "Unknown validation error";
     throw new Error(`[tool-presentation/${toolName}] ${message}`);
   }
 }

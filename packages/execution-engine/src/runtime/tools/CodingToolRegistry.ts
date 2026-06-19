@@ -221,6 +221,26 @@ export const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
 export const WRITE_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
   content: z.string().min(1).max(MAX_TOOL_WRITE_CONTENT_LENGTH),
+  expectedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
+});
+
+export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+  oldText: z.string().min(1).max(MAX_TOOL_WRITE_CONTENT_LENGTH),
+  newText: z.string().max(MAX_TOOL_WRITE_CONTENT_LENGTH),
+  replaceAll: z.boolean().optional(),
+  expectedReplacements: z.number().int().min(1).max(10_000).optional(),
+  expectedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
+});
+
+export const MULTI_EDIT_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  edits: z.array(EDIT_FILE_TOOL_INPUT_SCHEMA).min(1).max(20),
 });
 
 export const BASH_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -339,6 +359,8 @@ export const CODING_TOOL_IDS = [
   "read_file",
   "list_files",
   "write_file",
+  "edit_file",
+  "multi_edit",
   "bash",
   "git_stage",
   "git_commit",
@@ -714,6 +736,33 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     tokenPolicy: WRITE_TOKEN_POLICY,
     outputRenderer: "text",
     route: { plugin: "filesystem", action: "write_file" },
+  }),
+  createRoutedToolDefinition({
+    id: "edit_file",
+    title: "Edit File",
+    description: "Atomically replace exact text in a workspace file.",
+    inputSchema: EDIT_FILE_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "text",
+    preferredFor: ["small exact replacements", "hash-guarded edits"],
+    alternatives: ["write_file", "multi_edit"],
+    route: { plugin: "filesystem", action: "edit_file" },
+  }),
+  createRoutedToolDefinition({
+    id: "multi_edit",
+    title: "Multi Edit",
+    description:
+      "Apply validated exact-text edits across unique workspace files.",
+    inputSchema: MULTI_EDIT_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "json",
+    preferredFor: ["coordinated exact replacements across files"],
+    alternatives: ["edit_file"],
+    route: { plugin: "filesystem", action: "multi_edit" },
   }),
   createRoutedToolDefinition({
     id: "bash",

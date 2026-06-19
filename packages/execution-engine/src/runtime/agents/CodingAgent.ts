@@ -327,6 +327,10 @@ VALIDATION RULES:
         return this.executeListFilesTool(task);
       case "write_file":
         return this.executeWriteFileTool(task);
+      case "edit_file":
+        return this.executeEditFileTool(task);
+      case "multi_edit":
+        return this.executeMultiEditTool(task);
       case "bash":
         return this.executeBashTool(task);
       case "git_stage":
@@ -398,6 +402,7 @@ VALIDATION RULES:
     const result = await this.executeGatewayPlugin("write_file", {
       path,
       content,
+      expectedSha256: validatedInput.expectedSha256,
     });
     const failure = extractExecutionFailure(result);
     if (failure) {
@@ -406,6 +411,40 @@ VALIDATION RULES:
     return this.buildSuccessResult(task.id, formatExecutionResult(result), {
       activity: buildWriteActivityMetadata(path, existingContent, content),
     });
+  }
+
+  private async executeEditFileTool(task: Task): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput("edit_file", task.input);
+    const path = normalizeTaskPath(validated.path);
+    validateTaskPath(path);
+    validateSafePath(path);
+    return this.executeValidatedMutation(task.id, "edit_file", {
+      ...validated,
+      path,
+    });
+  }
+
+  private async executeMultiEditTool(task: Task): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput("multi_edit", task.input);
+    const edits = validated.edits.map((edit) => {
+      const path = normalizeTaskPath(edit.path);
+      validateTaskPath(path);
+      validateSafePath(path);
+      return { ...edit, path };
+    });
+    return this.executeValidatedMutation(task.id, "multi_edit", { edits });
+  }
+
+  private async executeValidatedMutation(
+    taskId: string,
+    toolName: "edit_file" | "multi_edit",
+    payload: Record<string, unknown>,
+  ): Promise<TaskResult> {
+    const result = await this.executeGatewayPlugin(toolName, payload);
+    const failure = extractExecutionFailure(result);
+    return failure
+      ? this.buildFailureResult(taskId, failure)
+      : this.buildSuccessResult(taskId, formatExecutionResult(result));
   }
 
   private async executeBashTool(task: Task): Promise<TaskResult> {

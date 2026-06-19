@@ -85,14 +85,54 @@ export const FileSystemTools: ToolDefinition[] = [
   },
   {
     name: "write_file",
-    description: "Write text content to a file. Overwrites if exists.",
+    description: "Atomically write text content to a workspace file.",
     parameters: {
       type: "object",
       properties: {
         path: { type: "string", description: "Path to the file" },
         content: { type: "string", description: "The content to write" },
+        expectedSha256: {
+          type: "string",
+          description: "Optional SHA-256 precondition for an existing file",
+        },
       },
       required: ["path", "content"],
+    },
+  },
+  {
+    name: "edit_file",
+    description: "Atomically replace exact text in one workspace file.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to the file" },
+        oldText: { type: "string", description: "Exact text to replace" },
+        newText: { type: "string", description: "Replacement text" },
+        replaceAll: { type: "boolean", description: "Replace every match" },
+        expectedReplacements: {
+          type: "number",
+          description: "Required exact match count",
+        },
+        expectedSha256: {
+          type: "string",
+          description: "Optional SHA-256 precondition",
+        },
+      },
+      required: ["path", "oldText", "newText"],
+    },
+  },
+  {
+    name: "multi_edit",
+    description: "Apply validated exact-text edits across multiple files.",
+    parameters: {
+      type: "object",
+      properties: {
+        edits: {
+          type: "array",
+          description: "One exact-text edit per unique file",
+        },
+      },
+      required: ["edits"],
     },
   },
   {
