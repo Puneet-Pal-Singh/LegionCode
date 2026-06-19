@@ -25,6 +25,8 @@ interface ChangesPanelProps {
   branch?: string;
   reviewCommentCount?: number;
   onReviewChanges?: () => void;
+  isFilesOpen?: boolean;
+  onToggleFiles?: () => void;
 }
 
 export function ChangesPanel({
@@ -38,6 +40,8 @@ export function ChangesPanel({
   branch,
   reviewCommentCount = 0,
   onReviewChanges,
+  isFilesOpen = false,
+  onToggleFiles,
 }: ChangesPanelProps) {
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
@@ -123,6 +127,8 @@ export function ChangesPanel({
           branch={branch}
           reviewCommentCount={reviewCommentCount}
           onReviewChanges={onReviewChanges}
+          isFilesOpen={isFilesOpen}
+          onToggleFiles={onToggleFiles}
         />
       ) : null}
       <div

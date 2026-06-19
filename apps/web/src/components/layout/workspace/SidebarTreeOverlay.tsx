@@ -31,9 +31,14 @@ export function SidebarTreeOverlay(props: SidebarTreeOverlayProps) {
   const [drawerWidth, setDrawerWidth] = useState<number | null>(null);
   const resizeDrawer = (delta: number) => {
     setDrawerWidth((currentWidth) => {
-      const drawer = document.querySelector<HTMLElement>("[data-sidebar-tree-drawer]");
+      const drawer = document.querySelector<HTMLElement>(
+        "[data-sidebar-tree-drawer]",
+      );
       const parentWidth = drawer?.parentElement?.clientWidth ?? 0;
-      const nextWidth = Math.min(parentWidth, (currentWidth ?? drawer?.offsetWidth ?? 0) + delta);
+      const nextWidth = Math.min(
+        parentWidth,
+        (currentWidth ?? drawer?.offsetWidth ?? 0) + delta,
+      );
       if (nextWidth <= 80) {
         props.onClose();
         return null;
@@ -70,7 +75,11 @@ export function SidebarTreeOverlay(props: SidebarTreeOverlayProps) {
   );
 }
 
-function ChangedFilesTree({ onFileSelect }: { onFileSelect: (path: string) => void }) {
+function ChangedFilesTree({
+  onFileSelect,
+}: {
+  onFileSelect: (path: string) => void;
+}) {
   const review = useGitReview();
   const [query, setQuery] = useState("");
   const files = useMemo(() => {
@@ -100,7 +109,13 @@ function ChangedFilesTree({ onFileSelect }: { onFileSelect: (path: string) => vo
   );
 }
 
-function TreeFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function TreeFilter({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <label className="m-3 flex h-9 shrink-0 items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-zinc-500 focus-within:border-zinc-600">
       <Search size={15} />
@@ -114,7 +129,20 @@ function TreeFilter({ value, onChange }: { value: string; onChange: (value: stri
   );
 }
 
-function WorkspaceFilesTree({
+export interface WorkspaceFilesTreeProps {
+  repo: Repository | null;
+  isGitHubLoaded: boolean;
+  branch: string;
+  repoTree: Array<{ path: string; type: string; sha: string }>;
+  isLoadingTree: boolean;
+  onGitHubFileSelect: (path: string) => void;
+  explorerRef: RefObject<FileExplorerHandle | null>;
+  sandboxId: string;
+  runId: string;
+  onLocalFileSelect: (path: string) => void;
+}
+
+export function WorkspaceFilesTree({
   repo,
   isGitHubLoaded,
   branch,
@@ -125,7 +153,7 @@ function WorkspaceFilesTree({
   sandboxId,
   runId,
   onLocalFileSelect,
-}: SidebarTreeOverlayProps) {
+}: WorkspaceFilesTreeProps) {
   if (repo && isGitHubLoaded) {
     return (
       <RepoFileTree

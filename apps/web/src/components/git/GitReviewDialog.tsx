@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { FileDiff, Folder, Plus, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { FileDiff, Files, Plus, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import { FileChangesIcon } from "../sidebar/FileChangesIcon";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
 import { useGitReview } from "./useGitReview";
 
 interface GitReviewDialogProps {
-  onOpenFiles?: () => void;
+  filesRail?: ReactNode;
 }
 
-export function GitReviewDialog({ onOpenFiles }: GitReviewDialogProps) {
+type ReviewRail = "changes" | "files" | null;
+
+export function GitReviewDialog({ filesRail }: GitReviewDialogProps) {
   const {
     isReviewOpen,
     closeReview,
@@ -26,7 +35,7 @@ export function GitReviewDialog({ onOpenFiles }: GitReviewDialogProps) {
   const closeReviewRef = useRef(closeReview);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
-  const [isChangesOpen, setIsChangesOpen] = useState(false);
+  const [activeRail, setActiveRail] = useState<ReviewRail>(null);
   const closeAddMenu = useCallback(() => setIsAddMenuOpen(false), []);
   useOutsideDismiss(addMenuRef, isAddMenuOpen, closeAddMenu);
 
@@ -132,24 +141,27 @@ export function GitReviewDialog({ onOpenFiles }: GitReviewDialogProps) {
                 type="button"
                 onClick={() => setIsAddMenuOpen((current) => !current)}
                 className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-                aria-label="View files"
+                aria-label="Files"
                 aria-haspopup="menu"
                 aria-expanded={isAddMenuOpen}
               >
                 <Plus size={17} />
               </button>
               <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                View files
+                Files
               </span>
               {isAddMenuOpen ? (
                 <ReviewAddMenu
-                  onOpenFiles={() => {
+                  onToggleFiles={() => {
+                    setActiveRail((current) =>
+                      current === "files" ? null : "files",
+                    );
                     closeAddMenu();
-                    closeReview();
-                    onOpenFiles?.();
                   }}
                   onToggleChanges={() => {
-                    setIsChangesOpen((current) => !current);
+                    setActiveRail((current) =>
+                      current === "changes" ? null : "changes",
+                    );
                     closeAddMenu();
                   }}
                 />
@@ -170,17 +182,34 @@ export function GitReviewDialog({ onOpenFiles }: GitReviewDialogProps) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1">
-          <ChangesPanel
-            className="h-full px-4 pb-4"
-            mode="modal"
-            layout="stacked"
-            branch={status?.branch || "No branch"}
-            reviewCommentCount={selectedReviewCommentCount}
-            onReviewChanges={closeReview}
-            isChangesOpen={isChangesOpen}
-            onToggleChanges={() => setIsChangesOpen((current) => !current)}
-          />
+        <div className="flex min-h-0 flex-1 px-4 pb-4">
+          {activeRail === "files" ? (
+            <aside className="mt-4 flex w-72 shrink-0 overflow-hidden rounded-xl border border-zinc-800 bg-black">
+              {filesRail}
+            </aside>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <ChangesPanel
+              className="h-full px-4 pb-4"
+              mode="modal"
+              layout="stacked"
+              branch={status?.branch || "No branch"}
+              reviewCommentCount={selectedReviewCommentCount}
+              onReviewChanges={closeReview}
+              isChangesOpen={activeRail === "changes"}
+              onToggleChanges={() =>
+                setActiveRail((current) =>
+                  current === "changes" ? null : "changes",
+                )
+              }
+              isFilesOpen={activeRail === "files"}
+              onToggleFiles={() =>
+                setActiveRail((current) =>
+                  current === "files" ? null : "files",
+                )
+              }
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -188,10 +217,10 @@ export function GitReviewDialog({ onOpenFiles }: GitReviewDialogProps) {
 }
 
 function ReviewAddMenu({
-  onOpenFiles,
+  onToggleFiles,
   onToggleChanges,
 }: {
-  onOpenFiles: () => void;
+  onToggleFiles: () => void;
   onToggleChanges: () => void;
 }) {
   return (
@@ -202,11 +231,11 @@ function ReviewAddMenu({
       <button
         type="button"
         role="menuitem"
-        onClick={onOpenFiles}
+        onClick={onToggleFiles}
         className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
       >
-        <Folder size={15} />
-        View files
+        <Files size={15} />
+        Files
       </button>
       <button
         type="button"

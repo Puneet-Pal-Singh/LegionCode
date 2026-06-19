@@ -23,23 +23,31 @@ vi.mock("../sidebar/ChangesPanel", () => ({
     onReviewChanges,
     isChangesOpen,
     onToggleChanges,
+    isFilesOpen,
+    onToggleFiles,
   }: {
     branch?: string;
     reviewCommentCount?: number;
     onReviewChanges?: () => void;
     isChangesOpen?: boolean;
     onToggleChanges?: () => void;
+    isFilesOpen?: boolean;
+    onToggleFiles?: () => void;
   }) => (
     <div
       data-testid="changes-panel"
       data-branch={branch}
       data-changes-open={String(isChangesOpen)}
+      data-files-open={String(isFilesOpen)}
     >
       <button type="button" onClick={onReviewChanges}>
         Review changes ({reviewCommentCount})
       </button>
       <button type="button" onClick={onToggleChanges}>
         Toggle file changes sidebar
+      </button>
+      <button type="button" onClick={onToggleFiles}>
+        Toggle files sidebar
       </button>
     </div>
   ),
@@ -51,8 +59,7 @@ describe("GitReviewDialog", () => {
   });
 
   it("renders a full review workspace and delegates its toolbar context", () => {
-    const onOpenFiles = vi.fn();
-    render(<GitReviewDialog onOpenFiles={onOpenFiles} />);
+    render(<GitReviewDialog filesRail={<div>workspace files</div>} />);
 
     expect(screen.getByRole("dialog")).toHaveClass(
       "h-[92vh]",
@@ -79,8 +86,21 @@ describe("GitReviewDialog", () => {
       "true",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "View files" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "View files" }));
-    expect(onOpenFiles).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
+    expect(screen.getByText("workspace files")).toBeInTheDocument();
+    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
+      "data-files-open",
+      "true",
+    );
+    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
+      "data-changes-open",
+      "false",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle files sidebar" }),
+    );
+    expect(screen.queryByText("workspace files")).not.toBeInTheDocument();
   });
 });

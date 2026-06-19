@@ -3,6 +3,7 @@ import {
   ChevronUp,
   Ellipsis,
   GitBranch,
+  Files,
   Rows3,
   SquareSplitHorizontal,
 } from "lucide-react";
@@ -28,6 +29,8 @@ export function ReviewDiffToolbar({
   branch,
   reviewCommentCount = 0,
   onReviewChanges,
+  isFilesOpen = false,
+  onToggleFiles,
 }: {
   reviewScope: ReviewScope;
   onReviewScopeChange: (scope: ReviewScope) => void;
@@ -42,6 +45,8 @@ export function ReviewDiffToolbar({
   branch?: string;
   reviewCommentCount?: number;
   onReviewChanges?: () => void;
+  isFilesOpen?: boolean;
+  onToggleFiles?: () => void;
 }) {
   const [showViewMenu, setShowViewMenu] = useState(false);
   const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -160,6 +165,22 @@ export function ReviewDiffToolbar({
         >
           <FileChangesIcon size={16} />
         </button>
+        {onToggleFiles ? (
+          <button
+            type="button"
+            onClick={onToggleFiles}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-zinc-900 hover:text-white",
+              isFilesOpen ? "bg-zinc-800 text-white" : "text-zinc-500",
+            )}
+            aria-label="Toggle files sidebar"
+            aria-pressed={isFilesOpen}
+            title="Files"
+          >
+            <Files size={16} />
+            Files
+          </button>
+        ) : null}
       </div>
     </div>
   );

@@ -33,6 +33,7 @@ import {
 import { normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
+import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
@@ -450,11 +451,20 @@ export function Workspace({
           </motion.aside>
           <GitReviewDialog
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
-            onOpenFiles={() => {
-              setIsRightSidebarOpen?.(true);
-              setIsViewingContent(false);
-              setActiveTab("files");
-            }}
+            filesRail={
+              <WorkspaceFilesTree
+                repo={repo}
+                isGitHubLoaded={isGitHubLoaded}
+                branch={branch}
+                repoTree={repoTree}
+                isLoadingTree={Boolean(isLoadingTree)}
+                onGitHubFileSelect={handleGitHubFileSelect}
+                explorerRef={explorerRef}
+                sandboxId={sandboxId}
+                runId={activeRunId}
+                onLocalFileSelect={handleFileClick}
+              />
+            }
           />
           <GitCommitDialog
             isOpen={isGitCommitOpen}

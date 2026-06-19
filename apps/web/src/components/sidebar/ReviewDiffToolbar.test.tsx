@@ -7,6 +7,7 @@ describe("ReviewDiffToolbar", () => {
     const onToggleAllDiffs = vi.fn();
     const onToggleChanges = vi.fn();
     const onReviewChanges = vi.fn();
+    const onToggleFiles = vi.fn();
     render(
       <ReviewDiffToolbar
         reviewScope="prompt-artifact"
@@ -22,6 +23,8 @@ describe("ReviewDiffToolbar", () => {
         branch="main"
         reviewCommentCount={1}
         onReviewChanges={onReviewChanges}
+        isFilesOpen={false}
+        onToggleFiles={onToggleFiles}
       />,
     );
 
@@ -41,6 +44,10 @@ describe("ReviewDiffToolbar", () => {
       screen.getByRole("button", { name: "Toggle file changes sidebar" }),
     );
     expect(onToggleChanges).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle files sidebar" }),
+    );
+    expect(onToggleFiles).toHaveBeenCalledTimes(1);
     expect(screen.getByText("main")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Review changes (1)" }));
     expect(onReviewChanges).toHaveBeenCalledTimes(1);
