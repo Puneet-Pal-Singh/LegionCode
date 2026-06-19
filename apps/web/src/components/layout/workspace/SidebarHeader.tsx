@@ -54,6 +54,7 @@ export function SidebarHeader({
           label="Review"
           icon={<FileDiff size={15} />}
           active={!isViewingContent}
+          leading
           onSelect={onSelectReview}
           onClose={onCloseReview}
         />
@@ -121,12 +122,14 @@ function SidebarTab({
   label,
   icon,
   active,
+  leading = false,
   onSelect,
   onClose,
 }: {
   label: string;
   icon: ReactNode;
   active: boolean;
+  leading?: boolean;
   onSelect: () => void;
   onClose: () => void;
 }) {
@@ -135,7 +138,8 @@ function SidebarTab({
       role="tab"
       aria-selected={active}
       className={cn(
-        "group my-1 ml-1 flex h-8 max-w-56 shrink-0 items-center rounded-xl",
+        "group my-1 flex h-8 max-w-56 shrink-0 items-center rounded-xl",
+        leading ? "ml-4" : "ml-1",
         active
           ? "bg-[#242426] text-zinc-100"
           : "text-zinc-500 hover:bg-zinc-900/60",
@@ -152,10 +156,10 @@ function SidebarTab({
       <button
         type="button"
         onClick={onClose}
-        className="mr-1 rounded p-1 text-zinc-600 opacity-0 transition-all hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100 focus:opacity-100"
+        className="mr-1 flex size-6 shrink-0 items-center justify-center rounded-full bg-zinc-600 text-zinc-950 opacity-0 transition-all duration-150 hover:bg-zinc-400 hover:text-black group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
         aria-label={`Close ${label} tab`}
       >
-        <X size={13} />
+        <X size={14} strokeWidth={2.5} />
       </button>
     </div>
   );

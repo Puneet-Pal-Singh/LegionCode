@@ -47,7 +47,10 @@ describe("SidebarHeader", () => {
   it("renders horizontally scrollable review and file tabs", () => {
     renderHeader();
 
-    expect(screen.getByRole("tab", { name: "Review" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Review" })).toHaveClass("ml-4");
+    expect(
+      screen.getByRole("button", { name: "Close Review tab" }),
+    ).toHaveClass("rounded-full", "opacity-0", "group-hover:opacity-100");
     expect(
       screen.getByRole("tab", { name: "DiffViewer.test.tsx" }),
     ).toHaveAttribute("aria-selected", "true");
