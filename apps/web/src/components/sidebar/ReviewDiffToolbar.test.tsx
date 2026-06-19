@@ -48,6 +48,11 @@ describe("ReviewDiffToolbar", () => {
       screen.getByRole("button", { name: "Toggle files sidebar" }),
     );
     expect(onToggleFiles).toHaveBeenCalledTimes(1);
+    expect(
+      screen
+        .getByRole("button", { name: "Toggle files sidebar" })
+        .querySelector(".lucide-folders"),
+    ).toBeInTheDocument();
     expect(screen.getByText("main")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Review changes (1)" }));
     expect(onReviewChanges).toHaveBeenCalledTimes(1);

@@ -17,7 +17,7 @@ describe("WorkspaceContentView", () => {
     );
 
     const navigation = screen
-      .getByRole("button", { name: "Toggle files" })
+      .getByRole("button", { name: "Toggle files sidebar" })
       .closest(".relative.z-40");
     const rail = screen.getByText("workspace tree").closest("aside");
 

@@ -32,10 +32,12 @@ describe("FileNavigationBar", () => {
     expect(screen.getByRole("button", { name: "Cursor" })).toBeInTheDocument();
     expect(
       screen
-        .getByRole("button", { name: "Toggle files" })
+        .getByRole("button", { name: "Toggle files sidebar" })
         .querySelector(".lucide-folders"),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Toggle files" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle files sidebar" }),
+    );
     expect(onOpenFiles).toHaveBeenCalledTimes(1);
   });
 
