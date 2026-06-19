@@ -21,12 +21,13 @@ describe("FileNavigationBar", () => {
         wordWrap
         onWordWrapChange={vi.fn()}
         onOpenFiles={onOpenFiles}
+        filesOpen={false}
       />,
     );
 
     expect(screen.getByText("apps")).toBeInTheDocument();
     expect(screen.getByText("App.tsx")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Show files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Toggle files" }));
     expect(onOpenFiles).toHaveBeenCalledTimes(1);
   });
 
@@ -38,6 +39,7 @@ describe("FileNavigationBar", () => {
         wordWrap
         onWordWrapChange={onWordWrapChange}
         onOpenFiles={vi.fn()}
+        filesOpen={false}
       />,
     );
 
@@ -48,5 +50,29 @@ describe("FileNavigationBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "File options" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Disable word wrap" }));
     expect(onWordWrapChange).toHaveBeenCalledWith(false);
+  });
+
+  it("copies content and disables the default markdown rich preview", async () => {
+    const onRichPreviewChange = vi.fn();
+    render(
+      <FileNavigationBar
+        path="README.md"
+        content="# Hello"
+        filesOpen
+        wordWrap
+        richPreview
+        onWordWrapChange={vi.fn()}
+        onRichPreviewChange={onRichPreviewChange}
+        onOpenFiles={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "File options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy file contents" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("# Hello"));
+
+    fireEvent.click(screen.getByRole("button", { name: "File options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Disable rich preview" }));
+    expect(onRichPreviewChange).toHaveBeenCalledWith(false);
   });
 });

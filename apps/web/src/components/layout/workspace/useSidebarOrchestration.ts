@@ -22,8 +22,6 @@ interface UseSidebarOrchestrationProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   setIsViewingContent: (viewing: boolean) => void;
   setActiveTab: (tab: TabType) => void;
-  setSelectedFile: (file: SelectedFile | null) => void;
-  setSelectedDiff: (diff: SelectedDiff | null) => void;
   setIsRightSidebarOpen?: (open: boolean) => void;
   reviewSidebarFocusRequest: number;
 }
@@ -49,21 +47,18 @@ export function useSidebarOrchestration({
   explorerRef,
   setIsViewingContent,
   setActiveTab,
-  setSelectedFile,
-  setSelectedDiff,
   setIsRightSidebarOpen,
   reviewSidebarFocusRequest,
 }: UseSidebarOrchestrationProps): UseSidebarOrchestrationResult {
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
 
   const handleSidebarDiffSelected = useCallback(
-    (path: string, content: DiffContent) => {
-      setSelectedFile(null);
-      setSelectedDiff({ path, content });
-      setIsViewingContent(true);
-      setActiveTab("changes");
+    () => {
+      setActiveTab("review");
+      setIsViewingContent(false);
+      setIsRightSidebarOpen?.(true);
     },
-    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
+    [setActiveTab, setIsRightSidebarOpen, setIsViewingContent],
   );
 
   useEffect(() => {
@@ -74,15 +69,11 @@ export function useSidebarOrchestration({
     setIsRightSidebarOpen?.(true);
     setActiveTab("review");
     setIsViewingContent(false);
-    setSelectedFile(null);
-    setSelectedDiff(null);
   }, [
     reviewSidebarFocusRequest,
     setActiveTab,
     setIsRightSidebarOpen,
     setIsViewingContent,
-    setSelectedDiff,
-    setSelectedFile,
   ]);
 
   useEffect(() => {

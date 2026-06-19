@@ -93,10 +93,13 @@ export function Workspace({
     setSidebarWidth: setInternalSidebarWidth,
     isResizing,
     setIsResizing,
+    contentTabs,
+    activeContentTabId,
     selectedFile,
-    setSelectedFile,
     selectedDiff,
-    setSelectedDiff,
+    openFileTab,
+    selectContentTab,
+    closeContentTab,
     isViewingContent,
     setIsViewingContent,
     isLoadingContent,
@@ -198,12 +201,26 @@ export function Workspace({
   ).trim();
   const repositoryBaseUrl = repo?.html_url;
 
+  const handleOpenFileTab = useCallback(
+    (file: { path: string; content: string }) => {
+      openFileTab(file);
+      setActiveTab("review");
+      setIsRightSidebarOpen?.(true);
+    },
+    [openFileTab, setActiveTab, setIsRightSidebarOpen],
+  );
+  const toggleChangesPanel = useCallback(() => {
+    setIsViewingContent(false);
+    setActiveTab((current) =>
+      current === "changes" ? "review" : "changes",
+    );
+  }, [setActiveTab, setIsViewingContent]);
+
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
     runId: activeRunId,
     setIsLoadingContent,
-    setIsViewingContent,
-    setSelectedFile,
+    openFileTab: handleOpenFileTab,
   });
 
   // Composed orchestration hooks
@@ -254,8 +271,6 @@ export function Workspace({
     explorerRef,
     setIsViewingContent,
     setActiveTab,
-    setSelectedFile,
-    setSelectedDiff,
     setIsRightSidebarOpen,
     reviewSidebarFocusRequest,
   });
@@ -317,17 +332,12 @@ export function Workspace({
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
               onArtifactOpen={(path, content) => {
-                setSelectedFile({ path, content });
-                setIsViewingContent(true);
-                setIsRightSidebarOpen?.(true);
-                setActiveTab("files");
+                handleOpenFileTab({ path, content });
               }}
               onReviewOpen={() => {
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("review");
                 setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
               }}
             />
           </main>
@@ -336,26 +346,24 @@ export function Workspace({
             <SidebarHeader
               sidebarWidth={sidebarWidth}
               isViewingContent={isViewingContent}
-              contentTitle={selectedFile?.path ?? selectedDiff?.path}
+              contentTabs={contentTabs}
+              activeContentTabId={activeContentTabId}
               onSelectReview={() => {
                 setIsViewingContent(false);
                 setActiveTab("review");
               }}
-              onSelectContent={() => {
-                if (selectedFile || selectedDiff) {
-                  setIsViewingContent(true);
-                  setActiveTab("review");
-                }
-              }}
-              onCloseReview={() => setIsRightSidebarOpen?.(false)}
-              onCloseContent={() => {
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
+              onSelectContent={(id) => {
+                selectContentTab(id);
                 setActiveTab("review");
               }}
-              onOpenFiles={() => setActiveTab("files")}
-              onOpenChanges={() => setActiveTab("changes")}
+              onCloseReview={() => setIsRightSidebarOpen?.(false)}
+              onCloseContent={closeContentTab}
+              onOpenFiles={() =>
+                setActiveTab((current) =>
+                  current === "files" ? "review" : "files",
+                )
+              }
+              onOpenChanges={toggleChangesPanel}
               onExpand={() => {
                 setIsRightSidebarOpen?.(true);
                 onGitReviewOpenChange?.(true);
@@ -414,13 +422,13 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
-                onOpenFiles={() => setActiveTab("files")}
-                onCloseTree={() => setActiveTab("review")}
-                onToggleChanges={() =>
+                onOpenFiles={() =>
                   setActiveTab((current) =>
-                    current === "changes" ? "review" : "changes",
+                    current === "files" ? "review" : "files",
                   )
                 }
+                onCloseTree={() => setActiveTab("review")}
+                onToggleChanges={toggleChangesPanel}
               />
             </div>
           </motion.aside>

@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import {
-  FileCode2,
   FileDiff,
   Folder,
   Maximize2,
@@ -10,15 +9,18 @@ import {
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import { FileChangesIcon } from "../../sidebar/FileChangesIcon";
+import { FileTypeIcon } from "../../ui/FileTypeIcon";
+import type { SidebarContentTab } from "./useWorkspaceState";
 
 interface SidebarHeaderProps {
   sidebarWidth: number;
   isViewingContent: boolean;
-  contentTitle?: string;
+  contentTabs: SidebarContentTab[];
+  activeContentTabId: string | null;
   onSelectReview: () => void;
-  onSelectContent: () => void;
+  onSelectContent: (id: string) => void;
   onCloseReview: () => void;
-  onCloseContent: () => void;
+  onCloseContent: (id: string) => void;
   onOpenFiles: () => void;
   onOpenChanges: () => void;
   onExpand?: () => void;
@@ -28,7 +30,8 @@ interface SidebarHeaderProps {
 export function SidebarHeader({
   sidebarWidth,
   isViewingContent,
-  contentTitle,
+  contentTabs,
+  activeContentTabId,
   onSelectReview,
   onSelectContent,
   onCloseReview,
@@ -42,7 +45,7 @@ export function SidebarHeader({
 
   return (
     <header
-      className="fixed right-0 top-0 z-[60] flex h-10 items-center border-b border-l border-zinc-800 bg-[#111113] shadow-sm shadow-black/20"
+      className="fixed right-0 top-0 z-[60] flex h-12 items-center border-b border-l border-zinc-800 bg-[#111113] shadow-sm shadow-black/20"
       style={{ width: sidebarWidth }}
     >
       <div
@@ -57,15 +60,16 @@ export function SidebarHeader({
           onSelect={onSelectReview}
           onClose={onCloseReview}
         />
-        {contentTitle ? (
+        {contentTabs.map((tab) => (
           <SidebarTab
-            label={formatContentTitle(contentTitle)}
-            icon={<FileCode2 size={15} />}
-            active={isViewingContent}
-            onSelect={onSelectContent}
-            onClose={onCloseContent}
+            key={tab.id}
+            label={formatContentTitle(tab.path)}
+            icon={<FileTypeIcon path={tab.path} size={15} />}
+            active={isViewingContent && activeContentTabId === tab.id}
+            onSelect={() => onSelectContent(tab.id)}
+            onClose={() => onCloseContent(tab.id)}
           />
-        ) : null}
+        ))}
       </div>
 
       <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">

@@ -63,7 +63,17 @@ export function SidebarContent({
 }: SidebarContentProps) {
   const { diff } = useGitReview();
   const [wordWrap, setWordWrap] = useState(true);
+  const [richPreviewByPath, setRichPreviewByPath] = useState<
+    Record<string, boolean>
+  >({});
   const pendingDiffPathRef = useRef<string | null>(null);
+  const selectedPath = selectedFile?.path ?? selectedDiff?.path ?? "/";
+  const markdownPath = selectedFile && /\.mdx?$/i.test(selectedFile.path)
+    ? selectedFile.path
+    : null;
+  const richPreview = markdownPath
+    ? (richPreviewByPath[markdownPath] ?? true)
+    : false;
 
   useEffect(() => {
     const pendingDiffPath = pendingDiffPathRef.current;
@@ -94,10 +104,23 @@ export function SidebarContent({
     <div className="relative flex flex-1 flex-col overflow-hidden">
       {isViewingContent || activeTab === "files" ? (
         <FileNavigationBar
-          path={selectedFile?.path ?? selectedDiff?.path ?? "/"}
+          path={selectedPath}
+          content={selectedFile?.content}
+          filesOpen={activeTab === "files"}
           wordWrap={wordWrap}
           onWordWrapChange={setWordWrap}
           onOpenFiles={onOpenFiles}
+          richPreview={richPreview}
+          onRichPreviewChange={
+            markdownPath
+              ? (enabled) => {
+                  setRichPreviewByPath((current) => ({
+                    ...current,
+                    [markdownPath]: enabled,
+                  }));
+                }
+              : undefined
+          }
         />
       ) : null}
       <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -123,6 +146,7 @@ export function SidebarContent({
                 title={selectedFile.path}
                 content={selectedFile.content}
                 wordWrap={wordWrap}
+                richPreview={richPreview}
               />
             ) : selectedDiff ? (
               <DiffViewer

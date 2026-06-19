@@ -8,23 +8,20 @@ interface UseFileLoaderProps {
   sandboxId: string;
   runId: string;
   setIsLoadingContent: (loading: boolean) => void;
-  setIsViewingContent: (viewing: boolean) => void;
-  setSelectedFile: (file: SelectedFile | null) => void;
+  openFileTab: (file: SelectedFile) => void;
 }
 
 export function useFileLoader({
   sandboxId,
   runId,
   setIsLoadingContent,
-  setIsViewingContent,
-  setSelectedFile,
+  openFileTab,
 }: UseFileLoaderProps) {
   const { repo, branch } = useGitHub();
 
   const handleFileClick = useCallback(
     async (path: string) => {
       setIsLoadingContent(true);
-      setIsViewingContent(true);
       localStorage.setItem("shadowbox_last_viewed_path", path);
       try {
         const res = await fetch(terminalCommandPath(sandboxId), {
@@ -41,7 +38,7 @@ export function useFileLoader({
           data = await res.json();
         } catch (parseError) {
           console.error("Failed to parse file response:", parseError);
-          setSelectedFile({
+          openFileTab({
             path,
             content:
               "// [Error] The server returned unreadable data. This usually happens with large binary files.",
@@ -51,18 +48,18 @@ export function useFileLoader({
 
         if (data.success) {
           if (data.isBinary || data.output === "[BINARY_FILE_DETECTED]") {
-            setSelectedFile({
+            openFileTab({
               path,
               content:
                 "// [LegionCode] This file is a binary and cannot be displayed in the text editor.",
             });
           } else {
-            setSelectedFile({ path, content: data.output });
+            openFileTab({ path, content: data.output });
           }
         }
       } catch (e) {
         console.error("Failed to read file:", e);
-        setSelectedFile({
+        openFileTab({
           path,
           content: "// [Error] Failed to connect to server or read file.",
         });
@@ -70,7 +67,7 @@ export function useFileLoader({
         setIsLoadingContent(false);
       }
     },
-    [sandboxId, runId, setIsLoadingContent, setIsViewingContent, setSelectedFile],
+    [openFileTab, runId, sandboxId, setIsLoadingContent],
   );
 
   const handleGitHubFileSelect = useCallback(
@@ -78,7 +75,6 @@ export function useFileLoader({
       if (!repo) return;
 
       setIsLoadingContent(true);
-      setIsViewingContent(true);
       localStorage.setItem("shadowbox_last_viewed_path", path);
 
       try {
@@ -92,13 +88,13 @@ export function useFileLoader({
         // GitHub API returns base64 encoded content
         if (fileData.encoding === "base64") {
           const decoded = atob(fileData.content);
-          setSelectedFile({ path, content: decoded });
+          openFileTab({ path, content: decoded });
         } else {
-          setSelectedFile({ path, content: fileData.content });
+          openFileTab({ path, content: fileData.content });
         }
       } catch (error) {
         console.error("Failed to fetch GitHub file content:", error);
-        setSelectedFile({
+        openFileTab({
           path,
           content: "// [Error] Failed to fetch file content from GitHub.",
         });
@@ -106,7 +102,7 @@ export function useFileLoader({
         setIsLoadingContent(false);
       }
     },
-    [repo, branch, setIsLoadingContent, setIsViewingContent, setSelectedFile],
+    [branch, openFileTab, repo, setIsLoadingContent],
   );
 
   return {

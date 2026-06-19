@@ -16,7 +16,21 @@ function renderHeader() {
     <SidebarHeader
       sidebarWidth={520}
       isViewingContent
-      contentTitle="src/components/DiffViewer.test.tsx"
+      contentTabs={[
+        {
+          id: "file:src/components/DiffViewer.test.tsx",
+          kind: "file",
+          path: "src/components/DiffViewer.test.tsx",
+          content: "test",
+        },
+        {
+          id: "file:README.md",
+          kind: "file",
+          path: "README.md",
+          content: "# Readme",
+        },
+      ]}
+      activeContentTabId="file:src/components/DiffViewer.test.tsx"
       {...actions}
     />,
   );
@@ -24,6 +38,12 @@ function renderHeader() {
 }
 
 describe("SidebarHeader", () => {
+  it("matches the taller global header", () => {
+    renderHeader();
+
+    expect(screen.getByRole("banner")).toHaveClass("h-12");
+  });
+
   it("renders horizontally scrollable review and file tabs", () => {
     renderHeader();
 
@@ -31,6 +51,7 @@ describe("SidebarHeader", () => {
     expect(
       screen.getByRole("tab", { name: "DiffViewer.test.tsx" }),
     ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "README.md" })).toBeInTheDocument();
     expect(screen.getByRole("tablist")).toHaveClass("overflow-x-auto");
   });
 
@@ -44,6 +65,8 @@ describe("SidebarHeader", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Close DiffViewer.test.tsx tab" }),
     );
-    expect(actions.onCloseContent).toHaveBeenCalledTimes(1);
+    expect(actions.onCloseContent).toHaveBeenCalledWith(
+      "file:src/components/DiffViewer.test.tsx",
+    );
   });
 });

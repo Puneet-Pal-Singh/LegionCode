@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Ellipsis, Folder, WrapText } from "lucide-react";
+import { Check, ChevronRight, Copy, Ellipsis, Folder, Image, WrapText } from "lucide-react";
 import { useState } from "react";
 
 interface FileNavigationBarProps {
@@ -6,6 +6,10 @@ interface FileNavigationBarProps {
   wordWrap: boolean;
   onWordWrapChange: (enabled: boolean) => void;
   onOpenFiles: () => void;
+  content?: string;
+  filesOpen: boolean;
+  richPreview?: boolean;
+  onRichPreviewChange?: (enabled: boolean) => void;
 }
 
 export function FileNavigationBar({
@@ -13,6 +17,10 @@ export function FileNavigationBar({
   wordWrap,
   onWordWrapChange,
   onOpenFiles,
+  content,
+  filesOpen,
+  richPreview,
+  onRichPreviewChange,
 }: FileNavigationBarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
@@ -21,6 +29,11 @@ export function FileNavigationBar({
   const copyPath = async () => {
     await navigator.clipboard.writeText(path);
     setPathCopied(true);
+    setIsMenuOpen(false);
+  };
+
+  const copyContent = async () => {
+    await navigator.clipboard.writeText(content ?? "");
     setIsMenuOpen(false);
   };
 
@@ -53,8 +66,9 @@ export function FileNavigationBar({
           type="button"
           onClick={onOpenFiles}
           className="rounded-lg bg-zinc-900 p-2 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
-          aria-label="Show files"
-          title="Show files"
+          aria-label="Toggle files"
+          aria-pressed={filesOpen}
+          title={filesOpen ? "Hide files" : "Show files"}
         >
           <Folder size={17} />
         </button>
@@ -66,6 +80,26 @@ export function FileNavigationBar({
             {pathCopied ? <Check size={14} /> : <Folder size={14} />}
             Copy path
           </button>
+          {content !== undefined ? (
+            <button type="button" role="menuitem" onClick={() => void copyContent()} className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900">
+              <Copy size={14} />
+              Copy file contents
+            </button>
+          ) : null}
+          {onRichPreviewChange ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onRichPreviewChange(!richPreview);
+                setIsMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-900"
+            >
+              <Image size={14} />
+              {richPreview ? "Disable rich preview" : "Enable rich preview"}
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"

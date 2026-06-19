@@ -1,9 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import {
-  type DiffContent,
-  DEFAULT_RUN_MODE,
-  type RunMode,
-} from "@repo/shared-types";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -154,9 +150,8 @@ export function AgentSetup({
     isResizing,
     setIsResizing,
     selectedFile,
-    setSelectedFile,
     selectedDiff,
-    setSelectedDiff,
+    openFileTab,
     isViewingContent,
     setIsViewingContent,
     isLoadingContent,
@@ -173,12 +168,24 @@ export function AgentSetup({
     activeRunId || undefined,
     sessionId,
   );
+  const handleOpenFileTab = useCallback(
+    (file: { path: string; content: string }) => {
+      openFileTab(file);
+      setActiveTab("review");
+    },
+    [openFileTab, setActiveTab],
+  );
+  const toggleChangesPanel = useCallback(() => {
+    setIsViewingContent(false);
+    setActiveTab((current) =>
+      current === "changes" ? "review" : "changes",
+    );
+  }, [setActiveTab, setIsViewingContent]);
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId: sessionId,
     runId: activeRunId,
     setIsLoadingContent,
-    setIsViewingContent,
-    setSelectedFile,
+    openFileTab: handleOpenFileTab,
   });
 
   const hasTask = task.trim().length > 0;
@@ -328,13 +335,11 @@ export function AgentSetup({
   ]);
 
   const handleSidebarDiffSelected = useCallback(
-    (path: string, content: DiffContent) => {
-      setSelectedFile(null);
-      setSelectedDiff({ path, content });
-      setIsViewingContent(true);
-      setActiveTab("changes");
+    () => {
+      setActiveTab("review");
+      setIsViewingContent(false);
     },
-    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
+    [setActiveTab, setIsViewingContent],
   );
 
   useEffect(() => {
@@ -345,14 +350,10 @@ export function AgentSetup({
     previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
     setActiveTab("review");
     setIsViewingContent(false);
-    setSelectedFile(null);
-    setSelectedDiff(null);
   }, [
     reviewSidebarFocusRequest,
     setActiveTab,
     setIsViewingContent,
-    setSelectedDiff,
-    setSelectedFile,
   ]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -875,11 +876,7 @@ export function AgentSetup({
               runId={activeRunId}
               onOpenFiles={() => setActiveTab("files")}
               onCloseTree={() => setActiveTab("review")}
-              onToggleChanges={() =>
-                setActiveTab((current) =>
-                  current === "changes" ? "review" : "changes",
-                )
-              }
+              onToggleChanges={toggleChangesPanel}
             />
           </div>
         </motion.aside>
