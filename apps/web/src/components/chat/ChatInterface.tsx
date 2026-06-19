@@ -2,7 +2,6 @@ import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatInputBar } from "./ChatInputBar";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
-import { ChatBranchSelector } from "./ChatBranchSelector";
 import { PermissionModeControl } from "./PermissionModeControl";
 import type { Message } from "@ai-sdk/react";
 import {
@@ -149,7 +148,6 @@ function ComposerSecondaryControls({
           : "mt-1 flex items-center gap-2 pl-6"
       }
     >
-      <ChatBranchSelector />
       <PermissionModeControl
         value={permissionMode ?? PRODUCT_MODES.AUTO_FOR_SAFE}
         onChange={(nextMode) => onPermissionModeChange?.(nextMode)}
@@ -235,8 +233,8 @@ export function ChatInterface({
   const { summary } = useRunSummary(runId, isLoading);
   const isTerminalSummarySettled = Boolean(
     summary?.status &&
-      isTerminalRunStatus(summary.status) &&
-      !isApprovalRequiredRunStatus(summary.status),
+    isTerminalRunStatus(summary.status) &&
+    !isApprovalRequiredRunStatus(summary.status),
   );
   const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
   const isCanonicalRunActive =

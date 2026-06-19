@@ -1,16 +1,12 @@
-import { useState, type ReactNode } from "react";
-import {
-  FileDiff,
-  Folder,
-  Maximize2,
-  PanelRight,
-  Plus,
-  X,
-} from "lucide-react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
+import { FileDiff, Folder, Maximize2, PanelRight, Plus, X } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import { FileChangesIcon } from "../../sidebar/FileChangesIcon";
 import { FileTypeIcon } from "../../ui/FileTypeIcon";
 import type { SidebarContentTab } from "./useWorkspaceState";
+import type { Repository } from "../../../services/GitHubService";
+import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
+import { EnvironmentSummaryMenu } from "./EnvironmentSummaryMenu";
 
 interface SidebarHeaderProps {
   sidebarWidth: number;
@@ -23,6 +19,11 @@ interface SidebarHeaderProps {
   onCloseContent: (id: string) => void;
   onOpenFiles: () => void;
   onOpenChanges: () => void;
+  repo: Repository | null;
+  branch: string;
+  changedFileCount: number;
+  onBranchChange: (branch: string) => void;
+  onOpenCommit: () => void;
   onExpand?: () => void;
   onCloseSidebar: () => void;
 }
@@ -38,10 +39,18 @@ export function SidebarHeader({
   onCloseContent,
   onOpenFiles,
   onOpenChanges,
+  repo,
+  branch,
+  changedFileCount,
+  onBranchChange,
+  onOpenCommit,
   onExpand,
   onCloseSidebar,
 }: SidebarHeaderProps) {
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const closeAddMenu = useCallback(() => setIsAddMenuOpen(false), []);
+  useOutsideDismiss(addMenuRef, isAddMenuOpen, closeAddMenu);
 
   return (
     <header
@@ -72,7 +81,18 @@ export function SidebarHeader({
         ))}
       </div>
 
-      <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">
+      <div
+        ref={addMenuRef}
+        className="relative flex shrink-0 items-center gap-0.5 px-1.5"
+      >
+        <EnvironmentSummaryMenu
+          repo={repo}
+          branch={branch}
+          changedFileCount={changedFileCount}
+          onBranchChange={onBranchChange}
+          onOpenChanges={onOpenChanges}
+          onOpenCommit={onOpenCommit}
+        />
         <IconButton
           label="Add sidebar tab"
           onClick={() => setIsAddMenuOpen((previous) => !previous)}
@@ -102,7 +122,11 @@ export function SidebarHeader({
             />
           </div>
         ) : null}
-        <IconButton label="Fullscreen review" onClick={onExpand} disabled={!onExpand}>
+        <IconButton
+          label="Fullscreen review"
+          onClick={onExpand}
+          disabled={!onExpand}
+        >
           <Maximize2 size={15} />
         </IconButton>
         <IconButton label="Close right sidebar" onClick={onCloseSidebar} active>
@@ -132,7 +156,9 @@ function SidebarTab({
       aria-selected={active}
       className={cn(
         "group my-1 ml-1 flex h-8 max-w-56 shrink-0 items-center rounded-xl",
-        active ? "bg-[#242426] text-zinc-100" : "text-zinc-500 hover:bg-zinc-900/60",
+        active
+          ? "bg-[#242426] text-zinc-100"
+          : "text-zinc-500 hover:bg-zinc-900/60",
       )}
     >
       <button

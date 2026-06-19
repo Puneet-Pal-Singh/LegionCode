@@ -73,10 +73,6 @@ vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
 }));
 
-vi.mock("./ChatBranchSelector.js", () => ({
-  ChatBranchSelector: () => null,
-}));
-
 vi.mock("../provider/ProviderDialog.js", () => ({
   ProviderDialog: () => null,
 }));

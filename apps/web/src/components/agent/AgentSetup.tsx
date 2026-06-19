@@ -11,11 +11,8 @@ import {
   ArrowUp,
   TerminalSquare,
 } from "lucide-react";
-import {
-  slideUp,
-} from "../../lib/animations";
+import { slideUp } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
-import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import { ProviderDialog, ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
@@ -37,9 +34,7 @@ import {
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { GitReviewProvider } from "../git/GitReviewContext";
-import {
-  isProviderModelBootstrapLoading,
-} from "../../lib/provider-model-bootstrap-loading.js";
+import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootstrap-loading.js";
 import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 
@@ -177,9 +172,7 @@ export function AgentSetup({
   );
   const toggleChangesPanel = useCallback(() => {
     setIsViewingContent(false);
-    setActiveTab((current) =>
-      current === "changes" ? "review" : "changes",
-    );
+    setActiveTab((current) => (current === "changes" ? "review" : "changes"));
   }, [setActiveTab, setIsViewingContent]);
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId: sessionId,
@@ -334,13 +327,10 @@ export function AgentSetup({
     sessionId,
   ]);
 
-  const handleSidebarDiffSelected = useCallback(
-    () => {
-      setActiveTab("review");
-      setIsViewingContent(false);
-    },
-    [setActiveTab, setIsViewingContent],
-  );
+  const handleSidebarDiffSelected = useCallback(() => {
+    setActiveTab("review");
+    setIsViewingContent(false);
+  }, [setActiveTab, setIsViewingContent]);
 
   useEffect(() => {
     if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
@@ -350,11 +340,7 @@ export function AgentSetup({
     previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
     setActiveTab("review");
     setIsViewingContent(false);
-  }, [
-    reviewSidebarFocusRequest,
-    setActiveTab,
-    setIsViewingContent,
-  ]);
+  }, [reviewSidebarFocusRequest, setActiveTab, setIsViewingContent]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -479,7 +465,9 @@ export function AgentSetup({
     repo?.name || (requiresRepository ? "Connect repository" : "New Project");
   const renderSetupComposer = (placement: "hero" | "docked") => (
     <motion.div
-      className={placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"}
+      className={
+        placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"
+      }
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4, duration: 0.4 }}
@@ -535,7 +523,10 @@ export function AgentSetup({
                     >
                       <Icon
                         size={14}
-                        className={getSuggestionIconClass(entry.path, entry.type)}
+                        className={getSuggestionIconClass(
+                          entry.path,
+                          entry.type,
+                        )}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-medium">
@@ -623,7 +614,8 @@ export function AgentSetup({
                   }
                   hasMoreSelectedProviderModels={
                     selectedProviderId
-                      ? (providerModelsPage[selectedProviderId]?.hasMore ?? false)
+                      ? (providerModelsPage[selectedProviderId]?.hasMore ??
+                        false)
                       : false
                   }
                   isLoadingMoreSelectedProviderModels={
@@ -668,7 +660,9 @@ export function AgentSetup({
                     setShowProviderDialog(true);
                   }}
                   isLoading={isModelPickerLoading}
-                  isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
+                  isHydratingVisibleModels={
+                    isSelectedProviderModelHydrationPending
+                  }
                 />
               </div>
             </div>
@@ -694,7 +688,7 @@ export function AgentSetup({
                 }
               >
                 <ArrowUp size={16} />
-                </motion.button>
+              </motion.button>
             </div>
           </div>
         </motion.div>
@@ -702,8 +696,6 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
-              <ChatBranchSelector />
-              <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
                 onChange={setProductMode}
@@ -822,7 +814,9 @@ export function AgentSetup({
               </motion.button>
             </motion.div>
 
-            <div className="mb-6 w-full max-w-4xl">{renderSetupComposer("hero")}</div>
+            <div className="mb-6 w-full max-w-4xl">
+              {renderSetupComposer("hero")}
+            </div>
           </div>
         </main>
 
@@ -885,7 +879,6 @@ export function AgentSetup({
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
         />
 
-
         <ProviderDialog
           isOpen={showProviderDialog}
           onClose={() => {
@@ -899,7 +892,6 @@ export function AgentSetup({
           initialView={providerDialogInitialView}
           variant={providerDialogVariant}
         />
-
       </motion.div>
     </GitReviewProvider>
   );

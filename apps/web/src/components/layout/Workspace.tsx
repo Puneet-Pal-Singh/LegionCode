@@ -33,6 +33,7 @@ import {
 import { normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
+import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 
@@ -84,6 +85,7 @@ export function Workspace({
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
+  const [isGitCommitOpen, setIsGitCommitOpen] = useState(false);
 
   // Custom Hooks
   const {
@@ -211,9 +213,7 @@ export function Workspace({
   );
   const toggleChangesPanel = useCallback(() => {
     setIsViewingContent(false);
-    setActiveTab((current) =>
-      current === "changes" ? "review" : "changes",
-    );
+    setActiveTab((current) => (current === "changes" ? "review" : "changes"));
   }, [setActiveTab, setIsViewingContent]);
 
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
@@ -283,9 +283,7 @@ export function Workspace({
     persistProductMode(sessionId, productMode);
   }, [productMode, sessionId]);
 
-  const handleSubmitWithSessionMetadata = useCallback<
-    typeof handleSubmit
-  >(
+  const handleSubmitWithSessionMetadata = useCallback<typeof handleSubmit>(
     async (...args) => {
       onPromptSubmitted?.(input);
       return await handleSubmit(...args);
@@ -364,6 +362,11 @@ export function Workspace({
                 )
               }
               onOpenChanges={toggleChangesPanel}
+              repo={repo}
+              branch={repositoryBranch}
+              changedFileCount={status?.files.length ?? 0}
+              onBranchChange={switchBranch}
+              onOpenCommit={() => setIsGitCommitOpen(true)}
               onExpand={() => {
                 setIsRightSidebarOpen?.(true);
                 onGitReviewOpenChange?.(true);
@@ -434,6 +437,10 @@ export function Workspace({
           </motion.aside>
           <GitReviewDialog
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
+          />
+          <GitCommitDialog
+            isOpen={isGitCommitOpen}
+            onClose={() => setIsGitCommitOpen(false)}
           />
         </div>
       </GitReviewProvider>
