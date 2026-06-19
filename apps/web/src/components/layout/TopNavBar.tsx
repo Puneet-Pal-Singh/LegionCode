@@ -132,10 +132,7 @@ function TopNavActions({
       ) : null}
       <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
       {environmentSummary ? (
-        <TopEnvironmentSummary
-          {...environmentSummary}
-          placement={isRightSidebarOpen ? "left" : "right"}
-        />
+        <TopEnvironmentSummary {...environmentSummary} />
       ) : null}
       {!isRightSidebarOpen ? (
         <ReviewControls

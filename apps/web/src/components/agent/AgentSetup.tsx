@@ -27,7 +27,7 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
-import { WelcomeBranchSelector } from "../chat/WelcomeBranchSelector";
+import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import {
   applyFileMention,
   filterFileMentionCandidates,
@@ -697,12 +697,13 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
-              <WelcomeBranchSelector />
+              <ChatBranchSelector placement="below" />
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
                 onChange={setProductMode}
                 appearance="ghost"
+                menuPlacement="below"
               />
             </div>
           </div>

@@ -10,7 +10,6 @@ interface TopEnvironmentSummaryProps {
   onBranchChange: (branch: string) => void;
   onOpenChanges: () => void;
   onOpenCommit: () => void;
-  placement: "left" | "right";
 }
 
 export function TopEnvironmentSummary({
@@ -21,7 +20,6 @@ export function TopEnvironmentSummary({
   onBranchChange,
   onOpenChanges,
   onOpenCommit,
-  placement,
 }: TopEnvironmentSummaryProps) {
   const { status } = useGitStatus(
     runId,
@@ -38,7 +36,6 @@ export function TopEnvironmentSummary({
       onBranchChange={onBranchChange}
       onOpenChanges={onOpenChanges}
       onOpenCommit={onOpenCommit}
-      placement={placement}
     />
   );
 }

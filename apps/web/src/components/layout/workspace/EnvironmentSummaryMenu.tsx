@@ -14,10 +14,9 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Laptop,
-  ListFilter,
+  List as ListIcon,
   Loader2,
   Plus,
-  Search,
 } from "lucide-react";
 import type {
   Branch,
@@ -30,6 +29,7 @@ import {
 } from "../../../services/GitHubService";
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
 import { cn } from "../../../lib/utils";
+import { BranchSelectorPanel } from "../../github/BranchSelector";
 
 export interface EnvironmentSummaryMenuProps {
   repo: Repository | null;
@@ -38,7 +38,6 @@ export interface EnvironmentSummaryMenuProps {
   onBranchChange: (branch: string) => void;
   onOpenChanges: () => void;
   onOpenCommit: () => void;
-  placement?: "left" | "right";
 }
 
 export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
@@ -64,7 +63,7 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
           isOpen && "bg-zinc-800 text-white",
         )}
       >
-        <ListFilter size={18} />
+        <ListIcon size={18} />
       </button>
       {isOpen ? (
         <EnvironmentPanel
@@ -74,12 +73,12 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
         />
       ) : null}
       {isBranchOpen && props.repo ? (
-        <BranchPopover
+        <BranchSelectorPanel
           branches={branches}
           currentBranch={props.branch}
-          loading={loading}
-          placement={props.placement}
-          onSelect={(branch) => {
+          isLoading={loading}
+          className="left-3 top-[88px]"
+          onBranchSelect={(branch) => {
             props.onBranchChange(branch);
             setIsBranchOpen(false);
           }}
@@ -125,10 +124,7 @@ function EnvironmentPanelView({
     <div
       role="dialog"
       aria-label="Environment summary"
-      className={cn(
-        "absolute top-11 z-50 w-[420px] rounded-2xl border border-zinc-700/80 bg-[#171719] p-2 shadow-2xl",
-        actions.placement === "left" ? "left-0" : "right-0",
-      )}
+      className="absolute right-0 top-11 z-50 w-[420px] rounded-2xl border border-zinc-700/80 bg-[#171719] p-2 shadow-2xl"
     >
       <div className="flex items-center justify-between px-3 py-2 text-sm text-zinc-400">
         <span>Environment</span>
@@ -313,83 +309,6 @@ function RuntimeOptions() {
         Work locally
       </div>
     </div>
-  );
-}
-
-function BranchPopover({
-  branches,
-  currentBranch,
-  loading,
-  onSelect,
-  placement = "right",
-}: {
-  branches: Branch[];
-  currentBranch: string;
-  loading: boolean;
-  onSelect: (branch: string) => void;
-  placement?: "left" | "right";
-}) {
-  const [query, setQuery] = useState("");
-  const filtered = branches.filter((item) =>
-    item.name.toLowerCase().includes(query.toLowerCase()),
-  );
-  return (
-    <div
-      className={cn(
-        "absolute top-[88px] z-50 w-[420px] overflow-hidden rounded-2xl border border-zinc-700/80 bg-[#171719] shadow-2xl",
-        placement === "left" ? "left-[432px]" : "right-[432px]",
-      )}
-    >
-      <label className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
-        <Search size={14} className="text-zinc-500" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search branches"
-          className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none"
-        />
-      </label>
-      <div className="max-h-56 overflow-y-auto py-1 no-scrollbar">
-        <BranchList
-          items={filtered}
-          currentBranch={currentBranch}
-          loading={loading}
-          onSelect={onSelect}
-        />
-      </div>
-    </div>
-  );
-}
-
-function BranchList({
-  items,
-  currentBranch,
-  loading,
-  onSelect,
-}: {
-  items: Branch[];
-  currentBranch: string;
-  loading: boolean;
-  onSelect: (branch: string) => void;
-}) {
-  if (loading)
-    return (
-      <div className="px-3 py-3 text-sm text-zinc-500">Loading branches...</div>
-    );
-  return (
-    <>
-      {items.map((item) => (
-        <button
-          type="button"
-          key={item.name}
-          onClick={() => onSelect(item.name)}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"
-        >
-          <span className="flex-1 truncate">{item.name}</span>
-          {item.name === currentBranch ? <Check size={14} /> : null}
-        </button>
-      ))}
-    </>
   );
 }
 

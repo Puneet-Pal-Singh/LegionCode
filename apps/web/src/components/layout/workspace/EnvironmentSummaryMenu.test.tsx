@@ -61,6 +61,11 @@ describe("EnvironmentSummaryMenu", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Toggle environment summary" }),
     );
+    expect(
+      screen
+        .getByRole("button", { name: "Toggle environment summary" })
+        .querySelector(".lucide-list"),
+    ).toBeInTheDocument();
     expect(screen.getByText("LegionCode cloud")).toBeInTheDocument();
     expect(screen.queryByText("Changes")).not.toBeInTheDocument();
     expect(screen.queryByText("Commit or push")).not.toBeInTheDocument();
@@ -106,7 +111,7 @@ describe("EnvironmentSummaryMenu", () => {
     expect(
       within(
         screen.getByRole("dialog", { name: "Environment summary" }),
-      ).queryByPlaceholderText("Search branches"),
+      ).queryByPlaceholderText("Find a branch..."),
     ).not.toBeInTheDocument();
     await waitFor(() => screen.getByRole("button", { name: "feat/menu" }));
     fireEvent.click(screen.getByRole("button", { name: "feat/menu" }));
