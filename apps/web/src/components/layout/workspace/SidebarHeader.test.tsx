@@ -62,8 +62,12 @@ describe("SidebarHeader", () => {
 
   it("opens Files from the plus menu and closes content tabs", () => {
     const actions = renderHeader();
+    const tablist = screen.getByRole("tablist");
+    const addButton = screen.getByRole("button", { name: "Add sidebar tab" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Add sidebar tab" }));
+    expect(tablist).not.toContainElement(addButton);
+
+    fireEvent.click(addButton);
     fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
     expect(actions.onOpenFiles).toHaveBeenCalledTimes(1);
 

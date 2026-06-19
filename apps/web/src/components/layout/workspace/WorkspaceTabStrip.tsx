@@ -15,7 +15,6 @@ interface WorkspaceTabStripProps {
   onCloseContent: (id: string) => void;
   onCloseReview?: () => void;
   size?: "sidebar" | "fullscreen";
-  children?: ReactNode;
 }
 
 export function WorkspaceTabStrip({
@@ -29,7 +28,6 @@ export function WorkspaceTabStrip({
   onCloseContent,
   onCloseReview,
   size = "sidebar",
-  children,
 }: WorkspaceTabStripProps) {
   return (
     <div
@@ -58,7 +56,6 @@ export function WorkspaceTabStrip({
           onClose={() => onCloseContent(tab.id)}
         />
       ))}
-      {children}
     </div>
   );
 }

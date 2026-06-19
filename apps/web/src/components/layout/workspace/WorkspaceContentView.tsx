@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
 import { FileNavigationBar } from "./FileNavigationBar";
@@ -12,6 +12,8 @@ interface WorkspaceContentViewProps {
   filesOpen: boolean;
   onToggleFiles: () => void;
   onOpenIde?: (ide: string) => void;
+  filesRail?: ReactNode;
+  railPlacement?: "inline" | "overlay";
 }
 
 export function WorkspaceContentView({
@@ -21,6 +23,8 @@ export function WorkspaceContentView({
   filesOpen,
   onToggleFiles,
   onOpenIde,
+  filesRail,
+  railPlacement = "overlay",
 }: WorkspaceContentViewProps) {
   const [wordWrap, setWordWrap] = useState(true);
   const [richPreviewByPath, setRichPreviewByPath] = useState<
@@ -56,28 +60,35 @@ export function WorkspaceContentView({
             : undefined
         }
       />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 size={24} className="animate-spin text-zinc-600" />
-          </div>
-        ) : selectedFile ? (
-          <ArtifactView
-            isOpen
-            title={selectedFile.path}
-            content={selectedFile.content}
-            wordWrap={wordWrap}
-            richPreview={richPreview}
-          />
-        ) : selectedDiff ? (
-          <DiffViewer
-            diff={selectedDiff.content}
-            className="h-full"
-            wordWrap={wordWrap}
-            onWordWrapChange={setWordWrap}
-            showHeader={false}
-          />
+      <div className="flex min-h-0 flex-1">
+        {filesOpen && railPlacement === "inline" ? (
+          <aside className="flex w-72 shrink-0 overflow-hidden border-r border-zinc-800 bg-black">
+            {filesRail}
+          </aside>
         ) : null}
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 size={24} className="animate-spin text-zinc-600" />
+            </div>
+          ) : selectedFile ? (
+            <ArtifactView
+              isOpen
+              title={selectedFile.path}
+              content={selectedFile.content}
+              wordWrap={wordWrap}
+              richPreview={richPreview}
+            />
+          ) : selectedDiff ? (
+            <DiffViewer
+              diff={selectedDiff.content}
+              className="h-full"
+              wordWrap={wordWrap}
+              onWordWrapChange={setWordWrap}
+              showHeader={false}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );

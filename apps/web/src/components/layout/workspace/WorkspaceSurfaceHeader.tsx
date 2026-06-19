@@ -60,17 +60,16 @@ export function WorkspaceSurfaceHeader({
         onCloseReview={onCloseReview}
         onCloseContent={onCloseContent}
         size={variant}
-      >
+      />
+
+      <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">
         <WorkspaceAddMenu
-          align={isSidebar ? "right" : "left"}
+          align="right"
           triggerLabel={addTabLabel}
-          triggerClassName={isSidebar ? "p-1.5" : undefined}
+          triggerClassName="p-1.5"
           onOpenFiles={onOpenFiles}
           onOpenChanges={onOpenChanges}
         />
-      </WorkspaceTabStrip>
-
-      <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">
         {trailingActions}
       </div>
     </header>

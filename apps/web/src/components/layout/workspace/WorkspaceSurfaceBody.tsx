@@ -37,21 +37,16 @@ export function WorkspaceSurfaceBody({
   }
 
   return (
-    <div className="relative flex h-full min-h-0">
-      {filesOpen && railPlacement === "inline" ? (
-        <aside className="flex w-72 shrink-0 overflow-hidden border-r border-zinc-800 bg-black">
-          {filesRail}
-        </aside>
-      ) : null}
-      <div className="min-w-0 flex-1">
-        <WorkspaceContentView
-          selectedFile={selectedFile}
-          selectedDiff={selectedDiff}
-          isLoading={isLoadingContent}
-          filesOpen={filesOpen}
-          onToggleFiles={onToggleFiles}
-        />
-      </div>
+    <div className="relative h-full min-h-0">
+      <WorkspaceContentView
+        selectedFile={selectedFile}
+        selectedDiff={selectedDiff}
+        isLoading={isLoadingContent}
+        filesOpen={filesOpen}
+        onToggleFiles={onToggleFiles}
+        filesRail={filesRail}
+        railPlacement={railPlacement}
+      />
       {overlay}
     </div>
   );

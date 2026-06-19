@@ -28,6 +28,7 @@ interface ChangesPanelProps {
   isFilesOpen?: boolean;
   onToggleFiles?: () => void;
   filesRail?: ReactNode;
+  showChangesRail?: boolean;
 }
 
 export function ChangesPanel({
@@ -44,6 +45,7 @@ export function ChangesPanel({
   isFilesOpen = false,
   onToggleFiles,
   filesRail,
+  showChangesRail = true,
 }: ChangesPanelProps) {
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
@@ -51,7 +53,8 @@ export function ChangesPanel({
   const isSavedEditMode = review.reviewSource.kind === "prompt_artifact";
   const showStackedReview = layout === "stacked";
   const showChangesList =
-    !showStackedReview || (mode === "modal" && isChangesOpen);
+    showChangesRail &&
+    (!showStackedReview || (mode === "modal" && isChangesOpen));
   const emptyReviewLabel = getEmptyReviewLabel({
     isSavedEditMode,
     reviewScope: review.reviewScope,

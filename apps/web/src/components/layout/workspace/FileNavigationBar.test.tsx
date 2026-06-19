@@ -27,7 +27,9 @@ describe("FileNavigationBar", () => {
 
     expect(screen.getByText("apps")).toBeInTheDocument();
     expect(screen.getByText("App.tsx")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    expect(screen.getByRole("button", { name: "Cursor" })).toBeInTheDocument();
     expect(
       screen
         .getByRole("button", { name: "Toggle files" })

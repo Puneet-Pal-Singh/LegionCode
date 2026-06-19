@@ -135,6 +135,7 @@ export function SidebarContent({
                   className="min-h-0 w-full"
                   isChangesOpen={activeTab === "changes"}
                   onToggleChanges={onToggleChanges}
+                  showChangesRail={false}
                 />
               }
               selectedFile={selectedFile}

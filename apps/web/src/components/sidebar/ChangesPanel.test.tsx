@@ -274,6 +274,21 @@ describe("ChangesPanel", () => {
     ).toHaveClass("rounded-none");
   });
 
+  it("leaves changed files to the sidebar overlay when requested", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+
+    render(
+      <ChangesPanel
+        mode="modal"
+        layout="stacked"
+        isChangesOpen
+        showChangesRail={false}
+      />,
+    );
+
+    expect(screen.queryByTestId("select-file")).not.toBeInTheDocument();
+  });
+
   it("shows the files rail in the same fullscreen content region", () => {
     render(
       <ChangesPanel

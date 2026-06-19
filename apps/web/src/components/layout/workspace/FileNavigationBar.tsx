@@ -39,7 +39,7 @@ export function FileNavigationBar({
           onWordWrapChange={onWordWrapChange}
           onRichPreviewChange={onRichPreviewChange}
         />
-        <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
+        <OpenDropdown onSelect={onOpenIde} />
         <button
           type="button"
           onClick={onOpenFiles}
