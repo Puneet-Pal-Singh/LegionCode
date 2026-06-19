@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronUp,
   Ellipsis,
+  GitBranch,
   Rows3,
   SquareSplitHorizontal,
 } from "lucide-react";
@@ -24,6 +25,9 @@ export function ReviewDiffToolbar({
   onToggleAllDiffs,
   isChangesOpen,
   onToggleChanges,
+  branch,
+  reviewCommentCount = 0,
+  onReviewChanges,
 }: {
   reviewScope: ReviewScope;
   onReviewScopeChange: (scope: ReviewScope) => void;
@@ -35,6 +39,9 @@ export function ReviewDiffToolbar({
   onToggleAllDiffs: () => void;
   isChangesOpen: boolean;
   onToggleChanges: () => void;
+  branch?: string;
+  reviewCommentCount?: number;
+  onReviewChanges?: () => void;
 }) {
   const [showViewMenu, setShowViewMenu] = useState(false);
   const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -43,7 +50,18 @@ export function ReviewDiffToolbar({
 
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 pb-3">
-      <ReviewScopeDropdown value={reviewScope} onChange={onReviewScopeChange} />
+      <div className="flex min-w-0 items-center gap-2">
+        {branch ? (
+          <span className="inline-flex max-w-52 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5 text-xs font-medium text-zinc-300">
+            <GitBranch size={13} className="shrink-0 text-emerald-400" />
+            <span className="truncate">{branch}</span>
+          </span>
+        ) : null}
+        <ReviewScopeDropdown
+          value={reviewScope}
+          onChange={onReviewScopeChange}
+        />
+      </div>
       <div className="flex items-center gap-2">
         <div ref={viewMenuRef} className="relative">
           <button
@@ -91,6 +109,16 @@ export function ReviewDiffToolbar({
             </div>
           ) : null}
         </div>
+        {onReviewChanges ? (
+          <button
+            type="button"
+            onClick={onReviewChanges}
+            disabled={reviewCommentCount === 0}
+            className="rounded-lg border border-sky-500/25 bg-sky-500/10 px-2.5 py-1.5 text-xs font-medium text-sky-300 transition-colors hover:border-sky-400/40 hover:bg-sky-500/15 hover:text-sky-200 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900/60 disabled:text-zinc-600"
+          >
+            Review changes ({reviewCommentCount})
+          </button>
+        ) : null}
         <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
           <button
             type="button"

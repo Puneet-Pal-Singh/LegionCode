@@ -3,10 +3,7 @@ import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useGitReview } from "../git/useGitReview";
 import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
-import {
-  getDiffMessage,
-  getEmptyReviewLabel,
-} from "./changesPanelMessages";
+import { getDiffMessage, getEmptyReviewLabel } from "./changesPanelMessages";
 import {
   GitUnavailableState,
   ReviewDiffPlaceholder,
@@ -25,6 +22,9 @@ interface ChangesPanelProps {
   showToolbar?: boolean;
   isChangesOpen?: boolean;
   onToggleChanges?: () => void;
+  branch?: string;
+  reviewCommentCount?: number;
+  onReviewChanges?: () => void;
 }
 
 export function ChangesPanel({
@@ -35,6 +35,9 @@ export function ChangesPanel({
   showToolbar = true,
   isChangesOpen = false,
   onToggleChanges = () => undefined,
+  branch,
+  reviewCommentCount = 0,
+  onReviewChanges,
 }: ChangesPanelProps) {
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
@@ -116,6 +119,9 @@ export function ChangesPanel({
           onToggleAllDiffs={viewState.toggleAllDiffs}
           isChangesOpen={isChangesOpen}
           onToggleChanges={onToggleChanges}
+          branch={branch}
+          reviewCommentCount={reviewCommentCount}
+          onReviewChanges={onReviewChanges}
         />
       ) : null}
       <div

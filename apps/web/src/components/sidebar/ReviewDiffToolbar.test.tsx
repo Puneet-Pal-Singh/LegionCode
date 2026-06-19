@@ -6,6 +6,7 @@ describe("ReviewDiffToolbar", () => {
   it("toggles file changes directly and keeps collapse in the options menu", () => {
     const onToggleAllDiffs = vi.fn();
     const onToggleChanges = vi.fn();
+    const onReviewChanges = vi.fn();
     render(
       <ReviewDiffToolbar
         reviewScope="prompt-artifact"
@@ -18,16 +19,30 @@ describe("ReviewDiffToolbar", () => {
         onToggleAllDiffs={onToggleAllDiffs}
         isChangesOpen={false}
         onToggleChanges={onToggleChanges}
+        branch="main"
+        reviewCommentCount={1}
+        onReviewChanges={onReviewChanges}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Collapse All Diffs" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Collapse All Diffs" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Diff view options" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse All Diffs" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Collapse All Diffs" }),
+    );
     expect(onToggleAllDiffs).toHaveBeenCalledTimes(1);
 
-    expect(screen.queryByRole("menuitem", { name: "File changes" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Toggle file changes sidebar" }));
+    expect(
+      screen.queryByRole("menuitem", { name: "File changes" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle file changes sidebar" }),
+    );
     expect(onToggleChanges).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("main")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review changes (1)" }));
+    expect(onReviewChanges).toHaveBeenCalledTimes(1);
   });
 });
