@@ -269,6 +269,24 @@ describe("ChangesPanel", () => {
     render(<ChangesPanel mode="modal" layout="stacked" isChangesOpen />);
 
     expect(screen.getByTestId("select-file")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("select-file").parentElement?.parentElement,
+    ).toHaveClass("rounded-none");
+  });
+
+  it("shows the files rail in the same fullscreen content region", () => {
+    render(
+      <ChangesPanel
+        mode="modal"
+        layout="stacked"
+        isFilesOpen
+        filesRail={<div>workspace files</div>}
+      />,
+    );
+
+    const filesRail = screen.getByText("workspace files").closest("aside");
+    expect(filesRail).toHaveClass("w-72", "border-r");
+    expect(filesRail).not.toHaveClass("rounded-xl");
   });
 
   it("collapses the full selected file diff from the view menu", () => {

@@ -6,19 +6,33 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { FileDiff, Files, Plus, X } from "lucide-react";
+import { FileDiff, Files, Loader2, Plus, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import { FileChangesIcon } from "../sidebar/FileChangesIcon";
+import { ArtifactView } from "../chat/ArtifactView";
+import { DiffViewer } from "../diff/DiffViewer";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
 import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
+import type { SidebarContentTab } from "../layout/workspace/useWorkspaceState";
 import { useGitReview } from "./useGitReview";
 
 interface GitReviewDialogProps {
-  filesRail?: ReactNode;
+  renderFilesRail?: (onFileOpened: (path: string) => void) => ReactNode;
+  contentTabs?: SidebarContentTab[];
+  isLoadingContent?: boolean;
+  onSelectContent?: (id: string) => void;
+  onCloseContent?: (id: string) => void;
 }
 
 type ReviewRail = "changes" | "files" | null;
 
-export function GitReviewDialog({ filesRail }: GitReviewDialogProps) {
+export function GitReviewDialog({
+  renderFilesRail,
+  contentTabs = [],
+  isLoadingContent = false,
+  onSelectContent,
+  onCloseContent,
+}: GitReviewDialogProps) {
   const {
     isReviewOpen,
     closeReview,
@@ -36,6 +50,8 @@ export function GitReviewDialog({ filesRail }: GitReviewDialogProps) {
   const addMenuRef = useRef<HTMLDivElement>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const [activeRail, setActiveRail] = useState<ReviewRail>(null);
+  const [activeWorkspaceTabId, setActiveWorkspaceTabId] =
+    useState<string>("review");
   const closeAddMenu = useCallback(() => setIsAddMenuOpen(false), []);
   useOutsideDismiss(addMenuRef, isAddMenuOpen, closeAddMenu);
 
@@ -105,6 +121,21 @@ export function GitReviewDialog({ filesRail }: GitReviewDialogProps) {
     return null;
   }
 
+  const activeContentTab = contentTabs.find(
+    (tab) => tab.id === activeWorkspaceTabId,
+  );
+  const openFileTab = (path: string) => {
+    setActiveWorkspaceTabId(`file:${path}`);
+  };
+  const selectWorkspaceTab = (id: string) => {
+    setActiveWorkspaceTabId(id);
+    if (id !== "review") onSelectContent?.(id);
+  };
+  const closeWorkspaceTab = (id: string) => {
+    onCloseContent?.(id);
+    if (activeWorkspaceTabId === id) setActiveWorkspaceTabId("review");
+  };
+
   return (
     <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center p-6">
       <button
@@ -128,14 +159,29 @@ export function GitReviewDialog({ filesRail }: GitReviewDialogProps) {
             aria-label="Review workspace tabs"
             className="flex min-w-0 items-center gap-1"
           >
-            <div
+            <button
+              type="button"
               role="tab"
-              aria-selected="true"
-              className="flex h-9 items-center gap-2 rounded-xl bg-[#242426] px-3.5 text-sm font-medium text-zinc-100"
+              aria-selected={activeWorkspaceTabId === "review"}
+              className={`flex h-9 items-center gap-2 rounded-xl px-3.5 text-sm font-medium ${
+                activeWorkspaceTabId === "review"
+                  ? "bg-[#242426] text-zinc-100"
+                  : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200"
+              }`}
+              onClick={() => selectWorkspaceTab("review")}
             >
               <FileDiff size={15} />
               Review
-            </div>
+            </button>
+            {contentTabs.map((tab) => (
+              <WorkspaceFileTab
+                key={tab.id}
+                tab={tab}
+                active={activeWorkspaceTabId === tab.id}
+                onSelect={() => selectWorkspaceTab(tab.id)}
+                onClose={() => closeWorkspaceTab(tab.id)}
+              />
+            ))}
             <div ref={addMenuRef} className="group relative ml-1">
               <button
                 type="button"
@@ -182,37 +228,107 @@ export function GitReviewDialog({ filesRail }: GitReviewDialogProps) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 px-4 pb-4">
-          {activeRail === "files" ? (
-            <aside className="mt-4 flex w-72 shrink-0 overflow-hidden rounded-xl border border-zinc-800 bg-black">
-              {filesRail}
-            </aside>
-          ) : null}
+        <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1">
-            <ChangesPanel
-              className="h-full px-4 pb-4"
-              mode="modal"
-              layout="stacked"
-              branch={status?.branch || "No branch"}
-              reviewCommentCount={selectedReviewCommentCount}
-              onReviewChanges={closeReview}
-              isChangesOpen={activeRail === "changes"}
-              onToggleChanges={() =>
-                setActiveRail((current) =>
-                  current === "changes" ? null : "changes",
-                )
-              }
-              isFilesOpen={activeRail === "files"}
-              onToggleFiles={() =>
-                setActiveRail((current) =>
-                  current === "files" ? null : "files",
-                )
-              }
-            />
+            {activeWorkspaceTabId === "review" ? (
+              <ChangesPanel
+                className="h-full"
+                mode="modal"
+                layout="stacked"
+                branch={status?.branch || "No branch"}
+                reviewCommentCount={selectedReviewCommentCount}
+                onReviewChanges={closeReview}
+                isChangesOpen={activeRail === "changes"}
+                onToggleChanges={() =>
+                  setActiveRail((current) =>
+                    current === "changes" ? null : "changes",
+                  )
+                }
+                isFilesOpen={activeRail === "files"}
+                onToggleFiles={() =>
+                  setActiveRail((current) =>
+                    current === "files" ? null : "files",
+                  )
+                }
+                filesRail={renderFilesRail?.(openFileTab)}
+              />
+            ) : (
+              <WorkspaceTabContent
+                tab={activeContentTab}
+                isLoading={isLoadingContent}
+              />
+            )}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function WorkspaceFileTab({
+  tab,
+  active,
+  onSelect,
+  onClose,
+}: {
+  tab: SidebarContentTab;
+  active: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}) {
+  const label = tab.path.split("/").filter(Boolean).pop() ?? tab.path;
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      className={`group flex h-9 max-w-56 items-center rounded-xl ${
+        active ? "bg-[#242426] text-zinc-100" : "text-zinc-500"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 items-center gap-2 px-3 text-sm hover:text-zinc-100"
+      >
+        <FileTypeIcon path={tab.path} size={15} />
+        <span className="truncate">{label}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={`Close ${label} tab`}
+        className="mr-1 flex size-5 items-center justify-center rounded-full text-zinc-600 opacity-0 transition-all hover:bg-zinc-600 hover:text-black group-hover:opacity-100 focus:opacity-100"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
+
+function WorkspaceTabContent({
+  tab,
+  isLoading,
+}: {
+  tab?: SidebarContentTab;
+  isLoading: boolean;
+}) {
+  if (isLoading || !tab) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 size={22} className="animate-spin text-zinc-600" />
+      </div>
+    );
+  }
+  return tab.kind === "file" ? (
+    <ArtifactView
+      isOpen
+      title={tab.path}
+      content={tab.content}
+      wordWrap
+      richPreview={/\.mdx?$/i.test(tab.path)}
+    />
+  ) : (
+    <DiffViewer diff={tab.content} className="h-full" showHeader={false} />
   );
 }
 

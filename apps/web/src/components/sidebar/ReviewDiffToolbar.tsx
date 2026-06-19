@@ -54,7 +54,7 @@ export function ReviewDiffToolbar({
   useOutsideDismiss(viewMenuRef, showViewMenu, closeViewMenu);
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 pb-3">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
       <div className="flex min-w-0 items-center gap-2">
         {branch ? (
           <span className="inline-flex max-w-52 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900/70 px-2.5 py-1.5 text-xs font-medium text-zinc-300">
@@ -163,21 +163,21 @@ export function ReviewDiffToolbar({
           aria-pressed={isChangesOpen}
           title="File changes"
         >
-          <FileChangesIcon size={16} />
+          <FileChangesIcon size={18} />
         </button>
         {onToggleFiles ? (
           <button
             type="button"
             onClick={onToggleFiles}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-zinc-900 hover:text-white",
+              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs transition-colors hover:bg-zinc-900 hover:text-white",
               isFilesOpen ? "bg-zinc-800 text-white" : "text-zinc-500",
             )}
             aria-label="Toggle files sidebar"
             aria-pressed={isFilesOpen}
             title="Files"
           >
-            <Files size={16} />
+            <Files size={18} />
             Files
           </button>
         ) : null}

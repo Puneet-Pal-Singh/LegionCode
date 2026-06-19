@@ -25,6 +25,7 @@ vi.mock("../sidebar/ChangesPanel", () => ({
     onToggleChanges,
     isFilesOpen,
     onToggleFiles,
+    filesRail,
   }: {
     branch?: string;
     reviewCommentCount?: number;
@@ -33,6 +34,7 @@ vi.mock("../sidebar/ChangesPanel", () => ({
     onToggleChanges?: () => void;
     isFilesOpen?: boolean;
     onToggleFiles?: () => void;
+    filesRail?: React.ReactNode;
   }) => (
     <div
       data-testid="changes-panel"
@@ -49,6 +51,7 @@ vi.mock("../sidebar/ChangesPanel", () => ({
       <button type="button" onClick={onToggleFiles}>
         Toggle files sidebar
       </button>
+      {isFilesOpen ? filesRail : null}
     </div>
   ),
 }));
@@ -59,7 +62,23 @@ describe("GitReviewDialog", () => {
   });
 
   it("renders a full review workspace and delegates its toolbar context", () => {
-    render(<GitReviewDialog filesRail={<div>workspace files</div>} />);
+    render(
+      <GitReviewDialog
+        contentTabs={[
+          {
+            id: "file:src/example.ts",
+            kind: "file",
+            path: "src/example.ts",
+            content: "export const example = true;",
+          },
+        ]}
+        renderFilesRail={(onFileOpened) => (
+          <button type="button" onClick={() => onFileOpened("src/example.ts")}>
+            Open example file
+          </button>
+        )}
+      />,
+    );
 
     expect(screen.getByRole("dialog")).toHaveClass(
       "h-[92vh]",
@@ -88,7 +107,9 @@ describe("GitReviewDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Files" }));
-    expect(screen.getByText("workspace files")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open example file" }),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("changes-panel")).toHaveAttribute(
       "data-files-open",
       "true",
@@ -98,9 +119,19 @@ describe("GitReviewDialog", () => {
       "false",
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Toggle files sidebar" }),
+    fireEvent.click(screen.getByRole("button", { name: "Open example file" }));
+    expect(screen.getByRole("tab", { name: "example.ts" })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
-    expect(screen.queryByText("workspace files")).not.toBeInTheDocument();
+    expect(document.querySelector("code")?.textContent).toContain(
+      "export const example = true;",
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    expect(screen.getByRole("tab", { name: "Review" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });

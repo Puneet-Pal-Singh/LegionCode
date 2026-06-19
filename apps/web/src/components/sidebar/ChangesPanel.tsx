@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
 import { useGitReview } from "../git/useGitReview";
@@ -27,6 +27,7 @@ interface ChangesPanelProps {
   onReviewChanges?: () => void;
   isFilesOpen?: boolean;
   onToggleFiles?: () => void;
+  filesRail?: ReactNode;
 }
 
 export function ChangesPanel({
@@ -42,6 +43,7 @@ export function ChangesPanel({
   onReviewChanges,
   isFilesOpen = false,
   onToggleFiles,
+  filesRail,
 }: ChangesPanelProps) {
   const viewState = useChangesPanelViewState();
   const review = useGitReview();
@@ -108,8 +110,12 @@ export function ChangesPanel({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col gap-4 overflow-hidden bg-transparent ${
-        showStackedReview ? "py-4" : "p-4"
+      className={`flex h-full min-h-0 flex-col overflow-hidden bg-transparent ${
+        mode === "modal"
+          ? "p-0"
+          : showStackedReview
+            ? "gap-4 py-4"
+            : "gap-4 p-4"
       } ${className}`}
     >
       {mode === "modal" && showToolbar ? (
@@ -135,14 +141,23 @@ export function ChangesPanel({
         className={`flex min-h-0 flex-1 overflow-hidden ${
           mode === "sidebar" ||
           (mode === "modal" && layout === "stacked" && !isChangesOpen)
-            ? "flex-col gap-3"
-            : "gap-4"
+            ? isFilesOpen
+              ? ""
+              : "flex-col gap-3"
+            : ""
         }`}
       >
+        {mode === "modal" && isFilesOpen ? (
+          <aside className="flex w-72 shrink-0 overflow-hidden border-r border-zinc-800 bg-black">
+            {filesRail}
+          </aside>
+        ) : null}
         {showChangesList ? (
           <div
             className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
-              mode === "sidebar" ? "max-h-56 w-full shrink-0" : "w-72 shrink-0"
+              mode === "sidebar"
+                ? "max-h-56 w-full shrink-0"
+                : "w-72 shrink-0 rounded-none border-y-0 border-l-0"
             }`}
           >
             <ChangesList

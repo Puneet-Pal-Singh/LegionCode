@@ -241,6 +241,15 @@ export function Workspace({
     setIsLoadingContent,
     openFileTab: handleOpenFileTab,
   });
+  const {
+    handleFileClick: handleFullscreenFileClick,
+    handleGitHubFileSelect: handleFullscreenGitHubFileSelect,
+  } = useFileLoader({
+    sandboxId,
+    runId: activeRunId,
+    setIsLoadingContent,
+    openFileTab,
+  });
 
   // Composed orchestration hooks
   const { handleStopRun } = useStatusSync({
@@ -451,20 +460,30 @@ export function Workspace({
           </motion.aside>
           <GitReviewDialog
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
-            filesRail={
+            contentTabs={contentTabs}
+            isLoadingContent={isLoadingContent}
+            onSelectContent={selectContentTab}
+            onCloseContent={closeContentTab}
+            renderFilesRail={(onFileOpened) => (
               <WorkspaceFilesTree
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 branch={branch}
                 repoTree={repoTree}
                 isLoadingTree={Boolean(isLoadingTree)}
-                onGitHubFileSelect={handleGitHubFileSelect}
+                onGitHubFileSelect={(path) => {
+                  onFileOpened(path);
+                  void handleFullscreenGitHubFileSelect(path);
+                }}
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
-                onLocalFileSelect={handleFileClick}
+                onLocalFileSelect={(path) => {
+                  onFileOpened(path);
+                  void handleFullscreenFileClick(path);
+                }}
               />
-            }
+            )}
           />
           <GitCommitDialog
             isOpen={isGitCommitOpen}
