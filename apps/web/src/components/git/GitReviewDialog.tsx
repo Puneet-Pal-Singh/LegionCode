@@ -2,9 +2,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
 import type { SidebarContentTab } from "../layout/workspace/useWorkspaceState";
-import { WorkspaceAddMenu } from "../layout/workspace/WorkspaceAddMenu";
-import { WorkspaceContentView } from "../layout/workspace/WorkspaceContentView";
-import { WorkspaceTabStrip } from "../layout/workspace/WorkspaceTabStrip";
+import { WorkspaceSurfaceBody } from "../layout/workspace/WorkspaceSurfaceBody";
+import { WorkspaceSurfaceHeader } from "../layout/workspace/WorkspaceSurfaceHeader";
 import { useGitReview } from "./useGitReview";
 
 interface GitReviewDialogProps {
@@ -139,34 +138,27 @@ export function GitReviewDialog({
         aria-labelledby={dialogTitleId}
         className="ui-surface-modal relative flex h-[92vh] w-[94vw] max-w-[1600px] flex-col overflow-hidden"
       >
-        <div className="flex h-12 shrink-0 items-center justify-between border-b ui-muted-divider bg-[#111113] px-3">
-          <WorkspaceTabStrip
-            id={dialogTitleId}
-            ariaLabel="Review workspace tabs"
-            reviewActive={activeWorkspaceTabId === "review"}
-            contentTabs={contentTabs}
-            activeContentTabId={activeWorkspaceTabId}
-            onSelectReview={() => selectWorkspaceTab("review")}
-            onSelectContent={selectWorkspaceTab}
-            onCloseContent={closeWorkspaceTab}
-            size="fullscreen"
-          >
-            <WorkspaceAddMenu
-              onOpenFiles={() =>
-                setActiveRail((current) =>
-                  current === "files" ? null : "files",
-                )
-              }
-              onOpenChanges={() => {
-                setActiveWorkspaceTabId("review");
-                setActiveRail((current) =>
-                  current === "changes" ? null : "changes",
-                );
-              }}
-            />
-          </WorkspaceTabStrip>
-
-          <div className="flex items-center gap-1.5">
+        <WorkspaceSurfaceHeader
+          variant="fullscreen"
+          id={dialogTitleId}
+          ariaLabel="Review workspace tabs"
+          reviewActive={activeWorkspaceTabId === "review"}
+          contentTabs={contentTabs}
+          activeContentTabId={activeWorkspaceTabId}
+          onSelectReview={() => selectWorkspaceTab("review")}
+          onSelectContent={selectWorkspaceTab}
+          onCloseContent={closeWorkspaceTab}
+          onOpenFiles={() =>
+            setActiveRail((current) => (current === "files" ? null : "files"))
+          }
+          onOpenChanges={() => {
+            setActiveWorkspaceTabId("review");
+            setActiveRail((current) =>
+              current === "changes" ? null : "changes",
+            );
+          }}
+          addTabLabel="Files"
+          trailingActions={
             <button
               ref={closeButtonRef}
               type="button"
@@ -176,12 +168,13 @@ export function GitReviewDialog({
             >
               <X size={16} />
             </button>
-          </div>
-        </div>
+          }
+        />
 
-        <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1">
-            {activeWorkspaceTabId === "review" ? (
+        <div className="min-h-0 flex-1">
+          <WorkspaceSurfaceBody
+            reviewActive={activeWorkspaceTabId === "review"}
+            reviewContent={
               <ChangesPanel
                 className="h-full"
                 mode="modal"
@@ -203,37 +196,21 @@ export function GitReviewDialog({
                 }
                 filesRail={renderFilesRail?.(openFileTab)}
               />
-            ) : (
-              <div className="flex h-full min-h-0">
-                {activeRail === "files" ? (
-                  <aside className="flex w-72 shrink-0 overflow-hidden border-r border-zinc-800 bg-black">
-                    {renderFilesRail?.(openFileTab)}
-                  </aside>
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <WorkspaceContentView
-                    selectedFile={
-                      activeContentTab?.kind === "file"
-                        ? activeContentTab
-                        : null
-                    }
-                    selectedDiff={
-                      activeContentTab?.kind === "diff"
-                        ? activeContentTab
-                        : null
-                    }
-                    isLoading={isLoadingContent}
-                    filesOpen={activeRail === "files"}
-                    onToggleFiles={() =>
-                      setActiveRail((current) =>
-                        current === "files" ? null : "files",
-                      )
-                    }
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+            }
+            selectedFile={
+              activeContentTab?.kind === "file" ? activeContentTab : null
+            }
+            selectedDiff={
+              activeContentTab?.kind === "diff" ? activeContentTab : null
+            }
+            isLoadingContent={isLoadingContent}
+            filesOpen={activeRail === "files"}
+            onToggleFiles={() =>
+              setActiveRail((current) => (current === "files" ? null : "files"))
+            }
+            filesRail={renderFilesRail?.(openFileTab)}
+            railPlacement="inline"
+          />
         </div>
       </div>
     </div>

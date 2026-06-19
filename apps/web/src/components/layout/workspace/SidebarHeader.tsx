@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 import { Maximize2, PanelRight } from "lucide-react";
 import { cn } from "../../../lib/utils";
 import type { SidebarContentTab } from "./useWorkspaceState";
-import { WorkspaceAddMenu } from "./WorkspaceAddMenu";
-import { WorkspaceTabStrip } from "./WorkspaceTabStrip";
+import { WorkspaceSurfaceHeader } from "./WorkspaceSurfaceHeader";
 
 interface SidebarHeaderProps {
   sidebarWidth: number;
@@ -35,41 +34,39 @@ export function SidebarHeader({
   onCloseSidebar,
 }: SidebarHeaderProps) {
   return (
-    <header
-      className="fixed right-0 top-0 z-[60] flex h-12 items-center border-b border-l border-zinc-800 bg-[#111113] shadow-sm shadow-black/20"
-      style={{ width: sidebarWidth }}
-    >
-      <WorkspaceTabStrip
-        ariaLabel="Right sidebar tabs"
-        reviewActive={!isViewingContent}
-        contentTabs={contentTabs}
-        activeContentTabId={activeContentTabId}
-        onSelectReview={onSelectReview}
-        onSelectContent={onSelectContent}
-        onCloseReview={onCloseReview}
-        onCloseContent={onCloseContent}
-      />
-
-      <div className="relative flex shrink-0 items-center gap-0.5 px-1.5">
-        <WorkspaceAddMenu
-          align="right"
-          triggerLabel="Add sidebar tab"
-          triggerClassName="p-1.5"
-          onOpenFiles={onOpenFiles}
-          onOpenChanges={onOpenChanges}
-        />
-        <IconButton
-          label="Fullscreen review"
-          onClick={onExpand}
-          disabled={!onExpand}
-        >
-          <Maximize2 size={15} />
-        </IconButton>
-        <IconButton label="Close right sidebar" onClick={onCloseSidebar} active>
-          <PanelRight size={17} />
-        </IconButton>
-      </div>
-    </header>
+    <WorkspaceSurfaceHeader
+      variant="sidebar"
+      width={sidebarWidth}
+      ariaLabel="Right sidebar tabs"
+      reviewActive={!isViewingContent}
+      contentTabs={contentTabs}
+      activeContentTabId={activeContentTabId}
+      onSelectReview={onSelectReview}
+      onSelectContent={onSelectContent}
+      onCloseReview={onCloseReview}
+      onCloseContent={onCloseContent}
+      onOpenFiles={onOpenFiles}
+      onOpenChanges={onOpenChanges}
+      addTabLabel="Add sidebar tab"
+      trailingActions={
+        <>
+          <IconButton
+            label="Fullscreen review"
+            onClick={onExpand}
+            disabled={!onExpand}
+          >
+            <Maximize2 size={15} />
+          </IconButton>
+          <IconButton
+            label="Close right sidebar"
+            onClick={onCloseSidebar}
+            active
+          >
+            <PanelRight size={17} />
+          </IconButton>
+        </>
+      }
+    />
   );
 }
 

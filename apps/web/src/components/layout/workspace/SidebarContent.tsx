@@ -7,7 +7,7 @@ import { useGitReview } from "../../git/useGitReview";
 import type { TabType, SelectedFile, SelectedDiff } from "./useWorkspaceState";
 import type { Repository } from "../../../services/GitHubService";
 import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
-import { WorkspaceContentView } from "./WorkspaceContentView";
+import { WorkspaceSurfaceBody } from "./WorkspaceSurfaceBody";
 
 interface SidebarContentProps {
   isViewingContent: boolean;
@@ -86,61 +86,67 @@ export function SidebarContent({
     }
   };
 
+  const treeOverlay = (
+    <SidebarTreeOverlay
+      activeTab={activeTab}
+      repo={repo}
+      isGitHubLoaded={isGitHubLoaded}
+      repoTree={repoTree}
+      isLoadingTree={isLoadingTree}
+      branch={branch}
+      explorerRef={explorerRef}
+      sandboxId={sandboxId}
+      runId={runId}
+      onGitHubFileSelect={handleGitHubFileSelect}
+      onLocalFileSelect={handleFileClick}
+      onChangedFileSelect={handleChangedFileSelect}
+      onClose={onCloseTree}
+    />
+  );
+
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>
-          {isViewingContent ? (
-            <motion.div
-              key="content"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              className="absolute inset-0 flex flex-col overflow-y-auto"
-            >
-              <WorkspaceContentView
-                selectedFile={selectedFile}
-                selectedDiff={selectedDiff}
-                isLoading={isLoadingContent}
-                filesOpen={activeTab === "files"}
-                onToggleFiles={onOpenFiles}
-              />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="review"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 flex min-h-0 flex-col overflow-hidden"
-            >
-              <ChangesPanel
-                mode="modal"
-                layout="stacked"
-                className="min-h-0 w-full"
-                isChangesOpen={activeTab === "changes"}
-                onToggleChanges={onToggleChanges}
-              />
-            </motion.div>
-          )}
+          <motion.div
+            key={isViewingContent ? "content" : "review"}
+            initial={
+              isViewingContent
+                ? { opacity: 0, scale: 0.98 }
+                : { opacity: 0, x: 10 }
+            }
+            animate={
+              isViewingContent ? { opacity: 1, scale: 1 } : { opacity: 1, x: 0 }
+            }
+            exit={
+              isViewingContent
+                ? { opacity: 0, scale: 0.98 }
+                : { opacity: 0, x: 10 }
+            }
+            transition={{ duration: 0.15 }}
+            className="absolute inset-0 flex min-h-0 flex-col overflow-hidden"
+          >
+            <WorkspaceSurfaceBody
+              reviewActive={!isViewingContent}
+              reviewContent={
+                <ChangesPanel
+                  mode="modal"
+                  layout="stacked"
+                  className="min-h-0 w-full"
+                  isChangesOpen={activeTab === "changes"}
+                  onToggleChanges={onToggleChanges}
+                />
+              }
+              selectedFile={selectedFile}
+              selectedDiff={selectedDiff}
+              isLoadingContent={isLoadingContent}
+              filesOpen={activeTab === "files"}
+              onToggleFiles={onOpenFiles}
+              overlay={treeOverlay}
+            />
+          </motion.div>
         </AnimatePresence>
       </div>
-      <SidebarTreeOverlay
-        activeTab={activeTab}
-        repo={repo}
-        isGitHubLoaded={isGitHubLoaded}
-        repoTree={repoTree}
-        isLoadingTree={isLoadingTree}
-        branch={branch}
-        explorerRef={explorerRef}
-        sandboxId={sandboxId}
-        runId={runId}
-        onGitHubFileSelect={handleGitHubFileSelect}
-        onLocalFileSelect={handleFileClick}
-        onChangedFileSelect={handleChangedFileSelect}
-        onClose={onCloseTree}
-      />
     </div>
   );
 }

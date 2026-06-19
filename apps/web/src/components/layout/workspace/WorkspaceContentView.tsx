@@ -11,6 +11,7 @@ interface WorkspaceContentViewProps {
   isLoading: boolean;
   filesOpen: boolean;
   onToggleFiles: () => void;
+  onOpenIde?: (ide: string) => void;
 }
 
 export function WorkspaceContentView({
@@ -19,6 +20,7 @@ export function WorkspaceContentView({
   isLoading,
   filesOpen,
   onToggleFiles,
+  onOpenIde,
 }: WorkspaceContentViewProps) {
   const [wordWrap, setWordWrap] = useState(true);
   const [richPreviewByPath, setRichPreviewByPath] = useState<
@@ -42,6 +44,7 @@ export function WorkspaceContentView({
         wordWrap={wordWrap}
         onWordWrapChange={setWordWrap}
         onOpenFiles={onToggleFiles}
+        onOpenIde={onOpenIde}
         richPreview={richPreview}
         onRichPreviewChange={
           markdownPath
