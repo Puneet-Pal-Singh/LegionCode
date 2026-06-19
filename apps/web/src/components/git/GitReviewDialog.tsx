@@ -1,9 +1,15 @@
-import { useEffect, useId, useRef } from "react";
-import { FileDiff, X } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { FileDiff, Folder, Plus, X } from "lucide-react";
 import { ChangesPanel } from "../sidebar/ChangesPanel";
+import { FileChangesIcon } from "../sidebar/FileChangesIcon";
+import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
 import { useGitReview } from "./useGitReview";
 
-export function GitReviewDialog() {
+interface GitReviewDialogProps {
+  onOpenFiles?: () => void;
+}
+
+export function GitReviewDialog({ onOpenFiles }: GitReviewDialogProps) {
   const {
     isReviewOpen,
     closeReview,
@@ -18,6 +24,11 @@ export function GitReviewDialog() {
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const closeReviewRef = useRef(closeReview);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [isChangesOpen, setIsChangesOpen] = useState(false);
+  const closeAddMenu = useCallback(() => setIsAddMenuOpen(false), []);
+  useOutsideDismiss(addMenuRef, isAddMenuOpen, closeAddMenu);
 
   useEffect(() => {
     closeReviewRef.current = closeReview;
@@ -86,7 +97,7 @@ export function GitReviewDialog() {
   }
 
   return (
-    <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center p-4">
+    <div className="ui-overlay fixed inset-0 z-[120] flex items-center justify-center p-6">
       <button
         type="button"
         className="absolute inset-0 cursor-default"
@@ -99,14 +110,14 @@ export function GitReviewDialog() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={dialogTitleId}
-        className="ui-surface-modal relative flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-none flex-col overflow-hidden"
+        className="ui-surface-modal relative flex h-[92vh] w-[94vw] max-w-[1600px] flex-col overflow-hidden"
       >
         <div className="flex h-12 shrink-0 items-center justify-between border-b ui-muted-divider bg-[#111113] px-3">
           <div
             id={dialogTitleId}
             role="tablist"
             aria-label="Review workspace tabs"
-            className="flex min-w-0 items-center"
+            className="flex min-w-0 items-center gap-1"
           >
             <div
               role="tab"
@@ -115,6 +126,34 @@ export function GitReviewDialog() {
             >
               <FileDiff size={15} />
               Review
+            </div>
+            <div ref={addMenuRef} className="group relative ml-1">
+              <button
+                type="button"
+                onClick={() => setIsAddMenuOpen((current) => !current)}
+                className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                aria-label="View files"
+                aria-haspopup="menu"
+                aria-expanded={isAddMenuOpen}
+              >
+                <Plus size={17} />
+              </button>
+              <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                View files
+              </span>
+              {isAddMenuOpen ? (
+                <ReviewAddMenu
+                  onOpenFiles={() => {
+                    closeAddMenu();
+                    closeReview();
+                    onOpenFiles?.();
+                  }}
+                  onToggleChanges={() => {
+                    setIsChangesOpen((current) => !current);
+                    closeAddMenu();
+                  }}
+                />
+              ) : null}
             </div>
           </div>
 
@@ -139,9 +178,45 @@ export function GitReviewDialog() {
             branch={status?.branch || "No branch"}
             reviewCommentCount={selectedReviewCommentCount}
             onReviewChanges={closeReview}
+            isChangesOpen={isChangesOpen}
+            onToggleChanges={() => setIsChangesOpen((current) => !current)}
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewAddMenu({
+  onOpenFiles,
+  onToggleChanges,
+}: {
+  onOpenFiles: () => void;
+  onToggleChanges: () => void;
+}) {
+  return (
+    <div
+      role="menu"
+      className="absolute left-0 top-10 z-30 w-44 rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onOpenFiles}
+        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
+      >
+        <Folder size={15} />
+        View files
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onToggleChanges}
+        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
+      >
+        <FileChangesIcon size={15} />
+        File changes
+      </button>
     </div>
   );
 }

@@ -450,6 +450,11 @@ export function Workspace({
           </motion.aside>
           <GitReviewDialog
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
+            onOpenFiles={() => {
+              setIsRightSidebarOpen?.(true);
+              setIsViewingContent(false);
+              setActiveTab("files");
+            }}
           />
           <GitCommitDialog
             isOpen={isGitCommitOpen}

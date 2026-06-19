@@ -21,14 +21,25 @@ vi.mock("../sidebar/ChangesPanel", () => ({
     branch,
     reviewCommentCount,
     onReviewChanges,
+    isChangesOpen,
+    onToggleChanges,
   }: {
     branch?: string;
     reviewCommentCount?: number;
     onReviewChanges?: () => void;
+    isChangesOpen?: boolean;
+    onToggleChanges?: () => void;
   }) => (
-    <div data-testid="changes-panel" data-branch={branch}>
+    <div
+      data-testid="changes-panel"
+      data-branch={branch}
+      data-changes-open={String(isChangesOpen)}
+    >
       <button type="button" onClick={onReviewChanges}>
         Review changes ({reviewCommentCount})
+      </button>
+      <button type="button" onClick={onToggleChanges}>
+        Toggle file changes sidebar
       </button>
     </div>
   ),
@@ -40,11 +51,13 @@ describe("GitReviewDialog", () => {
   });
 
   it("renders a full review workspace and delegates its toolbar context", () => {
-    render(<GitReviewDialog />);
+    const onOpenFiles = vi.fn();
+    render(<GitReviewDialog onOpenFiles={onOpenFiles} />);
 
     expect(screen.getByRole("dialog")).toHaveClass(
-      "h-[calc(100vh-2rem)]",
-      "w-[calc(100vw-2rem)]",
+      "h-[92vh]",
+      "w-[94vw]",
+      "max-w-[1600px]",
     );
     expect(screen.getByRole("tab", { name: "Review" })).toHaveAttribute(
       "aria-selected",
@@ -57,5 +70,17 @@ describe("GitReviewDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Review changes (1)" }));
     expect(reviewMock.closeReview).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle file changes sidebar" }),
+    );
+    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
+      "data-changes-open",
+      "true",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View files" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "View files" }));
+    expect(onOpenFiles).toHaveBeenCalledTimes(1);
   });
 });

@@ -44,7 +44,8 @@ export function ChangesPanel({
   const files = useMemo(() => review.reviewFiles, [review.reviewFiles]);
   const isSavedEditMode = review.reviewSource.kind === "prompt_artifact";
   const showStackedReview = layout === "stacked";
-  const showChangesList = !showStackedReview;
+  const showChangesList =
+    !showStackedReview || (mode === "modal" && isChangesOpen);
   const emptyReviewLabel = getEmptyReviewLabel({
     isSavedEditMode,
     reviewScope: review.reviewScope,
@@ -126,7 +127,8 @@ export function ChangesPanel({
       ) : null}
       <div
         className={`flex min-h-0 flex-1 overflow-hidden ${
-          mode === "sidebar" || (mode === "modal" && layout === "stacked")
+          mode === "sidebar" ||
+          (mode === "modal" && layout === "stacked" && !isChangesOpen)
             ? "flex-col gap-3"
             : "gap-4"
         }`}
@@ -134,7 +136,7 @@ export function ChangesPanel({
         {showChangesList ? (
           <div
             className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
-              mode === "sidebar" ? "max-h-56 w-full shrink-0" : "w-80"
+              mode === "sidebar" ? "max-h-56 w-full shrink-0" : "w-72 shrink-0"
             }`}
           >
             <ChangesList
