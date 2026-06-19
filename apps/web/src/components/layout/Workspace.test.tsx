@@ -267,6 +267,27 @@ describe("Workspace", () => {
     mockGitHubTreeState.isContextMismatch = false;
   });
 
+  it("routes top-summary change requests into the review changes tab", () => {
+    const setIsRightSidebarOpen = vi.fn();
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+        summaryActionRequest={{ id: 1, action: "changes" }}
+      />,
+    );
+
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mockWorkspaceStateSetters.setIsViewingContent).toHaveBeenCalledWith(
+      false,
+    );
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
+      "changes",
+    );
+  });
+
   it("refreshes git status when local chat loading settles", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(

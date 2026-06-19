@@ -4,9 +4,7 @@ import { cn } from "../../../lib/utils";
 import { FileChangesIcon } from "../../sidebar/FileChangesIcon";
 import { FileTypeIcon } from "../../ui/FileTypeIcon";
 import type { SidebarContentTab } from "./useWorkspaceState";
-import type { Repository } from "../../../services/GitHubService";
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
-import { EnvironmentSummaryMenu } from "./EnvironmentSummaryMenu";
 
 interface SidebarHeaderProps {
   sidebarWidth: number;
@@ -19,11 +17,6 @@ interface SidebarHeaderProps {
   onCloseContent: (id: string) => void;
   onOpenFiles: () => void;
   onOpenChanges: () => void;
-  repo: Repository | null;
-  branch: string;
-  changedFileCount: number;
-  onBranchChange: (branch: string) => void;
-  onOpenCommit: () => void;
   onExpand?: () => void;
   onCloseSidebar: () => void;
 }
@@ -39,11 +32,6 @@ export function SidebarHeader({
   onCloseContent,
   onOpenFiles,
   onOpenChanges,
-  repo,
-  branch,
-  changedFileCount,
-  onBranchChange,
-  onOpenCommit,
   onExpand,
   onCloseSidebar,
 }: SidebarHeaderProps) {
@@ -85,14 +73,6 @@ export function SidebarHeader({
         ref={addMenuRef}
         className="relative flex shrink-0 items-center gap-0.5 px-1.5"
       >
-        <EnvironmentSummaryMenu
-          repo={repo}
-          branch={branch}
-          changedFileCount={changedFileCount}
-          onBranchChange={onBranchChange}
-          onOpenChanges={onOpenChanges}
-          onOpenCommit={onOpenCommit}
-        />
         <IconButton
           label="Add sidebar tab"
           onClick={() => setIsAddMenuOpen((previous) => !previous)}

@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Repository } from "../../../services/GitHubService";
 import { EnvironmentSummaryMenu } from "./EnvironmentSummaryMenu";
@@ -97,6 +103,11 @@ describe("EnvironmentSummaryMenu", () => {
       ).toHaveAttribute("href", "https://github.com/legion/shadowbox/pull/42"),
     );
     fireEvent.click(screen.getByRole("button", { name: "main" }));
+    expect(
+      within(
+        screen.getByRole("dialog", { name: "Environment summary" }),
+      ).queryByPlaceholderText("Search branches"),
+    ).not.toBeInTheDocument();
     await waitFor(() => screen.getByRole("button", { name: "feat/menu" }));
     fireEvent.click(screen.getByRole("button", { name: "feat/menu" }));
     expect(onBranchChange).toHaveBeenCalledWith("feat/menu");

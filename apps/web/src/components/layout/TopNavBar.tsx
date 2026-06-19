@@ -1,14 +1,11 @@
 import { motion } from "framer-motion";
-import {
-  FileDiff,
-  PanelLeftOpen,
-  PanelRight,
-  SlidersHorizontal,
-} from "lucide-react";
+import { FileDiff, PanelLeftOpen, PanelRight } from "lucide-react";
 import { OpenDropdown } from "../navigation/OpenDropdown";
 import { GitHubLoginButton } from "../auth/GitHubLoginButton";
 import { ChatHeaderMenu } from "../chat/ChatHeaderMenu";
 import type { AgentSession } from "../../types/session";
+import type { Repository } from "../../services/GitHubService";
+import { TopEnvironmentSummary } from "../navigation/TopEnvironmentSummary";
 
 interface TopNavBarProps {
   onOpenIde?: (ide: string) => void;
@@ -27,25 +24,18 @@ interface TopNavBarProps {
   onArchiveSession?: () => Promise<void>;
   isAuthenticated?: boolean;
   onConnectGitHub?: () => void;
+  environmentSummary?: {
+    sessionId: string;
+    runId: string;
+    repo: Repository | null;
+    branch: string;
+    onBranchChange: (branch: string) => void;
+    onOpenChanges: () => void;
+    onOpenCommit: () => void;
+  };
 }
 
-export function TopNavBar({
-  onOpenIde,
-  onReview,
-  isSidebarOpen = true,
-  onToggleSidebar,
-  isRightSidebarOpen = false,
-  rightSidebarWidth = 0,
-  onToggleRightSidebar,
-  taskTitle,
-  activeSession,
-  onRenameSession,
-  onPinSession,
-  onUnpinSession,
-  onArchiveSession,
-  isAuthenticated = false,
-  onConnectGitHub,
-}: TopNavBarProps) {
+export function TopNavBar(props: TopNavBarProps) {
   return (
     <motion.header
       initial={{ opacity: 0, y: -10 }}
@@ -53,95 +43,141 @@ export function TopNavBar({
       transition={{ duration: 0.3 }}
       className="h-12 bg-[#0c0c0e] border-b border-[#1a1a1a] flex items-center justify-between px-3 shrink-0 z-50 shadow-sm shadow-black/20"
     >
-      {/* Left Section - Sidebar Toggle and Task Title */}
-      <div className="flex items-center gap-3">
-        {!isSidebarOpen && (
-          <motion.button
-            onClick={onToggleSidebar}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="p-1.5 text-zinc-400 hover:text-zinc-200 transition-colors rounded-md hover:bg-zinc-800/50"
-            title="Open sidebar"
-          >
-            <PanelLeftOpen size={16} />
-          </motion.button>
-        )}
-        {/* Task Title */}
-        {taskTitle && (
-          <span className="text-sm font-medium text-white">{taskTitle}</span>
-        )}
-        <ChatHeaderMenu
-          session={activeSession ?? null}
-          onRename={onRenameSession ?? (async () => undefined)}
-          onPin={onPinSession ?? (async () => undefined)}
-          onUnpin={onUnpinSession ?? (async () => undefined)}
-          onArchive={onArchiveSession ?? (async () => undefined)}
-        />
-      </div>
-
-      {/* Center Section - Spacer */}
+      <TopNavLeft {...props} />
       <div className="flex-1" />
-
-      {/* Right Section */}
-      <div
-        data-testid="top-nav-actions"
-        className="flex items-center gap-2 transition-[margin] duration-150"
-        style={{ marginRight: isRightSidebarOpen ? rightSidebarWidth : 0 }}
-      >
-        {!isAuthenticated && onConnectGitHub && (
-          <GitHubLoginButton
-            onClick={onConnectGitHub}
-            size="sm"
-            variant="secondary"
-          />
-        )}
-        <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
-        <button
-          type="button"
-          className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
-          aria-label="Toggle summary"
-          title="Toggle summary"
-        >
-          <SlidersHorizontal size={16} />
-        </button>
-        {!isRightSidebarOpen ? (
-          <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
-          <motion.button
-            onClick={onReview}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            disabled={!onReview}
-            aria-label="Review"
-            className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-all disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent ${
-              isRightSidebarOpen
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
-            }`}
-            title={
-              onReview ? "Open review panel" : "Review is not available yet"
-            }
-          >
-            <FileDiff size={15} />
-          </motion.button>
-
-          <motion.button
-            onClick={onToggleRightSidebar}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            disabled={!onToggleRightSidebar}
-            aria-label="Toggle right sidebar"
-            className={`rounded-md p-1.5 transition-colors disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent ${
-              isRightSidebarOpen
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
-            }`}
-            title="Toggle right sidebar"
-          >
-            <PanelRight size={17} />
-          </motion.button>
-          </div>
-        ) : null}
-      </div>
+      <TopNavActions {...props} />
     </motion.header>
+  );
+}
+
+function TopNavLeft({
+  isSidebarOpen,
+  onToggleSidebar,
+  taskTitle,
+  activeSession,
+  onRenameSession,
+  onPinSession,
+  onUnpinSession,
+  onArchiveSession,
+}: Pick<
+  TopNavBarProps,
+  | "isSidebarOpen"
+  | "onToggleSidebar"
+  | "taskTitle"
+  | "activeSession"
+  | "onRenameSession"
+  | "onPinSession"
+  | "onUnpinSession"
+  | "onArchiveSession"
+>) {
+  return (
+    <div className="flex items-center gap-3">
+      {!isSidebarOpen ? (
+        <motion.button
+          onClick={onToggleSidebar}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+          title="Open sidebar"
+        >
+          <PanelLeftOpen size={16} />
+        </motion.button>
+      ) : null}
+      {taskTitle ? (
+        <span className="text-sm font-medium text-white">{taskTitle}</span>
+      ) : null}
+      <ChatHeaderMenu
+        session={activeSession ?? null}
+        onRename={onRenameSession ?? (async () => undefined)}
+        onPin={onPinSession ?? (async () => undefined)}
+        onUnpin={onUnpinSession ?? (async () => undefined)}
+        onArchive={onArchiveSession ?? (async () => undefined)}
+      />
+    </div>
+  );
+}
+
+function TopNavActions({
+  onOpenIde,
+  onReview,
+  isRightSidebarOpen = false,
+  rightSidebarWidth = 0,
+  onToggleRightSidebar,
+  isAuthenticated = false,
+  onConnectGitHub,
+  environmentSummary,
+}: Pick<
+  TopNavBarProps,
+  | "onOpenIde"
+  | "onReview"
+  | "isRightSidebarOpen"
+  | "rightSidebarWidth"
+  | "onToggleRightSidebar"
+  | "isAuthenticated"
+  | "onConnectGitHub"
+  | "environmentSummary"
+>) {
+  return (
+    <div
+      data-testid="top-nav-actions"
+      className="flex items-center gap-2 transition-[margin] duration-150"
+      style={{ marginRight: isRightSidebarOpen ? rightSidebarWidth : 0 }}
+    >
+      {!isAuthenticated && onConnectGitHub ? (
+        <GitHubLoginButton
+          onClick={onConnectGitHub}
+          size="sm"
+          variant="secondary"
+        />
+      ) : null}
+      <OpenDropdown onSelect={onOpenIde} disabled={!onOpenIde} />
+      {environmentSummary ? (
+        <TopEnvironmentSummary
+          {...environmentSummary}
+          placement={isRightSidebarOpen ? "left" : "right"}
+        />
+      ) : null}
+      {!isRightSidebarOpen ? (
+        <ReviewControls
+          onReview={onReview}
+          onToggleRightSidebar={onToggleRightSidebar}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewControls({
+  onReview,
+  onToggleRightSidebar,
+}: {
+  onReview?: () => void;
+  onToggleRightSidebar?: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-950/70 p-0.5">
+      <motion.button
+        onClick={onReview}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        disabled={!onReview}
+        aria-label="Review"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-zinc-400 transition-all hover:bg-zinc-900 hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
+        title={onReview ? "Open review panel" : "Review is not available yet"}
+      >
+        <FileDiff size={15} />
+      </motion.button>
+      <motion.button
+        onClick={onToggleRightSidebar}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        disabled={!onToggleRightSidebar}
+        aria-label="Toggle right sidebar"
+        className="rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200 disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
+        title="Toggle right sidebar"
+      >
+        <PanelRight size={17} />
+      </motion.button>
+    </div>
   );
 }

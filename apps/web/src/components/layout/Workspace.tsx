@@ -57,6 +57,7 @@ interface WorkspaceProps {
   isGitReviewOpen?: boolean;
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
+  summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
 }
 
 export function Workspace({
@@ -79,6 +80,7 @@ export function Workspace({
   isGitReviewOpen = false,
   onGitReviewOpenChange,
   onTabChange,
+  summaryActionRequest,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
@@ -109,6 +111,22 @@ export function Workspace({
   } = useWorkspaceState();
   const sidebarWidth = rightSidebarWidth ?? internalSidebarWidth;
   const setSidebarWidth = setRightSidebarWidth ?? setInternalSidebarWidth;
+
+  useEffect(() => {
+    if (!summaryActionRequest) return;
+    if (summaryActionRequest.action === "commit") {
+      setIsGitCommitOpen(true);
+      return;
+    }
+    setIsRightSidebarOpen?.(true);
+    setIsViewingContent(false);
+    setActiveTab("changes");
+  }, [
+    summaryActionRequest,
+    setActiveTab,
+    setIsRightSidebarOpen,
+    setIsViewingContent,
+  ]);
 
   useEffect(() => {
     onTabChange?.(activeTab);
@@ -362,11 +380,6 @@ export function Workspace({
                 )
               }
               onOpenChanges={toggleChangesPanel}
-              repo={repo}
-              branch={repositoryBranch}
-              changedFileCount={status?.files.length ?? 0}
-              onBranchChange={switchBranch}
-              onOpenCommit={() => setIsGitCommitOpen(true)}
               onExpand={() => {
                 setIsRightSidebarOpen?.(true);
                 onGitReviewOpenChange?.(true);

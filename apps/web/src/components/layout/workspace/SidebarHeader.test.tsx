@@ -10,8 +10,6 @@ function renderHeader() {
     onCloseContent: vi.fn(),
     onOpenFiles: vi.fn(),
     onOpenChanges: vi.fn(),
-    onBranchChange: vi.fn(),
-    onOpenCommit: vi.fn(),
     onCloseSidebar: vi.fn(),
   };
   render(
@@ -33,9 +31,6 @@ function renderHeader() {
         },
       ]}
       activeContentTabId="file:src/components/DiffViewer.test.tsx"
-      repo={null}
-      branch="main"
-      changedFileCount={0}
       {...actions}
     />,
   );

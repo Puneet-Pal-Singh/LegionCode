@@ -31,20 +31,26 @@ import {
 import { useOutsideDismiss } from "../../../hooks/useOutsideDismiss";
 import { cn } from "../../../lib/utils";
 
-interface EnvironmentSummaryMenuProps {
+export interface EnvironmentSummaryMenuProps {
   repo: Repository | null;
   branch: string;
   changedFileCount: number;
   onBranchChange: (branch: string) => void;
   onOpenChanges: () => void;
   onOpenCommit: () => void;
+  placement?: "left" | "right";
 }
 
 export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isBranchOpen, setIsBranchOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => setIsOpen(false), []);
-  useOutsideDismiss(rootRef, isOpen, close);
+  const close = useCallback(() => {
+    setIsOpen(false);
+    setIsBranchOpen(false);
+  }, []);
+  const { branches, loading } = useBranches(props.repo);
+  useOutsideDismiss(rootRef, isOpen || isBranchOpen, close);
 
   return (
     <div ref={rootRef} className="relative">
@@ -60,16 +66,36 @@ export function EnvironmentSummaryMenu(props: EnvironmentSummaryMenuProps) {
       >
         <ListFilter size={18} />
       </button>
-      {isOpen ? <EnvironmentPanel {...props} onClose={close} /> : null}
+      {isOpen ? (
+        <EnvironmentPanel
+          {...props}
+          onClose={close}
+          onOpenBranch={() => setIsBranchOpen((current) => !current)}
+        />
+      ) : null}
+      {isBranchOpen && props.repo ? (
+        <BranchPopover
+          branches={branches}
+          currentBranch={props.branch}
+          loading={loading}
+          placement={props.placement}
+          onSelect={(branch) => {
+            props.onBranchChange(branch);
+            setIsBranchOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
 function EnvironmentPanel(
-  props: EnvironmentSummaryMenuProps & { onClose: () => void },
+  props: EnvironmentSummaryMenuProps & {
+    onClose: () => void;
+    onOpenBranch: () => void;
+  },
 ) {
-  const [section, setSection] = useState<"branch" | "runtime" | null>(null);
-  const { branches, loading: branchesLoading } = useBranches(props.repo);
+  const [runtimeOpen, setRuntimeOpen] = useState(false);
   const { pullRequest, loading: pullRequestLoading } = useActivePullRequest(
     props.repo,
     props.branch,
@@ -80,12 +106,10 @@ function EnvironmentPanel(
   };
   const actions = {
     ...props,
-    branches,
-    branchesLoading,
     pullRequest,
     pullRequestLoading,
-    section,
-    setSection,
+    runtimeOpen,
+    setRuntimeOpen,
     onOpenChanges: closeAfter(props.onOpenChanges),
     onOpenCommit: closeAfter(props.onOpenCommit),
   };
@@ -101,7 +125,10 @@ function EnvironmentPanelView({
     <div
       role="dialog"
       aria-label="Environment summary"
-      className="absolute right-0 top-11 z-50 w-[360px] rounded-3xl border border-zinc-700 bg-[#202021] p-3 shadow-2xl"
+      className={cn(
+        "absolute top-11 z-50 w-[420px] rounded-2xl border border-zinc-700/80 bg-[#171719] p-2 shadow-2xl",
+        actions.placement === "left" ? "left-0" : "right-0",
+      )}
     >
       <div className="flex items-center justify-between px-3 py-2 text-sm text-zinc-400">
         <span>Environment</span>
@@ -113,12 +140,11 @@ function EnvironmentPanelView({
 }
 
 interface EnvironmentActionsProps extends EnvironmentSummaryMenuProps {
-  branches: Branch[];
-  branchesLoading: boolean;
   pullRequest: PullRequestSummary | null;
   pullRequestLoading: boolean;
-  section: "branch" | "runtime" | null;
-  setSection: (section: "branch" | "runtime" | null) => void;
+  runtimeOpen: boolean;
+  setRuntimeOpen: (open: boolean) => void;
+  onOpenBranch: () => void;
 }
 
 function EnvironmentActions(props: EnvironmentActionsProps) {
@@ -126,13 +152,11 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
     repo,
     branch,
     changedFileCount,
-    branches,
-    branchesLoading,
     pullRequest,
     pullRequestLoading,
-    section,
-    setSection,
-    onBranchChange,
+    runtimeOpen,
+    setRuntimeOpen,
+    onOpenBranch,
     onOpenChanges,
     onOpenCommit,
   } = props;
@@ -140,21 +164,10 @@ function EnvironmentActions(props: EnvironmentActionsProps) {
     <>
       <ChangesAction count={changedFileCount} onClick={onOpenChanges} />
       <RuntimeAction
-        open={section === "runtime"}
-        onToggle={() => setSection(section === "runtime" ? null : "runtime")}
+        open={runtimeOpen}
+        onToggle={() => setRuntimeOpen(!runtimeOpen)}
       />
-      <BranchAction
-        repo={repo}
-        branch={branch}
-        branches={branches}
-        loading={branchesLoading}
-        open={section === "branch"}
-        onToggle={() => setSection(section === "branch" ? null : "branch")}
-        onSelect={(nextBranch) => {
-          onBranchChange(nextBranch);
-          setSection(null);
-        }}
-      />
+      <BranchAction repo={repo} branch={branch} onToggle={onOpenBranch} />
       <CommitAction visible={changedFileCount > 0} onClick={onOpenCommit} />
       <PullRequestStatus
         loading={pullRequestLoading}
@@ -205,19 +218,11 @@ function RuntimeAction({
 function BranchAction({
   repo,
   branch,
-  branches,
-  loading,
-  open,
   onToggle,
-  onSelect,
 }: {
   repo: Repository | null;
   branch: string;
-  branches: Branch[];
-  loading: boolean;
-  open: boolean;
   onToggle: () => void;
-  onSelect: (branch: string) => void;
 }) {
   if (!repo) return null;
   return (
@@ -228,14 +233,6 @@ function BranchAction({
         chevron
         onClick={onToggle}
       />
-      {open ? (
-        <BranchOptions
-          branches={branches}
-          currentBranch={branch}
-          loading={loading}
-          onSelect={onSelect}
-        />
-      ) : null}
     </>
   );
 }
@@ -290,7 +287,7 @@ function SummaryButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-100 hover:bg-zinc-700/60"
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-zinc-100 transition-colors hover:bg-zinc-800"
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -319,23 +316,30 @@ function RuntimeOptions() {
   );
 }
 
-function BranchOptions({
+function BranchPopover({
   branches,
   currentBranch,
   loading,
   onSelect,
+  placement = "right",
 }: {
   branches: Branch[];
   currentBranch: string;
   loading: boolean;
   onSelect: (branch: string) => void;
+  placement?: "left" | "right";
 }) {
   const [query, setQuery] = useState("");
   const filtered = branches.filter((item) =>
     item.name.toLowerCase().includes(query.toLowerCase()),
   );
   return (
-    <div className="mx-2 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900/80">
+    <div
+      className={cn(
+        "absolute top-[88px] z-50 w-[420px] overflow-hidden rounded-2xl border border-zinc-700/80 bg-[#171719] shadow-2xl",
+        placement === "left" ? "left-[432px]" : "right-[432px]",
+      )}
+    >
       <label className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2">
         <Search size={14} className="text-zinc-500" />
         <input
@@ -346,25 +350,46 @@ function BranchOptions({
         />
       </label>
       <div className="max-h-56 overflow-y-auto py-1 no-scrollbar">
-        {loading ? (
-          <div className="px-3 py-3 text-sm text-zinc-500">
-            Loading branches...
-          </div>
-        ) : (
-          filtered.map((item) => (
-            <button
-              type="button"
-              key={item.name}
-              onClick={() => onSelect(item.name)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"
-            >
-              <span className="flex-1 truncate">{item.name}</span>
-              {item.name === currentBranch ? <Check size={14} /> : null}
-            </button>
-          ))
-        )}
+        <BranchList
+          items={filtered}
+          currentBranch={currentBranch}
+          loading={loading}
+          onSelect={onSelect}
+        />
       </div>
     </div>
+  );
+}
+
+function BranchList({
+  items,
+  currentBranch,
+  loading,
+  onSelect,
+}: {
+  items: Branch[];
+  currentBranch: string;
+  loading: boolean;
+  onSelect: (branch: string) => void;
+}) {
+  if (loading)
+    return (
+      <div className="px-3 py-3 text-sm text-zinc-500">Loading branches...</div>
+    );
+  return (
+    <>
+      {items.map((item) => (
+        <button
+          type="button"
+          key={item.name}
+          onClick={() => onSelect(item.name)}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"
+        >
+          <span className="flex-1 truncate">{item.name}</span>
+          {item.name === currentBranch ? <Check size={14} /> : null}
+        </button>
+      ))}
+    </>
   );
 }
 
