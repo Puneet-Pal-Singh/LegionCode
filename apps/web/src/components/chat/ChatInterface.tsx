@@ -208,6 +208,8 @@ export function ChatInterface({
     hasScopedFeed: Boolean(scopedFeed),
   });
   useEffect(() => {
+    // Reset expansion preferences when the active run changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpandedActivityTurns({});
     setExpandedActivityRows({});
   }, [runId]);
@@ -345,7 +347,7 @@ export function ChatInterface({
 
   return (
     <ChatInterfaceView
-      scrollRef={scrollRef}
+      ref={scrollRef}
       showHeroComposer={showHeroComposer}
       showSessionPlaceholder={showSessionPlaceholder}
       renderComposer={renderComposerControls}

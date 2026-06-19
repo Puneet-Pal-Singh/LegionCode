@@ -24,53 +24,65 @@ interface ReviewCommentSubmissionInput {
 export function useReviewCommentSubmission(
   input: ReviewCommentSubmissionInput,
 ) {
+  const {
+    comments,
+    input: textInput,
+    isLoading,
+    error,
+    append,
+    handleInputChange,
+    toggleSelected,
+    markDispatching,
+    markDispatched,
+    markDispatchFailed,
+  } = input;
   const [reviewCommentError, setReviewCommentError] = useState<string | null>(
     null,
   );
   const lastDispatchIdsRef = useRef<string[]>([]);
-  const latestInputRef = useRef(input.input);
+  const latestInputRef = useRef(textInput);
   useEffect(() => {
-    latestInputRef.current = input.input;
-  }, [input.input]);
+    latestInputRef.current = textInput;
+  }, [textInput]);
 
   const changeInput = useCallback(
     (value: string) => {
       latestInputRef.current = value;
       if (reviewCommentError) setReviewCommentError(null);
-      input.handleInputChange({
+      handleInputChange({
         target: { value },
       } as React.ChangeEvent<HTMLTextAreaElement>);
     },
-    [input.handleInputChange, reviewCommentError],
+    [handleInputChange, reviewCommentError],
   );
 
   const removeComment = useCallback(
     (commentId: string) => {
-      input.toggleSelected(commentId, false);
+      toggleSelected(commentId, false);
       if (reviewCommentError) setReviewCommentError(null);
     },
-    [input.toggleSelected, reviewCommentError],
+    [reviewCommentError, toggleSelected],
   );
 
   const submitWithComments = useCallback(async (): Promise<boolean> => {
-    const budget = validateReviewPromptBudget(input.comments, input.input);
+    const budget = validateReviewPromptBudget(comments, textInput);
     if (!budget.ok) {
       setReviewCommentError(budget.reason);
       return false;
     }
-    const { prompt } = buildReviewCommentPrompt(input.comments, input.input);
-    const ids = input.comments.map((comment) => comment.id);
+    const { prompt } = buildReviewCommentPrompt(comments, textInput);
+    const ids = comments.map((comment) => comment.id);
     lastDispatchIdsRef.current = ids;
     setReviewCommentError(null);
-    input.markDispatching(ids);
-    const previousInput = input.input;
+    markDispatching(ids);
+    const previousInput = textInput;
     changeInput("");
     try {
-      await input.append({ role: "user", content: prompt });
-      input.markDispatched(ids);
+      await append({ role: "user", content: prompt });
+      markDispatched(ids);
       return true;
     } catch (error) {
-      input.markDispatchFailed(ids, { reselect: true });
+      markDispatchFailed(ids, { reselect: true });
       lastDispatchIdsRef.current = [];
       if (latestInputRef.current === "") changeInput(previousInput);
       setReviewCommentError(
@@ -80,16 +92,24 @@ export function useReviewCommentSubmission(
       );
       return false;
     }
-  }, [changeInput, input]);
+  }, [
+    append,
+    changeInput,
+    comments,
+    markDispatchFailed,
+    markDispatched,
+    markDispatching,
+    textInput,
+  ]);
 
   useEffect(() => {
-    if (!input.error || lastDispatchIdsRef.current.length === 0) return;
-    input.markDispatchFailed(lastDispatchIdsRef.current, { reselect: false });
+    if (!error || lastDispatchIdsRef.current.length === 0) return;
+    markDispatchFailed(lastDispatchIdsRef.current, { reselect: false });
     lastDispatchIdsRef.current = [];
-  }, [input.error, input.markDispatchFailed]);
+  }, [error, markDispatchFailed]);
   useEffect(() => {
-    if (!input.isLoading && !input.error) lastDispatchIdsRef.current = [];
-  }, [input.error, input.isLoading]);
+    if (!isLoading && !error) lastDispatchIdsRef.current = [];
+  }, [error, isLoading]);
 
   return { reviewCommentError, changeInput, removeComment, submitWithComments };
 }

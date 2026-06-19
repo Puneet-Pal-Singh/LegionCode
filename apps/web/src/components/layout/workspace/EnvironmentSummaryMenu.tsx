@@ -335,6 +335,8 @@ function useBranches(repo: Repository | null): {
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!repo) {
+      // Clear data from the previously selected repository.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBranches([]);
       return;
     }
@@ -367,6 +369,8 @@ function useActivePullRequest(
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     if (!repo || !branch) {
+      // Clear data from the previously selected branch.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPullRequest(null);
       return;
     }

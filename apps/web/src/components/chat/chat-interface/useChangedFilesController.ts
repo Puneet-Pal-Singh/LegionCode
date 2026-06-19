@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability -- These refs are intentional mutable caches shared by the extracted controller hooks. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Message } from "@ai-sdk/react";
 import type {
@@ -242,6 +243,8 @@ function useArtifactSources(
     return () => {
       cancelled = true;
     };
+    // The scalar input fields below are the complete fetch dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     artifacts,
     input.isLoading,

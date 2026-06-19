@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from "react";
+import { forwardRef, type ReactNode } from "react";
 import type { ChatDebugEvent } from "../../../types/chat-debug.js";
 import type {
   DiffContent,
@@ -17,7 +17,6 @@ import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
 
 interface ChatInterfaceViewProps {
-  scrollRef: RefObject<HTMLDivElement | null>;
   showHeroComposer: boolean;
   showSessionPlaceholder: boolean;
   renderComposer: (layout: ComposerLayout) => ReactNode;
@@ -47,10 +46,13 @@ interface ChatInterfaceViewProps {
   workflowDebug: ReactNode;
 }
 
-export function ChatInterfaceView(props: ChatInterfaceViewProps) {
+export const ChatInterfaceView = forwardRef<
+  HTMLDivElement,
+  ChatInterfaceViewProps
+>(function ChatInterfaceView(props, scrollRef) {
   return (
     <div className="flex h-full flex-col bg-black">
-      <div ref={props.scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         {props.showHeroComposer ? (
           <HeroComposer>{props.renderComposer("hero")}</HeroComposer>
         ) : props.showSessionPlaceholder ? (
@@ -76,7 +78,7 @@ export function ChatInterfaceView(props: ChatInterfaceViewProps) {
       )}
     </div>
   );
-}
+});
 
 function Transcript(props: ChatInterfaceViewProps) {
   return (
