@@ -13,8 +13,8 @@ export function ReviewDiffToolbar({
   onLayoutChange,
   wordWrap,
   onWordWrapChange,
-  hunksCollapsed,
-  onToggleHunks,
+  allDiffsCollapsed,
+  onToggleAllDiffs,
   isChangesOpen,
   onToggleChanges,
 }: {
@@ -24,8 +24,8 @@ export function ReviewDiffToolbar({
   onLayoutChange: (layout: DiffLayout) => void;
   wordWrap: boolean;
   onWordWrapChange: (enabled: boolean) => void;
-  hunksCollapsed: boolean;
-  onToggleHunks: () => void;
+  allDiffsCollapsed: boolean;
+  onToggleAllDiffs: () => void;
   isChangesOpen: boolean;
   onToggleChanges: () => void;
 }) {
@@ -66,13 +66,13 @@ export function ReviewDiffToolbar({
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  onToggleHunks();
+                  onToggleAllDiffs();
                   setShowViewMenu(false);
                 }}
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
               >
-                {hunksCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-                {hunksCollapsed ? "Expand all" : "Collapse all"}
+                {allDiffsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                {allDiffsCollapsed ? "Expand All Diffs" : "Collapse All Diffs"}
               </button>
             </div>
           ) : null}

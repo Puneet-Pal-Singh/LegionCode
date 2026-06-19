@@ -112,8 +112,8 @@ export function ChangesPanel({
           onLayoutChange={viewState.setDiffLayout}
           wordWrap={viewState.wordWrap}
           onWordWrapChange={viewState.setWordWrap}
-          hunksCollapsed={viewState.hunksCollapsed}
-          onToggleHunks={viewState.toggleHunks}
+          allDiffsCollapsed={viewState.allDiffsCollapsed}
+          onToggleAllDiffs={viewState.toggleAllDiffs}
           isChangesOpen={isChangesOpen}
           onToggleChanges={onToggleChanges}
         />
@@ -160,6 +160,7 @@ export function ChangesPanel({
               review.selectFile(file);
               onFileSelect?.(file.path);
             }}
+            allCollapsed={viewState.allDiffsCollapsed}
           >
             <ReviewDiffContent
               review={review}
@@ -208,7 +209,6 @@ function ReviewDiffContent({
       onWordWrapChange={viewState.setWordWrap}
       showHeader={false}
       showFileSummary={showFileSummary}
-      hunkExpansionRequest={viewState.hunkExpansionRequest}
       reviewComments={review.selectedReviewCommentsForFile}
       diffFingerprint={review.currentDiffFingerprint}
       onCreateReviewComment={review.addReviewComment}

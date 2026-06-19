@@ -268,6 +268,25 @@ describe("ChangesPanel", () => {
     expect(screen.getByText("diff-viewer:src/main.ts")).toBeInTheDocument();
   });
 
+  it("collapses the full selected file diff from the view menu", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+    mockGitReviewState.diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff view options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse All Diffs" }));
+
+    expect(screen.queryByText("diff-viewer:src/main.ts")).not.toBeInTheDocument();
+  });
+
   it("selects another file from the stacked review list", () => {
     mockStatusFiles.splice(
       0,

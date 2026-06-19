@@ -4,7 +4,7 @@ import { ReviewDiffToolbar } from "./ReviewDiffToolbar";
 
 describe("ReviewDiffToolbar", () => {
   it("toggles file changes directly and keeps collapse in the options menu", () => {
-    const onToggleHunks = vi.fn();
+    const onToggleAllDiffs = vi.fn();
     const onToggleChanges = vi.fn();
     render(
       <ReviewDiffToolbar
@@ -14,17 +14,17 @@ describe("ReviewDiffToolbar", () => {
         onLayoutChange={vi.fn()}
         wordWrap
         onWordWrapChange={vi.fn()}
-        hunksCollapsed={false}
-        onToggleHunks={onToggleHunks}
+        allDiffsCollapsed={false}
+        onToggleAllDiffs={onToggleAllDiffs}
         isChangesOpen={false}
         onToggleChanges={onToggleChanges}
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Collapse all" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Collapse All Diffs" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Diff view options" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse all" }));
-    expect(onToggleHunks).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Collapse All Diffs" }));
+    expect(onToggleAllDiffs).toHaveBeenCalledTimes(1);
 
     expect(screen.queryByRole("menuitem", { name: "File changes" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Toggle file changes sidebar" }));

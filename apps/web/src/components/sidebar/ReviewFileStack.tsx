@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { FileStatus } from "@repo/shared-types";
-import { FileCode2, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
 
 interface ReviewFileStackProps {
   files: FileStatus[];
@@ -9,6 +10,7 @@ interface ReviewFileStackProps {
   emptyLabel: string;
   onSelectFile: (file: FileStatus) => void;
   children: ReactNode;
+  allCollapsed: boolean;
 }
 
 export function ReviewFileStack({
@@ -17,6 +19,7 @@ export function ReviewFileStack({
   emptyLabel,
   onSelectFile,
   children,
+  allCollapsed,
 }: ReviewFileStackProps) {
   const [collapsedPath, setCollapsedPath] = useState<string | null>(null);
   const selectedPath = selectedFile?.path ?? files[0]?.path ?? null;
@@ -44,7 +47,7 @@ export function ReviewFileStack({
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto scrollbar-hide">
       {files.map((file) => {
         const isSelected = file.path === selectedPath;
-        const isExpanded = isSelected && collapsedPath !== file.path;
+        const isExpanded = !allCollapsed && isSelected && collapsedPath !== file.path;
         return (
           <ReviewFileCard
             key={file.path}
@@ -90,7 +93,7 @@ function ReviewFileCard({
         ) : (
           <ChevronRight size={16} className="shrink-0 text-zinc-400" />
         )}
-        <FileCode2 size={16} className="shrink-0 text-sky-400" />
+        <FileTypeIcon path={file.path} size={17} />
         <span
           className="min-w-0 flex-1 truncate font-mono text-sm"
           style={{ direction: "rtl", textAlign: "left" }}
