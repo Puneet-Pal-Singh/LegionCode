@@ -13,12 +13,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Folder,
   FolderOpen,
-  FileCode,
-  FileText,
-  File,
   ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
 
 /**
  * Tree item representing a file or folder
@@ -51,91 +49,6 @@ interface RepoFileTreeProps {
   className?: string;
 }
 
-/**
- * Get file icon based on file extension
- */
-function getFileIcon(filename: string): React.ReactNode {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-
-  const codeExtensions = [
-    "js",
-    "ts",
-    "jsx",
-    "tsx",
-    "py",
-    "java",
-    "cpp",
-    "c",
-    "h",
-    "go",
-    "rs",
-    "rb",
-    "php",
-    "swift",
-    "kt",
-    "scala",
-    "r",
-    "m",
-    "cs",
-    "fs",
-    "fsx",
-    "elm",
-    "ex",
-    "exs",
-    "hs",
-    "lhs",
-    "ml",
-    "mli",
-    "erl",
-    "hrl",
-    "clj",
-    "cljs",
-    "edn",
-    "lua",
-    "vim",
-    "vimrc",
-    "bash",
-    "sh",
-    "zsh",
-    "fish",
-    "ps1",
-    "psm1",
-  ];
-
-  const textExtensions = [
-    "md",
-    "txt",
-    "json",
-    "yaml",
-    "yml",
-    "xml",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "sass",
-    "less",
-    "csv",
-    "tsv",
-    "log",
-    "ini",
-    "conf",
-    "cfg",
-    "env",
-    "dockerfile",
-    "makefile",
-  ];
-
-  if (codeExtensions.includes(ext)) {
-    return <FileCode size={14} className="text-blue-400" />;
-  }
-
-  if (textExtensions.includes(ext)) {
-    return <FileText size={14} className="text-yellow-400" />;
-  }
-
-  return <File size={14} className="text-zinc-500" />;
-}
 
 /**
  * Build tree structure from flat GitHub tree data
@@ -376,7 +289,7 @@ export function RepoFileTree({
                           )}
                           style={{ paddingLeft: `${28 + indent}px` }}
                         >
-                          {getFileIcon(item.name)}
+                          <FileTypeIcon path={item.path} size={14} />
                           <span className="text-sm text-zinc-400 group-hover:text-zinc-200 truncate">
                             {item.name}
                           </span>
