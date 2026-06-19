@@ -15,6 +15,12 @@ vi.mock("../auth/GitHubLoginButton", () => ({
 }));
 
 describe("TopNavBar", () => {
+  it("provides vertical space around header controls", () => {
+    render(<TopNavBar isAuthenticated />);
+
+    expect(screen.getByRole("banner")).toHaveClass("h-12");
+  });
+
   it("routes review controls to the shared review sidebar and omits commit", () => {
     const onReview = vi.fn();
     const onToggleRightSidebar = vi.fn();
