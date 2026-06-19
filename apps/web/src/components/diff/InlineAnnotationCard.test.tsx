@@ -43,6 +43,7 @@ describe("InlineAnnotationCard", () => {
 
     const resolveButton = screen.getByRole("button", { name: "Resolve" });
     const deleteButton = screen.getByRole("button", { name: "Delete" });
+    expect(deleteButton).toHaveClass("ml-auto");
     expect(resolveButton.compareDocumentPosition(deleteButton)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );

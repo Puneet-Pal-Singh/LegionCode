@@ -48,7 +48,7 @@ export function InlineAnnotationCard({
               <button
                 type="button"
                 onClick={onDelete}
-                className="text-red-400 transition-colors hover:text-red-300"
+                className="ml-auto text-red-400 transition-colors hover:text-red-300"
               >
                 Delete
               </button>
