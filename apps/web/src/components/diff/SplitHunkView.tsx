@@ -26,6 +26,7 @@ interface SplitHunkViewProps {
   onClearSelection: () => void;
   onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
+  onDeleteAnnotation: (annotationId: string) => void;
 }
 
 export function SplitHunkView({
@@ -42,6 +43,7 @@ export function SplitHunkView({
   onClearSelection,
   onReplyToAnnotation,
   onResolveAnnotation,
+  onDeleteAnnotation,
 }: SplitHunkViewProps) {
   const rows = useMemo(() => buildSplitRows(plan.rows), [plan.rows]);
   const composerAnchor = getComposerAnchor(
@@ -156,6 +158,7 @@ export function SplitHunkView({
                   annotation={annotation}
                   onReply={() => onReplyToAnnotation(annotation)}
                   onResolve={() => onResolveAnnotation(annotation.id)}
+                  onDelete={() => onDeleteAnnotation(annotation.id)}
                 />
               </div>
             ))}

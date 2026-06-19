@@ -25,6 +25,7 @@ interface StackedHunkViewProps {
   onClearSelection: () => void;
   onReplyToAnnotation: (annotation: ReviewCommentDraft) => void;
   onResolveAnnotation: (annotationId: string) => void;
+  onDeleteAnnotation: (annotationId: string) => void;
 }
 
 export function StackedHunkView({
@@ -41,8 +42,12 @@ export function StackedHunkView({
   onClearSelection,
   onReplyToAnnotation,
   onResolveAnnotation,
+  onDeleteAnnotation,
 }: StackedHunkViewProps) {
-  const composerAnchor = getComposerAnchor(plan.selectableRowKeys, selectedRowKeys);
+  const composerAnchor = getComposerAnchor(
+    plan.selectableRowKeys,
+    selectedRowKeys,
+  );
   const collapsedRows = useCollapsedDiffRows();
 
   return (
@@ -52,27 +57,27 @@ export function StackedHunkView({
           const expanded = collapsedRows.isExpanded(row.key);
           return (
             <Fragment key={row.key}>
-            <CollapsedLinesBanner
-              count={row.hiddenLineCount}
-              onToggle={() => collapsedRows.toggleExpanded(row.key)}
-              expanded={expanded}
-              placement={getCollapsedRowPlacement(rowIndex, plan.rows.length)}
-            />
-            {expanded
-              ? row.lines.map((hiddenRow) => (
-                  <DiffLine
-                    key={hiddenRow.key}
-                    line={hiddenRow.line}
-                    hunksIndex={plan.hunkIndex}
-                    lineIndex={hiddenRow.lineIndex}
-                    language={language}
-                    wrap={wrap}
-                    isSelected={selectedRowKeys.includes(hiddenRow.key)}
-                    annotationCount={0}
-                    onClick={(event) => onRowSelect([hiddenRow.key], event)}
-                  />
-                ))
-              : null}
+              <CollapsedLinesBanner
+                count={row.hiddenLineCount}
+                onToggle={() => collapsedRows.toggleExpanded(row.key)}
+                expanded={expanded}
+                placement={getCollapsedRowPlacement(rowIndex, plan.rows.length)}
+              />
+              {expanded
+                ? row.lines.map((hiddenRow) => (
+                    <DiffLine
+                      key={hiddenRow.key}
+                      line={hiddenRow.line}
+                      hunksIndex={plan.hunkIndex}
+                      lineIndex={hiddenRow.lineIndex}
+                      language={language}
+                      wrap={wrap}
+                      isSelected={selectedRowKeys.includes(hiddenRow.key)}
+                      annotationCount={0}
+                      onClick={(event) => onRowSelect([hiddenRow.key], event)}
+                    />
+                  ))
+                : null}
             </Fragment>
           );
         }
@@ -112,6 +117,7 @@ export function StackedHunkView({
                 annotation={annotation}
                 onReply={() => onReplyToAnnotation(annotation)}
                 onResolve={() => onResolveAnnotation(annotation.id)}
+                onDelete={() => onDeleteAnnotation(annotation.id)}
               />
             ))}
           </Fragment>

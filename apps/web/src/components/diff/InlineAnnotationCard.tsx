@@ -5,12 +5,14 @@ interface InlineAnnotationCardProps {
   annotation: ReviewCommentDraft;
   onReply: () => void;
   onResolve: () => void;
+  onDelete: () => void;
 }
 
 export function InlineAnnotationCard({
   annotation,
   onReply,
   onResolve,
+  onDelete,
 }: InlineAnnotationCardProps) {
   return (
     <div className="border-b border-zinc-900/80 bg-black px-6 py-5">
@@ -42,6 +44,13 @@ export function InlineAnnotationCard({
                 className="text-sky-300 transition-colors hover:text-sky-200"
               >
                 Resolve
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                className="text-red-400 transition-colors hover:text-red-300"
+              >
+                Delete
               </button>
             </div>
           </div>

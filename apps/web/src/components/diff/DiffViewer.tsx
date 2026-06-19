@@ -14,10 +14,7 @@ import type {
   CreateReviewCommentInput,
   ReviewCommentDraft,
 } from "../git/reviewComments";
-import {
-  buildRenderPlans,
-  collectCommentedRowKeys,
-} from "./diffRenderPlan";
+import { buildRenderPlans, collectCommentedRowKeys } from "./diffRenderPlan";
 import { countDiffAdditions, countDiffDeletions } from "./diffStats";
 import { countUnmodifiedLinesBeforeHunk } from "./diffHunkGaps";
 import { CollapsedLinesBanner } from "./CollapsedLinesBanner";
@@ -63,12 +60,15 @@ export function DiffViewer({
   const [expandedHunks, setExpandedHunks] = useState<Set<number>>(
     new Set(diff.hunks.map((_, index) => index)),
   );
-  const [internalLayout, setInternalLayout] = useState<"stacked" | "split">("stacked");
+  const [internalLayout, setInternalLayout] = useState<"stacked" | "split">(
+    "stacked",
+  );
   const [internalWordWrap, setInternalWordWrap] = useState(true);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const layout = controlledLayout ?? internalLayout;
   const wordWrap = controlledWordWrap ?? internalWordWrap;
-  const canChangeLayout = controlledLayout === undefined || onLayoutChange !== undefined;
+  const canChangeLayout =
+    controlledLayout === undefined || onLayoutChange !== undefined;
   const setLayout = (nextLayout: "stacked" | "split") => {
     if (onLayoutChange) {
       onLayoutChange(nextLayout);
@@ -91,7 +91,10 @@ export function DiffViewer({
       setInternalWordWrap(nextValue);
     }
   };
-  const commentedRowKeys = useMemo(() => collectCommentedRowKeys(reviewComments), [reviewComments]);
+  const commentedRowKeys = useMemo(
+    () => collectCommentedRowKeys(reviewComments),
+    [reviewComments],
+  );
   const renderPlans = useMemo(
     () => buildRenderPlans(diff, commentedRowKeys),
     [commentedRowKeys, diff],
@@ -114,6 +117,7 @@ export function DiffViewer({
     annotationsByAnchor,
     addAnnotation,
     resolveAnnotation,
+    deleteAnnotation,
   } = useAnnotationDispatcher({
     diff,
     reviewComments,
@@ -288,7 +292,8 @@ export function DiffViewer({
                       />
                       {isHunkGapExpanded ? (
                         <div className="border-y border-zinc-900 px-4 py-3 font-mono text-xs text-zinc-500">
-                          Omitted source context is not included in this saved patch.
+                          Omitted source context is not included in this saved
+                          patch.
                         </div>
                       ) : null}
                     </>
@@ -321,6 +326,7 @@ export function DiffViewer({
                           onClearSelection={clearSelection}
                           onReplyToAnnotation={restoreAnnotationSelection}
                           onResolveAnnotation={resolveAnnotation}
+                          onDeleteAnnotation={deleteAnnotation}
                         />
                       ) : (
                         <SplitHunkView
@@ -337,6 +343,7 @@ export function DiffViewer({
                           onClearSelection={clearSelection}
                           onReplyToAnnotation={restoreAnnotationSelection}
                           onResolveAnnotation={resolveAnnotation}
+                          onDeleteAnnotation={deleteAnnotation}
                         />
                       )}
                     </div>
