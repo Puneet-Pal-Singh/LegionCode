@@ -9,6 +9,7 @@ import {
   WRITE_FILE_TOOL_INPUT_SCHEMA,
   EDIT_FILE_TOOL_INPUT_SCHEMA,
   MULTI_EDIT_TOOL_INPUT_SCHEMA,
+  APPLY_PATCH_TOOL_INPUT_SCHEMA,
   BASH_TOOL_INPUT_SCHEMA,
   GIT_STAGE_TOOL_INPUT_SCHEMA,
   GIT_COMMIT_TOOL_INPUT_SCHEMA,
@@ -55,6 +56,7 @@ export type GoldenFlowToolInputByName = {
   write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
   edit_file: z.infer<typeof EDIT_FILE_TOOL_INPUT_SCHEMA>;
   multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
+  apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
   git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
   git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
@@ -140,8 +142,12 @@ export function enforceGoldenFlowToolFloor(
 ): Record<string, CoreTool> {
   const constrained: Record<string, CoreTool> = {};
   const githubCliFlags = resolveGitHubCliFlags(metadata);
+  const modelCapabilities = resolveModelCapabilities(metadata);
   for (const toolName of CODING_TOOL_IDS) {
-    if (!isGoldenFlowToolEnabledByFlags(toolName, githubCliFlags)) {
+    if (
+      !isGoldenFlowToolEnabledByFlags(toolName, githubCliFlags) ||
+      !isToolEnabledByModelCapabilities(toolName, modelCapabilities)
+    ) {
       continue;
     }
     const incoming = incomingTools[toolName];
@@ -150,6 +156,34 @@ export function enforceGoldenFlowToolFloor(
     }
   }
   return constrained;
+}
+
+function resolveModelCapabilities(
+  metadata: Record<string, unknown> | undefined,
+): ReadonlySet<string> {
+  const value = metadata?.modelCapabilities;
+  if (Array.isArray(value)) {
+    return new Set(
+      value.filter((item): item is string => typeof item === "string"),
+    );
+  }
+  if (!value || typeof value !== "object") {
+    return new Set();
+  }
+  return new Set(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, enabled]) => enabled === true)
+      .map(([capability]) => capability),
+  );
+}
+
+function isToolEnabledByModelCapabilities(
+  toolName: GoldenFlowToolName,
+  capabilities: ReadonlySet<string>,
+): boolean {
+  const required =
+    getCodingToolDefinition(toolName)?.requiredModelCapabilities ?? [];
+  return required.every((capability) => capabilities.has(capability));
 }
 
 export function validateGoldenFlowToolInput<T extends GoldenFlowToolName>(

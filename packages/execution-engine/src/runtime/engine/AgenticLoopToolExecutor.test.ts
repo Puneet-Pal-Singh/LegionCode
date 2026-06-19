@@ -73,6 +73,36 @@ describe("AgenticLoopToolExecutor", () => {
     expect(executeCallCount).toBe(0);
   });
 
+  it("routes unified patches through the validated git apply action", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { success: true, output: "Patch validated successfully" };
+      },
+    };
+    const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n";
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-patch-1",
+      toolName: "apply_patch",
+      toolInput: { patch, dryRun: true },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "git",
+        action: "git_patch_apply",
+        payload: { patch, dryRun: true },
+      },
+    ]);
+  });
+
   it("executes github_pr_list through the github bridge route", async () => {
     const calls: Array<{
       plugin: string;

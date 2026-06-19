@@ -21,6 +21,7 @@ describe("CodingToolGateway", () => {
       "write_file",
       "edit_file",
       "multi_edit",
+      "apply_patch",
       "bash",
       "git_stage",
       "git_commit",
@@ -65,6 +66,11 @@ describe("CodingToolGateway", () => {
       toolName: "multi_edit",
       plugin: "filesystem",
       action: "multi_edit",
+    });
+    expect(getGoldenFlowToolRoute("apply_patch")).toEqual({
+      toolName: "apply_patch",
+      plugin: "git",
+      action: "git_patch_apply",
     });
     expect(getGoldenFlowToolRoute("bash")).toEqual({
       toolName: "bash",
@@ -148,6 +154,7 @@ describe("CodingToolGateway", () => {
     expect(isMutatingGoldenFlowToolName("write_file")).toBe(true);
     expect(isMutatingGoldenFlowToolName("edit_file")).toBe(true);
     expect(isMutatingGoldenFlowToolName("multi_edit")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("apply_patch")).toBe(true);
     expect(isMutatingGoldenFlowToolName("bash")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_commit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_pull")).toBe(true);
@@ -362,6 +369,24 @@ describe("CodingToolGateway", () => {
     expect(missingCiFlag.github_cli_actions_run_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_job_logs_get).toBeUndefined();
     expect(missingCiFlag.github_cli_pr_comment).toBeUndefined();
+  });
+
+  it("fails closed for model-gated patch tooling", () => {
+    const patchTool = getGoldenFlowToolRegistry().apply_patch;
+    expect(patchTool).toBeDefined();
+
+    expect(
+      enforceGoldenFlowToolFloor({ apply_patch: patchTool! }).apply_patch,
+    ).toBeUndefined();
+    expect(
+      enforceGoldenFlowToolFloor(
+        { apply_patch: patchTool! },
+        { modelCapabilities: ["patch_application"] },
+      ).apply_patch,
+    ).toBeDefined();
+    expect(
+      getCodingToolDefinition("apply_patch")?.requiredModelCapabilities,
+    ).toEqual(["patch_application"]);
   });
 
   it("validates tool inputs against canonical schemas", () => {

@@ -70,6 +70,12 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
+    case "apply_patch":
+      return executeApplyPatchTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
     case "bash":
       return executeBashTool(
         executionService,
@@ -330,6 +336,19 @@ function buildMutationResult(taskId: string, result: unknown): TaskResult {
   return failure
     ? buildFailureResult(taskId, failure)
     : buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeApplyPatchTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validated = validateGoldenFlowToolInput("apply_patch", taskInput);
+  const result = await executeGatewayPlugin(executionService, "apply_patch", {
+    patch: validated.patch,
+    dryRun: validated.dryRun,
+  });
+  return buildMutationResult(taskId, result);
 }
 
 async function executeBashTool(

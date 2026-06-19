@@ -331,6 +331,8 @@ VALIDATION RULES:
         return this.executeEditFileTool(task);
       case "multi_edit":
         return this.executeMultiEditTool(task);
+      case "apply_patch":
+        return this.executeApplyPatchTool(task);
       case "bash":
         return this.executeBashTool(task);
       case "git_stage":
@@ -437,7 +439,7 @@ VALIDATION RULES:
 
   private async executeValidatedMutation(
     taskId: string,
-    toolName: "edit_file" | "multi_edit",
+    toolName: "edit_file" | "multi_edit" | "apply_patch",
     payload: Record<string, unknown>,
   ): Promise<TaskResult> {
     const result = await this.executeGatewayPlugin(toolName, payload);
@@ -445,6 +447,11 @@ VALIDATION RULES:
     return failure
       ? this.buildFailureResult(taskId, failure)
       : this.buildSuccessResult(taskId, formatExecutionResult(result));
+  }
+
+  private async executeApplyPatchTool(task: Task): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput("apply_patch", task.input);
+    return this.executeValidatedMutation(task.id, "apply_patch", validated);
   }
 
   private async executeBashTool(task: Task): Promise<TaskResult> {

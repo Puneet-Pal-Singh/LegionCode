@@ -81,6 +81,13 @@ export const ToolRendererHintSchema = z.enum([
 ]);
 export type ToolRendererHint = z.infer<typeof ToolRendererHintSchema>;
 
+export const ToolModelCapabilitySchema = z.enum([
+  "structured_edits",
+  "patch_application",
+  "language_services",
+]);
+export type ToolModelCapability = z.infer<typeof ToolModelCapabilitySchema>;
+
 export const ToolPermissionMetadataSchema = z
   .object({
     domain: PolicyDomainSchema,
@@ -152,6 +159,7 @@ export interface ToolDefinition {
   preferredFor: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
+  requiredModelCapabilities: readonly ToolModelCapability[];
   route: ToolGatewayRoute;
   execute(
     input: Record<string, unknown>,
@@ -180,6 +188,7 @@ export const ToolDefinitionSchema = z
     preferredFor: z.array(z.string().min(1)).min(1),
     avoidWhen: z.array(z.string().min(1)).optional(),
     alternatives: z.array(z.string().min(1)).optional(),
+    requiredModelCapabilities: z.array(ToolModelCapabilitySchema),
   })
   .passthrough();
 
@@ -241,6 +250,11 @@ export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
 
 export const MULTI_EDIT_TOOL_INPUT_SCHEMA = createToolInputSchema({
   edits: z.array(EDIT_FILE_TOOL_INPUT_SCHEMA).min(1).max(20),
+});
+
+export const APPLY_PATCH_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  patch: z.string().min(1).max(1_000_000),
+  dryRun: z.boolean().optional(),
 });
 
 export const BASH_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -361,6 +375,7 @@ export const CODING_TOOL_IDS = [
   "write_file",
   "edit_file",
   "multi_edit",
+  "apply_patch",
   "bash",
   "git_stage",
   "git_commit",
@@ -436,6 +451,7 @@ function createRoutedToolDefinition(input: {
   preferredFor?: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
+  requiredModelCapabilities?: readonly ToolModelCapability[];
   route: Omit<ToolGatewayRoute, "toolName">;
 }): ToolDefinition {
   const route = { toolName: input.id, ...input.route };
@@ -457,6 +473,7 @@ function createRoutedToolDefinition(input: {
     preferredFor: input.preferredFor ?? usage.preferredFor,
     avoidWhen: input.avoidWhen ?? usage.avoidWhen,
     alternatives: input.alternatives ?? usage.alternatives,
+    requiredModelCapabilities: input.requiredModelCapabilities ?? [],
     route,
     async execute(
       toolInput: Record<string, unknown>,
@@ -763,6 +780,21 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     preferredFor: ["coordinated exact replacements across files"],
     alternatives: ["edit_file"],
     route: { plugin: "filesystem", action: "multi_edit" },
+  }),
+  createRoutedToolDefinition({
+    id: "apply_patch",
+    title: "Apply Patch",
+    description: "Validate and apply a unified git patch to the workspace.",
+    inputSchema: APPLY_PATCH_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "diff",
+    preferredFor: ["validated multi-hunk unified patches"],
+    avoidWhen: ["the selected model lacks patch application capability"],
+    alternatives: ["edit_file", "multi_edit"],
+    requiredModelCapabilities: ["patch_application"],
+    route: { plugin: "git", action: "git_patch_apply" },
   }),
   createRoutedToolDefinition({
     id: "bash",

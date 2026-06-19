@@ -79,6 +79,8 @@ const TOOL_PRESENTERS: Record<
     presentEditFile(validateToolPresentationInput("edit_file", input)),
   multi_edit: (input) =>
     presentMultiEdit(validateToolPresentationInput("multi_edit", input)),
+  apply_patch: (input) =>
+    presentApplyPatch(validateToolPresentationInput("apply_patch", input)),
   bash: (input) => presentBash(validateToolPresentationInput("bash", input)),
   git_stage: (input) =>
     presentGitStage(validateToolPresentationInput("git_stage", input)),
@@ -241,6 +243,19 @@ function presentMultiEdit(
     description: `Edit ${fileCount} files`,
     displayText: `Editing ${fileCount} files`,
     summary: `Applying coordinated exact edits across ${fileCount} files.`,
+  };
+}
+
+function presentApplyPatch(
+  input: ToolPresentationInputByName["apply_patch"],
+): ToolPresentation {
+  const action = input.dryRun ? "Validate patch" : "Apply patch";
+  return {
+    description: action,
+    displayText: `${action} to workspace`,
+    summary: input.dryRun
+      ? "Validating a unified patch without changing files."
+      : "Applying a validated unified patch to workspace files.",
   };
 }
 
