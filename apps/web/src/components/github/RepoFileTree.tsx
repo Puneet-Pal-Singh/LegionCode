@@ -47,6 +47,7 @@ interface RepoFileTreeProps {
   onFileSelect: (path: string) => void;
   /** Optional className for styling */
   className?: string;
+  filterQuery?: string;
 }
 
 
@@ -142,6 +143,7 @@ export function RepoFileTree({
   isLoading = false,
   onFileSelect,
   className,
+  filterQuery = "",
 }: RepoFileTreeProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set([""]), // Root is expanded by default
@@ -168,12 +170,11 @@ export function RepoFileTree({
   const treeItems = buildTree(tree);
 
   // Filter items to only show those in expanded folders
-  const visibleItems = treeItems.filter((item) => {
-    if (item.level === 0) return true;
-
-    const parentPath = item.path.substring(0, item.path.lastIndexOf("/"));
-    return expandedFolders.has(parentPath);
-  });
+  const visibleItems = filterVisibleItems(
+    treeItems,
+    expandedFolders,
+    filterQuery,
+  );
 
   return (
     <div className={cn("py-2", className)}>
@@ -305,6 +306,33 @@ export function RepoFileTree({
       </AnimatePresence>
     </div>
   );
+}
+
+function filterVisibleItems(
+  items: TreeItem[],
+  expandedFolders: Set<string>,
+  query: string,
+): TreeItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery) {
+    const visiblePaths = new Set<string>();
+    items.forEach((item) => {
+      if (!item.path.toLowerCase().includes(normalizedQuery)) return;
+      addPathAndParents(visiblePaths, item.path);
+    });
+    return items.filter((item) => visiblePaths.has(item.path));
+  }
+
+  return items.filter((item) => {
+    if (item.level === 0) return true;
+    const parentPath = item.path.substring(0, item.path.lastIndexOf("/"));
+    return expandedFolders.has(parentPath);
+  });
+}
+
+function addPathAndParents(paths: Set<string>, path: string) {
+  const parts = path.split("/");
+  parts.forEach((_, index) => paths.add(parts.slice(0, index + 1).join("/")));
 }
 
 export type { TreeItem, RepoFileTreeProps };

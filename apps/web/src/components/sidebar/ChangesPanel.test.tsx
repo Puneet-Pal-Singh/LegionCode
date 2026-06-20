@@ -300,7 +300,8 @@ describe("ChangesPanel", () => {
     );
 
     const filesRail = screen.getByText("workspace files").closest("aside");
-    expect(filesRail).toHaveClass("w-72", "border-r");
+    expect(filesRail).toHaveClass("border-r");
+    expect(filesRail).toHaveStyle({ width: "320px" });
     expect(filesRail).not.toHaveClass("rounded-xl");
   });
 

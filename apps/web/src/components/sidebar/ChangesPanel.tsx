@@ -13,6 +13,7 @@ import {
 import { ReviewDiffToolbar } from "./ReviewDiffToolbar";
 import { ReviewFileStack } from "./ReviewFileStack";
 import { useChangesPanelViewState } from "./useChangesPanelViewState";
+import { ResizableWorkspaceRail } from "../layout/workspace/ResizableWorkspaceRail";
 
 interface ChangesPanelProps {
   className?: string;
@@ -111,6 +112,27 @@ export function ChangesPanel({
     );
   }
 
+  const changesList = (
+    <ChangesList
+      files={files}
+      selectedFile={review.selectedFile}
+      onSelectFile={(file) => {
+        review.selectFile(file);
+        onFileSelect?.(file.path);
+      }}
+      reviewScope={review.reviewScope}
+      onReviewScopeChange={review.setReviewScope}
+      showToolbar={mode === "sidebar" && showToolbar}
+      searchable
+      sourceBadgeLabel={
+        review.reviewScope === "prompt-artifact"
+          ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
+          : REVIEW_SOURCE_LABELS.live_git.badge
+      }
+      emptyLabel={emptyReviewLabel}
+    />
+  );
+
   return (
     <div
       className={`flex h-full min-h-0 flex-col overflow-visible bg-transparent ${
@@ -151,36 +173,23 @@ export function ChangesPanel({
         }`}
       >
         {mode === "modal" && isFilesOpen ? (
-          <aside className="flex w-72 shrink-0 overflow-hidden border-r border-zinc-800 bg-black">
+          <ResizableWorkspaceRail placement="left">
             {filesRail}
-          </aside>
+          </ResizableWorkspaceRail>
         ) : null}
         {showChangesList ? (
-          <div
-            className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
-              mode === "sidebar"
-                ? "max-h-56 w-full shrink-0"
-                : "w-72 shrink-0 rounded-none border-y-0 border-l-0"
-            }`}
-          >
-            <ChangesList
-              files={files}
-              selectedFile={review.selectedFile}
-              onSelectFile={(file) => {
-                review.selectFile(file);
-                onFileSelect?.(file.path);
-              }}
-              reviewScope={review.reviewScope}
-              onReviewScopeChange={review.setReviewScope}
-              showToolbar={mode === "sidebar" ? showToolbar : false}
-              sourceBadgeLabel={
-                review.reviewScope === "prompt-artifact"
-                  ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
-                  : REVIEW_SOURCE_LABELS.live_git.badge
-              }
-              emptyLabel={emptyReviewLabel}
-            />
-          </div>
+          mode === "modal" ? (
+            <ResizableWorkspaceRail
+              placement="left"
+              className="ui-surface-section rounded-none border-y-0 border-l-0"
+            >
+              {changesList}
+            </ResizableWorkspaceRail>
+          ) : (
+            <div className="ui-surface-section flex max-h-56 w-full shrink-0 flex-col overflow-y-auto scrollbar-hide">
+              {changesList}
+            </div>
+          )
         ) : null}
 
         {showStackedReview ? (

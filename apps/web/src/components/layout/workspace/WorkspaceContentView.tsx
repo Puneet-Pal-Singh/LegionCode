@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { ArtifactView } from "../../chat/ArtifactView";
 import { DiffViewer } from "../../diff/DiffViewer";
 import { FileNavigationBar } from "./FileNavigationBar";
+import { ResizableWorkspaceRail } from "./ResizableWorkspaceRail";
 import type { SelectedDiff, SelectedFile } from "./useWorkspaceState";
 
 interface WorkspaceContentViewProps {
@@ -91,9 +92,9 @@ export function WorkspaceContentView({
           )}
         </div>
         {filesOpen && railPlacement === "inline" ? (
-          <aside className="flex w-[45%] min-w-72 max-w-[520px] shrink-0 overflow-hidden border-l border-zinc-800 bg-[#111113]">
+          <ResizableWorkspaceRail placement="right" className="bg-[#111113]">
             {filesRail}
-          </aside>
+          </ResizableWorkspaceRail>
         ) : null}
       </div>
     </div>

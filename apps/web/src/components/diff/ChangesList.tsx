@@ -4,6 +4,7 @@ import type { FileStatus } from "@repo/shared-types";
 import { ChangeItem } from "./ChangeItem";
 import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
 import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
+import { TreeFilter } from "../layout/workspace/TreeFilter";
 
 interface ChangesListProps {
   files: FileStatus[];
@@ -15,6 +16,7 @@ interface ChangesListProps {
   className?: string;
   emptyLabel?: string;
   sourceBadgeLabel?: string;
+  searchable?: boolean;
 }
 
 interface ChangeTreeNode {
@@ -34,8 +36,14 @@ export function ChangesList({
   className = "",
   emptyLabel = "No changes",
   sourceBadgeLabel,
+  searchable = false,
 }: ChangesListProps) {
-  const tree = useMemo(() => buildChangeTree(files), [files]);
+  const [query, setQuery] = useState("");
+  const visibleFiles = useMemo(
+    () => filterFiles(files, query),
+    [files, query],
+  );
+  const tree = useMemo(() => buildChangeTree(visibleFiles), [visibleFiles]);
   const stats = useMemo(() => calculateTotals(files), [files]);
 
   return (
@@ -63,8 +71,10 @@ export function ChangesList({
         </div>
       ) : null}
 
+      {searchable ? <TreeFilter value={query} onChange={setQuery} /> : null}
+
       <div className="flex-1 overflow-y-auto bg-black py-1">
-        {files.length === 0 ? (
+        {visibleFiles.length === 0 ? (
           <div className="p-4 text-center text-sm text-zinc-500">
             {emptyLabel}
           </div>
@@ -81,6 +91,14 @@ export function ChangesList({
         )}
       </div>
     </div>
+  );
+}
+
+function filterFiles(files: FileStatus[], query: string): FileStatus[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return files;
+  return files.filter((file) =>
+    file.path.toLowerCase().includes(normalizedQuery),
   );
 }
 

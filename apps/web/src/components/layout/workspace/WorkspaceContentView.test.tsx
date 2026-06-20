@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceContentView } from "./WorkspaceContentView";
 
@@ -22,11 +22,20 @@ describe("WorkspaceContentView", () => {
     const rail = screen.getByText("workspace tree").closest("aside");
 
     expect(navigation?.nextElementSibling).toContainElement(rail);
-    expect(rail).toHaveClass("w-[45%]", "border-l");
+    expect(rail).toHaveClass("border-l");
+    expect(rail).toHaveStyle({ width: "320px" });
     expect(screen.getByText("Open file")).toBeInTheDocument();
     expect(
       screen.getByText("Select a file from the workspace tree"),
     ).toBeInTheDocument();
+
+    const resizeHandle = rail?.querySelector<HTMLElement>(
+      ".cursor-col-resize",
+    );
+    expect(resizeHandle).not.toBeNull();
+    fireEvent.mouseDown(resizeHandle!, { clientX: 500 });
+    fireEvent.mouseMove(window, { clientX: 450 });
+    expect(rail).toHaveStyle({ width: "370px" });
   });
 
   it("prioritizes loading over a previous file error", () => {

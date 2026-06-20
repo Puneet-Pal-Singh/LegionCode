@@ -1,6 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo, useState, type RefObject } from "react";
-import { Search } from "lucide-react";
+import { useState, type RefObject } from "react";
 import { Resizer } from "../../ui/Resizer";
 import { FileExplorer, type FileExplorerHandle } from "../../FileExplorer";
 import { ChangesList } from "../../diff/ChangesList";
@@ -8,6 +7,7 @@ import { RepoFileTree } from "../../github/RepoFileTree";
 import { useGitReview } from "../../git/useGitReview";
 import type { Repository } from "../../../services/GitHubService";
 import type { TabType } from "./useWorkspaceState";
+import { TreeFilter } from "./TreeFilter";
 
 interface SidebarTreeOverlayProps {
   activeTab: TabType;
@@ -77,51 +77,20 @@ function ChangedFilesTree({
   onFileSelect: (path: string) => void;
 }) {
   const review = useGitReview();
-  const [query, setQuery] = useState("");
-  const files = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return normalizedQuery
-      ? review.reviewFiles.filter((file) =>
-          file.path.toLowerCase().includes(normalizedQuery),
-        )
-      : review.reviewFiles;
-  }, [query, review.reviewFiles]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <TreeFilter value={query} onChange={setQuery} />
-      <ChangesList
-        files={files}
-        selectedFile={review.selectedFile}
-        onSelectFile={(file) => {
-          review.selectFile(file);
-          onFileSelect(file.path);
-        }}
-        reviewScope={review.reviewScope}
-        onReviewScopeChange={review.setReviewScope}
-        showToolbar={false}
-      />
-    </div>
-  );
-}
-
-function TreeFilter({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="m-3 flex h-9 shrink-0 items-center gap-2 rounded-md border border-zinc-800 bg-zinc-950 px-3 text-zinc-500 focus-within:border-zinc-600">
-      <Search size={15} />
-      <input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Filter files..."
-        className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
-      />
-    </label>
+    <ChangesList
+      files={review.reviewFiles}
+      selectedFile={review.selectedFile}
+      onSelectFile={(file) => {
+        review.selectFile(file);
+        onFileSelect(file.path);
+      }}
+      reviewScope={review.reviewScope}
+      onReviewScopeChange={review.setReviewScope}
+      showToolbar={false}
+      searchable
+    />
   );
 }
 
@@ -150,25 +119,32 @@ export function WorkspaceFilesTree({
   runId,
   onLocalFileSelect,
 }: WorkspaceFilesTreeProps) {
-  if (repo && isGitHubLoaded) {
-    return (
-      <RepoFileTree
-        owner={repo.owner.login}
-        repo={repo.name}
-        branch={branch}
-        tree={repoTree}
-        isLoading={isLoadingTree}
-        onFileSelect={onGitHubFileSelect}
-      />
-    );
-  }
+  const [query, setQuery] = useState("");
 
-  return (
+  const tree = repo && isGitHubLoaded ? (
+    <RepoFileTree
+      owner={repo.owner.login}
+      repo={repo.name}
+      branch={branch}
+      tree={repoTree}
+      isLoading={isLoadingTree}
+      filterQuery={query}
+      onFileSelect={onGitHubFileSelect}
+    />
+  ) : (
     <FileExplorer
       ref={explorerRef}
       sessionId={sandboxId}
       runId={runId}
+      filterQuery={query}
       onFileClick={onLocalFileSelect}
     />
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <TreeFilter value={query} onChange={setQuery} />
+      <div className="min-h-0 flex-1 overflow-y-auto">{tree}</div>
+    </div>
   );
 }
