@@ -773,7 +773,7 @@ export function AgentSetup({
           </div>
 
           {/* Main Content - Centered */}
-          <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="flex-1 -translate-y-8 flex flex-col items-center justify-center px-6">
             {/* Logo and Title */}
             <motion.div
               className="flex flex-col items-center mb-12"
