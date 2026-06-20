@@ -57,6 +57,7 @@ export class WorkspaceEditService {
     input: ExactEditInput,
   ): Promise<PluginResult> {
     const prepared = await this.prepareEdit(context, input);
+    await assertPreparedEditCurrent(context.sandbox, prepared);
     await this.atomicWrite(context, prepared.targetPath, prepared.nextContent);
     return buildEditResult(prepared);
   }
@@ -100,6 +101,7 @@ export class WorkspaceEditService {
     const applied: PreparedEdit[] = [];
     try {
       for (const edit of edits) {
+        await assertPreparedEditCurrent(context.sandbox, edit);
         await this.atomicWrite(context, edit.targetPath, edit.nextContent);
         applied.push(edit);
       }
@@ -151,6 +153,7 @@ export class WorkspaceEditService {
     const tempPath = `${parentDir}/.shadowbox-edit-${crypto.randomUUID()}.tmp`;
     try {
       await context.sandbox.writeFile(tempPath, content);
+      await preserveExistingMode(context, targetPath, tempPath);
       await runCheckedCommand(context, "mv", [
         "-f",
         "--",
@@ -170,7 +173,7 @@ export class WorkspaceEditService {
 
 async function runCheckedCommand(
   context: WorkspaceEditContext,
-  command: "mkdir" | "mv",
+  command: "chmod" | "mkdir" | "mv",
   args: string[],
 ): Promise<void> {
   const result = await runSafeCommand(
@@ -187,6 +190,22 @@ async function runCheckedCommand(
   }
 }
 
+async function preserveExistingMode(
+  context: WorkspaceEditContext,
+  targetPath: string,
+  tempPath: string,
+): Promise<void> {
+  const result = await runSafeCommand(
+    context.sandbox,
+    { command: "stat", args: ["-c", "%a", targetPath], runId: context.runId },
+    ["stat"],
+  );
+  const mode = result.stdout.trim();
+  if (result.exitCode === 0 && /^[0-7]{3,4}$/u.test(mode)) {
+    await runCheckedCommand(context, "chmod", [mode, tempPath]);
+  }
+}
+
 async function readTextFile(
   sandbox: Sandbox,
   targetPath: string,
@@ -196,6 +215,16 @@ async function readTextFile(
     throw new Error("Unable to read edit target");
   }
   return result.content;
+}
+
+async function assertPreparedEditCurrent(
+  sandbox: Sandbox,
+  edit: PreparedEdit,
+): Promise<void> {
+  const currentContent = await readTextFile(sandbox, edit.targetPath);
+  if (currentContent !== edit.originalContent) {
+    throw new Error(`Edit conflict: ${edit.path} changed before write`);
+  }
 }
 
 function replaceExactText(

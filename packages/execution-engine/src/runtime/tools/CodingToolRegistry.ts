@@ -83,11 +83,7 @@ export const ToolRendererHintSchema = z.enum([
 ]);
 export type ToolRendererHint = z.infer<typeof ToolRendererHintSchema>;
 
-export const ToolModelCapabilitySchema = z.enum([
-  "structured_edits",
-  "patch_application",
-  "language_services",
-]);
+export const ToolModelCapabilitySchema = z.enum(["patch_application"]);
 export type ToolModelCapability = z.infer<typeof ToolModelCapabilitySchema>;
 
 export const ToolPermissionMetadataSchema = z

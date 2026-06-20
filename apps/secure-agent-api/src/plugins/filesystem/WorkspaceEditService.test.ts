@@ -17,7 +17,9 @@ describe("WorkspaceEditService", () => {
       stdout:
         spec.command === "realpath"
           ? `${spec.args?.at(-1) ?? WORKSPACE_ROOT}\n`
-          : "",
+          : spec.command === "stat"
+            ? "755\n"
+            : "",
       stderr: "",
     }));
   });
@@ -44,6 +46,7 @@ describe("WorkspaceEditService", () => {
     expect(findCommand("mv")?.args?.at(-1)).toBe(
       `${WORKSPACE_ROOT}/src/app.ts`,
     );
+    expect(findCommand("chmod")?.args?.[0]).toBe("755");
   });
 
   it("rejects resolved paths outside the workspace", async () => {
@@ -74,6 +77,25 @@ describe("WorkspaceEditService", () => {
         expectedSha256: "0".repeat(64),
       }),
     ).rejects.toThrow(/Edit conflict/);
+    expect(sandbox.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects files that change after edit preparation", async () => {
+    const sandbox = {
+      readFile: vi
+        .fn()
+        .mockResolvedValueOnce({ success: true, content: "before" })
+        .mockResolvedValueOnce({ success: true, content: "concurrent change" }),
+      writeFile: vi.fn(),
+    } as unknown as Sandbox;
+
+    await expect(
+      new WorkspaceEditService().edit(createContext(sandbox), {
+        path: "src/app.ts",
+        oldText: "before",
+        newText: "after",
+      }),
+    ).rejects.toThrow(/changed before write/i);
     expect(sandbox.writeFile).not.toHaveBeenCalled();
   });
 
