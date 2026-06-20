@@ -179,10 +179,7 @@ export function ChangesPanel({
         ) : null}
         {showChangesList ? (
           mode === "modal" ? (
-            <ResizableWorkspaceRail
-              placement="left"
-              className="ui-surface-section rounded-none border-y-0 border-l-0"
-            >
+            <ResizableWorkspaceRail placement="left">
               {changesList}
             </ResizableWorkspaceRail>
           ) : (

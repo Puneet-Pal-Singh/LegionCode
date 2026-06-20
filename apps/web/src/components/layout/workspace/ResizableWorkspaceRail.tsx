@@ -34,7 +34,7 @@ export function ResizableWorkspaceRail({
         side={placement === "left" ? "left" : "right"}
         onResize={resize}
       />
-      {children}
+      <div className="flex min-w-0 flex-1 bg-black">{children}</div>
     </aside>
   );
 }

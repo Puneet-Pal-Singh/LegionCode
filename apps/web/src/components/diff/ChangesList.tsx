@@ -47,7 +47,9 @@ export function ChangesList({
   const stats = useMemo(() => calculateTotals(files), [files]);
 
   return (
-    <div className={`flex h-full flex-col bg-black ${className}`}>
+    <div
+      className={`flex h-full min-w-0 flex-1 flex-col bg-black ${className}`}
+    >
       {showToolbar ? (
         <div className="border-b border-zinc-800 bg-black px-4 py-3">
           <div className="mb-3 flex items-center justify-between gap-3">

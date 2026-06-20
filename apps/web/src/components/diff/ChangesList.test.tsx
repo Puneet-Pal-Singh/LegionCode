@@ -37,7 +37,13 @@ describe("ChangesList", () => {
       target: { value: "beta" },
     });
 
+    const tree = screen.getByPlaceholderText("Filter files...").closest("label")
+      ?.parentElement;
+    expect(tree).toHaveClass("min-w-0", "flex-1");
     expect(screen.getByText("beta.test.ts")).toBeInTheDocument();
+    expect(screen.getByText("beta.test.ts").closest("button")).toHaveClass(
+      "w-full",
+    );
     expect(screen.queryByText("alpha.ts")).not.toBeInTheDocument();
   });
 });

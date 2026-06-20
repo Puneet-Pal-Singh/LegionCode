@@ -268,10 +268,9 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" isChangesOpen />);
 
-    expect(screen.getByTestId("select-file")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("select-file").parentElement?.parentElement,
-    ).toHaveClass("rounded-none");
+    const rail = screen.getByTestId("select-file").closest("aside");
+    expect(rail).toHaveClass("bg-black", "border-r");
+    expect(rail).not.toHaveClass("ui-surface-section");
   });
 
   it("leaves changed files to the sidebar overlay when requested", () => {
