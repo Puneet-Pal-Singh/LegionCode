@@ -6,7 +6,7 @@ export {
   type RuntimeKernelErrorCode,
 } from "./errors.js";
 export {
-  type LifecycleEventSink,
+  type RuntimeLifecycleEventStore,
   type ApprovalWaitPort,
   type ContextAssemblyPort,
   type ProviderPort,

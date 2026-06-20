@@ -18,6 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/event-store": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/workspace-core": "workspace:*"
   },

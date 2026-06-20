@@ -9,7 +9,7 @@ import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
 } from "./errors.js";
-import type { LifecycleEventSink } from "./ports.js";
+import type { RuntimeLifecycleEventStore } from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   MemoryLifecycleEventSink,
@@ -292,7 +292,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
 });
 
 async function createKernel(
-  lifecycleEvents: LifecycleEventSink,
+  lifecycleEvents: RuntimeLifecycleEventStore,
   ports = createPorts(),
 ): Promise<RuntimeKernel> {
   return new RuntimeKernel({

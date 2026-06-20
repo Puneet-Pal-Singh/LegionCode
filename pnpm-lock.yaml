@@ -831,6 +831,9 @@ importers:
 
   packages/runtime-kernel:
     dependencies:
+      '@repo/event-store':
+        specifier: workspace:*
+        version: link:../event-store
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol

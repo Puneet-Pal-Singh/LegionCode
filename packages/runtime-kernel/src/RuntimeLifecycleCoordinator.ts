@@ -34,7 +34,7 @@ import {
   type TurnTerminalOutcome,
 } from "@repo/platform-protocol/lifecycle";
 import { RuntimeLifecycleSettlementError } from "./errors.js";
-import type { LifecycleEventSink, RuntimeKernelClock } from "./ports.js";
+import type { RuntimeLifecycleEventStore, RuntimeKernelClock } from "./ports.js";
 
 interface LifecycleIdentity {
   readonly threadId: ThreadId;
@@ -44,7 +44,7 @@ interface LifecycleIdentity {
 }
 
 export interface RuntimeLifecycleCoordinatorOptions extends LifecycleIdentity {
-  readonly sink: LifecycleEventSink;
+  readonly sink: Pick<RuntimeLifecycleEventStore, "appendBatch">;
   readonly producerId: string;
   readonly clock: RuntimeKernelClock;
   readonly initialSequence?: number;
