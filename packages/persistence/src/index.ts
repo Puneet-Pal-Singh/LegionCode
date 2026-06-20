@@ -67,6 +67,16 @@ export { PostgresThreadProjectionRepository } from "./thread-projections/Postgre
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
 export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";
 export { projectRunEvents } from "./run-projections/RunProjectionProjector.js";
+export {
+  LifecycleProjector,
+  projectLifecycleEvents,
+} from "./lifecycle-projections/LifecycleProjector.js";
+export {
+  LIFECYCLE_PROJECTION_VERSION,
+  LifecycleProjectionError,
+  LifecycleProjectionSnapshotSchema,
+  type LifecycleProjectionSnapshot,
+} from "./lifecycle-projections/types.js";
 export { PostgresArtifactMetadataRepository } from "./artifact-metadata/PostgresArtifactMetadataRepository.js";
 export {
   THREAD_PROJECTION_VERSION,
