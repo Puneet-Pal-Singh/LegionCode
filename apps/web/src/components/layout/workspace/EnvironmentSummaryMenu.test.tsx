@@ -72,6 +72,11 @@ describe("EnvironmentSummaryMenu", () => {
     expect(
       screen.getByRole("dialog", { name: "Environment summary" }),
     ).toHaveClass("w-[340px]");
+    expect(
+      screen
+        .getByRole("dialog", { name: "Environment summary" })
+        .querySelector(".lucide-plus"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("LegionCode cloud")).toBeInTheDocument();
     expect(screen.queryByText("Changes")).not.toBeInTheDocument();
     expect(screen.queryByText("Commit or push")).not.toBeInTheDocument();

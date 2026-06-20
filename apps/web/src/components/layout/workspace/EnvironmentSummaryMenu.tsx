@@ -16,7 +16,6 @@ import {
   Laptop,
   List as ListIcon,
   Loader2,
-  Plus,
 } from "lucide-react";
 import type {
   Branch,
@@ -126,10 +125,7 @@ function EnvironmentPanelView({
       aria-label="Environment summary"
       className="absolute right-0 top-10 z-50 w-[340px] rounded-xl border border-zinc-700/80 bg-[#171719] p-1.5 shadow-2xl"
     >
-      <div className="flex items-center justify-between px-2.5 py-1.5 text-xs text-zinc-400">
-        <span>Environment</span>
-        <Plus size={17} />
-      </div>
+      <div className="px-2.5 py-1.5 text-xs text-zinc-400">Environment</div>
       <EnvironmentActions {...actions} />
     </div>
   );
