@@ -49,6 +49,17 @@ describe("WorkspaceEditService", () => {
     expect(findCommand("chmod")?.args?.[0]).toBe("755");
   });
 
+  it("reports UTF-8 bytes for writes", async () => {
+    const sandbox = createSandbox({});
+
+    const result = await new WorkspaceEditService().write(
+      createContext(sandbox),
+      { path: "message.txt", content: "漢" },
+    );
+
+    expect(result.metadata).toMatchObject({ bytes: 3 });
+  });
+
   it("rejects resolved paths outside the workspace", async () => {
     vi.mocked(runSafeCommand).mockResolvedValue({
       exitCode: 0,

@@ -7,6 +7,7 @@ import {
   WorkspacePathResolver,
   type WorkspaceToolContext,
 } from "./WorkspacePathResolver";
+import { truncateUtf8 } from "./Utf8Text";
 
 const MAX_LANGUAGE_OUTPUT_BYTES = 24_000;
 const LANGUAGE_TOOL_TIMEOUT_MS = 30_000;
@@ -177,11 +178,9 @@ function capLanguageOutput(value: string): {
   value: string;
   truncated: boolean;
 } {
-  if (value.length <= MAX_LANGUAGE_OUTPUT_BYTES) {
-    return { value, truncated: false };
-  }
-  return {
-    value: `${value.slice(0, MAX_LANGUAGE_OUTPUT_BYTES)}\n[output truncated]`,
-    truncated: true,
-  };
+  return truncateUtf8(
+    value,
+    MAX_LANGUAGE_OUTPUT_BYTES,
+    "\n[output truncated]",
+  );
 }

@@ -7,6 +7,7 @@ import {
   WorkspacePathResolver,
   type WorkspaceToolContext,
 } from "./WorkspacePathResolver";
+import { utf8ByteLength } from "./Utf8Text";
 
 const MAX_EDIT_COUNT = 20;
 
@@ -301,10 +302,11 @@ function assertUniqueEditPaths(edits: ExactEditInput[]): void {
 }
 
 function buildWriteResult(filePath: string, content: string): PluginResult {
+  const bytes = utf8ByteLength(content);
   return {
     success: true,
-    output: `Wrote ${content.length} bytes to ${filePath}`,
-    metadata: { path: filePath, bytes: content.length },
+    output: `Wrote ${bytes} bytes to ${filePath}`,
+    metadata: { path: filePath, bytes },
     truncated: false,
   };
 }

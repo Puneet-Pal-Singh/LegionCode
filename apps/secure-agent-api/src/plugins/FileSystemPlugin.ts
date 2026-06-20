@@ -16,6 +16,10 @@ import {
 import { RipgrepService } from "./filesystem/RipgrepService";
 import { WorkspaceEditService } from "./filesystem/WorkspaceEditService";
 import { LanguageToolService } from "./filesystem/LanguageToolService";
+import {
+  truncateUtf8,
+  utf8ByteLength,
+} from "./filesystem/Utf8Text";
 
 const DEFAULT_READ_LIMIT = 200;
 const MAX_READ_LIMIT = 1_000;
@@ -24,11 +28,18 @@ const MAX_READ_OUTPUT_BYTES = 24_000;
 const MAX_READ_FILE_BYTES = 1_048_576;
 const MAX_WRITE_CONTENT_BYTES = 200_000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+const BoundedWriteContentSchema = z
+  .string()
+  .refine((value) => utf8ByteLength(value) <= MAX_WRITE_CONTENT_BYTES, {
+    message: `Content exceeds ${MAX_WRITE_CONTENT_BYTES} UTF-8 bytes`,
+  });
 
 const ExactEditSchema = z.object({
   path: z.string().min(1),
-  oldText: z.string().min(1).max(MAX_WRITE_CONTENT_BYTES),
-  newText: z.string().max(MAX_WRITE_CONTENT_BYTES),
+  oldText: BoundedWriteContentSchema.refine((value) => value.length > 0, {
+    message: "oldText must not be empty",
+  }),
+  newText: BoundedWriteContentSchema,
   replaceAll: z.boolean().optional(),
   expectedReplacements: z.number().int().min(1).max(10_000).optional(),
   expectedSha256: z.string().regex(SHA256_PATTERN).optional(),
@@ -80,7 +91,7 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("write_file"),
     path: z.string().min(1),
-    content: z.string().max(MAX_WRITE_CONTENT_BYTES),
+    content: BoundedWriteContentSchema,
     expectedSha256: z.string().regex(SHA256_PATTERN).optional(),
     runId: z.string().optional(),
   }),
@@ -487,13 +498,12 @@ function buildReadWindowArgs(
 }
 
 function capReadOutput(output: string): { output: string; truncated: boolean } {
-  if (output.length <= MAX_READ_OUTPUT_BYTES) {
-    return { output, truncated: false };
-  }
-  return {
-    output: `${output.slice(0, MAX_READ_OUTPUT_BYTES)}\n[output truncated]`,
-    truncated: true,
-  };
+  const capped = truncateUtf8(
+    output,
+    MAX_READ_OUTPUT_BYTES,
+    "\n[output truncated]",
+  );
+  return { output: capped.value, truncated: capped.truncated };
 }
 
 function countOutputLines(output: string): number {
