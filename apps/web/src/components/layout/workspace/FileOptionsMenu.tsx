@@ -68,9 +68,14 @@ function FileOptionsMenuItems({
   onClose,
 }: FileOptionsMenuItemsProps) {
   const copy = async (value: string, afterCopy?: () => void) => {
-    await navigator.clipboard.writeText(value);
-    afterCopy?.();
-    onClose();
+    try {
+      await navigator.clipboard.writeText(value);
+      afterCopy?.();
+    } catch (error) {
+      console.error("[file-options-menu/copy] Failed to copy:", error);
+    } finally {
+      onClose();
+    }
   };
 
   return (
