@@ -4,6 +4,7 @@ export {
   type EventStoreErrorCode,
 } from "./errors.js";
 export { MemoryEventStore } from "./MemoryEventStore.js";
+export { MemoryLifecycleEventStore } from "./MemoryLifecycleEventStore.js";
 export { createStableEventFingerprint } from "./fingerprint.js";
 export {
   type AppendEventInput,
@@ -13,3 +14,8 @@ export {
   type ReplayEventsInput,
   type ReplayEventsResult,
 } from "./types.js";
+export type {
+  LifecycleEventStore,
+  ReplayLifecycleEventsInput,
+  ReplayLifecycleEventsResult,
+} from "./lifecycle-types.js";

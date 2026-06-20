@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./errors": "./src/errors.ts",
     "./memory": "./src/MemoryEventStore.ts",
+    "./lifecycle": "./src/MemoryLifecycleEventStore.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
