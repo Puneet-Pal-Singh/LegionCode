@@ -78,7 +78,6 @@ export function useRunSummary(
   const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
   const inFlightRunIdRef = useRef<string | null>(null);
-  const missingRunRef = useRef(false);
   const lastFetchAtRef = useRef(0);
   const lastSummaryErrorLogRef = useRef<{
     timestamp: number;
@@ -91,79 +90,78 @@ export function useRunSummary(
     activeRunIdRef.current = runId;
     inFlightRef.current = false;
     inFlightRunIdRef.current = null;
-    missingRunRef.current = false;
     lastFetchAtRef.current = 0;
     setSummary(null);
   }, [runId]);
 
-  const fetchSummary = useCallback(async () => {
-    const currentRunId = runId.trim();
-    if (!currentRunId) {
-      setSummary(null);
-      return;
-    }
-    if (inFlightRef.current) {
-      return;
-    }
-    if (missingRunRef.current) {
-      return;
-    }
-    const now = Date.now();
-    if (now - lastFetchAtRef.current < RUN_SUMMARY_MIN_FETCH_INTERVAL_MS) {
-      return;
-    }
+  const fetchSummary = useCallback(
+    async (options?: { force?: boolean }) => {
+      const currentRunId = runId.trim();
+      if (!currentRunId) {
+        setSummary(null);
+        return;
+      }
+      if (inFlightRef.current) {
+        return;
+      }
+      const now = Date.now();
+      if (
+        !options?.force &&
+        now - lastFetchAtRef.current < RUN_SUMMARY_MIN_FETCH_INTERVAL_MS
+      ) {
+        return;
+      }
 
-    try {
-      inFlightRef.current = true;
-      inFlightRunIdRef.current = currentRunId;
-      lastFetchAtRef.current = now;
-      const response = await fetch(
-        `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(currentRunId)}`,
-        { credentials: "include" },
-      );
-      if (activeRunIdRef.current !== currentRunId) {
-        return;
-      }
-      if (!response.ok) {
-        if (response.status === 404) {
-          missingRunRef.current = true;
-        }
-        return;
-      }
-      const payload = (await response.json()) as RunSummary;
-      if (activeRunIdRef.current !== currentRunId) {
-        return;
-      }
-      if (payload.runId !== currentRunId) {
-        return;
-      }
-      setSummary(payload);
-    } catch (error) {
-      if (activeRunIdRef.current !== currentRunId) {
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      const previous = lastSummaryErrorLogRef.current;
-      const shouldLog =
-        !previous ||
-        previous.message !== message ||
-        Date.now() - previous.timestamp >= SUMMARY_ERROR_LOG_WINDOW_MS;
-      if (shouldLog) {
-        console.warn(
-          `[run/summary] failed to fetch summary for runId=${currentRunId}: ${message}`,
+      try {
+        inFlightRef.current = true;
+        inFlightRunIdRef.current = currentRunId;
+        lastFetchAtRef.current = now;
+        const response = await fetch(
+          `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(currentRunId)}`,
+          { credentials: "include" },
         );
-        lastSummaryErrorLogRef.current = {
-          timestamp: Date.now(),
-          message,
-        };
+        if (activeRunIdRef.current !== currentRunId) {
+          return;
+        }
+        if (!response.ok) {
+          return;
+        }
+        const payload = (await response.json()) as RunSummary;
+        if (activeRunIdRef.current !== currentRunId) {
+          return;
+        }
+        if (payload.runId !== currentRunId) {
+          return;
+        }
+        setSummary(payload);
+      } catch (error) {
+        if (activeRunIdRef.current !== currentRunId) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        const previous = lastSummaryErrorLogRef.current;
+        const shouldLog =
+          !previous ||
+          previous.message !== message ||
+          Date.now() - previous.timestamp >= SUMMARY_ERROR_LOG_WINDOW_MS;
+        if (shouldLog) {
+          console.warn(
+            `[run/summary] failed to fetch summary for runId=${currentRunId}: ${message}`,
+          );
+          lastSummaryErrorLogRef.current = {
+            timestamp: Date.now(),
+            message,
+          };
+        }
+      } finally {
+        if (inFlightRunIdRef.current === currentRunId) {
+          inFlightRef.current = false;
+          inFlightRunIdRef.current = null;
+        }
       }
-    } finally {
-      if (inFlightRunIdRef.current === currentRunId) {
-        inFlightRef.current = false;
-        inFlightRunIdRef.current = null;
-      }
-    }
-  }, [runId]);
+    },
+    [runId],
+  );
 
   useEffect(() => {
     summaryStatusRef.current = summary?.status ?? null;
@@ -195,7 +193,7 @@ export function useRunSummary(
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
-      void fetchSummary();
+      void fetchSummary({ force: true });
     };
 
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);

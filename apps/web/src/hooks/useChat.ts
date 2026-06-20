@@ -64,7 +64,7 @@ export function useChat(
   const { isHydrating, hasHydrated } = useChatHydration(
     sessionId,
     activeRunId,
-    messages.length,
+    messages,
     setMessages,
   );
 

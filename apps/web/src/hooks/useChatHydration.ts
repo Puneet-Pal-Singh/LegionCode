@@ -19,7 +19,7 @@ const HYDRATION_RETRY_DELAY_MS = 300;
 export function useChatHydration(
   sessionId: string,
   runId: string,
-  _messagesLength: number,
+  messages: Message[],
   setMessages: (messages: Message[]) => void,
 ): UseChatHydrationResult {
   const [isHydrating, setIsHydrating] = useState(false);
@@ -28,8 +28,17 @@ export function useChatHydration(
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeKey = `${sessionId}:${runId}`;
   const activeScopeKeyRef = useRef(scopeKey);
+  const messagesRef = useRef(messages);
 
-  const { signal: retrySignal, schedule: scheduleRetry, reset: resetRetry } = useRetry({
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  const {
+    signal: retrySignal,
+    schedule: scheduleRetry,
+    reset: resetRetry,
+  } = useRetry({
     delayMs: HYDRATION_RETRY_DELAY_MS,
     maxAttempts: MAX_HYDRATION_ATTEMPTS,
     scopeKey,
@@ -48,6 +57,7 @@ export function useChatHydration(
 
     let cancelled = false;
     const requestScopeKey = scopeKey;
+    const requestStartMessageIds = readMessageIds(messagesRef.current);
     const isCurrentScope = () =>
       !cancelled && activeScopeKeyRef.current === requestScopeKey;
     const loadingTimer = window.setTimeout(() => {
@@ -80,7 +90,14 @@ export function useChatHydration(
           return;
         }
 
-        setMessages(result.messages);
+        setMessages(
+          haveSameMessageIds(messagesRef.current, requestStartMessageIds)
+            ? result.messages
+            : mergeHydratedAndLiveMessages(
+                result.messages,
+                messagesRef.current,
+              ),
+        );
 
         hasHydratedRef.current = true;
         resetRetry();
@@ -114,4 +131,25 @@ export function useChatHydration(
   ]);
 
   return { isHydrating, hasHydrated };
+}
+
+function readMessageIds(messages: Message[]): string[] {
+  return messages.map((message) => message.id);
+}
+
+function haveSameMessageIds(messages: Message[], ids: string[]): boolean {
+  return (
+    messages.length === ids.length &&
+    messages.every((message, index) => message.id === ids[index])
+  );
+}
+
+function mergeHydratedAndLiveMessages(
+  hydrated: Message[],
+  live: Message[],
+): Message[] {
+  const liveById = new Map(live.map((message) => [message.id, message]));
+  const merged = hydrated.map((message) => liveById.get(message.id) ?? message);
+  const hydratedIds = new Set(hydrated.map((message) => message.id));
+  return [...merged, ...live.filter((message) => !hydratedIds.has(message.id))];
 }

@@ -56,14 +56,7 @@ export function useReviewSourceState({
     [reviewTargetKey],
   );
 
-  const shouldLoadArtifactSource = Boolean(
-    enabled &&
-    runId &&
-    requestedScope !== "git-changes" &&
-    (requestedScope === "prompt-artifact" ||
-      openedArtifact ||
-      liveGitFiles.length === 0),
-  );
+  const shouldLoadArtifactSource = Boolean(enabled && runId);
   const {
     source: promptArtifactSource,
     loading: artifactSourceLoading,

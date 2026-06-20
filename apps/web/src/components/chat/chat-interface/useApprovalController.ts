@@ -49,8 +49,8 @@ export function useApprovalController(input: ApprovalControllerInput) {
     [input.events],
   );
   const candidate = useMemo(
-    () => resolveApprovalCandidate(input.summary, eventApproval),
-    [eventApproval, input.summary],
+    () => resolveApprovalCandidate(input.summary, eventApproval, input.events),
+    [eventApproval, input.events, input.summary],
   );
   const pendingApproval =
     candidate && !isSameApproval(candidate, dismissed) ? candidate : null;
@@ -97,12 +97,29 @@ export function useApprovalController(input: ApprovalControllerInput) {
 function resolveApprovalCandidate(
   summary: ApprovalSummary | null,
   eventApproval: ApprovalRequest | null,
+  events: RunEvent[],
 ): ApprovalRequest | null {
   if (!summary) return eventApproval;
-  if (summary.pendingApproval) return summary.pendingApproval;
+  if (
+    summary.pendingApproval &&
+    !hasResolvedApprovalEvent(events, summary.pendingApproval.requestId)
+  ) {
+    return summary.pendingApproval;
+  }
   const terminal = isTerminalRunStatus(summary.status);
   const waiting = isApprovalRequiredRunStatus(summary.status);
   return terminal && !waiting ? null : eventApproval;
+}
+
+function hasResolvedApprovalEvent(
+  events: RunEvent[],
+  requestId: string,
+): boolean {
+  return events.some(
+    (event) =>
+      event.type === "approval.resolved" &&
+      event.payload.requestId === requestId,
+  );
 }
 
 function useApprovalLifecycle(

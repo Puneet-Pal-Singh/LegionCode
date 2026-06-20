@@ -116,7 +116,7 @@ export function useGitStatus(
           return;
         }
         const message = recordGitStatusFailure(cacheKey, err);
-        applyStatusSnapshot(null);
+        applyStatusSnapshot(statusCacheByRunId.get(cacheKey) ?? null);
         setError(message);
       } finally {
         if (isActiveCacheKey(requestCacheKey)) {

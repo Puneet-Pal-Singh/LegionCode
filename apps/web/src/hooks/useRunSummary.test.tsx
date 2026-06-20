@@ -94,29 +94,37 @@ describe("useRunSummary", () => {
     });
   });
 
-  it("stops requesting a run after Brain reports it is missing", async () => {
-    let now = 2_000;
+  it("retries a missing run immediately on a runtime refresh event", async () => {
+    const now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi
       .mocked(globalThis.fetch)
-      .mockResolvedValue(new Response("Not Found", { status: 404 }));
+      .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ runId: "pending-run", status: "running" }),
+          { status: 200 },
+        ),
+      );
 
-    renderHook(() => useRunSummary("missing-run", true));
+    const { result } = renderHook(() => useRunSummary("pending-run", true));
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
-    now += 2_000;
     act(() => {
       window.dispatchEvent(
         new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
-          detail: { runId: "missing-run" },
+          detail: { runId: "pending-run" },
         }),
       );
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(result.current.summary?.status).toBe("running");
+    });
   });
 
   it("settles a running canonical summary after stream polling stops", async () => {

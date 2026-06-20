@@ -240,8 +240,16 @@ export function ChatInterface({
     }
     void refreshSession();
   }, [recoveryAdvice.recoveryTarget, refreshSession]);
+  const visibleUserMessageIds = new Set(
+    conversationTurns.flatMap((turn) =>
+      turn.userMessage ? [turn.userMessage.id] : [],
+    ),
+  );
   const activeInlineTurn = activityViewModel.turns.find(
-    (turn) => turn.hasVisibleRows && !turn.defaultCollapsed,
+    (turn) =>
+      visibleUserMessageIds.has(turn.key) &&
+      turn.hasVisibleRows &&
+      !turn.defaultCollapsed,
   );
   const {
     chatEntries,
@@ -266,7 +274,7 @@ export function ChatInterface({
   });
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
-      key={turn.key}
+      key={`activity:${turn.key}`}
       turn={turn}
       expanded={expandedActivityTurns[turn.key] ?? !turn.defaultCollapsed}
       onToggleTurn={() =>
