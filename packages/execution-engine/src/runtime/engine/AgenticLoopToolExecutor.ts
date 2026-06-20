@@ -58,6 +58,36 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
+    case "edit_file":
+      return executeEditFileTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "multi_edit":
+      return executeMultiEditTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "apply_patch":
+      return executeApplyPatchTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "format_file":
+      return executeFormatFileTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "language_diagnostics":
+      return executeLanguageDiagnosticsTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
     case "bash":
       return executeBashTool(
         executionService,
@@ -260,6 +290,7 @@ async function executeWriteFileTool(
   const result = await executeGatewayPlugin(executionService, "write_file", {
     path,
     content: validatedInput.content,
+    expectedSha256: validatedInput.expectedSha256,
   });
   const failure = extractExecutionFailure(result);
   if (failure) {
@@ -273,6 +304,98 @@ async function executeWriteFileTool(
       validatedInput.content,
     ),
   });
+}
+
+async function executeEditFileTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validated = validateGoldenFlowToolInput("edit_file", taskInput);
+  const path = normalizeAndValidateToolPath(validated.path);
+  const result = await executeGatewayPlugin(executionService, "edit_file", {
+    ...validated,
+    path,
+  });
+  return buildMutationResult(taskId, result);
+}
+
+async function executeMultiEditTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validated = validateGoldenFlowToolInput("multi_edit", taskInput);
+  const edits = validated.edits.map((edit) => ({
+    ...edit,
+    path: normalizeAndValidateToolPath(edit.path),
+  }));
+  const result = await executeGatewayPlugin(executionService, "multi_edit", {
+    edits,
+  });
+  return buildMutationResult(taskId, result);
+}
+
+function normalizeAndValidateToolPath(input: string): string {
+  const path = normalizeToolPath(input);
+  validateToolPath(path);
+  validateSafePath(path);
+  return path;
+}
+
+function buildMutationResult(taskId: string, result: unknown): TaskResult {
+  const failure = extractExecutionFailure(result);
+  return failure
+    ? buildFailureResult(taskId, failure)
+    : buildSuccessResult(taskId, formatExecutionResult(result));
+}
+
+async function executeApplyPatchTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  const validated = validateGoldenFlowToolInput("apply_patch", taskInput);
+  const result = await executeGatewayPlugin(executionService, "apply_patch", {
+    patch: validated.patch,
+    dryRun: validated.dryRun,
+  });
+  return buildMutationResult(taskId, result);
+}
+
+async function executeFormatFileTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  return executePathTool(executionService, taskId, taskInput, "format_file");
+}
+
+async function executeLanguageDiagnosticsTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  return executePathTool(
+    executionService,
+    taskId,
+    taskInput,
+    "language_diagnostics",
+  );
+}
+
+async function executePathTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+  toolName: "format_file" | "language_diagnostics",
+): Promise<TaskResult> {
+  const validated = validateGoldenFlowToolInput(toolName, taskInput);
+  const path = normalizeAndValidateToolPath(validated.path);
+  const result = await executeGatewayPlugin(executionService, toolName, {
+    path,
+  });
+  return buildMutationResult(taskId, result);
 }
 
 async function executeBashTool(

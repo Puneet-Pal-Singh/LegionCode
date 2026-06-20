@@ -246,6 +246,7 @@ function classifyRiskAction(
     toolName === "list_files" ||
     toolName === "glob" ||
     toolName === "grep" ||
+    toolName === "language_diagnostics" ||
     toolName === "git_status" ||
     toolName === "git_diff" ||
     toolName === "github_pr_list" ||
@@ -278,7 +279,13 @@ function classifyRiskAction(
     };
   }
 
-  if (toolName === "write_file") {
+  if (
+    toolName === "write_file" ||
+    toolName === "edit_file" ||
+    toolName === "multi_edit" ||
+    toolName === "apply_patch" ||
+    toolName === "format_file"
+  ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
       title: "LegionCode wants to edit files",
@@ -702,7 +709,34 @@ function extractCandidatePaths(toolArgs: Record<string, unknown>): string[] {
       }
     }
   }
+  const edits = toolArgs.edits;
+  if (Array.isArray(edits)) {
+    for (const edit of edits) {
+      if (!edit || typeof edit !== "object") {
+        continue;
+      }
+      const editPath = (edit as Record<string, unknown>).path;
+      if (typeof editPath === "string" && editPath.trim()) {
+        candidates.push(editPath.trim());
+      }
+    }
+  }
+  const patch = toolArgs.patch;
+  if (typeof patch === "string") {
+    candidates.push(...extractPatchPaths(patch));
+  }
   return candidates;
+}
+
+function extractPatchPaths(patch: string): string[] {
+  const paths = new Set<string>();
+  for (const line of patch.split("\n")) {
+    const match = line.match(/^\+\+\+ b\/(.+)$/);
+    if (match?.[1] && match[1] !== "/dev/null") {
+      paths.add(match[1]);
+    }
+  }
+  return [...paths];
 }
 
 function isOutsideWorkspacePath(path: string): boolean {
