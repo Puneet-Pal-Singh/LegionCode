@@ -150,7 +150,6 @@ export class RunEngine implements IRunEngine {
   private permissionApprovalStore: PermissionApprovalStore;
   private hasGitHubAuthChecker?: GitHubAuthAvailabilityChecker;
   private prepareMutationCapture?: () => Promise<void>;
-
   constructor(
     ctx: RuntimeDurableObjectState,
     private options: RunEngineOptions,
