@@ -333,6 +333,10 @@ VALIDATION RULES:
         return this.executeMultiEditTool(task);
       case "apply_patch":
         return this.executeApplyPatchTool(task);
+      case "format_file":
+        return this.executePathTool(task, "format_file");
+      case "language_diagnostics":
+        return this.executePathTool(task, "language_diagnostics");
       case "bash":
         return this.executeBashTool(task);
       case "git_stage":
@@ -452,6 +456,21 @@ VALIDATION RULES:
   private async executeApplyPatchTool(task: Task): Promise<TaskResult> {
     const validated = this.validateGoldenFlowInput("apply_patch", task.input);
     return this.executeValidatedMutation(task.id, "apply_patch", validated);
+  }
+
+  private async executePathTool(
+    task: Task,
+    toolName: "format_file" | "language_diagnostics",
+  ): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput(toolName, task.input);
+    const path = normalizeTaskPath(validated.path);
+    validateTaskPath(path);
+    validateSafePath(path);
+    const result = await this.executeGatewayPlugin(toolName, { path });
+    const failure = extractExecutionFailure(result);
+    return failure
+      ? this.buildFailureResult(task.id, failure)
+      : this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeBashTool(task: Task): Promise<TaskResult> {

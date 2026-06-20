@@ -59,6 +59,8 @@ export const ToolBackendCapabilitySchema = z.enum([
   "network",
   "github",
   "github_cli",
+  "formatter",
+  "language_services",
   "approval",
 ]);
 export type ToolBackendCapability = z.infer<typeof ToolBackendCapabilitySchema>;
@@ -257,6 +259,14 @@ export const APPLY_PATCH_TOOL_INPUT_SCHEMA = createToolInputSchema({
   dryRun: z.boolean().optional(),
 });
 
+export const FORMAT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+});
+
+export const LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+});
+
 export const BASH_TOOL_INPUT_SCHEMA = createToolInputSchema({
   command: z.string().min(1).max(MAX_TOOL_COMMAND_LENGTH),
   cwd: z.string().min(1).max(MAX_TOOL_PATH_LENGTH).optional(),
@@ -376,6 +386,8 @@ export const CODING_TOOL_IDS = [
   "edit_file",
   "multi_edit",
   "apply_patch",
+  "format_file",
+  "language_diagnostics",
   "bash",
   "git_stage",
   "git_commit",
@@ -795,6 +807,32 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     alternatives: ["edit_file", "multi_edit"],
     requiredModelCapabilities: ["patch_application"],
     route: { plugin: "git", action: "git_patch_apply" },
+  }),
+  createRoutedToolDefinition({
+    id: "format_file",
+    title: "Format File",
+    description: "Format one supported workspace file with Prettier.",
+    inputSchema: FORMAT_FILE_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    requiredBackendCapabilities: ["formatter", "filesystem_write", "approval"],
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "text",
+    preferredFor: ["deterministic formatting after code edits"],
+    route: { plugin: "filesystem", action: "format_file" },
+  }),
+  createRoutedToolDefinition({
+    id: "language_diagnostics",
+    title: "Language Diagnostics",
+    description: "Run bounded TypeScript diagnostics for the workspace.",
+    inputSchema: LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_READ_PERMISSION,
+    sandboxClass: "read",
+    requiredBackendCapabilities: ["language_services", "filesystem_read"],
+    tokenPolicy: READ_TOKEN_POLICY,
+    outputRenderer: "text",
+    preferredFor: ["TypeScript diagnostics after code edits"],
+    route: { plugin: "filesystem", action: "language_diagnostics" },
   }),
   createRoutedToolDefinition({
     id: "bash",

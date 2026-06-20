@@ -375,7 +375,8 @@ function isWorkspaceContentMutation(toolName: GoldenFlowToolName): boolean {
     toolName === "write_file" ||
     toolName === "edit_file" ||
     toolName === "multi_edit" ||
-    toolName === "apply_patch"
+    toolName === "apply_patch" ||
+    toolName === "format_file"
   );
 }
 

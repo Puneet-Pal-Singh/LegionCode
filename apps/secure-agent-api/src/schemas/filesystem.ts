@@ -136,6 +136,31 @@ export const FileSystemTools: ToolDefinition[] = [
     },
   },
   {
+    name: "format_file",
+    description: "Format one supported workspace file with Prettier.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path to the file" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "language_diagnostics",
+    description: "Run bounded TypeScript diagnostics for the workspace.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "TypeScript or JavaScript file establishing intent",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
     name: "make_dir",
     description: "Create a new directory.",
     parameters: {

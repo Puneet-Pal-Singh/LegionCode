@@ -15,6 +15,7 @@ import {
 } from "./security/ToolboxCommandContext";
 import { RipgrepService } from "./filesystem/RipgrepService";
 import { WorkspaceEditService } from "./filesystem/WorkspaceEditService";
+import { LanguageToolService } from "./filesystem/LanguageToolService";
 
 const DEFAULT_READ_LIMIT = 200;
 const MAX_READ_LIMIT = 1_000;
@@ -93,6 +94,16 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
     runId: z.string().optional(),
   }),
   z.object({
+    action: z.literal("format_file"),
+    path: z.string().min(1),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("language_diagnostics"),
+    path: z.string().min(1),
+    runId: z.string().optional(),
+  }),
+  z.object({
     action: z.literal("make_dir"),
     path: z.string().min(1),
     runId: z.string().optional(),
@@ -106,6 +117,7 @@ export class FileSystemPlugin implements IPlugin {
   tools = FileSystemTools;
   private readonly ripgrepService = new RipgrepService();
   private readonly workspaceEditService = new WorkspaceEditService();
+  private readonly languageToolService = new LanguageToolService();
 
   async execute(
     sandbox: Sandbox,
@@ -190,6 +202,18 @@ export class FileSystemPlugin implements IPlugin {
         return await this.workspaceEditService.multiEdit(
           { sandbox, workspaceRoot, toolboxContext, runId },
           parsedPayload.edits,
+        );
+      }
+      if (parsedPayload.action === "format_file") {
+        return await this.languageToolService.formatFile(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload.path,
+        );
+      }
+      if (parsedPayload.action === "language_diagnostics") {
+        return await this.languageToolService.diagnostics(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload.path,
         );
       }
       return await this.makeDirectory(

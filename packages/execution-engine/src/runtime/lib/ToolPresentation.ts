@@ -81,6 +81,12 @@ const TOOL_PRESENTERS: Record<
     presentMultiEdit(validateToolPresentationInput("multi_edit", input)),
   apply_patch: (input) =>
     presentApplyPatch(validateToolPresentationInput("apply_patch", input)),
+  format_file: (input) =>
+    presentFormatFile(validateToolPresentationInput("format_file", input)),
+  language_diagnostics: (input) =>
+    presentLanguageDiagnostics(
+      validateToolPresentationInput("language_diagnostics", input),
+    ),
   bash: (input) => presentBash(validateToolPresentationInput("bash", input)),
   git_stage: (input) =>
     presentGitStage(validateToolPresentationInput("git_stage", input)),
@@ -256,6 +262,26 @@ function presentApplyPatch(
     summary: input.dryRun
       ? "Validating a unified patch without changing files."
       : "Applying a validated unified patch to workspace files.",
+  };
+}
+
+function presentFormatFile(
+  input: ToolPresentationInputByName["format_file"],
+): ToolPresentation {
+  return {
+    description: `Format ${input.path}`,
+    displayText: `Formatting ${input.path}`,
+    summary: `Formatting ${input.path} with the workspace formatter.`,
+  };
+}
+
+function presentLanguageDiagnostics(
+  input: ToolPresentationInputByName["language_diagnostics"],
+): ToolPresentation {
+  return {
+    description: `Check ${input.path}`,
+    displayText: `Checking ${input.path}`,
+    summary: `Running workspace language diagnostics for ${input.path}.`,
   };
 }
 

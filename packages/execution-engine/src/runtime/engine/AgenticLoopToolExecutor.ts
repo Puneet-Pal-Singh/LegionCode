@@ -76,6 +76,18 @@ export async function executeAgenticLoopTool(
         input.taskId,
         input.toolInput,
       );
+    case "format_file":
+      return executeFormatFileTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
+    case "language_diagnostics":
+      return executeLanguageDiagnosticsTool(
+        executionService,
+        input.taskId,
+        input.toolInput,
+      );
     case "bash":
       return executeBashTool(
         executionService,
@@ -347,6 +359,41 @@ async function executeApplyPatchTool(
   const result = await executeGatewayPlugin(executionService, "apply_patch", {
     patch: validated.patch,
     dryRun: validated.dryRun,
+  });
+  return buildMutationResult(taskId, result);
+}
+
+async function executeFormatFileTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  return executePathTool(executionService, taskId, taskInput, "format_file");
+}
+
+async function executeLanguageDiagnosticsTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+): Promise<TaskResult> {
+  return executePathTool(
+    executionService,
+    taskId,
+    taskInput,
+    "language_diagnostics",
+  );
+}
+
+async function executePathTool(
+  executionService: RuntimeExecutionService,
+  taskId: string,
+  taskInput: TaskInput,
+  toolName: "format_file" | "language_diagnostics",
+): Promise<TaskResult> {
+  const validated = validateGoldenFlowToolInput(toolName, taskInput);
+  const path = normalizeAndValidateToolPath(validated.path);
+  const result = await executeGatewayPlugin(executionService, toolName, {
+    path,
   });
   return buildMutationResult(taskId, result);
 }

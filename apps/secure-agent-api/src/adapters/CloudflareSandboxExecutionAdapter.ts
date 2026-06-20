@@ -249,6 +249,8 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       write_file: { pluginName: "filesystem", method: "execute" },
       edit_file: { pluginName: "filesystem", method: "execute" },
       multi_edit: { pluginName: "filesystem", method: "execute" },
+      format_file: { pluginName: "filesystem", method: "execute" },
+      language_diagnostics: { pluginName: "filesystem", method: "execute" },
       list_files: { pluginName: "filesystem", method: "execute" },
       make_dir: { pluginName: "filesystem", method: "execute" },
       git_status: { pluginName: "git", method: "execute" },

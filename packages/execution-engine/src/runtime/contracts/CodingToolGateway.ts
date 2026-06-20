@@ -10,6 +10,8 @@ import {
   EDIT_FILE_TOOL_INPUT_SCHEMA,
   MULTI_EDIT_TOOL_INPUT_SCHEMA,
   APPLY_PATCH_TOOL_INPUT_SCHEMA,
+  FORMAT_FILE_TOOL_INPUT_SCHEMA,
+  LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA,
   BASH_TOOL_INPUT_SCHEMA,
   GIT_STAGE_TOOL_INPUT_SCHEMA,
   GIT_COMMIT_TOOL_INPUT_SCHEMA,
@@ -57,6 +59,8 @@ export type GoldenFlowToolInputByName = {
   edit_file: z.infer<typeof EDIT_FILE_TOOL_INPUT_SCHEMA>;
   multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
   apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
+  format_file: z.infer<typeof FORMAT_FILE_TOOL_INPUT_SCHEMA>;
+  language_diagnostics: z.infer<typeof LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
   git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
   git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;

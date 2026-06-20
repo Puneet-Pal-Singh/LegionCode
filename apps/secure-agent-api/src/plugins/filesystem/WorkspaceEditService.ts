@@ -1,21 +1,16 @@
 import path from "node:path";
 import type { Sandbox } from "@cloudflare/sandbox";
 import type { PluginResult } from "../../interfaces/types";
-import { resolveWorkspacePath } from "../security/PathGuard";
 import { runSafeCommand } from "../security/SafeCommand";
+import { withToolboxCommandContext } from "../security/ToolboxCommandContext";
 import {
-  type ToolboxCommandContext,
-  withToolboxCommandContext,
-} from "../security/ToolboxCommandContext";
+  WorkspacePathResolver,
+  type WorkspaceToolContext,
+} from "./WorkspacePathResolver";
 
 const MAX_EDIT_COUNT = 20;
 
-export interface WorkspaceEditContext {
-  sandbox: Sandbox;
-  workspaceRoot: string;
-  toolboxContext: ToolboxCommandContext;
-  runId: string;
-}
+export interface WorkspaceEditContext extends WorkspaceToolContext {}
 
 export interface WriteFileInput {
   path: string;
@@ -41,6 +36,8 @@ interface PreparedEdit {
 }
 
 export class WorkspaceEditService {
+  private readonly pathResolver = new WorkspacePathResolver();
+
   async write(
     context: WorkspaceEditContext,
     input: WriteFileInput,
@@ -125,24 +122,11 @@ export class WorkspaceEditService {
     context: WorkspaceEditContext,
     inputPath: string,
   ): Promise<string> {
-    const targetPath = resolveWorkspacePath(context.workspaceRoot, inputPath);
-    const result = await runSafeCommand(
-      context.sandbox,
-      withToolboxCommandContext(
-        {
-          command: "realpath",
-          args: ["-m", "--", targetPath],
-          runId: context.runId,
-        },
-        context.toolboxContext,
-        "filesystem.edit.resolve_path",
-      ),
-      ["realpath"],
+    return this.pathResolver.resolve(
+      context,
+      inputPath,
+      "filesystem.edit.resolve_path",
     );
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || "Unable to resolve edit path");
-    }
-    return assertWithinWorkspace(context.workspaceRoot, result.stdout.trim());
   }
 
   private async assertExpectedHash(
@@ -278,19 +262,6 @@ async function sha256(content: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
-}
-
-function assertWithinWorkspace(
-  workspaceRoot: string,
-  resolvedPath: string,
-): string {
-  const rootPrefix = workspaceRoot.endsWith("/")
-    ? workspaceRoot
-    : `${workspaceRoot}/`;
-  if (resolvedPath !== workspaceRoot && !resolvedPath.startsWith(rootPrefix)) {
-    throw new Error("Access Denied: resolved edit path escapes workspace root");
-  }
-  return resolvedPath;
 }
 
 function assertUniqueEditPaths(edits: ExactEditInput[]): void {

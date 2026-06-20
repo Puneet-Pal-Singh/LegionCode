@@ -22,6 +22,8 @@ describe("CodingToolGateway", () => {
       "edit_file",
       "multi_edit",
       "apply_patch",
+      "format_file",
+      "language_diagnostics",
       "bash",
       "git_stage",
       "git_commit",
@@ -71,6 +73,16 @@ describe("CodingToolGateway", () => {
       toolName: "apply_patch",
       plugin: "git",
       action: "git_patch_apply",
+    });
+    expect(getGoldenFlowToolRoute("format_file")).toEqual({
+      toolName: "format_file",
+      plugin: "filesystem",
+      action: "format_file",
+    });
+    expect(getGoldenFlowToolRoute("language_diagnostics")).toEqual({
+      toolName: "language_diagnostics",
+      plugin: "filesystem",
+      action: "language_diagnostics",
     });
     expect(getGoldenFlowToolRoute("bash")).toEqual({
       toolName: "bash",
@@ -155,6 +167,8 @@ describe("CodingToolGateway", () => {
     expect(isMutatingGoldenFlowToolName("edit_file")).toBe(true);
     expect(isMutatingGoldenFlowToolName("multi_edit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("apply_patch")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("format_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("language_diagnostics")).toBe(false);
     expect(isMutatingGoldenFlowToolName("bash")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_commit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_pull")).toBe(true);

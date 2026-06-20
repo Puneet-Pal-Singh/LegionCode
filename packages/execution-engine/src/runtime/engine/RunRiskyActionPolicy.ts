@@ -246,6 +246,7 @@ function classifyRiskAction(
     toolName === "list_files" ||
     toolName === "glob" ||
     toolName === "grep" ||
+    toolName === "language_diagnostics" ||
     toolName === "git_status" ||
     toolName === "git_diff" ||
     toolName === "github_pr_list" ||
@@ -282,7 +283,8 @@ function classifyRiskAction(
     toolName === "write_file" ||
     toolName === "edit_file" ||
     toolName === "multi_edit" ||
-    toolName === "apply_patch"
+    toolName === "apply_patch" ||
+    toolName === "format_file"
   ) {
     return {
       category: RISKY_ACTION_CATEGORIES.FILESYSTEM_WRITE,
