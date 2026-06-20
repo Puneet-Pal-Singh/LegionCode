@@ -10,15 +10,8 @@ import type {
   IPricingRegistry,
   IPricingResolver,
 } from "../cost/index.js";
-import type {
-  RunInput,
-  RunStatus,
-  WorkspaceBootstrapper,
-} from "../types.js";
-import type {
-  ILLMGateway,
-  LLMRuntimeAIService,
-} from "../llm/index.js";
+import type { RunInput, RunStatus, WorkspaceBootstrapper } from "../types.js";
+import type { ILLMGateway, LLMRuntimeAIService } from "../llm/index.js";
 import type {
   MemoryCoordinator,
   MemoryCoordinatorDependencies,
@@ -75,5 +68,6 @@ export interface RunEngineDependencies {
   sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
   workspaceBootstrapper?: WorkspaceBootstrapper;
   hasGitHubAuth?: GitHubAuthAvailabilityChecker;
+  prepareMutationCapture?: () => Promise<void>;
   runEventListener?: (event: RunEvent) => Promise<void> | void;
 }

@@ -3,6 +3,75 @@ import { RUN_EVENT_TYPES, type RunEvent } from "@repo/shared-types";
 import { projectRunActivityTranscript } from "./RunActivityTranscriptProjector.js";
 
 describe("RunActivityTranscriptProjector", () => {
+  it("persists only the canonical current turn with commentary messages", () => {
+    const part = projectRunActivityTranscript({
+      runId: "run-1",
+      sessionId: "session-1",
+      terminalStatus: "completed",
+      events: [
+        createEvent("event-1", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "user",
+          content: "first prompt",
+          metadata: { clientMessageId: "user-1" },
+        }),
+        createEvent("event-2", RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Old work",
+          summary: "Old summary",
+          status: "completed",
+        }),
+        createEvent("event-3", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "user",
+          content: "second prompt",
+          metadata: { clientMessageId: "user-2" },
+        }),
+        createEvent("event-4", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "assistant",
+          content: "I am inspecting the current file.",
+          transcriptPhase: "commentary",
+          transcriptStatus: "completed",
+        }),
+      ],
+    });
+
+    expect(part.events).toEqual([
+      expect.objectContaining({
+        turnId: "user-2",
+        sequence: 1,
+        kind: "thinking",
+        detail: "I am inspecting the current file.",
+      }),
+    ]);
+  });
+
+  it("does not reuse prior activity when the current turn has no workflow events", () => {
+    const part = projectRunActivityTranscript({
+      runId: "run-1",
+      sessionId: "session-1",
+      terminalStatus: "completed",
+      events: [
+        createEvent("event-1", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "user",
+          content: "first prompt",
+          metadata: { clientMessageId: "user-1" },
+        }),
+        createEvent("event-2", RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "First turn work",
+          summary: "Completed earlier work.",
+          status: "completed",
+        }),
+        createEvent("event-3", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "user",
+          content: "hello",
+          metadata: { clientMessageId: "user-2" },
+        }),
+      ],
+    });
+
+    expect(part.events).toEqual([]);
+  });
+
   it("persists provider interruption and finalizes unfinished tool activity", () => {
     const part = projectRunActivityTranscript({
       runId: "run-1",

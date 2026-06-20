@@ -149,6 +149,7 @@ export class RunEngine implements IRunEngine {
   private workspaceBootstrapper?: WorkspaceBootstrapper;
   private permissionApprovalStore: PermissionApprovalStore;
   private hasGitHubAuthChecker?: GitHubAuthAvailabilityChecker;
+  private prepareMutationCapture?: () => Promise<void>;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -166,6 +167,7 @@ export class RunEngine implements IRunEngine {
       options.sessionId,
       dependencies.runEventListener,
     );
+    this.prepareMutationCapture = dependencies.prepareMutationCapture;
 
     this.pricingRegistry =
       dependencies.pricingRegistry ??
@@ -275,7 +277,7 @@ export class RunEngine implements IRunEngine {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
       await this.runEventRecorder.ensureRunStarted(run.status);
-      await this.recordCurrentUserTurn(input.prompt);
+      await this.recordCurrentUserTurn(input.prompt, messages);
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
@@ -452,6 +454,7 @@ export class RunEngine implements IRunEngine {
       }
 
       if (runMode === "build") {
+        await this.prepareMutationCapture?.();
         return await this.executeAgenticLoopPath(
           run,
           effectiveInput,
@@ -744,8 +747,16 @@ export class RunEngine implements IRunEngine {
     };
   }
 
-  private async recordCurrentUserTurn(prompt: string): Promise<void> {
-    await this.runEventRecorder.recordMessageEmitted("user", prompt);
+  private async recordCurrentUserTurn(
+    prompt: string,
+    messages: CoreMessage[],
+  ): Promise<void> {
+    const clientMessageId = readLatestUserMessageId(messages);
+    await this.runEventRecorder.recordMessageEmitted(
+      "user",
+      prompt,
+      clientMessageId ? { clientMessageId } : undefined,
+    );
   }
 
   async getRunStatus(runId: string): Promise<RunStatus | null> {
@@ -1027,6 +1038,18 @@ export class RunEngine implements IRunEngine {
       },
     });
   }
+}
+
+function readLatestUserMessageId(messages: CoreMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "user") {
+      continue;
+    }
+    const id = (message as CoreMessage & { id?: unknown }).id;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  return null;
 }
 
 export class RunEngineError extends Error {

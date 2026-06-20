@@ -343,7 +343,7 @@ function toHydrationMessage(message: TranscriptMessageRecord): {
 } {
   const textContent = readSingleTextPart(message.parts);
   return {
-    id: message.id,
+    id: message.clientMessageId ?? message.id,
     role: message.role,
     content: textContent ?? message.parts.map(partToHydrationContent),
     createdAt: message.createdAt,

@@ -46,7 +46,7 @@ export function projectRunActivityTranscript(
   return {
     version: 1,
     type: "turn_activity",
-    events: finalizedEvents,
+    events: selectCurrentTurnEvents(finalizedEvents, state.currentTurnId),
     compacted: false,
   };
 }
@@ -74,7 +74,9 @@ function updateTurnScope(state: TranscriptBuilderState, event: RunEvent): void {
     return;
   }
 
-  state.currentTurnId = `${state.runId}:turn-${state.turnIndex}`;
+  state.currentTurnId =
+    readClientMessageId(event.payload.metadata) ??
+    `${state.runId}:turn-${state.turnIndex}`;
   state.turnIndex += 1;
 }
 
@@ -125,7 +127,7 @@ function projectEvent(state: TranscriptBuilderState, event: RunEvent): void {
       });
       return;
     case RUN_EVENT_TYPES.MESSAGE_EMITTED:
-      projectProviderErrorEvent(state, event);
+      projectAssistantMessageEvent(state, event);
       return;
     default:
       return;
@@ -217,11 +219,27 @@ function projectToolFailedEvent(
   });
 }
 
-function projectProviderErrorEvent(
+function projectAssistantMessageEvent(
   state: TranscriptBuilderState,
   event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.MESSAGE_EMITTED }>,
 ): void {
   if (event.payload.role !== "assistant") {
+    return;
+  }
+
+  if (event.payload.transcriptPhase === "commentary") {
+    appendActivityEvent(state, {
+      id: `${event.eventId}:commentary`,
+      kind: "thinking",
+      status:
+        event.payload.transcriptStatus === "active" ? "running" : "completed",
+      title: "Thinking",
+      detail: event.payload.content,
+      displayMode: "collapsed",
+      metadata: event.payload.metadata,
+      createdAt: event.timestamp,
+      updatedAt: event.timestamp,
+    });
     return;
   }
 
@@ -241,6 +259,22 @@ function projectProviderErrorEvent(
     createdAt: event.timestamp,
     updatedAt: event.timestamp,
   });
+}
+
+function readClientMessageId(
+  metadata: Record<string, unknown> | undefined,
+): string | null {
+  const value = metadata?.clientMessageId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function selectCurrentTurnEvents(
+  events: TurnActivityEvent[],
+  currentTurnId: string,
+): TurnActivityEvent[] {
+  return events
+    .filter((event) => event.turnId === currentTurnId)
+    .map((event, index) => ({ ...event, sequence: index + 1 }));
 }
 
 function updateToolActivityStatus(

@@ -159,7 +159,7 @@ describe("EditArtifactReviewService", () => {
     expect(source).toBeNull();
   });
 
-  it("resolves the run artifact when the live assistant id differs", async () => {
+  it("does not attach the latest run artifact to a different assistant message", async () => {
     const env = createEnv();
     const artifact = createArtifact("sha-1");
     const repository = createRepository(artifact);
@@ -178,11 +178,8 @@ describe("EditArtifactReviewService", () => {
       userId: artifact.userId,
     });
 
-    expect(source?.artifactId).toBe(artifact.id);
-    expect(repository.getLatestReviewArtifact).toHaveBeenCalledWith({
-      runId: artifact.runId,
-      userId: artifact.userId,
-    });
+    expect(source).toBeNull();
+    expect(repository.getLatestReviewArtifact).not.toHaveBeenCalled();
   });
 });
 
@@ -227,7 +224,8 @@ function createArtifact(sha256: string): EditArtifactRecord {
     baseCommitSha: "base-sha",
     headCommitSha: null,
     artifactKind: "git_patch",
-    r2ObjectKey: "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
+    r2ObjectKey:
+      "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
     contentType: "text/x-patch",
     sizeBytes: PATCH.length,
     sha256,
@@ -251,6 +249,7 @@ function createRepository(artifact: EditArtifactRecord): ArtifactRepository {
     updateStatus: vi.fn(),
     getLatestRestorableArtifact: vi.fn(async () => artifact),
     getLatestRestorableArtifactForRun: vi.fn(async () => artifact),
+    listRestorableArtifacts: vi.fn(async () => [artifact]),
     getArtifactById: vi.fn(async () => artifact),
     getArtifactByIdForRun: vi.fn(async () => artifact),
     getLatestReviewArtifact: vi.fn(async () => artifact),
@@ -271,7 +270,10 @@ function createEnv(): Env {
 class MockR2Bucket {
   private readonly objects = new Map<string, { text: () => Promise<string> }>();
 
-  async put(key: string, value: string): Promise<{
+  async put(
+    key: string,
+    value: string,
+  ): Promise<{
     key: string;
     etag: string;
     size: number;

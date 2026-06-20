@@ -88,6 +88,7 @@ describe("EditArtifactCaptureService helpers", () => {
       Parameters<EditArtifactCaptureService["captureAfterRunMutation"]>[0]
     > = [];
     const service = {
+      captureBaseline: async () => "a".repeat(40),
       captureAfterRunMutation: async (
         input: Parameters<
           EditArtifactCaptureService["captureAfterRunMutation"]
@@ -107,7 +108,11 @@ describe("EditArtifactCaptureService helpers", () => {
       repoUrl: "https://github.com/owner/repo",
     });
 
+    await coordinator.prepare();
     coordinator.handleEvent(createWriteFileCompletedEvent());
+    coordinator.handleEvent(
+      createWriteFileCompletedEvent("create_code_artifact", "src/footer.tsx"),
+    );
     coordinator.handleEvent(createRunCompletedEvent());
     coordinator.setMessageContext({ assistantMessageId: "assistant-1" });
 
@@ -116,9 +121,16 @@ describe("EditArtifactCaptureService helpers", () => {
     expect(captures).toHaveLength(1);
     expect(captures[0]).toMatchObject({
       assistantMessageId: "assistant-1",
+      baselineTree: "a".repeat(40),
       changedFiles: [
         {
           path: "src/hero.tsx",
+          status: "modified",
+          additions: 2,
+          deletions: 1,
+        },
+        {
+          path: "src/footer.tsx",
           status: "modified",
           additions: 2,
           deletions: 1,
@@ -128,7 +140,10 @@ describe("EditArtifactCaptureService helpers", () => {
   });
 });
 
-function createWriteFileCompletedEvent(): ToolCompletedEvent {
+function createWriteFileCompletedEvent(
+  toolName = "write_file",
+  filePath = "src/hero.tsx",
+): ToolCompletedEvent {
   return {
     version: 1,
     eventId: "event-tool-1",
@@ -139,13 +154,13 @@ function createWriteFileCompletedEvent(): ToolCompletedEvent {
     type: RUN_EVENT_TYPES.TOOL_COMPLETED,
     payload: {
       toolId: "tool-1",
-      toolName: "write_file",
+      toolName,
       executionTimeMs: 1,
       result: {
         metadata: {
           activity: {
             family: "edit",
-            filePath: "src/hero.tsx",
+            filePath,
             additions: 2,
             deletions: 1,
           },
