@@ -73,8 +73,11 @@ function applyTurn(state: MutableProjection, event: LifecycleEvent): void {
     state.status = transitionTurnStatus(state.status, "in_progress");
   } else if (event.type === "turn.blocking_changed") {
     const value = event.payload.blockingState;
-    state.blockingState = LifecycleProjectionSnapshotSchema.shape.blockingState.parse(value);
-  } else if (["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)) {
+    state.blockingState =
+      LifecycleProjectionSnapshotSchema.shape.blockingState.parse(value);
+  } else if (
+    ["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)
+  ) {
     applyTerminal(state, event);
   }
 }
@@ -84,14 +87,17 @@ function applyTerminal(state: MutableProjection, event: LifecycleEvent): void {
     event.type !== "turn.completed" &&
     event.type !== "turn.failed" &&
     event.type !== "turn.interrupted"
-  ) return;
+  )
+    return;
   const outcome = event.payload.outcome;
   const next = transitionTurnStatus(state.status, outcome.status);
   validateTerminalSettlement({
     turnStatus: next,
     terminalOutcome: outcome,
     blockingState: state.blockingState,
-    itemStatuses: Object.fromEntries([...state.items].map(([id, item]) => [id, item.status])),
+    itemStatuses: Object.fromEntries(
+      [...state.items].map(([id, item]) => [id, item.status]),
+    ),
     approvalStatuses: Object.fromEntries(
       [...state.approvals].map(([id, approval]) => [id, approval.status]),
     ),
@@ -118,14 +124,17 @@ function applyItem(state: MutableProjection, event: LifecycleEvent): void {
   const terminal = itemTerminalStatus(event.type);
   state.items.set(event.itemId, {
     ...item,
-    status: terminal ? transitionItemStatus(item.status, terminal) : item.status,
+    status: terminal
+      ? transitionItemStatus(item.status, terminal)
+      : item.status,
     text: text === null ? item.text : item.text + text,
     lastSequence: event.sequence,
   });
 }
 
 function applyToolCall(state: MutableProjection, event: LifecycleEvent): void {
-  if (!("toolCallId" in event) || !event.toolCallId || !("itemId" in event)) return;
+  if (!("toolCallId" in event) || !event.toolCallId || !("itemId" in event))
+    return;
   if (event.type === "tool_call.started") {
     state.toolCalls.set(event.toolCallId, {
       toolCallId: event.toolCallId,
@@ -139,17 +148,23 @@ function applyToolCall(state: MutableProjection, event: LifecycleEvent): void {
   const tool = state.toolCalls.get(event.toolCallId);
   if (!tool) return;
   const terminal = toolTerminalStatus(event.type);
-  const output = event.type === "tool_call.output_delta" ? readString(event.payload.output) : "";
+  const output =
+    event.type === "tool_call.output_delta"
+      ? readString(event.payload.output)
+      : "";
   state.toolCalls.set(event.toolCallId, {
     ...tool,
-    status: terminal ? transitionToolCallStatus(tool.status, terminal) : tool.status,
+    status: terminal
+      ? transitionToolCallStatus(tool.status, terminal)
+      : tool.status,
     outputText: tool.outputText + output,
     lastSequence: event.sequence,
   });
 }
 
 function applyApproval(state: MutableProjection, event: LifecycleEvent): void {
-  if (!("approvalId" in event) || !event.approvalId || !("itemId" in event)) return;
+  if (!("approvalId" in event) || !event.approvalId || !("itemId" in event))
+    return;
   if (event.type === "approval.requested") {
     state.approvals.set(event.approvalId, {
       approvalId: event.approvalId,
@@ -170,7 +185,8 @@ function applyApproval(state: MutableProjection, event: LifecycleEvent): void {
 }
 
 function applyRequest(state: MutableProjection, event: LifecycleEvent): void {
-  if (!("requestId" in event) || !event.requestId || !("itemId" in event)) return;
+  if (!("requestId" in event) || !event.requestId || !("itemId" in event))
+    return;
   if (event.type === "user_input.requested") {
     state.requests.set(event.requestId, {
       requestId: event.requestId,
@@ -180,19 +196,33 @@ function applyRequest(state: MutableProjection, event: LifecycleEvent): void {
     });
   } else if (event.type === "request.resolved") {
     const request = state.requests.get(event.requestId);
-    if (request) state.requests.set(event.requestId, { ...request, status: "resolved", lastSequence: event.sequence });
+    if (request)
+      state.requests.set(event.requestId, {
+        ...request,
+        status: "resolved",
+        lastSequence: event.sequence,
+      });
   }
 }
 
 function assertEnvelope(state: MutableProjection, event: LifecycleEvent): void {
   if (event.turnId !== state.turnId) {
-    throw new LifecycleProjectionError("identity_mismatch", "Event belongs to another turn");
+    throw new LifecycleProjectionError(
+      "identity_mismatch",
+      "Event belongs to another turn",
+    );
   }
   if (event.sequence !== state.lastSequence + 1) {
-    throw new LifecycleProjectionError("sequence_gap", "Projection sequence is not contiguous");
+    throw new LifecycleProjectionError(
+      "sequence_gap",
+      "Projection sequence is not contiguous",
+    );
   }
   if (state.terminalOutcome) {
-    throw new LifecycleProjectionError("corrupt_event", "Event appears after terminal outcome");
+    throw new LifecycleProjectionError(
+      "corrupt_event",
+      "Event appears after terminal outcome",
+    );
   }
 }
 
@@ -226,8 +256,10 @@ function snapshot(state: MutableProjection): LifecycleProjectionSnapshot {
 }
 
 function readItemDelta(event: LifecycleEvent): string | null {
-  if (event.type === "assistant_message.delta") return readString(event.payload.delta);
-  if (event.type === "reasoning.summary_delta") return readString(event.payload.delta);
+  if (event.type === "assistant_message.delta")
+    return readString(event.payload.delta);
+  if (event.type === "reasoning.summary_delta")
+    return readString(event.payload.delta);
   return null;
 }
 

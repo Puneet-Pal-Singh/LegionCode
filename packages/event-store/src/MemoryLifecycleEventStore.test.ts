@@ -4,9 +4,8 @@ import { describe, expect, it } from "vitest";
 import { EventStoreError } from "./errors.js";
 import { MemoryLifecycleEventStore } from "./MemoryLifecycleEventStore.js";
 
-registerLifecycleSettlementConformance(
-  "memory lifecycle event store",
-  () => createConformanceStore(),
+registerLifecycleSettlementConformance("memory lifecycle event store", () =>
+  createConformanceStore(),
 );
 
 describe("MemoryLifecycleEventStore", () => {
@@ -18,7 +17,9 @@ describe("MemoryLifecycleEventStore", () => {
     await store.appendBatch([first, third]);
     await expect(
       store.replay({ turnId: first.turnId, afterSequence: null, limit: 10 }),
-    ).rejects.toMatchObject({ code: "corrupt_event_stream" } satisfies Partial<EventStoreError>);
+    ).rejects.toMatchObject({
+      code: "corrupt_event_stream",
+    } satisfies Partial<EventStoreError>);
   });
 
   it("returns the original event for an exact idempotent retry", async () => {

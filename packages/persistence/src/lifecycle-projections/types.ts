@@ -48,7 +48,12 @@ export interface LifecycleRequestProjection {
 
 export interface LifecycleProjectionSnapshot {
   readonly turnId: string;
-  readonly status: "queued" | "in_progress" | "completed" | "interrupted" | "failed";
+  readonly status:
+    | "queued"
+    | "in_progress"
+    | "completed"
+    | "interrupted"
+    | "failed";
   readonly blockingState: TurnBlockingState;
   readonly terminalOutcome: TurnTerminalOutcome | null;
   readonly items: readonly LifecycleItemProjection[];
@@ -84,7 +89,13 @@ export const LifecycleApprovalProjectionSchema = z.object({
 
 export const LifecycleProjectionSnapshotSchema = z.object({
   turnId: z.string().min(1),
-  status: z.enum(["queued", "in_progress", "completed", "interrupted", "failed"]),
+  status: z.enum([
+    "queued",
+    "in_progress",
+    "completed",
+    "interrupted",
+    "failed",
+  ]),
   blockingState: TurnBlockingStateSchema,
   terminalOutcome: TurnTerminalOutcomeSchema.nullable(),
   items: z.array(LifecycleItemProjectionSchema),

@@ -79,7 +79,10 @@ export class MemoryLifecycleEventStore implements LifecycleEventStore {
 
   private assertAppendable(event: LifecycleEvent): void {
     if (this.eventsById.has(event.eventId)) {
-      throw new EventStoreError("event_id_conflict", `Event ID exists: ${event.eventId}`);
+      throw new EventStoreError(
+        "event_id_conflict",
+        `Event ID exists: ${event.eventId}`,
+      );
     }
     const events = this.eventsByTurn.get(event.turnId) ?? [];
     const previous = events.at(-1)?.event.sequence ?? 0;
@@ -101,14 +104,24 @@ export class MemoryLifecycleEventStore implements LifecycleEventStore {
 }
 
 function validateReplay(input: ReplayLifecycleEventsInput): void {
-  if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > MAX_REPLAY_LIMIT) {
-    throw new EventStoreError("invalid_replay_limit", "Invalid lifecycle replay limit");
+  if (
+    !Number.isSafeInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > MAX_REPLAY_LIMIT
+  ) {
+    throw new EventStoreError(
+      "invalid_replay_limit",
+      "Invalid lifecycle replay limit",
+    );
   }
   if (
     input.afterSequence !== null &&
     (!Number.isSafeInteger(input.afterSequence) || input.afterSequence < 0)
   ) {
-    throw new EventStoreError("cursor_not_found", "Invalid lifecycle replay sequence");
+    throw new EventStoreError(
+      "cursor_not_found",
+      "Invalid lifecycle replay sequence",
+    );
   }
 }
 
