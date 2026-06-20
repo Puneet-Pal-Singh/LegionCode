@@ -44,7 +44,7 @@ export function WorkspaceSurfaceHeader({
   return (
     <header
       className={cn(
-        "flex h-12 shrink-0 items-center border-b border-zinc-800 bg-[#111113] shadow-sm shadow-black/20",
+        "relative z-[80] flex h-12 shrink-0 items-center border-b border-zinc-800 bg-[#111113] shadow-sm shadow-black/20",
         isSidebar && "fixed right-0 top-0 z-[60] border-l",
       )}
       style={width === undefined ? undefined : { width }}

@@ -41,7 +41,7 @@ export function GitReviewDialog({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const closeReviewRef = useRef(closeReview);
-  const [activeRail, setActiveRail] = useState<ReviewRail>(null);
+  const [activeRail, setActiveRail] = useState<ReviewRail>("changes");
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] =
     useState<string>("review");
 

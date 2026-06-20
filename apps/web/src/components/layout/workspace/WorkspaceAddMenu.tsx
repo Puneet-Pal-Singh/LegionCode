@@ -43,14 +43,14 @@ export function WorkspaceAddMenu({
       >
         <Plus size={17} />
       </button>
-      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span className="pointer-events-none absolute left-1/2 top-full z-[90] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 opacity-0 shadow-xl transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {triggerLabel}
       </span>
       {open ? (
         <div
           role="menu"
           className={cn(
-            "absolute top-10 z-30 w-44 rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl",
+            "absolute top-full z-[90] mt-1.5 w-44 rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl",
             align === "left" ? "left-0" : "right-0",
           )}
         >

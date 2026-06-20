@@ -93,9 +93,21 @@ describe("GitReviewDialog", () => {
       "data-branch",
       "feat/review-shell",
     );
+    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
+      "data-changes-open",
+      "true",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Review changes (1)" }));
     expect(reviewMock.closeReview).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Toggle file changes sidebar" }),
+    );
+    expect(screen.getByTestId("changes-panel")).toHaveAttribute(
+      "data-changes-open",
+      "false",
+    );
 
     fireEvent.click(
       screen.getByRole("button", { name: "Toggle file changes sidebar" }),
