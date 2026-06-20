@@ -3,6 +3,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "../../lib/utils";
+import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
 
 interface ArtifactViewProps {
   isOpen: boolean;
@@ -70,11 +71,12 @@ export function ArtifactView({
             width: "100%",
             background: "transparent",
             padding: "1.5rem",
-            fontSize: "13px",
+            ...CODE_TYPOGRAPHY_STYLE,
             fontFamily: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
           }}
           codeTagProps={{
             style: {
+              ...CODE_TYPOGRAPHY_STYLE,
               background: "transparent",
               whiteSpace: wordWrap ? "pre-wrap" : "pre",
               overflowWrap: wordWrap ? "anywhere" : "normal",

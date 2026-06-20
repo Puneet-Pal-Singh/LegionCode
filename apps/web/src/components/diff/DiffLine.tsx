@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Plus } from "lucide-react";
 import type { DiffLine as DiffLineType } from "@repo/shared-types";
 import { DiffCodeText } from "./DiffCodeText";
+import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
 
 interface DiffLineProps {
   line: DiffLineType;
@@ -60,7 +61,8 @@ const DiffLine = memo(
         role={onClick ? "button" : undefined}
         tabIndex={onClick ? 0 : undefined}
         aria-pressed={onClick ? isSelected : undefined}
-        className={`group relative flex min-w-full border-l-2 text-left font-mono text-sm transition-colors ${
+        style={CODE_TYPOGRAPHY_STYLE}
+        className={`group relative flex min-w-full border-l-2 text-left font-mono transition-colors ${
           wrap ? "w-full" : "w-max"
         } ${
           isSelected ? "bg-sky-500/10" : ""

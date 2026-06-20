@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import type { DiffLine as DiffLineType } from "@repo/shared-types";
 import { DiffCodeText } from "./DiffCodeText";
+import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
 
 interface SplitDiffCellProps {
   line: DiffLineType | null;
@@ -41,7 +42,8 @@ export function SplitDiffCell({
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
-      className={`group relative flex min-h-8 min-w-full border-b border-l-2 border-zinc-900/80 font-mono text-sm ${
+      style={CODE_TYPOGRAPHY_STYLE}
+      className={`group relative flex min-h-8 min-w-full border-b border-l-2 border-zinc-900/80 font-mono ${
         isSelected ? "ring-1 ring-inset ring-sky-500/50" : ""
       } ${getSplitLineBackground(line.type)} ${getSplitLineBorder(line.type)}`}
     >
