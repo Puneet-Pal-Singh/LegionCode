@@ -49,6 +49,27 @@ describe("LifecycleProjector", () => {
       ]),
     ).toThrow(LifecycleProjectionError);
   });
+
+  it("rejects a terminal event while a user-input request remains pending", () => {
+    const events = [
+      event(1, "turn.queued", {}),
+      event(2, "turn.started", {}),
+      event(3, "run_attempt.started", {}),
+      event(
+        4,
+        "item.started",
+        { kind: "user_input_request" },
+        "itm_projection001",
+      ),
+      requestEvent(5, "user_input.requested"),
+      event(6, "item.completed", { result: {} }, "itm_projection001"),
+      event(7, "run_attempt.succeeded", {}),
+      event(8, "turn.completed", { outcome: { status: "completed" } }),
+    ];
+    expect(() => projectLifecycleEvents(events)).toThrow(
+      LifecycleProjectionError,
+    );
+  });
 });
 
 function completedEvents(): LifecycleEvent[] {
@@ -72,6 +93,18 @@ function completedEvents(): LifecycleEvent[] {
     event(7, "run_attempt.succeeded", {}),
     event(8, "turn.completed", { outcome: { status: "completed" } }),
   ];
+}
+
+function requestEvent(
+  sequence: number,
+  type: "user_input.requested",
+): LifecycleEvent {
+  return LifecycleEventSchema.parse({
+    ...event(sequence, "item.updated", {}, "itm_projection001"),
+    type,
+    requestId: "request_projection001",
+    payload: { prompt: "Continue?" },
+  });
 }
 
 function event(

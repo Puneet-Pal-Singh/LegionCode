@@ -102,8 +102,26 @@ function applyTerminal(state: MutableProjection, event: LifecycleEvent): void {
       [...state.approvals].map(([id, approval]) => [id, approval.status]),
     ),
   });
+  assertNoActiveToolsOrRequests(state);
   state.status = next;
   state.terminalOutcome = outcome;
+}
+
+function assertNoActiveToolsOrRequests(state: MutableProjection): void {
+  const activeTool = [...state.toolCalls.values()].find(
+    (tool) => tool.status === "active" || tool.status === "not_started",
+  );
+  const pendingRequest = [...state.requests.values()].find(
+    (request) => request.status === "pending",
+  );
+  if (activeTool || pendingRequest) {
+    throw new LifecycleProjectionError(
+      "corrupt_event",
+      activeTool
+        ? `Tool call ${activeTool.toolCallId} survives terminal settlement`
+        : `Request ${pendingRequest?.requestId ?? "unknown"} survives terminal settlement`,
+    );
+  }
 }
 
 function applyItem(state: MutableProjection, event: LifecycleEvent): void {
