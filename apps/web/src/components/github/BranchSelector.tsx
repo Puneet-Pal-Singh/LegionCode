@@ -1,244 +1,230 @@
-/**
- * Branch Selector Component
- *
- * Displays current branch and allows switching between branches.
- * Pure UI component - business logic handled by parent.
- * Follows SOLID: Single Responsibility, Dependency Inversion.
- *
- * @module components/github/BranchSelector
- */
-
-import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { GitBranch, ChevronDown, Search, Check, Loader2 } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, ChevronDown, GitBranch, Loader2, Search } from "lucide-react";
+import { useOutsideDismiss } from "../../hooks/useOutsideDismiss";
 import { cn } from "../../lib/utils";
 
-interface Branch {
+export interface BranchSelectorBranch {
   name: string;
   protected: boolean;
 }
 
 interface BranchSelectorProps {
-  /** Currently selected branch */
   currentBranch: string;
-  /** List of available branches */
-  branches: Branch[];
-  /** Loading state */
+  branches: BranchSelectorBranch[];
   isLoading?: boolean;
-  /** Callback when branch is selected */
   onBranchSelect: (branch: string) => void;
-  /** Optional className for styling */
   className?: string;
+  placement?: "above" | "below";
 }
 
-/**
- * BranchSelector Component
- *
- * Renders a dropdown button showing the current branch.
- * Clicking opens a searchable list of all branches.
- *
- * @example
- * ```tsx
- * <BranchSelector
- *   currentBranch="main"
- *   branches={[{ name: "main", protected: true }, { name: "dev", protected: false }]}
- *   onBranchSelect={(branch) => console.log("Switched to:", branch)}
- * />
- * ```
- */
 export function BranchSelector({
   currentBranch,
   branches,
   isLoading = false,
   onBranchSelect,
   className,
+  placement = "below",
 }: BranchSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Filter branches based on search query
-  const filteredBranches = branches.filter((branch) =>
-    branch.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  // Sort branches: current first, then protected, then alphabetical
-  const sortedBranches = [...filteredBranches].sort((a, b) => {
-    if (a.name === currentBranch) return -1;
-    if (b.name === currentBranch) return 1;
-    if (a.protected && !b.protected) return -1;
-    if (!a.protected && b.protected) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  const handleBranchClick = (branchName: string) => {
-    if (branchName !== currentBranch) {
-      onBranchSelect(branchName);
-    }
-    setIsOpen(false);
-    setSearchQuery("");
-  };
+  const rootRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setIsOpen(false), []);
+  useOutsideDismiss(rootRef, isOpen, close);
 
   return (
-    <div ref={containerRef} className={cn("relative flex items-center", className)}>
-      <AnimatePresence mode="wait">
-        {isLoading ? (
-          <motion.div
-            key="loading"
-            initial={{ opacity: 0, x: -4 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 4 }}
-            transition={{ duration: 0.2 }}
-            className="flex items-center gap-2 px-2 py-1 text-xs text-zinc-500 font-medium"
-          >
-            <Loader2 size={12} className="animate-spin text-zinc-600" />
-            <span>Loading...</span>
-          </motion.div>
-        ) : (
-          <motion.button
-            key="button"
-            initial={{ opacity: 0, x: -4 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 4 }}
-            transition={{ duration: 0.2 }}
-            onClick={() => setIsOpen(!isOpen)}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className={cn(
-              "flex items-center gap-2 px-2 py-1 rounded-md text-xs font-medium transition-all duration-200",
-              "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50",
-              isOpen && "text-zinc-200 bg-zinc-800/50",
-            )}
-          >
-            <GitBranch size={12} className="text-zinc-600" />
-            <span className="max-w-[150px] truncate">{currentBranch}</span>
-            <motion.div
-              animate={{ rotate: isOpen ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ChevronDown size={12} className="text-zinc-600" />
-            </motion.div>
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* Dropdown */}
+    <div ref={rootRef} className={cn("relative flex items-center", className)}>
+      <BranchSelectorTrigger
+        branch={currentBranch}
+        isLoading={isLoading}
+        isOpen={isOpen}
+        onToggle={() => setIsOpen((current) => !current)}
+      />
       <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
-            className={cn(
-              "absolute left-0 bottom-full mb-2 z-50",
-              "ui-surface-popover w-72 overflow-hidden",
-            )}
-          >
-            {/* Header */}
-            <div className="px-3 py-2 border-b border-zinc-800">
-              <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                Switch Branch
-              </span>
-            </div>
-
-            {/* Search */}
-            <div className="p-2 border-b ui-muted-divider">
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
-                />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Find a branch..."
-                  className={cn(
-                    "ui-input w-full pl-9 pr-3 py-2 text-sm",
-                  )}
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            {/* Branch List */}
-            <div className="max-h-64 overflow-y-auto py-1">
-              {sortedBranches.length === 0 ? (
-                <div className="px-3 py-4 text-center text-sm text-zinc-500">
-                  No branches found
-                </div>
-              ) : (
-                sortedBranches.map((branch) => (
-                  <motion.button
-                    key={branch.name}
-                    onClick={() => handleBranchClick(branch.name)}
-                    whileHover={{ backgroundColor: "rgba(255,255,255,0.05)" }}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 text-left",
-                      "transition-colors duration-150",
-                      branch.name === currentBranch && "bg-zinc-800/50",
-                    )}
-                  >
-                    <div className="w-4 flex justify-center">
-                      {branch.name === currentBranch ? (
-                        <Check size={14} className="text-emerald-500" />
-                      ) : (
-                        <GitBranch
-                          size={14}
-                          className={cn(
-                            "text-zinc-600",
-                            branch.protected && "text-amber-500",
-                          )}
-                        />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <span
-                        className={cn(
-                          "block text-sm truncate",
-                          branch.name === currentBranch
-                            ? "text-white font-medium"
-                            : "text-zinc-300",
-                        )}
-                      >
-                        {branch.name}
-                      </span>
-                    </div>
-                    {branch.protected && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded">
-                        Protected
-                      </span>
-                    )}
-                  </motion.button>
-                ))
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-3 py-2 border-t ui-muted-divider bg-zinc-900/30">
-              <span className="text-xs text-zinc-600">
-                {branches.length} branches total
-              </span>
-            </div>
-          </motion.div>
-        )}
+        {isOpen ? (
+          <BranchSelectorPanel
+            currentBranch={currentBranch}
+            branches={branches}
+            isLoading={isLoading}
+            onBranchSelect={(branch) => {
+              onBranchSelect(branch);
+              close();
+            }}
+            className={
+              placement === "below"
+                ? "left-0 top-full mt-2"
+                : "bottom-full left-0 mb-2"
+            }
+          />
+        ) : null}
       </AnimatePresence>
     </div>
   );
+}
+
+function BranchSelectorTrigger({
+  branch,
+  isLoading,
+  isOpen,
+  onToggle,
+}: {
+  branch: string;
+  isLoading: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-zinc-500">
+        <Loader2 size={12} className="animate-spin" />
+        Loading...
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label="Select branch"
+      aria-expanded={isOpen}
+      className={cn(
+        "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200",
+        isOpen && "bg-zinc-800/50 text-zinc-200",
+      )}
+    >
+      <GitBranch size={12} />
+      <span className="max-w-40 truncate">{branch}</span>
+      <ChevronDown
+        size={12}
+        className={cn("transition-transform", isOpen && "rotate-180")}
+      />
+    </button>
+  );
+}
+
+interface BranchSelectorPanelProps {
+  currentBranch: string;
+  branches: BranchSelectorBranch[];
+  isLoading?: boolean;
+  onBranchSelect: (branch: string) => void;
+  className?: string;
+}
+
+export function BranchSelectorPanel({
+  currentBranch,
+  branches,
+  isLoading = false,
+  onBranchSelect,
+  className,
+}: BranchSelectorPanelProps) {
+  const [query, setQuery] = useState("");
+  const visibleBranches = useMemo(
+    () =>
+      sortBranches(
+        branches.filter((branch) =>
+          branch.name.toLowerCase().includes(query.toLowerCase()),
+        ),
+        currentBranch,
+      ),
+    [branches, currentBranch, query],
+  );
+  return (
+    <motion.div
+      role="dialog"
+      aria-label="Switch branch"
+      initial={{ opacity: 0, y: -4, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -4, scale: 0.98 }}
+      className={cn(
+        "ui-surface-popover absolute z-50 w-80 overflow-hidden rounded-xl",
+        className,
+      )}
+    >
+      <div className="border-b border-zinc-800 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+        Switch branch
+      </div>
+      <label className="relative block border-b border-zinc-800 p-2">
+        <Search
+          size={14}
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
+        />
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Find a branch..."
+          autoFocus
+          className="ui-input w-full py-2 pl-8 pr-3 text-xs"
+        />
+      </label>
+      <BranchSelectorList
+        branches={visibleBranches}
+        currentBranch={currentBranch}
+        isLoading={isLoading}
+        onSelect={onBranchSelect}
+      />
+      <div className="border-t border-zinc-800 bg-zinc-900/30 px-3 py-2 text-[11px] text-zinc-600">
+        {branches.length} branches total
+      </div>
+    </motion.div>
+  );
+}
+
+function BranchSelectorList({
+  branches,
+  currentBranch,
+  isLoading,
+  onSelect,
+}: {
+  branches: BranchSelectorBranch[];
+  currentBranch: string;
+  isLoading: boolean;
+  onSelect: (branch: string) => void;
+}) {
+  if (isLoading)
+    return (
+      <div className="px-4 py-6 text-center text-sm text-zinc-500">
+        Loading branches...
+      </div>
+    );
+  if (branches.length === 0)
+    return (
+      <div className="px-4 py-6 text-center text-sm text-zinc-500">
+        No branches found
+      </div>
+    );
+  return (
+    <div className="max-h-56 overflow-y-auto py-1 no-scrollbar">
+      {branches.map((branch) => (
+        <button
+          type="button"
+          key={branch.name}
+          onClick={() => onSelect(branch.name)}
+          className={cn(
+            "flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800/70",
+            branch.name === currentBranch && "bg-zinc-800/60 text-white",
+          )}
+        >
+          <span className="w-4">
+            {branch.name === currentBranch ? (
+              <Check size={14} className="text-emerald-400" />
+            ) : (
+              <GitBranch size={14} className="text-zinc-600" />
+            )}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{branch.name}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function sortBranches(
+  branches: BranchSelectorBranch[],
+  currentBranch: string,
+): BranchSelectorBranch[] {
+  return [...branches].sort((left, right) => {
+    if (left.name === currentBranch) return -1;
+    if (right.name === currentBranch) return 1;
+    if (left.protected !== right.protected) return left.protected ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  });
 }

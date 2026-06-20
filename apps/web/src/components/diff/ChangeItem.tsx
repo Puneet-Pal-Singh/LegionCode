@@ -1,4 +1,5 @@
 import type { FileStatus } from "@repo/shared-types";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
 
 interface ChangeItemProps {
   file: FileStatus;
@@ -43,6 +44,7 @@ export function ChangeItem({
       <span className={`w-4 shrink-0 font-mono text-xs font-bold ${statusColors[file.status]}`}>
         {statusLabels[file.status]}
       </span>
+      <FileTypeIcon path={file.path} size={15} />
       <span className="min-w-0 flex-1 truncate font-mono text-sm">{fileName}</span>
       <ChangeItemStats file={file} />
     </button>

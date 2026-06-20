@@ -13,12 +13,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Folder,
   FolderOpen,
-  FileCode,
-  FileText,
-  File,
   ChevronRight,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { FileTypeIcon } from "../ui/FileTypeIcon";
 
 /**
  * Tree item representing a file or folder
@@ -49,93 +47,9 @@ interface RepoFileTreeProps {
   onFileSelect: (path: string) => void;
   /** Optional className for styling */
   className?: string;
+  filterQuery?: string;
 }
 
-/**
- * Get file icon based on file extension
- */
-function getFileIcon(filename: string): React.ReactNode {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-
-  const codeExtensions = [
-    "js",
-    "ts",
-    "jsx",
-    "tsx",
-    "py",
-    "java",
-    "cpp",
-    "c",
-    "h",
-    "go",
-    "rs",
-    "rb",
-    "php",
-    "swift",
-    "kt",
-    "scala",
-    "r",
-    "m",
-    "cs",
-    "fs",
-    "fsx",
-    "elm",
-    "ex",
-    "exs",
-    "hs",
-    "lhs",
-    "ml",
-    "mli",
-    "erl",
-    "hrl",
-    "clj",
-    "cljs",
-    "edn",
-    "lua",
-    "vim",
-    "vimrc",
-    "bash",
-    "sh",
-    "zsh",
-    "fish",
-    "ps1",
-    "psm1",
-  ];
-
-  const textExtensions = [
-    "md",
-    "txt",
-    "json",
-    "yaml",
-    "yml",
-    "xml",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "sass",
-    "less",
-    "csv",
-    "tsv",
-    "log",
-    "ini",
-    "conf",
-    "cfg",
-    "env",
-    "dockerfile",
-    "makefile",
-  ];
-
-  if (codeExtensions.includes(ext)) {
-    return <FileCode size={14} className="text-blue-400" />;
-  }
-
-  if (textExtensions.includes(ext)) {
-    return <FileText size={14} className="text-yellow-400" />;
-  }
-
-  return <File size={14} className="text-zinc-500" />;
-}
 
 /**
  * Build tree structure from flat GitHub tree data
@@ -229,6 +143,7 @@ export function RepoFileTree({
   isLoading = false,
   onFileSelect,
   className,
+  filterQuery = "",
 }: RepoFileTreeProps) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     () => new Set([""]), // Root is expanded by default
@@ -255,12 +170,11 @@ export function RepoFileTree({
   const treeItems = buildTree(tree);
 
   // Filter items to only show those in expanded folders
-  const visibleItems = treeItems.filter((item) => {
-    if (item.level === 0) return true;
-
-    const parentPath = item.path.substring(0, item.path.lastIndexOf("/"));
-    return expandedFolders.has(parentPath);
-  });
+  const visibleItems = filterVisibleItems(
+    treeItems,
+    expandedFolders,
+    filterQuery,
+  );
 
   return (
     <div className={cn("py-2", className)}>
@@ -376,7 +290,7 @@ export function RepoFileTree({
                           )}
                           style={{ paddingLeft: `${28 + indent}px` }}
                         >
-                          {getFileIcon(item.name)}
+                          <FileTypeIcon path={item.path} size={14} />
                           <span className="text-sm text-zinc-400 group-hover:text-zinc-200 truncate">
                             {item.name}
                           </span>
@@ -392,6 +306,33 @@ export function RepoFileTree({
       </AnimatePresence>
     </div>
   );
+}
+
+function filterVisibleItems(
+  items: TreeItem[],
+  expandedFolders: Set<string>,
+  query: string,
+): TreeItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery) {
+    const visiblePaths = new Set<string>();
+    items.forEach((item) => {
+      if (!item.path.toLowerCase().includes(normalizedQuery)) return;
+      addPathAndParents(visiblePaths, item.path);
+    });
+    return items.filter((item) => visiblePaths.has(item.path));
+  }
+
+  return items.filter((item) => {
+    if (item.level === 0) return true;
+    const parentPath = item.path.substring(0, item.path.lastIndexOf("/"));
+    return expandedFolders.has(parentPath);
+  });
+}
+
+function addPathAndParents(paths: Set<string>, path: string) {
+  const parts = path.split("/");
+  parts.forEach((_, index) => paths.add(parts.slice(0, index + 1).join("/")));
 }
 
 export type { TreeItem, RepoFileTreeProps };

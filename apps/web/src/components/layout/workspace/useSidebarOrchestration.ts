@@ -15,6 +15,7 @@ interface UseSidebarOrchestrationProps {
   isGitHubLoaded: boolean;
   isHydrating: boolean;
   isViewingContent: boolean;
+  activeContentTabId: string | null;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
   switchBranch: (branch: string) => void;
@@ -22,8 +23,6 @@ interface UseSidebarOrchestrationProps {
   explorerRef: RefObject<FileExplorerHandle | null>;
   setIsViewingContent: (viewing: boolean) => void;
   setActiveTab: (tab: TabType) => void;
-  setSelectedFile: (file: SelectedFile | null) => void;
-  setSelectedDiff: (diff: SelectedDiff | null) => void;
   setIsRightSidebarOpen?: (open: boolean) => void;
   reviewSidebarFocusRequest: number;
 }
@@ -42,6 +41,7 @@ export function useSidebarOrchestration({
   isGitHubLoaded,
   isHydrating,
   isViewingContent,
+  activeContentTabId,
   selectedFile,
   selectedDiff,
   switchBranch,
@@ -49,22 +49,16 @@ export function useSidebarOrchestration({
   explorerRef,
   setIsViewingContent,
   setActiveTab,
-  setSelectedFile,
-  setSelectedDiff,
   setIsRightSidebarOpen,
   reviewSidebarFocusRequest,
 }: UseSidebarOrchestrationProps): UseSidebarOrchestrationResult {
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
 
-  const handleSidebarDiffSelected = useCallback(
-    (path: string, content: DiffContent) => {
-      setSelectedFile(null);
-      setSelectedDiff({ path, content });
-      setIsViewingContent(true);
-      setActiveTab("changes");
-    },
-    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
-  );
+  const handleSidebarDiffSelected = useCallback(() => {
+    setActiveTab("review");
+    setIsViewingContent(false);
+    setIsRightSidebarOpen?.(true);
+  }, [setActiveTab, setIsRightSidebarOpen, setIsViewingContent]);
 
   useEffect(() => {
     if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
@@ -74,15 +68,11 @@ export function useSidebarOrchestration({
     setIsRightSidebarOpen?.(true);
     setActiveTab("review");
     setIsViewingContent(false);
-    setSelectedFile(null);
-    setSelectedDiff(null);
   }, [
     reviewSidebarFocusRequest,
     setActiveTab,
     setIsRightSidebarOpen,
     setIsViewingContent,
-    setSelectedDiff,
-    setSelectedFile,
   ]);
 
   useEffect(() => {
@@ -114,12 +104,19 @@ export function useSidebarOrchestration({
   useEffect(() => {
     if (isHydrating) return;
     const savedPath = localStorage.getItem("shadowbox_last_viewed_path");
-    if (isViewingContent && savedPath && !selectedFile && !selectedDiff) {
+    if (
+      isViewingContent &&
+      activeContentTabId !== "files" &&
+      savedPath &&
+      !selectedFile &&
+      !selectedDiff
+    ) {
       void handleFileClick(savedPath);
     }
   }, [
     isHydrating,
     isViewingContent,
+    activeContentTabId,
     selectedFile,
     selectedDiff,
     handleFileClick,

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GitReviewProvider, useGitReview } from "./GitReviewContext";
+import { GitReviewProvider } from "./GitReviewContext";
+import { useGitReview } from "./useGitReview";
 import type { ReviewCommentAnchor } from "./reviewComments";
 import type {
   FileStatus,

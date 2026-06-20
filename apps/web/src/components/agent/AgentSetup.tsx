@@ -1,9 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import {
-  type DiffContent,
-  DEFAULT_RUN_MODE,
-  type RunMode,
-} from "@repo/shared-types";
+import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import {
   ChevronDown,
@@ -15,21 +11,14 @@ import {
   ArrowUp,
   TerminalSquare,
 } from "lucide-react";
-import {
-  slideUp,
-} from "../../lib/animations";
+import { slideUp } from "../../lib/animations";
 import { useGitHub } from "../github/GitHubContextProvider";
-import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import { ProviderDialog, ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
 import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap.js";
-import {
-  type TabType,
-  useWorkspaceState,
-} from "../layout/workspace/useWorkspaceState";
-import { SidebarHeader } from "../layout/workspace/SidebarHeader";
+import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
 import { SidebarContent } from "../layout/workspace/SidebarContent";
 import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
@@ -38,17 +27,15 @@ import { useGitStatus } from "../../hooks/useGitStatus";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
+import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import {
   applyFileMention,
   filterFileMentionCandidates,
   findActiveFileMention,
 } from "../chat/fileMentions";
 import { GitReviewDialog } from "../git/GitReviewDialog";
-import { GitReviewProvider, useGitReview } from "../git/GitReviewContext";
-import { GitCommitDialog } from "../git/GitCommitDialog";
-import {
-  isProviderModelBootstrapLoading,
-} from "../../lib/provider-model-bootstrap-loading.js";
+import { GitReviewProvider } from "../git/GitReviewContext";
+import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootstrap-loading.js";
 import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 
@@ -67,38 +54,6 @@ interface AgentSetupProps {
     mode: RunMode;
   }) => void;
   onRepoClick?: () => void;
-}
-
-interface SetupSidebarHeaderProps {
-  isViewingContent: boolean;
-  activeTab: TabType;
-  changesCount: number;
-  onCommit: () => void;
-  onBack: () => void;
-  onTabChange: (tab: TabType) => void;
-}
-
-function SetupSidebarHeader({
-  isViewingContent,
-  activeTab,
-  changesCount,
-  onCommit,
-  onBack,
-  onTabChange,
-}: SetupSidebarHeaderProps) {
-  const { openReview } = useGitReview();
-
-  return (
-    <SidebarHeader
-      isViewingContent={isViewingContent}
-      activeTab={activeTab}
-      changesCount={changesCount}
-      onExpand={() => openReview()}
-      onCommit={onCommit}
-      onBack={onBack}
-      onTabChange={onTabChange}
-    />
-  );
 }
 
 export function AgentSetup({
@@ -136,7 +91,6 @@ export function AgentSetup({
     "full" | "connect-only" | "manage-models-only"
   >("full");
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const previousReviewFocusRequestRef = useRef(reviewSidebarFocusRequest);
   const {
     catalog,
@@ -192,13 +146,14 @@ export function AgentSetup({
     isResizing,
     setIsResizing,
     selectedFile,
-    setSelectedFile,
     selectedDiff,
-    setSelectedDiff,
+    openFileTab,
     isViewingContent,
     setIsViewingContent,
     isLoadingContent,
     setIsLoadingContent,
+    contentError,
+    setContentError,
   } = useWorkspaceState();
   const {
     repoTree,
@@ -207,17 +162,27 @@ export function AgentSetup({
     branch: githubBranch,
     isGitHubLoaded,
   } = useGitHubTree();
-  const { status: gitStatus, refetch: refetchGitStatus } = useGitStatus(
+  const { refetch: refetchGitStatus } = useGitStatus(
     activeRunId || undefined,
     sessionId,
   );
-  const changesCount = gitStatus?.files?.length ?? 0;
+  const handleOpenFileTab = useCallback(
+    (file: { path: string; content: string }) => {
+      openFileTab(file);
+      setActiveTab("review");
+    },
+    [openFileTab, setActiveTab],
+  );
+  const toggleChangesPanel = useCallback(() => {
+    setIsViewingContent(false);
+    setActiveTab((current) => (current === "changes" ? "review" : "changes"));
+  }, [setActiveTab, setIsViewingContent]);
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId: sessionId,
     runId: activeRunId,
     setIsLoadingContent,
-    setIsViewingContent,
-    setSelectedFile,
+    setContentError,
+    openFileTab: handleOpenFileTab,
   });
 
   const hasTask = task.trim().length > 0;
@@ -366,15 +331,10 @@ export function AgentSetup({
     sessionId,
   ]);
 
-  const handleSidebarDiffSelected = useCallback(
-    (path: string, content: DiffContent) => {
-      setSelectedFile(null);
-      setSelectedDiff({ path, content });
-      setIsViewingContent(true);
-      setActiveTab("changes");
-    },
-    [setActiveTab, setIsViewingContent, setSelectedDiff, setSelectedFile],
-  );
+  const handleSidebarDiffSelected = useCallback(() => {
+    setActiveTab("review");
+    setIsViewingContent(false);
+  }, [setActiveTab, setIsViewingContent]);
 
   useEffect(() => {
     if (previousReviewFocusRequestRef.current === reviewSidebarFocusRequest) {
@@ -384,15 +344,7 @@ export function AgentSetup({
     previousReviewFocusRequestRef.current = reviewSidebarFocusRequest;
     setActiveTab("review");
     setIsViewingContent(false);
-    setSelectedFile(null);
-    setSelectedDiff(null);
-  }, [
-    reviewSidebarFocusRequest,
-    setActiveTab,
-    setIsViewingContent,
-    setSelectedDiff,
-    setSelectedFile,
-  ]);
+  }, [reviewSidebarFocusRequest, setActiveTab, setIsViewingContent]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -517,7 +469,9 @@ export function AgentSetup({
     repo?.name || (requiresRepository ? "Connect repository" : "New Project");
   const renderSetupComposer = (placement: "hero" | "docked") => (
     <motion.div
-      className={placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"}
+      className={
+        placement === "hero" ? "w-full max-w-4xl" : "max-w-4xl mx-auto"
+      }
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4, duration: 0.4 }}
@@ -573,7 +527,10 @@ export function AgentSetup({
                     >
                       <Icon
                         size={14}
-                        className={getSuggestionIconClass(entry.path, entry.type)}
+                        className={getSuggestionIconClass(
+                          entry.path,
+                          entry.type,
+                        )}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-medium">
@@ -661,7 +618,8 @@ export function AgentSetup({
                   }
                   hasMoreSelectedProviderModels={
                     selectedProviderId
-                      ? (providerModelsPage[selectedProviderId]?.hasMore ?? false)
+                      ? (providerModelsPage[selectedProviderId]?.hasMore ??
+                        false)
                       : false
                   }
                   isLoadingMoreSelectedProviderModels={
@@ -706,7 +664,9 @@ export function AgentSetup({
                     setShowProviderDialog(true);
                   }}
                   isLoading={isModelPickerLoading}
-                  isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
+                  isHydratingVisibleModels={
+                    isSelectedProviderModelHydrationPending
+                  }
                 />
               </div>
             </div>
@@ -732,7 +692,7 @@ export function AgentSetup({
                 }
               >
                 <ArrowUp size={16} />
-                </motion.button>
+              </motion.button>
             </div>
           </div>
         </motion.div>
@@ -740,12 +700,13 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
-              <ChatBranchSelector />
+              <ChatBranchSelector placement="below" />
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
                 value={productMode}
                 onChange={setProductMode}
                 appearance="ghost"
+                menuPlacement="below"
               />
             </div>
           </div>
@@ -812,7 +773,7 @@ export function AgentSetup({
           </div>
 
           {/* Main Content - Centered */}
-          <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="flex-1 -translate-y-8 flex flex-col items-center justify-center px-6">
             {/* Logo and Title */}
             <motion.div
               className="flex flex-col items-center mb-12"
@@ -860,7 +821,9 @@ export function AgentSetup({
               </motion.button>
             </motion.div>
 
-            <div className="mb-6 w-full max-w-4xl">{renderSetupComposer("hero")}</div>
+            <div className="mb-6 w-full max-w-4xl">
+              {renderSetupComposer("hero")}
+            </div>
           </div>
         </main>
 
@@ -895,30 +858,13 @@ export function AgentSetup({
             className="flex-1 flex flex-col min-w-[280px]"
             style={{ width: sidebarWidth }}
           >
-            <SetupSidebarHeader
-              isViewingContent={isViewingContent}
-              activeTab={activeTab}
-              changesCount={changesCount}
-              onCommit={() => setIsCommitDialogOpen(true)}
-              onBack={() => {
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
-              }}
-              onTabChange={setActiveTab}
-            />
-
             <SidebarContent
               isViewingContent={isViewingContent}
               activeTab={activeTab}
               isLoadingContent={isLoadingContent}
+              contentError={contentError}
               selectedFile={selectedFile}
               selectedDiff={selectedDiff}
-              onCloseContent={() => {
-                setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
-              }}
               repo={githubRepo}
               isGitHubLoaded={isGitHubLoaded}
               repoTree={repoTree}
@@ -930,17 +876,15 @@ export function AgentSetup({
               explorerRef={explorerRef}
               sandboxId={sessionId}
               runId={activeRunId}
+              onOpenFiles={() => setActiveTab("files")}
+              onCloseTree={() => setActiveTab("review")}
+              onToggleChanges={toggleChangesPanel}
             />
           </div>
         </motion.aside>
 
         <GitReviewDialog
           key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}:review`}
-        />
-
-        <GitCommitDialog
-          isOpen={isCommitDialogOpen}
-          onClose={() => setIsCommitDialogOpen(false)}
         />
 
         <ProviderDialog
@@ -956,7 +900,6 @@ export function AgentSetup({
           initialView={providerDialogInitialView}
           variant={providerDialogVariant}
         />
-
       </motion.div>
     </GitReviewProvider>
   );

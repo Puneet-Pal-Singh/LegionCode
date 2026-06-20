@@ -203,8 +203,14 @@ function AppContent() {
   } = useSessionManager({
     hydrateFromServer: isAuthenticated && !isLoading,
   });
-  const { repo, branch, setContext, clearContext, saveSessionContext } =
-    useGitHub();
+  const {
+    repo,
+    branch,
+    switchBranch,
+    setContext,
+    clearContext,
+    saveSessionContext,
+  } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
@@ -213,6 +219,10 @@ function AppContent() {
   const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
     usePendingApprovalStateBySession();
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
+  const [summaryActionRequest, setSummaryActionRequest] = useState<{
+    id: number;
+    action: "changes" | "commit";
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     try {
       const stored = localStorage.getItem("shadowbox_active_tab");
@@ -647,6 +657,7 @@ function AppContent() {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
 
   const scopedApprovalStatesBySessionId = useMemo(() => {
     const validSessionIds = new Set(sessions.map((session) => session.id));
@@ -1043,7 +1054,6 @@ function AppContent() {
       fullName: selectedRepo.full_name,
       branch: selectedBranch,
     });
-
   };
 
   /**
@@ -1104,7 +1114,8 @@ function AppContent() {
           onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
-          isRightSidebarOpen={isRightSidebarOpen}
+          isRightSidebarOpen={showWorkspace && isRightSidebarOpen}
+          rightSidebarWidth={rightSidebarWidth}
           onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
           taskTitle={taskTitle}
@@ -1115,6 +1126,27 @@ function AppContent() {
           onArchiveSession={handleArchiveActiveSession}
           isAuthenticated={isAuthenticated}
           onConnectGitHub={login}
+          environmentSummary={
+            showWorkspace && activeSessionId && activeSession
+              ? {
+                  sessionId: activeSessionId,
+                  runId: activeSession.activeRunId,
+                  repo,
+                  branch,
+                  onBranchChange: switchBranch,
+                  onOpenChanges: () =>
+                    setSummaryActionRequest({
+                      id: Date.now(),
+                      action: "changes",
+                    }),
+                  onOpenCommit: () =>
+                    setSummaryActionRequest({
+                      id: Date.now(),
+                      action: "commit",
+                    }),
+                }
+              : undefined
+          }
         />
 
         {/* Main Workspace Layer */}
@@ -1266,6 +1298,8 @@ function AppContent() {
                   }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  rightSidebarWidth={rightSidebarWidth}
+                  setRightSidebarWidth={setRightSidebarWidth}
                   reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                   isGitReviewOpen={
                     isGitReviewOpen && gitReviewSessionId === activeSessionId
@@ -1275,6 +1309,7 @@ function AppContent() {
                     setGitReviewSessionId(open ? activeSessionId : null);
                   }}
                   onTabChange={setActiveTab}
+                  summaryActionRequest={summaryActionRequest}
                 />
               </motion.div>
             ) : isPreparingSetupShell ? (

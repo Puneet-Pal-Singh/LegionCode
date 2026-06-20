@@ -16,6 +16,7 @@ interface PermissionModeControlProps {
   disabled?: boolean;
   appearance?: "pill" | "ghost";
   showIcon?: boolean;
+  menuPlacement?: "above" | "below";
 }
 
 interface PermissionModeOption {
@@ -63,6 +64,7 @@ export function PermissionModeControl({
   disabled = false,
   appearance = "pill",
   showIcon = true,
+  menuPlacement = "above",
 }: PermissionModeControlProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -132,7 +134,10 @@ export function PermissionModeControl({
       {isMenuOpen ? (
         <div
           role="menu"
-          className="ui-surface-popover absolute bottom-full left-0 z-40 mb-2 w-[19rem] p-2"
+          className={cn(
+            "ui-surface-popover absolute left-0 z-40 w-[19rem] p-2",
+            menuPlacement === "below" ? "top-full mt-2" : "bottom-full mb-2",
+          )}
           data-testid="permission-mode-menu"
         >
           {PERMISSION_MODE_OPTIONS.map((option) => {
@@ -160,9 +165,14 @@ export function PermissionModeControl({
                 )}
               >
                 <span className="flex items-start gap-2.5">
-                  <OptionIcon size={16} className="mt-0.5 shrink-0 text-zinc-400" />
+                  <OptionIcon
+                    size={16}
+                    className="mt-0.5 shrink-0 text-zinc-400"
+                  />
                   <span className="space-y-0.5">
-                    <span className="block text-sm font-medium">{option.label}</span>
+                    <span className="block text-sm font-medium">
+                      {option.label}
+                    </span>
                     <span className="block text-xs text-zinc-400">
                       {option.description}
                     </span>
