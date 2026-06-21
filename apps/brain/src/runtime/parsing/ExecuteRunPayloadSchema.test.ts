@@ -96,6 +96,16 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
     expect(result.input.mode).toBe("plan");
   });
 
+  it("preserves client message ids for activity turn correlation", () => {
+    const payload = createValidPayload();
+    payload.messages = [
+      { id: "client-user-1", role: "user", content: "inspect repository" },
+    ];
+
+    const result = ExecuteRunPayloadSchema.parse(payload);
+    expect(result.messages[0]?.id).toBe("client-user-1");
+  });
+
   it("accepts provider/model overrides without repository context", () => {
     const payload = createValidPayload();
     payload.input.providerId = "gemini";

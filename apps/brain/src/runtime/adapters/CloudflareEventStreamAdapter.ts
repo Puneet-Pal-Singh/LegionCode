@@ -26,6 +26,14 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
   private subscribers = new Map<string, Set<StreamSubscriber>>();
   private completed: Set<string> = new Set();
 
+  start(runId: string): void {
+    this.completed.delete(runId);
+    this.events.delete(runId);
+    for (const subscriber of this.subscribers.get(runId) ?? []) {
+      subscriber.nextEventIndex = 0;
+    }
+  }
+
   emit(event: StreamEvent): void {
     if (this.completed.has(event.runId)) {
       return;
@@ -154,10 +162,7 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
     return true;
   }
 
-  private closeSubscriber(
-    runId: string,
-    subscriber: StreamSubscriber,
-  ): void {
+  private closeSubscriber(runId: string, subscriber: StreamSubscriber): void {
     try {
       subscriber.controller.close();
     } catch (e) {
@@ -166,10 +171,7 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
     this.removeSubscriber(runId, subscriber);
   }
 
-  private removeSubscriber(
-    runId: string,
-    subscriber: StreamSubscriber,
-  ): void {
+  private removeSubscriber(runId: string, subscriber: StreamSubscriber): void {
     const subscribers = this.subscribers.get(runId);
     if (!subscribers) {
       return;

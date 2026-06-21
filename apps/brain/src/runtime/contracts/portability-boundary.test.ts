@@ -20,7 +20,10 @@ import type { RunStateEnvelope } from "@shadowbox/orchestrator-core";
 
 function createExecutionRuntimePortMock(): ExecutionRuntimePort {
   return {
-    executeTask: async (_runId, _input) => ({ status: "success" as const, output: "" }),
+    executeTask: async (_runId, _input) => ({
+      status: "success" as const,
+      output: "",
+    }),
     cancelTask: async (_runId, _taskId) => true,
     getRunState: async (_runId): Promise<RunStateEnvelope | null> => null,
     transitionRun: async (_runId, _newStatus) => {},
@@ -45,6 +48,7 @@ function createProviderResolutionPortMock(): ProviderResolutionPort {
 
 function createRealtimeEventPortMock(): RealtimeEventPort {
   return {
+    start: (_runId) => {},
     emit: (_event) => {},
     emitBatch: (_events) => {},
     complete: (_runId) => {},
@@ -79,6 +83,7 @@ describe("Portability Boundary: Conformance Tests", () => {
     it("should define RealtimeEventPort with all required methods", () => {
       const port = createRealtimeEventPortMock();
 
+      expect(port.start).toBeDefined();
       expect(port.emit).toBeDefined();
       expect(port.emitBatch).toBeDefined();
       expect(port.complete).toBeDefined();
@@ -125,7 +130,11 @@ describe("Portability Boundary: Conformance Tests", () => {
       // DurableObjectState, Env, etc. are NOT part of port contracts
       // They're used only in adapters/factories
 
-      const portTypeNames = ["ExecutionRuntimePort", "ProviderResolutionPort", "RealtimeEventPort"];
+      const portTypeNames = [
+        "ExecutionRuntimePort",
+        "ProviderResolutionPort",
+        "RealtimeEventPort",
+      ];
 
       for (const portName of portTypeNames) {
         // This test verifies that port type definitions don't reference
@@ -139,7 +148,10 @@ describe("Portability Boundary: Conformance Tests", () => {
     it("should allow adapter implementations to be swapped without changing orchestration behavior", () => {
       // Two different implementations of the same port should be interchangeable
       const mockPort1: ExecutionRuntimePort = {
-        executeTask: async (_runId, _input) => ({ status: "success" as const, output: "impl1" }),
+        executeTask: async (_runId, _input) => ({
+          status: "success" as const,
+          output: "impl1",
+        }),
         cancelTask: async (_runId, _taskId) => true,
         getRunState: async (_runId): Promise<RunStateEnvelope | null> => ({
           runId: "test",
@@ -152,7 +164,10 @@ describe("Portability Boundary: Conformance Tests", () => {
       };
 
       const mockPort2: ExecutionRuntimePort = {
-        executeTask: async (_runId, _input) => ({ status: "success" as const, output: "impl2" }),
+        executeTask: async (_runId, _input) => ({
+          status: "success" as const,
+          output: "impl2",
+        }),
         cancelTask: async (_runId, _taskId) => true,
         getRunState: async (_runId): Promise<RunStateEnvelope | null> => ({
           runId: "test",

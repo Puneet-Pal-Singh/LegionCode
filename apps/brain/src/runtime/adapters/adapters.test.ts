@@ -106,6 +106,27 @@ describe("Runtime Adapters", () => {
       expect(events).toHaveLength(0);
     });
 
+    it("should reopen a completed run lifecycle when a new turn starts", async () => {
+      const runId = "test-run-reused";
+      adapter.complete(runId);
+      adapter.start(runId);
+      const stream = adapter.getStream(runId);
+
+      adapter.emit({
+        version: 1,
+        eventId: "evt-reopened",
+        runId,
+        timestamp: "2026-06-21T00:00:00.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: { content: "new turn", role: "assistant" },
+      });
+      adapter.complete(runId);
+
+      const events = await readStreamEvents(stream);
+      expect(events.map((event) => event.eventId)).toEqual(["evt-reopened"]);
+    });
+
     it("should stream NDJSON envelopes in emitted order", async () => {
       const runId = "test-run-stream-order";
       const stream = adapter.getStream(runId);
