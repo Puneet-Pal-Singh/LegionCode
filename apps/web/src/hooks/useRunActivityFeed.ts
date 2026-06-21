@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { runActivityPath } from "../lib/platform-endpoints.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import { logClientEvent } from "../lib/client-logger.js";
 
 interface UseRunActivityFeedResult {
   feed: ActivityFeedSnapshot | null;
@@ -33,6 +34,7 @@ export function useRunActivityFeed(
     timestamp: number;
     message: string;
   } | null>(null);
+  const lastLoggedSnapshotRef = useRef("");
 
   const fetchFeed = useCallback(
     async (options?: { force?: boolean }) => {
@@ -66,7 +68,9 @@ export function useRunActivityFeed(
           return;
         }
         if (!response.ok) {
-          if (response.status === 404) return;
+          if (response.status === 404) {
+            return;
+          }
           if (AUTH_BLOCKING_STATUS_CODES.has(response.status)) {
             console.warn(
               `[run/activity-feed] auth failed for runId=${currentRunId}; retrying after delay`,
@@ -89,6 +93,15 @@ export function useRunActivityFeed(
           return;
         }
         retryAfterRef.current = 0;
+        const snapshotSignature = `${payload.status}:${payload.items.length}`;
+        if (lastLoggedSnapshotRef.current !== snapshotSignature) {
+          lastLoggedSnapshotRef.current = snapshotSignature;
+          logClientEvent("run/activity", "updated", {
+            runId: currentRunId,
+            status: payload.status,
+            itemCount: payload.items.length,
+          });
+        }
         setFeed(payload);
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
@@ -113,6 +126,7 @@ export function useRunActivityFeed(
     retryAfterRef.current = 0;
     missedRefreshRef.current = false;
     lastErrorLogRef.current = null;
+    lastLoggedSnapshotRef.current = "";
     setFeed(null);
 
     if (!runId) {

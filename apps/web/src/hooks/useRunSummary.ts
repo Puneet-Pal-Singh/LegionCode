@@ -5,6 +5,7 @@ import {
   isTerminalRunStatus,
 } from "../lib/run-status.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import { logClientEvent } from "../lib/client-logger.js";
 import type {
   ApprovalRequest,
   PermissionRuntimeLabel,
@@ -84,6 +85,7 @@ export function useRunSummary(
     message: string;
   } | null>(null);
   const summaryStatusRef = useRef<string | null>(null);
+  const lastLoggedSummaryRef = useRef("");
   const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
 
   useEffect(() => {
@@ -91,6 +93,7 @@ export function useRunSummary(
     inFlightRef.current = false;
     inFlightRunIdRef.current = null;
     lastFetchAtRef.current = 0;
+    lastLoggedSummaryRef.current = "";
     setSummary(null);
   }, [runId]);
 
@@ -132,6 +135,16 @@ export function useRunSummary(
         }
         if (payload.runId !== currentRunId) {
           return;
+        }
+        const summarySignature = `${payload.status}:${payload.eventCount ?? 0}:${payload.pendingApproval?.requestId ?? ""}`;
+        if (lastLoggedSummaryRef.current !== summarySignature) {
+          lastLoggedSummaryRef.current = summarySignature;
+          logClientEvent("run/summary", "updated", {
+            runId: currentRunId,
+            status: payload.status,
+            eventCount: payload.eventCount,
+            hasPendingApproval: Boolean(payload.pendingApproval),
+          });
         }
         setSummary(payload);
       } catch (error) {

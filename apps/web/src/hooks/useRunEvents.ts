@@ -9,6 +9,7 @@ import {
   dispatchRunSummaryRefresh,
   RUN_SUMMARY_REFRESH_EVENT,
 } from "../lib/run-summary-events.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseRunEventsResult {
   events: RunEvent[];
@@ -74,6 +75,10 @@ export function useRunEvents(
         }
 
         const parsedEvents = parseRunEventsBody(body, currentRunId);
+        logClientEvent("run/events", "snapshot", {
+          runId: currentRunId,
+          eventCount: parsedEvents.length,
+        });
         setEvents((current) => mergeRunEvents(current, parsedEvents));
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
@@ -110,6 +115,7 @@ export function useRunEvents(
       return;
     }
     const currentRunId = runId.trim();
+    void fetchEvents({ force: true });
     return connectRunEventStream({
       runId: currentRunId,
       isActive: () => activeRunIdRef.current === currentRunId,
@@ -119,9 +125,12 @@ export function useRunEvents(
       },
       onError: (error) =>
         logRunEventsWarning(currentRunId, error, lastErrorLogRef),
-      onReconnect: () => setStreamRetryVersion((version) => version + 1),
+      onReconnect: () => {
+        logClientEvent("run/events", "reconnecting", { runId: currentRunId });
+        setStreamRetryVersion((version) => version + 1);
+      },
     });
-  }, [runId, shouldStream, streamRetryVersion]);
+  }, [fetchEvents, runId, shouldStream, streamRetryVersion]);
 
   useEffect(() => {
     if (!runId || shouldStream) {
@@ -170,6 +179,7 @@ interface RunEventStreamConnection {
 function connectRunEventStream(input: RunEventStreamConnection): () => void {
   const abortController = new AbortController();
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  logClientEvent("run/events", "connecting", { runId: input.runId });
   const scheduleReconnect = () => {
     if (abortController.signal.aborted || retryTimer) return;
     retryTimer = setTimeout(() => {
@@ -197,8 +207,16 @@ async function consumeRunEventStream(
     signal,
     credentials: "include",
   });
-  if (!response.ok || !response.body) return;
+  if (!response.ok || !response.body) {
+    logClientWarning("run/events", "stream-unavailable", {
+      runId,
+      status: response.status,
+    });
+    return;
+  }
+  logClientEvent("run/events", "connected", { runId });
   await readRunEventStream(response.body.getReader(), runId, signal, onEvent);
+  if (!signal.aborted) logClientEvent("run/events", "closed", { runId });
 }
 
 async function readRunEventStream(
@@ -226,7 +244,13 @@ function emitRunEventLine(
   onEvent: (event: RunEvent) => void,
 ): void {
   const event = parseRunEventLine(line, runId);
-  if (event) onEvent(event);
+  if (!event) return;
+  logClientEvent("run/events", "received", {
+    runId,
+    eventId: event.eventId,
+    type: event.type,
+  });
+  onEvent(event);
 }
 
 function parseRunEventsBody(body: string, runId: string): RunEvent[] {

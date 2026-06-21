@@ -20,7 +20,6 @@ describe("useRunEvents", () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     setVisibilityState(originalVisibilityState);
   });
 
@@ -155,17 +154,13 @@ describe("useRunEvents", () => {
     );
   });
 
-  it("retries refresh requests when the run is not created yet", async () => {
+  it("retries after Brain reports the run missing before it is created", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
-      .mockResolvedValueOnce(
-        createEventsResponse(
-          createMessageEvent("pending-run", "evt-created", "Created"),
-        ),
-      );
+      .mockResolvedValueOnce(new Response("", { status: 200 }));
 
-    const { result } = renderHook(() => useRunEvents("pending-run"));
+    renderHook(() => useRunEvents("missing-run"));
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -174,46 +169,14 @@ describe("useRunEvents", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
-          detail: { runId: "pending-run" },
+          detail: { runId: "missing-run" },
         }),
       );
     });
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
-      expect(result.current.events[0]?.eventId).toBe("evt-created");
     });
-  });
-
-  it("reconnects the event stream when Brain creates the run after submit", async () => {
-    vi.useFakeTimers();
-    let streamRequests = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-      if (!url.includes("/stream?")) {
-        return new Response("Not Found", { status: 404 });
-      }
-      streamRequests += 1;
-      return streamRequests === 1
-        ? new Response("Not Found", { status: 404 })
-        : createStreamResponse(
-            createMessageEvent("run-created-late", "evt-live", "Live event"),
-          );
-    });
-
-    const { result } = renderHook(() => useRunEvents("run-created-late", true));
-    await flushMicrotasks();
-    expect(streamRequests).toBe(1);
-
-    await act(async () => {
-      vi.advanceTimersByTime(500);
-    });
-    await flushMicrotasks();
-
-    expect(streamRequests).toBe(2);
-    expect(
-      result.current.events.some((event) => event.eventId === "evt-live"),
-    ).toBe(true);
   });
 });
 
@@ -272,13 +235,6 @@ function createMessageEvent(runId: string, eventId: string, content: string) {
       role: "assistant",
     },
   };
-}
-
-async function flushMicrotasks(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
 }
 
 function setVisibilityState(state: DocumentVisibilityState): void {

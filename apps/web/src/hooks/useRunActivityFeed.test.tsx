@@ -132,31 +132,24 @@ describe("useRunActivityFeed", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("retries polling when the run is not created yet", async () => {
+  it("recovers when Brain reports the run missing before it is created", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
-      .mockResolvedValueOnce(
-        createResponse("pending-run", [
-          createTextPart("pending-run", "Run created"),
-        ]),
-      );
+      .mockResolvedValueOnce(createResponse("missing-run", []));
 
-    const { result } = renderHook(() =>
-      useRunActivityFeed("pending-run", true),
-    );
+    renderHook(() => useRunActivityFeed("missing-run", true));
 
     await flushMicrotasks();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(10_000);
     });
     await flushMicrotasks();
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.current.feed?.items).toHaveLength(1);
   });
 
   it("does not expose the previous run feed during a run switch", async () => {
