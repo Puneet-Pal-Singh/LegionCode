@@ -33,6 +33,24 @@ export interface GitDiffResult {
   readonly patch: string;
 }
 
+export interface GitSnapshotInput {
+  readonly workspace: GitFilesystemContext;
+  readonly snapshotKey: string;
+}
+
+export interface GitWorkspaceSnapshot {
+  readonly runId: string;
+  readonly filesystemRoot: string;
+  readonly headSha: string;
+  readonly treeId: string;
+}
+
+export interface GitSnapshotDiffInput {
+  readonly workspace: GitFilesystemContext;
+  readonly start: GitWorkspaceSnapshot;
+  readonly terminal: GitWorkspaceSnapshot;
+}
+
 export interface GitStageInput {
   readonly workspace: GitFilesystemContext;
   readonly paths: readonly string[];
@@ -92,6 +110,8 @@ export type GitChangedFileStatus =
 export interface GitService {
   getStatus(input: GitStatusInput): Promise<GitStatusResult>;
   getDiff(input: GitDiffInput): Promise<GitDiffResult>;
+  captureSnapshot(input: GitSnapshotInput): Promise<GitWorkspaceSnapshot>;
+  getSnapshotDiff(input: GitSnapshotDiffInput): Promise<GitDiffResult>;
   stageFiles(input: GitStageInput): Promise<GitStatusResult>;
   unstageFiles(input: GitStageInput): Promise<GitStatusResult>;
   commit(input: GitCommitInput): Promise<GitCommitResult>;
@@ -101,15 +121,7 @@ export interface GitService {
   ): Promise<GitBranchValidationResult>;
 }
 
-export type GitStatusCode =
-  | "."
-  | "M"
-  | "T"
-  | "A"
-  | "D"
-  | "R"
-  | "C"
-  | "U";
+export type GitStatusCode = "." | "M" | "T" | "A" | "D" | "R" | "C" | "U";
 
 export interface GitStatusXY {
   readonly index: GitStatusCode;
@@ -141,8 +153,7 @@ export interface OrdinaryGitStatusEntry extends BaseGitStatusEntry {
   readonly indexObjectId: string;
 }
 
-export interface RenamedOrCopiedGitStatusEntry
-  extends BaseGitStatusEntry {
+export interface RenamedOrCopiedGitStatusEntry extends BaseGitStatusEntry {
   readonly kind: "renamed_or_copied";
   readonly status: "renamed" | "copied";
   readonly previousPath: string;

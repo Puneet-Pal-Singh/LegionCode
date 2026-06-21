@@ -32,6 +32,7 @@ export class SandboxGitCommandExecutor implements GitCommandExecutor {
         {
           command: "git",
           args: [...input.args],
+          env: input.environment ? { ...input.environment } : undefined,
           cwd: input.cwd,
           runId: input.runId,
           timeoutMs: input.timeoutMs,

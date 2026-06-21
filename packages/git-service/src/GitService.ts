@@ -12,6 +12,10 @@ import {
   GIT_STATUS_PORCELAIN_V2_ARGS,
   parsePorcelainV2Status,
 } from "./status.js";
+import {
+  captureGitWorkspaceSnapshot,
+  diffGitWorkspaceSnapshots,
+} from "./snapshot.js";
 import type {
   GitBranchValidationInput,
   GitBranchValidationResult,
@@ -21,6 +25,9 @@ import type {
   GitDiffResult,
   GitPushInput,
   GitPushResult,
+  GitSnapshotDiffInput,
+  GitSnapshotInput,
+  GitWorkspaceSnapshot,
   GitStageInput,
   GitStatusInput,
   GitStatusResult,
@@ -93,6 +100,16 @@ export class DefaultGitService {
       files: [],
       patch: result.stdout,
     };
+  }
+
+  async captureSnapshot(
+    input: GitSnapshotInput,
+  ): Promise<GitWorkspaceSnapshot> {
+    return await captureGitWorkspaceSnapshot(this.executor, input);
+  }
+
+  async getSnapshotDiff(input: GitSnapshotDiffInput): Promise<GitDiffResult> {
+    return await diffGitWorkspaceSnapshots(this.executor, input);
   }
 
   async stageFiles(input: GitStageInput): Promise<GitStatusResult> {
