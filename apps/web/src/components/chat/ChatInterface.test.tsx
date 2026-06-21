@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
 import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
@@ -1685,7 +1691,9 @@ describe("ChatInterface", () => {
 
     expect(append).toHaveBeenCalledWith({
       role: "user",
-      content: expect.stringContaining("Please address the following review comments:"),
+      content: expect.stringContaining(
+        "Please address the following review comments:",
+      ),
     });
     expect(mockMarkReviewCommentsDispatched).toHaveBeenCalledWith([
       "comment-1",
@@ -2891,9 +2899,7 @@ function readInputChangeValues(handleInputChange: ReturnType<typeof vi.fn>) {
 function readLastInputChangeValue(handleInputChange: ReturnType<typeof vi.fn>) {
   const lastCall =
     handleInputChange.mock.calls[handleInputChange.mock.calls.length - 1];
-  const event = lastCall?.[0] as
-    | { target?: { value?: unknown } }
-    | undefined;
+  const event = lastCall?.[0] as { target?: { value?: unknown } } | undefined;
   return event?.target?.value;
 }
 
@@ -2904,7 +2910,7 @@ function buildReviewCommentDraft(): ReviewCommentDraft {
     rowKey: "0:0",
     newLineNumber: 152,
     side: "right" as const,
-    linePreview: "className=\"absolute bottom-1/3\"",
+    linePreview: 'className="absolute bottom-1/3"',
   };
 
   return {

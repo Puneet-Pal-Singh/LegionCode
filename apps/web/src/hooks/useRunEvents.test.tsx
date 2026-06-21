@@ -154,10 +154,11 @@ describe("useRunEvents", () => {
     );
   });
 
-  it("stops refresh requests after Brain reports the run is missing", async () => {
+  it("retries after Brain reports the run missing before it is created", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("Not Found", { status: 404 }));
+      .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
+      .mockResolvedValueOnce(new Response("", { status: 200 }));
 
     renderHook(() => useRunEvents("missing-run"));
 
@@ -173,7 +174,9 @@ describe("useRunEvents", () => {
       );
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

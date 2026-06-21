@@ -266,7 +266,7 @@ export function ChatInterface({
   });
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
-      key={turn.key}
+      key={`activity:${turn.key}`}
       turn={turn}
       expanded={expandedActivityTurns[turn.key] ?? !turn.defaultCollapsed}
       onToggleTurn={() =>
