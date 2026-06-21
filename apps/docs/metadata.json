@@ -1,0 +1,6 @@
+{
+  "name": "LegionCode Docs",
+  "description": "LegionCode Documentation Portal: An open-source web-native coding-agent workspace built on a custom Cloudflare-native execution harness.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

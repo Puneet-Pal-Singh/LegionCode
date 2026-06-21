@@ -62,5 +62,5 @@ scripts/review-script/review-findings/
 # Internal planning files
 local/
 tasks/
-docs/
+/docs/
 plans/
