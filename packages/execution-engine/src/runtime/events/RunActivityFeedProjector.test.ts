@@ -8,6 +8,31 @@ import {
 import { projectRunActivityFeed } from "./RunActivityFeedProjector.js";
 
 describe("RunActivityFeedProjector", () => {
+  it("uses the client user-message id as the persisted activity turn id", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: null,
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(snapshot.items.map((item) => item.turnId)).toEqual([
+      "client-user-1",
+      "client-user-1",
+    ]);
+  });
+
   it("projects reasoning, shell tool, and approval activity parts", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",

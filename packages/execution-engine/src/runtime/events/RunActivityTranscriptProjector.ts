@@ -80,6 +80,13 @@ function updateTurnScope(state: TranscriptBuilderState, event: RunEvent): void {
   state.turnIndex += 1;
 }
 
+function readClientMessageId(
+  metadata: Record<string, unknown> | undefined,
+): string | null {
+  const value = metadata?.clientMessageId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function projectEvent(state: TranscriptBuilderState, event: RunEvent): void {
   switch (event.type) {
     case RUN_EVENT_TYPES.RUN_STATUS_CHANGED:
