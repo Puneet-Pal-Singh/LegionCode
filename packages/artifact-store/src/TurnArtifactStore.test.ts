@@ -98,7 +98,6 @@ function turnDiff(
 ): TurnDiffPayload {
   return {
     turnId: TURN_ID,
-    outcome: "completed",
     startSnapshot,
     terminalSnapshot,
     files: [

@@ -51,7 +51,6 @@ export class DefaultTurnArtifactStore implements TurnArtifactRepository {
       contentType: "application/json",
       payload: encode(diff),
       properties: properties("turn_diff", diff.turnId, {
-        outcome: diff.outcome,
         changedFileCount: diff.files.length,
       }),
     };

@@ -50,7 +50,6 @@ export type TurnDiffFile = z.infer<typeof TurnDiffFileSchema>;
 export const TurnDiffPayloadSchema = z
   .object({
     turnId: TurnIdSchema,
-    outcome: z.enum(["completed", "failed", "interrupted"]),
     startSnapshot: TurnWorkspaceSnapshotSchema,
     terminalSnapshot: TurnWorkspaceSnapshotSchema,
     files: z.array(TurnDiffFileSchema).max(2_000),
