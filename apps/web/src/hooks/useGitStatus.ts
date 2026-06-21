@@ -4,6 +4,7 @@ import { useOptionalRunContext } from "./useRunContext";
 import { getGitStatus } from "../lib/git-client.js";
 import { subscribeRuntimeBootChanges } from "../lib/runtime-boot-monitor.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseGitStatusResult {
   status: GitStatusResponse | null;
@@ -79,10 +80,16 @@ export function useGitStatus(
       }
       applyStatusSnapshot(cached.status);
       if (cached.isFresh) {
+        logClientEvent("git/status", "cache-hit", {
+          runId,
+          fileCount: cached.status?.files.length ?? 0,
+          gitAvailable: cached.status?.gitAvailable ?? null,
+        });
         setLoading(false);
         return;
       }
       if (shouldSkipDueToRetry(cacheKey, force)) {
+        logClientEvent("git/status", "retry-suppressed", { runId });
         return;
       }
 
@@ -91,6 +98,12 @@ export function useGitStatus(
       const requestVersion = force
         ? incrementGitStatusRequestVersion(cacheKey)
         : getGitStatusRequestVersion(cacheKey);
+      logClientEvent("git/status", "requested", {
+        runId,
+        force,
+        requestVersion,
+        cachedFileCount: cached.status?.files.length ?? 0,
+      });
 
       try {
         const data = await getOrCreateGitStatusRequest(
@@ -102,20 +115,46 @@ export function useGitStatus(
           !isActiveCacheKey(requestCacheKey) ||
           requestVersion !== getGitStatusRequestVersion(cacheKey)
         ) {
+          logClientEvent("git/status", "discarded", {
+            runId,
+            requestVersion,
+            currentRequestVersion: getGitStatusRequestVersion(cacheKey),
+            reason: isActiveCacheKey(requestCacheKey)
+              ? "newer-request"
+              : "scope-changed",
+          });
           return;
         }
 
         updateCachedStatus(cacheKey, data);
         retryAfterByRunId.delete(cacheKey);
         applyStatusSnapshot(data);
+        logClientEvent("git/status", "accepted", {
+          runId,
+          requestVersion,
+          fileCount: data.files.length,
+          branch: data.branch,
+          hasStaged: data.hasStaged,
+          hasUnstaged: data.hasUnstaged,
+          gitAvailable: data.gitAvailable,
+        });
       } catch (err) {
         if (
           !isActiveCacheKey(requestCacheKey) ||
           requestVersion !== getGitStatusRequestVersion(cacheKey)
         ) {
+          logClientEvent("git/status", "failure-discarded", {
+            runId,
+            requestVersion,
+          });
           return;
         }
         const message = recordGitStatusFailure(cacheKey, err);
+        logClientWarning("git/status", "failed", {
+          runId,
+          requestVersion,
+          error: message,
+        });
         applyStatusSnapshot(statusCacheByRunId.get(cacheKey) ?? null);
         setError(message);
       } finally {
@@ -228,8 +267,11 @@ async function getOrCreateGitStatusRequest(
   runId: string,
   sessionId: string,
 ): Promise<GitStatusResponse> {
-  const request =
-    inflightByRunId.get(cacheKey) ?? createGitStatusRequest(runId, sessionId);
+  const inflight = inflightByRunId.get(cacheKey);
+  if (inflight) {
+    logClientEvent("git/status", "request-coalesced", { runId });
+  }
+  const request = inflight ?? createGitStatusRequest(runId, sessionId);
   inflightByRunId.set(cacheKey, request);
   return request;
 }
@@ -250,7 +292,6 @@ function recordGitStatusFailure(cacheKey: string, err: unknown): string {
   const message = err instanceof Error ? err.message : "Unknown error";
   retryAfterByRunId.set(cacheKey, Date.now() + RETRY_DELAY_MS);
   if (lastLoggedErrorByRunId.get(cacheKey) !== message) {
-    console.error("[useGitStatus] Error:", err);
     lastLoggedErrorByRunId.set(cacheKey, message);
   }
   return message;

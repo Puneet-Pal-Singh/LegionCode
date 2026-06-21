@@ -37,6 +37,7 @@ import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
+import { logClientEvent } from "../../lib/client-logger.js";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -210,6 +211,35 @@ export function Workspace({
     isRunLoading,
     canStopRun,
   } = runUiState;
+  useEffect(() => {
+    logClientEvent("run/ui-state", "derived", {
+      runId: activeRunId,
+      kind: runUiState.kind,
+      canonicalStatus: canonicalRunStatus,
+      summaryMatches: runSummaryMatchesActiveRun,
+      pendingApproval: hasPendingApproval,
+      pendingApprovalRequestId,
+      chatLoading: isLoading,
+      sessionRunning: isSessionRunning,
+      locallyStopped: isLocallyStoppedRun,
+      runLoading: isRunLoading,
+      approvalWaiting: isApprovalWaitingRun,
+      canStop: canStopRun,
+    });
+  }, [
+    activeRunId,
+    canStopRun,
+    canonicalRunStatus,
+    hasPendingApproval,
+    isApprovalWaitingRun,
+    isLoading,
+    isLocallyStoppedRun,
+    isRunLoading,
+    isSessionRunning,
+    pendingApprovalRequestId,
+    runSummaryMatchesActiveRun,
+    runUiState.kind,
+  ]);
   const {
     status,
     gitAvailable,

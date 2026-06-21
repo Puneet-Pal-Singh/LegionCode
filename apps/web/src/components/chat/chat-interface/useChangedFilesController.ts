@@ -24,6 +24,10 @@ import {
   mergeChangedFileSnapshots,
 } from "./changedFiles";
 import { deriveActivityChangedFilesByAssistantMessageId } from "./chatEntries";
+import {
+  logClientEvent,
+  logClientWarning,
+} from "../../../lib/client-logger.js";
 
 interface ChangedFilesControllerInput {
   messages: Message[];
@@ -156,16 +160,40 @@ function useChangedFileDiffLoader(
   return useCallback(
     async (messageId: string, file: FileStatus): Promise<DiffContent> => {
       const source = artifacts[messageId];
-      if (source)
+      if (source) {
+        logClientEvent("artifact/diff", "source-selected", {
+          source: "saved-artifact",
+          messageId,
+          artifactId: source.artifactId,
+          path: file.path,
+        });
         return loadCachedArtifactDiff(source.artifactId, file, diffCache);
+      }
       const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
       const cached = diffCache.current[cacheKey];
-      if (cached) return cached;
+      if (cached) {
+        logClientEvent("artifact/diff", "source-selected", {
+          source: "message-cache",
+          messageId,
+          path: file.path,
+        });
+        return cached;
+      }
       const preview = buildDiffFromActivityPreview(file);
       if (preview) {
+        logClientEvent("artifact/diff", "source-selected", {
+          source: "activity-preview",
+          messageId,
+          path: file.path,
+        });
         diffCache.current[cacheKey] = preview;
         return preview;
       }
+      logClientEvent("artifact/diff", "source-selected", {
+        source: "live-git",
+        messageId,
+        path: file.path,
+      });
       const diff = await getGitDiff({
         runId,
         sessionId,
@@ -194,9 +222,24 @@ async function loadCachedArtifactDiff(
 ): Promise<DiffContent> {
   const cacheKey = buildArtifactChangedFileDiffCacheKey(artifactId, file);
   const cached = diffCache.current[cacheKey];
-  if (cached) return cached;
+  if (cached) {
+    logClientEvent("artifact/diff", "cache-hit", {
+      artifactId,
+      path: file.path,
+    });
+    return cached;
+  }
+  logClientEvent("artifact/diff", "fetching", {
+    artifactId,
+    path: file.path,
+  });
   const response = await getEditArtifactDiff({ artifactId, path: file.path });
   diffCache.current[cacheKey] = response.diff;
+  logClientEvent("artifact/diff", "loaded", {
+    artifactId,
+    path: file.path,
+    hunkCount: response.diff.hunks.length,
+  });
   return response.diff;
 }
 
@@ -225,6 +268,7 @@ function useResetChangedFiles(
     refs.previousLoading.current = false;
     setSnapshots({});
     setArtifacts({});
+    logClientEvent("artifact/state", "scope-reset", { runId });
   }, [refs, runId, setArtifacts, setSnapshots]);
   useEffect(() => {
     if (!refs.previousLoading.current && isLoading) {
@@ -250,6 +294,11 @@ function useArtifactSources(
     const ids = selectArtifactLookupIds(input, artifacts, refs);
     if (!input.runId || ids.length === 0) return;
     markArtifactLookupsStarted(ids, refs);
+    logClientEvent("artifact/hydration", "batch-started", {
+      runId: input.runId,
+      messageCount: ids.length,
+      retryVersion: artifactRetryVersion,
+    });
     let cancelled = false;
     void fetchArtifactSources(input.runId, ids).then((results) => {
       if (cancelled) return;
@@ -353,6 +402,11 @@ function applyArtifactLookupResults(
     }));
   }
   if (!shouldRetryArtifactLookup(results, ids, input, refs)) return;
+  logClientEvent("artifact/hydration", "retry-scheduled", {
+    runId: input.runId,
+    messageCount: ids.length,
+    delayMs: ARTIFACT_LOOKUP_RETRY_DELAY_MS,
+  });
   refs.artifactRetryTimer.current = setTimeout(() => {
     refs.artifactRetryTimer.current = null;
     setArtifactRetryVersion((version) => version + 1);
@@ -393,14 +447,32 @@ function collectArtifactResult(
   if (!id) return;
   refs.inflightArtifacts.current.delete(id);
   if (result.status === "fulfilled" && result.value[1]) {
+    const source = result.value[1];
+    logClientEvent("artifact/hydration", "message-resolved", {
+      requestedMessageId: id,
+      returnedMessageId: source.assistantMessageId ?? null,
+      artifactId: source.artifactId,
+      fileCount: source.files.length,
+      attempt: refs.artifactAttempts.current.get(id) ?? 0,
+    });
     entries.push([id, result.value[1]]);
     return;
   }
-  if (result.status === "rejected")
-    console.warn("[chat/artifacts] Failed to hydrate artifact", {
+  if (result.status === "rejected") {
+    logClientWarning("artifact/hydration", "message-failed", {
       assistantMessageId: id,
-      error: result.reason,
+      error:
+        result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason),
+      attempt: refs.artifactAttempts.current.get(id) ?? 0,
     });
+    return;
+  }
+  logClientEvent("artifact/hydration", "message-missing", {
+    assistantMessageId: id,
+    attempt: refs.artifactAttempts.current.get(id) ?? 0,
+  });
 }
 
 function useChangedFileSnapshots(
@@ -430,6 +502,12 @@ function useChangedFileSnapshots(
             refs.baseline.current,
           );
     if (changed.length === 0) return;
+    logClientEvent("artifact/snapshot", "assigned", {
+      runId: input.runId,
+      assistantMessageId: latestAssistantMessageId,
+      fileCount: changed.length,
+      source: refs.pending.current.length > 0 ? "pending-git" : "live-git",
+    });
     setSnapshots((current) => {
       const next = cloneFileStatuses(changed);
       return areFileStatusListsEqual(current[latestAssistantMessageId], next)
