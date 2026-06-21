@@ -170,11 +170,14 @@ describe("GitReviewProvider", () => {
       </GitReviewProvider>,
     );
 
+    expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
+
     expect(screen.getByTestId("review-scope")).toHaveTextContent(
       "prompt-artifact",
     );
     expect(screen.getByTestId("review-source")).toHaveTextContent(
-      "prompt_artifact:live_git_empty_fallback",
+      "prompt_artifact:explicit",
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
 
@@ -201,6 +204,7 @@ describe("GitReviewProvider", () => {
       </GitReviewProvider>,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
     await waitFor(() => {
       expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
     });
@@ -268,6 +272,9 @@ describe("GitReviewProvider", () => {
     expect(latestArtifactHookInput()).toEqual(
       expect.objectContaining({ enabled: true }),
     );
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+
+    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
   });
 

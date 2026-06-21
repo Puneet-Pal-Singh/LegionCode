@@ -84,6 +84,41 @@ describe("useGitStatus", () => {
     });
   });
 
+  it("keeps the last good Git snapshot when a refresh fails", async () => {
+    const getGitStatusMock = vi.mocked(getGitStatus);
+    getGitStatusMock
+      .mockResolvedValueOnce(
+        buildGitStatus({
+          files: [
+            {
+              path: "src/app.ts",
+              status: "modified",
+              additions: 3,
+              deletions: 1,
+              isStaged: false,
+            },
+          ],
+          hasUnstaged: true,
+        }),
+      )
+      .mockRejectedValueOnce(new Error("temporary git failure"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const result = renderHook(() => useGitStatus("run-1", "session-1"));
+
+    await waitFor(() => {
+      expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
+    });
+    await act(async () => {
+      await result.result.current.refetch(true);
+    });
+
+    expect(result.result.current.error).toBe("temporary git failure");
+    expect(result.result.current.status?.files[0]?.path).toBe("src/app.ts");
+    consoleError.mockRestore();
+  });
+
   it("lets forced refetch bypass retry backoff after a transient failure", async () => {
     const getGitStatusMock = vi.mocked(getGitStatus);
     getGitStatusMock

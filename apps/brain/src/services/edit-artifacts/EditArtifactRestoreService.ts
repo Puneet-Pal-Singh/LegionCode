@@ -52,19 +52,35 @@ export class EditArtifactRestoreService {
       return "not-needed";
     }
 
-    const artifact = await this.loadRestorableArtifact(
+    const artifacts = await this.loadRestorableArtifacts(
       input.runId,
       input.userId,
     );
-    if (!artifact) {
+    if (artifacts.length === 0) {
       return "not-needed";
     }
 
-    await this.markRestoreAttempted(artifact, input.runId);
+    for (const artifact of artifacts) {
+      const result = await this.restoreArtifact(input, artifact);
+      if (result !== "restored") {
+        return result;
+      }
+    }
+    return "restored";
+  }
 
+  private async restoreArtifact(
+    input: { runId: string; muscleSession: string },
+    artifact: EditArtifactRecord,
+  ): Promise<"restored" | "requires-user-resolution"> {
+    await this.markRestoreAttempted(artifact, input.runId);
     const patch = await this.objectStore.readPatch(artifact.r2ObjectKey);
     if (!patch) {
-      await this.markRestoreFailed(artifact, input.runId, "Patch object missing");
+      await this.markRestoreFailed(
+        artifact,
+        input.runId,
+        "Patch object missing",
+      );
       return "requires-user-resolution";
     }
 
@@ -79,17 +95,13 @@ export class EditArtifactRestoreService {
     }
   }
 
-  private async loadRestorableArtifact(
+  private async loadRestorableArtifacts(
     runId: string,
     userId?: string,
-  ): Promise<EditArtifactRecord | null> {
-    const artifact = await withArtifactRepository(this.env, async (repository) => {
-      if (!userId) {
-        return await repository.getLatestRestorableArtifactForRun(runId);
-      }
-      return await repository.getLatestRestorableArtifact(runId, userId);
+  ): Promise<EditArtifactRecord[]> {
+    return await withArtifactRepository(this.env, async (repository) => {
+      return await repository.listRestorableArtifacts({ runId, userId });
     });
-    return artifact;
   }
 
   private async markRestoreAttempted(
@@ -108,7 +120,8 @@ export class EditArtifactRestoreService {
           artifactId: artifact.id,
           runId,
           eventType: "restore_attempted",
-          message: "Applying latest saved edit artifact after workspace bootstrap",
+          message:
+            "Applying latest saved edit artifact after workspace bootstrap",
           metadata: { r2ObjectKey: artifact.r2ObjectKey },
         });
       });
@@ -197,7 +210,9 @@ export class EditArtifactRestoreService {
 }
 
 export function canRestoreEditArtifacts(env: Env): boolean {
-  return Boolean(env.EDIT_ARTIFACTS && (env.HYPERDRIVE || env.AUTH_ARTIFACT_REPOSITORY));
+  return Boolean(
+    env.EDIT_ARTIFACTS && (env.HYPERDRIVE || env.AUTH_ARTIFACT_REPOSITORY),
+  );
 }
 
 function shouldRestore(status: GitStatusResponse): boolean {

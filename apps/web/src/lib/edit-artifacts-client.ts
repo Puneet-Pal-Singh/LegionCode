@@ -9,6 +9,7 @@ import {
   editArtifactDiffPath,
   latestEditArtifactPath,
 } from "./platform-endpoints.js";
+import { logClientEvent, logClientWarning } from "./client-logger.js";
 
 export async function getLatestEditArtifactReviewSource(input: {
   runId: string;
@@ -24,10 +25,19 @@ export async function getEditArtifactReviewSourceByMessage(input: {
   runId: string;
   assistantMessageId: string;
 }): Promise<PromptArtifactReviewSource | null> {
+  logClientEvent("artifact/lookup", "requested", {
+    runId: input.runId,
+    assistantMessageId: input.assistantMessageId,
+  });
   const response = await fetch(editArtifactByMessagePath(input), {
     credentials: "include",
   });
-  return await readNullableArtifactResponse(response);
+  const source = await readNullableArtifactResponse(response);
+  logArtifactLookupResult(input, response.status, source);
+  if (source && source.assistantMessageId !== input.assistantMessageId) {
+    return null;
+  }
+  return source;
 }
 
 export async function getEditArtifactDiff(input: {
@@ -75,4 +85,27 @@ async function readArtifactError(
     return fallback;
   }
   return fallback;
+}
+
+function logArtifactLookupResult(
+  input: { runId: string; assistantMessageId: string },
+  status: number,
+  source: PromptArtifactReviewSource | null,
+): void {
+  const context = {
+    runId: input.runId,
+    requestedMessageId: input.assistantMessageId,
+    returnedMessageId: source?.assistantMessageId ?? null,
+    artifactId: source?.artifactId ?? null,
+    fileCount: source?.files.length ?? 0,
+    status,
+  };
+  if (
+    source?.assistantMessageId &&
+    source.assistantMessageId !== input.assistantMessageId
+  ) {
+    logClientWarning("artifact/lookup", "ownership-mismatch", context);
+    return;
+  }
+  logClientEvent("artifact/lookup", source ? "found" : "missing", context);
 }

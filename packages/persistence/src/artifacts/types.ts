@@ -55,6 +55,10 @@ export interface ArtifactRepository {
   getLatestRestorableArtifactForRun(
     runId: string,
   ): Promise<EditArtifactRecord | null>;
+  listRestorableArtifacts(input: {
+    runId: string;
+    userId?: string;
+  }): Promise<EditArtifactRecord[]>;
   getArtifactById(
     artifactId: string,
     userId: string,

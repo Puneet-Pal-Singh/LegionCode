@@ -132,16 +132,7 @@ export class EditArtifactReviewService {
     if (exactArtifact) {
       return exactArtifact;
     }
-
-    if (input.userId) {
-      return await repository.getLatestReviewArtifact({
-        runId: input.runId,
-        userId: input.userId,
-      });
-    }
-    return await repository.getLatestReviewArtifactForRun({
-      runId: input.runId,
-    });
+    return null;
   }
 
   private async loadUserArtifact(
@@ -248,7 +239,9 @@ function toReviewStatus(
   return "stored";
 }
 
-function normalizeReviewStatus(status: string): EditArtifactReviewFile["status"] {
+function normalizeReviewStatus(
+  status: string,
+): EditArtifactReviewFile["status"] {
   if (
     status === "added" ||
     status === "modified" ||

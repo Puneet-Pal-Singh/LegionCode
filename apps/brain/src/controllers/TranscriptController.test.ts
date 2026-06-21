@@ -172,6 +172,7 @@ describe("TranscriptController", () => {
       activeRunId: TEST_RUN_ID,
       status: "running",
       role: "user",
+      clientMessageId: "client-user-1",
       dedupeKey: "user-message",
       parts: [{ type: "text", content: { text: "hello" } }],
     });
@@ -187,6 +188,7 @@ describe("TranscriptController", () => {
     await expect(response.json()).resolves.toMatchObject({
       messages: [
         {
+          id: "client-user-1",
           role: "user",
           content: "hello",
         },

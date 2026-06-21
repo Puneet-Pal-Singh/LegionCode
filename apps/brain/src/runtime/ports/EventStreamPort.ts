@@ -20,6 +20,9 @@ export type StreamEvent = RunEvent;
  * Abstracts transport and streaming pipeline details.
  */
 export interface RealtimeEventPort {
+  /** Start or reopen the event lifecycle for a run identifier. */
+  start(runId: string): void;
+
   /**
    * Emit a single event to the stream.
    *
@@ -64,5 +67,5 @@ export interface RealtimeEventPort {
    * @param runId - Run identifier
    * @returns ReadableStream of serialized events
    */
-  getStream(runId: string): ReadableStream<unknown>;
+  getStream(runId: string): ReadableStream<Uint8Array>;
 }

@@ -94,12 +94,18 @@ describe("useRunSummary", () => {
     });
   });
 
-  it("stops requesting a run after Brain reports it is missing", async () => {
+  it("retries after Brain reports the run missing before it is created", async () => {
     let now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi
       .mocked(globalThis.fetch)
-      .mockResolvedValue(new Response("Not Found", { status: 404 }));
+      .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ runId: "missing-run", status: "RUNNING" }),
+          { status: 200 },
+        ),
+      );
 
     renderHook(() => useRunSummary("missing-run", true));
 
@@ -116,7 +122,9 @@ describe("useRunSummary", () => {
       );
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("settles a running canonical summary after stream polling stops", async () => {

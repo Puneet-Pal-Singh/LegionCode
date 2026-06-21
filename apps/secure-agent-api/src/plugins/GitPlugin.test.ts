@@ -337,6 +337,113 @@ describe("GitPlugin", () => {
     expect(
       diffCommandSpec?.args?.some((arg) => arg.startsWith("--output=")),
     ).toBe(true);
+    expect(diffCommandSpec?.args).toEqual(
+      expect.arrayContaining(["--unified=999999", "HEAD"]),
+    );
+  });
+
+  it("captures an immutable worktree baseline without changing the real index", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
+      if (spec.command === "rm") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (spec.args?.includes("write-tree")) {
+        return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await new GitPlugin().execute(asSandbox({}), {
+      action: "git_worktree_snapshot",
+      runId: "run_snapshot",
+    });
+
+    expect(result).toEqual({
+      success: true,
+      output: JSON.stringify({ treeSha: "a".repeat(40) }),
+    });
+    const gitCalls = runSafeCommandMock.mock.calls.filter(
+      ([, spec]) => spec.command === "git",
+    );
+    expect(gitCalls).toHaveLength(3);
+    expect(
+      gitCalls.every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
+    ).toBe(true);
+  });
+
+  it("diffs prompt files against the prepared baseline index", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    const baselineTree = "b".repeat(40);
+    const readFile = vi.fn().mockResolvedValue({
+      success: true,
+      content: "diff --git a/src/app.ts b/src/app.ts\n",
+    });
+    runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
+      const args = spec.args ?? [];
+      if (spec.command === "mkdir" || spec.command === "rm") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("status")) {
+        return { exitCode: 0, stdout: "## main\n M src/app.ts\n", stderr: "" };
+      }
+      if (args.includes("ls-files")) {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("ls-tree")) {
+        return { exitCode: 0, stdout: "src/app.ts\n", stderr: "" };
+      }
+      if (args.includes("rev-parse")) {
+        return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
+      }
+      if (args.includes("branch")) {
+        return { exitCode: 0, stdout: "main\n", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    const result = await new GitPlugin().execute(asSandbox({ readFile }), {
+      action: "git_patch_capture",
+      runId: "run_turn_patch",
+      baselineTree,
+      files: ["src/app.ts"],
+    });
+
+    expect(result.success).toBe(true);
+    const diffSpec = runSafeCommandMock.mock.calls.find(([, spec]) =>
+      spec.args?.includes("--find-renames"),
+    )?.[1];
+    expect(diffSpec?.env?.GIT_INDEX_FILE).toContain("shadowbox-baseline-");
+    expect(diffSpec?.args).toEqual(
+      expect.arrayContaining(["--unified=999999", "--", "src/app.ts"]),
+    );
+    expect(diffSpec?.args).not.toContain(baselineTree);
+  });
+
+  it("rejects an invalid baseline tree before invoking git read-tree", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+
+    const result = await new GitPlugin().execute(asSandbox({}), {
+      action: "git_patch_capture",
+      runId: "run_invalid_baseline",
+      baselineTree: "main; rm -rf workspace",
+      files: ["src/app.ts"],
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: "Invalid Git object id",
+    });
+    expect(
+      runSafeCommandMock.mock.calls.some(([, spec]) =>
+        spec.args?.includes("read-tree"),
+      ),
+    ).toBe(false);
   });
 
   it("hydrates commit identity from GitHub token when local identity is missing", async () => {

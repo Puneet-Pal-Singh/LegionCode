@@ -19,6 +19,7 @@ import {
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../types/ai";
+import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 
 describe("RunEngineRequestHandler", () => {
@@ -314,13 +315,21 @@ describe("RunEngineRequestHandler", () => {
     expect(secondEvent.runId).toBe(runId);
   });
 
-  it("returns a closed snapshot from the event stream endpoint", async () => {
+  it("streams events emitted after the event stream endpoint connects", async () => {
     const ctx = new MockDurableObjectState();
-    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
-    const eventRepo = new RunEventRepository(runtimeState);
     const runId = "123e4567-e89b-42d3-a456-426614174111";
-    await eventRepo.append(
-      runId,
+    const eventStream = new CloudflareEventStreamAdapter();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      eventStream,
+    );
+
+    const response = await handler.handleEventsStreamRequest(
+      new Request(`https://brain.local/events/stream?runId=${runId}`),
+    );
+    eventStream.emit(
       createToolRequestedEvent(
         {
           runId,
@@ -331,21 +340,13 @@ describe("RunEngineRequestHandler", () => {
         { path: "README.md" },
       ),
     );
-    const handler = new RunEngineRequestHandler(
-      ctx as unknown as DurableObjectState,
-      {} as Env,
-      runImmediately,
-    );
-
-    const response = await handler.handleEventsStreamRequest(
-      new Request(`https://brain.local/events/stream?runId=${runId}`),
-    );
+    eventStream.complete(runId);
 
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toContain('"toolName":"read_file"');
   });
 
-  it("returns an empty closed event stream snapshot before cancellation", async () => {
+  it("streams the canonical cancellation event to connected clients", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
@@ -358,10 +359,12 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
 
+    const eventStream = new CloudflareEventStreamAdapter();
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      eventStream,
     );
 
     const streamResponse = await handler.handleEventsStreamRequest(
@@ -378,7 +381,9 @@ describe("RunEngineRequestHandler", () => {
     );
 
     expect(cancelResponse.status).toBe(200);
-    await expect(streamResponse.text()).resolves.toBe("");
+    await expect(streamResponse.text()).resolves.toContain(
+      `"type":"${RUN_EVENT_TYPES.RUN_STATUS_CHANGED}"`,
+    );
   });
 
   it("does not queue cancel behind the execution lock", async () => {

@@ -151,11 +151,23 @@ export const GitTools: ToolDefinition[] = [
     },
   },
   {
+    name: "git_worktree_snapshot",
+    description: "Capture the current worktree as an immutable Git tree.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
     name: "git_patch_capture",
     description: "Capture uncommitted workspace changes as a binary git patch.",
     parameters: {
       type: "object",
-      properties: {},
+      properties: {
+        baselineTree: { type: "string" },
+        files: { type: "array", items: { type: "string" } },
+      },
       required: [],
     },
   },

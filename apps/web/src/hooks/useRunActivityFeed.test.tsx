@@ -26,9 +26,7 @@ describe("useRunActivityFeed", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
-        createResponse("run-1", [
-          createTextPart("run-1", "Inspect the app."),
-        ]),
+        createResponse("run-1", [createTextPart("run-1", "Inspect the app.")]),
       )
       .mockResolvedValueOnce(
         createResponse("run-1", [
@@ -89,13 +87,11 @@ describe("useRunActivityFeed", () => {
 
   it("stops polling the current run after an authorization failure", async () => {
     vi.useFakeTimers();
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response("Unauthorized", {
-          status: 401,
-          statusText: "Unauthorized",
-        }),
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Unauthorized", {
+        status: 401,
+        statusText: "Unauthorized",
+      }),
     );
 
     renderHook(() => useRunActivityFeed("run-1", true));
@@ -136,11 +132,12 @@ describe("useRunActivityFeed", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it("stops polling after Brain reports the run is missing", async () => {
+  it("recovers when Brain reports the run missing before it is created", async () => {
     vi.useFakeTimers();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("Not Found", { status: 404 }));
+      .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
+      .mockResolvedValueOnce(createResponse("missing-run", []));
 
     renderHook(() => useRunActivityFeed("missing-run", true));
 
@@ -152,7 +149,7 @@ describe("useRunActivityFeed", () => {
     });
     await flushMicrotasks();
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("does not expose the previous run feed during a run switch", async () => {

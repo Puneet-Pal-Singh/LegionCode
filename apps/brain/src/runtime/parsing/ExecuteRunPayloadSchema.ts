@@ -19,14 +19,24 @@ import {
  * Supports user, assistant, system, and tool messages.
  */
 const CoreMessageSchema = z.union([
-  z.object({ role: z.literal("system"), content: z.string() }),
-  z.object({ role: z.literal("user"), content: z.unknown() }),
   z.object({
+    id: z.string().trim().min(1).optional(),
+    role: z.literal("system"),
+    content: z.string(),
+  }),
+  z.object({
+    id: z.string().trim().min(1).optional(),
+    role: z.literal("user"),
+    content: z.unknown(),
+  }),
+  z.object({
+    id: z.string().trim().min(1).optional(),
     role: z.literal("assistant"),
     content: z.unknown(),
     tool_calls: z.array(z.unknown()).optional(),
   }),
   z.object({
+    id: z.string().trim().min(1).optional(),
     role: z.literal("tool"),
     content: z.unknown(),
     tool_call_id: z.string(),

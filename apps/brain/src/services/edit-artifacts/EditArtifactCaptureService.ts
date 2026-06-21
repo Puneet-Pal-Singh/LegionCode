@@ -35,6 +35,7 @@ interface CaptureAfterRunInput {
   assistantMessageId?: string;
   sourceTurnId?: string;
   captureSequence?: number;
+  baselineTree?: string;
 }
 
 interface CapturedPatchPayload {
@@ -60,14 +61,32 @@ export class EditArtifactCaptureService {
   }
 
   async captureAfterRunMutation(input: CaptureAfterRunInput): Promise<void> {
-    const gitClient = this.createGitClient(input);
-    const changedFiles = await this.resolveChangedFiles(input, gitClient);
-    if (changedFiles.length === 0) {
+    if (input.changedFiles.length === 0) {
       return;
     }
-
-    const capturedPatch = await gitClient.capturePatch();
+    if (!input.baselineTree) {
+      throw new Error(
+        "Edit artifact capture requires a prepared turn baseline",
+      );
+    }
+    const gitClient = this.createGitClient(input);
+    const capturedPatch = await gitClient.capturePatch({
+      baselineTree: input.baselineTree,
+      files: input.changedFiles.map((file) => file.path),
+    });
     if (!capturedPatch) {
+      return;
+    }
+    const changedFiles = parsePatchFileInventory(capturedPatch.patch).map(
+      (file) => ({
+        path: file.path,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        isStaged: false,
+      }),
+    );
+    if (changedFiles.length === 0) {
       return;
     }
 
@@ -91,19 +110,15 @@ export class EditArtifactCaptureService {
     );
   }
 
-  private async resolveChangedFiles(
-    input: CaptureAfterRunInput,
-    gitClient: SecureGitArtifactClient,
-  ): Promise<EditArtifactChangedFile[]> {
-    const gitChangedFiles = await this.loadChangedFilesFromGit(gitClient);
-    if (input.changedFiles.length === 0) {
-      return gitChangedFiles;
-    }
-
-    return mergePromptChangedFilesWithGitStats(
-      input.changedFiles,
-      gitChangedFiles,
-    );
+  async captureBaseline(input: {
+    muscleSession: string;
+    runId: string;
+  }): Promise<string> {
+    return await new SecureGitArtifactClient(
+      this.env,
+      input.muscleSession,
+      input.runId,
+    ).captureWorktreeSnapshot();
   }
 
   private async persistCapturedArtifact(
@@ -447,25 +462,13 @@ export class EditArtifactCaptureService {
       });
     }
   }
-
-  private async loadChangedFilesFromGit(
-    gitClient: SecureGitArtifactClient,
-  ): Promise<EditArtifactChangedFile[]> {
-    const status = await gitClient.getStatus();
-    if (!status) {
-      return [];
-    }
-    return status.files.map((file) => ({
-      path: file.path,
-      status: file.status,
-      additions: file.additions,
-      deletions: file.deletions,
-      isStaged: file.isStaged,
-    }));
-  }
 }
 
 interface EditArtifactCapturePort {
+  captureBaseline(input: {
+    muscleSession: string;
+    runId: string;
+  }): Promise<string>;
   captureAfterRunMutation(input: CaptureAfterRunInput): Promise<void>;
 }
 
@@ -476,6 +479,7 @@ interface EditArtifactMessageContext {
 }
 
 interface EditArtifactCoordinator {
+  prepare(): Promise<void>;
   handleEvent(event: RunEvent): void;
   setMessageContext(context: EditArtifactMessageContext): void;
   waitForPendingCapture(): Promise<void>;
@@ -488,6 +492,7 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   private runCompleted = false;
   private captured = false;
   private messageContext: EditArtifactMessageContext = {};
+  private baselineTree: string | undefined;
 
   constructor(
     private readonly service: EditArtifactCapturePort,
@@ -503,12 +508,30 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
     },
   ) {}
 
+  async prepare(): Promise<void> {
+    try {
+      this.baselineTree = await this.service.captureBaseline({
+        muscleSession: this.context.muscleSession,
+        runId: this.context.runId,
+      });
+    } catch (error) {
+      this.baselineTree = undefined;
+      console.warn("[edit-artifacts/baseline] capture unavailable", {
+        runId: this.context.runId,
+        error,
+      });
+    }
+  }
+
   handleEvent(event: RunEvent): void {
     if (event.type === RUN_EVENT_TYPES.TOOL_COMPLETED) {
       this.recordMutation(event);
     }
 
-    if (event.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+    if (
+      event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+      event.type === RUN_EVENT_TYPES.RUN_FAILED
+    ) {
       this.runCompleted = true;
     }
   }
@@ -533,10 +556,6 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   }
 
   private recordMutation(event: ToolCompletedEvent): void {
-    if (event.payload.toolName !== "write_file") {
-      return;
-    }
-
     const changedFile = extractChangedFileFromToolResult(event.payload.result);
     if (!changedFile) {
       return;
@@ -545,12 +564,16 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   }
 
   private async capture(): Promise<void> {
+    if (this.changedFiles.size === 0) {
+      return;
+    }
     this.captureSequence += 1;
     await this.service.captureAfterRunMutation({
       ...this.context,
       ...this.messageContext,
       changedFiles: Array.from(this.changedFiles.values()),
       captureSequence: this.captureSequence,
+      baselineTree: this.baselineTree,
     });
   }
 }
@@ -587,6 +610,10 @@ export function createEditArtifactCoordinator(input: {
 }
 
 class NoopEditArtifactCoordinator implements EditArtifactCoordinator {
+  async prepare(): Promise<void> {
+    return;
+  }
+
   handleEvent(): void {
     return;
   }

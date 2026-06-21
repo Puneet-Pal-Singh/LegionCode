@@ -1,7 +1,17 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
-import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
+import type {
+  ApprovalRequest,
+  GitStatusResponse,
+  RunEvent,
+} from "@repo/shared-types";
 import { ChatInterface } from "./ChatInterface.js";
 import { runApprovalPath } from "../../lib/platform-endpoints.js";
 import type { ReviewCommentDraft } from "../git/reviewComments.js";
@@ -212,7 +222,7 @@ describe("ChatInterface", () => {
             id: "text-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -224,7 +234,7 @@ describe("ChatInterface", () => {
             id: "reasoning-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -238,7 +248,7 @@ describe("ChatInterface", () => {
             id: "handoff-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "handoff",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -464,7 +474,7 @@ describe("ChatInterface", () => {
     );
   });
 
-  it("caches missing artifact sources for assistant messages before terminal status", async () => {
+  it("defers missing artifact retries until terminal status", async () => {
     const messages: Message[] = [
       {
         id: "assistant-no-artifact",
@@ -528,6 +538,39 @@ describe("ChatInterface", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(1);
+
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-active",
+        status: "COMPLETED",
+        totalTasks: 1,
+        completedTasks: 1,
+        failedTasks: 0,
+      },
+    });
+    rerender(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("opens artifact review from a terminal card changed-file list", async () => {
@@ -655,7 +698,7 @@ describe("ChatInterface", () => {
                         id: "activity-provider",
                         runId: "run-1",
                         sessionId: "session-1",
-                        turnId: "run-1:turn-1",
+                        turnId: "user-1",
                         sequence: 1,
                         kind: "provider_error",
                         status: "paused",
@@ -895,7 +938,7 @@ describe("ChatInterface", () => {
             id: "user-activity",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -907,7 +950,7 @@ describe("ChatInterface", () => {
             id: "edit-activity",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:02.000Z",
@@ -1528,6 +1571,81 @@ describe("ChatInterface", () => {
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
+  it("keeps a resolved approval hidden while the summary snapshot is stale", () => {
+    const request: ApprovalRequest = {
+      requestId: "req-resolved-event",
+      runId: "run-resolved-approval",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run the verification command?",
+      reason: "The command changes process state.",
+      actionFingerprint: "shell:pnpm-test",
+      command: "pnpm test",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: request.runId,
+        status: "approval_required",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: request,
+      },
+    });
+    vi.mocked(useRunEvents).mockReturnValue({
+      events: [
+        {
+          version: 1,
+          eventId: "evt-requested",
+          runId: request.runId,
+          timestamp: request.createdAt,
+          source: "brain",
+          type: "approval.requested",
+          payload: { request },
+        },
+        {
+          version: 1,
+          eventId: "evt-resolved",
+          runId: request.runId,
+          timestamp: "2026-01-01T00:00:01.000Z",
+          source: "brain",
+          type: "approval.resolved",
+          payload: {
+            requestId: request.requestId,
+            decision: "allow_once",
+            status: "approved",
+            resolvedAt: "2026-01-01T00:00:01.000Z",
+          },
+        },
+      ],
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: request.runId,
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(screen.queryByText(request.title)).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+  });
+
   it("renders the approval title and command in the dock", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
@@ -1685,7 +1803,9 @@ describe("ChatInterface", () => {
 
     expect(append).toHaveBeenCalledWith({
       role: "user",
-      content: expect.stringContaining("Please address the following review comments:"),
+      content: expect.stringContaining(
+        "Please address the following review comments:",
+      ),
     });
     expect(mockMarkReviewCommentsDispatched).toHaveBeenCalledWith([
       "comment-1",
@@ -2004,7 +2124,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2016,7 +2136,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2030,7 +2150,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:02.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2050,7 +2170,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2062,7 +2182,7 @@ describe("ChatInterface", () => {
             id: "turn-2-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "reasoning",
             createdAt: "2026-03-24T10:01:01.000Z",
             updatedAt: "2026-03-24T10:01:01.000Z",
@@ -2076,7 +2196,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:02.000Z",
             updatedAt: "2026-03-24T10:01:03.000Z",
@@ -2096,7 +2216,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-2",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:04.000Z",
             updatedAt: "2026-03-24T10:01:05.000Z",
@@ -2170,7 +2290,7 @@ describe("ChatInterface", () => {
     );
   });
 
-  it("matches workflow turns when persisted prompts normalize file mentions", async () => {
+  it("matches workflow turns by canonical prompt identity", async () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
         runId: "run-1",
@@ -2191,7 +2311,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2203,7 +2323,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:05.000Z",
@@ -2296,7 +2416,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2308,7 +2428,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2398,7 +2518,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2410,7 +2530,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2424,7 +2544,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:02.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2444,7 +2564,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2456,7 +2576,7 @@ describe("ChatInterface", () => {
             id: "turn-2-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "reasoning",
             createdAt: "2026-03-24T10:01:01.000Z",
             updatedAt: "2026-03-24T10:01:01.000Z",
@@ -2470,7 +2590,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:02.000Z",
             updatedAt: "2026-03-24T10:01:03.000Z",
@@ -2490,7 +2610,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-2",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:04.000Z",
             updatedAt: "2026-03-24T10:01:05.000Z",
@@ -2588,7 +2708,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2600,7 +2720,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2620,7 +2740,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2632,7 +2752,7 @@ describe("ChatInterface", () => {
             id: "turn-3-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-3",
+            turnId: "user-3",
             kind: "text",
             createdAt: "2026-03-24T10:02:00.000Z",
             updatedAt: "2026-03-24T10:02:00.000Z",
@@ -2644,7 +2764,7 @@ describe("ChatInterface", () => {
             id: "turn-3-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-3",
+            turnId: "user-3",
             kind: "tool",
             createdAt: "2026-03-24T10:02:01.000Z",
             updatedAt: "2026-03-24T10:02:05.000Z",
@@ -2772,7 +2892,7 @@ describe("ChatInterface", () => {
     expect(container.textContent ?? "").not.toContain("Read README.md");
   });
 
-  it("attaches a recycled run's turn-1 workflow to the latest matching user query", () => {
+  it("attaches a recycled run workflow by canonical prompt identity", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
         runId: "run-2",
@@ -2793,7 +2913,7 @@ describe("ChatInterface", () => {
             id: "run-2-user",
             runId: "run-2",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:10:00.000Z",
             updatedAt: "2026-03-24T10:10:00.000Z",
@@ -2805,7 +2925,7 @@ describe("ChatInterface", () => {
             id: "run-2-tool-1",
             runId: "run-2",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:10:01.000Z",
             updatedAt: "2026-03-24T10:10:03.000Z",
@@ -2891,9 +3011,7 @@ function readInputChangeValues(handleInputChange: ReturnType<typeof vi.fn>) {
 function readLastInputChangeValue(handleInputChange: ReturnType<typeof vi.fn>) {
   const lastCall =
     handleInputChange.mock.calls[handleInputChange.mock.calls.length - 1];
-  const event = lastCall?.[0] as
-    | { target?: { value?: unknown } }
-    | undefined;
+  const event = lastCall?.[0] as { target?: { value?: unknown } } | undefined;
   return event?.target?.value;
 }
 
@@ -2904,7 +3022,7 @@ function buildReviewCommentDraft(): ReviewCommentDraft {
     rowKey: "0:0",
     newLineNumber: 152,
     side: "right" as const,
-    linePreview: "className=\"absolute bottom-1/3\"",
+    linePreview: 'className="absolute bottom-1/3"',
   };
 
   return {

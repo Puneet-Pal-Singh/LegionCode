@@ -9,6 +9,10 @@ import {
   isTerminalRunStatus,
 } from "../../../lib/run-status.js";
 import { dispatchRunSummaryRefresh } from "../../../lib/run-summary-events.js";
+import {
+  logClientEvent,
+  logClientWarning,
+} from "../../../lib/client-logger.js";
 import { getDisplayedApprovalDecisions } from "../approval/approvalDecisions.js";
 import {
   derivePendingApprovalFromEvents,
@@ -49,11 +53,37 @@ export function useApprovalController(input: ApprovalControllerInput) {
     [input.events],
   );
   const candidate = useMemo(
-    () => resolveApprovalCandidate(input.summary, eventApproval),
-    [eventApproval, input.summary],
+    () => resolveApprovalCandidate(input.summary, eventApproval, input.events),
+    [eventApproval, input.events, input.summary],
   );
   const pendingApproval =
     candidate && !isSameApproval(candidate, dismissed) ? candidate : null;
+
+  useEffect(() => {
+    logClientEvent("approval/presentation", "derived", {
+      runId: input.runId,
+      summaryStatus: input.summary?.status ?? null,
+      summaryRequestId: input.summary?.pendingApproval?.requestId ?? null,
+      eventRequestId: eventApproval?.requestId ?? null,
+      candidateRequestId: candidate?.requestId ?? null,
+      candidateSource: resolveApprovalSource(
+        candidate,
+        input.summary?.pendingApproval ?? null,
+        eventApproval,
+      ),
+      pending: Boolean(pendingApproval),
+      dismissedRequestId: dismissed?.requestId ?? null,
+      eventCount: input.events.length,
+    });
+  }, [
+    candidate,
+    dismissed,
+    eventApproval,
+    input.events.length,
+    input.runId,
+    input.summary,
+    pendingApproval,
+  ]);
 
   useApprovalLifecycle(
     candidate,
@@ -97,12 +127,29 @@ export function useApprovalController(input: ApprovalControllerInput) {
 function resolveApprovalCandidate(
   summary: ApprovalSummary | null,
   eventApproval: ApprovalRequest | null,
+  events: RunEvent[],
 ): ApprovalRequest | null {
   if (!summary) return eventApproval;
-  if (summary.pendingApproval) return summary.pendingApproval;
+  if (
+    summary.pendingApproval &&
+    !hasResolvedApprovalEvent(events, summary.pendingApproval.requestId)
+  ) {
+    return summary.pendingApproval;
+  }
   const terminal = isTerminalRunStatus(summary.status);
   const waiting = isApprovalRequiredRunStatus(summary.status);
   return terminal && !waiting ? null : eventApproval;
+}
+
+function hasResolvedApprovalEvent(
+  events: RunEvent[],
+  requestId: string,
+): boolean {
+  return events.some(
+    (event) =>
+      event.type === "approval.resolved" &&
+      event.payload.requestId === requestId,
+  );
 }
 
 function useApprovalLifecycle(
@@ -165,9 +212,29 @@ interface ResolveDecisionInput extends ApprovalControllerInput {
 }
 
 async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
-  if (input.submittingRef.current) return;
+  if (input.submittingRef.current) {
+    logClientWarning("approval/action", "ignored", {
+      runId: input.runId,
+      decision: input.decision,
+      reason: "already-submitting",
+    });
+    return;
+  }
   const pending = input.summary?.pendingApproval ?? input.eventApproval;
-  if (!pending || isSameApproval(pending, input.dismissed)) return;
+  if (!pending || isSameApproval(pending, input.dismissed)) {
+    logClientWarning("approval/action", "ignored", {
+      runId: input.runId,
+      decision: input.decision,
+      requestId: pending?.requestId ?? null,
+      reason: pending ? "dismissed" : "not-pending",
+    });
+    return;
+  }
+  logClientEvent("approval/action", "submitted", {
+    runId: input.runId,
+    requestId: pending.requestId,
+    decision: input.decision,
+  });
   input.submittingRef.current = true;
   input.setBusyDecision(input.decision);
   input.setError(null);
@@ -175,6 +242,12 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   try {
     await submitOrRecover(input, pending);
   } catch (error) {
+    logClientWarning("approval/action", "failed", {
+      runId: input.runId,
+      requestId: pending.requestId,
+      decision: input.decision,
+      error: error instanceof Error ? error.message : String(error),
+    });
     input.setNotice(null);
     input.setError(
       error instanceof Error
@@ -195,6 +268,13 @@ async function submitOrRecover(
     runId: input.runId,
     requestId: pending.requestId,
     decision: input.decision,
+  });
+  logClientEvent("approval/action", "response", {
+    runId: input.runId,
+    requestId: pending.requestId,
+    decision: input.decision,
+    status: response.status,
+    ok: response.ok,
   });
   if (response.ok) {
     markResolved(input, pending.requestId);
@@ -226,6 +306,13 @@ async function retryLatestApproval(
     requestId: latest.requestId,
     decision: input.decision,
   });
+  logClientEvent("approval/action", "retry-response", {
+    runId: input.runId,
+    requestId: latest.requestId,
+    decision: input.decision,
+    status: response.status,
+    ok: response.ok,
+  });
   if (response.ok) {
     markResolved(input, latest.requestId);
     return;
@@ -239,6 +326,10 @@ async function retryLatestApproval(
 }
 
 function markResolved(input: ResolveDecisionInput, requestId: string): void {
+  logClientEvent("approval/action", "resolved", {
+    runId: input.runId,
+    requestId,
+  });
   input.setNotice({ kind: "resolved", requestId });
   dispatchRunSummaryRefresh(input.runId);
 }
@@ -247,12 +338,27 @@ function markStale(
   input: ResolveDecisionInput,
   request: ApprovalRequest,
 ): void {
+  logClientWarning("approval/action", "stale", {
+    runId: input.runId,
+    requestId: request.requestId,
+  });
   input.setDismissed({
     requestId: request.requestId,
     createdAt: request.createdAt,
   });
   input.setNotice({ kind: "stale", requestId: request.requestId });
   dispatchRunSummaryRefresh(input.runId);
+}
+
+function resolveApprovalSource(
+  candidate: ApprovalRequest | null,
+  summaryApproval: ApprovalRequest | null,
+  eventApproval: ApprovalRequest | null,
+): "summary" | "events" | "none" {
+  if (!candidate) return "none";
+  if (summaryApproval?.requestId === candidate.requestId) return "summary";
+  if (eventApproval?.requestId === candidate.requestId) return "events";
+  return "none";
 }
 
 function isSameApproval(

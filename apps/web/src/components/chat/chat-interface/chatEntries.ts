@@ -83,61 +83,25 @@ function correlateActivityTurnsToMessages(
 ): Map<string, ActivityTurnViewModel[]> {
   const logUnmatched = options.logUnmatched ?? true;
   const assignments = new Map<string, ActivityTurnViewModel[]>();
-  const conversationUserTurns = conversationTurns.filter(
-    (
-      turn,
-    ): turn is ReturnType<typeof buildConversationTurns>[number] & {
-      userMessage: Message;
-    } => Boolean(turn.userMessage),
-  );
-  const availableConversationTurnIndexes = new Set(
-    conversationUserTurns.map((_, index) => index),
+  const userMessageIds = new Set(
+    conversationTurns.flatMap((turn) =>
+      turn.userMessage ? [turn.userMessage.id] : [],
+    ),
   );
 
-  for (
-    let activityIndex = turns.length - 1;
-    activityIndex >= 0;
-    activityIndex -= 1
-  ) {
-    const activityTurn = turns[activityIndex];
+  for (const activityTurn of turns) {
     if (!activityTurn?.hasVisibleRows) {
       continue;
     }
-
-    const matchedIndex = findMatchingConversationTurnIndex(
-      conversationUserTurns,
-      availableConversationTurnIndexes,
-      activityTurn.userPrompt,
-    );
-    if (matchedIndex === null) {
+    if (!userMessageIds.has(activityTurn.key)) {
       if (logUnmatched) {
         warnUnmatchedActivityTurn(options.runId, activityTurn.key);
       }
       continue;
     }
-
-    const matchedConversationTurn = conversationUserTurns[matchedIndex];
-    if (!matchedConversationTurn) {
-      console.warn(
-        "[chat/transcript] Activity turn matched an unavailable user message index.",
-        {
-          activityTurnKey: activityTurn.key,
-          matchedIndex,
-          runId: options.runId,
-        },
-      );
-      availableConversationTurnIndexes.delete(matchedIndex);
-      continue;
-    }
-
-    availableConversationTurnIndexes.delete(matchedIndex);
-    const existingAssignments =
-      assignments.get(matchedConversationTurn.userMessage.id) ?? [];
-    existingAssignments.unshift(activityTurn);
-    assignments.set(
-      matchedConversationTurn.userMessage.id,
-      existingAssignments,
-    );
+    const existingAssignments = assignments.get(activityTurn.key) ?? [];
+    existingAssignments.push(activityTurn);
+    assignments.set(activityTurn.key, existingAssignments);
   }
 
   return assignments;
@@ -236,95 +200,4 @@ function collectChangedFilesFromActivityRow(
     additions: existing.additions + row.changedFile.additions,
     deletions: existing.deletions + row.changedFile.deletions,
   });
-}
-
-function findMatchingConversationTurnIndex(
-  conversationTurns: Array<
-    ReturnType<typeof buildConversationTurns>[number] & { userMessage: Message }
-  >,
-  availableConversationTurnIndexes: Set<number>,
-  userPrompt: string | null,
-): number | null {
-  const normalizedUserPrompt = normalizePromptForMatching(userPrompt);
-  if (!normalizedUserPrompt) {
-    return null;
-  }
-
-  const fuzzyMatches: number[] = [];
-  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
-    if (!availableConversationTurnIndexes.has(index)) {
-      continue;
-    }
-    const conversationPrompt = normalizePromptForMatching(
-      conversationTurns[index]?.userMessage.content,
-    );
-    if (conversationPrompt === normalizedUserPrompt) {
-      return index;
-    }
-    if (arePromptsFuzzyMatch(conversationPrompt, normalizedUserPrompt)) {
-      fuzzyMatches.push(index);
-    }
-  }
-
-  if (fuzzyMatches.length === 0) {
-    return null;
-  }
-
-  return (
-    fuzzyMatches.sort(
-      (a, b) =>
-        Math.abs(a - conversationTurns.length) -
-        Math.abs(b - conversationTurns.length),
-    )[0] ?? null
-  );
-}
-
-function normalizePromptForMatching(
-  content: string | null | undefined,
-): string {
-  if (typeof content !== "string") {
-    return "";
-  }
-
-  return content
-    .trim()
-    .toLowerCase()
-    .replace(/[`*_~]/g, "")
-    .replace(/@(?=[\w./-])/g, "")
-    .replace(/\s+/g, " ");
-}
-
-function arePromptsFuzzyMatch(left: string, right: string): boolean {
-  if (left.length < 12 || right.length < 12) {
-    return false;
-  }
-  if (left.includes(right) || right.includes(left)) {
-    return true;
-  }
-
-  const leftTokens = tokenizePrompt(left);
-  const rightTokens = tokenizePrompt(right);
-  if (leftTokens.size < 3 || rightTokens.size < 3) {
-    return false;
-  }
-
-  let sharedTokenCount = 0;
-  for (const token of leftTokens) {
-    if (rightTokens.has(token)) {
-      sharedTokenCount += 1;
-    }
-  }
-
-  const overlapRatio =
-    sharedTokenCount / Math.max(leftTokens.size, rightTokens.size);
-  return overlapRatio >= 0.8;
-}
-
-function tokenizePrompt(prompt: string): Set<string> {
-  return new Set(
-    prompt
-      .split(/[^a-z0-9./-]+/i)
-      .map((token) => token.trim())
-      .filter((token) => token.length > 1),
-  );
 }

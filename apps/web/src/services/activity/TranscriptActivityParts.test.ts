@@ -85,7 +85,7 @@ describe("TranscriptActivityParts", () => {
     expect(turns[0]?.elapsedLabel).toBe("Worked for 1s");
   });
 
-  it("hides terminal workflow placeholders and deduplicates progress rows", () => {
+  it("preserves workflow thinking and deduplicates progress rows", () => {
     const turns = buildTranscriptActivityTurns([
       createMessage("user", "say hello"),
       createAssistantMessageWithActivity(
@@ -124,8 +124,16 @@ describe("TranscriptActivityParts", () => {
     expect(turns[0]?.rows).toEqual([
       expect.objectContaining({
         kind: "reasoning",
+        label: "Working through execution",
+      }),
+      expect.objectContaining({
+        kind: "reasoning",
         label: "Inspecting repository",
         summary: "",
+      }),
+      expect.objectContaining({
+        kind: "reasoning",
+        label: "Working through synthesis",
       }),
     ]);
   });

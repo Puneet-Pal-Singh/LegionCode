@@ -9,6 +9,7 @@ import {
   dispatchRunSummaryRefresh,
   RUN_SUMMARY_REFRESH_EVENT,
 } from "../lib/run-summary-events.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseRunEventsResult {
   events: RunEvent[];
@@ -16,18 +17,19 @@ interface UseRunEventsResult {
 
 const EVENT_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_EVENTS_MIN_FETCH_INTERVAL_MS = 800;
+const RUN_EVENTS_STREAM_RETRY_DELAY_MS = 500;
 
 export function useRunEvents(
   runId: string,
   shouldStream: boolean = false,
 ): UseRunEventsResult {
   const [events, setEvents] = useState<RunEvent[]>([]);
+  const [streamRetryVersion, setStreamRetryVersion] = useState(0);
   const inFlightRef = useRef(false);
   const lastFetchAtRef = useRef(0);
   const requestIdRef = useRef(0);
   const activeRunIdRef = useRef(runId);
   const missedRefreshRef = useRef(false);
-  const missingRunRef = useRef(false);
   const lastErrorLogRef = useRef<{
     timestamp: number;
     message: string;
@@ -36,7 +38,7 @@ export function useRunEvents(
   const fetchEvents = useCallback(
     async (options?: { force?: boolean }) => {
       const currentRunId = runId.trim();
-      if (!currentRunId || inFlightRef.current || missingRunRef.current) {
+      if (!currentRunId || inFlightRef.current) {
         if (!currentRunId) {
           setEvents([]);
         }
@@ -61,12 +63,6 @@ export function useRunEvents(
           credentials: "include",
         });
         if (!response.ok) {
-          if (
-            response.status === 404 &&
-            activeRunIdRef.current === currentRunId
-          ) {
-            missingRunRef.current = true;
-          }
           return;
         }
 
@@ -79,6 +75,10 @@ export function useRunEvents(
         }
 
         const parsedEvents = parseRunEventsBody(body, currentRunId);
+        logClientEvent("run/events", "snapshot", {
+          runId: currentRunId,
+          eventCount: parsedEvents.length,
+        });
         setEvents((current) => mergeRunEvents(current, parsedEvents));
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
@@ -100,7 +100,6 @@ export function useRunEvents(
     requestIdRef.current += 1;
     lastErrorLogRef.current = null;
     missedRefreshRef.current = false;
-    missingRunRef.current = false;
 
     if (!runId) {
       setEvents([]);
@@ -112,73 +111,26 @@ export function useRunEvents(
   }, [fetchEvents, runId]);
 
   useEffect(() => {
-    if (!runId || !shouldStream || missingRunRef.current) {
+    if (!runId || !shouldStream) {
       return;
     }
-
     const currentRunId = runId.trim();
-    const abortController = new AbortController();
-    let buffer = "";
-
-    const consumeStream = async () => {
-      try {
-        const response = await fetch(runEventsStreamPath(currentRunId), {
-          signal: abortController.signal,
-          credentials: "include",
-        });
-        if (!response.ok || !response.body) {
-          if (
-            response.status === 404 &&
-            activeRunIdRef.current === currentRunId
-          ) {
-            missingRunRef.current = true;
-          }
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        while (!abortController.signal.aborted) {
-          const next = await reader.read();
-          if (next.done) {
-            break;
-          }
-
-          buffer += decoder.decode(next.value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            const event = parseRunEventLine(line, currentRunId);
-            if (!event) {
-              continue;
-            }
-
-            setEvents((current) => mergeRunEvents(current, [event]));
-            dispatchRunSummaryRefresh(currentRunId);
-          }
-        }
-
-        const trailingEvent = parseRunEventLine(buffer, currentRunId);
-        if (trailingEvent) {
-          setEvents((current) => mergeRunEvents(current, [trailingEvent]));
-          dispatchRunSummaryRefresh(currentRunId);
-        }
-      } catch (error) {
-        if (abortController.signal.aborted) {
-          return;
-        }
-        logRunEventsWarning(currentRunId, error, lastErrorLogRef);
-      }
-    };
-
-    void consumeStream();
-
-    return () => {
-      abortController.abort();
-    };
-  }, [runId, shouldStream]);
+    void fetchEvents({ force: true });
+    return connectRunEventStream({
+      runId: currentRunId,
+      isActive: () => activeRunIdRef.current === currentRunId,
+      onEvent: (event) => {
+        setEvents((current) => mergeRunEvents(current, [event]));
+        dispatchRunSummaryRefresh(currentRunId);
+      },
+      onError: (error) =>
+        logRunEventsWarning(currentRunId, error, lastErrorLogRef),
+      onReconnect: () => {
+        logClientEvent("run/events", "reconnecting", { runId: currentRunId });
+        setStreamRetryVersion((version) => version + 1);
+      },
+    });
+  }, [fetchEvents, runId, shouldStream, streamRetryVersion]);
 
   useEffect(() => {
     if (!runId || shouldStream) {
@@ -214,6 +166,95 @@ export function useRunEvents(
   }, [fetchEvents, runId, shouldStream]);
 
   return { events };
+}
+
+interface RunEventStreamConnection {
+  runId: string;
+  isActive: () => boolean;
+  onEvent: (event: RunEvent) => void;
+  onError: (error: unknown) => void;
+  onReconnect: () => void;
+}
+
+function connectRunEventStream(input: RunEventStreamConnection): () => void {
+  const abortController = new AbortController();
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  logClientEvent("run/events", "connecting", { runId: input.runId });
+  const scheduleReconnect = () => {
+    if (abortController.signal.aborted || retryTimer) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (input.isActive()) input.onReconnect();
+    }, RUN_EVENTS_STREAM_RETRY_DELAY_MS);
+  };
+  void consumeRunEventStream(
+    input.runId,
+    abortController.signal,
+    input.onEvent,
+  ).catch((error) => {
+    if (abortController.signal.aborted) return;
+    input.onError(error);
+    scheduleReconnect();
+  });
+  return () => {
+    abortController.abort();
+    if (retryTimer) clearTimeout(retryTimer);
+  };
+}
+
+async function consumeRunEventStream(
+  runId: string,
+  signal: AbortSignal,
+  onEvent: (event: RunEvent) => void,
+): Promise<void> {
+  const response = await fetch(runEventsStreamPath(runId), {
+    signal,
+    credentials: "include",
+  });
+  if (!response.ok || !response.body) {
+    logClientWarning("run/events", "stream-unavailable", {
+      runId,
+      status: response.status,
+    });
+    return;
+  }
+  logClientEvent("run/events", "connected", { runId });
+  await readRunEventStream(response.body.getReader(), runId, signal, onEvent);
+  if (!signal.aborted) logClientEvent("run/events", "closed", { runId });
+}
+
+async function readRunEventStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  runId: string,
+  signal: AbortSignal,
+  onEvent: (event: RunEvent) => void,
+): Promise<void> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (!signal.aborted) {
+    const next = await reader.read();
+    if (next.done) break;
+    buffer += decoder.decode(next.value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    lines.forEach((line) => emitRunEventLine(line, runId, onEvent));
+  }
+  emitRunEventLine(buffer, runId, onEvent);
+}
+
+function emitRunEventLine(
+  line: string,
+  runId: string,
+  onEvent: (event: RunEvent) => void,
+): void {
+  const event = parseRunEventLine(line, runId);
+  if (!event) return;
+  logClientEvent("run/events", "received", {
+    runId,
+    eventId: event.eventId,
+    type: event.type,
+  });
+  onEvent(event);
 }
 
 function parseRunEventsBody(body: string, runId: string): RunEvent[] {
@@ -270,7 +311,10 @@ function parseRunEventLine(line: string, runId: string): RunEvent | null {
   return parseRunEventPayload(parsedJson.value, runId);
 }
 
-function parseRunEventPayload(payload: unknown, runId: string): RunEvent | null {
+function parseRunEventPayload(
+  payload: unknown,
+  runId: string,
+): RunEvent | null {
   const result = safeParseRunEvent(payload);
   if (!result.success) {
     console.warn(

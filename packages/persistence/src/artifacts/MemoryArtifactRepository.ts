@@ -46,19 +46,16 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       assistantMessageId:
         parsed.assistantMessageId ?? existing?.assistantMessageId ?? null,
       sourceTurnId: parsed.sourceTurnId ?? existing?.sourceTurnId ?? null,
-      captureSequence:
-        parsed.captureSequence ?? existing?.captureSequence ?? 0,
+      captureSequence: parsed.captureSequence ?? existing?.captureSequence ?? 0,
       patchParseStatus:
         parsed.patchParseStatus ?? existing?.patchParseStatus ?? "unknown",
       patchSha256: parsed.patchSha256 ?? existing?.patchSha256 ?? null,
       storageBackend:
         parsed.storageBackend ?? existing?.storageBackend ?? "r2_postgres",
-      cfArtifactRepo:
-        parsed.cfArtifactRepo ?? existing?.cfArtifactRepo ?? null,
+      cfArtifactRepo: parsed.cfArtifactRepo ?? existing?.cfArtifactRepo ?? null,
       cfArtifactCommitSha:
         parsed.cfArtifactCommitSha ?? existing?.cfArtifactCommitSha ?? null,
-      cfArtifactPath:
-        parsed.cfArtifactPath ?? existing?.cfArtifactPath ?? null,
+      cfArtifactPath: parsed.cfArtifactPath ?? existing?.cfArtifactPath ?? null,
       storageReconciliationStatus:
         parsed.storageReconciliationStatus ??
         existing?.storageReconciliationStatus ??
@@ -126,6 +123,19 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       .filter((artifact) => isRestorableForRun(artifact, runId))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     return matches[0] ?? null;
+  }
+
+  async listRestorableArtifacts(input: {
+    runId: string;
+    userId?: string;
+  }): Promise<EditArtifactRecord[]> {
+    return Array.from(this.artifacts.values())
+      .filter((artifact) =>
+        input.userId
+          ? isRestorable(artifact, input.runId, input.userId)
+          : isRestorableForRun(artifact, input.runId),
+      )
+      .sort(compareRestoreOrder);
   }
 
   async getArtifactById(
@@ -234,13 +244,21 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       storageBackend:
         readReviewMetadataField(input, "storageBackend", existing) ??
         "r2_postgres",
-      cfArtifactRepo: readReviewMetadataField(input, "cfArtifactRepo", existing),
+      cfArtifactRepo: readReviewMetadataField(
+        input,
+        "cfArtifactRepo",
+        existing,
+      ),
       cfArtifactCommitSha: readReviewMetadataField(
         input,
         "cfArtifactCommitSha",
         existing,
       ),
-      cfArtifactPath: readReviewMetadataField(input, "cfArtifactPath", existing),
+      cfArtifactPath: readReviewMetadataField(
+        input,
+        "cfArtifactPath",
+        existing,
+      ),
       storageReconciliationStatus:
         readReviewMetadataField(
           input,
@@ -335,10 +353,27 @@ function isRestorableForRun(
 ): boolean {
   return (
     artifact.runId === runId &&
-    ["stored", "restored", "restore_failed", "restore_in_progress"].includes(
-      artifact.status,
-    ) &&
+    [
+      "stored",
+      "stored_with_secondary",
+      "secondary_write_failed",
+      "restored",
+      "restore_failed",
+      "restore_in_progress",
+      "requires_user_resolution",
+    ].includes(artifact.status) &&
     hasChangedFiles(artifact.changedFiles)
+  );
+}
+
+function compareRestoreOrder(
+  left: EditArtifactRecord,
+  right: EditArtifactRecord,
+): number {
+  return (
+    left.createdAt.localeCompare(right.createdAt) ||
+    (left.captureSequence ?? 0) - (right.captureSequence ?? 0) ||
+    left.id.localeCompare(right.id)
   );
 }
 

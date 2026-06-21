@@ -58,7 +58,7 @@ describe("EditArtifactRestoreService", () => {
     const firstRestore = service.restoreLatestIfWorkspaceIsEmpty(input);
     const secondRestore = service.restoreLatestIfWorkspaceIsEmpty(input);
 
-    expect(repository.getLatestRestorableArtifact).toHaveBeenCalledTimes(1);
+    expect(repository.listRestorableArtifacts).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => {
       expect(gitClientMocks.applyPatch).toHaveBeenCalledTimes(1);
     });
@@ -91,15 +91,53 @@ describe("EditArtifactRestoreService", () => {
     });
 
     expect(result).toBe("restored");
-    expect(repository.getLatestRestorableArtifactForRun).toHaveBeenCalledWith(
-      "run-1",
-    );
+    expect(repository.listRestorableArtifacts).toHaveBeenCalledWith({
+      runId: "run-1",
+      userId: undefined,
+    });
     expect(repository.updateStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         artifactId: "artifact-1",
         userId: "user-1",
         status: "restore_in_progress",
       }),
+    );
+  });
+
+  it("replays every saved turn patch in repository order", async () => {
+    const first = createArtifact();
+    const second = {
+      ...createArtifact(),
+      id: "artifact-2",
+      r2ObjectKey:
+        "edit-artifacts/user-1/workspace-1/run-1/artifact-2/diff.patch",
+      createdAt: "2026-05-23T00:01:00.000Z",
+    };
+    const repository = createRepository([first, second]);
+    artifactFactory.withArtifactRepository.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: ArtifactRepository) => Promise<unknown>,
+      ) => await callback(repository),
+    );
+    gitClientMocks.applyPatch.mockResolvedValue(undefined);
+
+    const result = await new EditArtifactRestoreService(
+      createEnv(),
+    ).restoreLatestIfWorkspaceIsEmpty({
+      userId: "user-1",
+      runId: "run-1",
+      muscleSession: "muscle-run-1",
+      currentStatus: createEmptyGitStatus(),
+    });
+
+    expect(result).toBe("restored");
+    expect(gitClientMocks.applyPatch).toHaveBeenCalledTimes(2);
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactId: "artifact-1", status: "restored" }),
+    );
+    expect(repository.updateStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactId: "artifact-2", status: "restored" }),
     );
   });
 });
@@ -110,7 +148,11 @@ function createEnv(): Env {
   } as Env;
 }
 
-function createRepository(artifact: EditArtifactRecord): ArtifactRepository {
+function createRepository(
+  input: EditArtifactRecord | EditArtifactRecord[],
+): ArtifactRepository {
+  const artifacts = Array.isArray(input) ? input : [input];
+  const artifact = artifacts[0] as EditArtifactRecord;
   const repository = {
     createPendingArtifact: vi.fn(),
     appendEvent: vi.fn(async (input) => ({
@@ -128,6 +170,7 @@ function createRepository(artifact: EditArtifactRecord): ArtifactRepository {
     })),
     getLatestRestorableArtifact: vi.fn(async () => artifact),
     getLatestRestorableArtifactForRun: vi.fn(async () => artifact),
+    listRestorableArtifacts: vi.fn(async () => artifacts),
     getArtifactById: vi.fn(async () => artifact),
     getArtifactByIdForRun: vi.fn(async () => artifact),
     getLatestReviewArtifact: vi.fn(async () => artifact),
@@ -159,7 +202,8 @@ function createArtifact(): EditArtifactRecord {
     baseCommitSha: "base-sha",
     headCommitSha: null,
     artifactKind: "git_patch",
-    r2ObjectKey: "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
+    r2ObjectKey:
+      "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
     contentType: "text/x-patch",
     sizeBytes: 10,
     sha256: "sha256",
