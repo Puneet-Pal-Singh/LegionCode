@@ -86,10 +86,10 @@ export class MemoryLifecycleEventStore implements LifecycleEventStore {
     }
     const events = this.eventsByTurn.get(event.turnId) ?? [];
     const previous = events.at(-1)?.event.sequence ?? 0;
-    if (event.sequence <= previous) {
+    if (event.sequence !== previous + 1) {
       throw new EventStoreError(
         "sequence_gap",
-        `Lifecycle sequence must increase after ${previous}, received ${event.sequence}`,
+        `Lifecycle sequence must be ${previous + 1}, received ${event.sequence}`,
       );
     }
   }

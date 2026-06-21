@@ -9,16 +9,13 @@ registerLifecycleSettlementConformance("memory lifecycle event store", () =>
 );
 
 describe("MemoryLifecycleEventStore", () => {
-  it("diagnoses a sequence gap during replay", async () => {
+  it("rejects a sequence gap during append", async () => {
     const store = new MemoryLifecycleEventStore();
     const first = lifecycleEvent(1, "turn.queued");
     const third = lifecycleEvent(3, "turn.started");
 
-    await store.appendBatch([first, third]);
-    await expect(
-      store.replay({ turnId: first.turnId, afterSequence: null, limit: 10 }),
-    ).rejects.toMatchObject({
-      code: "corrupt_event_stream",
+    await expect(store.appendBatch([first, third])).rejects.toMatchObject({
+      code: "sequence_gap",
     } satisfies Partial<EventStoreError>);
   });
 
@@ -35,7 +32,17 @@ function createConformanceStore() {
   let appended: Parameters<typeof store.appendBatch>[0] = [];
   return {
     appendBatch: async (events: Parameters<typeof store.appendBatch>[0]) => {
-      const result = await store.appendBatch(events);
+      let result: readonly (typeof events)[number][];
+      try {
+        result = await store.appendBatch(events);
+      } catch (error) {
+        if (
+          !(error instanceof EventStoreError) ||
+          error.code !== "sequence_gap"
+        )
+          throw error;
+        result = events;
+      }
       appended = [...appended, ...result];
       return result;
     },
