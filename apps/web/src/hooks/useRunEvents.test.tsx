@@ -156,30 +156,33 @@ describe("useRunEvents", () => {
 
   it("does not reconnect after a normally closed terminal stream", async () => {
     vi.useFakeTimers();
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(async (input) => {
-        const url = String(input);
-        return url.includes("/stream?")
-          ? createStreamResponse(
-              createMessageEvent("run-terminal", "evt-terminal", "Done"),
-            )
-          : createEventsResponse();
-      });
+    try {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async (input) => {
+          const url = String(input);
+          return url.includes("/stream?")
+            ? createStreamResponse(
+                createMessageEvent("run-terminal", "evt-terminal", "Done"),
+              )
+            : createEventsResponse();
+        });
 
-    const { unmount } = renderHook(() => useRunEvents("run-terminal", true));
-    await flushMicrotasks();
+      const { unmount } = renderHook(() => useRunEvents("run-terminal", true));
+      await flushMicrotasks();
 
-    act(() => vi.advanceTimersByTime(1_000));
-    await flushMicrotasks();
+      act(() => vi.advanceTimersByTime(1_000));
+      await flushMicrotasks();
 
-    expect(
-      fetchSpy.mock.calls.filter(([input]) =>
-        String(input).includes("/stream?"),
-      ),
-    ).toHaveLength(1);
-    unmount();
-    vi.useRealTimers();
+      expect(
+        fetchSpy.mock.calls.filter(([input]) =>
+          String(input).includes("/stream?"),
+        ),
+      ).toHaveLength(1);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries after Brain reports the run missing before it is created", async () => {

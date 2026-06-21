@@ -35,8 +35,8 @@ function compactContext(context: ClientLogContext): ClientLogContext {
 
 function buildLogContext(context: ClientLogContext): ClientLogContext {
   return {
+    ...compactContext(context),
     sequence: ++clientLogSequence,
     elapsedMs: Date.now() - clientLogStartedAt,
-    ...compactContext(context),
   };
 }

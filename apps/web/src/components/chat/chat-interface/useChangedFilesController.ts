@@ -517,6 +517,7 @@ function useChangedFileSnapshots(
   }, [
     input.gitFiles,
     input.isLoading,
+    input.runId,
     latestAssistantMessageId,
     refs,
     setSnapshots,

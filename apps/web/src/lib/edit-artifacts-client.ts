@@ -34,6 +34,9 @@ export async function getEditArtifactReviewSourceByMessage(input: {
   });
   const source = await readNullableArtifactResponse(response);
   logArtifactLookupResult(input, response.status, source);
+  if (source && source.assistantMessageId !== input.assistantMessageId) {
+    return null;
+  }
   return source;
 }
 
