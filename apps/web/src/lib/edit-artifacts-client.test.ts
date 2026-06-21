@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getEditArtifactReviewSourceByMessage } from "./edit-artifacts-client.js";
 
 describe("getEditArtifactReviewSourceByMessage", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it("rejects an artifact owned by a different assistant message", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
