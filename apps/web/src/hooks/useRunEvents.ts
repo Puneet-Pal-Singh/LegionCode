@@ -187,11 +187,15 @@ function connectRunEventStream(input: RunEventStreamConnection): () => void {
       if (input.isActive()) input.onReconnect();
     }, RUN_EVENTS_STREAM_RETRY_DELAY_MS);
   };
-  void consumeRunEventStream(input.runId, abortController.signal, input.onEvent)
-    .catch((error) => {
-      if (!abortController.signal.aborted) input.onError(error);
-    })
-    .finally(scheduleReconnect);
+  void consumeRunEventStream(
+    input.runId,
+    abortController.signal,
+    input.onEvent,
+  ).catch((error) => {
+    if (abortController.signal.aborted) return;
+    input.onError(error);
+    scheduleReconnect();
+  });
   return () => {
     abortController.abort();
     if (retryTimer) clearTimeout(retryTimer);

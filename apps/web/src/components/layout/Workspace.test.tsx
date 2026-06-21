@@ -713,7 +713,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("maps pending approval summaries to a waiting session without loading controls", async () => {
+  it("maps pending approval summaries to a stoppable waiting session", async () => {
     const onSessionStatusChange = vi.fn();
     mockRunSummaryState.summary = {
       runId: "run-123",
@@ -745,7 +745,7 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: false,
+          canStop: true,
           isLoading: false,
         }),
       }),
@@ -756,6 +756,14 @@ describe("Workspace", () => {
       );
     });
     expect(mockRefetchGitStatus).toHaveBeenCalledTimes(1);
+
+    const waitingCall = mockChatInterface.mock.calls[
+      mockChatInterface.mock.calls.length - 1
+    ]?.[0] as {
+      chatProps: { stop: () => void };
+    };
+    act(() => waitingCall.chatProps.stop());
+    expect(mockChatState.stop).toHaveBeenCalledTimes(1);
 
     onSessionStatusChange.mockClear();
     mockRefetchGitStatus.mockClear();

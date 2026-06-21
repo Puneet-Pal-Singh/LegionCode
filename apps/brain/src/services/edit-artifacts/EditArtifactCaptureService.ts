@@ -486,10 +486,6 @@ interface EditArtifactCoordinator {
 }
 
 export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinator {
-  private static readonly MUTATION_TOOLS = new Set([
-    "create_code_artifact",
-    "write_file",
-  ]);
   private readonly changedFiles = new Map<string, EditArtifactChangedFile>();
   private captureInFlight: Promise<void> = Promise.resolve();
   private captureSequence = 0;
@@ -560,14 +556,6 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   }
 
   private recordMutation(event: ToolCompletedEvent): void {
-    if (
-      !EditArtifactRunCaptureCoordinator.MUTATION_TOOLS.has(
-        event.payload.toolName,
-      )
-    ) {
-      return;
-    }
-
     const changedFile = extractChangedFileFromToolResult(event.payload.result);
     if (!changedFile) {
       return;
@@ -576,6 +564,9 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   }
 
   private async capture(): Promise<void> {
+    if (this.changedFiles.size === 0) {
+      return;
+    }
     this.captureSequence += 1;
     await this.service.captureAfterRunMutation({
       ...this.context,

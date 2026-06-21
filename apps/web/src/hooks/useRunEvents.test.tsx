@@ -154,6 +154,34 @@ describe("useRunEvents", () => {
     );
   });
 
+  it("does not reconnect after a normally closed terminal stream", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        return url.includes("/stream?")
+          ? createStreamResponse(
+              createMessageEvent("run-terminal", "evt-terminal", "Done"),
+            )
+          : createEventsResponse();
+      });
+
+    const { unmount } = renderHook(() => useRunEvents("run-terminal", true));
+    await flushMicrotasks();
+
+    act(() => vi.advanceTimersByTime(1_000));
+    await flushMicrotasks();
+
+    expect(
+      fetchSpy.mock.calls.filter(([input]) =>
+        String(input).includes("/stream?"),
+      ),
+    ).toHaveLength(1);
+    unmount();
+    vi.useRealTimers();
+  });
+
   it("retries after Brain reports the run missing before it is created", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -241,5 +269,12 @@ function setVisibilityState(state: DocumentVisibilityState): void {
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     value: state,
+  });
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }

@@ -268,13 +268,6 @@ function projectAssistantMessageEvent(
   });
 }
 
-function readClientMessageId(
-  metadata: Record<string, unknown> | undefined,
-): string | null {
-  const value = metadata?.clientMessageId;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function selectCurrentTurnEvents(
   events: TurnActivityEvent[],
   currentTurnId: string,

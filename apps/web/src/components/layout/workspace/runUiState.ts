@@ -57,9 +57,7 @@ function deriveWorkspaceRunBaseState(input: DeriveWorkspaceRunUiStateInput) {
   const isCanonicalRunActive =
     input.canonicalRunStatus === "RUNNING" ||
     input.canonicalRunStatus === "CREATED";
-  const isCanonicalRunTerminal = isTerminalRunStatus(
-    input.canonicalRunStatus,
-  );
+  const isCanonicalRunTerminal = isTerminalRunStatus(input.canonicalRunStatus);
   const isApprovalWaitingRun =
     input.hasPendingApproval ||
     isApprovalRequiredRunStatus(input.canonicalRunStatus);
@@ -119,12 +117,12 @@ function deriveCanStopRun(
   isRunLoading: boolean,
 ): boolean {
   return (
-    !state.isApprovalWaitingRun &&
-    (isRunLoading ||
+    !input.isLocallyStoppedRun &&
+    (state.isApprovalWaitingRun ||
+      isRunLoading ||
       (input.isSessionRunning &&
         !state.isCanonicalRunTerminal &&
-        !state.isStaleCanonicalActiveRun &&
-        !input.isLocallyStoppedRun))
+        !state.isStaleCanonicalActiveRun))
   );
 }
 

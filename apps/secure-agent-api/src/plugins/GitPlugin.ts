@@ -834,11 +834,12 @@ export class GitPlugin implements IPlugin {
   ): Promise<BaselineIndexContext> {
     const path = `/tmp/shadowbox-baseline-${crypto.randomUUID()}.index`;
     const env = { GIT_INDEX_FILE: path };
+    const validatedBaselineTree = validateGitObjectId(baselineTree);
     const result = await this.runToolboxCommand(
       sandbox,
       {
         command: "git",
-        args: ["-C", worktree, "read-tree", baselineTree],
+        args: ["-C", worktree, "read-tree", validatedBaselineTree],
         env,
         runId,
       },

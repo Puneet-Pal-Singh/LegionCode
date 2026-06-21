@@ -420,6 +420,32 @@ describe("GitPlugin", () => {
     expect(diffSpec?.args).not.toContain(baselineTree);
   });
 
+  it("rejects an invalid baseline tree before invoking git read-tree", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+
+    const result = await new GitPlugin().execute(asSandbox({}), {
+      action: "git_patch_capture",
+      runId: "run_invalid_baseline",
+      baselineTree: "main; rm -rf workspace",
+      files: ["src/app.ts"],
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: "Invalid Git object id",
+    });
+    expect(
+      runSafeCommandMock.mock.calls.some(([, spec]) =>
+        spec.args?.includes("read-tree"),
+      ),
+    ).toBe(false);
+  });
+
   it("hydrates commit identity from GitHub token when local identity is missing", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock
