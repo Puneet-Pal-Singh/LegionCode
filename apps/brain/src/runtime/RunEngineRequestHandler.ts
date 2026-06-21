@@ -181,13 +181,25 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
     }
 
-    const runtimeState = this.createRuntimeState();
-    const eventRepo = new RunEventRepository(runtimeState);
-    const events = await eventRepo.getByRun(runId);
+    if (!this.eventStream) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Realtime event stream is unavailable",
+        503,
+      );
+    }
     return withRunEngineHeaders(
       request,
       this.env,
-      this.buildEventsResponse(events, runId),
+      new Response(this.eventStream.getStream(runId), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Run-Id": runId,
+        },
+      }),
     );
   }
 
@@ -447,6 +459,7 @@ export class RunEngineRequestHandler {
 
     try {
       return await this.withExecutionLock(payload.runId, async () => {
+        this.eventStream?.start(payload.runId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
           this.ctx,
