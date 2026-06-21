@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { z } from "zod";
 import { useGitHub } from "../../github/GitHubContextProvider";
 import { getFileContent } from "../../../services/GitHubService";
 import { terminalCommandPath } from "../../../lib/platform-endpoints";
@@ -8,23 +9,23 @@ interface UseFileLoaderProps {
   sandboxId: string;
   runId: string;
   setIsLoadingContent: (loading: boolean) => void;
-  setIsViewingContent: (viewing: boolean) => void;
-  setSelectedFile: (file: SelectedFile | null) => void;
+  setContentError: (error: string | null) => void;
+  openFileTab: (file: SelectedFile) => void;
 }
 
 export function useFileLoader({
   sandboxId,
   runId,
   setIsLoadingContent,
-  setIsViewingContent,
-  setSelectedFile,
+  setContentError,
+  openFileTab,
 }: UseFileLoaderProps) {
   const { repo, branch } = useGitHub();
 
   const handleFileClick = useCallback(
     async (path: string) => {
       setIsLoadingContent(true);
-      setIsViewingContent(true);
+      setContentError(null);
       localStorage.setItem("shadowbox_last_viewed_path", path);
       try {
         const res = await fetch(terminalCommandPath(sandboxId), {
@@ -36,41 +37,40 @@ export function useFileLoader({
           }),
         });
 
-        let data;
+        let data: unknown;
         try {
           data = await res.json();
         } catch (parseError) {
           console.error("Failed to parse file response:", parseError);
-          setSelectedFile({
-            path,
-            content:
-              "// [Error] The server returned unreadable data. This usually happens with large binary files.",
-          });
+          setContentError("The file response could not be read.");
           return;
         }
 
-        if (data.success) {
-          if (data.isBinary || data.output === "[BINARY_FILE_DETECTED]") {
-            setSelectedFile({
+        const parsedData = FileReadSuccessSchema.safeParse(data);
+        if (parsedData.success) {
+          if (
+            parsedData.data.isBinary ||
+            parsedData.data.output === "[BINARY_FILE_DETECTED]"
+          ) {
+            openFileTab({
               path,
               content:
                 "// [LegionCode] This file is a binary and cannot be displayed in the text editor.",
             });
           } else {
-            setSelectedFile({ path, content: data.output });
+            openFileTab({ path, content: parsedData.data.output });
           }
+        } else {
+          setContentError("The file could not be opened.");
         }
       } catch (e) {
         console.error("Failed to read file:", e);
-        setSelectedFile({
-          path,
-          content: "// [Error] Failed to connect to server or read file.",
-        });
+        setContentError("Failed to connect to the workspace file service.");
       } finally {
         setIsLoadingContent(false);
       }
     },
-    [sandboxId, runId, setIsLoadingContent, setIsViewingContent, setSelectedFile],
+    [openFileTab, runId, sandboxId, setContentError, setIsLoadingContent],
   );
 
   const handleGitHubFileSelect = useCallback(
@@ -78,7 +78,7 @@ export function useFileLoader({
       if (!repo) return;
 
       setIsLoadingContent(true);
-      setIsViewingContent(true);
+      setContentError(null);
       localStorage.setItem("shadowbox_last_viewed_path", path);
 
       try {
@@ -92,21 +92,18 @@ export function useFileLoader({
         // GitHub API returns base64 encoded content
         if (fileData.encoding === "base64") {
           const decoded = atob(fileData.content);
-          setSelectedFile({ path, content: decoded });
+          openFileTab({ path, content: decoded });
         } else {
-          setSelectedFile({ path, content: fileData.content });
+          openFileTab({ path, content: fileData.content });
         }
       } catch (error) {
         console.error("Failed to fetch GitHub file content:", error);
-        setSelectedFile({
-          path,
-          content: "// [Error] Failed to fetch file content from GitHub.",
-        });
+        setContentError("Failed to fetch the file content from GitHub.");
       } finally {
         setIsLoadingContent(false);
       }
     },
-    [repo, branch, setIsLoadingContent, setIsViewingContent, setSelectedFile],
+    [branch, openFileTab, repo, setContentError, setIsLoadingContent],
   );
 
   return {
@@ -114,3 +111,9 @@ export function useFileLoader({
     handleGitHubFileSelect,
   };
 }
+
+const FileReadSuccessSchema = z.object({
+  success: z.literal(true),
+  output: z.string(),
+  isBinary: z.boolean().optional(),
+});

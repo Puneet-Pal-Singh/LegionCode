@@ -52,6 +52,7 @@ export {
   type ToolBackendCapability,
   type ToolParallelism,
   type ToolPermissionMetadata,
+  type ToolModelCapability,
   type ToolResult,
   type ToolSandboxClass,
   type ToolPermissionPolicy,

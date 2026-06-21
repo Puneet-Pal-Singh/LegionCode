@@ -88,6 +88,36 @@ describe("useChatHydration", () => {
     ]);
   });
 
+  it("replaces stale mounted messages with canonical history for the scope", async () => {
+    const setMessages = vi.fn<[Message[]], void>();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      createHistoryResponse([
+        {
+          id: "current-message",
+          role: "assistant",
+          content: "current chat history",
+        },
+      ]),
+    );
+
+    renderHook(() =>
+      useChatHydration("session-current", "run-current", 2, setMessages),
+    );
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("run-current"),
+        expect.objectContaining({ credentials: "include" }),
+      );
+      expect(setMessages).toHaveBeenCalledWith([
+        expect.objectContaining({
+          id: "current-message",
+          content: "current chat history",
+        }),
+      ]);
+    });
+  });
+
   it("retries failed hydration before allowing pending query replay", async () => {
     const setMessages = vi.fn<[Message[]], void>();
     const fetchSpy = vi

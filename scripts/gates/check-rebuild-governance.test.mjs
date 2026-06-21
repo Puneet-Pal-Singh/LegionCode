@@ -38,6 +38,17 @@ test("rejects unregistered feature flags", async (context) => {
   );
 });
 
+test("ignores generated Wrangler build output", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "apps/brain/.wrangler/tmp/dev-test/index.js",
+    "const FEATURE_FLAG_" + "UNKNOWN_GENERATED_BUNDLE = true;\n",
+  );
+
+  assert.deepEqual(await validateRebuildGovernance(root), []);
+});
+
 test("temporary feature flags require deletion criteria", () => {
   const violations = [];
   validateFeatureFlagMetadata(

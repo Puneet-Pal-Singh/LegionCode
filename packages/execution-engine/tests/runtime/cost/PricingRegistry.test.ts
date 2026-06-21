@@ -173,6 +173,34 @@ describe("PricingRegistry", () => {
     });
   });
 
+  describe("stale pricing policy", () => {
+    const stalePricing = {
+      "openai:stale-model": {
+        inputPrice: 0.001,
+        outputPrice: 0.002,
+        currency: "USD",
+        effectiveDate: "2020-01-01",
+      },
+    };
+
+    it("keeps production available when seed pricing is stale", () => {
+      const productionRegistry = new PricingRegistry(stalePricing, {
+        isProduction: true,
+      });
+
+      expect(productionRegistry.getPrice("openai", "stale-model")).not.toBeNull();
+    });
+
+    it("fails closed when stale pricing enforcement is explicitly enabled", () => {
+      expect(
+        () =>
+          new PricingRegistry(stalePricing, {
+            failOnStale: true,
+          }),
+      ).toThrow(PricingError);
+    });
+  });
+
   describe("getAllPrices", () => {
     it("should return all registered prices", () => {
       const allPrices = registry.getAllPrices();

@@ -1,0 +1,73 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shadowbox-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "limits": {
+    "cpu_ms": 60000,
+  },
+  "routes": [
+    {
+      "pattern": "api.legioncode.dev",
+      "custom_domain": true,
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1,
+  },
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 1,
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT_RUNTIME",
+        "class_name": "AgentRuntime",
+      },
+      {
+        "name": "Sandbox",
+        "class_name": "Sandbox",
+      },
+      {
+        "name": "LAUNCH_RATE_LIMITER",
+        "class_name": "LaunchRateLimiter",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AgentRuntime", "Sandbox"],
+    },
+    {
+      "tag": "v4-launch-rate-limiter",
+      "new_sqlite_classes": ["LaunchRateLimiter"],
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "shadowbox-artifacts",
+      "remote": true,
+    },
+  ],
+  "services": [
+    {
+      "binding": "BRAIN",
+      "service": "shadowbox-brain",
+    },
+  ],
+  "vars": {
+    "CORS_ALLOWED_ORIGINS": "https://legioncode.dev",
+    "CORS_ALLOW_DEV_ORIGINS": "false",
+    "LAUNCH_EMERGENCY_SHUTOFF_MODE": "off",
+    "LAUNCH_RATE_LIMIT_REQUIRED": "true",
+  },
+}

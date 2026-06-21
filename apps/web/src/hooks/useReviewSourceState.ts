@@ -60,7 +60,9 @@ export function useReviewSourceState({
     enabled &&
     runId &&
     requestedScope !== "git-changes" &&
-    (openedArtifact || liveGitFiles.length === 0),
+    (requestedScope === "prompt-artifact" ||
+      openedArtifact ||
+      liveGitFiles.length === 0),
   );
   const {
     source: promptArtifactSource,

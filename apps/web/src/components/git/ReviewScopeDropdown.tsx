@@ -1,7 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
-import type { ReviewScope } from "./GitReviewContext";
+import type { ReviewScope } from "../../services/review/ReviewSourceResolver";
 import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
 
 interface ReviewScopeDropdownProps {
@@ -11,12 +11,20 @@ interface ReviewScopeDropdownProps {
 }
 
 const REVIEW_SCOPE_OPTIONS: Array<{
-  value: ReviewScope | "branch-changes" | "last-turn-changes";
+  value: ReviewScope | "branch-changes";
   label: string;
   disabled: boolean;
 }> = [
-  { value: "git-changes", label: REVIEW_SOURCE_LABELS.live_git.scope, disabled: false },
-  { value: "prompt-artifact", label: REVIEW_SOURCE_LABELS.prompt_artifact.scope, disabled: false },
+  {
+    value: "git-changes",
+    label: REVIEW_SOURCE_LABELS.live_git.scope,
+    disabled: false,
+  },
+  {
+    value: "prompt-artifact",
+    label: REVIEW_SOURCE_LABELS.prompt_artifact.scope,
+    disabled: false,
+  },
   { value: "branch-changes", label: "Branch changes", disabled: true },
 ];
 
@@ -41,14 +49,17 @@ export function ReviewScopeDropdown({
       <button
         type="button"
         onClick={() => setIsOpen((previous) => !previous)}
-        className="inline-flex items-center gap-2 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-zinc-700 hover:bg-zinc-800"
+        className="inline-flex items-center gap-2 rounded-lg bg-transparent px-2 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-900"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
         {selectedOption.label}
         <ChevronDown
           size={14}
-          className={cn("text-zinc-500 transition-transform", isOpen && "rotate-180")}
+          className={cn(
+            "text-zinc-500 transition-transform",
+            isOpen && "rotate-180",
+          )}
         />
       </button>
 
@@ -56,13 +67,13 @@ export function ReviewScopeDropdown({
         <>
           <button
             type="button"
-            className="fixed inset-0 z-20 cursor-default"
+            className="fixed inset-0 z-[60] cursor-default"
             aria-label="Close review scope menu"
             onClick={() => setIsOpen(false)}
           />
           <div
             role="menu"
-            className="absolute left-0 top-full z-30 mt-1 min-w-52 rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
+            className="absolute left-0 top-full z-[70] mt-1 min-w-52 rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
           >
             {REVIEW_SCOPE_OPTIONS.map((option) => {
               const isSelected = option.value === value;

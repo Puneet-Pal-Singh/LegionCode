@@ -59,6 +59,8 @@ export const ToolBackendCapabilitySchema = z.enum([
   "network",
   "github",
   "github_cli",
+  "formatter",
+  "language_services",
   "approval",
 ]);
 export type ToolBackendCapability = z.infer<typeof ToolBackendCapabilitySchema>;
@@ -80,6 +82,9 @@ export const ToolRendererHintSchema = z.enum([
   "github",
 ]);
 export type ToolRendererHint = z.infer<typeof ToolRendererHintSchema>;
+
+export const ToolModelCapabilitySchema = z.enum(["patch_application"]);
+export type ToolModelCapability = z.infer<typeof ToolModelCapabilitySchema>;
 
 export const ToolPermissionMetadataSchema = z
   .object({
@@ -152,6 +157,7 @@ export interface ToolDefinition {
   preferredFor: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
+  requiredModelCapabilities: readonly ToolModelCapability[];
   route: ToolGatewayRoute;
   execute(
     input: Record<string, unknown>,
@@ -180,6 +186,7 @@ export const ToolDefinitionSchema = z
     preferredFor: z.array(z.string().min(1)).min(1),
     avoidWhen: z.array(z.string().min(1)).optional(),
     alternatives: z.array(z.string().min(1)).optional(),
+    requiredModelCapabilities: z.array(ToolModelCapabilitySchema),
   })
   .passthrough();
 
@@ -221,6 +228,39 @@ export const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
 export const WRITE_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
   content: z.string().min(1).max(MAX_TOOL_WRITE_CONTENT_LENGTH),
+  expectedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
+});
+
+export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+  oldText: z.string().min(1).max(MAX_TOOL_WRITE_CONTENT_LENGTH),
+  newText: z.string().max(MAX_TOOL_WRITE_CONTENT_LENGTH),
+  replaceAll: z.boolean().optional(),
+  expectedReplacements: z.number().int().min(1).max(10_000).optional(),
+  expectedSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i)
+    .optional(),
+});
+
+export const MULTI_EDIT_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  edits: z.array(EDIT_FILE_TOOL_INPUT_SCHEMA).min(1).max(20),
+});
+
+export const APPLY_PATCH_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  patch: z.string().min(1).max(1_000_000),
+  dryRun: z.boolean().optional(),
+});
+
+export const FORMAT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
+});
+
+export const LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA = createToolInputSchema({
+  path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
 });
 
 export const BASH_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -339,6 +379,11 @@ export const CODING_TOOL_IDS = [
   "read_file",
   "list_files",
   "write_file",
+  "edit_file",
+  "multi_edit",
+  "apply_patch",
+  "format_file",
+  "language_diagnostics",
   "bash",
   "git_stage",
   "git_commit",
@@ -414,6 +459,7 @@ function createRoutedToolDefinition(input: {
   preferredFor?: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
+  requiredModelCapabilities?: readonly ToolModelCapability[];
   route: Omit<ToolGatewayRoute, "toolName">;
 }): ToolDefinition {
   const route = { toolName: input.id, ...input.route };
@@ -435,6 +481,7 @@ function createRoutedToolDefinition(input: {
     preferredFor: input.preferredFor ?? usage.preferredFor,
     avoidWhen: input.avoidWhen ?? usage.avoidWhen,
     alternatives: input.alternatives ?? usage.alternatives,
+    requiredModelCapabilities: input.requiredModelCapabilities ?? [],
     route,
     async execute(
       toolInput: Record<string, unknown>,
@@ -714,6 +761,74 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     tokenPolicy: WRITE_TOKEN_POLICY,
     outputRenderer: "text",
     route: { plugin: "filesystem", action: "write_file" },
+  }),
+  createRoutedToolDefinition({
+    id: "edit_file",
+    title: "Edit File",
+    description: "Atomically replace exact text in a workspace file.",
+    inputSchema: EDIT_FILE_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "text",
+    preferredFor: ["small exact replacements", "hash-guarded edits"],
+    alternatives: ["write_file", "multi_edit"],
+    route: { plugin: "filesystem", action: "edit_file" },
+  }),
+  createRoutedToolDefinition({
+    id: "multi_edit",
+    title: "Multi Edit",
+    description:
+      "Apply validated exact-text edits across unique workspace files.",
+    inputSchema: MULTI_EDIT_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "json",
+    preferredFor: ["coordinated exact replacements across files"],
+    alternatives: ["edit_file"],
+    route: { plugin: "filesystem", action: "multi_edit" },
+  }),
+  createRoutedToolDefinition({
+    id: "apply_patch",
+    title: "Apply Patch",
+    description: "Validate and apply a unified git patch to the workspace.",
+    inputSchema: APPLY_PATCH_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "diff",
+    preferredFor: ["validated multi-hunk unified patches"],
+    avoidWhen: ["the selected model lacks patch application capability"],
+    alternatives: ["edit_file", "multi_edit"],
+    requiredModelCapabilities: ["patch_application"],
+    route: { plugin: "git", action: "git_patch_apply" },
+  }),
+  createRoutedToolDefinition({
+    id: "format_file",
+    title: "Format File",
+    description: "Format one supported workspace file with Prettier.",
+    inputSchema: FORMAT_FILE_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_WRITE_PERMISSION,
+    sandboxClass: "write",
+    requiredBackendCapabilities: ["formatter", "filesystem_write", "approval"],
+    tokenPolicy: WRITE_TOKEN_POLICY,
+    outputRenderer: "text",
+    preferredFor: ["deterministic formatting after code edits"],
+    route: { plugin: "filesystem", action: "format_file" },
+  }),
+  createRoutedToolDefinition({
+    id: "language_diagnostics",
+    title: "Language Diagnostics",
+    description: "Run bounded TypeScript diagnostics for the workspace.",
+    inputSchema: LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA,
+    permission: WORKSPACE_READ_PERMISSION,
+    sandboxClass: "read",
+    requiredBackendCapabilities: ["language_services", "filesystem_read"],
+    tokenPolicy: READ_TOKEN_POLICY,
+    outputRenderer: "text",
+    preferredFor: ["TypeScript diagnostics after code edits"],
+    route: { plugin: "filesystem", action: "language_diagnostics" },
   }),
   createRoutedToolDefinition({
     id: "bash",

@@ -27,6 +27,7 @@ export function useRunEvents(
   const requestIdRef = useRef(0);
   const activeRunIdRef = useRef(runId);
   const missedRefreshRef = useRef(false);
+  const missingRunRef = useRef(false);
   const lastErrorLogRef = useRef<{
     timestamp: number;
     message: string;
@@ -35,7 +36,7 @@ export function useRunEvents(
   const fetchEvents = useCallback(
     async (options?: { force?: boolean }) => {
       const currentRunId = runId.trim();
-      if (!currentRunId || inFlightRef.current) {
+      if (!currentRunId || inFlightRef.current || missingRunRef.current) {
         if (!currentRunId) {
           setEvents([]);
         }
@@ -60,6 +61,12 @@ export function useRunEvents(
           credentials: "include",
         });
         if (!response.ok) {
+          if (
+            response.status === 404 &&
+            activeRunIdRef.current === currentRunId
+          ) {
+            missingRunRef.current = true;
+          }
           return;
         }
 
@@ -93,6 +100,7 @@ export function useRunEvents(
     requestIdRef.current += 1;
     lastErrorLogRef.current = null;
     missedRefreshRef.current = false;
+    missingRunRef.current = false;
 
     if (!runId) {
       setEvents([]);
@@ -104,7 +112,7 @@ export function useRunEvents(
   }, [fetchEvents, runId]);
 
   useEffect(() => {
-    if (!runId || !shouldStream) {
+    if (!runId || !shouldStream || missingRunRef.current) {
       return;
     }
 
@@ -119,6 +127,12 @@ export function useRunEvents(
           credentials: "include",
         });
         if (!response.ok || !response.body) {
+          if (
+            response.status === 404 &&
+            activeRunIdRef.current === currentRunId
+          ) {
+            missingRunRef.current = true;
+          }
           return;
         }
 

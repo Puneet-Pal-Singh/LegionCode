@@ -38,20 +38,20 @@ function hasSessionUpdates(
   );
 }
 
-function mergeSessions(
-  localSessions: AgentSession[],
-  serverSessions: AgentSession[],
-): AgentSession[] {
-  const merged = new Map<string, AgentSession>();
-  for (const session of localSessions) {
-    merged.set(session.id, session);
-  }
-  for (const session of serverSessions) {
-    merged.set(session.id, session);
-  }
-  return Array.from(merged.values()).sort((left, right) =>
+function sortSessions(sessions: AgentSession[]): AgentSession[] {
+  return [...sessions].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt),
   );
+}
+
+function resolveActiveSessionId(
+  activeSessionId: string | null,
+  sessions: AgentSession[],
+): string | null {
+  if (sessions.some((session) => session.id === activeSessionId)) {
+    return activeSessionId;
+  }
+  return sessions[0]?.id ?? null;
 }
 
 function mergeRepositories(
@@ -162,22 +162,27 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       try {
         const serverSessions =
           await SessionStateService.hydrateSessionsFromServer();
-        const serverSessionList = Object.values(serverSessions);
+        const serverSessionList = sortSessions(Object.values(serverSessions));
         if (cancelled) {
           return;
         }
 
+        const nextActiveSessionId = resolveActiveSessionId(
+          activeSessionIdRef.current,
+          serverSessionList,
+        );
+        sessionsRef.current = serverSessionList;
+        activeSessionIdRef.current = nextActiveSessionId;
+        setSessions(serverSessionList);
+        setActiveSessionId(nextActiveSessionId);
+
         if (serverSessionList.length > 0) {
-          setSessions((current) => mergeSessions(current, serverSessionList));
           setRepositories((current) =>
             mergeRepositories(
               current,
               serverSessionList.map((session) => session.repository),
             ),
           );
-          if (!activeSessionIdRef.current) {
-            setActiveSessionId(serverSessionList[0]?.id ?? null);
-          }
         }
         setSessionHydrationStatus("ready");
       } catch (error) {

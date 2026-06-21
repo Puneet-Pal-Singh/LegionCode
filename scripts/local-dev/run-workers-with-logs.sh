@@ -28,6 +28,12 @@ cleanup() {
   exit "${exit_code}"
 }
 
+wait_for_worker_exit() {
+  while kill -0 "${BRAIN_PID}" 2>/dev/null && kill -0 "${SECURE_API_PID}" 2>/dev/null; do
+    sleep 1
+  done
+}
+
 trap cleanup EXIT INT TERM
 
 echo "[local-dev] Writing Brain logs to ${BRAIN_LOG}"
@@ -39,7 +45,6 @@ echo "[local-dev] Also writing secure-agent-api logs to ${SECURE_API_ALIAS_LOG}"
   cd "${ROOT_DIR}/apps/brain"
   pnpm exec wrangler dev \
     --config wrangler.local.jsonc \
-    --local \
     --port 8788 \
     --inspector-port 9230
 ) 2>&1 | tee "${BRAIN_LOG}" "${BRAIN_ALIAS_LOG}" &
@@ -49,10 +54,9 @@ BRAIN_PID=$!
   cd "${ROOT_DIR}/apps/secure-agent-api"
   pnpm exec wrangler dev \
     --config wrangler.local.jsonc \
-    --local \
     --port 8787 \
     --inspector-port 9229
 ) 2>&1 | tee "${SECURE_API_LOG}" "${SECURE_API_ALIAS_LOG}" &
 SECURE_API_PID=$!
 
-wait -n "${BRAIN_PID}" "${SECURE_API_PID}"
+wait_for_worker_exit

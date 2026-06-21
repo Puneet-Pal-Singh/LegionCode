@@ -56,7 +56,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
         existing?.workspaceId ?? null,
       ),
       taskId: task.id,
-      title: resolveSessionTitle(input, existing, task.title),
+      title: existing?.title ?? input.title ?? task.title,
       titleSource,
       repository: readNullableInput(
         input.repository,
@@ -85,6 +85,23 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     titleSource: "generated";
   }): Promise<SessionRecord | null> {
     return this.updateSessionTitle(input, "generated");
+  }
+
+  async updateSessionStatus(input: {
+    userId: string;
+    sessionId: string;
+    status: SessionRecord["status"];
+  }): Promise<SessionRecord | null> {
+    const session = this.readUserSession(input.userId, input.sessionId);
+    if (!session) {
+      return null;
+    }
+    const now = this.clock.now().toISOString();
+    return this.storeSession({
+      ...session,
+      status: input.status,
+      updatedAt: now,
+    });
   }
 
   async renameSessionTitle(input: {
@@ -376,21 +393,4 @@ function readNullableInput<T>(
   fallback: T | null,
 ): T | null {
   return value === undefined ? fallback : value;
-}
-
-function resolveSessionTitle(
-  input: EnsureTranscriptSessionInput,
-  existing: SessionRecord | undefined,
-  taskTitle: string,
-): string {
-  if (!input.title) {
-    return existing?.title ?? taskTitle;
-  }
-  if (!existing) {
-    return input.title;
-  }
-  if (existing.titleSource === "generated" && input.titleSource !== "user") {
-    return input.title;
-  }
-  return existing.title;
 }

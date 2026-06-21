@@ -56,6 +56,9 @@ dist/
 # Generated review artifacts
 scripts/review-script/review-findings/
 
+# Git worktrees
+.worktrees/
+
 # Internal planning files
 local/
 tasks/

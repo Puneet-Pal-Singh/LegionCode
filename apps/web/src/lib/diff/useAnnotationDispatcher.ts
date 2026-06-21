@@ -25,6 +25,7 @@ export interface AnnotationDispatcherState {
   annotationsByAnchor: Map<string, ReviewCommentDraft[]>;
   addAnnotation: (note: string) => void;
   resolveAnnotation: (annotationId: string) => void;
+  deleteAnnotation: (annotationId: string) => void;
 }
 
 export function useAnnotationDispatcher({
@@ -37,7 +38,9 @@ export function useAnnotationDispatcher({
   lineLookup,
   clearSelection,
 }: AnnotationDispatcherInput): AnnotationDispatcherState {
-  const canCreateReviewComment = Boolean(diffFingerprint && onCreateReviewComment);
+  const canCreateReviewComment = Boolean(
+    diffFingerprint && onCreateReviewComment,
+  );
 
   const annotationCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -112,6 +115,9 @@ export function useAnnotationDispatcher({
   const resolveAnnotation = (annotationId: string) => {
     onDeleteReviewComment?.(annotationId);
   };
+  const deleteAnnotation = (annotationId: string) => {
+    onDeleteReviewComment?.(annotationId);
+  };
 
   return {
     canCreateReviewComment,
@@ -119,6 +125,7 @@ export function useAnnotationDispatcher({
     annotationsByAnchor,
     addAnnotation,
     resolveAnnotation,
+    deleteAnnotation,
   };
 }
 

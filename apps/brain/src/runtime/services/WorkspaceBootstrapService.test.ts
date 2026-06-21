@@ -654,33 +654,20 @@ describe("WorkspaceBootstrapService", () => {
     expect(execute).toHaveBeenCalledWith("git", "git_status", {});
   });
 
-  it("does not short-circuit ready when local changes are on a different branch", async () => {
-    const execute = vi
-      .fn()
-      .mockResolvedValueOnce({
-        success: true,
-        output: JSON.stringify({
-          branch: "feature/other",
-          files: [
-            {
-              path: "README.md",
-              status: "modified",
-              additions: 1,
-              deletions: 0,
-              isStaged: false,
-            },
-          ],
-          ahead: 0,
-          behind: 0,
-          repoIdentity: "github.com/sourcegraph/shadowbox",
-          hasStaged: false,
-          hasUnstaged: true,
-          gitAvailable: true,
-        }),
-      })
-      .mockResolvedValueOnce({ success: true })
-      .mockResolvedValueOnce({ success: true })
-      .mockResolvedValueOnce({ success: true });
+  it("preserves the current branch for an initialized run workspace", async () => {
+    const execute = vi.fn().mockResolvedValueOnce({
+      success: true,
+      output: JSON.stringify({
+        branch: "feature/other",
+        files: [],
+        ahead: 1,
+        behind: 0,
+        repoIdentity: "github.com/sourcegraph/shadowbox",
+        hasStaged: false,
+        hasUnstaged: false,
+        gitAvailable: true,
+      }),
+    });
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
@@ -694,10 +681,8 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
-    expect(execute).toHaveBeenCalledTimes(4);
-    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
-      remote: "origin",
-    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith("git", "git_status", {});
   });
 
   it("fails closed on malformed git status payloads", async () => {

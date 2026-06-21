@@ -181,7 +181,7 @@ export class PricingRegistry implements IPricingRegistry {
       `Stale pricing detected for ${key}: ${ageDays} days old ` +
       `(threshold=${this.options.staleThresholdDays}, source=${source}, version=${version})`;
 
-    if (this.options.failOnStale || this.options.isProduction) {
+    if (this.options.failOnStale) {
       throw new PricingError(message);
     }
     if (!detectTestEnvironment()) {

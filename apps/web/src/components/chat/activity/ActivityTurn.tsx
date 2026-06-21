@@ -52,6 +52,15 @@ export function ActivityTurn({
     );
   }
 
+  if (turn.rows.length === 0) {
+    return (
+      <section className="space-y-3 py-1">
+        <div className="text-sm text-zinc-400">{turn.elapsedLabel}</div>
+        <div className="h-px w-full bg-zinc-800/80" />
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-3 py-1">
       <button

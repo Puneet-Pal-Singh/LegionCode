@@ -364,10 +364,20 @@ async function executeDirectToolCall(input: {
       );
     },
   });
-  if (input.toolCall.toolName === "write_file") {
+  if (isWorkspaceContentMutation(input.toolCall.toolName)) {
     input.setHasMutationEvidence(true);
   }
   return result;
+}
+
+function isWorkspaceContentMutation(toolName: GoldenFlowToolName): boolean {
+  return (
+    toolName === "write_file" ||
+    toolName === "edit_file" ||
+    toolName === "multi_edit" ||
+    toolName === "apply_patch" ||
+    toolName === "format_file"
+  );
 }
 
 function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {

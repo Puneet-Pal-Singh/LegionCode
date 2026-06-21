@@ -22,7 +22,11 @@ import { listBranches, Branch } from "../../services/GitHubService";
  * Automatically fetches branches when the repository changes.
  * Handles loading states and errors.
  */
-export function ChatBranchSelector() {
+export function ChatBranchSelector({
+  placement = "below",
+}: {
+  placement?: "above" | "below";
+}) {
   const { repo, branch, switchBranch } = useGitHub();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +66,7 @@ export function ChatBranchSelector() {
       branches={branches}
       isLoading={isLoading}
       onBranchSelect={switchBranch}
+      placement={placement}
     />
   );
 }

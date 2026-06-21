@@ -35,7 +35,7 @@ export const onRequest = async (context: {
 }): Promise<Response> => {
   const origin = resolveAgentsOrigin(context.env.AGENTS_ORIGIN);
   const url = new URL(context.request.url);
-  const target = `${origin}${url.pathname}${url.search}`;
+  const target = buildAgentsTarget(origin, url);
 
   const proxied = new Request(target, context.request);
   const controller = new AbortController();
@@ -62,6 +62,12 @@ export const onRequest = async (context: {
     clearTimeout(timeoutId);
   }
 };
+
+export function buildAgentsTarget(origin: string, requestUrl: URL): string {
+  const upstreamPath =
+    requestUrl.pathname.replace(/^\/agents(?=\/|$)/, "") || "/";
+  return `${origin}${upstreamPath}${requestUrl.search}`;
+}
 
 function resolveAgentsOrigin(value: string | undefined): string {
   const rawOrigin = value?.trim() || DEFAULT_AGENTS_ORIGIN;
