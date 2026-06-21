@@ -181,24 +181,13 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
     }
 
-    if (!this.eventStream) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Live event stream is unavailable",
-        501,
-      );
-    }
-
+    const runtimeState = this.createRuntimeState();
+    const eventRepo = new RunEventRepository(runtimeState);
+    const events = await eventRepo.getByRun(runId);
     return withRunEngineHeaders(
       request,
       this.env,
-      new Response(this.eventStream.getStream(runId) as ReadableStream, {
-        headers: {
-          "Content-Type": "application/x-ndjson; charset=utf-8",
-          "Cache-Control": "no-cache",
-        },
-      }),
+      this.buildEventsResponse(events, runId),
     );
   }
 

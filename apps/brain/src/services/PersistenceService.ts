@@ -8,6 +8,7 @@ import type {
   RunStatus,
   TranscriptRepository,
   TranscriptMessageRecord,
+  SessionStatus,
   UpdateRunStatusInput,
   UpsertRunStepInput,
 } from "@repo/persistence";
@@ -103,7 +104,7 @@ export class PersistenceService {
     startedAt?: string,
     completedAt?: string,
   ): Promise<RunRecord> {
-    return await withRunRepository(this.env, async (repository) => {
+    const run = await withRunRepository(this.env, async (repository) => {
       return await repository.updateRunStatus({
         id: runId,
         status,
@@ -111,6 +112,8 @@ export class PersistenceService {
         completedAt,
       });
     });
+    await this.syncSessionStatus(run, status);
+    return run;
   }
 
   async appendRunEvent(input: {
@@ -130,18 +133,42 @@ export class PersistenceService {
     step?: UpsertRunStepInput;
     status?: UpdateRunStatusInput;
   }): Promise<RunEventRecord> {
-    return await withRunRepository(this.env, async (repository) =>
+    const statusUpdate = input.status;
+    const event = await withRunRepository(this.env, async (repository) =>
       repository.transaction(async (txRepository) => {
         const event = await txRepository.appendEvent(input.event);
         if (input.step) {
           await txRepository.upsertStep(input.step);
         }
-        if (input.status) {
-          await txRepository.updateRunStatus(input.status);
+        if (statusUpdate) {
+          await txRepository.updateRunStatus(statusUpdate);
         }
         return event;
       }),
     );
+    if (statusUpdate) {
+      const run = await withRunRepository(this.env, async (repository) =>
+        repository.getRun(statusUpdate.id),
+      );
+      if (run) {
+        await this.syncSessionStatus(run, statusUpdate.status);
+      }
+    }
+    return event;
+  }
+
+  private async syncSessionStatus(
+    run: RunRecord,
+    status: RunStatus,
+  ): Promise<void> {
+    const sessionStatus = mapRunStatusToSessionStatus(status);
+    await withTranscriptRepository(this.env, async (repository) => {
+      await repository.updateSessionStatus({
+        userId: run.userId,
+        sessionId: run.sessionId,
+        status: sessionStatus,
+      });
+    });
   }
 
   private async generateIdempotencyKey(
@@ -357,6 +384,22 @@ export class PersistenceService {
       readClientMessageId(message) ?? message.role,
       content,
     );
+  }
+}
+
+function mapRunStatusToSessionStatus(status: RunStatus): SessionStatus {
+  switch (status) {
+    case "created":
+      return "idle";
+    case "running":
+      return "running";
+    case "completed":
+      return "completed";
+    case "paused":
+      return "paused";
+    case "failed":
+    case "cancelled":
+      return "failed";
   }
 }
 

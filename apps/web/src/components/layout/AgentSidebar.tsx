@@ -183,7 +183,7 @@ export function AgentSidebar({
           status: approvalStatesBySessionId[session.id]
             ? "needs_approval"
             : mapSessionStatus(session, activeSessionId),
-          updatedAt: session.updatedAt,
+          updatedAt: session.createdAt,
           isActive: session.id === activeSessionId,
           metrics: approvalStatesBySessionId[session.id]
             ? { label: "Awaiting approval" }

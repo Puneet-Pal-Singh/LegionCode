@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, GitBranch, Github, Sparkles, Upload, X } from "lucide-react";
-import { useGitReview } from "./GitReviewContext";
+import { useGitReview } from "./useGitReview";
 import { useAuth } from "../../contexts/AuthContext";
 import { useGitHub } from "../github/GitHubContextProvider";
 import { useRunContext } from "../../hooks/useRunContext";

@@ -151,8 +151,14 @@ const GENERIC_PLANNING_REASONING_SUMMARIES = new Set([
 ]);
 const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
   "Preparing the operational plan.",
+  "Preparing the final user-facing answer from the observed results.",
   "Summarizing execution results for the final response.",
 ]);
+const GENERIC_REASONING_LABELS_BY_PHASE = {
+  planning: "Planning next step",
+  execution: "Preparing next action",
+  synthesis: "Summarizing the change",
+} as const;
 
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
@@ -319,7 +325,7 @@ function buildTurnRows(
 
     if (item.kind === ACTIVITY_PART_KINDS.REASONING) {
       const reasoningRow = createNonToolRow(item);
-      if (isThinkingReasoningRow(reasoningRow)) {
+      if (isTrailingThinkingIndicatorRow(reasoningRow)) {
         // "Thinking" is only a live trailing state indicator. Once commentary
         // or concrete work happens after it, we drop it from transcript history.
         trailingThinkingRow = reasoningRow;
@@ -367,7 +373,12 @@ function shouldRenderTrailingThinkingRow(
   row: ActivityReasoningRowViewModel | null,
   isActiveTurn: boolean,
 ): row is ActivityReasoningRowViewModel {
-  return Boolean(row && isActiveTurn && row.status === "active");
+  return Boolean(
+    row &&
+      isTrailingThinkingIndicatorRow(row) &&
+      isActiveTurn &&
+      row.status === "active",
+  );
 }
 
 function finalizeTurnRows(
@@ -457,9 +468,13 @@ function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
 function isThinkingReasoningRow(
   row: ActivityFeedRowViewModel | undefined,
 ): row is ActivityReasoningRowViewModel {
-  return (
-    row?.kind === "reasoning" && row.label === "Thinking" && row.summary === ""
-  );
+  return row?.kind === "reasoning" && row.label === "Thinking";
+}
+
+function isTrailingThinkingIndicatorRow(
+  row: ActivityFeedRowViewModel | undefined,
+): row is ActivityReasoningRowViewModel {
+  return isThinkingReasoningRow(row) && row.summary === "";
 }
 
 function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
@@ -514,7 +529,13 @@ function isSuppressedReasoning(
 ): boolean {
   const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
   const authoredLabel = item.label.trim();
+  const genericPhaseLabel = item.phase
+    ? GENERIC_REASONING_LABELS_BY_PHASE[item.phase]
+    : undefined;
   return (
+    (item.status !== "active" &&
+      normalizedSummary === "" &&
+      authoredLabel === genericPhaseLabel) ||
     (item.phase === "synthesis" &&
       normalizedSummary === "" &&
       authoredLabel === "") ||

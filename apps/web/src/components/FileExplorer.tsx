@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { useEffect, useState, useCallback, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { Folder, File, ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { terminalCommandPath } from '../lib/platform-endpoints';
@@ -19,10 +19,11 @@ interface FileExplorerProps {
   sessionId: string;
   runId: string;
   onFileClick?: (path: string) => void;
+  filterQuery?: string;
 }
 
 export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
-  ({ sessionId, runId, onFileClick }, ref) => {
+  ({ sessionId, runId, onFileClick, filterQuery = '' }, ref) => {
     const [files, setFiles] = useState<FileItem[]>([]);
     const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['.']));
     const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set());
@@ -183,11 +184,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
       );
     };
 
+    const visibleFiles = useMemo(
+      () => filterFileItems(files, filterQuery),
+      [files, filterQuery],
+    );
+
     return (
       <div className="flex flex-col h-full bg-black select-none">
         <div className="flex-1 overflow-y-auto py-2">
-          {files.map(file => renderItem(file))}
-          {files.length === 0 && (
+          {visibleFiles.map(file => renderItem(file))}
+          {visibleFiles.length === 0 && (
              <div className="px-4 py-8 text-center">
                 <p className="text-xs text-zinc-600 italic">No files found</p>
              </div>
@@ -199,3 +205,14 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(
 );
 
 FileExplorer.displayName = 'FileExplorer';
+
+function filterFileItems(items: FileItem[], query: string): FileItem[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return items;
+
+  return items.flatMap((item) => {
+    const children = filterFileItems(item.children ?? [], normalizedQuery);
+    const matches = item.path.toLowerCase().includes(normalizedQuery);
+    return matches || children.length > 0 ? [{ ...item, children }] : [];
+  });
+}

@@ -67,6 +67,9 @@ export interface AgentSession {
   /** Explicit product mode selected for this session */
   mode: RunMode;
 
+  /** ISO timestamp when this session was created */
+  createdAt: string;
+
   /** ISO timestamp of last update */
   updatedAt: string;
 }

@@ -65,6 +65,10 @@ const mockWorkspaceStateSetters = vi.hoisted(() => ({
   setIsResizing: vi.fn(),
   setSelectedFile: vi.fn(),
   setSelectedDiff: vi.fn(),
+  openFileTab: vi.fn(),
+  openDiffTab: vi.fn(),
+  selectContentTab: vi.fn(),
+  closeContentTab: vi.fn(),
   setIsViewingContent: vi.fn(),
   setIsLoadingContent: vi.fn(),
 }));
@@ -110,10 +114,16 @@ vi.mock("./workspace/useWorkspaceState", () => ({
     setSidebarWidth: mockWorkspaceStateSetters.setSidebarWidth,
     isResizing: false,
     setIsResizing: mockWorkspaceStateSetters.setIsResizing,
+    contentTabs: [],
+    activeContentTabId: null,
     selectedFile: null,
     setSelectedFile: mockWorkspaceStateSetters.setSelectedFile,
     selectedDiff: null,
     setSelectedDiff: mockWorkspaceStateSetters.setSelectedDiff,
+    openFileTab: mockWorkspaceStateSetters.openFileTab,
+    openDiffTab: mockWorkspaceStateSetters.openDiffTab,
+    selectContentTab: mockWorkspaceStateSetters.selectContentTab,
+    closeContentTab: mockWorkspaceStateSetters.closeContentTab,
     isViewingContent: false,
     setIsViewingContent: mockWorkspaceStateSetters.setIsViewingContent,
     isLoadingContent: false,
@@ -152,6 +162,9 @@ vi.mock("../git/GitReviewContext", () => ({
   GitReviewProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+}));
+
+vi.mock("../git/useGitReview", () => ({
   useGitReview: () => ({
     status: {
       branch: "main",
@@ -252,6 +265,27 @@ describe("Workspace", () => {
     mockGitHubTreeState.switchBranch.mockClear();
     mockGitHubTreeState.isGitHubLoaded = false;
     mockGitHubTreeState.isContextMismatch = false;
+  });
+
+  it("routes top-summary change requests into the review changes tab", () => {
+    const setIsRightSidebarOpen = vi.fn();
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+        summaryActionRequest={{ id: 1, action: "changes" }}
+      />,
+    );
+
+    expect(setIsRightSidebarOpen).toHaveBeenCalledWith(true);
+    expect(mockWorkspaceStateSetters.setIsViewingContent).toHaveBeenCalledWith(
+      false,
+    );
+    expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
+      "changes",
+    );
   });
 
   it("refreshes git status when local chat loading settles", async () => {

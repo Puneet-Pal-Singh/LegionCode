@@ -27,6 +27,7 @@ export function useRunActivityFeed(
   const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
   const retryAfterRef = useRef(0);
+  const missingRunRef = useRef(false);
   const missedRefreshRef = useRef(false);
   const prevShouldPollRef = useRef(shouldPoll);
   const lastErrorLogRef = useRef<{
@@ -42,6 +43,9 @@ export function useRunActivityFeed(
         return;
       }
       if (inFlightRef.current) {
+        return;
+      }
+      if (missingRunRef.current) {
         return;
       }
       const now = Date.now();
@@ -66,6 +70,10 @@ export function useRunActivityFeed(
           return;
         }
         if (!response.ok) {
+          if (response.status === 404) {
+            missingRunRef.current = true;
+            return;
+          }
           if (AUTH_BLOCKING_STATUS_CODES.has(response.status)) {
             console.warn(
               `[run/activity-feed] auth failed for runId=${currentRunId}; retrying after delay`,
@@ -110,6 +118,7 @@ export function useRunActivityFeed(
     inFlightRunIdRef.current = null;
     lastFetchAtRef.current = 0;
     retryAfterRef.current = 0;
+    missingRunRef.current = false;
     missedRefreshRef.current = false;
     lastErrorLogRef.current = null;
     setFeed(null);

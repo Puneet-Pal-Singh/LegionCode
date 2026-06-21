@@ -58,6 +58,19 @@ describe("DiffViewer", () => {
         Boolean(node?.textContent?.includes("const added = true")),
       ).length,
     ).toBeGreaterThan(0);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "3 unmodified lines collapsed" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "3 unmodified lines expanded" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("const value1 = 1")),
+      ).length,
+    ).toBeGreaterThan(0);
   });
 
   it("defaults to word wrap enabled", () => {
@@ -79,7 +92,7 @@ describe("DiffViewer", () => {
     expect(screen.getByRole("menuitem", { name: "Disable word wrap" })).toBeInTheDocument();
   });
 
-  it("uses file summary headers when the full diff header is hidden", () => {
+  it("renders one file summary when the full diff header is hidden", () => {
     render(
       <DiffViewer
         showHeader={false}
@@ -117,13 +130,13 @@ describe("DiffViewer", () => {
     expect(screen.getByText("src/example.ts")).toBeInTheDocument();
     expect(screen.getByText("+1")).toBeInTheDocument();
     expect(screen.getByText("-1")).toBeInTheDocument();
-    expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lines 1 - 2")).not.toBeInTheDocument();
   });
 
-  it("can use file summary hunk headers with the full diff header visible", () => {
+  it("does not render each hunk as a separate file", () => {
     render(
       <DiffViewer
-        useFileSummaryHunkHeader
+        showHeader={false}
         diff={{
           oldPath: "src/example.ts",
           newPath: "src/example.ts",
@@ -150,12 +163,41 @@ describe("DiffViewer", () => {
                 },
               ],
             },
+            {
+              oldStart: 20,
+              oldLines: 2,
+              newStart: 20,
+              newLines: 2,
+              header: "@@ -20,2 +20,2 @@",
+              lines: [
+                {
+                  type: "deleted",
+                  content: "const oldName = true;",
+                  oldLineNumber: 20,
+                },
+                {
+                  type: "added",
+                  content: "const newName = true;",
+                  newLineNumber: 20,
+                },
+              ],
+            },
           ],
         }}
       />,
     );
 
-    expect(screen.getAllByText("src/example.ts")).toHaveLength(2);
-    expect(screen.queryByText("@@ -1,2 +1,2 @@")).not.toBeInTheDocument();
+    expect(screen.getAllByText("src/example.ts")).toHaveLength(1);
+    expect(screen.getByText("17 unmodified lines")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "17 unmodified lines collapsed" }),
+    );
+    expect(
+      screen.getByText(
+        "Omitted source context is not included in this saved patch.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Lines 1 - 2")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lines 20 - 21")).not.toBeInTheDocument();
   });
 });

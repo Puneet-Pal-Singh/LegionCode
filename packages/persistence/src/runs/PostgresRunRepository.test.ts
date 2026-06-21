@@ -75,7 +75,9 @@ class CapturingSqlClient implements SqlClient {
     };
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     return await callback(this);
   }
 }

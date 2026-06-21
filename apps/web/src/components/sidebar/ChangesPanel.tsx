@@ -1,18 +1,19 @@
-import {
-  ChevronDown,
-  ChevronUp,
-  Ellipsis,
-  LoaderCircle,
-  Rows3,
-  SquareSplitHorizontal,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { ChangesList } from "../diff/ChangesList";
 import { DiffViewer } from "../diff/DiffViewer";
-import { useGitReview } from "../git/GitReviewContext";
-import { ReviewScopeDropdown } from "../git/ReviewScopeDropdown";
+import { useGitReview } from "../git/useGitReview";
 import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver";
-import { cn } from "../../lib/utils";
+import { getDiffMessage, getEmptyReviewLabel } from "./changesPanelMessages";
+import {
+  GitUnavailableState,
+  ReviewDiffPlaceholder,
+  ReviewErrorState,
+  ReviewLoadingState,
+} from "./ReviewEmptyState";
+import { ReviewDiffToolbar } from "./ReviewDiffToolbar";
+import { ReviewFileStack } from "./ReviewFileStack";
+import { useChangesPanelViewState } from "./useChangesPanelViewState";
+import { ResizableWorkspaceRail } from "../layout/workspace/ResizableWorkspaceRail";
 
 interface ChangesPanelProps {
   className?: string;
@@ -20,6 +21,15 @@ interface ChangesPanelProps {
   layout?: "side-by-side" | "stacked";
   onFileSelect?: (path: string) => void;
   showToolbar?: boolean;
+  isChangesOpen?: boolean;
+  onToggleChanges?: () => void;
+  branch?: string;
+  reviewCommentCount?: number;
+  onReviewChanges?: () => void;
+  isFilesOpen?: boolean;
+  onToggleFiles?: () => void;
+  filesRail?: ReactNode;
+  showChangesRail?: boolean;
 }
 
 export function ChangesPanel({
@@ -28,342 +38,219 @@ export function ChangesPanel({
   layout = "side-by-side",
   onFileSelect,
   showToolbar = true,
+  isChangesOpen = false,
+  onToggleChanges = () => undefined,
+  branch,
+  reviewCommentCount = 0,
+  onReviewChanges,
+  isFilesOpen = false,
+  onToggleFiles,
+  filesRail,
+  showChangesRail = true,
 }: ChangesPanelProps) {
-  const [diffLayout, setDiffLayout] = useState<"stacked" | "split">("stacked");
-  const [wordWrap, setWordWrap] = useState(true);
-  const [hunksCollapsed, setHunksCollapsed] = useState(false);
-  const [hunkExpansionRequest, setHunkExpansionRequest] = useState<{
-    action: "collapse" | "expand";
-    id: number;
-  }>();
-  const {
-    status,
-    gitAvailable,
-    statusLoading,
-    isGitWorkspaceRecovering,
-    statusError,
-    diff,
-    diffLoading,
-    diffError,
-    selectedFile,
-    reviewFiles,
-    reviewScope,
-    setReviewScope,
-    reviewSource,
-    reviewSourceLoading,
-    reviewSourceError,
-    selectedReviewCommentsForFile,
-    currentDiffFingerprint,
-    addReviewComment,
-    deleteReviewComment,
-    selectFile,
-  } = useGitReview();
-
-  const handleSelectFile = (file: NonNullable<typeof selectedFile>) => {
-    selectFile(file);
-    onFileSelect?.(file.path);
-  };
-
-  const showChangesList = mode === "sidebar" || layout !== "stacked";
-  const files = useMemo(() => reviewFiles, [reviewFiles]);
+  const viewState = useChangesPanelViewState();
+  const review = useGitReview();
+  const files = useMemo(() => review.reviewFiles, [review.reviewFiles]);
+  const isSavedEditMode = review.reviewSource.kind === "prompt_artifact";
+  const showStackedReview = layout === "stacked";
+  const showChangesList =
+    showChangesRail &&
+    (!showStackedReview || (mode === "modal" && isChangesOpen));
+  const emptyReviewLabel = getEmptyReviewLabel({
+    isSavedEditMode,
+    reviewScope: review.reviewScope,
+    reviewSourceReason: review.reviewSource.reason,
+    reviewSourceLoading: review.reviewSourceLoading,
+    reviewSourceError: review.reviewSourceError,
+  });
+  const diffMessage = getDiffMessage({
+    selectedFile: review.selectedFile,
+    diffLoading: review.diffLoading,
+    diffError: review.diffError,
+    hasFiles: files.length > 0,
+    emptyReviewLabel,
+  });
 
   useEffect(() => {
-    if (showChangesList || selectedFile || files.length === 0) {
+    if (review.selectedFile || files.length === 0) {
       return;
     }
 
     const [firstFile] = files;
     if (firstFile) {
-      selectFile(firstFile);
+      review.selectFile(firstFile);
     }
-  }, [files, selectFile, selectedFile, showChangesList]);
-
-  const isSavedEditMode = reviewSource.kind === "prompt_artifact";
-  const emptyReviewLabel = getEmptyReviewLabel({
-    isSavedEditMode,
-    reviewScope,
-    reviewSourceReason: reviewSource.reason,
-    reviewSourceLoading,
-    reviewSourceError,
-  });
-  const modalDiffMessage = getModalDiffMessage({
-    selectedFile,
-    diffLoading,
-    diffError,
-    hasFiles: files.length > 0,
-    emptyReviewLabel,
-  });
+  }, [files, review]);
 
   if (
     !isSavedEditMode &&
-    (statusLoading || isGitWorkspaceRecovering) &&
-    !status
+    (review.statusLoading || review.isGitWorkspaceRecovering) &&
+    !review.status
   ) {
     return (
-      <div
-        className={`flex items-center justify-center h-full bg-transparent ${className}`}
-      >
-        {isGitWorkspaceRecovering ? (
-          <div className="p-4 text-zinc-400 text-sm">
-            Recovering workspace after restart...
-          </div>
-        ) : (
-          <LoaderCircle className="animate-spin text-zinc-400" size={24} />
-        )}
-      </div>
+      <ReviewLoadingState
+        className={className}
+        isGitWorkspaceRecovering={review.isGitWorkspaceRecovering}
+      />
     );
   }
 
-  if (!isSavedEditMode && statusError && !status) {
+  if (!isSavedEditMode && review.statusError && !review.status) {
     return (
-      <div className={`p-4 text-red-400 text-sm bg-transparent ${className}`}>
-        Error: {statusError}
-      </div>
+      <ReviewErrorState className={className} message={review.statusError} />
     );
   }
 
-  if (!isSavedEditMode && !gitAvailable) {
-    if (statusLoading || isGitWorkspaceRecovering) {
-      return (
-        <div
-          className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}
-        >
-          Recovering workspace after restart...
-        </div>
-      );
-    }
-
+  if (!isSavedEditMode && !review.gitAvailable) {
     return (
-      <div className={`p-4 text-zinc-400 text-sm bg-transparent ${className}`}>
-        Git is not available for this workspace yet. Connect or initialize a
-        repository to use source control actions.
-      </div>
+      <GitUnavailableState
+        className={className}
+        isGitWorkspaceRecovering={
+          review.statusLoading || review.isGitWorkspaceRecovering
+        }
+      />
     );
   }
+
+  const changesList = (
+    <ChangesList
+      files={files}
+      selectedFile={review.selectedFile}
+      onSelectFile={(file) => {
+        review.selectFile(file);
+        onFileSelect?.(file.path);
+      }}
+      reviewScope={review.reviewScope}
+      onReviewScopeChange={review.setReviewScope}
+      showToolbar={mode === "sidebar" && showToolbar}
+      searchable
+      sourceBadgeLabel={
+        review.reviewScope === "prompt-artifact"
+          ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
+          : REVIEW_SOURCE_LABELS.live_git.badge
+      }
+      emptyLabel={emptyReviewLabel}
+    />
+  );
 
   return (
     <div
-      className={`flex flex-col h-full gap-4 p-4 bg-transparent ${className}`}
+      className={`flex h-full min-h-0 flex-col overflow-visible bg-transparent ${
+        mode === "modal"
+          ? "p-0"
+          : showStackedReview
+            ? "gap-4 py-4"
+            : "gap-4 p-4"
+      } ${className}`}
     >
       {mode === "modal" && showToolbar ? (
         <ReviewDiffToolbar
-          reviewScope={reviewScope}
-          onReviewScopeChange={setReviewScope}
-          layout={diffLayout}
-          onLayoutChange={setDiffLayout}
-          wordWrap={wordWrap}
-          onWordWrapChange={setWordWrap}
-          hunksCollapsed={hunksCollapsed}
-          onToggleHunks={() => {
-            const nextCollapsed = !hunksCollapsed;
-            setHunksCollapsed(nextCollapsed);
-            setHunkExpansionRequest({
-              action: nextCollapsed ? "collapse" : "expand",
-              id: Date.now(),
-            });
-          }}
+          reviewScope={review.reviewScope}
+          onReviewScopeChange={review.setReviewScope}
+          layout={viewState.diffLayout}
+          onLayoutChange={viewState.setDiffLayout}
+          wordWrap={viewState.wordWrap}
+          onWordWrapChange={viewState.setWordWrap}
+          allDiffsCollapsed={viewState.allDiffsCollapsed}
+          onToggleAllDiffs={viewState.toggleAllDiffs}
+          isChangesOpen={isChangesOpen}
+          onToggleChanges={onToggleChanges}
+          branch={branch}
+          reviewCommentCount={reviewCommentCount}
+          onReviewChanges={onReviewChanges}
+          isFilesOpen={isFilesOpen}
+          onToggleFiles={onToggleFiles}
         />
       ) : null}
       <div
-        className={`flex-1 flex min-h-0 overflow-hidden ${
-          mode === "modal" && layout === "stacked" ? "flex-col gap-3" : "gap-4"
+        className={`flex min-h-0 flex-1 overflow-hidden ${
+          mode === "sidebar" ||
+          (mode === "modal" && layout === "stacked" && !isChangesOpen)
+            ? isFilesOpen
+              ? ""
+              : "flex-col gap-3"
+            : ""
         }`}
       >
+        {mode === "modal" && isFilesOpen ? (
+          <ResizableWorkspaceRail placement="left">
+            {filesRail}
+          </ResizableWorkspaceRail>
+        ) : null}
         {showChangesList ? (
-          <div
-            className={`ui-surface-section flex flex-col overflow-y-auto scrollbar-hide ${
-              mode === "sidebar" ? "w-full" : "w-80"
-            }`}
+          mode === "modal" ? (
+            <ResizableWorkspaceRail placement="left">
+              {changesList}
+            </ResizableWorkspaceRail>
+          ) : (
+            <div className="ui-surface-section flex max-h-56 w-full shrink-0 flex-col overflow-y-auto scrollbar-hide">
+              {changesList}
+            </div>
+          )
+        ) : null}
+
+        {showStackedReview ? (
+          <ReviewFileStack
+            files={files}
+            selectedFile={review.selectedFile}
+            emptyLabel={emptyReviewLabel}
+            onSelectFile={(file) => {
+              review.selectFile(file);
+              onFileSelect?.(file.path);
+            }}
+            allCollapsed={viewState.allDiffsCollapsed}
           >
-            <ChangesList
-              files={files}
-              selectedFile={selectedFile}
-              onSelectFile={handleSelectFile}
-              reviewScope={reviewScope}
-              onReviewScopeChange={setReviewScope}
-              showToolbar={mode === "sidebar" ? showToolbar : false}
-              sourceBadgeLabel={
-                reviewScope === "prompt-artifact"
-                  ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
-                  : REVIEW_SOURCE_LABELS.live_git.badge
-              }
-              emptyLabel={emptyReviewLabel}
+            <ReviewDiffContent
+              review={review}
+              viewState={viewState}
+              diffMessage={diffMessage}
+              showFileSummary={false}
+            />
+          </ReviewFileStack>
+        ) : mode === "modal" || mode === "sidebar" ? (
+          <div className="ui-surface-section flex flex-1 flex-col overflow-hidden">
+            <ReviewDiffContent
+              review={review}
+              viewState={viewState}
+              diffMessage={diffMessage}
             />
           </div>
         ) : null}
-
-        {mode === "modal" && (
-          <div className="ui-surface-section flex-1 flex flex-col overflow-hidden">
-            {selectedFile && diff ? (
-              <DiffViewer
-                key={`${diff.oldPath}:${diff.newPath}:${diff.hunks.length}`}
-                diff={diff}
-                className="flex-1 overflow-hidden"
-                layout={diffLayout}
-                onLayoutChange={setDiffLayout}
-                wordWrap={wordWrap}
-                onWordWrapChange={setWordWrap}
-                showHeader={false}
-                hunkExpansionRequest={hunkExpansionRequest}
-                reviewComments={selectedReviewCommentsForFile}
-                diffFingerprint={currentDiffFingerprint}
-                onCreateReviewComment={addReviewComment}
-                onDeleteReviewComment={deleteReviewComment}
-              />
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-                {modalDiffMessage}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-function getEmptyReviewLabel({
-  isSavedEditMode,
-  reviewScope,
-  reviewSourceReason,
-  reviewSourceLoading,
-  reviewSourceError,
+function ReviewDiffContent({
+  review,
+  viewState,
+  diffMessage,
+  showFileSummary = true,
 }: {
-  isSavedEditMode: boolean;
-  reviewScope: "git-changes" | "prompt-artifact";
-  reviewSourceReason: string;
-  reviewSourceLoading: boolean;
-  reviewSourceError: string | null;
-}): string {
-  if (isSavedEditMode || reviewScope === "prompt-artifact") {
-    return reviewSourceLoading
-      ? "Loading saved edit..."
-      : (reviewSourceError ?? "No saved edit for this run");
-  }
-
-  if (reviewSourceReason === "explicit") {
-    return "No live Git changes";
-  }
-
-  if (reviewSourceLoading) {
-    return "Checking saved edits...";
-  }
-
-  return "No reviewed changes yet";
-}
-
-function getModalDiffMessage({
-  selectedFile,
-  diffLoading,
-  diffError,
-  hasFiles,
-  emptyReviewLabel,
-}: {
-  selectedFile: unknown;
-  diffLoading: boolean;
-  diffError: string | null;
-  hasFiles: boolean;
-  emptyReviewLabel: string;
-}): string {
-  if (selectedFile) {
-    return diffLoading ? "Loading diff..." : (diffError ?? "No diff available");
-  }
-
-  return hasFiles ? "Loading diff..." : emptyReviewLabel;
-}
-
-function ReviewDiffToolbar({
-  reviewScope,
-  onReviewScopeChange,
-  layout,
-  onLayoutChange,
-  wordWrap,
-  onWordWrapChange,
-  hunksCollapsed,
-  onToggleHunks,
-}: {
-  reviewScope: "git-changes" | "prompt-artifact";
-  onReviewScopeChange: (scope: "git-changes" | "prompt-artifact") => void;
-  layout: "stacked" | "split";
-  onLayoutChange: (layout: "stacked" | "split") => void;
-  wordWrap: boolean;
-  onWordWrapChange: (enabled: boolean) => void;
-  hunksCollapsed: boolean;
-  onToggleHunks: () => void;
+  review: ReturnType<typeof useGitReview>;
+  viewState: ReturnType<typeof useChangesPanelViewState>;
+  diffMessage: string;
+  showFileSummary?: boolean;
 }) {
-  const [showViewMenu, setShowViewMenu] = useState(false);
+  if (!review.selectedFile || !review.diff) {
+    return <ReviewDiffPlaceholder message={diffMessage} />;
+  }
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
-      <ReviewScopeDropdown value={reviewScope} onChange={onReviewScopeChange} />
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShowViewMenu((previous) => !previous)}
-            className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1.5 text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900 hover:text-white"
-            aria-haspopup="menu"
-            aria-expanded={showViewMenu}
-            aria-label="Diff view options"
-          >
-            <Ellipsis size={14} />
-          </button>
-          {showViewMenu ? (
-            <div
-              role="menu"
-              className="absolute right-0 top-9 z-20 min-w-48 rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onWordWrapChange(!wordWrap);
-                  setShowViewMenu(false);
-                }}
-                className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-900 hover:text-white"
-              >
-                {wordWrap ? "Disable word wrap" : "Enable word wrap"}
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="inline-flex rounded-lg border border-zinc-800 bg-zinc-950 p-0.5 text-xs">
-          <button
-            type="button"
-            onClick={() => onLayoutChange("stacked")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors",
-              layout === "stacked"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-500 hover:text-zinc-300",
-            )}
-          >
-            <Rows3 size={13} />
-            Unified
-          </button>
-          <button
-            type="button"
-            onClick={() => onLayoutChange("split")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors",
-              layout === "split"
-                ? "bg-zinc-800 text-white"
-                : "text-zinc-500 hover:text-zinc-300",
-            )}
-          >
-            <SquareSplitHorizontal size={13} />
-            Split
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={onToggleHunks}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
-        >
-          {hunksCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-          {hunksCollapsed ? "Expand all" : "Collapse all"}
-        </button>
-      </div>
-    </div>
+    <DiffViewer
+      key={`${review.diff.oldPath}:${review.diff.newPath}:${review.diff.hunks.length}`}
+      diff={review.diff}
+      className="min-h-[420px] w-full overflow-hidden"
+      layout={viewState.diffLayout}
+      onLayoutChange={viewState.setDiffLayout}
+      wordWrap={viewState.wordWrap}
+      onWordWrapChange={viewState.setWordWrap}
+      showHeader={false}
+      showFileSummary={showFileSummary}
+      reviewComments={review.selectedReviewCommentsForFile}
+      diffFingerprint={review.currentDiffFingerprint}
+      onCreateReviewComment={review.addReviewComment}
+      onDeleteReviewComment={review.deleteReviewComment}
+    />
   );
 }

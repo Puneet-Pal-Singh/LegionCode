@@ -78,6 +78,7 @@ export function useRunSummary(
   const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
   const inFlightRunIdRef = useRef<string | null>(null);
+  const missingRunRef = useRef(false);
   const lastFetchAtRef = useRef(0);
   const lastSummaryErrorLogRef = useRef<{
     timestamp: number;
@@ -90,6 +91,7 @@ export function useRunSummary(
     activeRunIdRef.current = runId;
     inFlightRef.current = false;
     inFlightRunIdRef.current = null;
+    missingRunRef.current = false;
     lastFetchAtRef.current = 0;
     setSummary(null);
   }, [runId]);
@@ -101,6 +103,9 @@ export function useRunSummary(
       return;
     }
     if (inFlightRef.current) {
+      return;
+    }
+    if (missingRunRef.current) {
       return;
     }
     const now = Date.now();
@@ -120,6 +125,9 @@ export function useRunSummary(
         return;
       }
       if (!response.ok) {
+        if (response.status === 404) {
+          missingRunRef.current = true;
+        }
         return;
       }
       const payload = (await response.json()) as RunSummary;
@@ -203,7 +211,11 @@ export function useRunSummary(
   ]);
 
   useEffect(() => {
-    if (!runId || !shouldPoll) {
+    const shouldSettleCanonicalStatus =
+      Boolean(summary?.status) &&
+      !isTerminalRunStatus(summary?.status) &&
+      !isApprovalRequiredRunStatus(summary?.status);
+    if (!runId || (!shouldPoll && !shouldSettleCanonicalStatus)) {
       return;
     }
 
@@ -224,7 +236,7 @@ export function useRunSummary(
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchSummary, runId, shouldPoll]);
+  }, [fetchSummary, runId, shouldPoll, summary?.status]);
 
   return { summary };
 }

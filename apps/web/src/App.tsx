@@ -203,8 +203,14 @@ function AppContent() {
   } = useSessionManager({
     hydrateFromServer: isAuthenticated && !isLoading,
   });
-  const { repo, branch, setContext, clearContext, saveSessionContext } =
-    useGitHub();
+  const {
+    repo,
+    branch,
+    switchBranch,
+    setContext,
+    clearContext,
+    saveSessionContext,
+  } = useGitHub();
   const [showRepoPicker, setShowRepoPicker] = useState(false);
   const [isGitReviewOpen, setIsGitReviewOpen] = useState(false);
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
@@ -213,6 +219,10 @@ function AppContent() {
   const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
     usePendingApprovalStateBySession();
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
+  const [summaryActionRequest, setSummaryActionRequest] = useState<{
+    id: number;
+    action: "changes" | "commit";
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     try {
       const stored = localStorage.getItem("shadowbox_active_tab");
@@ -438,9 +448,6 @@ function AppContent() {
         !hasCurrentBranch;
 
       if (shouldHydrateFromSession) {
-        console.log(
-          `[App] Switching GitHub context to session ${activeSessionId}: ${sessionContext.fullName}`,
-        );
         setContext(storedRepo, sessionContext.branch);
       } else if (branch !== sessionContext.branch) {
         SessionStateService.saveSessionGitHubContext(activeSessionId, {
@@ -475,9 +482,6 @@ function AppContent() {
       if (!activeRepository || activeRepository === "New Project") {
         scheduleWorkspaceContextRepairState(false);
         if (repo) {
-          console.log(
-            `[App] Clearing GitHub context for session ${activeSessionId} (no associated repo)`,
-          );
           clearContext();
         }
         return;
@@ -653,6 +657,7 @@ function AppContent() {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
 
   const scopedApprovalStatesBySessionId = useMemo(() => {
     const validSessionIds = new Set(sessions.map((session) => session.id));
@@ -934,7 +939,6 @@ function AppContent() {
       return;
     }
 
-    console.log("[App] handleNewTask called with:", repositoryName);
     setIsGitReviewOpen(false);
     setGitReviewSessionId(null);
 
@@ -943,7 +947,6 @@ function AppContent() {
     const targetRepo = resolveTaskRepositoryFullName(repositoryName, repo);
 
     if (targetRepo) {
-      console.log("[App] Creating new task for repo:", targetRepo);
       setShowRepoPicker(false);
       clearSetupSessionState();
       // Create a session for this specific repository
@@ -976,9 +979,6 @@ function AppContent() {
     } else {
       // If absolutely no repo is selected, targetRepo is missing,
       // or the user has deleted the repo folder
-      console.log(
-        "[App] No valid target repo found for new task, showing picker",
-      );
       handleOpenRepositoryPicker();
     }
   };
@@ -1054,10 +1054,6 @@ function AppContent() {
       fullName: selectedRepo.full_name,
       branch: selectedBranch,
     });
-
-    console.log(
-      `[App] Selected repository: ${selectedRepo.full_name}@${selectedBranch}, created session: ${sessionId}`,
-    );
   };
 
   /**
@@ -1065,7 +1061,6 @@ function AppContent() {
    */
   const handleSkipRepoPicker = () => {
     setShowRepoPicker(false);
-    console.log("[App] Skipped repository selection");
   };
 
   const isSessionContextLoading = isSessionContextPending({
@@ -1119,7 +1114,8 @@ function AppContent() {
           onReview={showWorkspace ? handleOpenReviewSidebar : undefined}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={handleToggleSidebar}
-          isRightSidebarOpen={isRightSidebarOpen}
+          isRightSidebarOpen={showWorkspace && isRightSidebarOpen}
+          rightSidebarWidth={rightSidebarWidth}
           onToggleRightSidebar={handleToggleRightSidebar}
           threadTitle={threadTitle}
           taskTitle={taskTitle}
@@ -1130,6 +1126,27 @@ function AppContent() {
           onArchiveSession={handleArchiveActiveSession}
           isAuthenticated={isAuthenticated}
           onConnectGitHub={login}
+          environmentSummary={
+            showWorkspace && activeSessionId && activeSession
+              ? {
+                  sessionId: activeSessionId,
+                  runId: activeSession.activeRunId,
+                  repo,
+                  branch,
+                  onBranchChange: switchBranch,
+                  onOpenChanges: () =>
+                    setSummaryActionRequest({
+                      id: Date.now(),
+                      action: "changes",
+                    }),
+                  onOpenCommit: () =>
+                    setSummaryActionRequest({
+                      id: Date.now(),
+                      action: "commit",
+                    }),
+                }
+              : undefined
+          }
         />
 
         {/* Main Workspace Layer */}
@@ -1178,14 +1195,10 @@ function AppContent() {
                         status: "running",
                         mode: config.mode,
                       });
-                      void SessionStateService.persistSession({
-                        ...activeSession,
+                      void SessionStateService.updateGeneratedSessionTitle(
+                        activeSessionId,
                         name,
-                        titleSource: "generated",
-                        status: "running",
-                        mode: config.mode,
-                        updatedAt: new Date().toISOString(),
-                      }).catch((error) => {
+                      ).catch((error) => {
                         console.warn(
                           "[App] Failed to persist generated title:",
                           error,
@@ -1255,6 +1268,28 @@ function AppContent() {
                   onSessionStatusChange={(status) =>
                     updateSession(activeSessionId, { status })
                   }
+                  onPromptSubmitted={(prompt) => {
+                    if (activeSession?.name !== "New Task") {
+                      return;
+                    }
+                    const name = generateChatTitleFromPrompt(prompt);
+                    if (name === "New Task") {
+                      return;
+                    }
+                    updateSession(activeSessionId, {
+                      name,
+                      titleSource: "generated",
+                    });
+                    void SessionStateService.updateGeneratedSessionTitle(
+                      activeSessionId,
+                      name,
+                    ).catch((error) => {
+                      console.warn(
+                        "[App] Failed to persist generated title:",
+                        error,
+                      );
+                    });
+                  }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
                       activeSessionId,
@@ -1263,6 +1298,8 @@ function AppContent() {
                   }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
+                  rightSidebarWidth={rightSidebarWidth}
+                  setRightSidebarWidth={setRightSidebarWidth}
                   reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                   isGitReviewOpen={
                     isGitReviewOpen && gitReviewSessionId === activeSessionId
@@ -1272,6 +1309,7 @@ function AppContent() {
                     setGitReviewSessionId(open ? activeSessionId : null);
                   }}
                   onTabChange={setActiveTab}
+                  summaryActionRequest={summaryActionRequest}
                 />
               </motion.div>
             ) : isPreparingSetupShell ? (

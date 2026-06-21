@@ -373,19 +373,55 @@ function sanitizeAssistantVisibleContent(value: string): string {
 }
 
 function stripInternalSelfTalkPrefix(value: string): string {
-  const normalized = value.trimStart();
-  if (!startsWithInternalSelfTalk(normalized)) {
-    return value;
+  let remaining = value.trimStart();
+  let removedAny = false;
+
+  while (remaining) {
+    remaining = stripOrphanPunctuationBeforeInternalSelfTalk(remaining);
+    const sentence = readLeadingAssistantSentence(remaining);
+    if (!sentence || !isInternalSelfTalkSentence(sentence.value)) {
+      break;
+    }
+    removedAny = true;
+    remaining = sentence.rest.trimStart();
   }
 
-  return normalized.replace(
-    /^(?:The user (?:is asking|asked|wants|requested)[\s\S]*?\bI should [^.!?]*[.!?]\s*)+/i,
-    "",
-  );
+  return removedAny ? remaining : value;
 }
 
-function startsWithInternalSelfTalk(value: string): boolean {
-  return /^The user (?:is asking|asked|wants|requested)\b/i.test(value);
+function stripOrphanPunctuationBeforeInternalSelfTalk(value: string): string {
+  const withoutPunctuation = value.replace(/^[.!?;:,\s]+/, "");
+  if (
+    withoutPunctuation !== value &&
+    isInternalSelfTalkSentence(withoutPunctuation)
+  ) {
+    return withoutPunctuation;
+  }
+  return value;
+}
+
+function readLeadingAssistantSentence(
+  value: string,
+): { value: string; rest: string } | null {
+  const match = value.match(
+    /^([\s\S]*?[.!?](?:["'`)\]]+[.!?]?)?)(?:\s+|(?=[A-Z0-9]))([\s\S]*)$/,
+  );
+  if (!match) {
+    return value.trim() ? { value: value.trim(), rest: "" } : null;
+  }
+  return {
+    value: (match[1] ?? "").trim(),
+    rest: match[2] ?? "",
+  };
+}
+
+function isInternalSelfTalkSentence(value: string): boolean {
+  return [
+    /^the user (?:is asking|asked|wants|requested|is greeting)\b/i,
+    /^this is (?:a|an)\b/i,
+    /^i should (?:check|inspect|review|find|get|start|respond|ask|run|switch|use|continue|determine|verify|summarize|fix|implement)\b/i,
+    /^i need to (?:check|inspect|review|find|get|start|respond|ask|run|switch|use|continue|determine|verify|summarize|fix|implement)\b/i,
+  ].some((pattern) => pattern.test(value.trim()));
 }
 
 function useChangedFileDiffStates(

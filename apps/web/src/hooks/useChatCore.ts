@@ -234,12 +234,45 @@ export function useChatCore(
     credentials: "include",
     fetch: authenticatedChatFetch,
   });
+  const messagesReadyScopeKeyRef = useRef(scopeKey);
+  const pendingScopeMessagesRef = useRef<{
+    scopeKey: string;
+    messages: Message[];
+  } | null>(null);
+  const [, setMessagesScopeVersion] = useState(0);
+  const scopedMessages =
+    messagesReadyScopeKeyRef.current === scopeKey
+      ? messages
+      : (pendingScopeMessagesRef.current?.messages ??
+        agentStore.getMessages(runId));
 
   useLayoutEffect(() => {
     if (clearedScopeRef.current === scopeKey) return;
     clearedScopeRef.current = scopeKey;
-    setMessages(agentStore.getMessages(runId));
+    const scopedStoredMessages = agentStore.getMessages(runId);
+    messagesReadyScopeKeyRef.current = "";
+    pendingScopeMessagesRef.current = {
+      scopeKey,
+      messages: scopedStoredMessages,
+    };
+    setMessages(scopedStoredMessages);
+    setMessagesScopeVersion((version) => version + 1);
   }, [runId, scopeKey, setMessages]);
+
+  useEffect(() => {
+    const pendingScope = pendingScopeMessagesRef.current;
+    if (
+      !pendingScope ||
+      pendingScope.scopeKey !== scopeKey ||
+      !haveSameMessageIds(messages, pendingScope.messages)
+    ) {
+      return;
+    }
+
+    pendingScopeMessagesRef.current = null;
+    messagesReadyScopeKeyRef.current = scopeKey;
+    setMessagesScopeVersion((version) => version + 1);
+  }, [messages, scopeKey]);
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {
@@ -520,7 +553,7 @@ export function useChatCore(
   }, [authenticatedChatFetch, isActiveScope, runId, scopeKey, stopStream]);
 
   return {
-    messages,
+    messages: scopedMessages,
     input,
     handleInputChange,
     handleSubmit,
@@ -610,4 +643,11 @@ function fetchWithSessionAuth(
     credentials: "include",
     headers,
   });
+}
+
+function haveSameMessageIds(left: Message[], right: Message[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((message, index) => message.id === right[index]?.id)
+  );
 }

@@ -57,6 +57,7 @@ interface ServerSessionRecord {
   status: "idle" | "running" | "completed" | "paused" | "failed";
   pinnedAt?: string | null;
   archivedAt?: string | null;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -205,6 +206,22 @@ export class SessionStateService {
     });
 
     return readMetadataMutationResponse(response, "Session rename");
+  }
+
+  static async updateGeneratedSessionTitle(
+    sessionId: string,
+    title: string,
+  ): Promise<AgentSession> {
+    const response = await fetch(sessionTitlePath(sessionId), {
+      method: "PATCH",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title, titleSource: "generated" }),
+    });
+
+    return readMetadataMutationResponse(response, "Generated session title");
   }
 
   static async pinSession(sessionId: string): Promise<AgentSession> {
@@ -506,6 +523,7 @@ export class SessionStateService {
   ): AgentSession {
     const sessionId = crypto.randomUUID();
     const runId = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
 
     return {
       id: sessionId,
@@ -518,7 +536,8 @@ export class SessionStateService {
       pinnedAt: null,
       archivedAt: null,
       mode,
-      updatedAt: new Date().toISOString(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
     };
   }
 
@@ -622,6 +641,7 @@ export class SessionStateService {
           session.repository === null || session.repository.trim().length > 0,
       },
       { name: "updatedAt", pass: !!session.updatedAt },
+      { name: "createdAt", pass: !!session.createdAt },
     ];
 
     const failures = checks.filter((c) => !c.pass);
@@ -647,6 +667,7 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
     titleSource: session.titleSource ?? "generated",
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
+    createdAt: session.createdAt ?? session.updatedAt,
   };
 }
 
@@ -673,6 +694,7 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
     mode: session.mode ?? DEFAULT_RUN_MODE,
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
+    createdAt: session.createdAt,
     updatedAt: session.updatedAt,
   };
 }

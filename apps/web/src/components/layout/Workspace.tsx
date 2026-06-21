@@ -1,4 +1,12 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
 import { FileExplorerHandle } from "../FileExplorer";
@@ -25,6 +33,7 @@ import {
 import { normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
+import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
 import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
@@ -39,13 +48,17 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   allowPendingQueryRestore?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
+  onPromptSubmitted?: (prompt: string) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
+  rightSidebarWidth?: number;
+  setRightSidebarWidth?: Dispatch<SetStateAction<number>>;
   reviewSidebarFocusRequest?: number;
   isGitReviewOpen?: boolean;
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
+  summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
 }
 
 export function Workspace({
@@ -58,38 +71,66 @@ export function Workspace({
   hasStartedSession = false,
   allowPendingQueryRestore = true,
   onSessionStatusChange,
+  onPromptSubmitted,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
+  rightSidebarWidth,
+  setRightSidebarWidth,
   reviewSidebarFocusRequest = 0,
   isGitReviewOpen = false,
   onGitReviewOpenChange,
   onTabChange,
+  summaryActionRequest,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [productMode, setProductMode] = useState<ProductMode>(() =>
     loadStoredProductMode(sessionId),
   );
+  const [isGitCommitOpen, setIsGitCommitOpen] = useState(false);
 
   // Custom Hooks
   const {
     activeTab,
     setActiveTab,
-    sidebarWidth,
-    setSidebarWidth,
+    sidebarWidth: internalSidebarWidth,
+    setSidebarWidth: setInternalSidebarWidth,
     isResizing,
     setIsResizing,
+    contentTabs,
+    activeContentTabId,
     selectedFile,
-    setSelectedFile,
     selectedDiff,
-    setSelectedDiff,
+    openFileTab,
+    openFilesTab,
+    selectContentTab,
+    closeContentTab,
     isViewingContent,
     setIsViewingContent,
     isLoadingContent,
     setIsLoadingContent,
+    contentError,
+    setContentError,
   } = useWorkspaceState();
+  const sidebarWidth = rightSidebarWidth ?? internalSidebarWidth;
+  const setSidebarWidth = setRightSidebarWidth ?? setInternalSidebarWidth;
+
+  useEffect(() => {
+    if (!summaryActionRequest) return;
+    if (summaryActionRequest.action === "commit") {
+      setIsGitCommitOpen(true);
+      return;
+    }
+    setIsRightSidebarOpen?.(true);
+    setIsViewingContent(false);
+    setActiveTab("changes");
+  }, [
+    summaryActionRequest,
+    setActiveTab,
+    setIsRightSidebarOpen,
+    setIsViewingContent,
+  ]);
 
   useEffect(() => {
     onTabChange?.(activeTab);
@@ -174,7 +215,6 @@ export function Workspace({
     gitAvailable,
     refetch: refetchGitStatus,
   } = useGitStatus(activeRunId, sessionId, !isRunLoading);
-  const changesCount = status?.files?.length ?? 0;
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
   const repositoryBranch = (
@@ -185,12 +225,45 @@ export function Workspace({
   ).trim();
   const repositoryBaseUrl = repo?.html_url;
 
+  const handleOpenFileTab = useCallback(
+    (file: { path: string; content: string }) => {
+      openFileTab(file);
+      setActiveTab("review");
+      setIsRightSidebarOpen?.(true);
+    },
+    [openFileTab, setActiveTab, setIsRightSidebarOpen],
+  );
+  const toggleChangesPanel = useCallback(() => {
+    setIsViewingContent(false);
+    setActiveTab((current) => (current === "changes" ? "review" : "changes"));
+  }, [setActiveTab, setIsViewingContent]);
+  const toggleFilesPanel = useCallback(() => {
+    if (activeTab === "files") {
+      setActiveTab("review");
+      return;
+    }
+    if (!isViewingContent) {
+      openFilesTab();
+    }
+    setActiveTab("files");
+  }, [activeTab, isViewingContent, openFilesTab, setActiveTab]);
+
   const { handleFileClick, handleGitHubFileSelect } = useFileLoader({
     sandboxId,
     runId: activeRunId,
     setIsLoadingContent,
-    setIsViewingContent,
-    setSelectedFile,
+    setContentError,
+    openFileTab: handleOpenFileTab,
+  });
+  const {
+    handleFileClick: handleFullscreenFileClick,
+    handleGitHubFileSelect: handleFullscreenGitHubFileSelect,
+  } = useFileLoader({
+    sandboxId,
+    runId: activeRunId,
+    setIsLoadingContent,
+    setContentError,
+    openFileTab,
   });
 
   // Composed orchestration hooks
@@ -234,6 +307,7 @@ export function Workspace({
     isGitHubLoaded,
     isHydrating,
     isViewingContent,
+    activeContentTabId,
     selectedFile,
     selectedDiff,
     switchBranch,
@@ -241,8 +315,6 @@ export function Workspace({
     explorerRef,
     setIsViewingContent,
     setActiveTab,
-    setSelectedFile,
-    setSelectedDiff,
     setIsRightSidebarOpen,
     reviewSidebarFocusRequest,
   });
@@ -255,11 +327,22 @@ export function Workspace({
     persistProductMode(sessionId, productMode);
   }, [productMode, sessionId]);
 
+  const handleSubmitWithSessionMetadata = useCallback<typeof handleSubmit>(
+    async (...args) => {
+      onPromptSubmitted?.(input);
+      return await handleSubmit(...args);
+    },
+    [handleSubmit, input, onPromptSubmitted],
+  );
+
   return (
     <RunContextProvider runId={activeRunId} sessionId={sessionId}>
       <GitReviewProvider
         key={`${sessionId}:${activeRunId}`}
         isReviewOpen={isGitReviewOpen}
+        isReviewActive={
+          isGitReviewOpen || activeTab === "review" || activeTab === "changes"
+        }
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={isGitWorkspaceRecovering}
       >
@@ -272,7 +355,7 @@ export function Workspace({
                 runId: activeRunId,
                 input,
                 handleInputChange,
-                handleSubmit,
+                handleSubmit: handleSubmitWithSessionMetadata,
                 append,
                 stop: handleStopRun,
                 canStop: canStopRun,
@@ -291,20 +374,41 @@ export function Workspace({
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
               onArtifactOpen={(path, content) => {
-                setSelectedFile({ path, content });
-                setIsViewingContent(true);
-                setIsRightSidebarOpen?.(true);
-                setActiveTab("files");
+                handleOpenFileTab({ path, content });
               }}
               onReviewOpen={() => {
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("review");
                 setIsViewingContent(false);
-                setSelectedFile(null);
-                setSelectedDiff(null);
               }}
             />
           </main>
+
+          {isRightSidebarOpen ? (
+            <SidebarHeader
+              sidebarWidth={sidebarWidth}
+              isViewingContent={isViewingContent}
+              contentTabs={contentTabs}
+              activeContentTabId={activeContentTabId}
+              onSelectReview={() => {
+                setIsViewingContent(false);
+                setActiveTab("review");
+              }}
+              onSelectContent={(id) => {
+                selectContentTab(id);
+                setActiveTab("review");
+              }}
+              onCloseReview={() => setIsRightSidebarOpen?.(false)}
+              onCloseContent={closeContentTab}
+              onOpenFiles={toggleFilesPanel}
+              onOpenChanges={toggleChangesPanel}
+              onExpand={() => {
+                setIsRightSidebarOpen?.(true);
+                onGitReviewOpenChange?.(true);
+              }}
+              onCloseSidebar={() => setIsRightSidebarOpen?.(false)}
+            />
+          ) : null}
 
           {/* Combined Sidebar */}
           <motion.aside
@@ -339,31 +443,13 @@ export function Workspace({
               className="flex-1 flex flex-col min-w-[280px]"
               style={{ width: sidebarWidth }}
             >
-              <SidebarHeader
-                isViewingContent={isViewingContent}
-                activeTab={activeTab}
-                changesCount={changesCount}
-                hasPendingApproval={isApprovalWaitingRun}
-                onExpand={() => {
-                  setIsRightSidebarOpen?.(true);
-                  onGitReviewOpenChange?.(true);
-                }}
-                onCommit={() => setIsCommitDialogOpen(true)}
-                onBack={() => {
-                  setIsViewingContent(false);
-                  setSelectedFile(null);
-                  setSelectedDiff(null);
-                }}
-                onTabChange={setActiveTab}
-              />
-
               <SidebarContent
                 isViewingContent={isViewingContent}
                 activeTab={activeTab}
                 isLoadingContent={isLoadingContent}
+                contentError={contentError}
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
-                onCloseContent={() => setIsViewingContent(false)}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}
@@ -375,15 +461,44 @@ export function Workspace({
                 explorerRef={explorerRef}
                 sandboxId={sandboxId}
                 runId={activeRunId}
+                onOpenFiles={toggleFilesPanel}
+                onCloseTree={() => setActiveTab("review")}
+                onToggleChanges={toggleChangesPanel}
               />
             </div>
           </motion.aside>
           <GitReviewDialog
             key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
+            contentTabs={contentTabs}
+            isLoadingContent={isLoadingContent}
+            contentError={contentError}
+            onSelectContent={selectContentTab}
+            onCloseContent={closeContentTab}
+            onOpenFilesTab={openFilesTab}
+            renderFilesRail={(onFileOpened) => (
+              <WorkspaceFilesTree
+                repo={repo}
+                isGitHubLoaded={isGitHubLoaded}
+                branch={branch}
+                repoTree={repoTree}
+                isLoadingTree={Boolean(isLoadingTree)}
+                onGitHubFileSelect={(path) => {
+                  onFileOpened(path);
+                  void handleFullscreenGitHubFileSelect(path);
+                }}
+                explorerRef={explorerRef}
+                sandboxId={sandboxId}
+                runId={activeRunId}
+                onLocalFileSelect={(path) => {
+                  onFileOpened(path);
+                  void handleFullscreenFileClick(path);
+                }}
+              />
+            )}
           />
           <GitCommitDialog
-            isOpen={isCommitDialogOpen}
-            onClose={() => setIsCommitDialogOpen(false)}
+            isOpen={isGitCommitOpen}
+            onClose={() => setIsGitCommitOpen(false)}
           />
         </div>
       </GitReviewProvider>

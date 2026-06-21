@@ -31,8 +31,6 @@ export function useEditArtifactReviewSource(
   const [error, setError] = useState<string | null>(null);
   const [resolved, setResolved] = useState(false);
   const requestIdRef = useRef(0);
-  const nullSourceCacheKeyRef = useRef<string | null>(null);
-  const sourceCacheKey = buildSourceCacheKey(input);
 
   const refetch = useCallback(async (): Promise<void> => {
     if (!input.enabled || !input.runId) {
@@ -41,14 +39,6 @@ export function useEditArtifactReviewSource(
       setLoading(false);
       setError(null);
       setResolved(false);
-      return;
-    }
-
-    if (nullSourceCacheKeyRef.current === sourceCacheKey) {
-      setSource(null);
-      setLoading(false);
-      setError(null);
-      setResolved(true);
       return;
     }
 
@@ -69,11 +59,6 @@ export function useEditArtifactReviewSource(
       if (requestId !== requestIdRef.current) {
         return;
       }
-      if (nextSource === null) {
-        nullSourceCacheKeyRef.current = sourceCacheKey;
-      } else {
-        nullSourceCacheKeyRef.current = null;
-      }
       setSource(nextSource);
     } catch (err) {
       if (requestId !== requestIdRef.current) {
@@ -93,12 +78,7 @@ export function useEditArtifactReviewSource(
     input.enabled,
     input.runId,
     input.sessionId,
-    sourceCacheKey,
   ]);
-
-  useEffect(() => {
-    nullSourceCacheKeyRef.current = null;
-  }, [sourceCacheKey]);
 
   useEffect(() => {
     void refetch();
@@ -137,13 +117,4 @@ export function useEditArtifactReviewSource(
   }, [input.enabled, input.runId, refetch]);
 
   return { source, loading, error, resolved, refetch };
-}
-
-function buildSourceCacheKey(input: UseEditArtifactReviewSourceInput): string {
-  return [
-    input.runId?.trim() ?? "",
-    input.sessionId?.trim() ?? "",
-    input.assistantMessageId?.trim() ?? "",
-    input.enabled ? "enabled" : "disabled",
-  ].join(":");
 }

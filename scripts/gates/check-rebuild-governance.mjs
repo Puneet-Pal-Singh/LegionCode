@@ -143,6 +143,7 @@ function isIgnoredEntry(name) {
   return (
     name === "dist" ||
     name === "node_modules" ||
+    name === ".wrangler" ||
     name.endsWith(".d.ts") ||
     /\.timestamp-\d+-[a-f0-9]+\.mjs$/.test(name)
   );
