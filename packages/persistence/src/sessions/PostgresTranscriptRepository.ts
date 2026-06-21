@@ -118,6 +118,19 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     );
   }
 
+  async updateSessionStatus(input: {
+    userId: string;
+    sessionId: string;
+    status: SessionRecord["status"];
+  }): Promise<SessionRecord | null> {
+    return await updateSessionWithClient(this.client, UPDATE_SESSION_STATUS_SQL, [
+      input.userId,
+      input.sessionId,
+      input.status,
+      this.clock.now(),
+    ]);
+  }
+
   async renameSessionTitle(input: {
     userId: string;
     sessionId: string;
@@ -254,7 +267,6 @@ async function ensureSessionWithClient(
   const task = await upsertTask(client, input, now);
   const workspaceProvided = input.workspaceId !== undefined;
   const taskIdProvided = input.taskId !== undefined && input.taskId !== null;
-  const titleProvided = input.title !== undefined && input.title !== null;
   const repositoryProvided = input.repository !== undefined;
   const activeRunIdProvided = input.activeRunId !== undefined;
   const titleSource = input.titleSource ?? "generated";
@@ -272,7 +284,6 @@ async function ensureSessionWithClient(
     now,
     workspaceProvided,
     taskIdProvided,
-    titleProvided,
     repositoryProvided,
     activeRunIdProvided,
   ]);
@@ -749,22 +760,12 @@ const UPSERT_SESSION_SQL = `
       WHEN $13::boolean THEN EXCLUDED.task_id
       ELSE sessions.task_id
     END,
-    title = CASE
-      WHEN $14::boolean AND sessions.title_source = 'generated' AND EXCLUDED.title_source = 'generated'
-        THEN EXCLUDED.title
-      ELSE sessions.title
-    END,
-    title_source = CASE
-      WHEN $14::boolean AND sessions.title_source = 'generated' AND EXCLUDED.title_source = 'generated'
-        THEN EXCLUDED.title_source
-      ELSE sessions.title_source
-    END,
     repository = CASE
-      WHEN $15::boolean THEN EXCLUDED.repository
+      WHEN $14::boolean THEN EXCLUDED.repository
       ELSE sessions.repository
     END,
     active_run_id = CASE
-      WHEN $16::boolean THEN EXCLUDED.active_run_id
+      WHEN $15::boolean THEN EXCLUDED.active_run_id
       ELSE sessions.active_run_id
     END,
     mode = EXCLUDED.mode,
@@ -788,6 +789,16 @@ const UPDATE_GENERATED_SESSION_TITLE_SQL = `
   WHERE user_id = $1
     AND id = $2
     AND title_source = 'generated'
+    AND archived_at IS NULL
+  RETURNING ${SESSION_COLUMNS}
+`;
+
+const UPDATE_SESSION_STATUS_SQL = `
+  UPDATE sessions
+  SET status = $3,
+      updated_at = $4
+  WHERE user_id = $1
+    AND id = $2
     AND archived_at IS NULL
   RETURNING ${SESSION_COLUMNS}
 `;

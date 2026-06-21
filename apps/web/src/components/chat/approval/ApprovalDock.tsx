@@ -1,6 +1,9 @@
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
 import { ApprovalActions } from "./ApprovalActions";
-import { buildApprovalCategoryLabel } from "./approvalLabels";
+import {
+  buildApprovalCategoryLabel,
+  buildApprovalQuestion,
+} from "./approvalLabels";
 
 interface ApprovalDockProps {
   pendingApproval: ApprovalRequest;
@@ -35,7 +38,7 @@ export function ApprovalDock({
         <div className="space-y-4 px-4 py-5">
           <div>
             <p className="text-lg font-semibold text-zinc-50">
-              Do you want me to run a shell command?
+              {buildApprovalQuestion(pendingApproval)}
             </p>
             <p className="mt-2 text-sm text-zinc-400">
               {pendingApproval.title}

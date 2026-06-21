@@ -106,6 +106,7 @@ describe("SessionStateService", () => {
                 activeRunId: "550e8400-e29b-41d4-a716-446655440001",
                 mode: "build",
                 status: "failed",
+                createdAt: "2026-05-14T00:00:00.000Z",
                 updatedAt: "2026-05-15T00:00:00.000Z",
               },
             ],
@@ -119,6 +120,7 @@ describe("SessionStateService", () => {
       const session = sessions["550e8400-e29b-41d4-a716-446655440000"];
       expect(session?.name).toBe("Server Task");
       expect(session?.status).toBe("failed");
+      expect(session?.createdAt).toBe("2026-05-14T00:00:00.000Z");
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/api/sessions"),
         { credentials: "include" },
@@ -148,6 +150,27 @@ describe("SessionStateService", () => {
       expect(body).toMatchObject({
         sessionId: session.id,
         runId: session.activeRunId,
+      });
+    });
+
+    it("persists generated titles through the title endpoint", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ session: createServerSession("Generated title") }),
+          { status: 200 },
+        ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await SessionStateService.updateGeneratedSessionTitle(
+        "550e8400-e29b-41d4-a716-446655440000",
+        "Generated title",
+      );
+
+      const [, requestInit] = fetchMock.mock.calls[0] ?? [];
+      expect(JSON.parse(String(requestInit?.body))).toEqual({
+        title: "Generated title",
+        titleSource: "generated",
       });
     });
 
@@ -615,6 +638,7 @@ function createServerSession(title: string) {
     status: "idle",
     pinnedAt: null,
     archivedAt: null,
+    createdAt: "2026-05-14T00:00:00.000Z",
     updatedAt: "2026-05-15T00:00:00.000Z",
   };
 }

@@ -14,6 +14,7 @@ import type {
   GitPullRequestMutationResult,
 } from "@repo/shared-types";
 import { GitMutationError } from "../lib/git-client.js";
+import { z } from "zod";
 
 export interface GitHubUser {
   id: string;
@@ -63,6 +64,19 @@ export interface PullRequestSummary {
   head: string;
   base: string;
 }
+
+const PullRequestSchema = z.object({
+  number: z.number(),
+  title: z.string(),
+  state: z.enum(["open", "closed"]),
+  html_url: z.string().url(),
+  head: z.object({ ref: z.string() }),
+  base: z.object({ ref: z.string() }),
+});
+
+const PullRequestListSchema = z.object({
+  pullRequests: z.array(PullRequestSchema),
+});
 
 export interface WorkspaceSelection {
   workspaceId: string;
@@ -184,6 +198,36 @@ export async function createPullRequest(
   return data.pullRequest;
 }
 
+export async function listOpenPullRequests(
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<PullRequestSummary[]> {
+  const query = new URLSearchParams({
+    owner,
+    repo,
+    state: "open",
+    head: branch,
+  });
+  const response = await fetch(
+    `${githubPullsPath()}?${query.toString()}`,
+    getFetchOptions(),
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to list pull requests: HTTP ${response.status}`);
+  }
+
+  const data = PullRequestListSchema.parse(await response.json());
+  return data.pullRequests.map((pullRequest) => ({
+    number: pullRequest.number,
+    title: pullRequest.title,
+    url: pullRequest.html_url,
+    state: pullRequest.state,
+    head: pullRequest.head.ref,
+    base: pullRequest.base.ref,
+  }));
+}
+
 /**
  * Initiate GitHub OAuth flow
  */
@@ -263,9 +307,9 @@ export async function listWorkspaces(): Promise<WorkspaceListResponse> {
 }
 
 async function readWorkspaceSelectionError(response: Response): Promise<Error> {
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: unknown }
-    | null;
+  const payload = (await response.json().catch(() => null)) as {
+    error?: unknown;
+  } | null;
   const serverMessage =
     typeof payload?.error === "string" && payload.error.trim().length > 0
       ? `: ${payload.error}`
@@ -277,9 +321,9 @@ async function readWorkspaceSelectionError(response: Response): Promise<Error> {
 }
 
 async function readWorkspaceListError(response: Response): Promise<Error> {
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: unknown }
-    | null;
+  const payload = (await response.json().catch(() => null)) as {
+    error?: unknown;
+  } | null;
   const serverMessage =
     typeof payload?.error === "string" && payload.error.trim().length > 0
       ? `: ${payload.error}`
@@ -347,7 +391,8 @@ function isWorkspaceRepositoryRecord(
     typeof value.fullName === "string" &&
     typeof value.repoUrl === "string" &&
     typeof value.defaultBranch === "string" &&
-    (value.providerRepoId === null || typeof value.providerRepoId === "string") &&
+    (value.providerRepoId === null ||
+      typeof value.providerRepoId === "string") &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string"
   );

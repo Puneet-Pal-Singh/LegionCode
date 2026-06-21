@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
 
 export type TabType = "review" | "changes" | "files";
@@ -15,11 +15,22 @@ export interface SelectedDiff {
   content: DiffContent;
 }
 
+export type SidebarContentTab =
+  | { id: "files"; kind: "empty"; path: "Open file" }
+  | ({ id: string; kind: "file" } & SelectedFile)
+  | ({ id: string; kind: "diff" } & SelectedDiff);
+
+function getContentTabId(kind: "file" | "diff", path: string): string {
+  return `${kind}:${path}`;
+}
+
 export function useWorkspaceState() {
   // Sidebar states
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const storedTab = localStorage.getItem("shadowbox_active_tab");
-    return storedTab && VALID_TABS.has(storedTab) ? (storedTab as TabType) : "files";
+    return storedTab && VALID_TABS.has(storedTab)
+      ? (storedTab as TabType)
+      : "files";
   });
 
   useEffect(() => {
@@ -29,14 +40,95 @@ export function useWorkspaceState() {
   const [sidebarWidth, setSidebarWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
 
-  // Content view states
-  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
-  const [selectedDiff, setSelectedDiff] = useState<SelectedDiff | null>(null);
+  const [contentTabs, setContentTabs] = useState<SidebarContentTab[]>([]);
+  const [activeContentTabId, setActiveContentTabId] = useState<string | null>(
+    null,
+  );
   const [isViewingContent, setIsViewingContent] = useState(() => {
     return localStorage.getItem("shadowbox_is_viewing_content") === "true";
   });
-  
+
   const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
+
+  const activeContentTab = useMemo(
+    () => contentTabs.find((tab) => tab.id === activeContentTabId) ?? null,
+    [activeContentTabId, contentTabs],
+  );
+  const selectedFile =
+    activeContentTab?.kind === "file" ? activeContentTab : null;
+  const selectedDiff =
+    activeContentTab?.kind === "diff" ? activeContentTab : null;
+
+  const openContentTab = useCallback((tab: SidebarContentTab) => {
+    setContentTabs((current) => {
+      const existingIndex = current.findIndex((item) => item.id === tab.id);
+      if (existingIndex === -1) {
+        return [...current, tab];
+      }
+
+      return current.map((item, index) =>
+        index === existingIndex ? tab : item,
+      );
+    });
+    setActiveContentTabId(tab.id);
+    setIsViewingContent(true);
+    setContentError(null);
+  }, []);
+
+  const openFileTab = useCallback(
+    (file: SelectedFile) => {
+      openContentTab({
+        ...file,
+        id: getContentTabId("file", file.path),
+        kind: "file",
+      });
+    },
+    [openContentTab],
+  );
+
+  const openFilesTab = useCallback(() => {
+    openContentTab({ id: "files", kind: "empty", path: "Open file" });
+  }, [openContentTab]);
+
+  const openDiffTab = useCallback(
+    (diff: SelectedDiff) => {
+      openContentTab({
+        ...diff,
+        id: getContentTabId("diff", diff.path),
+        kind: "diff",
+      });
+    },
+    [openContentTab],
+  );
+
+  const selectContentTab = useCallback((id: string) => {
+    setActiveContentTabId(id);
+    setIsViewingContent(true);
+    setContentError(null);
+  }, []);
+
+  const closeContentTab = useCallback(
+    (id: string) => {
+      const closingIndex = contentTabs.findIndex((tab) => tab.id === id);
+      if (closingIndex === -1) {
+        return;
+      }
+
+      const remaining = contentTabs.filter((tab) => tab.id !== id);
+      setContentTabs(remaining);
+      if (activeContentTabId !== id) {
+        return;
+      }
+
+      const nextTab = remaining[Math.min(closingIndex, remaining.length - 1)];
+      setActiveContentTabId(nextTab?.id ?? null);
+      if (!nextTab) {
+        setIsViewingContent(false);
+      }
+    },
+    [activeContentTabId, contentTabs],
+  );
 
   useEffect(() => {
     localStorage.setItem(
@@ -52,13 +144,20 @@ export function useWorkspaceState() {
     setSidebarWidth,
     isResizing,
     setIsResizing,
+    contentTabs,
+    activeContentTabId,
     selectedFile,
-    setSelectedFile,
     selectedDiff,
-    setSelectedDiff,
+    openFileTab,
+    openFilesTab,
+    openDiffTab,
+    selectContentTab,
+    closeContentTab,
     isViewingContent,
     setIsViewingContent,
     isLoadingContent,
     setIsLoadingContent,
+    contentError,
+    setContentError,
   };
 }

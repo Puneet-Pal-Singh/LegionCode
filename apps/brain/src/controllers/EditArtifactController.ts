@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { errorResponse, jsonResponse } from "../http/response";
+import {
+  errorResponse,
+  jsonResponse,
+  noContentResponse,
+} from "../http/response";
 import type { Env } from "../types/ai";
 import {
   getAuthenticatedUserSession,
@@ -151,13 +155,7 @@ function readArtifactParams(request: Request): { artifactId: string | null } {
 }
 
 function artifactNotFoundResponse(request: Request, env: Env): Response {
-  return errorResponse(
-    request,
-    env,
-    "No saved edit artifact found.",
-    404,
-    "ARTIFACT_NOT_FOUND",
-  );
+  return noContentResponse(request, env);
 }
 
 function editArtifactErrorResponse(

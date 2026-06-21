@@ -119,16 +119,28 @@ export class EditArtifactReviewService {
     repository: ArtifactRepository,
     input: MessageArtifactInput,
   ): Promise<EditArtifactRecord | null> {
+    const exactArtifact = input.userId
+      ? await repository.getReviewArtifactByMessage({
+          runId: input.runId,
+          userId: input.userId,
+          assistantMessageId: input.assistantMessageId,
+        })
+      : await repository.getReviewArtifactByMessageForRun({
+          runId: input.runId,
+          assistantMessageId: input.assistantMessageId,
+        });
+    if (exactArtifact) {
+      return exactArtifact;
+    }
+
     if (input.userId) {
-      return await repository.getReviewArtifactByMessage({
+      return await repository.getLatestReviewArtifact({
         runId: input.runId,
         userId: input.userId,
-        assistantMessageId: input.assistantMessageId,
       });
     }
-    return await repository.getReviewArtifactByMessageForRun({
+    return await repository.getLatestReviewArtifactForRun({
       runId: input.runId,
-      assistantMessageId: input.assistantMessageId,
     });
   }
 

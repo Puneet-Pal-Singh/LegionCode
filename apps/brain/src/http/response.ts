@@ -47,6 +47,16 @@ export function jsonResponse(
   });
 }
 
+export function noContentResponse(request: Request, env: Env): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      ...getBrainRuntimeHeaders(env),
+      ...getCorsHeaders(request, env),
+    },
+  });
+}
+
 /**
  * Build an error JSON response with CORS headers.
  *

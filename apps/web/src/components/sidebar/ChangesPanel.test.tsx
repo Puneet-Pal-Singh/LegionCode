@@ -11,6 +11,21 @@ const mockGitReviewState = vi.hoisted(() => ({
   statusLoading: false,
   isGitWorkspaceRecovering: false,
   statusError: null as string | null,
+  selectedFile: null as {
+    path: string;
+    status: "modified";
+    isStaged: boolean;
+    additions: number;
+    deletions: number;
+  } | null,
+  diff: null as {
+    oldPath: string;
+    newPath: string;
+    hunks: unknown[];
+    isBinary: boolean;
+    isNewFile: boolean;
+    isDeleted: boolean;
+  } | null,
   reviewSourceLoading: false,
   reviewScope: "git-changes" as "git-changes" | "prompt-artifact",
   reviewSourceReason: "live_git_has_changes" as
@@ -38,7 +53,7 @@ function buildChangedFile() {
   };
 }
 
-vi.mock("../git/GitReviewContext", () => ({
+vi.mock("../git/useGitReview", () => ({
   useGitReview: () => ({
     status: mockGitReviewState.hasStatus
       ? {
@@ -50,13 +65,13 @@ vi.mock("../git/GitReviewContext", () => ({
     statusLoading: mockGitReviewState.statusLoading,
     isGitWorkspaceRecovering: mockGitReviewState.isGitWorkspaceRecovering,
     statusError: mockGitReviewState.statusError,
-    diff: null,
+    diff: mockGitReviewState.diff,
     diffLoading: false,
     diffError: null,
     stageError: null,
     commitError: null,
     committing: false,
-    selectedFile: null,
+    selectedFile: mockGitReviewState.selectedFile,
     reviewFiles: mockStatusFiles,
     stagedFiles: new Set<string>(),
     commitMessage: "feat: ship it",
@@ -143,7 +158,14 @@ vi.mock("../diff/ChangesList", () => ({
 }));
 
 vi.mock("../diff/DiffViewer", () => ({
-  DiffViewer: () => <div>diff-viewer</div>,
+  DiffViewer: ({
+    diff,
+  }: {
+    diff: {
+      oldPath: string;
+      newPath: string;
+    };
+  }) => <div>diff-viewer:{diff.newPath || diff.oldPath}</div>,
 }));
 
 describe("ChangesPanel", () => {
@@ -154,6 +176,8 @@ describe("ChangesPanel", () => {
     mockGitReviewState.statusLoading = false;
     mockGitReviewState.isGitWorkspaceRecovering = false;
     mockGitReviewState.statusError = null;
+    mockGitReviewState.selectedFile = null;
+    mockGitReviewState.diff = null;
     mockGitReviewState.reviewSourceLoading = false;
     mockGitReviewState.reviewScope = "git-changes";
     mockGitReviewState.reviewSourceReason = "live_git_has_changes";
@@ -198,6 +222,131 @@ describe("ChangesPanel", () => {
     expect(mockSetReviewScope).toHaveBeenCalledWith("git-changes");
   });
 
+  it("renders the selected diff in sidebar mode", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+    mockGitReviewState.diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+
+    render(<ChangesPanel />);
+
+    expect(screen.getByText("diff-viewer:src/main.ts")).toBeInTheDocument();
+  });
+
+  it("lists every changed file in stacked review mode", () => {
+    mockStatusFiles.splice(0, mockStatusFiles.length, buildChangedFile(), {
+      path: "src/secondary.ts",
+      status: "modified",
+      isStaged: false,
+      additions: 3,
+      deletions: 2,
+    });
+    mockGitReviewState.selectedFile = buildChangedFile();
+    mockGitReviewState.diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    expect(screen.getByText("src/main.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/secondary.ts")).toBeInTheDocument();
+    expect(screen.getByText("diff-viewer:src/main.ts")).toBeInTheDocument();
+  });
+
+  it("shows the changed-file rail when fullscreen changes are toggled", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+
+    render(<ChangesPanel mode="modal" layout="stacked" isChangesOpen />);
+
+    const rail = screen.getByTestId("select-file").closest("aside");
+    expect(rail).toHaveClass("bg-black", "border-r");
+    expect(rail).not.toHaveClass("ui-surface-section");
+  });
+
+  it("leaves changed files to the sidebar overlay when requested", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+
+    render(
+      <ChangesPanel
+        mode="modal"
+        layout="stacked"
+        isChangesOpen
+        showChangesRail={false}
+      />,
+    );
+
+    expect(screen.queryByTestId("select-file")).not.toBeInTheDocument();
+  });
+
+  it("shows the files rail in the same fullscreen content region", () => {
+    render(
+      <ChangesPanel
+        mode="modal"
+        layout="stacked"
+        isFilesOpen
+        filesRail={<div>workspace files</div>}
+      />,
+    );
+
+    const filesRail = screen.getByText("workspace files").closest("aside");
+    expect(filesRail).toHaveClass("border-r");
+    expect(filesRail).toHaveStyle({ width: "320px" });
+    expect(filesRail).not.toHaveClass("rounded-xl");
+  });
+
+  it("collapses the full selected file diff from the view menu", () => {
+    mockGitReviewState.selectedFile = buildChangedFile();
+    mockGitReviewState.diff = {
+      oldPath: "src/main.ts",
+      newPath: "src/main.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    };
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Diff view options" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Collapse All Diffs" }),
+    );
+
+    expect(
+      screen.queryByText("diff-viewer:src/main.ts"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("selects another file from the stacked review list", () => {
+    mockStatusFiles.splice(0, mockStatusFiles.length, buildChangedFile(), {
+      path: "src/secondary.ts",
+      status: "modified",
+      isStaged: false,
+      additions: 3,
+      deletions: 2,
+    });
+    mockGitReviewState.selectedFile = buildChangedFile();
+
+    render(<ChangesPanel mode="modal" layout="stacked" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /src\/secondary.ts/ }));
+
+    expect(mockSelectFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "src/secondary.ts" }),
+    );
+    expect(mockOpenReview).not.toHaveBeenCalled();
+  });
+
   it("selects the first changed file when the stacked modal hides the file tree", () => {
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
@@ -223,7 +372,9 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("Checking saved edits...")).toBeInTheDocument();
+    expect(
+      screen.getByText("Checking last-turn changes..."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("No reviewed changes yet")).toBeNull();
   });
 
@@ -234,8 +385,8 @@ describe("ChangesPanel", () => {
 
     render(<ChangesPanel mode="modal" layout="stacked" />);
 
-    expect(screen.getByText("No live Git changes")).toBeInTheDocument();
-    expect(screen.queryByText("Checking saved edits...")).toBeNull();
+    expect(screen.getByText("No Git changes")).toBeInTheDocument();
+    expect(screen.queryByText("Checking last-turn changes...")).toBeNull();
   });
 
   it("shows a recovery state while git availability is being refreshed", () => {

@@ -20,6 +20,10 @@
 
 /* Reset and Global Styles */
 @layer base {
+  html {
+    font-size: 13px;
+  }
+
   html,
   body,
   #root {
@@ -124,6 +128,15 @@
   }
 
   .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
 

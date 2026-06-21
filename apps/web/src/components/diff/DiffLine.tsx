@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Plus } from "lucide-react";
 import type { DiffLine as DiffLineType } from "@repo/shared-types";
 import { DiffCodeText } from "./DiffCodeText";
+import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
 
 interface DiffLineProps {
   line: DiffLineType;
@@ -29,9 +30,9 @@ const DiffLine = memo(
   }: DiffLineProps) => {
     const bgColor =
       line.type === "added"
-        ? "bg-emerald-500/16"
+        ? "bg-emerald-500/10"
         : line.type === "deleted"
-          ? "bg-rose-500/16"
+          ? "bg-rose-500/10"
           : "bg-black";
 
     const borderColor =
@@ -60,7 +61,8 @@ const DiffLine = memo(
         role={onClick ? "button" : undefined}
         tabIndex={onClick ? 0 : undefined}
         aria-pressed={onClick ? isSelected : undefined}
-        className={`group relative flex min-w-full border-l-2 text-left font-mono text-sm transition-colors ${
+        style={CODE_TYPOGRAPHY_STYLE}
+        className={`group relative flex min-w-full border-l-2 text-left font-mono transition-colors ${
           wrap ? "w-full" : "w-max"
         } ${
           isSelected ? "bg-sky-500/10" : ""
@@ -89,10 +91,10 @@ const DiffLine = memo(
             </span>
           </span>
         ) : null}
-        <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
+        <div className="w-12 flex-shrink-0 px-2 py-1 text-right text-xs text-zinc-500">
           {line.oldLineNumber && <span>{line.oldLineNumber}</span>}
         </div>
-        <div className="w-12 flex-shrink-0 bg-zinc-900/50 px-2 py-1 text-right text-xs text-zinc-500">
+        <div className="w-12 flex-shrink-0 px-2 py-1 text-right text-xs text-zinc-500">
           {line.newLineNumber && <span>{line.newLineNumber}</span>}
         </div>
         <div className={`flex-1 px-3 py-1 ${textColor}`}>

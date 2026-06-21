@@ -28,9 +28,6 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
 
   emit(event: StreamEvent): void {
     if (this.completed.has(event.runId)) {
-      console.warn(
-        `[event-stream] Ignoring event for completed run ${event.runId}`,
-      );
       return;
     }
 

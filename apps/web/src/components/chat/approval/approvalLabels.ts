@@ -25,3 +25,22 @@ export function buildApprovalCategoryLabel(
       return "Command approval";
   }
 }
+
+export function buildApprovalQuestion(
+  pendingApproval: ApprovalRequest,
+): string {
+  switch (pendingApproval.category) {
+    case "git_mutation":
+      return "Do you want me to change the Git repository?";
+    case "filesystem_write":
+      return "Do you want me to change workspace files?";
+    case "network_external":
+      return "Do you want me to access an external service?";
+    case "deploy_or_infra_mutation":
+      return "Do you want me to change deployment infrastructure?";
+    case "shell_command":
+      return "Do you want me to run a shell command?";
+    default:
+      return "Do you want me to continue with this action?";
+  }
+}

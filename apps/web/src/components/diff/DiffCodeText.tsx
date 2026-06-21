@@ -1,5 +1,6 @@
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { CODE_TYPOGRAPHY_STYLE } from "../../lib/codeTypography";
 
 interface DiffCodeTextProps {
   content: string;
@@ -20,6 +21,7 @@ export function DiffCodeText({
       PreTag="span"
       CodeTag="span"
       customStyle={{
+        ...CODE_TYPOGRAPHY_STYLE,
         display: "inline",
         margin: 0,
         padding: 0,
@@ -29,6 +31,7 @@ export function DiffCodeText({
       }}
       codeTagProps={{
         style: {
+          ...CODE_TYPOGRAPHY_STYLE,
           display: "inline",
           whiteSpace,
           wordBreak: wrap ? "break-word" : "normal",

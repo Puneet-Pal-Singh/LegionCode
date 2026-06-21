@@ -20,19 +20,16 @@ export function useGitHubTree(expectedRepo?: string) {
 
   useEffect(() => {
     if (isContextMismatch) {
-      console.log(`[useGitHubTree] Context mismatch: expected ${expectedRepo}, got ${repo?.full_name}`);
       setRepoTree([]);
       return;
     }
 
     if (!repo || !isGitHubLoaded) {
-      console.log("[useGitHubTree] No repo or not loaded yet, clearing tree");
       setRepoTree([]);
       return;
     }
 
     const fetchTree = async () => {
-      console.log("[useGitHubTree] Fetching tree for:", repo.full_name, branch);
       setIsLoadingTree(true);
       try {
         const tree = await getRepositoryTree(
@@ -40,7 +37,6 @@ export function useGitHubTree(expectedRepo?: string) {
           repo.name,
           branch,
         );
-        console.log("[useGitHubTree] Fetched tree with", tree.length, "items");
         setRepoTree(tree);
       } catch (error) {
         console.error("[useGitHubTree] Failed to fetch repository tree:", error);
