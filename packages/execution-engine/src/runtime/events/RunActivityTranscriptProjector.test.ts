@@ -3,6 +3,31 @@ import { RUN_EVENT_TYPES, type RunEvent } from "@repo/shared-types";
 import { projectRunActivityTranscript } from "./RunActivityTranscriptProjector.js";
 
 describe("RunActivityTranscriptProjector", () => {
+  it("uses the client user-message id for persisted transcript activity", () => {
+    const part = projectRunActivityTranscript({
+      runId: "run-1",
+      sessionId: "session-1",
+      terminalStatus: "completed",
+      events: [
+        createEvent("event-1", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "user",
+          content: "inspect repository",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent("event-2", RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(part.events).toEqual([
+      expect.objectContaining({ turnId: "client-user-1", title: "Thinking" }),
+    ]);
+  });
+
   it("persists provider interruption and finalizes unfinished tool activity", () => {
     const part = projectRunActivityTranscript({
       runId: "run-1",

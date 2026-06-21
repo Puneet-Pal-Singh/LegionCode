@@ -103,6 +103,7 @@ import {
   resolveGitTaskStrategyForRun,
   restoreContinuationWorkspaceEditsIfNeeded,
 } from "./RunExecutionPreparationPolicy.js";
+import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
   buildFinalSummaryFrame,
   appendTerminalDetailsIfNeeded,
@@ -275,7 +276,12 @@ export class RunEngine implements IRunEngine {
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
       await this.runEventRecorder.ensureRunStarted(run.status);
-      await this.recordCurrentUserTurn(input.prompt);
+      await recordInitialTurnActivity({
+        run,
+        messages,
+        prompt: input.prompt,
+        runEventRecorder: this.runEventRecorder,
+      });
       recordOrchestrationActivation(run);
       await this.runRepo.update(run);
       console.log(`[run/engine] Retrieving memory context for run ${runId}`);
@@ -742,10 +748,6 @@ export class RunEngine implements IRunEngine {
       runRepo: this.runRepo,
       safeMemoryOperation: this.safeMemoryOperation.bind(this),
     };
-  }
-
-  private async recordCurrentUserTurn(prompt: string): Promise<void> {
-    await this.runEventRecorder.recordMessageEmitted("user", prompt);
   }
 
   async getRunStatus(runId: string): Promise<RunStatus | null> {
