@@ -1,11 +1,11 @@
 import type {
   ItemId,
-  LifecycleEvent,
   Run,
   RunAttemptId,
   ToolCallItemContent,
   Turn,
 } from "@repo/platform-protocol";
+import type { LifecycleEventStore } from "@repo/event-store";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import type {
   ApprovalResolution,
@@ -63,8 +63,4 @@ export interface RuntimeKernelClock {
   now(): string;
 }
 
-export interface LifecycleEventSink {
-  appendBatch(
-    events: readonly LifecycleEvent[],
-  ): Promise<readonly LifecycleEvent[]>;
-}
+export type RuntimeLifecycleEventStore = LifecycleEventStore;

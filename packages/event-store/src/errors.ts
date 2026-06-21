@@ -4,6 +4,8 @@ export const EVENT_STORE_ERROR_CODES = [
   "event_id_conflict",
   "idempotency_conflict",
   "invalid_replay_limit",
+  "sequence_gap",
+  "corrupt_event_stream",
 ] as const;
 
 export type EventStoreErrorCode = (typeof EVENT_STORE_ERROR_CODES)[number];

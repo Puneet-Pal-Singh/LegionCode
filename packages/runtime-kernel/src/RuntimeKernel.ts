@@ -16,7 +16,7 @@ import type {
   ApprovalWaitPort,
   ContextAssemblyPort,
   ProviderPort,
-  LifecycleEventSink,
+  RuntimeLifecycleEventStore,
   RuntimeKernelClock,
   ToolAuthorizationPort,
   WorkerProtocolPort,
@@ -30,7 +30,7 @@ const DEFAULT_MAX_TOOL_CALLS = 32;
 const systemClock: RuntimeKernelClock = { now: () => new Date().toISOString() };
 
 export interface RuntimeKernelDependencies {
-  readonly lifecycleEvents: LifecycleEventSink;
+  readonly lifecycleEvents: RuntimeLifecycleEventStore;
   readonly workspaceManifests: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
   readonly provider: ProviderPort;

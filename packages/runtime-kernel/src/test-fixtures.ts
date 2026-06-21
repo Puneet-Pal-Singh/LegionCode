@@ -17,7 +17,7 @@ import { vi } from "vitest";
 import type {
   ApprovalWaitPort,
   ContextAssemblyPort,
-  LifecycleEventSink,
+  RuntimeLifecycleEventStore,
   ProviderPort,
   ToolAuthorizationPort,
   WorkerProtocolPort,
@@ -144,7 +144,7 @@ export function createPorts(): {
   };
 }
 
-export class MemoryLifecycleEventSink implements LifecycleEventSink {
+export class MemoryLifecycleEventSink implements RuntimeLifecycleEventStore {
   readonly events: LifecycleEvent[] = [];
 
   async appendBatch(
@@ -158,7 +158,12 @@ export class MemoryLifecycleEventSink implements LifecycleEventSink {
     return events;
   }
 
+  async append(event: LifecycleEvent): Promise<LifecycleEvent> {
+    return (await this.appendBatch([event]))[0] as LifecycleEvent;
+  }
+
   async replay(input: {
+    turnId?: LifecycleEvent["turnId"];
     afterSequence: number | null;
     limit: number;
   }): Promise<{
@@ -166,6 +171,7 @@ export class MemoryLifecycleEventSink implements LifecycleEventSink {
     nextSequence: number | null;
   }> {
     const events = this.events
+      .filter((event) => input.turnId === undefined || event.turnId === input.turnId)
       .filter((event) =>
         input.afterSequence === null ? true : event.sequence > input.afterSequence,
       )

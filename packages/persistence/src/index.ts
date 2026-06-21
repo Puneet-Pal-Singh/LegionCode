@@ -63,10 +63,23 @@ export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
+export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
+export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/PostgresLifecycleProjectionRepository.js";
+export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
 export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";
 export { projectRunEvents } from "./run-projections/RunProjectionProjector.js";
+export {
+  LifecycleProjector,
+  projectLifecycleEvents,
+} from "./lifecycle-projections/LifecycleProjector.js";
+export {
+  LIFECYCLE_PROJECTION_VERSION,
+  LifecycleProjectionError,
+  LifecycleProjectionSnapshotSchema,
+  type LifecycleProjectionSnapshot,
+} from "./lifecycle-projections/types.js";
 export { PostgresArtifactMetadataRepository } from "./artifact-metadata/PostgresArtifactMetadataRepository.js";
 export {
   THREAD_PROJECTION_VERSION,
