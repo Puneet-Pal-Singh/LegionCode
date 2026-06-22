@@ -33,7 +33,7 @@ export default function CloudPage() {
           {/* Hero Headline */}
           <h1 className="font-sans text-[13px] min-[360px]:text-[14px] min-[400px]:text-base sm:text-lg md:text-xl lg:text-[22px] text-zinc-100 tracking-tight font-medium mb-10 px-2 sm:px-0 whitespace-nowrap">
             Run a team of coding agents in the{" "}
-            <span className="underline underline-offset-4 decoration-zinc-650 cursor-pointer hover:decoration-white transition-colors">
+            <span className="underline underline-offset-4 decoration-zinc-650">
               cloud
             </span>{" "}
             ☁️
