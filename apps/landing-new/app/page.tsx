@@ -1,23 +1,27 @@
-import React from 'react';
-import AnnouncementBanner from '@/components/layout/announcement-banner';
-import Header from '@/components/layout/header';
-import LandingHero from '@/components/hero/landing-hero';
-import WorkspacePlayground from '@/components/playground/workspace-playground';
-import FeaturesBento from '@/components/features/features-bento';
-import ByokSection from '@/components/features/byok-section';
-import SurfacesSection from '@/components/features/surfaces-section';
-import ExperienceLiftoff from '@/components/features/experience-liftoff';
-import Footer from '@/components/layout/footer';
+import type { Metadata } from "next";
+import React from "react";
+import AnnouncementBanner from "@/components/layout/announcement-banner";
+import Header from "@/components/layout/header";
+import LandingHero from "@/components/hero/landing-hero";
+import WorkspacePlayground from "@/components/playground/workspace-playground";
+import FeaturesBento from "@/components/features/features-bento";
+import ByokSection from "@/components/features/byok-section";
+import SurfacesSection from "@/components/features/surfaces-section";
+import ExperienceLiftoff from "@/components/features/experience-liftoff";
+import Footer from "@/components/layout/footer";
+import ProductJsonLd from "@/components/seo/product-json-ld";
 
-export const metadata = {
-  title: 'LegionCode | Multi-Agent Coding Workspace',
-  description: 'Connect a repo, launch parallel coding agents in isolated worktrees, and review every diff before it reaches your main branch.',
+export const metadata: Metadata = {
+  title: { absolute: "LegionCode - Open-source multi-agent coding workspace" },
+  description:
+    "Connect a repository, launch parallel coding-agent runs in isolated workspaces, and review every diff before it reaches your main branch.",
 };
 
 export default function Page() {
   return (
     <div className="min-h-screen bg-black font-sans text-zinc-100 flex flex-col selection:bg-white selection:text-black antialiased overflow-x-hidden">
-      
+      <ProductJsonLd />
+
       {/* Top Announcement Banner */}
       <AnnouncementBanner />
 
@@ -46,7 +50,6 @@ export default function Page() {
 
       {/* FINAL MINIMAL FOOTER */}
       <Footer />
-
     </div>
   );
 }
