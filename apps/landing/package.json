@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "clean": "rm -rf .next out"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20260226.1",
+    "@playwright/test": "1.51.1",
     "@tailwindcss/postcss": "4.1.11",
     "@types/node": "^20",
     "@types/react": "^19",
