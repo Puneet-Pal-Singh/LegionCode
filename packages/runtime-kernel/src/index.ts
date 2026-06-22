@@ -7,6 +7,8 @@ export {
 } from "./errors.js";
 export {
   type RuntimeLifecycleEventStore,
+  type RuntimeGitSnapshotPort,
+  type RuntimeTurnArtifactPort,
   type ApprovalWaitPort,
   type ContextAssemblyPort,
   type ProviderPort,
@@ -14,6 +16,10 @@ export {
   type ToolAuthorizationPort,
   type WorkerProtocolPort,
 } from "./ports.js";
+export {
+  TurnArtifactSettlementCoordinator,
+  type TurnArtifactSettlementResult,
+} from "./TurnArtifactSettlementCoordinator.js";
 export {
   RuntimeLifecycleCoordinator,
   type RuntimeLifecycleCoordinatorOptions,

@@ -3,14 +3,8 @@ import {
   InMemoryArtifactStore,
   type ArtifactAuthorizer,
 } from "@repo/artifact-store";
-import type {
-  GitService,
-  GitStatusResult,
-} from "@repo/git-service";
-import {
-  RunIdSchema,
-  WorkspaceManifestSchema,
-} from "@repo/platform-protocol";
+import type { GitService, GitStatusResult } from "@repo/git-service";
+import { RunIdSchema, WorkspaceManifestSchema } from "@repo/platform-protocol";
 import {
   ArtifactUploadRequestSchema,
   CommandRunRequestSchema,
@@ -42,12 +36,13 @@ describe("CloudflareWorkerAdapter", () => {
       gitService,
       artifactStore,
       artifactAccessResolver: {
-        resolve: async () => ArtifactAccessContextSchema.parse({
-          userId: "usr_cloudflare1",
-          workspaceId: "wrk_cloudflare1",
-          threadId: "thr_cloudflare1",
-          runId: RUN_ID,
-        }),
+        resolve: async () =>
+          ArtifactAccessContextSchema.parse({
+            userId: "usr_cloudflare1",
+            workspaceId: "wrk_cloudflare1",
+            threadId: "thr_cloudflare1",
+            runId: RUN_ID,
+          }),
       },
       capabilities: createCapabilities(),
       now: () => "2026-06-15T00:00:00.000Z",
@@ -60,43 +55,62 @@ describe("CloudflareWorkerAdapter", () => {
       supportsGit: true,
     });
 
-    await expect(adapter.prepareWorkspace(RUN_ID, { manifest: createManifest() }))
-      .resolves.toEqual({
-        filesystemRoot: WORKSPACE_ROOT,
-        preparedAt: "2026-06-15T00:00:00.000Z",
-      });
+    await expect(
+      adapter.prepareWorkspace(RUN_ID, { manifest: createManifest() }),
+    ).resolves.toEqual({
+      filesystemRoot: WORKSPACE_ROOT,
+      preparedAt: "2026-06-15T00:00:00.000Z",
+    });
     expect(sandbox.prepareWorkspace).toHaveBeenCalledWith(
-      expect.objectContaining({ runId: RUN_ID, filesystemRoot: WORKSPACE_ROOT }),
+      expect.objectContaining({
+        runId: RUN_ID,
+        filesystemRoot: WORKSPACE_ROOT,
+      }),
     );
   });
 
   it("runs commands and reads and writes files inside the prepared workspace", async () => {
     await prepare(adapter);
-    await expect(adapter.runCommand(RUN_ID, CommandRunRequestSchema.parse({
-      argv: ["pnpm", "test"],
-      cwd: "packages/worker-protocol",
-      env: { CI: "true" },
-      stdin: null,
-      timeoutMs: 30_000,
-    }))).resolves.toMatchObject({ exitCode: 0, stdout: "ok" });
+    await expect(
+      adapter.runCommand(
+        RUN_ID,
+        CommandRunRequestSchema.parse({
+          argv: ["pnpm", "test"],
+          cwd: "packages/worker-protocol",
+          env: { CI: "true" },
+          stdin: null,
+          timeoutMs: 30_000,
+        }),
+      ),
+    ).resolves.toMatchObject({ exitCode: 0, stdout: "ok" });
 
-    const write = await adapter.writeFile(RUN_ID, FileWriteRequestSchema.parse({
-      path: "tmp/result.txt",
-      encoding: "utf8",
-      content: "hello",
-      overwrite: true,
-      createParents: true,
-    }));
+    const write = await adapter.writeFile(
+      RUN_ID,
+      FileWriteRequestSchema.parse({
+        path: "tmp/result.txt",
+        encoding: "utf8",
+        content: "hello",
+        overwrite: true,
+        createParents: true,
+      }),
+    );
     expect(write.sizeBytes).toBe(5);
     expect(sandbox.writeFile).toHaveBeenCalledWith(
-      expect.objectContaining({ absolutePath: `${WORKSPACE_ROOT}/tmp/result.txt` }),
+      expect.objectContaining({
+        absolutePath: `${WORKSPACE_ROOT}/tmp/result.txt`,
+      }),
     );
 
-    await expect(adapter.readFile(RUN_ID, FileReadRequestSchema.parse({
-      path: "tmp/result.txt",
-      encoding: "utf8",
-      maxBytes: null,
-    }))).resolves.toMatchObject({ content: "hello", sizeBytes: 5 });
+    await expect(
+      adapter.readFile(
+        RUN_ID,
+        FileReadRequestSchema.parse({
+          path: "tmp/result.txt",
+          encoding: "utf8",
+          maxBytes: null,
+        }),
+      ),
+    ).resolves.toMatchObject({ content: "hello", sizeBytes: 5 });
   });
 
   it("routes git status through the canonical Git service", async () => {
@@ -132,26 +146,38 @@ describe("CloudflareWorkerAdapter", () => {
       ownership: { runId: RUN_ID, workspaceId: "wrk_cloudflare1" },
       payload: { byteSize: 5 },
     });
-    await expect(artifactStore.getPayload(metadata.artifactId, ArtifactAccessContextSchema.parse({
-      userId: "usr_cloudflare1",
-      workspaceId: "wrk_cloudflare1",
-      threadId: "thr_cloudflare1",
-      runId: RUN_ID,
-    }))).resolves.toEqual(new TextEncoder().encode("hello"));
+    await expect(
+      artifactStore.getPayload(
+        metadata.artifactId,
+        ArtifactAccessContextSchema.parse({
+          userId: "usr_cloudflare1",
+          workspaceId: "wrk_cloudflare1",
+          threadId: "thr_cloudflare1",
+          runId: RUN_ID,
+        }),
+      ),
+    ).resolves.toEqual(new TextEncoder().encode("hello"));
   });
 
   it("returns typed errors for unavailable and incorrectly scoped workspaces", async () => {
-    await expect(adapter.readFile(RUN_ID, FileReadRequestSchema.parse({
-      path: "tmp/result.txt",
-      encoding: "utf8",
-      maxBytes: null,
-    }))).rejects.toMatchObject({
+    await expect(
+      adapter.readFile(
+        RUN_ID,
+        FileReadRequestSchema.parse({
+          path: "tmp/result.txt",
+          encoding: "utf8",
+          maxBytes: null,
+        }),
+      ),
+    ).rejects.toMatchObject({
       protocolError: { code: "workspace_unavailable" },
     });
 
-    await expect(adapter.prepareWorkspace(RUN_ID, {
-      manifest: createManifest("/home/sandbox/runs/run_other123"),
-    })).rejects.toMatchObject({
+    await expect(
+      adapter.prepareWorkspace(RUN_ID, {
+        manifest: createManifest("/home/sandbox/runs/run_other123"),
+      }),
+    ).rejects.toMatchObject({
       protocolError: { code: "path_denied" },
     });
   });
@@ -242,24 +268,33 @@ function createGitService(): GitService {
       behind: 0,
       detached: false,
     },
-    entries: [{
-      kind: "ordinary",
-      status: "modified",
-      path: "src/index.ts",
-      xy: { index: ".", worktree: "M" },
-      submodule: "N...",
-      headMode: "100644",
-      indexMode: "100644",
-      worktreeMode: "100644",
-      headObjectId: "abcdef1",
-      indexObjectId: "abcdef1",
-    }],
+    entries: [
+      {
+        kind: "ordinary",
+        status: "modified",
+        path: "src/index.ts",
+        xy: { index: ".", worktree: "M" },
+        submodule: "N...",
+        headMode: "100644",
+        indexMode: "100644",
+        worktreeMode: "100644",
+        headObjectId: "abcdef1",
+        indexObjectId: "abcdef1",
+      },
+    ],
     changedFileCount: 1,
     isDirty: true,
   };
   return {
     getStatus: vi.fn(async () => status),
     getDiff: vi.fn(async () => ({ files: [], patch: "" })),
+    captureSnapshot: vi.fn(async ({ workspace }) => ({
+      runId: workspace.runId,
+      filesystemRoot: workspace.filesystemRoot,
+      headSha: "a".repeat(40),
+      treeId: "b".repeat(40),
+    })),
+    getSnapshotDiff: vi.fn(async () => ({ files: [], patch: "" })),
     stageFiles: vi.fn(async () => status),
     unstageFiles: vi.fn(async () => status),
     commit: vi.fn(async () => ({

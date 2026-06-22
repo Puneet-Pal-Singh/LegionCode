@@ -6,6 +6,8 @@ import type {
   Turn,
 } from "@repo/platform-protocol";
 import type { LifecycleEventStore } from "@repo/event-store";
+import type { GitService } from "@repo/git-service";
+import type { TurnArtifactRepository } from "@repo/artifact-store";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import type {
   ApprovalResolution,
@@ -64,3 +66,8 @@ export interface RuntimeKernelClock {
 }
 
 export type RuntimeLifecycleEventStore = LifecycleEventStore;
+export type RuntimeGitSnapshotPort = Pick<
+  GitService,
+  "captureSnapshot" | "getSnapshotDiff"
+>;
+export type RuntimeTurnArtifactPort = TurnArtifactRepository;

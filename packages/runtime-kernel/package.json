@@ -18,7 +18,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/artifact-store": "workspace:*",
     "@repo/event-store": "workspace:*",
+    "@repo/git-service": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/workspace-core": "workspace:*"
   },

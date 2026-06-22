@@ -15,6 +15,7 @@ import {
   MemoryLifecycleEventSink,
   approvalRequest,
   createLifecycleSink,
+  createArtifactPorts,
   createManifestRepository,
   createPorts,
   finalItemId,
@@ -43,6 +44,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "turn.queued",
       "turn.started",
       "run_attempt.started",
+      "workspace.snapshot_captured",
+      "workspace.snapshot_captured",
+      "artifact.created",
       "item.started",
       "assistant_message.delta",
       "item.completed",
@@ -68,9 +72,11 @@ describe("RuntimeKernel canonical lifecycle", () => {
       code: "worker_failed",
     });
 
-    expect(eventTypes(sink).slice(-4)).toEqual([
+    expect(eventTypes(sink).slice(-6)).toEqual([
       "tool_call.failed",
       "item.failed",
+      "workspace.snapshot_captured",
+      "artifact.created",
       "run_attempt.failed",
       "turn.failed",
     ]);
@@ -126,9 +132,11 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
 
     expect(ports.worker.executeTool).not.toHaveBeenCalled();
-    expect(eventTypes(sink).slice(-4)).toEqual([
+    expect(eventTypes(sink).slice(-6)).toEqual([
       "tool_call.failed",
       "item.failed",
+      "workspace.snapshot_captured",
+      "artifact.created",
       "run_attempt.failed",
       "turn.failed",
     ]);
@@ -215,7 +223,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
 
     expect(terminalEvents(sink)).toHaveLength(1);
-    expect(sink.events).toHaveLength(8);
+    expect(sink.events).toHaveLength(11);
   });
 
   it("settles provider disconnect as failure rather than completion", async () => {
@@ -241,7 +249,8 @@ describe("RuntimeKernel canonical lifecycle", () => {
       deferred<Awaited<ReturnType<typeof ports.worker.executeTool>>>();
     ports.provider.generateNext = vi.fn(async () => toolStep());
     ports.worker.executeTool = vi.fn(() => worker.promise);
-    const kernel = await createKernel(sink, ports);
+    const artifacts = createArtifactPorts(partialDiff());
+    const kernel = await createKernel(sink, ports, artifacts);
     const execution = kernel.startTurn({ run, turn, runAttemptId });
     await vi.waitFor(() => expect(ports.worker.executeTool).toHaveBeenCalled());
 
@@ -255,6 +264,68 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "run_attempt.interrupted",
       "turn.interrupted",
     ]);
+    expect(artifacts.turnArtifacts.putTurnDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diff: expect.objectContaining({ files: partialDiff().files }),
+      }),
+    );
+  });
+
+  it("persists a multi-file diff before successful terminal settlement", async () => {
+    const sink = createLifecycleSink();
+    const artifacts = createArtifactPorts(multiFileDiff());
+    const kernel = await createKernel(sink, createPorts(), artifacts);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(artifacts.turnArtifacts.putTurnDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diff: expect.objectContaining({ files: multiFileDiff().files }),
+      }),
+    );
+    expect(eventTypes(sink).indexOf("artifact.created")).toBeLessThan(
+      eventTypes(sink).indexOf("turn.completed"),
+    );
+  });
+
+  it("persists an explicit empty diff before successful settlement", async () => {
+    const artifacts = createArtifactPorts();
+    const kernel = await createKernel(
+      createLifecycleSink(),
+      createPorts(),
+      artifacts,
+    );
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(artifacts.turnArtifacts.putTurnDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diff: expect.objectContaining({ files: [], patch: "" }),
+      }),
+    );
+  });
+
+  it("preserves partial changed files when a turn fails", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new Error("provider disconnected");
+    });
+    const artifacts = createArtifactPorts(partialDiff());
+    const kernel = await createKernel(sink, ports, artifacts);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "provider disconnected",
+    );
+
+    expect(artifacts.turnArtifacts.putTurnDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diff: expect.objectContaining({ files: partialDiff().files }),
+      }),
+    );
+    expect(eventTypes(sink).indexOf("artifact.created")).toBeLessThan(
+      eventTypes(sink).indexOf("turn.failed"),
+    );
   });
 
   it("serializes an interrupt racing tool completion without conflicting settlement", async () => {
@@ -294,14 +365,47 @@ describe("RuntimeKernel canonical lifecycle", () => {
 async function createKernel(
   lifecycleEvents: RuntimeLifecycleEventStore,
   ports = createPorts(),
+  artifactPorts = createArtifactPorts(),
 ): Promise<RuntimeKernel> {
   return new RuntimeKernel({
     lifecycleEvents,
+    ...artifactPorts,
     workspaceManifests: await createManifestRepository(),
     ...ports,
     producerId: "runtime-kernel-test",
     clock: { now: () => timestamp },
   });
+}
+
+function partialDiff() {
+  return {
+    files: [
+      {
+        path: "src/index.ts",
+        previousPath: null,
+        status: "modified" as const,
+        additions: 2,
+        deletions: 1,
+      },
+    ],
+    patch: "diff --git a/src/index.ts b/src/index.ts\n",
+  };
+}
+
+function multiFileDiff() {
+  return {
+    files: [
+      ...partialDiff().files,
+      {
+        path: "src/new.ts",
+        previousPath: null,
+        status: "added" as const,
+        additions: 4,
+        deletions: 0,
+      },
+    ],
+    patch: `${partialDiff().patch}diff --git a/src/new.ts b/src/new.ts\n`,
+  };
 }
 
 function toolStep() {

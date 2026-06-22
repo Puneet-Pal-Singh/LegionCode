@@ -831,9 +831,15 @@ importers:
 
   packages/runtime-kernel:
     dependencies:
+      '@repo/artifact-store':
+        specifier: workspace:*
+        version: link:../artifact-store
       '@repo/event-store':
         specifier: workspace:*
         version: link:../event-store
+      '@repo/git-service':
+        specifier: workspace:*
+        version: link:../git-service
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol

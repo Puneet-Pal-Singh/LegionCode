@@ -9,6 +9,8 @@ import {
   RunSchema,
   TurnSchema,
 } from "@repo/platform-protocol";
+import type { ArtifactMetadata } from "@repo/artifact-store";
+import type { GitDiffResult } from "@repo/git-service";
 import {
   MemoryWorkspaceManifestRepository,
   parseWorkspaceManifest,
@@ -18,6 +20,8 @@ import type {
   ApprovalWaitPort,
   ContextAssemblyPort,
   RuntimeLifecycleEventStore,
+  RuntimeGitSnapshotPort,
+  RuntimeTurnArtifactPort,
   ProviderPort,
   ToolAuthorizationPort,
   WorkerProtocolPort,
@@ -150,7 +154,9 @@ export class MemoryLifecycleEventSink implements RuntimeLifecycleEventStore {
   async appendBatch(
     events: readonly LifecycleEvent[],
   ): Promise<readonly LifecycleEvent[]> {
-    const existingKeys = new Set(this.events.map((event) => event.idempotencyKey));
+    const existingKeys = new Set(
+      this.events.map((event) => event.idempotencyKey),
+    );
     const newEvents = events.filter(
       (event) => !existingKeys.has(event.idempotencyKey),
     );
@@ -171,9 +177,13 @@ export class MemoryLifecycleEventSink implements RuntimeLifecycleEventStore {
     nextSequence: number | null;
   }> {
     const events = this.events
-      .filter((event) => input.turnId === undefined || event.turnId === input.turnId)
+      .filter(
+        (event) => input.turnId === undefined || event.turnId === input.turnId,
+      )
       .filter((event) =>
-        input.afterSequence === null ? true : event.sequence > input.afterSequence,
+        input.afterSequence === null
+          ? true
+          : event.sequence > input.afterSequence,
       )
       .slice(0, input.limit);
     return { events, nextSequence: events.at(-1)?.sequence ?? null };
@@ -182,4 +192,71 @@ export class MemoryLifecycleEventSink implements RuntimeLifecycleEventStore {
 
 export function createLifecycleSink(): MemoryLifecycleEventSink {
   return new MemoryLifecycleEventSink();
+}
+
+export function createArtifactPorts(
+  diff: GitDiffResult = { files: [], patch: "" },
+): {
+  gitSnapshots: RuntimeGitSnapshotPort;
+  turnArtifacts: RuntimeTurnArtifactPort;
+} {
+  let captureCount = 0;
+  const gitSnapshots: RuntimeGitSnapshotPort = {
+    captureSnapshot: vi.fn(async () => {
+      captureCount += 1;
+      return {
+        runId: run.id,
+        filesystemRoot: manifest.filesystemRoot,
+        headSha: manifest.headSha,
+        treeId: (captureCount === 1 ? "b" : "c").repeat(40),
+      };
+    }),
+    getSnapshotDiff: vi.fn(async () => diff),
+  };
+  const turnArtifacts: RuntimeTurnArtifactPort = {
+    putSnapshot: vi.fn(async ({ snapshot }) =>
+      artifactMetadata(
+        snapshot.phase === "start" ? "art_snapshot001" : "art_snapshot002",
+        "workspace_snapshot",
+        { role: "turn_snapshot", turnId: turn.id, phase: snapshot.phase },
+      ),
+    ),
+    putTurnDiff: vi.fn(async () =>
+      artifactMetadata("art_turndiff001", "diff", {
+        role: "turn_diff",
+        turnId: turn.id,
+        changedFileCount: 0,
+      }),
+    ),
+    getTurnDiff: vi.fn(async () => null),
+    listWorkspaceDiffs: vi.fn(async () => []),
+  };
+  return { gitSnapshots, turnArtifacts };
+}
+
+function artifactMetadata(
+  artifactId: string,
+  kind: ArtifactMetadata["kind"],
+  properties: ArtifactMetadata["properties"],
+): ArtifactMetadata {
+  return {
+    artifactId: artifactId as ArtifactMetadata["artifactId"],
+    kind,
+    ownership: {
+      createdBy: run.userId,
+      workspaceId: run.workspaceId,
+      threadId: run.threadId,
+      runId: run.id,
+    },
+    visibility: "run",
+    payload: {
+      backend: "memory",
+      storageKey: `artifacts/${artifactId}`,
+      contentType: "application/json",
+      byteSize: 2,
+      sha256: "a".repeat(64),
+    },
+    properties,
+    createdAt: timestamp,
+  };
 }
