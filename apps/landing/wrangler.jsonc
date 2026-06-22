@@ -1,14 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "shadowbox-landing",
-  "compatibility_date": "2025-05-06",
-
-  // Cloudflare Pages deploy target for the public landing app.
-  "pages_build_output_dir": "./dist",
-
-  // /agents/* dispatch target. apps/landing/functions/agents/[[path]].ts
-  // reads this Pages var to proxy /agents/* to the agents web app.
-  // Override per environment in deploy-specific wrangler configs.
+  "compatibility_date": "2026-03-01",
+  "pages_build_output_dir": "./out",
   "vars": {
     "AGENTS_ORIGIN": "https://agents.legioncode.dev",
   },

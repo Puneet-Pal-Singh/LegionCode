@@ -1,18 +1,5 @@
-// apps/landing/functions/agents/[[path]].ts
-//
-// Cloudflare Pages Function: dispatches /agents/* from the landing
-// app (legioncode.dev) to the agents web app (agents.legioncode.dev).
-//
-// Plan 018 §"Deployment Shape" Option B with cross-origin dispatch
-// (subdomain split): the landing app serves the public marketing
-// surface at the domain root, and /agents/* is forwarded to the
-// agents app's own Cloudflare Pages project.
-//
-// Override the target via the AGENTS_ORIGIN Pages var (set in
-// apps/landing/wrangler.jsonc) or a deploy-time binding.
-//
-// This function takes precedence over the catch-all
-// /* /index.html 200 rule in apps/landing/public/_redirects.
+// Keeps the public /agents path on legioncode.dev while the Vite app is
+// deployed independently at agents.legioncode.dev.
 
 interface Env {
   AGENTS_ORIGIN?: string;
@@ -69,13 +56,15 @@ export function buildAgentsTarget(origin: string, requestUrl: URL): string {
   return `${origin}${upstreamPath}${requestUrl.search}`;
 }
 
-function resolveAgentsOrigin(value: string | undefined): string {
+export function resolveAgentsOrigin(value: string | undefined): string {
   const rawOrigin = value?.trim() || DEFAULT_AGENTS_ORIGIN;
   let url: URL;
   try {
     url = new URL(rawOrigin);
   } catch {
-    throw new Error(`resolveAgentsOrigin: Invalid AGENTS_ORIGIN: '${rawOrigin}'.`);
+    throw new Error(
+      `resolveAgentsOrigin: Invalid AGENTS_ORIGIN: '${rawOrigin}'.`,
+    );
   }
   if (url.protocol !== "https:") {
     throw new Error(
