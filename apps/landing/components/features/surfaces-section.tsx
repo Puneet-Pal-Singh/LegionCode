@@ -55,6 +55,7 @@ export default function SurfacesSection() {
           </div>
           <Link
             href="/agents"
+            prefetch={false}
             className="inline-flex items-center gap-2 bg-white hover:bg-neutral-100 text-black px-4.5 py-2.5 rounded-lg text-xs font-semibold tracking-tight transition-all duration-200 mt-auto w-fit group/btn whitespace-nowrap"
           >
             <span>Open Cloud Agents</span>

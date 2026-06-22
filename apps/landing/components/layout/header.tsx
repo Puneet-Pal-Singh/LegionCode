@@ -64,6 +64,7 @@ export default function Header() {
             </Link>
             <Link
               href="/docs"
+              prefetch={false}
               className="text-zinc-400 hover:text-white transition-colors"
             >
               Docs
@@ -82,6 +83,7 @@ export default function Header() {
           <div className="flex items-center gap-3">
             <Link
               href="/agents"
+              prefetch={false}
               className="hidden sm:flex items-center gap-1.5 bg-white hover:bg-neutral-100 text-black px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200"
             >
               <span>Open Agents</span>
@@ -129,6 +131,7 @@ export default function Header() {
             </Link>
             <Link
               href="/docs"
+              prefetch={false}
               onClick={() => setMobileMenuOpen(false)}
               className="hover:text-white py-1 block border-b border-white/5 font-mono"
             >
@@ -146,6 +149,7 @@ export default function Header() {
             </a>
             <Link
               href="/agents"
+              prefetch={false}
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-center gap-1.5 bg-white text-black py-2.5 rounded-lg text-xs font-semibold hover:bg-neutral-100 transition-colors font-mono"
             >

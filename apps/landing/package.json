@@ -10,7 +10,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:browser": "playwright test",
+    "test:browser": "pnpm run build && playwright test",
     "clean": "rm -rf .next out"
   },
   "dependencies": {

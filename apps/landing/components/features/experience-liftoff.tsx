@@ -73,6 +73,7 @@ export default function ExperienceLiftoff() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full sm:w-auto">
           <Link 
             href="/agents" 
+            prefetch={false}
             className="w-full sm:w-auto flex items-center justify-center gap-2.5 border border-white/15 bg-white/5 hover:bg-white/10 text-white px-6 py-2.5 rounded-full text-xs font-medium tracking-tight transition-all duration-300 transform hover:-translate-y-0.5 cursor-pointer whitespace-nowrap"
           >
             <span>Open Cloud Agents</span>

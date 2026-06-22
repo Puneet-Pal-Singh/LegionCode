@@ -51,6 +51,7 @@ export default function CloudPage() {
             <div className="mt-6 pt-4 border-t border-white/[0.05]">
               <Link
                 href="/agents/"
+                prefetch={false}
                 className="inline-flex items-center gap-1.5 text-xs font-mono text-zinc-400 hover:text-white transition-all group"
               >
                 <span>Already approved? Sign in to Cloud Agents</span>

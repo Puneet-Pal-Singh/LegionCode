@@ -7,7 +7,7 @@ export default defineConfig({
   retries: 0,
   reporter: "line",
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: "http://127.0.0.1:4173",
     trace: "retain-on-failure",
   },
   projects: [
@@ -17,9 +17,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm dev --hostname 127.0.0.1 --port 3000",
-    url: "http://127.0.0.1:3000",
-    reuseExistingServer: true,
+    command:
+      "pnpm exec wrangler pages dev out --port 4173 --d1 WAITLIST_DB=local-waitlist-db",
+    url: "http://127.0.0.1:4173",
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });
