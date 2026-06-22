@@ -74,7 +74,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} ${spaceGrotesk.variable} dark`}
+      suppressHydrationWarning
     >
+      <head>
+        <meta name="darkreader-lock" />
+      </head>
       <body
         className="bg-black text-zinc-100 antialiased"
         suppressHydrationWarning

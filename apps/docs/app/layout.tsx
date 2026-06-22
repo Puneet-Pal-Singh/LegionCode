@@ -64,7 +64,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${jetbrainsMono.variable} scroll-smooth`}
+      suppressHydrationWarning
     >
+      <head>
+        <meta name="darkreader-lock" />
+      </head>
       <body
         suppressHydrationWarning
         className="bg-black font-sans text-stone-150 antialiased min-h-screen"
