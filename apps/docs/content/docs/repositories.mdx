@@ -15,7 +15,7 @@ A repository and branch define the source context for a LegionCode task. Reposit
 
 ## Connect GitHub
 
-Unauthenticated users can open the agents workspace, but the shell remains locked. Select **Connect GitHub** to begin OAuth. After the callback succeeds, LegionCode loads the repositories visible to the authorized identity.
+Approved users can open the agents workspace, where the shell remains locked until GitHub authentication succeeds. Select **Connect GitHub** to begin OAuth. Unapproved accounts return to the Cloud access page; approved accounts continue to repository selection.
 
 The OAuth token is handled by Brain and stored through the encrypted identity-session path. The browser should not persist a GitHub access token in local storage.
 

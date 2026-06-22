@@ -62,10 +62,20 @@ export function resolveHttpsOrigin(
   } catch {
     throw new Error(`${variableName} must be a valid URL: '${rawOrigin}'.`);
   }
-  if (url.protocol !== "https:" || !url.hostname) {
-    throw new Error(`${variableName} must use https with a hostname.`);
+  if (!url.hostname || !isAllowedProtocol(url)) {
+    throw new Error(
+      `${variableName} must use https, except for loopback local development.`,
+    );
   }
   return url.origin;
+}
+
+function isAllowedProtocol(url: URL): boolean {
+  if (url.protocol === "https:") return true;
+  return (
+    url.protocol === "http:" &&
+    (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+  );
 }
 
 function isAbortError(error: unknown): boolean {

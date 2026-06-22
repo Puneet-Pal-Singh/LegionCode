@@ -39,6 +39,12 @@ Set secrets with Wrangler rather than committing them:
 - internal runtime-event secret;
 - any managed provider credentials enabled for the environment.
 
+The landing Pages project also requires a D1 binding named `WAITLIST_DB`.
+Apply `apps/landing/migrations/0001_waitlist.sql` before enabling the Cloud
+access form. Brain production configuration must set
+`PRIVATE_ALPHA_ACCESS_MODE=allowlist` and list approved GitHub logins in
+`PRIVATE_ALPHA_GITHUB_LOGINS`.
+
 ## Deploy order
 
 1. Apply pending Postgres migrations.

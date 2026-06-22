@@ -2,6 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "shadowbox-landing",
   "compatibility_date": "2026-03-01",
+  "compatibility_flags": ["nodejs_compat"],
   "pages_build_output_dir": "./out",
   "vars": {
     "AGENTS_ORIGIN": "https://agents.legioncode.dev",

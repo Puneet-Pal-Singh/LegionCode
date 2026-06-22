@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import rehypeSlug from "rehype-slug";
+import remarkGfm from "remark-gfm";
 import { DocsLayout } from "@/components/DocsLayout";
 import { DocsPagination } from "@/components/DocsPagination";
 import { MdxContent, mdxComponents } from "@/components/MdxContent";
@@ -32,6 +33,10 @@ export async function generateMetadata({
 
 export default async function DocPage({ params }: PageProps) {
   const { slug } = await params;
+  return renderDocPage(slug);
+}
+
+export async function renderDocPage(slug: string) {
   const currentIndex = flatDocsNavigation.findIndex(
     (page) => page.slug === slug,
   );
@@ -55,7 +60,12 @@ export default async function DocPage({ params }: PageProps) {
         <MDXRemote
           source={page.source}
           components={mdxComponents}
-          options={{ mdxOptions: { rehypePlugins: [rehypeSlug] } }}
+          options={{
+            mdxOptions: {
+              remarkPlugins: [remarkGfm],
+              rehypePlugins: [rehypeSlug],
+            },
+          }}
         />
       </MdxContent>
       <DocsPagination previous={previous} next={next} />

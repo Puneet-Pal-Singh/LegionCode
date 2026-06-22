@@ -34,6 +34,12 @@ describe("resolveDocsOrigin", () => {
       "must use https",
     );
   });
+
+  it("allows loopback HTTP origins for local development", () => {
+    expect(resolveDocsOrigin("http://127.0.0.1:3001")).toBe(
+      "http://127.0.0.1:3001",
+    );
+  });
 });
 
 describe("onRequest", () => {

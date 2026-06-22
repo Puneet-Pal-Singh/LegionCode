@@ -1,5 +1,11 @@
 {
   "version": 1,
-  "include": ["/agents", "/agents/*", "/docs", "/docs/*"],
+  "include": [
+    "/agents",
+    "/agents/*",
+    "/docs",
+    "/docs/*",
+    "/api/waitlist"
+  ],
   "exclude": []
 }

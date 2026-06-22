@@ -38,6 +38,12 @@ describe("resolveAgentsOrigin", () => {
       "must use https",
     );
   });
+
+  it("allows loopback HTTP origins for local development", () => {
+    expect(resolveAgentsOrigin("http://127.0.0.1:5174")).toBe(
+      "http://127.0.0.1:5174",
+    );
+  });
 });
 
 describe("onRequest", () => {

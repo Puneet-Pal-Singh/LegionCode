@@ -12,6 +12,7 @@ test("homepage exposes the product and primary routes", async ({ page }) => {
   await page.goto("/");
 
   await expect(page).toHaveTitle(/LegionCode/);
+  await expect(page.locator('meta[name="darkreader-lock"]')).toHaveCount(1);
   await expect(
     page.getByRole("heading", {
       level: 1,
@@ -31,9 +32,18 @@ test("homepage exposes the product and primary routes", async ({ page }) => {
   await expectNoHorizontalOverflow(page);
 });
 
-test("cloud page offers real entry points without a simulated waitlist", async ({
+test("cloud page records a private-alpha access request", async ({
   page,
 }) => {
+  await page.route("**/api/waitlist", async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        message: "Your private-alpha request has been recorded.",
+      }),
+    });
+  });
   await page.goto("/cloud/");
 
   await expect(
@@ -42,15 +52,16 @@ test("cloud page offers real entry points without a simulated waitlist", async (
       name: /Run a team of coding agents in the cloud/,
     }),
   ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open Cloud Agents" })).toHaveAttribute(
-    "href",
-    "/agents/",
+  await page.getByRole("textbox", { name: "Work email" }).fill("dev@example.com");
+  await page.getByRole("button", { name: "Request access" }).click();
+  await expect(page.getByRole("status")).toHaveText(
+    "Your private-alpha request has been recorded.",
   );
-  await expect(page.getByRole("link", { name: "Read the documentation" })).toHaveAttribute(
-    "href",
-    "/docs/",
-  );
-  await expect(page.locator("form")).toHaveCount(0);
+  await expect(
+    page.getByRole("link", {
+      name: "Already approved? Sign in to Cloud Agents",
+    }),
+  ).toHaveAttribute("href", "/agents/");
 });
 
 test("mobile navigation remains usable and contained", async ({ page }) => {
