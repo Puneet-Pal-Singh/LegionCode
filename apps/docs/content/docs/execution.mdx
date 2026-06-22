@@ -1,0 +1,37 @@
+---
+title: Execution and isolation
+description: Understand run-scoped worktrees, Cloudflare Sandbox execution, event streaming, and fail-fast runtime behavior.
+category: Architecture
+toc:
+  - id: isolation-model
+    text: Isolation model
+  - id: tools-and-filesystem
+    text: Tools and filesystem
+  - id: failure-behavior
+    text: Failure behavior
+---
+
+Muscle is the single source of truth for code execution. It combines Cloudflare Durable Objects with Cloudflare Sandbox to maintain run ownership and execute repository operations.
+
+## Isolation model
+
+Each `runId` maps to one Git worktree rooted at `/home/sandbox/runs/{runId}`. Runs must never share that writable directory or execute from the sandbox root.
+
+Durable Object state coordinates the runtime associated with a run, while the sandbox provides the Linux filesystem and process boundary used by tools.
+
+## Tools and filesystem
+
+Filesystem paths are resolved relative to the run workspace and validated against traversal. Commands, Git operations, and file reads enter Muscle through explicit tool contracts.
+
+The event path is streaming. Brain returns model and tool activity as it occurs rather than buffering the complete response before updating Web.
+
+<Callout variant="info" title="Isolation is not approval">
+  Sandbox isolation reduces blast radius. Permission policy and human diff
+  review still decide whether an action is appropriate.
+</Callout>
+
+## Failure behavior
+
+LegionCode favors one canonical execution path. Missing bindings, invalid run context, unsupported provider capabilities, and unavailable persistence should produce typed failures rather than silently selecting a compatibility path.
+
+Run failures remain associated with the same `runId`, including the relevant terminal state and diagnostic events.

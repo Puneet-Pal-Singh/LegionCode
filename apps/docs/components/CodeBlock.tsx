@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useState, useId } from 'react';
-import { Copy, Check } from 'lucide-react';
+import React, { useState, useId } from "react";
+import { Copy, Check } from "lucide-react";
 
 interface CodeBlockProps {
   code: string;
@@ -9,10 +9,10 @@ interface CodeBlockProps {
   id?: string;
 }
 
-export function CodeBlock({ code, language = 'bash', id }: CodeBlockProps) {
+export function CodeBlock({ code, language = "bash", id }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const reactGeneratedId = useId();
-  const elementId = id ?? `codeblock-${reactGeneratedId.replace(/:/g, '')}`;
+  const elementId = id ?? `codeblock-${reactGeneratedId.replace(/:/g, "")}`;
 
   const handleCopy = async () => {
     try {
@@ -22,20 +22,22 @@ export function CodeBlock({ code, language = 'bash', id }: CodeBlockProps) {
         setCopied(false);
       }, 2000);
     } catch (err) {
-      console.error('Failed to copy text: ', err);
+      console.error("Failed to copy text: ", err);
     }
   };
 
-  const lines = code.split('\n');
+  const lines = code.split("\n");
 
   return (
-    <div 
+    <div
       id={elementId}
       className="relative my-5 rounded-lg border border-white/10 bg-zinc-950 font-mono text-xs sm:text-sm leading-relaxed overflow-hidden shadow-lg group"
     >
       {/* Top Banner */}
       <div className="flex items-center justify-between px-4 py-2 bg-white/5 border-b border-white/5 text-zinc-450 text-[10px]">
-        <span className="font-semibold tracking-wider uppercase text-zinc-450">{language}</span>
+        <span className="font-semibold tracking-wider uppercase text-zinc-450">
+          {language}
+        </span>
         <button
           onClick={handleCopy}
           className="flex items-center gap-1 px-2 py-0.5 rounded hover:bg-white/10 hover:text-white text-zinc-500 transition-colors duration-150 relative z-10"
@@ -64,7 +66,7 @@ export function CodeBlock({ code, language = 'bash', id }: CodeBlockProps) {
                 <span className="text-zinc-600 mr-4 select-none text-right w-5 inline-block border-r border-white/5 pr-2">
                   {idx + 1}
                 </span>
-                <span>{line || ' '}</span>
+                <span>{line || " "}</span>
               </div>
             ))}
           </code>
@@ -73,4 +75,3 @@ export function CodeBlock({ code, language = 'bash', id }: CodeBlockProps) {
     </div>
   );
 }
-

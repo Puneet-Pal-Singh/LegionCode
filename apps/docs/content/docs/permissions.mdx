@@ -1,0 +1,37 @@
+---
+title: Permissions
+description: Choose how LegionCode handles commands and file changes, from supervised approval to full access.
+category: Configuration
+toc:
+  - id: permission-modes
+    text: Permission modes
+  - id: decisions-and-audit
+    text: Decisions and audit
+  - id: choosing-a-mode
+    text: Choosing a mode
+---
+
+Permission mode controls when a run may execute commands or write files without another prompt. Select the least-permissive mode that still supports the task.
+
+## Permission modes
+
+| UI label          | Behavior                                                                  |
+| ----------------- | ------------------------------------------------------------------------- |
+| Supervised        | Ask before commands and file changes                                      |
+| Auto-accept edits | Automatically approve edits and ask before risky actions                  |
+| Auto same repo    | Automatically run safe actions that remain inside the selected repository |
+| Full access       | Allow commands and edits without prompts                                  |
+
+Permission modes affect runtime policy; they do not change repository, user, or run ownership.
+
+## Decisions and audit
+
+Permission requests and decisions are persisted with run and user scope. This allows the product to reconstruct what was requested, what decision was made, and which run received it.
+
+An approval should apply to the concrete action shown to the user. It should not silently become a reusable approval for unrelated commands.
+
+## Choosing a mode
+
+Use **Supervised** for unfamiliar repositories, migrations, deployment work, credential-sensitive code, or any task where commands need close inspection.
+
+Use automatic modes only when the repository is disposable or well understood and the task has a narrow boundary. **Full access** removes approval prompts; it does not remove the need to review the resulting diff.

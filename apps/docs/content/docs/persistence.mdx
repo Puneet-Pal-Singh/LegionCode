@@ -1,0 +1,39 @@
+---
+title: Persistence
+description: See which state is canonical in Postgres, which state belongs to Durable Objects, and how migrations are applied.
+category: Architecture
+toc:
+  - id: canonical-records
+    text: Canonical records
+  - id: durable-runtime-state
+    text: Durable runtime state
+  - id: migrations
+    text: Migrations
+---
+
+LegionCode uses Postgres for canonical product records and Durable Object storage for runtime coordination. Browser storage may cache UI state, but it is not the source of truth for authenticated workspace ownership.
+
+## Canonical records
+
+The persistence package provides repositories and migrations for:
+
+- identities and sessions;
+- repositories, workspaces, and selected branches;
+- provider credentials, preferences, quotas, and model caches;
+- transcripts, runs, steps, and runtime events;
+- context, memory, and permission decisions;
+- artifact metadata and review state.
+
+Brain reaches Postgres through a required Cloudflare Hyperdrive binding. Production code fails fast when that binding is missing.
+
+## Durable runtime state
+
+Durable Objects coordinate active execution and append-only run conversation state. Chat storage is scoped by `chat:{runId}`, and writes are serialized with the runtime's concurrency controls.
+
+Durable state is not a substitute for canonical identity, workspace, provider, or artifact records.
+
+## Migrations
+
+SQL migrations live in `packages/persistence/drizzle`. The migration runner records applied migrations and acquires a Postgres advisory transaction lock before applying pending statements.
+
+`DATABASE_MIGRATIONS_MODE` accepts `manual` or `auto` and defaults to `manual`. Production operators should apply migrations deliberately and verify the migration ledger before deploying code that depends on a new schema.

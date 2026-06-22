@@ -1,0 +1,45 @@
+---
+title: Parallel tasks
+description: Run independent coding tasks concurrently without sharing writable workspaces or conversation state.
+category: Core workflow
+toc:
+  - id: what-parallel-means
+    text: What parallel means
+  - id: choose-good-boundaries
+    text: Choose good boundaries
+  - id: reconcile-results
+    text: Reconcile results
+---
+
+Parallel work in LegionCode means running multiple independent tasks at the same time. Each task has its own conversation, `runId`, worktree, event stream, and review state.
+
+## What parallel means
+
+Two browser conversations can execute concurrently when each maps to a separate run. They may use the same repository as a base, but they must not share a writable run directory.
+
+Parallel execution does **not** mean multiple agents collaboratively editing one working tree. Coordination happens when a developer reviews and reconciles the resulting changes.
+
+## Choose good boundaries
+
+Good parallel tasks have low file overlap:
+
+- one task updates provider validation while another updates documentation;
+- one task fixes a UI state while another adds an isolated API contract test;
+- one task investigates a failure while another implements an unrelated feature.
+
+Avoid running two tasks that both rewrite the same component, migration, or shared contract. Isolation prevents filesystem corruption, but it cannot make conflicting product decisions compatible.
+
+## Reconcile results
+
+Review every run independently. Before merging more than one result:
+
+1. compare changed paths for overlap;
+2. choose a merge order;
+3. update later work against the accepted base;
+4. rerun affected tests after reconciliation.
+
+<Callout variant="tip" title="Use one task as the integration gate">
+  For related parallel work, reserve a final run or human review step for
+  cross-module verification instead of asking each task to assume the others
+  succeeded.
+</Callout>

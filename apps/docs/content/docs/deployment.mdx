@@ -1,0 +1,61 @@
+---
+title: Deployment
+description: Deploy LegionCode services to Cloudflare with explicit domains, bindings, secrets, and verification gates.
+category: Operations
+toc:
+  - id: deployment-shape
+    text: Deployment shape
+  - id: required-bindings
+    text: Required bindings
+  - id: deploy-order
+    text: Deploy order
+  - id: verify
+    text: Verify
+---
+
+LegionCode uses separate Cloudflare deployments with one public product origin.
+
+## Deployment shape
+
+| Public URL                       | Deployment                                               |
+| -------------------------------- | -------------------------------------------------------- |
+| `legioncode.dev`                 | Landing Pages project                                    |
+| `legioncode.dev/docs/*`          | Docs static project routed at the edge                   |
+| `legioncode.dev/docs/changelog/` | Changelog route in the docs static project               |
+| `legioncode.dev/agents/*`        | Landing Pages Function proxy to the agents Pages project |
+| `brain.legioncode.dev`           | Brain Worker                                             |
+| `api.legioncode.dev`             | Secure API Worker and sandbox runtime                    |
+
+The agents app is built with a `/agents/` base path. Brain redirects OAuth callbacks to the same public path.
+
+## Required bindings
+
+Brain requires Hyperdrive, Durable Objects, session KV, artifact storage, and service bindings. Secure API requires its runtime Durable Objects, sandbox container, artifacts bucket, rate limiter, and Brain service binding.
+
+Set secrets with Wrangler rather than committing them:
+
+- GitHub client secret, session secret, and GitHub token-encryption key;
+- BYOK credential-encryption key and version;
+- internal runtime-event secret;
+- any managed provider credentials enabled for the environment.
+
+## Deploy order
+
+1. Apply pending Postgres migrations.
+2. Deploy Secure API and verify its bindings.
+3. Deploy Brain and verify auth, Hyperdrive, and service bindings.
+4. Build and deploy the agents app with all three required `VITE_*` endpoints.
+5. Build and deploy docs.
+6. Build and deploy landing last so public routes point at healthy upstreams.
+
+<Callout variant="warning" title="Deploy builds fail fast">
+  The agents deploy build requires `VITE_BRAIN_BASE_URL`,
+  `VITE_MUSCLE_BASE_URL`, and `VITE_MUSCLE_WS_URL`. Do not replace that check
+  with production defaults in source.
+</Callout>
+
+## Verify
+
+Check the landing, Cloud page, docs, changelog, agents shell, OAuth session endpoint, and runtime fingerprint endpoints. Then load one agents asset through `legioncode.dev/agents/assets/...` to verify prefix routing.
+
+Confirm production CORS allows the canonical public origin and that Brain's `FRONTEND_URL` resolves to `https://legioncode.dev/agents`.

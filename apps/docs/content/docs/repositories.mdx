@@ -1,0 +1,42 @@
+---
+title: Repositories
+description: Connect GitHub, select repository context, and understand how LegionCode scopes work to a branch.
+category: Core workflow
+toc:
+  - id: connect-github
+    text: Connect GitHub
+  - id: select-context
+    text: Select repository context
+  - id: change-context
+    text: Change context safely
+---
+
+A repository and branch define the source context for a LegionCode task. Repository access is established through GitHub OAuth after the user explicitly signs in.
+
+## Connect GitHub
+
+Unauthenticated users can open the agents workspace, but the shell remains locked. Select **Connect GitHub** to begin OAuth. After the callback succeeds, LegionCode loads the repositories visible to the authorized identity.
+
+The OAuth token is handled by Brain and stored through the encrypted identity-session path. The browser should not persist a GitHub access token in local storage.
+
+## Select repository context
+
+Choose a repository and branch before starting a real task. The selection is persisted as workspace state and is attached to the run context used by Brain and Muscle.
+
+Use the branch that should act as the task's base. A run can create its own isolated worktree, but it still needs an unambiguous repository identity and base revision.
+
+<Callout variant="tip" title="Keep tasks branch-specific">
+  If two tasks need different base branches, create separate runs instead of
+  changing repository context midway through one task.
+</Callout>
+
+## Change context safely
+
+Changing repository context affects subsequent work. Before switching:
+
+1. finish or stop the active task;
+2. review and preserve any required changes;
+3. select the new repository and branch;
+4. confirm the workspace header reflects the new context before prompting.
+
+Repository state and model-provider state are related through a workspace, but they are not the same credential boundary. GitHub authorization does not grant access to a model provider, and a provider key does not grant repository access.

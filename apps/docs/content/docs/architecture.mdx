@@ -1,0 +1,42 @@
+---
+title: System architecture
+description: Learn the ownership boundaries between the web workspace, Brain, Muscle, shared contracts, and persistence packages.
+category: Architecture
+toc:
+  - id: system-roles
+    text: System roles
+  - id: request-path
+    text: Request path
+  - id: contract-ownership
+    text: Contract ownership
+---
+
+LegionCode is a web-native multi-agent IDE built as a pnpm monorepo on Cloudflare primitives. Its main architectural rule is that orchestration and execution are separate systems.
+
+## System roles
+
+| Area             | Location                    | Responsibility                                                  |
+| ---------------- | --------------------------- | --------------------------------------------------------------- |
+| Web              | `apps/web`                  | React workspace UI and visualization                            |
+| Brain            | `apps/brain`                | Auth, API validation, orchestration, provider selection         |
+| Muscle           | `apps/secure-agent-api`     | Sandboxes, tools, filesystem, Git, runtime state                |
+| Execution engine | `packages/execution-engine` | Runtime policy and portable execution contracts                 |
+| Shared types     | `packages/shared-types`     | Cross-app request, event, provider, and permission contracts    |
+| Persistence      | `packages/persistence`      | Postgres repositories, migrations, encryption, and data mapping |
+
+Brain does not execute repository commands. Web does not own canonical runtime state. Muscle does not choose product-level model policy.
+
+## Request path
+
+1. Web sends an authenticated request to Brain.
+2. Brain validates identity, repository context, provider selection, and run admission.
+3. Brain invokes the execution boundary using canonical shared contracts.
+4. Muscle resolves the run-scoped sandbox and executes tools.
+5. Events and artifacts flow back to Brain and Web for streaming and review.
+6. Canonical metadata is persisted through repository interfaces.
+
+## Contract ownership
+
+Public API shapes belong to Brain. Cross-app schema definitions belong to `packages/shared-types`. Runtime behavior belongs to the execution engine and its adapters.
+
+When a request or event crosses an app boundary, update the shared contract and its contract tests rather than importing one app's internal implementation into another.

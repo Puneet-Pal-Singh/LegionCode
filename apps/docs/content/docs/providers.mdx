@@ -1,0 +1,48 @@
+---
+title: Providers and models
+description: Understand the launch provider catalog, model discovery, and capability-based execution policy.
+category: Configuration
+toc:
+  - id: supported-providers
+    text: Supported providers
+  - id: model-catalogs
+    text: Model catalogs
+  - id: execution-capabilities
+    text: Execution capabilities
+---
+
+Provider configuration is explicit. A run records the provider and model selected for that task; LegionCode does not silently move an active run to another provider.
+
+## Supported providers
+
+| Provider      | Connect     | Catalog     | Credential validation |
+| ------------- | ----------- | ----------- | --------------------- |
+| Axis          | Managed     | Supported   | Not applicable        |
+| OpenRouter    | Supported   | Supported   | Supported             |
+| OpenAI        | Supported   | Supported   | Supported             |
+| Groq          | Supported   | Supported   | Supported             |
+| Anthropic     | Supported   | Supported   | Supported             |
+| Google Gemini | Supported   | Supported   | Supported             |
+| Together AI   | Supported   | Supported   | Supported             |
+| Cerebras      | Supported   | Supported   | Supported             |
+| OpenCode Go   | Supported   | Supported   | Supported             |
+| OpenCode Zen  | Supported   | Supported   | Supported             |
+| Cloudflare AI | Coming soon | Coming soon | Coming soon           |
+
+Mistral and Cohere adapters exist behind product policy but are hidden from the launch catalog until their user-facing support is complete.
+
+## Model catalogs
+
+LegionCode requests or constructs a catalog for the connected provider. Availability can depend on the provider account, credential, region, and upstream API. The UI catalog is therefore a current view, not a permanent compatibility promise.
+
+OpenCode Zen models can use more than one transport. A selectable model must include route metadata that identifies the supported runtime path.
+
+## Execution capabilities
+
+Admission is capability-based rather than provider-name-based:
+
+- chat-only work does not require tool support;
+- agent actions require tool-capable models;
+- structured planning requires tools, structured output support, and a compatible JSON or native transport.
+
+Latency and reliability labels can inform the UI and telemetry, but they do not bypass required capabilities.

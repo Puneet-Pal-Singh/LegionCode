@@ -1,0 +1,54 @@
+---
+title: Quickstart
+description: Sign in, connect a repository and provider, then complete your first reviewed coding-agent run.
+category: Getting started
+toc:
+  - id: prerequisites
+    text: Prerequisites
+  - id: start-a-run
+    text: Start a run
+  - id: review-the-result
+    text: Review the result
+---
+
+This guide uses the hosted private-alpha workspace. For a source checkout, use [local development](/docs/local-development/).
+
+## Prerequisites
+
+You need:
+
+- a GitHub account with access to the repository you want to use;
+- permission to authorize the LegionCode GitHub OAuth application;
+- an API credential for a supported provider, unless a managed starter provider is available to your account.
+
+<Callout variant="warning" title="Use a test repository first">
+  Private alpha is intended for supervised development work. Start with a
+  repository and branch where you can safely inspect and discard changes.
+</Callout>
+
+## Start a run
+
+1. Open `/agents/` and select **Connect GitHub**.
+2. Complete GitHub authorization and return to the workspace.
+3. Select a repository and its base branch.
+4. Open provider settings, connect a provider, and choose a model.
+5. Create a task with a narrow outcome and a verification request.
+
+A useful first task is:
+
+```text
+Add validation for the empty project-name case. Keep the change scoped to the existing form and run the focused tests.
+```
+
+LegionCode creates a run, prepares its isolated workspace, streams the agent response, and records changed-file metadata for review.
+
+## Review the result
+
+Open **Review** after the run produces changes. Check:
+
+- every changed path belongs to the requested scope;
+- additions and deletions match the explanation;
+- tests or validation commands actually ran;
+- no generated secrets, environment files, or unrelated formatting changes were added.
+
+Continue the same conversation to request corrections. Git operations remain explicit; a completed agent response is not the same as an approved merge.

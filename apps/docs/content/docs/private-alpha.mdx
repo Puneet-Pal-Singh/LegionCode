@@ -1,0 +1,41 @@
+---
+title: Private alpha
+description: Current availability, supported workflows, limitations, and the product promises LegionCode does not make yet.
+category: Getting started
+status: alpha
+toc:
+  - id: available-now
+    text: Available now
+  - id: current-limitations
+    text: Current limitations
+  - id: feedback
+    text: Feedback and issues
+---
+
+LegionCode Cloud is currently a private alpha. Access uses GitHub sign-in, and capacity may be limited while hosted execution scales.
+
+## Available now
+
+- GitHub authentication and repository selection.
+- Independent coding-agent runs with isolated cloud execution.
+- Configurable providers and models for each run.
+- Streaming conversations, tool activity, changed files, and diff review.
+- Explicit Git workflows after review.
+- Canonical session, run, provider, permission, and artifact metadata persisted in Postgres.
+
+## Current limitations
+
+- The web workspace is the only available product surface. Desktop and CLI are planned.
+- Cloudflare AI is shown as coming soon and is not a supported execution provider.
+- Provider catalogs depend on the connected provider and may change independently of LegionCode.
+- Hosted capacity, run duration, and concurrency may be restricted.
+- Product and API contracts can change before a stable release.
+
+<Callout variant="warning" title="No unattended production changes">
+  Treat every generated change as untrusted until you review the diff and run
+  the checks required by your repository.
+</Callout>
+
+## Feedback and issues
+
+Use the [GitHub repository](https://github.com/Puneet-Pal-Singh/LegionCode) for reproducible bugs and source-level discussion. Do not include provider keys, OAuth tokens, repository secrets, private source code, or personal data in an issue.

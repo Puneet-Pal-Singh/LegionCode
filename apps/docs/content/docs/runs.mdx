@@ -1,0 +1,49 @@
+---
+title: Runs and tasks
+description: Learn how LegionCode scopes execution, conversation history, tools, and lifecycle state to a run.
+category: Core workflow
+toc:
+  - id: run-identity
+    text: Run identity
+  - id: lifecycle
+    text: Run lifecycle
+  - id: writing-effective-tasks
+    text: Writing effective tasks
+---
+
+A **run** is the canonical unit of execution in LegionCode. It ties one task conversation to one isolated workspace, one repository context, and one stream of runtime events.
+
+## Run identity
+
+Every execution path is scoped by `runId`. Tools, filesystem paths, event streams, transcripts, and runtime state must not substitute a session, thread, or agent identifier for execution ownership.
+
+The corresponding sandbox workspace is rooted at:
+
+```text
+/home/sandbox/runs/{runId}
+```
+
+This invariant prevents two tasks from sharing a writable working directory.
+
+## Run lifecycle
+
+A typical run moves through these stages:
+
+1. **Context:** resolve the authenticated user, repository, branch, provider, and model.
+2. **Admission:** enforce launch limits and acquire an execution lease.
+3. **Workspace:** prepare or resume the run-scoped worktree.
+4. **Execution:** stream model output and execute approved tools through Muscle.
+5. **Review:** persist changed-file and artifact metadata for the UI.
+6. **Terminal state:** complete, fail, or stop with an explicit outcome.
+
+Failures are part of the run record. Starting another run is not a silent fallback for a failed execution.
+
+## Writing effective tasks
+
+State the outcome, scope, and verification together:
+
+```text
+Fix the empty-state copy in the repository picker. Reuse the existing component styles, do not change authentication behavior, and run its focused test.
+```
+
+Avoid combining unrelated refactors, deployment changes, and product work in one task. Smaller run scopes produce clearer diffs and make recovery easier.
