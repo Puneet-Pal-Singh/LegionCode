@@ -7,6 +7,7 @@ GITHUB_REDIRECT_URI=http://localhost:8788/auth/github/callback
 GITHUB_TOKEN_ENCRYPTION_KEY=your-random-token-encryption-key
 SESSION_SECRET=your-random-session-secret
 FRONTEND_URL=http://localhost:5173
+PRIVATE_ALPHA_ACCESS_MODE=open
 
 # BYOK credential encryption (required for provider setup/chat)
 # Generate with: openssl rand -hex 32

@@ -69,6 +69,9 @@
   ],
   "vars": {
     "FRONTEND_URL": "https://legioncode.dev/agents",
+    "PRIVATE_ALPHA_ACCESS_MODE": "allowlist",
+    "PRIVATE_ALPHA_GITHUB_LOGINS": "Puneet-Pal-Singh",
+    "PRIVATE_ALPHA_WAITLIST_URL": "https://legioncode.dev/cloud/?access=pending",
     "GITHUB_REDIRECT_URI": "https://brain.legioncode.dev/auth/github/callback",
     "CORS_ALLOWED_ORIGINS": "https://legioncode.dev",
     "CORS_ALLOW_DEV_ORIGINS": "false",
