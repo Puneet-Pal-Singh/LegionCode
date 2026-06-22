@@ -1,4 +1,9 @@
-import { ArtifactIdSchema, TurnIdSchema } from "@repo/platform-protocol";
+import {
+  ArtifactIdSchema,
+  TurnIdSchema,
+  type TurnDiffPayload,
+  type TurnWorkspaceSnapshot,
+} from "@repo/platform-protocol";
 import { describe, expect, it } from "vitest";
 import { InMemoryArtifactStore } from "./InMemoryArtifactStore.js";
 import { DefaultTurnArtifactStore } from "./TurnArtifactStore.js";
@@ -7,10 +12,6 @@ import {
   ArtifactOwnershipSchema,
   type ArtifactAuthorizer,
 } from "./types.js";
-import type {
-  TurnDiffPayload,
-  TurnWorkspaceSnapshot,
-} from "./turn-artifact-types.js";
 
 const TURN_ID = TurnIdSchema.parse("trn_artifact001");
 const access = ArtifactAccessContextSchema.parse({

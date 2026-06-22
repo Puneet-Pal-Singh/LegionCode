@@ -8,6 +8,8 @@ export {
 export {
   type RuntimeLifecycleEventStore,
   type RuntimeGitSnapshotPort,
+  type RuntimeGitDiffFile,
+  type RuntimeGitWorkspaceSnapshot,
   type RuntimeTurnArtifactPort,
   type ApprovalWaitPort,
   type ContextAssemblyPort,

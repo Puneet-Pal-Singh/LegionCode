@@ -1,16 +1,16 @@
 import type {
-  ArtifactAccessContext,
-  ArtifactMetadata,
-  ArtifactOwnership,
+  ArtifactChangedFile,
+  Run,
+  Turn,
   TurnDiffPayload,
   TurnWorkspaceSnapshot,
-} from "@repo/artifact-store";
-import type { GitWorkspaceSnapshot } from "@repo/git-service";
-import type { Run, Turn } from "@repo/platform-protocol";
+} from "@repo/platform-protocol";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import { RuntimeKernelError } from "./errors.js";
 import type {
   RuntimeGitSnapshotPort,
+  RuntimeGitDiffFile,
+  RuntimeGitWorkspaceSnapshot,
   RuntimeKernelClock,
   RuntimeTurnArtifactPort,
 } from "./ports.js";
@@ -26,23 +26,23 @@ interface TurnArtifactSettlementOptions {
 
 export interface TurnArtifactSettlementResult {
   readonly terminalSnapshot: TurnWorkspaceSnapshot;
-  readonly terminalSnapshotArtifact: ArtifactMetadata;
+  readonly terminalSnapshotArtifact: unknown;
   readonly turnDiff: TurnDiffPayload;
-  readonly turnDiffArtifact: ArtifactMetadata;
+  readonly turnDiffArtifact: unknown;
 }
 
 export class TurnArtifactSettlementCoordinator {
   private startSnapshot: TurnWorkspaceSnapshot | null = null;
-  private startSnapshotArtifact: ArtifactMetadata | null = null;
+  private startSnapshotArtifact: unknown = undefined;
   private settlement: Promise<TurnArtifactSettlementResult> | null = null;
 
   constructor(private readonly options: TurnArtifactSettlementOptions) {}
 
   async begin(): Promise<{
     snapshot: TurnWorkspaceSnapshot;
-    artifact: ArtifactMetadata;
+    artifact: unknown;
   }> {
-    if (this.startSnapshot && this.startSnapshotArtifact) {
+    if (this.startSnapshot && this.startSnapshotArtifact !== undefined) {
       return {
         snapshot: this.startSnapshot,
         artifact: this.startSnapshotArtifact,
@@ -92,7 +92,7 @@ export class TurnArtifactSettlementCoordinator {
       turnId: this.options.turn.id,
       startSnapshot,
       terminalSnapshot,
-      files: [...diff.files],
+      files: diff.files.map(toArtifactChangedFile),
       patch: diff.patch,
     } satisfies TurnDiffPayload;
     const turnDiffArtifact = await this.options.artifacts.putTurnDiff({
@@ -132,7 +132,7 @@ export class TurnArtifactSettlementCoordinator {
     };
   }
 
-  private ownership(): ArtifactOwnership {
+  private ownership() {
     return {
       createdBy: this.options.run.userId,
       workspaceId: this.options.run.workspaceId,
@@ -141,7 +141,7 @@ export class TurnArtifactSettlementCoordinator {
     };
   }
 
-  private access(): ArtifactAccessContext {
+  private access() {
     return {
       userId: this.options.run.userId,
       workspaceId: this.options.run.workspaceId,
@@ -164,11 +164,32 @@ export class TurnArtifactSettlementCoordinator {
 function toGitSnapshot(
   snapshot: TurnWorkspaceSnapshot,
   options: TurnArtifactSettlementOptions,
-): GitWorkspaceSnapshot {
+): RuntimeGitWorkspaceSnapshot {
   return {
     runId: options.run.id,
     filesystemRoot: options.workspace.filesystemRoot,
     headSha: snapshot.headSha,
     treeId: snapshot.treeId,
+  };
+}
+
+function toArtifactChangedFile(file: RuntimeGitDiffFile): ArtifactChangedFile {
+  if (file.status === "unmerged") {
+    throw new RuntimeKernelError(
+      "turn_artifact_settlement_failed",
+      `Snapshot diff cannot contain an unmerged file: ${file.path}`,
+    );
+  }
+  return {
+    path: file.path,
+    previousPath: file.previousPath,
+    status:
+      file.status === "type_changed"
+        ? "modified"
+        : file.status === "untracked"
+          ? "added"
+          : file.status,
+    additions: file.additions,
+    deletions: file.deletions,
   };
 }

@@ -9,8 +9,6 @@ import {
   RunSchema,
   TurnSchema,
 } from "@repo/platform-protocol";
-import type { ArtifactMetadata } from "@repo/artifact-store";
-import type { GitDiffResult } from "@repo/git-service";
 import {
   MemoryWorkspaceManifestRepository,
   parseWorkspaceManifest,
@@ -195,7 +193,10 @@ export function createLifecycleSink(): MemoryLifecycleEventSink {
 }
 
 export function createArtifactPorts(
-  diff: GitDiffResult = { files: [], patch: "" },
+  diff: Awaited<ReturnType<RuntimeGitSnapshotPort["getSnapshotDiff"]>> = {
+    files: [],
+    patch: "",
+  },
 ): {
   gitSnapshots: RuntimeGitSnapshotPort;
   turnArtifacts: RuntimeTurnArtifactPort;
@@ -228,19 +229,17 @@ export function createArtifactPorts(
         changedFileCount: 0,
       }),
     ),
-    getTurnDiff: vi.fn(async () => null),
-    listWorkspaceDiffs: vi.fn(async () => []),
   };
   return { gitSnapshots, turnArtifacts };
 }
 
 function artifactMetadata(
   artifactId: string,
-  kind: ArtifactMetadata["kind"],
-  properties: ArtifactMetadata["properties"],
-): ArtifactMetadata {
+  kind: "workspace_snapshot" | "diff",
+  properties: Readonly<Record<string, unknown>>,
+) {
   return {
-    artifactId: artifactId as ArtifactMetadata["artifactId"],
+    artifactId,
     kind,
     ownership: {
       createdBy: run.userId,

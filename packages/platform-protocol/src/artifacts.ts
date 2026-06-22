@@ -9,6 +9,7 @@ import {
   ItemIdSchema,
   RunIdSchema,
   ThreadIdSchema,
+  TurnIdSchema,
   WorkspaceIdSchema,
 } from "./ids.js";
 
@@ -65,9 +66,46 @@ export const ArtifactChangedFileSchema = z
     previousPath: z.string().min(1).max(2_048).nullable(),
   })
   .strict();
-export type ArtifactChangedFile = z.infer<
-  typeof ArtifactChangedFileSchema
->;
+export type ArtifactChangedFile = z.infer<typeof ArtifactChangedFileSchema>;
+
+const GitObjectIdSchema = z.string().regex(/^[a-f0-9]{40,64}$/u);
+
+export const TurnWorkspaceSnapshotSchema = z
+  .object({
+    turnId: TurnIdSchema,
+    snapshotKey: z.string().regex(/^[A-Za-z0-9_-]{1,160}$/u),
+    treeId: GitObjectIdSchema,
+    headSha: GitObjectIdSchema,
+    phase: z.enum(["start", "terminal"]),
+    capturedAt: ProtocolTimestampSchema,
+  })
+  .strict();
+export type TurnWorkspaceSnapshot = z.infer<typeof TurnWorkspaceSnapshotSchema>;
+
+export const TurnDiffPayloadSchema = z
+  .object({
+    turnId: TurnIdSchema,
+    startSnapshot: TurnWorkspaceSnapshotSchema,
+    terminalSnapshot: TurnWorkspaceSnapshotSchema,
+    files: z.array(ArtifactChangedFileSchema).max(2_000),
+    patch: z.string(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.startSnapshot.turnId !== value.turnId) {
+      context.addIssue({
+        code: "custom",
+        message: "Start snapshot turn mismatch",
+      });
+    }
+    if (value.terminalSnapshot.turnId !== value.turnId) {
+      context.addIssue({
+        code: "custom",
+        message: "Terminal snapshot turn mismatch",
+      });
+    }
+  });
+export type TurnDiffPayload = z.infer<typeof TurnDiffPayloadSchema>;
 
 export const ArtifactMetadataSchema = z
   .object({

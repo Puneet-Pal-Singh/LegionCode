@@ -5,18 +5,10 @@ export {
 } from "./InMemoryArtifactStore.js";
 export { DefaultTurnArtifactStore } from "./TurnArtifactStore.js";
 export {
-  TurnDiffFileSchema,
-  TurnDiffPayloadSchema,
-  TurnSnapshotPhaseSchema,
-  TurnWorkspaceSnapshotSchema,
   type PutTurnDiffInput,
   type PutTurnSnapshotInput,
   type StoredTurnDiff,
   type TurnArtifactRepository,
-  type TurnDiffFile,
-  type TurnDiffPayload,
-  type TurnSnapshotPhase,
-  type TurnWorkspaceSnapshot,
 } from "./turn-artifact-types.js";
 export {
   ArtifactAccessContextSchema,

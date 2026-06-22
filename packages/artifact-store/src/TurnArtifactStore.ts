@@ -1,4 +1,10 @@
-import { TurnIdSchema, type JsonRecord } from "@repo/platform-protocol";
+import {
+  TurnDiffPayloadSchema,
+  TurnIdSchema,
+  TurnWorkspaceSnapshotSchema,
+  type JsonRecord,
+  type TurnDiffPayload,
+} from "@repo/platform-protocol";
 import type {
   ArtifactAccessContext,
   ArtifactMetadata,
@@ -7,13 +13,10 @@ import type {
 } from "./types.js";
 import { ArtifactStoreError } from "./errors.js";
 import {
-  TurnDiffPayloadSchema,
-  TurnWorkspaceSnapshotSchema,
   type PutTurnDiffInput,
   type PutTurnSnapshotInput,
   type StoredTurnDiff,
   type TurnArtifactRepository,
-  type TurnDiffPayload,
 } from "./turn-artifact-types.js";
 
 const encoder = new TextEncoder();

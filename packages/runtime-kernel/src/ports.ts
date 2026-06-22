@@ -4,10 +4,10 @@ import type {
   RunAttemptId,
   ToolCallItemContent,
   Turn,
+  TurnDiffPayload,
+  TurnWorkspaceSnapshot,
 } from "@repo/platform-protocol";
 import type { LifecycleEventStore } from "@repo/event-store";
-import type { GitService } from "@repo/git-service";
-import type { TurnArtifactRepository } from "@repo/artifact-store";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 import type {
   ApprovalResolution,
@@ -66,8 +66,74 @@ export interface RuntimeKernelClock {
 }
 
 export type RuntimeLifecycleEventStore = LifecycleEventStore;
-export type RuntimeGitSnapshotPort = Pick<
-  GitService,
-  "captureSnapshot" | "getSnapshotDiff"
->;
-export type RuntimeTurnArtifactPort = TurnArtifactRepository;
+
+export interface RuntimeGitWorkspaceSnapshot {
+  readonly runId: Run["id"];
+  readonly filesystemRoot: string;
+  readonly headSha: string;
+  readonly treeId: string;
+}
+
+export interface RuntimeGitSnapshotPort {
+  captureSnapshot(input: {
+    readonly workspace: {
+      readonly runId: Run["id"];
+      readonly filesystemRoot: string;
+    };
+    readonly snapshotKey: string;
+  }): Promise<RuntimeGitWorkspaceSnapshot>;
+  getSnapshotDiff(input: {
+    readonly workspace: {
+      readonly runId: Run["id"];
+      readonly filesystemRoot: string;
+    };
+    readonly start: RuntimeGitWorkspaceSnapshot;
+    readonly terminal: RuntimeGitWorkspaceSnapshot;
+  }): Promise<{
+    readonly files: readonly RuntimeGitDiffFile[];
+    readonly patch: string;
+  }>;
+}
+
+export interface RuntimeGitDiffFile {
+  readonly path: string;
+  readonly previousPath: string | null;
+  readonly status:
+    | "added"
+    | "copied"
+    | "deleted"
+    | "modified"
+    | "renamed"
+    | "type_changed"
+    | "unmerged"
+    | "untracked";
+  readonly additions: number;
+  readonly deletions: number;
+}
+
+interface RuntimeArtifactOwnership {
+  readonly createdBy: Run["userId"];
+  readonly workspaceId: Run["workspaceId"];
+  readonly threadId: Run["threadId"];
+  readonly runId: Run["id"];
+}
+
+interface RuntimeArtifactAccess {
+  readonly userId: Run["userId"];
+  readonly workspaceId: Run["workspaceId"];
+  readonly threadId: Run["threadId"];
+  readonly runId: Run["id"];
+}
+
+export interface RuntimeTurnArtifactPort {
+  putSnapshot(input: {
+    readonly snapshot: TurnWorkspaceSnapshot;
+    readonly ownership: RuntimeArtifactOwnership;
+    readonly access: RuntimeArtifactAccess;
+  }): Promise<unknown>;
+  putTurnDiff(input: {
+    readonly diff: TurnDiffPayload;
+    readonly ownership: RuntimeArtifactOwnership;
+    readonly access: RuntimeArtifactAccess;
+  }): Promise<unknown>;
+}

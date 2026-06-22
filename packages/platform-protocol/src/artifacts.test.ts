@@ -3,6 +3,7 @@ import {
   ArtifactKindSchema,
   ArtifactMetadataSchema,
   ArtifactPayloadRefSchema,
+  TurnDiffPayloadSchema,
 } from "./artifacts.js";
 
 const timestamp = "2026-06-08T15:00:00.000Z";
@@ -59,5 +60,42 @@ describe("artifact protocol schemas", () => {
 
       expect(artifact.kind).toBe(kind);
     }
+  });
+
+  it("requires one turn identity across immutable diff snapshots", () => {
+    const snapshot = {
+      turnId: "trn_artifact001",
+      snapshotKey: "trn_artifact001",
+      treeId: "a".repeat(40),
+      headSha: "b".repeat(40),
+      phase: "start",
+      capturedAt: timestamp,
+    };
+    expect(
+      TurnDiffPayloadSchema.parse({
+        turnId: snapshot.turnId,
+        startSnapshot: snapshot,
+        terminalSnapshot: {
+          ...snapshot,
+          phase: "terminal",
+          treeId: "c".repeat(40),
+        },
+        files: [],
+        patch: "",
+      }).files,
+    ).toEqual([]);
+    expect(() =>
+      TurnDiffPayloadSchema.parse({
+        turnId: snapshot.turnId,
+        startSnapshot: snapshot,
+        terminalSnapshot: {
+          ...snapshot,
+          turnId: "trn_artifact002",
+          phase: "terminal",
+        },
+        files: [],
+        patch: "",
+      }),
+    ).toThrow();
   });
 });
