@@ -7,6 +7,27 @@ export const site = {
   ogImage: "/assets/legioncode-og.png",
 } as const;
 
+export const docsRoutes = [
+  "overview",
+  "quickstart",
+  "private-alpha",
+  "repositories",
+  "runs",
+  "review",
+  "parallel-tasks",
+  "providers",
+  "credentials",
+  "permissions",
+  "architecture",
+  "execution",
+  "persistence",
+  "local-development",
+  "deployment",
+  "environment-variables",
+  "troubleshooting",
+  "changelog",
+] as const;
+
 export const productStructuredData = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",

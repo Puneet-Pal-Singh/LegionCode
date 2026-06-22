@@ -1,10 +1,10 @@
 import type { MetadataRoute } from "next";
-import { site } from "@/lib/site";
+import { docsRoutes, site } from "@/lib/site";
 
 export const dynamic = "force-static";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [
+  const productRoutes: MetadataRoute.Sitemap = [
     {
       url: site.url,
       changeFrequency: "weekly",
@@ -16,4 +16,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.8,
     },
   ];
+  const documentationRoutes: MetadataRoute.Sitemap = docsRoutes.map(
+    (route) => ({
+      url: `${site.url}/docs/${route}/`,
+      changeFrequency: route === "changelog" ? "weekly" : "monthly",
+      priority: route === "overview" ? 0.8 : 0.6,
+    }),
+  );
+  return [...productRoutes, ...documentationRoutes];
 }
