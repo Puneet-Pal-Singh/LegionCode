@@ -1,3 +1,4 @@
-/app /agents 302
-/web-agents /agents 302
-/* /index.html 200
+/app /agents/ 302
+/web-agents /agents/ 302
+/app/* /agents/:splat 302
+/web-agents/* /agents/:splat 302

@@ -1,0 +1,38 @@
+{
+  "name": "@shadowbox/docs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "check-types": "tsc --noEmit",
+    "deploy:pages": "pnpm run build && wrangler pages deploy out",
+    "start": "wrangler pages dev out",
+    "lint": "eslint .",
+    "clean": "rm -rf .next out"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "gray-matter": "^4.0.3",
+    "lucide-react": "^0.563.0",
+    "next": "16.2.9",
+    "next-mdx-remote": "^5.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "rehype-slug": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.11",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "4.1.11",
+    "typescript": "5.9.3",
+    "wrangler": "4.70.0"
+  }
+}

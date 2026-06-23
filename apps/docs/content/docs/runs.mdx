@@ -1,0 +1,42 @@
+---
+title: Runs and tasks
+description: Learn how to scope tasks, read run state, and keep agent work reviewable.
+category: Core workflow
+toc:
+  - id: run-identity
+    text: Run identity
+  - id: run-lifecycle
+    text: Run lifecycle
+  - id: writing-effective-tasks
+    text: Writing effective tasks
+---
+
+A **run** is one task conversation connected to one repository context and one isolated workspace.
+
+## Run identity
+
+Each run has its own identifier, transcript, workspace, tool activity, and review state. That separation is what lets multiple tasks run without sharing writable files.
+
+You normally do not need the internal run identifier. Include it only when reporting a bug or debugging a failed run.
+
+## Run lifecycle
+
+A typical run moves through these stages:
+
+1. **Context:** resolve the user, repository, branch, provider, and model.
+2. **Workspace:** prepare the isolated cloud workspace for the task.
+3. **Execution:** stream the agent response and approved tool activity.
+4. **Review:** collect changed files and diffs for inspection.
+5. **Outcome:** complete, fail, or stop with a visible state.
+
+If a run fails, keep the run open long enough to read the error and changed files. Starting another run may be useful, but it should be a deliberate retry with a clear scope.
+
+## Writing effective tasks
+
+State the outcome, scope, and verification together:
+
+```text
+Fix the empty-state copy in the repository picker. Reuse the existing component styles, do not change authentication behavior, and run its focused test.
+```
+
+Avoid combining unrelated refactors, deployment changes, and product work in one task. Smaller run scopes produce clearer diffs and make recovery easier.
