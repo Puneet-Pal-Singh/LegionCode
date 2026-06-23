@@ -27,25 +27,37 @@ function buildAgentReply(input: string): string {
 }
 
 export function usePlaygroundState() {
+  const taskState = usePlaygroundTaskState();
+  const chatState = usePlaygroundChatState();
+  const sidebarState = usePlaygroundSidebars();
+
+  return {
+    activeTask: taskState.activeTask,
+    activeTaskId: taskState.activeTaskId,
+    chatMessages: chatState.chatMessages,
+    expandedFiles: taskState.expandedFiles,
+    inputValue: chatState.inputValue,
+    isLeftSidebarOpen: sidebarState.isLeftSidebarOpen,
+    isRightSidebarOpen: sidebarState.isRightSidebarOpen,
+    isThinking: chatState.isThinking,
+    selectTask: taskState.selectTask,
+    sendMessage: chatState.sendMessage,
+    setInputValue: chatState.setInputValue,
+    toggleFile: taskState.toggleFile,
+    closeLeftSidebar: sidebarState.closeLeftSidebar,
+    closeRightSidebar: sidebarState.closeRightSidebar,
+    closeSidebars: sidebarState.closeSidebars,
+    toggleLeftSidebar: sidebarState.toggleLeftSidebar,
+    toggleRightSidebar: sidebarState.toggleRightSidebar,
+  };
+}
+
+function usePlaygroundTaskState() {
   const [activeTaskId, setActiveTaskId] = useState("onboarding");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [expandedFiles, setExpandedFiles] = useState<Record<string, boolean>>(
     {},
   );
-  const [inputValue, setInputValue] = useState("");
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTask = MOCK_TASKS[activeTaskId] ?? MOCK_TASKS.onboarding;
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
-
   const selectTask = (taskId: string) => {
     setActiveTaskId(taskId);
     setExpandedFiles({});
@@ -55,6 +67,23 @@ export function usePlaygroundState() {
       ...current,
       [name]: !(current[name] ?? name === activeTask.fileName),
     }));
+
+  return { activeTask, activeTaskId, expandedFiles, selectTask, toggleFile };
+}
+
+function usePlaygroundChatState() {
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [inputValue, setInputValue] = useState("");
+  const [isThinking, setIsThinking] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     const text = inputValue.trim();
@@ -71,19 +100,16 @@ export function usePlaygroundState() {
     }, 1_800);
   };
 
+  return { chatMessages, inputValue, isThinking, sendMessage, setInputValue };
+}
+
+function usePlaygroundSidebars() {
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+
   return {
-    activeTask,
-    activeTaskId,
-    chatMessages,
-    expandedFiles,
-    inputValue,
     isLeftSidebarOpen,
     isRightSidebarOpen,
-    isThinking,
-    selectTask,
-    sendMessage,
-    setInputValue,
-    toggleFile,
     closeLeftSidebar: () => setIsLeftSidebarOpen(false),
     closeRightSidebar: () => setIsRightSidebarOpen(false),
     closeSidebars: () => {

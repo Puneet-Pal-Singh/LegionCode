@@ -34,7 +34,7 @@ export interface DocsSearchPage {
   content: string;
 }
 
-const contentDirectory = path.join(process.cwd(), "content", "docs");
+const contentDirectory = path.resolve(process.cwd(), "content", "docs");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -102,7 +102,7 @@ function toSearchText(source: string): string {
 }
 
 export async function getDocPage(slug: string): Promise<DocPageContent> {
-  const filePath = path.join(contentDirectory, `${slug}.mdx`);
+  const filePath = resolveDocFilePath(slug);
   const file = await readFile(filePath, "utf8");
   const parsed = matter(file);
   return {
@@ -125,4 +125,17 @@ export async function getDocsSearchPages(): Promise<DocsSearchPage[]> {
       };
     }),
   );
+}
+
+function resolveDocFilePath(slug: string): string {
+  const safeSlug = slug.replace(/\\/g, "/");
+  if (!/^[a-z0-9-]+$/i.test(safeSlug)) {
+    throw new Error(`[docs/content] ${slug}: invalid slug`);
+  }
+
+  const filePath = path.resolve(contentDirectory, `${safeSlug}.mdx`);
+  if (!filePath.startsWith(`${contentDirectory}${path.sep}`)) {
+    throw new Error(`[docs/content] ${slug}: path traversal blocked`);
+  }
+  return filePath;
 }

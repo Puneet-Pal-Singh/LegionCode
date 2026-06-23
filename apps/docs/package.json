@@ -7,7 +7,7 @@
     "build": "next build",
     "check-types": "tsc --noEmit",
     "deploy:pages": "pnpm run build && wrangler pages deploy out",
-    "start": "next start",
+    "start": "wrangler pages dev out",
     "lint": "eslint .",
     "clean": "rm -rf .next out"
   },

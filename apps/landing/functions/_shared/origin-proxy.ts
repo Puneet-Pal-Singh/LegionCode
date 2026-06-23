@@ -14,10 +14,13 @@ export async function proxyOriginRequest({
   serviceLabel,
 }: OriginProxyOptions): Promise<Response> {
   const target = buildOriginTarget(origin, new URL(request.url), publicPrefix);
+  const logTarget = buildLogTarget(target);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
   try {
-    console.log(`[${serviceLabel}/proxy] Forwarding request.`, { target });
+    console.log(`[${serviceLabel}/proxy] Forwarding request.`, {
+      target: logTarget,
+    });
     return await fetch(new Request(target, request), {
       signal: controller.signal,
     });
@@ -25,7 +28,7 @@ export async function proxyOriginRequest({
     const timedOut = isAbortError(error);
     console.error(`[${serviceLabel}/proxy] Upstream request failed.`, {
       error: getErrorMessage(error),
-      target,
+      target: logTarget,
       timedOut,
     });
     return new Response(`${serviceLabel} is unavailable.`, {
@@ -34,6 +37,11 @@ export async function proxyOriginRequest({
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function buildLogTarget(target: string): string {
+  const url = new URL(target);
+  return `${url.origin}${url.pathname}`;
 }
 
 export function buildOriginTarget(

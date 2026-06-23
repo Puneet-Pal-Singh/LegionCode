@@ -7,8 +7,13 @@ function createEnv(overrides: Partial<Env> = {}): Env {
 }
 
 describe("hasPrivateAlphaAccess", () => {
-  it("keeps local development open unless allowlist mode is explicit", () => {
-    expect(hasPrivateAlphaAccess("developer", createEnv())).toBe(true);
+  it("denies access when mode is not configured", () => {
+    expect(hasPrivateAlphaAccess("developer", createEnv())).toBe(false);
+  });
+
+  it("allows all users only when open mode is explicit", () => {
+    const env = createEnv({ PRIVATE_ALPHA_ACCESS_MODE: "open" });
+    expect(hasPrivateAlphaAccess("developer", env)).toBe(true);
   });
 
   it("matches configured GitHub logins case-insensitively", () => {

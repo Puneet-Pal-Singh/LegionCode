@@ -17,7 +17,7 @@ function PaginationLink({
   const isPrevious = direction === "previous";
   return (
     <Link
-      href={`/${page.slug}/`}
+      href={`/docs/${page.slug}/`}
       className={`group flex max-w-[45%] flex-col gap-1 rounded-lg border border-white/5 bg-zinc-950/50 p-3 transition-all hover:border-white/10 hover:bg-zinc-900/40 ${
         isPrevious ? "items-start" : "items-end text-right"
       }`}

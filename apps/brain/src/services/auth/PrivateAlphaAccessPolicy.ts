@@ -1,8 +1,9 @@
 import type { Env } from "../../types/ai";
 
 export function hasPrivateAlphaAccess(login: string, env: Env): boolean {
-  const mode = env.PRIVATE_ALPHA_ACCESS_MODE ?? "open";
+  const mode = env.PRIVATE_ALPHA_ACCESS_MODE?.trim().toLowerCase();
   if (mode === "open") return true;
+  if (mode !== "allowlist") return false;
 
   const allowedLogins = new Set(
     (env.PRIVATE_ALPHA_GITHUB_LOGINS ?? "")
