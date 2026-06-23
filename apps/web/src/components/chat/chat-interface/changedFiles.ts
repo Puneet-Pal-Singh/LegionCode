@@ -96,7 +96,6 @@ export function resolveTerminalChangedFilesSummary(input: {
     artifactId: string,
     file: FileStatus,
   ) => Promise<DiffContent>;
-  loadFallbackFileDiff: (file: FileStatus) => Promise<DiffContent>;
   onPromptArtifactReview: (artifactId: string) => void;
   onReviewOpen?: () => void;
 }):
@@ -131,7 +130,7 @@ async function loadTurnDiffFile(
   file: FileStatus,
 ): Promise<DiffContent> {
   if (!input.turnDiff) {
-    return input.loadFallbackFileDiff(file);
+    throw new Error(`Canonical turn diff is required to render ${file.path}`);
   }
   const diff = buildDiffContentFromTurnDiff(input.turnDiff, file.path);
   if (!diff) {

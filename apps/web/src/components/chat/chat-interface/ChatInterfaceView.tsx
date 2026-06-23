@@ -128,8 +128,6 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
         files: props.terminalReviewFiles,
         turnDiff: props.terminalTurnDiff,
         loadArtifactFileDiff: props.loadArtifactChangedFileDiff,
-        loadFallbackFileDiff: (file) =>
-          props.loadChangedFileDiff(terminal.id, file),
         onPromptArtifactReview: (artifactId) => {
           props.openPromptArtifactReview(artifactId);
           props.onReviewOpen?.();
