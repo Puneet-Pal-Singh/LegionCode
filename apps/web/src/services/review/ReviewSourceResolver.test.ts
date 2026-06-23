@@ -22,7 +22,7 @@ describe("resolveReviewSource", () => {
     });
   });
 
-  it("uses saved edit when live git is empty and an artifact has files", () => {
+  it("returns empty live git when live git is empty and an artifact exists", () => {
     const source = resolveReviewSource({
       requestedScope: null,
       openedArtifact: null,
@@ -30,12 +30,7 @@ describe("resolveReviewSource", () => {
       latestArtifactSource: buildArtifactSource(),
     });
 
-    expect(source).toEqual({
-      kind: "prompt_artifact",
-      artifactId: "artifact-1",
-      assistantMessageId: "assistant-1",
-      reason: "live_git_empty_fallback",
-    });
+    expect(source).toEqual({ kind: "live_git", reason: "empty" });
   });
 
   it("preserves explicit live git selection", () => {

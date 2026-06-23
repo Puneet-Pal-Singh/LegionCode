@@ -70,8 +70,8 @@ const CAPABILITIES = [
         "records interrupted terminal summary message on cancel when contract is enabled",
       ],
       [
-        "apps/web/src/services/workflow/RunTerminalViewModel.test.ts",
-        "shows completed and failed work for failed runs",
+        "apps/web/src/services/lifecycle/LifecycleTerminalViewModel.test.ts",
+        "renders terminal failure content from canonical terminal projection",
       ],
     ],
     commands: [
@@ -96,7 +96,7 @@ const CAPABILITIES = [
         "@shadowbox/web",
         "test",
         "--",
-        "src/services/workflow/RunTerminalViewModel.test.ts",
+        "src/services/lifecycle/LifecycleTerminalViewModel.test.ts",
       ],
     ],
   },
@@ -106,7 +106,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/components/git/GitReviewContext.test.tsx",
-        "uses saved edit files when live git status is empty",
+        "refetches the saved edit diff after switching scopes away and back",
       ],
       [
         "apps/web/src/components/git/GitReviewContext.test.tsx",

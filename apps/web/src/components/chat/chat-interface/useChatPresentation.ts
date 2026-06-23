@@ -5,7 +5,6 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 import type { ActivityTurnViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
-import { buildRunTerminalViewModel } from "../../../services/workflow/RunTerminalViewModel.js";
 import {
   buildLifecycleTerminalViewModel,
   collectLifecycleTurnDiffFiles,
@@ -18,8 +17,7 @@ import {
   hasArtifactChangedFileSnapshot,
   hasChangedFileSnapshot,
 } from "./changedFiles";
-import { buildChatEntries, collectActivityChangedFiles } from "./chatEntries";
-import { hasVisibleAssistantReply } from "./messageVisibility";
+import { buildChatEntries } from "./chatEntries";
 
 interface ChatPresentationInput {
   runId: string;
@@ -47,31 +45,15 @@ export function useChatPresentation(input: ChatPresentationInput) {
       ),
     [input.activityTurns, input.conversationTurns, input.runId],
   );
-  const activityTerminalFiles = useMemo(
-    () => collectActivityChangedFiles(input.activityTurns),
-    [input.activityTurns],
-  );
   const lifecycleTerminalFiles = useMemo(
     () => collectLifecycleTurnDiffFiles(input.lifecycleProjection ?? null),
     [input.lifecycleProjection],
   );
-  const terminalFiles =
-    lifecycleTerminalFiles.length > 0
-      ? lifecycleTerminalFiles
-      : activityTerminalFiles;
+  const terminalFiles = lifecycleTerminalFiles;
   const terminalViewModel = useMemo(
     () =>
-      buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null) ??
-      buildRunTerminalViewModel({
-          runId: input.runId,
-          summary: input.summary,
-          events: input.events,
-          hasVisibleAssistantMessage: hasVisibleAssistantReply(
-            input.conversationTurns,
-          ),
-          changedFileCount: terminalFiles.length || undefined,
-        }),
-    [input, terminalFiles.length],
+      buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
+    [input.lifecycleProjection],
   );
   const hasFileSummary =
     hasChangedFileSnapshot(input.snapshots) ||

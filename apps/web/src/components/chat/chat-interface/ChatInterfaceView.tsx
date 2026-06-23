@@ -6,7 +6,7 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 import type { ChatMessageMetadata } from "../messageMetadata";
-import type { RunTerminalViewModel } from "../../../services/workflow/RunTerminalViewModel.js";
+import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import { ChatMessage } from "../ChatMessage";
 import { formatDebugPayload } from "./approvals";
 import {
@@ -36,7 +36,7 @@ interface ChatInterfaceViewProps {
     file: FileStatus,
   ) => Promise<DiffContent>;
   openPromptArtifactReview: (artifactId: string, messageId?: string) => void;
-  terminalViewModel: RunTerminalViewModel | null;
+  terminalViewModel: LifecycleTerminalViewModel | null;
   terminalReviewFiles: FileStatus[];
   loadArtifactChangedFileDiff: (
     artifactId: string,

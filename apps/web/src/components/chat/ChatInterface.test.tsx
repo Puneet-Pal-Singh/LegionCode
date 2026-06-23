@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
 import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
+import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 import { ChatInterface } from "./ChatInterface.js";
 import { runApprovalPath } from "../../lib/platform-endpoints.js";
 import type { ReviewCommentDraft } from "../git/reviewComments.js";
@@ -17,6 +18,10 @@ const mockRefreshSession = vi.hoisted(() => vi.fn(async () => undefined));
 const mockGitReviewState = vi.hoisted(() => ({
   status: null as GitStatusResponse | null,
   selectedReviewComments: [] as ReviewCommentDraft[],
+}));
+const mockTurnLifecycleProjection = vi.hoisted(() => ({
+  projection: null as LifecycleProjection | null,
+  error: null as string | null,
 }));
 const mockOpenPromptArtifactReview = vi.hoisted(() => vi.fn());
 const mockMarkReviewCommentsDispatching = vi.hoisted(() => vi.fn());
@@ -89,6 +94,13 @@ vi.mock("../../hooks/useRunActivityFeed.js", () => ({
   useRunActivityFeed: vi.fn(() => ({ feed: null })),
 }));
 
+vi.mock("../../hooks/useTurnLifecycleProjection.js", () => ({
+  useTurnLifecycleProjection: vi.fn(() => ({
+    projection: mockTurnLifecycleProjection.projection,
+    error: mockTurnLifecycleProjection.error,
+  })),
+}));
+
 vi.mock("../../hooks/useProviderStore.js", () => ({
   useProviderStore: vi.fn(() => ({ providerModels: {} })),
 }));
@@ -137,26 +149,57 @@ import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
 
-function createEditActivityItem(input: { id: string; filePath: string }) {
+function buildTerminalProjection(turnId: string): LifecycleProjection {
+  const typedTurnId = turnId as LifecycleProjection["turnId"];
   return {
-    id: input.id,
-    runId: "run-terminal",
-    sessionId: "session-1",
-    turnId: "turn-terminal",
-    kind: "tool" as const,
-    createdAt: "2026-03-24T10:00:01.000Z",
-    updatedAt: "2026-03-24T10:00:02.000Z",
-    source: "brain" as const,
-    toolId: input.id,
-    toolName: "create_code_artifact",
-    status: "completed" as const,
-    metadata: {
-      family: "edit" as const,
-      filePath: input.filePath,
-      additions: 3,
-      deletions: 1,
-      diffPreview: "+ updated line",
+    turnId: typedTurnId,
+    lastSequence: 3,
+    items: [],
+    pendingApproval: null,
+    terminal: {
+      state: "completed",
+      eventId: "evt_terminal001",
+      content: "Turn completed.\nReview the canonical turn diff.",
+      occurredAt: "2026-03-24T10:00:03.000Z",
     },
+    turnDiff: {
+      turnId: typedTurnId,
+      startSnapshot: {
+        turnId: typedTurnId,
+        snapshotKey: "start",
+        treeId: "a".repeat(40),
+        headSha: "b".repeat(40),
+        phase: "start",
+        capturedAt: "2026-03-24T10:00:00.000Z",
+      },
+      terminalSnapshot: {
+        turnId: typedTurnId,
+        snapshotKey: "terminal",
+        treeId: "c".repeat(40),
+        headSha: "d".repeat(40),
+        phase: "terminal",
+        capturedAt: "2026-03-24T10:00:03.000Z",
+      },
+      files: [
+        {
+          path: "src/components/Hero.tsx",
+          status: "modified",
+          additions: 3,
+          deletions: 1,
+          previousPath: null,
+        },
+        {
+          path: "src/routes/agents.tsx",
+          status: "modified",
+          additions: 5,
+          deletions: 2,
+          previousPath: null,
+        },
+      ],
+      patch: "diff --git a/src/components/Hero.tsx b/src/components/Hero.tsx\n",
+    },
+    activeThinking: false,
+    assistantText: "",
   };
 }
 
@@ -168,6 +211,8 @@ describe("ChatInterface", () => {
     mockRefreshSession.mockClear();
     mockGitReviewState.status = null;
     mockGitReviewState.selectedReviewComments = [];
+    mockTurnLifecycleProjection.projection = null;
+    mockTurnLifecycleProjection.error = null;
     mockGetGitDiff.mockClear();
     mockGetEditArtifactDiff.mockClear();
     mockGetEditArtifactReviewSourceByMessage.mockClear();
@@ -530,39 +575,25 @@ describe("ChatInterface", () => {
     expect(mockGetEditArtifactReviewSourceByMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("opens artifact review from a terminal card changed-file list", async () => {
+  it("renders canonical terminal turn-diff files from lifecycle projection", async () => {
+    const runId = "trn_terminal001";
+    mockTurnLifecycleProjection.projection = buildTerminalProjection(runId);
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
-        runId: "run-terminal",
+        runId,
         status: "COMPLETED",
         totalTasks: 1,
         completedTasks: 1,
         failedTasks: 0,
-        terminalState: "completed",
-        terminalMessage: {
-          artifactId: "artifact-terminal",
-          changedFileCount: 2,
-          lastSuccessfulStep: "create_code_artifact",
-          nextAction: "Review the changes.",
-        },
         planArtifact: null,
       },
     });
     vi.mocked(useRunActivityFeed).mockReturnValue({
       feed: {
-        runId: "run-terminal",
+        runId,
         sessionId: "session-1",
         status: "COMPLETED",
-        items: [
-          createEditActivityItem({
-            id: "edit-hero",
-            filePath: "src/components/Hero.tsx",
-          }),
-          createEditActivityItem({
-            id: "edit-route",
-            filePath: "src/routes/agents.tsx",
-          }),
-        ],
+        items: [],
       },
     });
 
@@ -576,7 +607,7 @@ describe("ChatInterface", () => {
               content: "I found the relevant workflow files.",
             },
           ],
-          runId: "run-terminal",
+          runId,
           input: "",
           handleInputChange: vi.fn(),
           handleSubmit: vi.fn(),
@@ -612,20 +643,15 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(mockGetEditArtifactDiff).toHaveBeenCalledWith({
-        artifactId: "artifact-terminal",
+      expect(mockGetGitDiff).toHaveBeenCalledWith({
+        runId,
+        sessionId: "session-1",
         path: "src/components/Hero.tsx",
+        staged: false,
       });
     });
-    expect(mockGetGitDiff).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: /review/i }));
-
-    await waitFor(() => {
-      expect(mockOpenPromptArtifactReview).toHaveBeenCalledWith(
-        "artifact-terminal",
-      );
-    });
+    expect(mockGetEditArtifactDiff).not.toHaveBeenCalled();
+    expect(mockOpenPromptArtifactReview).not.toHaveBeenCalled();
   });
 
   it("replays provider interruption rows from hydrated transcript activity", () => {
