@@ -25,6 +25,7 @@ import {
   type TurnTerminalOutcome,
 } from "@repo/platform-protocol/lifecycle";
 import type { ProtocolError } from "@repo/platform-protocol/errors";
+import type { ThreadId, TurnId } from "@repo/platform-protocol/ids";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -49,7 +50,8 @@ interface LifecycleFixture {
 type RequestStatus = "pending" | "resolved";
 
 interface ReplayState {
-  readonly turnId: string;
+  readonly threadId: ThreadId | null;
+  readonly turnId: TurnId | null;
   readonly status: TurnStatus;
   readonly blockingState: TurnBlockingState;
   readonly terminalOutcome: TurnTerminalOutcome | null;
@@ -139,18 +141,42 @@ export function replayLifecycleEvents(
 
 function applyLifecycleEvent(state: ReplayState, event: LifecycleEvent): ReplayState {
   assertNextLifecycleSequence(state, event.sequence);
-  if (state.terminalEvents > 0) {
-    assertTurnAcceptsLifecycleEvent(state.status, event.type);
+  const scopedState = bindReplayScope(state, event);
+  if (scopedState.terminalEvents > 0) {
+    assertTurnAcceptsLifecycleEvent(scopedState.status, event.type);
   }
 
   const next =
-    applyTurnEvent(state, event) ??
-    applyRunAttemptEvent(state, event) ??
-    applyItemEvent(state, event) ??
-    applyToolCallEvent(state, event) ??
-    applyApprovalEvent(state, event) ??
-    applyRequestEvent(state, event);
-  return next ?? advance(state, event.sequence);
+    applyTurnEvent(scopedState, event) ??
+    applyRunAttemptEvent(scopedState, event) ??
+    applyItemEvent(scopedState, event) ??
+    applyToolCallEvent(scopedState, event) ??
+    applyApprovalEvent(scopedState, event) ??
+    applyRequestEvent(scopedState, event);
+  return next ?? advance(scopedState, event.sequence);
+}
+
+function bindReplayScope(state: ReplayState, event: LifecycleEvent): ReplayState {
+  if (state.turnId === null) {
+    return {
+      ...state,
+      threadId: event.threadId,
+      turnId: event.turnId,
+    };
+  }
+  assertMatchingScope("threadId", state.threadId, event.threadId);
+  assertMatchingScope("turnId", state.turnId, event.turnId);
+  return state;
+}
+
+function assertMatchingScope(
+  label: "threadId" | "turnId",
+  current: string | null,
+  next: string,
+): void {
+  if (current !== next) {
+    throwTransition("turn", current ?? "missing", next, `${label} changed within lifecycle replay`);
+  }
 }
 
 function applyTurnEvent(
@@ -211,6 +237,17 @@ function applyItemEvent(
         "assistant_message",
         event.sequence,
       );
+    case "plan.updated":
+      return requireActiveItemKind(state, event.itemId, "plan", event.sequence);
+    case "command_execution.output_delta":
+      return requireActiveItemKind(
+        state,
+        event.itemId,
+        "command_execution",
+        event.sequence,
+      );
+    case "file_change.patch_updated":
+      return requireActiveItemKind(state, event.itemId, "file_change", event.sequence);
     case "tool_call.started":
     case "tool_call.input_delta":
     case "tool_call.output_delta":
@@ -287,7 +324,8 @@ function applyRequestEvent(
 
 function createInitialState(): ReplayState {
   return {
-    turnId: ids.turnId,
+    threadId: null,
+    turnId: null,
     status: "queued",
     blockingState: { kind: "none" },
     terminalOutcome: null,
