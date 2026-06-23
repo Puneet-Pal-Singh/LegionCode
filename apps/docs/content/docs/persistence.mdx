@@ -1,39 +1,38 @@
 ---
-title: Persistence
-description: See which state is canonical in Postgres, which state belongs to Durable Objects, and how migrations are applied.
+title: Data and storage
+description: Understand what LegionCode stores for product state, credentials, run history, and review.
 category: Architecture
 toc:
-  - id: canonical-records
-    text: Canonical records
-  - id: durable-runtime-state
-    text: Durable runtime state
+  - id: product-data
+    text: Product data
+  - id: runtime-data
+    text: Runtime data
   - id: migrations
     text: Migrations
 ---
 
-LegionCode uses Postgres for canonical product records and Durable Object storage for runtime coordination. Browser storage may cache UI state, but it is not the source of truth for authenticated workspace ownership.
+LegionCode stores enough state to authenticate users, connect repositories, run tasks, and reconstruct review history. Browser storage may cache UI state, but product state lives on the server.
 
-## Canonical records
+## Product data
 
-The persistence package provides repositories and migrations for:
+Server-side product data includes:
 
-- identities and sessions;
-- repositories, workspaces, and selected branches;
-- provider credentials, preferences, quotas, and model caches;
-- transcripts, runs, steps, and runtime events;
-- context, memory, and permission decisions;
-- artifact metadata and review state.
+- user identity and session records;
+- connected repositories and selected branches;
+- encrypted provider credential records and connection status;
+- run metadata, transcripts, tool activity, and review artifacts;
+- permission decisions and Git action metadata.
 
-Brain reaches Postgres through a required Cloudflare Hyperdrive binding. Production code fails fast when that binding is missing.
+Secrets are stored separately from the metadata returned to the browser. API responses should expose status and fingerprints, not secret values.
 
-## Durable runtime state
+## Runtime data
 
-Durable Objects coordinate active execution and append-only run conversation state. Chat storage is scoped by `chat:{runId}`, and writes are serialized with the runtime's concurrency controls.
+Runtime state tracks active execution, streaming events, and run-specific coordination. Keep bug reports focused on sanitized identifiers and error messages; do not include private repository contents or provider credentials.
 
-Durable state is not a substitute for canonical identity, workspace, provider, or artifact records.
+If a run fails, its transcript and review metadata should remain available so you can understand what happened before retrying.
 
 ## Migrations
 
-SQL migrations live in `packages/persistence/drizzle`. The migration runner records applied migrations and acquires a Postgres advisory transaction lock before applying pending statements.
+Database migrations live in the repository and should be applied deliberately before deploying code that depends on new schema.
 
-`DATABASE_MIGRATIONS_MODE` accepts `manual` or `auto` and defaults to `manual`. Production operators should apply migrations deliberately and verify the migration ledger before deploying code that depends on a new schema.
+For production, prefer a manual migration step with verification. Do not mark a failed migration as complete without inspecting the exact statement that failed.

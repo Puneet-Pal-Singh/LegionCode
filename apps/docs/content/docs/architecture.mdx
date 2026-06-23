@@ -1,42 +1,40 @@
 ---
 title: System architecture
-description: Learn the ownership boundaries between the web workspace, Brain, Muscle, shared contracts, and persistence packages.
+description: Understand the public architecture behind the hosted workspace and self-hosted development stack.
 category: Architecture
 toc:
-  - id: system-roles
-    text: System roles
-  - id: request-path
-    text: Request path
-  - id: contract-ownership
-    text: Contract ownership
+  - id: service-boundaries
+    text: Service boundaries
+  - id: request-flow
+    text: Request flow
+  - id: self-hosting-notes
+    text: Self-hosting notes
 ---
 
-LegionCode is a web-native multi-agent IDE built as a pnpm monorepo on Cloudflare primitives. Its main architectural rule is that orchestration and execution are separate systems.
+LegionCode separates the browser workspace from the services that authenticate users, coordinate runs, and execute repository commands. That separation keeps review, policy, and execution responsibilities clear.
 
-## System roles
+## Service boundaries
 
-| Area             | Location                    | Responsibility                                                  |
-| ---------------- | --------------------------- | --------------------------------------------------------------- |
-| Web              | `apps/web`                  | React workspace UI and visualization                            |
-| Brain            | `apps/brain`                | Auth, API validation, orchestration, provider selection         |
-| Muscle           | `apps/secure-agent-api`     | Sandboxes, tools, filesystem, Git, runtime state                |
-| Execution engine | `packages/execution-engine` | Runtime policy and portable execution contracts                 |
-| Shared types     | `packages/shared-types`     | Cross-app request, event, provider, and permission contracts    |
-| Persistence      | `packages/persistence`      | Postgres repositories, migrations, encryption, and data mapping |
+| Area          | Responsibility                                           |
+| ------------- | -------------------------------------------------------- |
+| Web workspace | User interface, review surface, and browser state        |
+| API service   | Authentication, workspace policy, provider selection     |
+| Secure runner | Repository checkout, command execution, tools, and Git   |
+| Persistence   | Users, repositories, runs, credentials, and review state |
+| Public site   | Landing page, docs, changelog, and edge routing          |
 
-Brain does not execute repository commands. Web does not own canonical runtime state. Muscle does not choose product-level model policy.
+The browser does not execute repository commands. The secure runner does not decide product access or provider policy. The API service coordinates the run and records the state needed for review.
 
-## Request path
+## Request flow
 
-1. Web sends an authenticated request to Brain.
-2. Brain validates identity, repository context, provider selection, and run admission.
-3. Brain invokes the execution boundary using canonical shared contracts.
-4. Muscle resolves the run-scoped sandbox and executes tools.
-5. Events and artifacts flow back to Brain and Web for streaming and review.
-6. Canonical metadata is persisted through repository interfaces.
+1. The browser sends an authenticated request to start or continue a run.
+2. The API service validates the user, repository, branch, provider, and model.
+3. The secure runner prepares the isolated workspace and executes approved tools.
+4. Streaming events update the conversation and review surface.
+5. Changed files and artifacts remain attached to the run for inspection.
 
-## Contract ownership
+## Self-hosting notes
 
-Public API shapes belong to Brain. Cross-app schema definitions belong to `packages/shared-types`. Runtime behavior belongs to the execution engine and its adapters.
+The repository is a pnpm monorepo with separate applications for the public site, documentation, workspace UI, API service, and secure runner. Local development runs those services on separate ports; production deploys them as Cloudflare Workers and Pages projects.
 
-When a request or event crosses an app boundary, update the shared contract and its contract tests rather than importing one app's internal implementation into another.
+If you self-host, keep the same boundary: the browser talks to the API service, the API service coordinates execution, and repository commands run only through the secure runner.

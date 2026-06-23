@@ -1,6 +1,6 @@
 ---
 title: Local development
-description: Install the monorepo, configure local services, and run the web, Brain, and Muscle development stack.
+description: Install the monorepo, configure local services, and run the workspace development stack.
 category: Operations
 toc:
   - id: prerequisites
@@ -13,7 +13,7 @@ toc:
     text: Run and verify
 ---
 
-Use a local source checkout when contributing to LegionCode or testing infrastructure changes. Hosted product users do not need the monorepo.
+Use a local source checkout when contributing to LegionCode or testing deployment changes. Hosted product users do not need the monorepo.
 
 ## Prerequisites
 
@@ -42,7 +42,7 @@ pnpm check:boundaries
 
 ## Configure
 
-Create `apps/brain/.dev.vars` from its example and provide GitHub OAuth, session, and credential-encryption secrets. The local service contract is:
+Create `apps/brain/.dev.vars` from its example and provide GitHub OAuth, session, and credential-encryption secrets. A typical local configuration is:
 
 ```dotenv
 GITHUB_REDIRECT_URI=http://localhost:8788/auth/github/callback
@@ -79,4 +79,11 @@ curl http://localhost:8787/api/debug/runtime
 curl http://localhost:8788/api/debug/runtime
 ```
 
-The landing and docs applications can be developed independently with `pnpm --filter @shadowbox/landing dev` and `pnpm --filter @shadowbox/docs dev`.
+The public site and docs can be developed independently:
+
+```bash
+pnpm --filter @shadowbox/landing dev
+pnpm --filter @shadowbox/docs dev
+```
+
+Use the Cloudflare Pages local commands from [deployment](/docs/deployment/) when you need to test edge functions, `/agents/` routing, `/docs/` routing, or the Cloud waitlist form.

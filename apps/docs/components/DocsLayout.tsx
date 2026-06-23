@@ -52,10 +52,7 @@ function DocsFooter() {
       id="docs-global-footer"
     >
       <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 font-mono text-xs text-zinc-550 sm:flex-row">
-        <div>
-          &copy; {new Date().getFullYear()} LegionCode. Released under the MIT
-          License.
-        </div>
+        <div>&copy; 2026 LegionCode.</div>
         <div className="flex gap-4">
           <a href="https://github.com/Puneet-Pal-Singh/LegionCode/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-zinc-300">
             MIT License

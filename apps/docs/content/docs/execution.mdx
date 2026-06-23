@@ -1,37 +1,35 @@
 ---
 title: Execution and isolation
-description: Understand run-scoped worktrees, Cloudflare Sandbox execution, event streaming, and fail-fast runtime behavior.
+description: Understand how LegionCode keeps each task isolated and why review remains required.
 category: Architecture
 toc:
-  - id: isolation-model
-    text: Isolation model
+  - id: isolated-workspaces
+    text: Isolated workspaces
   - id: tools-and-filesystem
     text: Tools and filesystem
-  - id: failure-behavior
-    text: Failure behavior
+  - id: review-boundary
+    text: Review boundary
 ---
 
-Muscle is the single source of truth for code execution. It combines Cloudflare Durable Objects with Cloudflare Sandbox to maintain run ownership and execute repository operations.
+Each LegionCode run works in its own cloud workspace. This keeps tasks separated while still allowing you to review and decide what, if anything, should move back into your repository.
 
-## Isolation model
+## Isolated workspaces
 
-Each `runId` maps to one Git worktree rooted at `/home/sandbox/runs/{runId}`. Runs must never share that writable directory or execute from the sandbox root.
+Every run receives a separate checkout and execution context. Concurrent tasks can start from the same repository, but they do not share a writable working directory.
 
-Durable Object state coordinates the runtime associated with a run, while the sandbox provides the Linux filesystem and process boundary used by tools.
+Isolation reduces accidental cross-task interference. It does not guarantee that two separate diffs will merge cleanly; you still review and reconcile the results.
 
 ## Tools and filesystem
 
-Filesystem paths are resolved relative to the run workspace and validated against traversal. Commands, Git operations, and file reads enter Muscle through explicit tool contracts.
+File reads, writes, commands, and Git operations are executed through the run workspace. Paths are resolved relative to that workspace and checked before use.
 
-The event path is streaming. Brain returns model and tool activity as it occurs rather than buffering the complete response before updating Web.
+The event stream updates the conversation, tool activity, changed files, and review panel as work progresses.
 
 <Callout variant="info" title="Isolation is not approval">
   Sandbox isolation reduces blast radius. Permission policy and human diff
   review still decide whether an action is appropriate.
 </Callout>
 
-## Failure behavior
+## Review boundary
 
-LegionCode favors one canonical execution path. Missing bindings, invalid run context, unsupported provider capabilities, and unavailable persistence should produce typed failures rather than silently selecting a compatibility path.
-
-Run failures remain associated with the same `runId`, including the relevant terminal state and diagnostic events.
+Treat generated changes as proposed code. Review the diff, run the checks required by your repository, and use explicit Git actions only when the result is acceptable.

@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Diagnose authentication, provider, routing, persistence, and sandbox failures using the system's explicit boundaries.
+description: Diagnose authentication, provider, routing, storage, and runtime failures.
 category: Operations
 toc:
   - id: authentication
@@ -9,17 +9,19 @@ toc:
     text: Providers
   - id: routing
     text: Routing
-  - id: runtime-and-persistence
-    text: Runtime and persistence
+  - id: runtime-and-storage
+    text: Runtime and storage
 ---
 
-Start with the boundary that owns the failed behavior. Browser rendering belongs to Web, authentication and provider policy to Brain, and commands or filesystem operations to Secure API.
+Start with the part of the system that owns the failed behavior. Browser rendering belongs to the workspace UI, authentication and provider policy belong to the API service, and repository commands belong to the secure runner.
 
 ## Authentication
 
-**OAuth returns to the landing page:** verify Brain `FRONTEND_URL` points to the canonical agents path and `GITHUB_REDIRECT_URI` matches the callback registered with GitHub.
+**OAuth returns to the landing page:** verify `FRONTEND_URL` points to the public agents path and `GITHUB_REDIRECT_URI` matches the callback registered with GitHub.
 
 **Session stays unauthenticated:** inspect the response from `/auth/session`, cookie attributes, and allowed origins. Do not debug this by storing an OAuth token in browser storage.
+
+**Approved GitHub user is still redirected to Cloud:** confirm the production allowlist contains the exact GitHub login. Matching is case-insensitive, but stale deployments or missing environment variables can keep the old list active.
 
 ## Providers
 
@@ -27,7 +29,7 @@ Start with the boundary that owns the failed behavior. Browser rendering belongs
 
 **A model is missing:** refresh the provider catalog and check account access. Hidden, coming-soon, or transport-incompatible models are intentionally omitted.
 
-**Execution is rejected:** the selected model may lack tools or structured-output capabilities required by the run lane.
+**Execution is rejected:** the selected model may lack the capabilities required by the run. Choose another model or provider and retry the task.
 
 ## Routing
 
@@ -37,16 +39,16 @@ Start with the boundary that owns the failed behavior. Browser rendering belongs
 
 **Docs link returns 404:** verify `/docs/*`, including `/docs/changelog/`, is routed to the docs static output by the production edge configuration.
 
-## Runtime and persistence
+## Runtime and storage
 
 **Run commands hit the wrong service:** check `MUSCLE_BASE_URL` locally and compare runtime fingerprint endpoints on ports `8787` and `8788`.
 
-**Postgres operations fail immediately:** verify the Brain Hyperdrive binding and connection string. Missing canonical persistence is a fail-fast configuration error.
+**Database operations fail immediately:** verify the database binding and connection string for the API service.
 
 **A migration fails:** stop deployment, inspect the exact migration and statement number, and verify the migration ledger. Do not mark a failed migration as applied manually.
 
 <Callout variant="tip" title="Keep correlation identifiers">
-  When reporting a runtime failure, include the `runId`, correlation identifier,
-  endpoint, status code, and sanitized error message. Never include tokens,
-  provider keys, or repository contents.
+  When reporting a runtime failure, include the run identifier, correlation
+  identifier, endpoint, status code, and sanitized error message. Never include
+  tokens, provider keys, or repository contents.
 </Callout>

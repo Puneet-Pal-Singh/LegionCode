@@ -1,60 +1,60 @@
 ---
 title: Environment variables
-description: Reference the required local and deployment configuration for Web, Brain, and Secure API.
+description: Reference the required local and deployment configuration for the workspace, API service, and secure runner.
 category: Operations
 toc:
   - id: web
     text: Web
-  - id: brain
-    text: Brain
-  - id: secure-api
-    text: Secure API
+  - id: api-service
+    text: API service
+  - id: secure-runner
+    text: Secure runner
   - id: secrets
     text: Secret handling
 ---
 
-This page lists the primary configuration surface. Wrangler bindings such as Durable Objects, Hyperdrive, KV, R2, services, and containers remain in each app's Wrangler configuration.
+This page lists the primary environment variables. Cloudflare bindings such as database access, KV, R2, service bindings, and runtime resources remain in each app's Wrangler configuration.
 
 ## Web
 
-| Variable               | Purpose                     |
-| ---------------------- | --------------------------- |
-| `VITE_BRAIN_BASE_URL`  | Brain HTTP origin           |
-| `VITE_MUSCLE_BASE_URL` | Secure API HTTP origin      |
-| `VITE_MUSCLE_WS_URL`   | Secure API WebSocket origin |
+| Variable               | Purpose                         |
+| ---------------------- | ------------------------------- |
+| `VITE_BRAIN_BASE_URL`  | API service HTTP origin         |
+| `VITE_MUSCLE_BASE_URL` | Secure runner HTTP origin       |
+| `VITE_MUSCLE_WS_URL`   | Secure runner WebSocket origin  |
 
 Deploy builds fail when these are missing.
 
-## Brain
+## API service
 
-| Variable                                 | Purpose                                                    |
-| ---------------------------------------- | ---------------------------------------------------------- |
-| `GITHUB_CLIENT_ID`                       | Public GitHub OAuth application identifier                 |
-| `GITHUB_CLIENT_SECRET`                   | GitHub OAuth secret                                        |
-| `GITHUB_REDIRECT_URI`                    | Brain OAuth callback URL                                   |
-| `FRONTEND_URL`                           | Post-authentication agents URL                             |
-| `PRIVATE_ALPHA_ACCESS_MODE`              | `open` locally or `allowlist` for gated production access  |
-| `PRIVATE_ALPHA_GITHUB_LOGINS`            | Comma-separated approved GitHub logins                     |
-| `PRIVATE_ALPHA_WAITLIST_URL`             | Redirect for unapproved OAuth identities                   |
-| `SESSION_SECRET`                         | Session signing material                                   |
-| `GITHUB_TOKEN_ENCRYPTION_KEY`            | GitHub token encryption material                           |
-| `BYOK_CREDENTIAL_ENCRYPTION_KEY`         | Active provider credential encryption key                  |
-| `BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION` | Active encryption key version                              |
-| `MUSCLE_BASE_URL`                        | Local Secure API URL when a service binding is unavailable |
-| `CORS_ALLOWED_ORIGINS`                   | Explicit comma-separated browser origins                   |
-| `DATABASE_MIGRATIONS_MODE`               | `manual` or `auto`; defaults to `manual`                   |
+| Variable                                 | Purpose                                                   |
+| ---------------------------------------- | --------------------------------------------------------- |
+| `GITHUB_CLIENT_ID`                       | Public GitHub OAuth application identifier                |
+| `GITHUB_CLIENT_SECRET`                   | GitHub OAuth secret                                       |
+| `GITHUB_REDIRECT_URI`                    | GitHub OAuth callback URL                                 |
+| `FRONTEND_URL`                           | Post-authentication agents URL                            |
+| `PRIVATE_ALPHA_ACCESS_MODE`              | `open` locally or `allowlist` for gated production access |
+| `PRIVATE_ALPHA_GITHUB_LOGINS`            | Comma-separated approved GitHub logins                    |
+| `PRIVATE_ALPHA_WAITLIST_URL`             | Redirect for unapproved OAuth identities                  |
+| `SESSION_SECRET`                         | Session signing material                                  |
+| `GITHUB_TOKEN_ENCRYPTION_KEY`            | GitHub token encryption material                          |
+| `BYOK_CREDENTIAL_ENCRYPTION_KEY`         | Active provider credential encryption key                 |
+| `BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION` | Active encryption key version                             |
+| `MUSCLE_BASE_URL`                        | Local secure runner URL                                   |
+| `CORS_ALLOWED_ORIGINS`                   | Explicit comma-separated browser origins                  |
+| `DATABASE_MIGRATIONS_MODE`               | `manual` or `auto`; defaults to `manual`                  |
 
-Brain also defines explicit launch rate and concurrency limits. Keep production values in environment-specific Wrangler configuration.
+The API service also defines launch rate and concurrency limits. Keep production values in environment-specific Wrangler configuration.
 
-## Secure API
+## Secure runner
 
-| Variable                        | Purpose                                        |
-| ------------------------------- | ---------------------------------------------- |
-| `CORS_ALLOWED_ORIGINS`          | Explicit browser origins                       |
-| `CORS_ALLOW_DEV_ORIGINS`        | Allow localhost development origins            |
-| `LAUNCH_RATE_LIMIT_REQUIRED`    | Require the launch limiter in the environment  |
-| `LAUNCH_EMERGENCY_SHUTOFF_MODE` | Operational run shutoff mode                   |
-| `INTERNAL_RUNTIME_EVENT_SECRET` | Authenticates internal runtime-event ingestion |
+| Variable                        | Purpose                               |
+| ------------------------------- | ------------------------------------- |
+| `CORS_ALLOWED_ORIGINS`          | Explicit browser origins              |
+| `CORS_ALLOW_DEV_ORIGINS`        | Allow localhost development origins   |
+| `LAUNCH_RATE_LIMIT_REQUIRED`    | Require the launch limiter            |
+| `LAUNCH_EMERGENCY_SHUTOFF_MODE` | Operational run shutoff mode          |
+| `INTERNAL_RUNTIME_EVENT_SECRET` | Authenticates runtime-event ingestion |
 
 ## Secret handling
 

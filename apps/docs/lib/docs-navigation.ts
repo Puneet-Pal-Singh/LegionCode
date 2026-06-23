@@ -45,7 +45,7 @@ export const sidebarStructure: DocsNavigationCategory[] = [
     pages: [
       { title: "System architecture", slug: "architecture" },
       { title: "Execution and isolation", slug: "execution" },
-      { title: "Persistence", slug: "persistence" },
+      { title: "Data and storage", slug: "persistence" },
     ],
   },
   {

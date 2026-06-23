@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: Deploy LegionCode services to Cloudflare with explicit domains, bindings, secrets, and verification gates.
+description: Deploy the public site, documentation, workspace, API service, and secure runner to Cloudflare.
 category: Operations
 toc:
   - id: deployment-shape
@@ -13,24 +13,25 @@ toc:
     text: Verify
 ---
 
-LegionCode uses separate Cloudflare deployments with one public product origin.
+LegionCode uses separate Cloudflare deployments behind one public product origin.
 
 ## Deployment shape
 
-| Public URL                       | Deployment                                               |
-| -------------------------------- | -------------------------------------------------------- |
-| `legioncode.dev`                 | Landing Pages project                                    |
-| `legioncode.dev/docs/*`          | Docs static project routed at the edge                   |
-| `legioncode.dev/docs/changelog/` | Changelog route in the docs static project               |
-| `legioncode.dev/agents/*`        | Landing Pages Function proxy to the agents Pages project |
-| `brain.legioncode.dev`           | Brain Worker                                             |
-| `api.legioncode.dev`             | Secure API Worker and sandbox runtime                    |
+| Public URL                       | Deployment                               |
+| -------------------------------- | ---------------------------------------- |
+| `legioncode.dev`                 | Landing Pages project                    |
+| `legioncode.dev/cloud/`          | Cloud private-alpha access page          |
+| `legioncode.dev/docs/*`          | Docs static project routed at the edge   |
+| `legioncode.dev/docs/changelog/` | Changelog route in the docs project      |
+| `legioncode.dev/agents/*`        | Agents workspace routed through Pages    |
+| `brain.legioncode.dev`           | API service Worker                       |
+| `api.legioncode.dev`             | Secure runner Worker and sandbox runtime |
 
-The agents app is built with a `/agents/` base path. Brain redirects OAuth callbacks to the same public path.
+The agents app is built with a `/agents/` base path. OAuth callbacks should return users to the same public agents path.
 
 ## Required bindings
 
-Brain requires Hyperdrive, Durable Objects, session KV, artifact storage, and service bindings. Secure API requires its runtime Durable Objects, sandbox container, artifacts bucket, rate limiter, and Brain service binding.
+Production requires the configured Cloudflare bindings for the API service, secure runner, artifacts, sessions, database access, and edge routing. Keep bindings environment-specific and verify them before promoting a deployment.
 
 Set secrets with Wrangler rather than committing them:
 
@@ -39,17 +40,15 @@ Set secrets with Wrangler rather than committing them:
 - internal runtime-event secret;
 - any managed provider credentials enabled for the environment.
 
-The landing Pages project also requires a D1 binding named `WAITLIST_DB`.
-Apply `apps/landing/migrations/0001_waitlist.sql` before enabling the Cloud
-access form. Brain production configuration must set
-`PRIVATE_ALPHA_ACCESS_MODE=allowlist` and list approved GitHub logins in
-`PRIVATE_ALPHA_GITHUB_LOGINS`.
+The landing Pages project requires a D1 binding named `WAITLIST_DB` for Cloud access requests. Apply `apps/landing/migrations/0001_waitlist.sql` before enabling the waitlist form.
+
+For private alpha, set `PRIVATE_ALPHA_ACCESS_MODE=allowlist` in production and list approved GitHub logins in `PRIVATE_ALPHA_GITHUB_LOGINS`.
 
 ## Deploy order
 
 1. Apply pending Postgres migrations.
-2. Deploy Secure API and verify its bindings.
-3. Deploy Brain and verify auth, Hyperdrive, and service bindings.
+2. Deploy the secure runner and verify its bindings.
+3. Deploy the API service and verify auth, database access, and service bindings.
 4. Build and deploy the agents app with all three required `VITE_*` endpoints.
 5. Build and deploy docs.
 6. Build and deploy landing last so public routes point at healthy upstreams.
@@ -62,6 +61,6 @@ access form. Brain production configuration must set
 
 ## Verify
 
-Check the landing, Cloud page, docs, changelog, agents shell, OAuth session endpoint, and runtime fingerprint endpoints. Then load one agents asset through `legioncode.dev/agents/assets/...` to verify prefix routing.
+Check the landing page, Cloud page, waitlist submission, docs, changelog, agents shell, OAuth session endpoint, and runtime fingerprint endpoints. Then load one agents asset through `legioncode.dev/agents/assets/...` to verify prefix routing.
 
-Confirm production CORS allows the canonical public origin and that Brain's `FRONTEND_URL` resolves to `https://legioncode.dev/agents`.
+Confirm production CORS allows the public origin and that the API service sends authenticated users to `https://legioncode.dev/agents`.
