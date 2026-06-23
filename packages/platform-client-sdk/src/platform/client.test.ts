@@ -237,6 +237,34 @@ describe("DefaultPlatformClient", () => {
     expect(events.map((event) => event.sequence)).toEqual([1, 2]);
   });
 
+  it("fails explicitly when replay pages stop advancing", async () => {
+    const replayLifecycleEvents = vi
+      .fn()
+      .mockResolvedValueOnce({
+        events: [createLifecycleEvent(1)],
+        nextSequence: 1,
+      })
+      .mockResolvedValueOnce({
+        events: [createLifecycleEvent(1)],
+        nextSequence: 1,
+      });
+    const transport = createTransport({ replayLifecycleEvents });
+    const client = new DefaultPlatformClient(transport);
+
+    await expect(
+      readAll(
+        client.followTurnLifecycle({
+          turnId: TEST_IDS.turnId,
+          replayLimit: 1,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "lifecycle_sequence_regression",
+      expectedSequence: 2,
+      receivedSequence: 1,
+    });
+  });
+
   it("raises an explicit resync error on lifecycle sequence gaps", async () => {
     const transport = createTransport({
       replayLifecycleEvents: vi.fn(async () => ({

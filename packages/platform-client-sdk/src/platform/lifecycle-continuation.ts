@@ -1,5 +1,8 @@
 import type { LifecycleEvent } from "@repo/platform-protocol";
-import { createLifecycleOrderingState } from "./lifecycle-ordering.js";
+import {
+  LifecycleContinuationError,
+  createLifecycleOrderingState,
+} from "./lifecycle-ordering.js";
 import type {
   AttachLifecycleStreamRequest,
   FollowLifecycleRequest,
@@ -32,6 +35,7 @@ async function* replayDurableEvents(
 ): AsyncIterable<LifecycleEvent> {
   const limit = input.request.replayLimit;
   while (true) {
+    const previousSequence = state.lastSequence;
     const response = await input.replay({
       turnId: input.request.turnId,
       afterSequence: state.lastSequence,
@@ -42,7 +46,7 @@ async function* replayDurableEvents(
         yield event;
       }
     }
-    if (!shouldReplayNextPage(response, limit)) {
+    if (!shouldReplayNextPage(response, limit, previousSequence, state)) {
       return;
     }
   }
@@ -66,6 +70,19 @@ async function* attachLiveEvents(
 function shouldReplayNextPage(
   response: ReplayLifecycleEventsResponse,
   limit: number | undefined,
+  previousSequence: number,
+  state: ReturnType<typeof createLifecycleOrderingState>,
 ): boolean {
-  return limit !== undefined && response.events.length === limit;
+  if (limit === undefined || response.events.length < limit) {
+    return false;
+  }
+  if (state.lastSequence > previousSequence) {
+    return true;
+  }
+  throw new LifecycleContinuationError(
+    "lifecycle_sequence_regression",
+    "Lifecycle replay page did not advance the sequence cursor",
+    state.lastSequence + 1,
+    response.nextSequence,
+  );
 }
