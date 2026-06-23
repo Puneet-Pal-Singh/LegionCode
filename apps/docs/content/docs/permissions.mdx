@@ -11,22 +11,22 @@ toc:
     text: Choosing a mode
 ---
 
-Permission mode controls when a run may execute commands or write files without another prompt. Select the least-permissive mode that still supports the task.
+Permission mode controls when a run may execute commands or write files without another prompt. Select the least-permissive mode that still lets the task finish.
 
 ## Permission modes
 
-| UI label          | Behavior                                                                  |
-| ----------------- | ------------------------------------------------------------------------- |
-| Supervised        | Ask before commands and file changes                                      |
-| Auto-accept edits | Automatically approve edits and ask before risky actions                  |
-| Auto same repo    | Automatically run safe actions that remain inside the selected repository |
-| Full access       | Allow commands and edits without prompts                                  |
+| UI label          | Behavior                                                |
+| ----------------- | ------------------------------------------------------- |
+| Supervised        | Ask before commands and file changes                    |
+| Auto-accept edits | Automatically approve edits, ask before risky actions   |
+| Auto same repo    | Automatically run safe actions inside the selected repo |
+| Full access       | Allow commands and edits without prompts                |
 
 Permission modes affect runtime policy; they do not change repository, user, or run ownership.
 
 ## Decisions and audit
 
-Permission requests and decisions are persisted with run and user scope. This allows the product to reconstruct what was requested, what decision was made, and which run received it.
+Permission requests and decisions are recorded with the run. This makes it clear what was requested, what was approved, and which task received the approval.
 
 An approval should apply to the concrete action shown to the user. It should not silently become a reusable approval for unrelated commands.
 

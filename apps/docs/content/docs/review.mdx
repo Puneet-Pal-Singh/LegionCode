@@ -1,6 +1,6 @@
 ---
 title: Review and Git
-description: Inspect agent changes, request revisions, restore files, and keep Git actions explicit.
+description: Inspect agent changes, request revisions, restore files, and take Git actions intentionally.
 category: Core workflow
 toc:
   - id: review-surface
@@ -11,11 +11,11 @@ toc:
     text: Git actions
 ---
 
-LegionCode treats review as a product boundary, not a decorative transcript. Agent output explains intent; the changed files and diff show what actually happened.
+Agent output explains intent. The changed files and diff show what actually happened. Review the diff before accepting any result.
 
 ## Review surface
 
-The workspace can show changed-file summaries and unified or split diffs. Review metadata is tied to the run so the UI can reconstruct the relevant artifact state without relying only on the latest chat message.
+The workspace can show changed-file summaries and unified or split diffs. Use the review panel to inspect the exact files changed by the current run.
 
 If a change is wrong, continue the same task with a precise correction. If a file should be discarded, use the available restore workflow instead of asking the model to approximate the previous contents.
 
@@ -35,6 +35,6 @@ If a change is wrong, continue the same task with a precise correction. If a fil
 
 ## Git actions
 
-Git reads and writes execute through Muscle in the run-scoped worktree. Branch creation, commits, pushes, and pull requests should remain explicit user actions with visible targets.
+Branch creation, commits, pushes, and pull requests should remain explicit user actions with visible targets.
 
 LegionCode does not require generated changes to be merged. You can revise the task, restore files, or abandon the run without changing the upstream branch.

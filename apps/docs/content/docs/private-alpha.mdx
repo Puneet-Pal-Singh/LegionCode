@@ -1,6 +1,6 @@
 ---
 title: Private alpha
-description: Current availability, supported workflows, limitations, and the product promises LegionCode does not make yet.
+description: Current availability, supported workflows, limitations, and how hosted access works.
 category: Getting started
 status: alpha
 toc:
@@ -12,27 +12,25 @@ toc:
     text: Feedback and issues
 ---
 
-LegionCode Cloud is currently a private alpha with manually approved access. Joining the waitlist records an access request; it does not immediately create a product account.
+LegionCode Cloud is currently in private alpha. Joining the waitlist records an access request; it does not immediately create a product account.
 
-After approval, use the GitHub account associated with your request to sign in. Unapproved GitHub accounts return to the Cloud access page without receiving a LegionCode session.
+After approval, sign in with the GitHub account associated with your request. Unapproved GitHub accounts return to the Cloud access page without receiving a workspace session.
 
 ## Available now
 
 - GitHub authentication and repository selection.
 - Independent coding-agent runs with isolated cloud execution.
-- Configurable providers and models for each run.
+- Provider and model selection for each run.
 - Streaming conversations, tool activity, changed files, and diff review.
-- Explicit Git workflows after review.
-- Canonical session, run, provider, permission, and artifact metadata persisted in Postgres.
+- Explicit Git actions after review.
 
 ## Current limitations
 
 - The web workspace is the only available product surface. Desktop and CLI are planned.
-- Cloudflare AI is shown as coming soon and is not a supported execution provider.
 - Provider catalogs depend on the connected provider and may change independently of LegionCode.
 - Hosted capacity, run duration, and concurrency may be restricted.
 - Waitlist approval is manual and may not be immediate.
-- Product and API contracts can change before a stable release.
+- Product behavior can change before a stable release.
 
 <Callout variant="warning" title="No unattended production changes">
   Treat every generated change as untrusted until you review the diff and run

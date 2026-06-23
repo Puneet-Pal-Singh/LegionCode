@@ -1,6 +1,6 @@
 ---
 title: Runs and tasks
-description: Learn how LegionCode scopes execution, conversation history, tools, and lifecycle state to a run.
+description: Learn how to scope tasks, read run state, and keep agent work reviewable.
 category: Core workflow
 toc:
   - id: run-identity
@@ -11,32 +11,25 @@ toc:
     text: Writing effective tasks
 ---
 
-A **run** is the canonical unit of execution in LegionCode. It ties one task conversation to one isolated workspace, one repository context, and one stream of runtime events.
+A **run** is one task conversation connected to one repository context and one isolated workspace.
 
 ## Run identity
 
-Every execution path is scoped by `runId`. Tools, filesystem paths, event streams, transcripts, and runtime state must not substitute a session, thread, or agent identifier for execution ownership.
+Each run has its own identifier, transcript, workspace, tool activity, and review state. That separation is what lets multiple tasks run without sharing writable files.
 
-The corresponding sandbox workspace is rooted at:
-
-```text
-/home/sandbox/runs/{runId}
-```
-
-This invariant prevents two tasks from sharing a writable working directory.
+You normally do not need the internal run identifier. Include it only when reporting a bug or debugging a failed run.
 
 ## Run lifecycle
 
 A typical run moves through these stages:
 
-1. **Context:** resolve the authenticated user, repository, branch, provider, and model.
-2. **Admission:** enforce launch limits and acquire an execution lease.
-3. **Workspace:** prepare or resume the run-scoped worktree.
-4. **Execution:** stream model output and execute approved tools through Muscle.
-5. **Review:** persist changed-file and artifact metadata for the UI.
-6. **Terminal state:** complete, fail, or stop with an explicit outcome.
+1. **Context:** resolve the user, repository, branch, provider, and model.
+2. **Workspace:** prepare the isolated cloud workspace for the task.
+3. **Execution:** stream the agent response and approved tool activity.
+4. **Review:** collect changed files and diffs for inspection.
+5. **Outcome:** complete, fail, or stop with a visible state.
 
-Failures are part of the run record. Starting another run is not a silent fallback for a failed execution.
+If a run fails, keep the run open long enough to read the error and changed files. Starting another run may be useful, but it should be a deliberate retry with a clear scope.
 
 ## Writing effective tasks
 
