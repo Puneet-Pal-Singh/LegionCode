@@ -66,6 +66,8 @@ export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
 export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/PostgresLifecycleProjectionRepository.js";
 export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
+export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
+export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
 export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";

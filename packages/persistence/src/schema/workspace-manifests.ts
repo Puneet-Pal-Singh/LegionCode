@@ -1,19 +1,12 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  pgTable,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
-import {
-  WorkerExecutionLocationSchema,
-  buildWorkspaceManifestStateSqlList,
-} from "@repo/platform-protocol";
+import { check, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { WorkerExecutionLocationSchema } from "@repo/platform-protocol";
+import { WorkspaceStateSchema } from "@repo/workspace-core";
 import { buildSqlList } from "../sessions/types.js";
 
-const WORKSPACE_MANIFEST_STATE_SQL_LIST =
-  buildWorkspaceManifestStateSqlList();
+const WORKSPACE_MANIFEST_STATE_SQL_LIST = buildSqlList(
+  WorkspaceStateSchema.options,
+);
 const WORKER_EXECUTION_LOCATION_SQL_LIST = buildSqlList(
   WorkerExecutionLocationSchema.options,
 );
@@ -21,10 +14,8 @@ const WORKER_EXECUTION_LOCATION_SQL_LIST = buildSqlList(
 export const workspaceManifests = pgTable(
   "workspace_manifests",
   {
-    manifestId: text("manifest_id").primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
+    workspaceId: text("workspace_id").primaryKey(),
     runId: text("run_id").notNull(),
-    userId: text("user_id").notNull(),
     workerId: text("worker_id").notNull(),
     permissionProfileId: text("permission_profile_id").notNull(),
     repoOwner: text("repo_owner").notNull(),
@@ -32,8 +23,8 @@ export const workspaceManifests = pgTable(
     repoUrl: text("repo_url").notNull(),
     baseBranch: text("base_branch").notNull(),
     workingBranch: text("working_branch").notNull(),
-    baseCommitSha: text("base_commit_sha").notNull(),
-    headCommitSha: text("head_commit_sha").notNull(),
+    baseSha: text("base_sha").notNull(),
+    headSha: text("head_sha").notNull(),
     executionLocation: text("execution_location").notNull(),
     filesystemRoot: text("filesystem_root").notNull(),
     artifactNamespace: text("artifact_namespace").notNull(),
