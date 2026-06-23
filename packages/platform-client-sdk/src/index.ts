@@ -14,6 +14,35 @@ export {
   createPlatformHttpTransport,
   type PlatformHttpTransportOptions,
 } from "./platform/http-transport.js";
+export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
+export {
+  LifecycleContinuationError,
+  createLifecycleOrderingState,
+  type LifecycleContinuationErrorCode,
+  type LifecycleOrderingState,
+} from "./platform/lifecycle-ordering.js";
+export {
+  AttachLifecycleStreamRequestSchema,
+  FollowLifecycleRequestSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  StartTurnRequestSchema,
+  StartTurnResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  SubmitUserInputResponseRequestSchema,
+  type AttachLifecycleStreamRequest,
+  type FollowLifecycleRequest,
+  type GetTurnDiffRequest,
+  type GetTurnDiffResponse,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type StartTurnRequest,
+  type StartTurnResponse,
+  type SubmitLifecycleApprovalRequest,
+  type SubmitUserInputResponseRequest,
+} from "./platform/lifecycle-types.js";
 export {
   AttachRunStreamRequestSchema,
   CreateRunRequestSchema,

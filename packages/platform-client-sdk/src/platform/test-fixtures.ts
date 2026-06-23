@@ -1,3 +1,4 @@
+import { LifecycleEventSchema } from "@repo/platform-protocol";
 import type {
   ApprovalId,
   ArtifactId,
@@ -5,12 +6,18 @@ import type {
   EventCursor,
   EventId,
   EventIdempotencyKey,
+  ItemId,
+  LifecycleEvent,
   PermissionProfileId,
   ProviderId,
   Run,
+  RunAttemptId,
   RunEvent,
   Thread,
   ThreadId,
+  Turn,
+  TurnDiffPayload,
+  TurnId,
   UserId,
   WorkerId,
   WorkspaceId,
@@ -27,7 +34,12 @@ export const TEST_IDS = {
   userId: "usr_123456" as UserId,
   workspaceId: "wrk_123456" as WorkspaceId,
   threadId: "thr_123456" as ThreadId,
+  turnId: "trn_123456" as TurnId,
   runId: "run_123456" as Run["id"],
+  runAttemptId: "attempt_123456" as RunAttemptId,
+  approvalId: "appr_123456" as ApprovalId,
+  approvalItemId: "itm_approval001" as ItemId,
+  userInputItemId: "itm_input001" as ItemId,
   eventId: "evt_123456" as EventId,
   cursor: "cursor_123456" as EventCursor,
   nextCursor: "cursor_abcdef" as EventCursor,
@@ -101,6 +113,21 @@ export function createRun(): Run {
   };
 }
 
+export function createTurn(): Turn {
+  return {
+    id: TEST_IDS.turnId,
+    threadId: TEST_IDS.threadId,
+    runId: TEST_IDS.runId,
+    parentTurnId: null,
+    status: "queued",
+    startedAt: null,
+    completedAt: null,
+    createdAt: TEST_TIMESTAMP,
+    updatedAt: TEST_TIMESTAMP,
+    lastEventSequence: 1,
+  };
+}
+
 export function createRunEvent(): RunEvent {
   const run = createRun();
   return {
@@ -121,10 +148,59 @@ export function createRunEvent(): RunEvent {
   };
 }
 
+export function createLifecycleEvent(
+  sequence = 1,
+  overrides: Partial<LifecycleEvent> = {},
+): LifecycleEvent {
+  return LifecycleEventSchema.parse({
+    eventId: `evt_lifecycle${String(sequence).padStart(3, "0")}` as EventId,
+    threadId: TEST_IDS.threadId,
+    turnId: TEST_IDS.turnId,
+    runAttemptId: TEST_IDS.runAttemptId,
+    sequence,
+    idempotencyKey: `turn.started.${sequence}` as EventIdempotencyKey,
+    type: "turn.started",
+    payload: { turnId: TEST_IDS.turnId },
+    producer: { kind: "runtime_kernel", id: "platform-client-sdk-test" },
+    schemaVersion: 1,
+    createdAt: TEST_TIMESTAMP,
+    ...overrides,
+  });
+}
+
+export function createTurnDiff(): TurnDiffPayload {
+  const snapshot = {
+    turnId: TEST_IDS.turnId,
+    snapshotKey: TEST_IDS.turnId,
+    treeId: "a".repeat(40),
+    headSha: "b".repeat(40),
+    capturedAt: TEST_TIMESTAMP,
+  };
+  return {
+    turnId: TEST_IDS.turnId,
+    startSnapshot: { ...snapshot, phase: "start" as const },
+    terminalSnapshot: {
+      ...snapshot,
+      phase: "terminal" as const,
+      treeId: "c".repeat(40),
+    },
+    files: [
+      {
+        path: "src/index.ts",
+        previousPath: null,
+        status: "modified",
+        additions: 2,
+        deletions: 1,
+      },
+    ],
+    patch: "diff --git a/src/index.ts b/src/index.ts\n",
+  };
+}
+
 export function createApprovalRequest(): SubmitApprovalRequest {
   return {
     runId: TEST_IDS.runId,
-    approvalId: "appr_123456" as ApprovalId,
+    approvalId: TEST_IDS.approvalId,
     decision: "approved",
     decidedBy: TEST_IDS.userId,
     reason: "Looks good",
@@ -147,7 +223,7 @@ export function createApprovalEvent(): RunEvent {
     scopeId: TEST_IDS.runId,
     type: "approval.decided",
     payload: {
-      approvalId: "appr_123456" as ApprovalId,
+      approvalId: TEST_IDS.approvalId,
       decision: "approved",
       decidedBy: TEST_IDS.userId,
       reason: "Looks good",

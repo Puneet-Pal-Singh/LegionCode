@@ -3,6 +3,7 @@ import {
   ArtifactIdSchema,
   ArtifactMetadataSchema,
   EventCursorSchema,
+  LifecycleEventSchema,
   RunEventSchema,
   RunIdSchema,
   RunSchema,
@@ -16,6 +17,27 @@ import {
   PlatformClientContractError,
   normalizePlatformClientOperationError,
 } from "./errors.js";
+import { followLifecycleEvents } from "./lifecycle-continuation.js";
+import {
+  AttachLifecycleStreamRequestSchema,
+  FollowLifecycleRequestSchema,
+  GetTurnDiffRequestSchema,
+  GetTurnDiffResponseSchema,
+  ReplayLifecycleEventsRequestSchema,
+  ReplayLifecycleEventsResponseSchema,
+  StartTurnRequestSchema,
+  StartTurnResponseSchema,
+  SubmitLifecycleApprovalRequestSchema,
+  SubmitUserInputResponseRequestSchema,
+  type AttachLifecycleStreamRequest,
+  type FollowLifecycleRequest,
+  type GetTurnDiffRequest,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
+  type StartTurnRequest,
+  type SubmitLifecycleApprovalRequest,
+  type SubmitUserInputResponseRequest,
+} from "./lifecycle-types.js";
 import {
   AttachRunStreamRequestSchema,
   CreateRunRequestSchema,
@@ -74,10 +96,22 @@ export class DefaultPlatformClient implements PlatformClient {
     return parseResponse(payload, RunSchema, "createRun");
   }
 
-  async getThread(
-    threadId: string,
+  async startTurn(
+    request: StartTurnRequest,
     options?: PlatformClientOperationOptions,
   ) {
+    const normalizedRequest = parseRequest(
+      request,
+      StartTurnRequestSchema,
+      "startTurn",
+    );
+    const payload = await this.invoke("startTurn", () =>
+      this.transport.startTurn(normalizedRequest, options),
+    );
+    return parseResponse(payload, StartTurnResponseSchema, "startTurn");
+  }
+
+  async getThread(threadId: string, options?: PlatformClientOperationOptions) {
     const normalizedThreadId = parseRequest(
       threadId,
       ThreadIdSchema,
@@ -159,6 +193,40 @@ export class DefaultPlatformClient implements PlatformClient {
     }
   }
 
+  async *attachLifecycleStream(
+    request: AttachLifecycleStreamRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      AttachLifecycleStreamRequestSchema,
+      "attachLifecycleStream",
+    );
+    const stream = this.transport.attachLifecycleStream(
+      normalizedRequest,
+      options,
+    );
+    for await (const event of stream) {
+      yield parseResponse(event, LifecycleEventSchema, "attachLifecycleStream");
+    }
+  }
+
+  async *followTurnLifecycle(
+    request: FollowLifecycleRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      FollowLifecycleRequestSchema,
+      "followTurnLifecycle",
+    );
+    yield* followLifecycleEvents({
+      request: normalizedRequest,
+      replay: (input) => this.replayLifecycleEvents(input, options),
+      attach: (input) => this.attachLifecycleStream(input, options),
+    });
+  }
+
   async replayRunEvents(
     request: ReplayRunEventsRequest,
     options?: PlatformClientOperationOptions,
@@ -184,6 +252,25 @@ export class DefaultPlatformClient implements PlatformClient {
     };
   }
 
+  async replayLifecycleEvents(
+    request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ReplayLifecycleEventsResponse> {
+    const normalizedRequest = parseRequest(
+      request,
+      ReplayLifecycleEventsRequestSchema,
+      "replayLifecycleEvents",
+    );
+    const payload = await this.invoke("replayLifecycleEvents", () =>
+      this.transport.replayLifecycleEvents(normalizedRequest, options),
+    );
+    return parseResponse(
+      payload,
+      ReplayLifecycleEventsResponseSchema,
+      "replayLifecycleEvents",
+    );
+  }
+
   async submitApproval(
     request: SubmitApprovalRequest,
     options?: PlatformClientOperationOptions,
@@ -197,6 +284,60 @@ export class DefaultPlatformClient implements PlatformClient {
       this.transport.submitApproval(normalizedRequest, options),
     );
     return parseResponse(payload, RunEventSchema, "submitApproval");
+  }
+
+  async submitLifecycleApproval(
+    request: SubmitLifecycleApprovalRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      SubmitLifecycleApprovalRequestSchema,
+      "submitLifecycleApproval",
+    );
+    const payload = await this.invoke("submitLifecycleApproval", () =>
+      this.transport.submitLifecycleApproval(normalizedRequest, options),
+    );
+    return parseResponse(
+      payload,
+      LifecycleEventSchema,
+      "submitLifecycleApproval",
+    );
+  }
+
+  async submitUserInputResponse(
+    request: SubmitUserInputResponseRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      SubmitUserInputResponseRequestSchema,
+      "submitUserInputResponse",
+    );
+    const payload = await this.invoke("submitUserInputResponse", () =>
+      this.transport.submitUserInputResponse(normalizedRequest, options),
+    );
+    return parseResponse(
+      payload,
+      LifecycleEventSchema,
+      "submitUserInputResponse",
+    );
+  }
+
+  async getTurnDiff(
+    request: GetTurnDiffRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      GetTurnDiffRequestSchema,
+      "getTurnDiff",
+    );
+    const payload = await this.invoke("getTurnDiff", () =>
+      this.transport.getTurnDiff(normalizedRequest, options),
+    );
+    return parseResponse(payload, GetTurnDiffResponseSchema, "getTurnDiff")
+      .diff;
   }
 
   async getArtifact(
@@ -226,11 +367,7 @@ export class DefaultPlatformClient implements PlatformClient {
     const payload = await this.invoke("listArtifacts", () =>
       this.transport.listArtifacts(normalizedRequest, options),
     );
-    return parseResponse(
-      payload,
-      ListArtifactsResponseSchema,
-      "listArtifacts",
-    );
+    return parseResponse(payload, ListArtifactsResponseSchema, "listArtifacts");
   }
 
   async getWorkspaceManifest(
