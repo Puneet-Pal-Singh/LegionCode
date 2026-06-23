@@ -54,6 +54,69 @@ test("rejects competing canonical authority declarations", async (context) => {
   );
 });
 
+test("rejects competing worker protocol declarations", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "packages", "runtime-kernel", "src", "duplicate.ts"),
+    "export type WorkerProtocolRequest = { operation: string };\n",
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /WorkerProtocolRequest is owned by packages\/worker-protocol/,
+  );
+});
+
+test("rejects competing permission policy declarations", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "packages", "runtime-kernel", "src", "duplicate.ts"),
+    "export interface PermissionPolicy {}\n",
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /PermissionPolicy is owned by packages\/permission-policy/,
+  );
+});
+
+test("rejects duplicate backend git action names", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "apps", "secure-agent-api", "src", "schemas", "git.ts"),
+    [
+      'export const GitTools = [',
+      '  { name: "git_status" },',
+      '  { name: "git_status" },',
+      "];",
+    ].join("\n"),
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /secure git plugin schema names must not declare duplicate action name git_status/,
+  );
+});
+
+test("rejects duplicate worker protocol operation names", async (context) => {
+  const root = await createFixture(context);
+  await writeFile(
+    join(root, "packages", "worker-protocol", "src", "common.ts"),
+    [
+      'export type WorkerOperationName = "git.status";',
+      "export const WORKER_OPERATION_NAMES = [",
+      '  "git.status",',
+      '  "git.status",',
+      "] as const;",
+    ].join("\n"),
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /worker protocol operation names must not declare duplicate action name git.status/,
+  );
+});
+
 test("rejects app deep imports into package source", async (context) => {
   const root = await createFixture(context);
   await writeFile(
@@ -84,6 +147,7 @@ async function createFixture(context) {
   for (const [name, dependencies] of Object.entries({
     "artifact-store": { "@repo/platform-protocol": "workspace:*" },
     "event-store": { "@repo/platform-protocol": "workspace:*" },
+    "execution-engine": {},
     "git-service": { "@repo/platform-protocol": "workspace:*" },
     "permission-policy": { "@repo/platform-protocol": "workspace:*" },
     persistence: {
@@ -147,6 +211,40 @@ async function createFixture(context) {
     "packages/workspace-core/src/repository.ts",
     "export interface WorkspaceManifestRepository {}",
   );
+  await writeSource(
+    fixtureRoot,
+    "packages/worker-protocol/src/protocol.ts",
+    "export type WorkerProtocolRequest = { operation: WorkerOperationName };",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/worker-protocol/src/common.ts",
+    [
+      'export type WorkerOperationName = "git.status" | "git.diff";',
+      "export const WORKER_OPERATION_NAMES = [",
+      '  "git.status",',
+      '  "git.diff",',
+      "] as const;",
+    ].join("\n"),
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/permission-policy/src/types.ts",
+    [
+      "export interface PermissionPolicy {}",
+      "export interface PermissionRequest {}",
+    ].join("\n"),
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
+    [
+      "export const tools = [",
+      '  { id: "git_status" },',
+      '  { id: "git_diff" },',
+      "];",
+    ].join("\n"),
+  );
   await writeManifest(fixtureRoot, "apps", "brain", "@shadowbox/brain", {});
   await writeManifest(
     fixtureRoot,
@@ -154,6 +252,16 @@ async function createFixture(context) {
     "secure-agent-api",
     "@shadowbox/secure-agent-api",
     {},
+  );
+  await writeSource(
+    fixtureRoot,
+    "apps/secure-agent-api/src/schemas/git.ts",
+    [
+      "export const GitTools = [",
+      '  { name: "git_status" },',
+      '  { name: "git_diff" },',
+      "];",
+    ].join("\n"),
   );
   await writeManifest(fixtureRoot, "apps", "web", "@shadowbox/web", {});
   return fixtureRoot;

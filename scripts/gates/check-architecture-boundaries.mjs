@@ -5,6 +5,7 @@ import {
   APP_IMPORT_POLICY,
   CANONICAL_AUTHORITIES,
   PACKAGE_DEPENDENCY_POLICY,
+  UNIQUE_ACTION_REGISTRIES,
 } from "./architecture-policy.mjs";
 
 const SOURCE_EXTENSIONS = new Set([
@@ -25,6 +26,7 @@ export async function validateArchitecture(root) {
   await validatePackageDependencies(root, violations);
   await validateAppImports(root, violations);
   await validateCanonicalAuthorities(root, violations);
+  await validateUniqueActionRegistries(root, violations);
   return violations;
 }
 
@@ -88,6 +90,18 @@ async function validateCanonicalAuthorities(root, violations) {
   }
 }
 
+async function validateUniqueActionRegistries(root, violations) {
+  for (const registry of UNIQUE_ACTION_REGISTRIES) {
+    const source = await readFile(join(root, registry.path), "utf8");
+    const duplicateNames = findDuplicateMatches(source, registry.pattern);
+    for (const duplicateName of duplicateNames) {
+      violations.push(
+        `${registry.path}: ${registry.name} must not declare duplicate action name ${duplicateName}.`,
+      );
+    }
+  }
+}
+
 async function findPackageRoot(root, collection, packageName) {
   const collectionRoot = join(root, collection);
   for (const entry of await readdir(collectionRoot, { withFileTypes: true })) {
@@ -143,6 +157,21 @@ function findImportSpecifiers(source) {
   return [...source.matchAll(IMPORT_SPECIFIER_PATTERN)].map(
     (match) => match[1],
   );
+}
+
+function findDuplicateMatches(source, pattern) {
+  pattern.lastIndex = 0;
+  const names = [...source.matchAll(pattern)].map((match) => match[1]);
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const name of names) {
+    if (seen.has(name)) {
+      duplicates.add(name);
+    } else {
+      seen.add(name);
+    }
+  }
+  return [...duplicates].sort();
 }
 
 function isDeepPackageSourceImport(specifier) {
