@@ -2,6 +2,7 @@ import {
   ArtifactIdSchema,
   RunIdSchema,
   ThreadIdSchema,
+  TurnIdSchema,
   type ArtifactId,
 } from "@repo/platform-protocol";
 import {
@@ -9,6 +10,13 @@ import {
   parsePlatformOperationErrorCode,
   parseProtocolErrorEnvelope,
 } from "./errors.js";
+import type {
+  AttachLifecycleStreamRequest,
+  GetTurnDiffRequest,
+  ReplayLifecycleEventsRequest,
+  SubmitLifecycleApprovalRequest,
+  SubmitUserInputResponseRequest,
+} from "./lifecycle-types.js";
 import type {
   AttachRunStreamRequest,
   ListArtifactsRequest,
@@ -40,6 +48,8 @@ export function createPlatformHttpTransport(
       request.json("POST", "/threads", payload, options),
     createRun: (payload, options) =>
       request.json("POST", "/runs", payload, options),
+    startTurn: (payload, options) =>
+      request.json("POST", "/turns", payload, options),
     getThread: (threadId, options) =>
       request.json("GET", buildThreadPath(threadId), undefined, options),
     listThreads: (payload, options) =>
@@ -48,10 +58,40 @@ export function createPlatformHttpTransport(
       request.json("GET", buildRunPath(runId), undefined, options),
     attachRunStream: (payload, options) =>
       request.stream(buildRunEventsStreamPath(payload), options),
+    attachLifecycleStream: (payload, options) =>
+      request.stream(buildLifecycleEventsStreamPath(payload), options),
     replayRunEvents: (payload, options) =>
-      request.json("GET", buildReplayRunEventsPath(payload), undefined, options),
+      request.json(
+        "GET",
+        buildReplayRunEventsPath(payload),
+        undefined,
+        options,
+      ),
+    replayLifecycleEvents: (payload, options) =>
+      request.json(
+        "GET",
+        buildReplayLifecycleEventsPath(payload),
+        undefined,
+        options,
+      ),
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
+    submitLifecycleApproval: (payload, options) =>
+      request.json(
+        "POST",
+        buildLifecycleApprovalPath(payload),
+        payload,
+        options,
+      ),
+    submitUserInputResponse: (payload, options) =>
+      request.json(
+        "POST",
+        buildUserInputResponsePath(payload),
+        payload,
+        options,
+      ),
+    getTurnDiff: (payload, options) =>
+      request.json("GET", buildTurnDiffPath(payload), undefined, options),
     getArtifact: (artifactId, options) =>
       request.json("GET", buildArtifactPath(artifactId), undefined, options),
     listArtifacts: (payload, options) =>
@@ -132,7 +172,12 @@ async function sendJsonRequest(input: JsonRequestInput): Promise<unknown> {
     accept: "application/json",
     contentType: "application/json",
   });
-  return parseJsonResponse(response, input.method, input.path, input.previewLimit);
+  return parseJsonResponse(
+    response,
+    input.method,
+    input.path,
+    input.previewLimit,
+  );
 }
 
 interface StreamRequestInput {
@@ -145,7 +190,9 @@ interface StreamRequestInput {
   headers?: Record<string, string>;
 }
 
-async function* streamJsonLines(input: StreamRequestInput): AsyncIterable<unknown> {
+async function* streamJsonLines(
+  input: StreamRequestInput,
+): AsyncIterable<unknown> {
   const response = await sendRequest({
     ...input,
     method: "GET",
@@ -187,7 +234,10 @@ async function sendRequest(input: RequestInput): Promise<Response> {
   }
 
   try {
-    const response = await input.fetchImpl(`${input.baseUrl}${input.path}`, init);
+    const response = await input.fetchImpl(
+      `${input.baseUrl}${input.path}`,
+      init,
+    );
     if (!response.ok) {
       throw await createOperationErrorFromResponse(
         response,
@@ -267,7 +317,8 @@ async function createOperationErrorFromResponse(
 ): Promise<PlatformClientOperationError> {
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
-    const clone = typeof response.clone === "function" ? response.clone() : response;
+    const clone =
+      typeof response.clone === "function" ? response.clone() : response;
     try {
       const payload = await response.json();
       const protocolError = parseProtocolErrorEnvelope(payload);
@@ -323,9 +374,10 @@ function extractErrorFields(payload: unknown): {
     return {};
   }
   const raw = payload as Record<string, unknown>;
-  const nested = raw.error && typeof raw.error === "object"
-    ? raw.error as Record<string, unknown>
-    : undefined;
+  const nested =
+    raw.error && typeof raw.error === "object"
+      ? (raw.error as Record<string, unknown>)
+      : undefined;
   return {
     code: readStringField(raw, nested, "code"),
     message: readStringField(raw, nested, "message"),
@@ -441,6 +493,10 @@ function buildRunEventsPath(runId: string | null): string {
   return `${buildRunPath(RunIdSchema.parse(runId))}/events`;
 }
 
+function buildLifecycleEventsPath(turnId: string): string {
+  return `/turns/${encodeURIComponent(TurnIdSchema.parse(turnId))}/lifecycle-events`;
+}
+
 function buildThreadPath(threadId: string): string {
   return `/threads/${encodeURIComponent(ThreadIdSchema.parse(threadId))}`;
 }
@@ -470,6 +526,13 @@ function buildRunEventsStreamPath(request: AttachRunStreamRequest): string {
   return addCursorQuery(path, request.afterCursor ?? null);
 }
 
+function buildLifecycleEventsStreamPath(
+  request: AttachLifecycleStreamRequest,
+): string {
+  const path = `${buildLifecycleEventsPath(request.turnId)}/stream`;
+  return addSequenceQuery(path, request.afterSequence ?? null);
+}
+
 function buildReplayRunEventsPath(request: ReplayRunEventsRequest): string {
   const path = buildRunEventsPath(request.runId);
   const params = new URLSearchParams();
@@ -483,10 +546,41 @@ function buildReplayRunEventsPath(request: ReplayRunEventsRequest): string {
   return query.length > 0 ? `${path}?${query}` : path;
 }
 
+function buildReplayLifecycleEventsPath(
+  request: ReplayLifecycleEventsRequest,
+): string {
+  const path = buildLifecycleEventsPath(request.turnId);
+  return addLifecycleReplayQuery(
+    path,
+    request.afterSequence ?? null,
+    request.limit,
+  );
+}
+
 function buildApprovalPath(request: SubmitApprovalRequest): string {
   const runId = encodeURIComponent(RunIdSchema.parse(request.runId));
   const approvalId = encodeURIComponent(request.approvalId);
   return `/runs/${runId}/approvals/${approvalId}`;
+}
+
+function buildLifecycleApprovalPath(
+  request: SubmitLifecycleApprovalRequest,
+): string {
+  const turnId = encodeURIComponent(TurnIdSchema.parse(request.turnId));
+  const approvalId = encodeURIComponent(request.approvalId);
+  return `/turns/${turnId}/approvals/${approvalId}`;
+}
+
+function buildUserInputResponsePath(
+  request: SubmitUserInputResponseRequest,
+): string {
+  const turnId = encodeURIComponent(TurnIdSchema.parse(request.turnId));
+  const requestId = encodeURIComponent(request.requestId);
+  return `/turns/${turnId}/user-input/${requestId}`;
+}
+
+function buildTurnDiffPath(request: GetTurnDiffRequest): string {
+  return `/turns/${encodeURIComponent(TurnIdSchema.parse(request.turnId))}/diff`;
 }
 
 function buildArtifactPath(artifactId: ArtifactId): string {
@@ -502,6 +596,29 @@ function addCursorQuery(path: string, cursor: string | null): string {
     return path;
   }
   return `${path}?afterCursor=${encodeURIComponent(cursor)}`;
+}
+
+function addSequenceQuery(path: string, sequence: number | null): string {
+  if (sequence === null) {
+    return path;
+  }
+  return `${path}?afterSequence=${encodeURIComponent(String(sequence))}`;
+}
+
+function addLifecycleReplayQuery(
+  path: string,
+  afterSequence: number | null,
+  limit: number | undefined,
+): string {
+  const params = new URLSearchParams();
+  if (afterSequence !== null) {
+    params.set("afterSequence", String(afterSequence));
+  }
+  if (limit !== undefined) {
+    params.set("limit", String(limit));
+  }
+  const query = params.toString();
+  return query.length > 0 ? `${path}?${query}` : path;
 }
 
 function addListQuery(

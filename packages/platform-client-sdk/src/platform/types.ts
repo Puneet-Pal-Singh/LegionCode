@@ -18,12 +18,25 @@ import {
   type ArtifactId,
   type ArtifactMetadata,
   type EventCursor,
+  type LifecycleEvent,
   type Run,
   type RunEvent,
   type Thread,
   type UserId,
+  type TurnDiffPayload,
   type WorkspaceManifest,
 } from "@repo/platform-protocol";
+import type {
+  AttachLifecycleStreamRequest,
+  FollowLifecycleRequest,
+  GetTurnDiffRequest,
+  ReplayLifecycleEventsRequest,
+  ReplayLifecycleEventsResponse,
+  StartTurnRequest,
+  StartTurnResponse,
+  SubmitLifecycleApprovalRequest,
+  SubmitUserInputResponseRequest,
+} from "./lifecycle-types.js";
 
 const MAX_EVENT_REPLAY_LIMIT = 1_000;
 const MAX_LIST_LIMIT = 200;
@@ -136,9 +149,7 @@ export const SubmitApprovalRequestSchema = z
     reason: z.string().min(1).max(2_000).nullable(),
   })
   .strict();
-export type SubmitApprovalRequest = z.infer<
-  typeof SubmitApprovalRequestSchema
->;
+export type SubmitApprovalRequest = z.infer<typeof SubmitApprovalRequestSchema>;
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
@@ -152,6 +163,10 @@ export interface PlatformClientTransport {
   ): Promise<unknown>;
   createRun(
     request: CreateRunRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  startTurn(
+    request: StartTurnRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
   getThread(
@@ -170,12 +185,32 @@ export interface PlatformClientTransport {
     request: AttachRunStreamRequest,
     options?: PlatformClientOperationOptions,
   ): AsyncIterable<unknown>;
+  attachLifecycleStream(
+    request: AttachLifecycleStreamRequest,
+    options?: PlatformClientOperationOptions,
+  ): AsyncIterable<unknown>;
   replayRunEvents(
     request: ReplayRunEventsRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
+  replayLifecycleEvents(
+    request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
   submitApproval(
     request: SubmitApprovalRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  submitLifecycleApproval(
+    request: SubmitLifecycleApprovalRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  submitUserInputResponse(
+    request: SubmitUserInputResponseRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  getTurnDiff(
+    request: GetTurnDiffRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
   getArtifact(
@@ -201,6 +236,10 @@ export interface PlatformClient {
     request: CreateRunRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<Run>;
+  startTurn(
+    request: StartTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<StartTurnResponse>;
   getThread(
     threadId: Thread["id"],
     options?: PlatformClientOperationOptions,
@@ -217,14 +256,38 @@ export interface PlatformClient {
     request: AttachRunStreamRequest,
     options?: PlatformClientOperationOptions,
   ): AsyncIterable<RunEvent>;
+  attachLifecycleStream(
+    request: AttachLifecycleStreamRequest,
+    options?: PlatformClientOperationOptions,
+  ): AsyncIterable<LifecycleEvent>;
+  followTurnLifecycle(
+    request: FollowLifecycleRequest,
+    options?: PlatformClientOperationOptions,
+  ): AsyncIterable<LifecycleEvent>;
   replayRunEvents(
     request: ReplayRunEventsRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<ReplayRunEventsResponse>;
+  replayLifecycleEvents(
+    request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ReplayLifecycleEventsResponse>;
   submitApproval(
     request: SubmitApprovalRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<RunEvent>;
+  submitLifecycleApproval(
+    request: SubmitLifecycleApprovalRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<LifecycleEvent>;
+  submitUserInputResponse(
+    request: SubmitUserInputResponseRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<LifecycleEvent>;
+  getTurnDiff(
+    request: GetTurnDiffRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<TurnDiffPayload | null>;
   getArtifact(
     artifactId: ArtifactId,
     options?: PlatformClientOperationOptions,

@@ -1,22 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import { registerPlatformTransportConformance } from "@repo/contract-conformance";
 import { createPlatformClient } from "./client.js";
-import {
-  PlatformClientOperationError,
-} from "./errors.js";
+import { PlatformClientOperationError } from "./errors.js";
 import { createPlatformHttpTransport } from "./http-transport.js";
 import {
   TEST_IDS,
   createArtifact,
   createApprovalEvent,
   createApprovalRequest,
+  createLifecycleEvent,
   createRun,
   createRunEvent,
   createRunRequest,
   createThread,
   createThreadRequest,
+  createTurn,
+  createTurnDiff,
 } from "./test-fixtures.js";
-import type { RunEvent } from "@repo/platform-protocol";
+import type { LifecycleEvent, RunEvent } from "@repo/platform-protocol";
 
 interface FetchCall {
   url: string;
@@ -191,6 +192,48 @@ describe("createPlatformHttpTransport", () => {
     );
   });
 
+  it("starts turns and consumes lifecycle replay plus stream endpoints", async () => {
+    const calls: FetchCall[] = [];
+    const transport = createPlatformHttpTransport({
+      baseUrl: "https://control-plane.test",
+      fetchImpl: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(input), init: init ?? {} });
+        if (String(input).endsWith("/turns")) {
+          return createJsonResponse({ run: createRun(), turn: createTurn() });
+        }
+        if (String(input).includes("/stream")) {
+          return createNdjsonResponse(createLifecycleEvent(2));
+        }
+        return createJsonResponse({
+          events: [createLifecycleEvent(1)],
+          nextSequence: 1,
+        });
+      }),
+    });
+    const client = createPlatformClient(transport);
+    const streamed: LifecycleEvent[] = [];
+
+    await client.startTurn(createRunRequest());
+    await client.replayLifecycleEvents({
+      turnId: TEST_IDS.turnId,
+      afterSequence: 4,
+      limit: 25,
+    });
+    for await (const event of client.attachLifecycleStream({
+      turnId: TEST_IDS.turnId,
+      afterSequence: 5,
+    })) {
+      streamed.push(event);
+    }
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://control-plane.test/turns",
+      "https://control-plane.test/turns/trn_123456/lifecycle-events?afterSequence=4&limit=25",
+      "https://control-plane.test/turns/trn_123456/lifecycle-events/stream?afterSequence=5",
+    ]);
+    expect(streamed).toEqual([createLifecycleEvent(2)]);
+  });
+
   it("maps protocol error envelopes to typed errors", async () => {
     const transport = createPlatformHttpTransport({
       baseUrl: "https://control-plane.test",
@@ -260,25 +303,75 @@ describe("createPlatformHttpTransport", () => {
       "https://control-plane.test/runs/run_123456/workspace-manifest",
     );
   });
+
+  it("constructs lifecycle approval, user-input, and turn-diff endpoints", async () => {
+    const calls: FetchCall[] = [];
+    const transport = createPlatformHttpTransport({
+      baseUrl: "https://control-plane.test",
+      fetchImpl: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ url: String(input), init: init ?? {} });
+        if (String(input).includes("approvals")) {
+          return createJsonResponse(
+            createLifecycleEvent(2, {
+              type: "approval.decided",
+              itemId: TEST_IDS.approvalItemId,
+              approvalId: TEST_IDS.approvalId,
+              payload: { decision: "approved" },
+            }),
+          );
+        }
+        if (String(input).includes("user-input")) {
+          return createJsonResponse(
+            createLifecycleEvent(3, {
+              type: "user_input.responded",
+              itemId: TEST_IDS.userInputItemId,
+              requestId: "input_123456",
+              payload: { value: "continue" },
+            }),
+          );
+        }
+        return createJsonResponse({ diff: createTurnDiff() });
+      }),
+    });
+    const client = createPlatformClient(transport);
+
+    await client.submitLifecycleApproval({
+      turnId: TEST_IDS.turnId,
+      approvalId: TEST_IDS.approvalId,
+      decision: "approved",
+      decidedBy: TEST_IDS.userId,
+      reason: null,
+    });
+    await client.submitUserInputResponse({
+      turnId: TEST_IDS.turnId,
+      requestId: "input_123456",
+      respondedBy: TEST_IDS.userId,
+      response: { value: "continue" },
+    });
+    await client.getTurnDiff({ turnId: TEST_IDS.turnId });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://control-plane.test/turns/trn_123456/approvals/appr_123456",
+      "https://control-plane.test/turns/trn_123456/user-input/input_123456",
+      "https://control-plane.test/turns/trn_123456/diff",
+    ]);
+  });
 });
 
-registerPlatformTransportConformance(
-  "Platform HTTP transport",
-  (response) => {
-    const calls: FetchCall[] = [];
-    return {
-      transport: createPlatformHttpTransport({
-        baseUrl: "https://conformance.test",
-        fetchImpl: createFetch(response, calls),
-      }),
-      readCalls: () =>
-        calls.map((call) => ({
-          url: call.url,
-          method: call.init.method,
-        })),
-    };
-  },
-);
+registerPlatformTransportConformance("Platform HTTP transport", (response) => {
+  const calls: FetchCall[] = [];
+  return {
+    transport: createPlatformHttpTransport({
+      baseUrl: "https://conformance.test",
+      fetchImpl: createFetch(response, calls),
+    }),
+    readCalls: () =>
+      calls.map((call) => ({
+        url: call.url,
+        method: call.init.method,
+      })),
+  };
+});
 
 async function readAll<T>(stream: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];

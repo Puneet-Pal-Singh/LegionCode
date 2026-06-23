@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  DefaultPlatformClient,
-  createPlatformClient,
-} from "./client.js";
+import { DefaultPlatformClient, createPlatformClient } from "./client.js";
 import {
   PlatformClientContractError,
   PlatformClientOperationError,
@@ -11,12 +8,15 @@ import {
   TEST_IDS,
   createApprovalEvent,
   createArtifact,
+  createLifecycleEvent,
   createApprovalRequest,
   createRun,
   createRunEvent,
   createRunRequest,
   createThread,
   createThreadRequest,
+  createTurn,
+  createTurnDiff,
   createWorkspaceManifest,
 } from "./test-fixtures.js";
 import type { PlatformClientTransport } from "./types.js";
@@ -28,6 +28,7 @@ function createTransport(
   const baseTransport: PlatformClientTransport = {
     createThread: vi.fn(async () => createThread()),
     createRun: vi.fn(async () => createRun()),
+    startTurn: vi.fn(async () => ({ run: createRun(), turn: createTurn() })),
     getThread: vi.fn(async () => createThread()),
     listThreads: vi.fn(async () => ({
       threads: [createThread()],
@@ -37,11 +38,35 @@ function createTransport(
     attachRunStream: vi.fn(async function* () {
       yield createRunEvent();
     }),
+    attachLifecycleStream: vi.fn(async function* () {
+      yield createLifecycleEvent(2);
+    }),
     replayRunEvents: vi.fn(async () => ({
       events: [createRunEvent()],
       nextCursor: TEST_IDS.nextCursor,
     })),
+    replayLifecycleEvents: vi.fn(async () => ({
+      events: [createLifecycleEvent(1)],
+      nextSequence: 1,
+    })),
     submitApproval: vi.fn(async () => createApprovalEvent()),
+    submitLifecycleApproval: vi.fn(async () =>
+      createLifecycleEvent(2, {
+        type: "approval.decided",
+        itemId: TEST_IDS.approvalItemId,
+        approvalId: TEST_IDS.approvalId,
+        payload: { decision: "approved" },
+      }),
+    ),
+    submitUserInputResponse: vi.fn(async () =>
+      createLifecycleEvent(2, {
+        type: "user_input.responded",
+        itemId: TEST_IDS.userInputItemId,
+        requestId: "input_123456",
+        payload: { response: { ok: true } },
+      }),
+    ),
+    getTurnDiff: vi.fn(async () => ({ diff: createTurnDiff() })),
     getArtifact: vi.fn(async () => createArtifact()),
     listArtifacts: vi.fn(async () => ({
       artifacts: [createArtifact()],
@@ -71,6 +96,18 @@ describe("DefaultPlatformClient", () => {
     await client.createRun(request);
 
     expect(transport.createRun).toHaveBeenCalledWith(request, undefined);
+  });
+
+  it("starts turns through the server-authoritative lifecycle endpoint", async () => {
+    const transport = createTransport();
+    const client = new DefaultPlatformClient(transport);
+    const request = createRunRequest();
+
+    await expect(client.startTurn(request)).resolves.toEqual({
+      run: createRun(),
+      turn: createTurn(),
+    });
+    expect(transport.startTurn).toHaveBeenCalledWith(request, undefined);
   });
 
   it("exposes typed read contracts without event append authority", async () => {
@@ -123,9 +160,10 @@ describe("DefaultPlatformClient", () => {
         );
       }
       yield { ...createRunEvent(), cursor: TEST_IDS.nextCursor };
-    }) as PlatformClientTransport["attachRunStream"] &
-      ReturnType<typeof vi.fn>;
-    const client = new DefaultPlatformClient(createTransport({ attachRunStream }));
+    }) as PlatformClientTransport["attachRunStream"] & ReturnType<typeof vi.fn>;
+    const client = new DefaultPlatformClient(
+      createTransport({ attachRunStream }),
+    );
 
     const events = await readAll(
       client.attachRunStream(
@@ -153,6 +191,103 @@ describe("DefaultPlatformClient", () => {
 
     expect(replay.events).toEqual([createRunEvent()]);
     expect(replay.nextCursor).toBe(TEST_IDS.nextCursor);
+  });
+
+  it("replays durable lifecycle events before attaching live continuation", async () => {
+    const transport = createTransport({
+      replayLifecycleEvents: vi.fn(async () => ({
+        events: [createLifecycleEvent(1)],
+        nextSequence: 1,
+      })),
+      attachLifecycleStream: vi.fn(async function* () {
+        yield createLifecycleEvent(2);
+      }),
+    });
+    const client = new DefaultPlatformClient(transport);
+
+    const events = await readAll(
+      client.followTurnLifecycle({ turnId: TEST_IDS.turnId }),
+    );
+
+    expect(events.map((event) => event.sequence)).toEqual([1, 2]);
+    expect(transport.attachLifecycleStream).toHaveBeenCalledWith(
+      { turnId: TEST_IDS.turnId, afterSequence: 1 },
+      undefined,
+    );
+  });
+
+  it("ignores duplicate lifecycle events after replay", async () => {
+    const duplicate = createLifecycleEvent(1);
+    const transport = createTransport({
+      replayLifecycleEvents: vi.fn(async () => ({
+        events: [duplicate],
+        nextSequence: 1,
+      })),
+      attachLifecycleStream: vi.fn(async function* () {
+        yield duplicate;
+        yield createLifecycleEvent(2);
+      }),
+    });
+    const client = new DefaultPlatformClient(transport);
+
+    const events = await readAll(
+      client.followTurnLifecycle({ turnId: TEST_IDS.turnId }),
+    );
+
+    expect(events.map((event) => event.sequence)).toEqual([1, 2]);
+  });
+
+  it("raises an explicit resync error on lifecycle sequence gaps", async () => {
+    const transport = createTransport({
+      replayLifecycleEvents: vi.fn(async () => ({
+        events: [createLifecycleEvent(1)],
+        nextSequence: 1,
+      })),
+      attachLifecycleStream: vi.fn(async function* () {
+        yield createLifecycleEvent(3);
+      }),
+    });
+    const client = new DefaultPlatformClient(transport);
+
+    await expect(
+      readAll(client.followTurnLifecycle({ turnId: TEST_IDS.turnId })),
+    ).rejects.toMatchObject({
+      code: "lifecycle_sequence_gap",
+      expectedSequence: 2,
+      receivedSequence: 3,
+    });
+  });
+
+  it("submits canonical approval and user-input responses", async () => {
+    const transport = createTransport();
+    const client = new DefaultPlatformClient(transport);
+
+    await expect(
+      client.submitLifecycleApproval({
+        turnId: TEST_IDS.turnId,
+        approvalId: TEST_IDS.approvalId,
+        decision: "approved",
+        decidedBy: TEST_IDS.userId,
+        reason: "Looks good",
+      }),
+    ).resolves.toMatchObject({ type: "approval.decided" });
+    await expect(
+      client.submitUserInputResponse({
+        turnId: TEST_IDS.turnId,
+        requestId: "input_123456",
+        respondedBy: TEST_IDS.userId,
+        response: { value: "continue" },
+      }),
+    ).resolves.toMatchObject({ type: "user_input.responded" });
+  });
+
+  it("reads the immutable turn diff explicitly", async () => {
+    const transport = createTransport();
+    const client = new DefaultPlatformClient(transport);
+
+    await expect(
+      client.getTurnDiff({ turnId: TEST_IDS.turnId }),
+    ).resolves.toEqual(createTurnDiff());
   });
 
   it("normalizes transport failures into typed operation errors", async () => {
