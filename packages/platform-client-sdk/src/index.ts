@@ -14,6 +14,19 @@ export {
   createPlatformHttpTransport,
   type PlatformHttpTransportOptions,
 } from "./platform/http-transport.js";
+export {
+  LifecycleEventSchema,
+  type ApprovalId,
+  type EventId,
+  type EventIdempotencyKey,
+  type ItemId,
+  type ItemKind,
+  type LifecycleEvent,
+  type RunAttemptId,
+  type ThreadId,
+  type TurnDiffPayload,
+  type TurnId,
+} from "@repo/platform-protocol";
 export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
 export {
   LifecycleContinuationError,
