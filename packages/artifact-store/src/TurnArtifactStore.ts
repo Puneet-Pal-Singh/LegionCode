@@ -29,7 +29,7 @@ export class DefaultTurnArtifactStore implements TurnArtifactRepository {
     const snapshot = TurnWorkspaceSnapshotSchema.parse(input.snapshot);
     return await this.artifacts.put(
       {
-        idempotencyKey: `turn:${snapshot.turnId}:snapshot:${snapshot.phase}:${snapshot.treeId}`,
+        idempotencyKey: `turn:${snapshot.turnId}:snapshot:${snapshot.phase}`,
         kind: "workspace_snapshot",
         ownership: input.ownership,
         visibility: "run",
@@ -47,7 +47,7 @@ export class DefaultTurnArtifactStore implements TurnArtifactRepository {
   async putTurnDiff(input: PutTurnDiffInput): Promise<ArtifactMetadata> {
     const diff = TurnDiffPayloadSchema.parse(input.diff);
     const artifact: PutArtifactInput = {
-      idempotencyKey: `turn:${diff.turnId}:diff:${diff.terminalSnapshot.treeId}`,
+      idempotencyKey: `turn:${diff.turnId}:diff`,
       kind: "diff",
       ownership: input.ownership,
       visibility: "run",

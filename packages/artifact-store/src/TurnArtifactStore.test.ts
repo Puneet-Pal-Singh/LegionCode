@@ -29,7 +29,8 @@ const ownership = ArtifactOwnershipSchema.parse({
 
 describe("DefaultTurnArtifactStore", () => {
   it("persists and reads immutable snapshots and a multi-file turn diff", async () => {
-    const store = createStore();
+    const artifacts = createArtifactBackend();
+    const store = new DefaultTurnArtifactStore(artifacts);
     const start = snapshot("start", "a");
     const terminal = snapshot("terminal", "b");
     const diff = turnDiff(start, terminal);
@@ -38,7 +39,8 @@ describe("DefaultTurnArtifactStore", () => {
     await store.putSnapshot({ snapshot: terminal, ownership, access });
     const metadata = await store.putTurnDiff({ diff, ownership, access });
 
-    await expect(store.getTurnDiff(TURN_ID, access)).resolves.toEqual({
+    const reconstructed = new DefaultTurnArtifactStore(artifacts);
+    await expect(reconstructed.getTurnDiff(TURN_ID, access)).resolves.toEqual({
       metadata,
       payload: diff,
     });
@@ -46,7 +48,7 @@ describe("DefaultTurnArtifactStore", () => {
   });
 
   it("persists an explicit empty diff idempotently", async () => {
-    const store = createStore();
+    const store = new DefaultTurnArtifactStore(createArtifactBackend());
     const start = snapshot("start", "c");
     const terminal = snapshot("terminal", "c");
     const diff = { ...turnDiff(start, terminal), files: [], patch: "" };
@@ -59,9 +61,28 @@ describe("DefaultTurnArtifactStore", () => {
       payload: { files: [], patch: "" },
     });
   });
+
+  it("rejects a second terminal diff for the same turn", async () => {
+    const store = new DefaultTurnArtifactStore(createArtifactBackend());
+    const start = snapshot("start", "d");
+    const terminal = snapshot("terminal", "e");
+    await store.putTurnDiff({
+      diff: turnDiff(start, terminal),
+      ownership,
+      access,
+    });
+
+    await expect(
+      store.putTurnDiff({
+        diff: turnDiff(start, { ...terminal, treeId: "f".repeat(40) }),
+        ownership,
+        access,
+      }),
+    ).rejects.toMatchObject({ code: "artifact_idempotency_conflict" });
+  });
 });
 
-function createStore(): DefaultTurnArtifactStore {
+function createArtifactBackend(): InMemoryArtifactStore {
   let sequence = 0;
   const authorizer: ArtifactAuthorizer = { authorize: async () => true };
   const artifacts = new InMemoryArtifactStore({
@@ -73,7 +94,7 @@ function createStore(): DefaultTurnArtifactStore {
       );
     },
   });
-  return new DefaultTurnArtifactStore(artifacts);
+  return artifacts;
 }
 
 function snapshot(
