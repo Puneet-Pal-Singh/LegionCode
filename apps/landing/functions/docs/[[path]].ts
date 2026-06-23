@@ -8,7 +8,7 @@ interface Env {
   DOCS_ORIGIN?: string;
 }
 
-const DEFAULT_DOCS_ORIGIN = "https://docs.legioncode.dev";
+const DEFAULT_DOCS_ORIGIN = "https://shadowbox-docs.pages.dev";
 
 export const onRequest = async (context: {
   request: Request;

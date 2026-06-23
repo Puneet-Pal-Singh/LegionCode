@@ -6,6 +6,13 @@
   "pages_build_output_dir": "./out",
   "vars": {
     "AGENTS_ORIGIN": "https://agents.legioncode.dev",
-    "DOCS_ORIGIN": "https://docs.legioncode.dev",
+    "DOCS_ORIGIN": "https://shadowbox-docs.pages.dev",
   },
+  "d1_databases": [
+    {
+      "binding": "WAITLIST_DB",
+      "database_name": "legioncode-waitlist",
+      "database_id": "cccb96bf-a358-4a8d-a201-6f5993048528",
+    },
+  ],
 }

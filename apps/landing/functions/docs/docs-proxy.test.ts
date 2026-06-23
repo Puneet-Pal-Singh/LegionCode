@@ -26,7 +26,9 @@ describe("buildDocsTarget", () => {
 
 describe("resolveDocsOrigin", () => {
   it("uses the production docs origin by default", () => {
-    expect(resolveDocsOrigin(undefined)).toBe("https://docs.legioncode.dev");
+    expect(resolveDocsOrigin(undefined)).toBe(
+      "https://shadowbox-docs.pages.dev",
+    );
   });
 
   it("rejects non-HTTPS upstream origins", () => {
