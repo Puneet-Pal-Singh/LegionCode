@@ -90,6 +90,7 @@ export class RuntimeKernel {
     const turn = TurnSchema.parse(input.turn);
     const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
     this.assertTurnIdentity(run, turn);
+    this.assertTurnAvailable(turn);
     const workspace = await this.workspaces.loadExecutableManifest(run.id);
     this.assertWorkspaceIdentity(run, workspace);
     const artifactSettlement = new TurnArtifactSettlementCoordinator({
@@ -260,17 +261,21 @@ export class RuntimeKernel {
     }
   }
 
-  private createLifecycle(
-    run: Run,
-    turn: Turn,
-    runAttemptId: StartTurnInput["runAttemptId"],
-  ): RuntimeLifecycleCoordinator {
+  private assertTurnAvailable(turn: Turn): void {
     if (this.lifecycles.has(turn.id)) {
       throw new RuntimeKernelError(
         "turn_already_owned",
         `Turn ${turn.id} already has a lifecycle coordinator`,
       );
     }
+  }
+
+  private createLifecycle(
+    run: Run,
+    turn: Turn,
+    runAttemptId: StartTurnInput["runAttemptId"],
+  ): RuntimeLifecycleCoordinator {
+    this.assertTurnAvailable(turn);
     const lifecycle = new RuntimeLifecycleCoordinator({
       sink: this.dependencies.lifecycleEvents,
       producerId: this.dependencies.producerId,

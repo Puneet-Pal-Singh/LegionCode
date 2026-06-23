@@ -206,14 +206,23 @@ describe("RuntimeKernel canonical lifecycle", () => {
   });
 
   it("rejects a second runtime owner for an accepted turn", async () => {
-    const kernel = await createKernel(createLifecycleSink());
+    const artifacts = createArtifactPorts();
+    const kernel = await createKernel(
+      createLifecycleSink(),
+      createPorts(),
+      artifacts,
+    );
     await kernel.startTurn({ run, turn, runAttemptId });
+    vi.mocked(artifacts.gitSnapshots.captureSnapshot).mockClear();
+    vi.mocked(artifacts.turnArtifacts.putSnapshot).mockClear();
 
     await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toEqual(
       expect.objectContaining<Partial<RuntimeKernelError>>({
         code: "turn_already_owned",
       }),
     );
+    expect(artifacts.gitSnapshots.captureSnapshot).not.toHaveBeenCalled();
+    expect(artifacts.turnArtifacts.putSnapshot).not.toHaveBeenCalled();
   });
 
   it("does not duplicate terminal events when a new kernel retries the turn", async () => {
