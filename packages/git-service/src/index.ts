@@ -23,6 +23,10 @@ export {
   GIT_STATUS_PORCELAIN_V2_ARGS,
   parsePorcelainV2Status,
 } from "./status.js";
+export {
+  captureGitWorkspaceSnapshot,
+  diffGitWorkspaceSnapshots,
+} from "./snapshot.js";
 export { validateWorkspaceRoot } from "./validation.js";
 export type {
   BaseGitStatusEntry,
@@ -39,6 +43,8 @@ export type {
   GitFilesystemContext,
   GitPushInput,
   GitPushResult,
+  GitSnapshotDiffInput,
+  GitSnapshotInput,
   GitService,
   GitStageInput,
   GitStatusCode,
@@ -47,6 +53,7 @@ export type {
   GitStatusResult,
   GitStatusXY,
   GitWorkspaceContext,
+  GitWorkspaceSnapshot,
   OrdinaryGitStatusEntry,
   RenamedOrCopiedGitStatusEntry,
   UnmergedGitStatusEntry,

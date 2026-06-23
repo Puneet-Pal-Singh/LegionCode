@@ -2,6 +2,8 @@ export {
   ArtifactChangedFileSchema,
   ArtifactKindSchema,
   ArtifactMetadataSchema,
+  TurnDiffPayloadSchema,
+  TurnWorkspaceSnapshotSchema,
   ArtifactPayloadBackendSchema,
   ArtifactPayloadRefSchema,
   buildArtifactChangedFileStatusSqlList,
@@ -10,6 +12,8 @@ export {
   type ArtifactChangedFile,
   type ArtifactKind,
   type ArtifactMetadata,
+  type TurnDiffPayload,
+  type TurnWorkspaceSnapshot,
   type ArtifactPayloadBackend,
   type ArtifactPayloadRef,
 } from "./artifacts.js";

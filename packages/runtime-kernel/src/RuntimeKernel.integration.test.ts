@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   createLifecycleSink,
+  createArtifactPorts,
   createManifestRepository,
   createPorts,
   finalItemId,
@@ -33,6 +34,7 @@ describe("runtime kernel integration", () => {
       });
     const kernel = new RuntimeKernel({
       lifecycleEvents,
+      ...createArtifactPorts(),
       workspaceManifests: await createManifestRepository(),
       ...ports,
       producerId: "runtime-kernel-integration",

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   approvalRequest,
+  createArtifactPorts,
   createLifecycleSink,
   createManifestRepository,
   createPorts,
@@ -26,13 +27,21 @@ describe("approval continuation characterization", () => {
           input: { path: "src/index.ts", content: "export {};" },
         },
       })
-      .mockResolvedValueOnce({ kind: "complete", itemId: finalItemId, output: "Done" });
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
     ports.worker.executeTool = vi
       .fn()
-      .mockResolvedValueOnce({ kind: "approval_required", request: approvalRequest })
+      .mockResolvedValueOnce({
+        kind: "approval_required",
+        request: approvalRequest,
+      })
       .mockResolvedValueOnce({ kind: "completed", output: { written: true } });
     const kernel = new RuntimeKernel({
       lifecycleEvents,
+      ...createArtifactPorts(),
       workspaceManifests: await createManifestRepository(),
       ...ports,
       producerId: "runtime-kernel-test",
@@ -50,7 +59,9 @@ describe("approval continuation characterization", () => {
     const types = lifecycleEvents.events.map((event) => event.type);
     expect(types).toContain("approval.requested");
     expect(types).toContain("approval.decided");
-    expect(types.filter((type) => type === "turn.blocking_changed")).toHaveLength(2);
+    expect(
+      types.filter((type) => type === "turn.blocking_changed"),
+    ).toHaveLength(2);
     expect(lifecycleEvents.events.at(-1)?.type).toBe("turn.completed");
   });
 });

@@ -34,7 +34,10 @@ import {
   type TurnTerminalOutcome,
 } from "@repo/platform-protocol/lifecycle";
 import { RuntimeLifecycleSettlementError } from "./errors.js";
-import type { RuntimeLifecycleEventStore, RuntimeKernelClock } from "./ports.js";
+import type {
+  RuntimeLifecycleEventStore,
+  RuntimeKernelClock,
+} from "./ports.js";
 
 interface LifecycleIdentity {
   readonly threadId: ThreadId;
@@ -93,7 +96,10 @@ export class RuntimeLifecycleCoordinator {
       );
     }
     const nextTurn = transitionTurnStatus(this.status, "in_progress");
-    const nextAttempt = transitionRunAttemptStatus(this.runAttemptStatus, "running");
+    const nextAttempt = transitionRunAttemptStatus(
+      this.runAttemptStatus,
+      "running",
+    );
     const events = [
       this.createEvent({ type: "turn.queued", payload: {} }, 1),
       this.createEvent({ type: "turn.started", payload: {} }, 2),
@@ -111,7 +117,9 @@ export class RuntimeLifecycleCoordinator {
     toolCallId: ToolCallId,
     input: JsonRecord,
   ): Promise<void> {
-    await this.enqueue(async () => this.startToolCallNow(itemId, toolCallId, input));
+    await this.enqueue(async () =>
+      this.startToolCallNow(itemId, toolCallId, input),
+    );
   }
 
   private async startToolCallNow(
@@ -141,7 +149,9 @@ export class RuntimeLifecycleCoordinator {
     toolCallId: ToolCallId,
     output: string,
   ): Promise<void> {
-    await this.enqueue(async () => this.appendToolOutputNow(toolCallId, output));
+    await this.enqueue(async () =>
+      this.appendToolOutputNow(toolCallId, output),
+    );
   }
 
   private async appendToolOutputNow(
@@ -161,7 +171,28 @@ export class RuntimeLifecycleCoordinator {
     await this.enqueue(async () => this.createArtifactNow(itemId, artifact));
   }
 
-  private async createArtifactNow(itemId: ItemId, artifact: unknown): Promise<void> {
+  async captureWorkspaceSnapshot(snapshot: unknown): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "workspace.snapshot_captured",
+        payload: { snapshot: JsonRecordSchema.parse(snapshot) },
+      }),
+    );
+  }
+
+  async createTurnArtifact(artifact: unknown): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "artifact.created",
+        payload: { artifact: JsonRecordSchema.parse(artifact) },
+      }),
+    );
+  }
+
+  private async createArtifactNow(
+    itemId: ItemId,
+    artifact: unknown,
+  ): Promise<void> {
     await this.emit({
       type: "artifact.created",
       itemId,
@@ -169,13 +200,19 @@ export class RuntimeLifecycleCoordinator {
     });
   }
 
-  async completeToolCall(toolCallId: ToolCallId, result: JsonRecord): Promise<void> {
+  async completeToolCall(
+    toolCallId: ToolCallId,
+    result: JsonRecord,
+  ): Promise<void> {
     await this.enqueue(async () =>
       this.settleToolCall(toolCallId, "completed", { result }),
     );
   }
 
-  async failToolCall(toolCallId: ToolCallId, failure: ProtocolError): Promise<void> {
+  async failToolCall(
+    toolCallId: ToolCallId,
+    failure: ProtocolError,
+  ): Promise<void> {
     await this.enqueue(async () =>
       this.settleToolCall(toolCallId, "failed", { failure }),
     );
@@ -194,7 +231,12 @@ export class RuntimeLifecycleCoordinator {
     payload: JsonRecord,
   ): Promise<void> {
     await this.enqueue(async () =>
-      this.requestApprovalNow(parentItemId, approvalId, approvalItemId, payload),
+      this.requestApprovalNow(
+        parentItemId,
+        approvalId,
+        approvalItemId,
+        payload,
+      ),
     );
   }
 
@@ -225,7 +267,9 @@ export class RuntimeLifecycleCoordinator {
     status: Exclude<ApprovalStatus, "pending">,
     payload: JsonRecord,
   ): Promise<void> {
-    await this.enqueue(async () => this.decideApprovalNow(approvalId, status, payload));
+    await this.enqueue(async () =>
+      this.decideApprovalNow(approvalId, status, payload),
+    );
   }
 
   private async decideApprovalNow(
@@ -292,7 +336,11 @@ export class RuntimeLifecycleCoordinator {
     payload: JsonRecord,
   ): Promise<void> {
     const next = transitionItemStatus("not_started", "active");
-    await this.emit({ type: "item.started", itemId, payload: { ...payload, kind } });
+    await this.emit({
+      type: "item.started",
+      itemId,
+      payload: { ...payload, kind },
+    });
     this.itemStatuses[itemId] = next;
   }
 
@@ -304,7 +352,12 @@ export class RuntimeLifecycleCoordinator {
     const current = this.requireActiveToolCall(toolCallId);
     const next = transitionToolCallStatus(current, status);
     const itemId = this.requireToolCallItem(toolCallId);
-    await this.emit({ type: `tool_call.${status}`, itemId, toolCallId, payload });
+    await this.emit({
+      type: `tool_call.${status}`,
+      itemId,
+      toolCallId,
+      payload,
+    });
     this.toolCallStatuses[toolCallId] = next;
     await this.settleItem(itemId, status, payload);
   }
@@ -339,7 +392,9 @@ export class RuntimeLifecycleCoordinator {
   private async cancelPendingApprovals(reason: string): Promise<void> {
     for (const [approvalId, status] of Object.entries(this.approvalStatuses)) {
       if (status === "pending") {
-        await this.decideApprovalNow(approvalId as ApprovalId, "cancelled", { reason });
+        await this.decideApprovalNow(approvalId as ApprovalId, "cancelled", {
+          reason,
+        });
       }
     }
   }
@@ -349,8 +404,12 @@ export class RuntimeLifecycleCoordinator {
       return;
     }
     const nextTurn = transitionTurnStatus(this.status, outcome.status);
-    const attemptStatus = outcome.status === "completed" ? "succeeded" : outcome.status;
-    const nextAttempt = transitionRunAttemptStatus(this.runAttemptStatus, attemptStatus);
+    const attemptStatus =
+      outcome.status === "completed" ? "succeeded" : outcome.status;
+    const nextAttempt = transitionRunAttemptStatus(
+      this.runAttemptStatus,
+      attemptStatus,
+    );
     validateTerminalSettlement({
       turnStatus: nextTurn,
       terminalOutcome: outcome,
@@ -361,8 +420,14 @@ export class RuntimeLifecycleCoordinator {
     const attemptPayload: JsonRecord =
       outcome.status === "failed" ? { failure: outcome.failure } : {};
     const events = [
-      this.createEvent({ type: `run_attempt.${attemptStatus}`, payload: attemptPayload }, 1),
-      this.createEvent({ type: `turn.${outcome.status}`, payload: { outcome } }, 2),
+      this.createEvent(
+        { type: `run_attempt.${attemptStatus}`, payload: attemptPayload },
+        1,
+      ),
+      this.createEvent(
+        { type: `turn.${outcome.status}`, payload: { outcome } },
+        2,
+      ),
     ];
     await this.appendTerminalBatch(events, outcome.status);
     this.sequence += events.length;
@@ -370,8 +435,13 @@ export class RuntimeLifecycleCoordinator {
     this.status = nextTurn;
   }
 
-  private async changeBlocking(blockingState: TurnBlockingState): Promise<void> {
-    await this.emit({ type: "turn.blocking_changed", payload: { blockingState } });
+  private async changeBlocking(
+    blockingState: TurnBlockingState,
+  ): Promise<void> {
+    await this.emit({
+      type: "turn.blocking_changed",
+      payload: { blockingState },
+    });
     this.blockingState = blockingState;
   }
 
@@ -441,7 +511,9 @@ export class RuntimeLifecycleCoordinator {
   private createEvent(fields: EventFields, offset: number): LifecycleEvent {
     const sequence = this.sequence + offset;
     return LifecycleEventSchema.parse({
-      eventId: EventIdSchema.parse(`evt_${this.options.turnId.slice(4)}_${sequence}`),
+      eventId: EventIdSchema.parse(
+        `evt_${this.options.turnId.slice(4)}_${sequence}`,
+      ),
       threadId: this.options.threadId,
       turnId: this.options.turnId,
       runAttemptId: this.options.runAttemptId,

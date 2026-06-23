@@ -6,6 +6,7 @@ import {
   type Turn,
 } from "@repo/platform-protocol";
 import type { WorkspaceManifestRepository } from "@repo/workspace-core";
+import type { WorkspaceManifest } from "@repo/workspace-core";
 import { ApprovalCoordinator } from "./ApprovalCoordinator.js";
 import {
   RuntimeKernelError,
@@ -17,13 +18,19 @@ import type {
   ContextAssemblyPort,
   ProviderPort,
   RuntimeLifecycleEventStore,
+  RuntimeGitSnapshotPort,
   RuntimeKernelClock,
+  RuntimeTurnArtifactPort,
   ToolAuthorizationPort,
   WorkerProtocolPort,
 } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type { StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
+import {
+  TurnArtifactSettlementCoordinator,
+  type TurnArtifactSettlementResult,
+} from "./TurnArtifactSettlementCoordinator.js";
 import { WorkspaceCoordinator } from "./WorkspaceCoordinator.js";
 
 const DEFAULT_MAX_TOOL_CALLS = 32;
@@ -31,6 +38,8 @@ const systemClock: RuntimeKernelClock = { now: () => new Date().toISOString() };
 
 export interface RuntimeKernelDependencies {
   readonly lifecycleEvents: RuntimeLifecycleEventStore;
+  readonly gitSnapshots: RuntimeGitSnapshotPort;
+  readonly turnArtifacts: RuntimeTurnArtifactPort;
   readonly workspaceManifests: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
   readonly provider: ProviderPort;
@@ -42,11 +51,29 @@ export interface RuntimeKernelDependencies {
   readonly clock?: RuntimeKernelClock;
 }
 
+interface PreparedTurn {
+  readonly run: Run;
+  readonly turn: Turn;
+  readonly runAttemptId: StartTurnInput["runAttemptId"];
+  readonly workspace: WorkspaceManifest;
+  readonly lifecycle: RuntimeLifecycleCoordinator;
+  readonly artifacts: TurnArtifactSettlementCoordinator;
+  readonly tools: ToolExecutionCoordinator;
+}
+
 export class RuntimeKernel {
   private readonly workspaces: WorkspaceCoordinator;
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
   private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
+  private readonly artifactSettlements = new Map<
+    string,
+    TurnArtifactSettlementCoordinator
+  >();
+  private readonly artifactSettlementEmissions = new Map<
+    string,
+    Promise<TurnArtifactSettlementResult>
+  >();
 
   constructor(private readonly dependencies: RuntimeKernelDependencies) {
     this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
@@ -55,11 +82,28 @@ export class RuntimeKernel {
   }
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
+    return await this.executePreparedTurn(await this.prepareTurn(input));
+  }
+
+  private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
     const run = RunSchema.parse(input.run);
     const turn = TurnSchema.parse(input.turn);
     const runAttemptId = RunAttemptIdSchema.parse(input.runAttemptId);
     this.assertTurnIdentity(run, turn);
+    this.assertTurnAvailable(turn);
+    const workspace = await this.workspaces.loadExecutableManifest(run.id);
+    this.assertWorkspaceIdentity(run, workspace);
+    const artifactSettlement = new TurnArtifactSettlementCoordinator({
+      git: this.dependencies.gitSnapshots,
+      artifacts: this.dependencies.turnArtifacts,
+      clock: this.clock,
+      run,
+      turn,
+      workspace,
+    });
+    const startArtifacts = await artifactSettlement.begin();
     const lifecycle = this.createLifecycle(run, turn, runAttemptId);
+    this.artifactSettlements.set(turn.id, artifactSettlement);
     const approvals = new ApprovalCoordinator(
       this.dependencies.approvals,
       lifecycle,
@@ -71,10 +115,24 @@ export class RuntimeKernel {
       lifecycle,
     );
     await lifecycle.start();
+    await lifecycle.captureWorkspaceSnapshot(startArtifacts);
+    return {
+      run,
+      turn,
+      runAttemptId,
+      workspace,
+      lifecycle,
+      artifacts: artifactSettlement,
+      tools,
+    };
+  }
 
+  private async executePreparedTurn(
+    prepared: PreparedTurn,
+  ): Promise<StartTurnResult> {
+    const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
+      prepared;
     try {
-      const workspace = await this.workspaces.loadExecutableManifest(run.id);
-      this.assertWorkspaceIdentity(run, workspace);
       const context = await this.dependencies.contextAssembly.assemble({
         run,
         turn,
@@ -88,6 +146,7 @@ export class RuntimeKernel {
         context,
         tools,
       );
+      await this.settleArtifacts(turn.id, lifecycle, artifacts);
       await lifecycle.complete(result.output, result.finalItemId);
       return {
         status: result.status,
@@ -97,6 +156,9 @@ export class RuntimeKernel {
       };
     } catch (error) {
       if (!lifecycle.isTerminal) {
+        if (!isArtifactSettlementError(error)) {
+          await this.settleArtifacts(turn.id, lifecycle, artifacts);
+        }
         await this.recoverFailedTurn(lifecycle, error);
       }
       throw error;
@@ -110,6 +172,15 @@ export class RuntimeKernel {
         "turn_not_active",
         `Turn ${turnId} is not owned by this runtime kernel`,
       );
+    }
+    const artifactSettlement = this.artifactSettlements.get(turnId);
+    if (artifactSettlement) {
+      try {
+        await this.settleArtifacts(turnId, lifecycle, artifactSettlement);
+      } catch (error) {
+        await this.recoverFailedTurn(lifecycle, error);
+        throw error;
+      }
     }
     await lifecycle.interrupt(reason);
   }
@@ -190,17 +261,21 @@ export class RuntimeKernel {
     }
   }
 
-  private createLifecycle(
-    run: Run,
-    turn: Turn,
-    runAttemptId: StartTurnInput["runAttemptId"],
-  ): RuntimeLifecycleCoordinator {
+  private assertTurnAvailable(turn: Turn): void {
     if (this.lifecycles.has(turn.id)) {
       throw new RuntimeKernelError(
         "turn_already_owned",
         `Turn ${turn.id} already has a lifecycle coordinator`,
       );
     }
+  }
+
+  private createLifecycle(
+    run: Run,
+    turn: Turn,
+    runAttemptId: StartTurnInput["runAttemptId"],
+  ): RuntimeLifecycleCoordinator {
+    this.assertTurnAvailable(turn);
     const lifecycle = new RuntimeLifecycleCoordinator({
       sink: this.dependencies.lifecycleEvents,
       producerId: this.dependencies.producerId,
@@ -228,6 +303,46 @@ export class RuntimeKernel {
       throw new RuntimeLifecycleSettlementError("failed", settlementError);
     }
   }
+
+  private async settleArtifacts(
+    turnId: Turn["id"],
+    lifecycle: RuntimeLifecycleCoordinator,
+    coordinator: TurnArtifactSettlementCoordinator,
+  ): Promise<TurnArtifactSettlementResult> {
+    const existing = this.artifactSettlementEmissions.get(turnId);
+    if (existing) return await existing;
+    const settlement = this.settleArtifactsNow(lifecycle, coordinator);
+    this.artifactSettlementEmissions.set(turnId, settlement);
+    return await settlement;
+  }
+
+  private async settleArtifactsNow(
+    lifecycle: RuntimeLifecycleCoordinator,
+    coordinator: TurnArtifactSettlementCoordinator,
+  ): Promise<TurnArtifactSettlementResult> {
+    try {
+      const settlement = await coordinator.settle();
+      await lifecycle.captureWorkspaceSnapshot({
+        snapshot: settlement.terminalSnapshot,
+        artifact: settlement.terminalSnapshotArtifact,
+      });
+      await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
+      return settlement;
+    } catch (error) {
+      throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "Turn artifacts could not be settled before the terminal event",
+        error,
+      );
+    }
+  }
+}
+
+function isArtifactSettlementError(error: unknown): boolean {
+  return (
+    error instanceof RuntimeKernelError &&
+    error.code === "turn_artifact_settlement_failed"
+  );
 }
 
 type ProviderStepItemId = Extract<

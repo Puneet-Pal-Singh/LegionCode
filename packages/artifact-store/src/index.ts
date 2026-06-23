@@ -3,6 +3,13 @@ export {
   InMemoryArtifactStore,
   type InMemoryArtifactStoreOptions,
 } from "./InMemoryArtifactStore.js";
+export { DefaultTurnArtifactStore } from "./TurnArtifactStore.js";
+export {
+  type PutTurnDiffInput,
+  type PutTurnSnapshotInput,
+  type StoredTurnDiff,
+  type TurnArtifactRepository,
+} from "./turn-artifact-types.js";
 export {
   ArtifactAccessContextSchema,
   ArtifactKindSchema,

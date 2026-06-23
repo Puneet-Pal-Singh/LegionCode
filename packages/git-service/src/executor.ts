@@ -7,6 +7,7 @@ export interface GitCommandExecutionInput {
   readonly cwd: string;
   readonly args: readonly string[];
   readonly stdin?: string;
+  readonly environment?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
 }
 
@@ -17,7 +18,5 @@ export interface GitCommandExecutionResult {
 }
 
 export interface GitCommandExecutor {
-  execute(
-    input: GitCommandExecutionInput,
-  ): Promise<GitCommandExecutionResult>;
+  execute(input: GitCommandExecutionInput): Promise<GitCommandExecutionResult>;
 }

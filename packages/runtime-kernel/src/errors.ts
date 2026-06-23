@@ -18,6 +18,7 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "invalid_approval_item",
   "turn_not_active",
   "turn_already_owned",
+  "turn_artifact_settlement_failed",
 ] as const;
 export type RuntimeKernelErrorCode =
   (typeof RUNTIME_KERNEL_ERROR_CODES)[number];
@@ -116,6 +117,7 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
     case "turn_already_owned":
       return "conflict";
     case "tool_loop_limit_exceeded":
+    case "turn_artifact_settlement_failed":
       return "internal_error";
   }
 }
