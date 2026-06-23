@@ -97,10 +97,19 @@ describe("RunProjectionProjector", () => {
 
   it("rejects non-run scoped events", () => {
     expect(() =>
-      projectRunEvents(runId, [
-        projectionInput(createWorkspaceEvent(1), 1),
-      ]),
+      projectRunEvents(runId, [projectionInput(createWorkspaceEvent(1), 1)]),
     ).toThrow(RunProjectionError);
+  });
+
+  it("rejects projection sequence gaps and out-of-order inputs", () => {
+    expect(() =>
+      projectRunEvents(runId, [
+        projectionInput(createRunEvent("run.created", queuedRun, 1), 1),
+        projectionInput(createRunEvent("run.started", runningRun, 3), 3),
+      ]),
+    ).toThrowError(
+      expect.objectContaining({ code: "invalid_projection_sequence" }),
+    );
   });
 });
 
@@ -112,11 +121,7 @@ function projectionInput(
 }
 
 function createRunEvent(
-  type:
-    | "run.created"
-    | "run.started"
-    | "run.completed"
-    | "run.cancelled",
+  type: "run.created" | "run.started" | "run.completed" | "run.cancelled",
   runPayload: typeof queuedRun,
   sequence: number,
 ): PlatformEvent {

@@ -9,7 +9,7 @@ import {
   LifecycleEventSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
-import type { SqlClient, SqlRow } from "../sql.js";
+import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
 
 interface LifecycleEventRow extends SqlRow {
   event_json?: unknown;
@@ -53,6 +53,7 @@ async function appendOne(
   client: SqlClient,
   event: LifecycleEvent,
 ): Promise<LifecycleEvent> {
+  await lockTurnStream(client, event.turnId);
   const existing = await client.query<LifecycleEventRow>(READ_IDEMPOTENT_SQL, [
     event.turnId,
     event.idempotencyKey,
@@ -66,18 +67,7 @@ async function appendOne(
   if (event.sequence !== last + 1) {
     throw new EventStoreError("sequence_gap", `Expected sequence ${last + 1}`);
   }
-  const inserted = await client.query<LifecycleEventRow>(INSERT_SQL, [
-    event.eventId,
-    event.threadId,
-    event.turnId,
-    event.runAttemptId,
-    event.sequence,
-    event.idempotencyKey,
-    event.type,
-    JSON.stringify(event),
-    event.schemaVersion,
-    event.createdAt,
-  ]);
+  const inserted = await insertEvent(client, event);
   const row = inserted.rows[0];
   if (!row)
     throw new EventStoreError(
@@ -85,6 +75,69 @@ async function appendOne(
       "Lifecycle insert returned no event",
     );
   return readEvent(row);
+}
+
+async function lockTurnStream(
+  client: SqlClient,
+  turnId: string,
+): Promise<void> {
+  await client.query(LOCK_TURN_STREAM_SQL, [turnId]);
+}
+
+async function insertEvent(
+  client: SqlClient,
+  event: LifecycleEvent,
+): Promise<SqlQueryResult<LifecycleEventRow>> {
+  try {
+    return await client.query<LifecycleEventRow>(INSERT_SQL, [
+      event.eventId,
+      event.threadId,
+      event.turnId,
+      event.runAttemptId,
+      event.sequence,
+      event.idempotencyKey,
+      event.type,
+      JSON.stringify(event),
+      event.schemaVersion,
+      event.createdAt,
+    ]);
+  } catch (error) {
+    throw mapInsertError(error);
+  }
+}
+
+function mapInsertError(error: unknown): Error {
+  const constraint = readConstraint(error);
+  if (constraint === "canonical_lifecycle_events_pkey") {
+    return new EventStoreError(
+      "event_id_conflict",
+      "Lifecycle event ID already exists",
+    );
+  }
+  if (constraint === "canonical_lifecycle_events_turn_sequence_idx") {
+    return new EventStoreError(
+      "sequence_gap",
+      "Lifecycle sequence already exists",
+    );
+  }
+  if (constraint === "canonical_lifecycle_events_turn_idempotency_idx") {
+    return new EventStoreError(
+      "idempotency_conflict",
+      "Lifecycle idempotency key already exists",
+    );
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function readConstraint(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return null;
+  }
+  return error.code === "23505" &&
+    "constraint" in error &&
+    typeof error.constraint === "string"
+    ? error.constraint
+    : null;
 }
 
 function resolveRetry(
@@ -136,8 +189,18 @@ function validateReplay(input: ReplayLifecycleEventsInput): void {
       "Invalid lifecycle replay limit",
     );
   }
+  if (
+    input.afterSequence !== null &&
+    (!Number.isSafeInteger(input.afterSequence) || input.afterSequence < 0)
+  ) {
+    throw new EventStoreError(
+      "cursor_not_found",
+      "Invalid lifecycle replay sequence",
+    );
+  }
 }
 
+const LOCK_TURN_STREAM_SQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`;
 const READ_IDEMPOTENT_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND idempotency_key = $2`;
 const READ_LAST_SEQUENCE_SQL = `SELECT sequence FROM canonical_lifecycle_events WHERE turn_id = $1 ORDER BY sequence DESC LIMIT 1 FOR UPDATE`;
 const INSERT_SQL = `INSERT INTO canonical_lifecycle_events (event_id, thread_id, turn_id, run_attempt_id, sequence, idempotency_key, event_type, event_json, schema_version, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) RETURNING event_json, sequence`;
