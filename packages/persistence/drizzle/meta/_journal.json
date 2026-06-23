@@ -134,6 +134,20 @@
       "when": 1781011800000,
       "tag": "0019_workspace_manifests_artifact_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782090000000,
+      "tag": "0020_lifecycle_events_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782090100000,
+      "tag": "0021_canonical_workspace_manifest",
+      "breakpoints": true
     }
   ]
 }

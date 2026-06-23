@@ -19,6 +19,7 @@
     "@repo/event-store": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/shared-types": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.16.3"
   },

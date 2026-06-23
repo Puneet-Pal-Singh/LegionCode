@@ -49,6 +49,27 @@ describe("PostgresLifecycleEventStore", () => {
       }),
     ).resolves.toEqual({ events: [event], nextSequence: 1 });
   });
+
+  it("serializes appends before reading an empty turn stream", async () => {
+    const client = new LifecycleSqlClient();
+    const store = new PostgresLifecycleEventStore(client);
+
+    await store.append(sampleEvent());
+
+    expect(client.countStreamLocks()).toBe(1);
+  });
+
+  it("rejects invalid replay cursors with a typed failure", async () => {
+    const store = new PostgresLifecycleEventStore(new LifecycleSqlClient());
+
+    await expect(
+      store.replay({
+        turnId: sampleEvent().turnId,
+        afterSequence: -1,
+        limit: 10,
+      }),
+    ).rejects.toMatchObject({ code: "cursor_not_found" });
+  });
 });
 
 function sampleEvent(): LifecycleEvent {

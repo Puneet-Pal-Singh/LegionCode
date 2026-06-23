@@ -17,6 +17,7 @@ interface ProjectionState {
   thread: Thread | null;
   itemsById: Map<string, ThreadItem>;
   lastCursor: ThreadProjectionSnapshot["lastCursor"] | null;
+  lastProjectionSequence: number;
 }
 
 export function projectThreadEvents(
@@ -27,6 +28,7 @@ export function projectThreadEvents(
     thread: null,
     itemsById: new Map(),
     lastCursor: null,
+    lastProjectionSequence: 0,
   };
 
   for (const input of inputs) {
@@ -50,8 +52,9 @@ function applyProjectionInput(
   threadId: ThreadId,
   input: ThreadProjectionEventInput,
 ): void {
-  validateProjectionInput(threadId, input);
+  validateProjectionInput(threadId, input, state.lastProjectionSequence + 1);
   state.lastCursor = input.event.cursor;
+  state.lastProjectionSequence = input.projectionSequence;
 
   if (isThreadStateEvent(input.event)) {
     state.thread = projectThreadState(input.event, input.projectionSequence);
@@ -68,6 +71,7 @@ function applyProjectionInput(
 function validateProjectionInput(
   threadId: ThreadId,
   input: ThreadProjectionEventInput,
+  expectedSequence: number,
 ): void {
   if (
     !Number.isSafeInteger(input.projectionSequence) ||
@@ -76,6 +80,12 @@ function validateProjectionInput(
     throw new ThreadProjectionError(
       "invalid_projection_sequence",
       "Projection sequence must be a positive safe integer",
+    );
+  }
+  if (input.projectionSequence !== expectedSequence) {
+    throw new ThreadProjectionError(
+      "invalid_projection_sequence",
+      `Projection sequence must be ${expectedSequence}, received ${input.projectionSequence}`,
     );
   }
   if (input.event.threadId !== threadId) {

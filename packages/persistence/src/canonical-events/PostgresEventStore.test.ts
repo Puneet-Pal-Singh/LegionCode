@@ -75,7 +75,9 @@ class CanonicalEventSqlClient implements SqlClient {
     throw new Error(`Unhandled SQL: ${statement}`);
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     const rows = structuredClone(this.rows);
     const sequences = new Map(this.sequences);
     try {
@@ -93,6 +95,15 @@ class CanonicalEventSqlClient implements SqlClient {
 
   readNextSequence(scopeType: string, scopeId: string): number | undefined {
     return this.sequences.get(`${scopeType}:${scopeId}`);
+  }
+
+  removeSequence(scopeType: string, scopeId: string, sequence: number): void {
+    this.rows = this.rows.filter(
+      (row) =>
+        row.scope_type !== scopeType ||
+        row.scope_id !== scopeId ||
+        row.sequence !== sequence,
+    );
   }
 
   private ensureSequence(params: readonly SqlValue[]): void {
@@ -122,9 +133,7 @@ class CanonicalEventSqlClient implements SqlClient {
     return Promise.resolve({ rows: [], rowCount: 1 });
   }
 
-  private findByIdempotency(
-    params: readonly SqlValue[],
-  ): CanonicalEventRow[] {
+  private findByIdempotency(params: readonly SqlValue[]): CanonicalEventRow[] {
     const [scopeType, scopeId, idempotencyKey] = params;
     return this.rows.filter(
       (row) =>
@@ -184,9 +193,9 @@ describe("PostgresEventStore", () => {
     expect(second.sequence).toBe(2);
     expect(replay.events).toEqual([first, second]);
     expect(replay.nextCursor).toBe(second.cursor);
-    expect(client.queries.some((query) => query.statement.includes("FOR UPDATE"))).toBe(
-      true,
-    );
+    expect(
+      client.queries.some((query) => query.statement.includes("FOR UPDATE")),
+    ).toBe(true);
   });
 
   it("returns exact idempotent retries without advancing scope sequence", async () => {
@@ -273,6 +282,18 @@ describe("PostgresEventStore", () => {
         limit: 1,
       }),
     ).rejects.toThrow();
+  });
+
+  it("rejects a corrupted replay sequence with a typed failure", async () => {
+    const client = new CanonicalEventSqlClient();
+    const store = createStore(client);
+    await store.append(createRunEventInput("run:created"));
+    await store.append(createRunEventInput("run:started", "run.started"));
+    client.removeSequence("run", "run_abc123", 1);
+
+    await expect(
+      store.replay({ scope: runScope, afterCursor: null, limit: 10 }),
+    ).rejects.toMatchObject({ code: "corrupt_event_stream" });
   });
 });
 
@@ -408,7 +429,9 @@ function throwUniqueViolation(constraint: string): never {
   throw { code: "23505", constraint };
 }
 
-function rowsResult<Row extends SqlRow>(rows: readonly SqlRow[]): SqlQueryResult<Row> {
+function rowsResult<Row extends SqlRow>(
+  rows: readonly SqlRow[],
+): SqlQueryResult<Row> {
   return { rows: rows as Row[], rowCount: rows.length };
 }
 

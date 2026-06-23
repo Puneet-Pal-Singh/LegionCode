@@ -4,11 +4,16 @@ import type { SqlClient, SqlQueryResult, SqlRow, SqlValue } from "../sql.js";
 export class LifecycleSqlClient implements SqlClient {
   private events: LifecycleEvent[] = [];
   private projections = new Map<string, unknown>();
+  private streamLockCount = 0;
 
   async query<Row extends SqlRow = SqlRow>(
     statement: string,
     params: readonly SqlValue[] = [],
   ): Promise<SqlQueryResult<Row>> {
+    if (statement.includes("pg_advisory_xact_lock")) {
+      this.streamLockCount += 1;
+      return { rows: [], rowCount: 1 };
+    }
     if (statement.includes("idempotency_key = $2"))
       return this.findIdempotent<Row>(params);
     if (statement.includes("ORDER BY sequence DESC"))
@@ -25,6 +30,10 @@ export class LifecycleSqlClient implements SqlClient {
       return rows<Row>(projection ? [{ projection_json: projection }] : []);
     }
     throw new Error(`Unhandled lifecycle SQL: ${statement}`);
+  }
+
+  countStreamLocks(): number {
+    return this.streamLockCount;
   }
 
   async transaction<T>(

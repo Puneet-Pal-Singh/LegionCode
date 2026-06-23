@@ -85,7 +85,9 @@ class ThreadProjectionSqlClient implements SqlClient {
     throw new Error(`Unhandled SQL: ${statement}`);
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     const threads = new Map(this.threads);
     const items = new Map(this.items);
     try {
@@ -178,7 +180,7 @@ describe("PostgresThreadProjectionRepository", () => {
       threadId,
       events: [
         projectionInput(createThreadEvent("thread.created", thread, 1), 1),
-        projectionInput(createItemEvent("item.completed", assistantItem, 3), 3),
+        projectionInput(createItemEvent("item.completed", assistantItem, 2), 2),
       ],
     });
 
