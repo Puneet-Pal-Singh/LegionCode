@@ -7,6 +7,7 @@ import type {
 } from "@repo/shared-types";
 import type { ChatMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import { ChatMessage } from "../ChatMessage";
 import { formatDebugPayload } from "./approvals";
 import {
@@ -38,6 +39,7 @@ interface ChatInterfaceViewProps {
   openPromptArtifactReview: (artifactId: string, messageId?: string) => void;
   terminalViewModel: LifecycleTerminalViewModel | null;
   terminalReviewFiles: FileStatus[];
+  terminalTurnDiff: TurnDiffPayload | null;
   loadArtifactChangedFileDiff: (
     artifactId: string,
     file: FileStatus,
@@ -124,6 +126,7 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
       changedFilesSummary={resolveTerminalChangedFilesSummary({
         terminalViewModel: terminal,
         files: props.terminalReviewFiles,
+        turnDiff: props.terminalTurnDiff,
         loadArtifactFileDiff: props.loadArtifactChangedFileDiff,
         loadFallbackFileDiff: (file) =>
           props.loadChangedFileDiff(terminal.id, file),

@@ -78,11 +78,16 @@ describe("LifecycleProjection", () => {
       lifecycleEvent(1, "approval.requested", {
         itemId: APPROVAL_ITEM_ID,
         approvalId: APPROVAL_ID,
-        payload: { prompt: "Run command?" },
+        payload: {
+          question: "Run command?",
+          options: [{ id: "approved", label: "Approve" }, "Deny"],
+        },
       }),
     );
 
     expect(requested.pendingApproval?.approvalId).toBe(APPROVAL_ID);
+    expect(requested.pendingApproval?.question).toBe("Run command?");
+    expect(requested.pendingApproval?.options).toEqual(["Approve", "Deny"]);
 
     const decided = applyLifecycleEvent(
       requested,
