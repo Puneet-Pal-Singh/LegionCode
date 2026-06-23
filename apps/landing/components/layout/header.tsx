@@ -82,11 +82,10 @@ export default function Header() {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/agents"
-              prefetch={false}
+              href="/cloud"
               className="hidden sm:flex items-center gap-1.5 bg-white hover:bg-neutral-100 text-black px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200"
             >
-              <span>Open Agents</span>
+              <span>Request Access</span>
               <ArrowUpRight className="w-3.5 h-3.5 text-black stroke-[2.5]" />
             </Link>
 
@@ -148,12 +147,11 @@ export default function Header() {
               <span>GitHub</span>
             </a>
             <Link
-              href="/agents"
-              prefetch={false}
+              href="/cloud"
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-center gap-1.5 bg-white text-black py-2.5 rounded-lg text-xs font-semibold hover:bg-neutral-100 transition-colors font-mono"
             >
-              <span>Open Agents</span>
+              <span>Request Access</span>
               <ArrowUpRight className="w-3.5 h-3.5 text-black stroke-[2.5]" />
             </Link>
           </motion.div>

@@ -180,13 +180,13 @@ function DocsActions({ onSearch }: { onSearch: () => void }) {
       >
         <Github className="h-3.5 w-3.5" aria-hidden="true" />
       </a>
-      {/* This exits the docs base path and returns to the product app. */}
+      {/* This exits the docs base path and returns to the Cloud access page. */}
       {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <a
-        href="/agents/"
+        href="/cloud/"
         className="rounded-md bg-white px-3 py-1.5 font-bold text-black hover:bg-zinc-200"
       >
-        Open Agents
+        Request Access
       </a>
     </div>
   );

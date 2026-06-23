@@ -102,11 +102,10 @@ export default function LandingHero() {
         {/* Action CTAs */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-4 w-full sm:w-auto animate-in fade-in slide-in-from-bottom-5 duration-700">
           <Link
-            href="/agents"
-            prefetch={false}
+            href="/cloud"
             className="w-full sm:w-auto flex items-center justify-center gap-2.5 bg-white text-black hover:bg-neutral-100 px-8 py-3.5 rounded-xl font-medium tracking-tight shadow-[0_0_30px_rgba(255,255,255,0.25)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] transition-all duration-300 transform hover:-translate-y-0.5 whitespace-nowrap"
           >
-            <span>Open Cloud Agents</span>
+            <span>Request Cloud Access</span>
             <ArrowUpRight className="w-4 h-4 text-black stroke-[2.5]" />
           </Link>
 

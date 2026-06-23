@@ -20,8 +20,8 @@ test("homepage exposes the product and primary routes", async ({ page }) => {
     }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Open Cloud Agents" }).first(),
-  ).toHaveAttribute("href", "/agents/");
+    page.getByRole("link", { name: "Request Cloud Access" }).first(),
+  ).toHaveAttribute("href", "/cloud/");
   await expect(
     page.getByRole("link", { name: "Star on GitHub" }).first(),
   ).toHaveAttribute(
@@ -76,9 +76,9 @@ test("mobile navigation remains usable and contained", async ({ page }) => {
     "href",
     "/docs/",
   );
-  await expect(mobileNavigation.getByRole("link", { name: "Open Agents" })).toHaveAttribute(
+  await expect(mobileNavigation.getByRole("link", { name: "Request Access" })).toHaveAttribute(
     "href",
-    "/agents/",
+    "/cloud/",
   );
   await expect(page.getByRole("button", { name: "Close navigation" })).toBeFocused();
   await expectNoHorizontalOverflow(page);

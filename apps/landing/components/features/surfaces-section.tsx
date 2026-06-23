@@ -54,11 +54,10 @@ export default function SurfacesSection() {
             </p>
           </div>
           <Link
-            href="/agents"
-            prefetch={false}
+            href="/cloud"
             className="inline-flex items-center gap-2 bg-white hover:bg-neutral-100 text-black px-4.5 py-2.5 rounded-lg text-xs font-semibold tracking-tight transition-all duration-200 mt-auto w-fit group/btn whitespace-nowrap"
           >
-            <span>Open Cloud Agents</span>
+            <span>Request Cloud Access</span>
             <ArrowUpRight className="w-3.5 h-3.5 stroke-[2.5] group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
           </Link>
         </div>
