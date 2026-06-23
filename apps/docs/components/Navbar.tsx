@@ -151,9 +151,17 @@ function SearchDialog({
 function DocsBrand() {
   return (
     <Link href="/overview/" className="flex items-center gap-1.5">
-      <span aria-hidden="true" className="text-white">
-        &lt;|&gt;
-      </span>
+      <svg
+        aria-hidden="true"
+        className="h-5 w-5 text-white"
+        viewBox="0 0 64 64"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path d="M32.5 7 43 3.5 29.5 57 18.5 60.5z" fill="currentColor" />
+        <path d="M21.8 17.7 6.5 30.3 18.2 46.5 23.1 38.4 16.8 31.9 26 24.8z" fill="currentColor" />
+        <path d="M44.3 17.6 58 32.6 40.2 48.2 42.9 38.5 50.5 32 39.6 24.3z" fill="currentColor" />
+      </svg>
       <span className="text-sm font-semibold text-white">
         LegionCode{" "}
         <span className="ml-1 text-[9px] tracking-widest text-zinc-500">

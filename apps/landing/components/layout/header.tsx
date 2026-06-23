@@ -15,34 +15,14 @@ export default function Header() {
         <Link href="/" className="flex items-center gap-2 select-none group">
           <svg
             aria-hidden="true"
-            className="w-8 h-5 text-white group-hover:text-zinc-300 transition-colors"
-            viewBox="0 0 72 32"
+            className="w-7 h-7 text-white group-hover:text-zinc-300 transition-colors"
+            viewBox="0 0 64 64"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            <path
-              d="M18 6L4 16L18 26"
-              stroke="currentColor"
-              strokeWidth="3.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <line
-              x1="36"
-              y1="4"
-              x2="36"
-              y2="28"
-              stroke="currentColor"
-              strokeWidth="3.2"
-              strokeLinecap="round"
-            />
-            <path
-              d="M54 6L68 16L54 26"
-              stroke="currentColor"
-              strokeWidth="3.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <path d="M32.5 7 43 3.5 29.5 57 18.5 60.5z" fill="currentColor" />
+            <path d="M21.8 17.7 6.5 30.3 18.2 46.5 23.1 38.4 16.8 31.9 26 24.8z" fill="currentColor" />
+            <path d="M44.3 17.6 58 32.6 40.2 48.2 42.9 38.5 50.5 32 39.6 24.3z" fill="currentColor" />
           </svg>
           <span className="font-sans font-semibold text-xl tracking-tight text-white ml-0.5">
             LegionCode
