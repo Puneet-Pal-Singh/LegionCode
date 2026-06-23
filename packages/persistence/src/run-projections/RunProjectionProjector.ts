@@ -23,6 +23,7 @@ interface ProjectionState {
   toolCallsById: Map<string, ToolCallProjection>;
   approvalsById: Map<string, ApprovalProjection>;
   lastCursor: RunProjectionSnapshot["lastCursor"] | null;
+  lastProjectionSequence: number;
 }
 
 export function projectRunEvents(
@@ -35,6 +36,7 @@ export function projectRunEvents(
     toolCallsById: new Map(),
     approvalsById: new Map(),
     lastCursor: null,
+    lastProjectionSequence: 0,
   };
 
   for (const input of inputs) {
@@ -60,8 +62,9 @@ function applyProjectionInput(
   runId: RunId,
   input: RunProjectionEventInput,
 ): void {
-  validateProjectionInput(runId, input);
+  validateProjectionInput(runId, input, state.lastProjectionSequence + 1);
   state.lastCursor = input.event.cursor;
+  state.lastProjectionSequence = input.projectionSequence;
 
   if (isRunLifecycleEvent(input.event)) {
     state.run = projectRunState(input.event, input.projectionSequence);
@@ -94,6 +97,7 @@ function applyProjectionInput(
 function validateProjectionInput(
   runId: RunId,
   input: RunProjectionEventInput,
+  expectedSequence: number,
 ): void {
   if (
     !Number.isSafeInteger(input.projectionSequence) ||
@@ -102,6 +106,12 @@ function validateProjectionInput(
     throw new RunProjectionError(
       "invalid_projection_sequence",
       "Projection sequence must be a positive safe integer",
+    );
+  }
+  if (input.projectionSequence !== expectedSequence) {
+    throw new RunProjectionError(
+      "invalid_projection_sequence",
+      `Projection sequence must be ${expectedSequence}, received ${input.projectionSequence}`,
     );
   }
   if (input.event.runId !== runId) {

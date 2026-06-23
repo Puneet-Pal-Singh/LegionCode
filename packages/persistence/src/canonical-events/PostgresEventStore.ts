@@ -88,13 +88,12 @@ export class PostgresEventStore implements EventStore {
     const afterCursor = parseReplayCursor(input.afterCursor);
     validateReplayLimit(input.limit);
     const afterSequence = await this.readAfterSequence(scope, afterCursor);
-    const result = await this.client.query<CanonicalEventRow>(REPLAY_EVENTS_SQL, [
-      scope.scopeType,
-      scope.scopeId,
-      afterSequence,
-      input.limit,
-    ]);
+    const result = await this.client.query<CanonicalEventRow>(
+      REPLAY_EVENTS_SQL,
+      [scope.scopeType, scope.scopeId, afterSequence, input.limit],
+    );
     const events = result.rows.map(mapCanonicalEventRow);
+    assertReplayContinuity(events, afterSequence);
     return {
       events,
       nextCursor: events.at(-1)?.cursor ?? null,
@@ -144,6 +143,21 @@ export class PostgresEventStore implements EventStore {
   }
 }
 
+function assertReplayContinuity(
+  events: readonly PlatformEvent[],
+  afterSequence: number,
+): void {
+  for (const [index, event] of events.entries()) {
+    const expected = afterSequence + index + 1;
+    if (event.sequence !== expected) {
+      throw new EventStoreError(
+        "corrupt_event_stream",
+        `Canonical replay expected sequence ${expected}, received ${event.sequence}`,
+      );
+    }
+  }
+}
+
 async function ensureScopeSequence(
   client: SqlClient,
   scope: EventScope,
@@ -177,11 +191,10 @@ async function advanceScopeSequence(
   scope: EventScope,
   sequence: number,
 ): Promise<void> {
-  const result = await client.query(ADVANCE_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL, [
-    scope.scopeType,
-    scope.scopeId,
-    sequence,
-  ]);
+  const result = await client.query(
+    ADVANCE_CANONICAL_EVENT_SCOPE_SEQUENCE_SQL,
+    [scope.scopeType, scope.scopeId, sequence],
+  );
   if (result.rowCount !== 1) {
     throw new EventStoreError(
       "cursor_conflict",
@@ -194,11 +207,10 @@ async function findExistingIdempotentEvent(
   client: SqlClient,
   input: AppendEventInput,
 ): Promise<PlatformEvent | null> {
-  const result = await client.query<CanonicalEventRow>(READ_IDEMPOTENT_EVENT_SQL, [
-    input.scopeType,
-    input.scopeId,
-    input.idempotencyKey,
-  ]);
+  const result = await client.query<CanonicalEventRow>(
+    READ_IDEMPOTENT_EVENT_SQL,
+    [input.scopeType, input.scopeId, input.idempotencyKey],
+  );
   const row = result.rows[0];
   return row ? mapCanonicalEventRow(row) : null;
 }
@@ -260,7 +272,9 @@ async function insertEvent(
     ]);
     const row = result.rows[0];
     if (!row) {
-      throw new Error(`Canonical event insert returned no row: ${event.eventId}`);
+      throw new Error(
+        `Canonical event insert returned no row: ${event.eventId}`,
+      );
     }
     return mapCanonicalEventRow(row);
   } catch (error) {
@@ -274,7 +288,10 @@ function mapInsertError(error: unknown): Error {
     return new EventStoreError("event_id_conflict", "Event ID already exists");
   }
   if (constraint === "canonical_events_cursor_unique") {
-    return new EventStoreError("cursor_conflict", "Event cursor already exists");
+    return new EventStoreError(
+      "cursor_conflict",
+      "Event cursor already exists",
+    );
   }
   if (constraint === "canonical_events_scope_idempotency_idx") {
     return new EventStoreError(
@@ -326,7 +343,9 @@ function toAppendInput(event: PlatformEvent): AppendEventInput {
   return input;
 }
 
-function parseReplayCursor(afterCursor: EventCursor | null): EventCursor | null {
+function parseReplayCursor(
+  afterCursor: EventCursor | null,
+): EventCursor | null {
   if (afterCursor === null) {
     return null;
   }

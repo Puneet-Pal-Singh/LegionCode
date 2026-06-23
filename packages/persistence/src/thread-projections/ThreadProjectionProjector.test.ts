@@ -107,6 +107,17 @@ describe("ThreadProjectionProjector", () => {
     ).toThrow(ThreadProjectionError);
   });
 
+  it("rejects projection sequence gaps and out-of-order inputs", () => {
+    expect(() =>
+      projectThreadEvents(threadId, [
+        projectionInput(createThreadEvent("thread.created", thread, 1), 1),
+        projectionInput(createItemEvent("item.completed", userItem, 3), 3),
+      ]),
+    ).toThrowError(
+      expect.objectContaining({ code: "invalid_projection_sequence" }),
+    );
+  });
+
   it("returns null when replay has no thread state event", () => {
     const snapshot = projectThreadEvents(threadId, [
       projectionInput(createItemEvent("item.completed", userItem, 1), 1),
@@ -116,10 +127,7 @@ describe("ThreadProjectionProjector", () => {
   });
 });
 
-function projectionInput(
-  event: PlatformEvent,
-  projectionSequence: number,
-) {
+function projectionInput(event: PlatformEvent, projectionSequence: number) {
   return { event, projectionSequence };
 }
 
