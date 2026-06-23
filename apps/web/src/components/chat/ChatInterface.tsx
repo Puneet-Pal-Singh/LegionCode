@@ -7,6 +7,7 @@ import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
+import { useTurnLifecycleProjection } from "../../hooks/useTurnLifecycleProjection.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
@@ -131,6 +132,10 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, activeRunLoading);
+  const { projection: lifecycleProjection } = useTurnLifecycleProjection(
+    runId,
+    activeRunLoading,
+  );
   const {
     pendingApproval,
     decisions: displayedApprovalDecisions,
@@ -263,7 +268,11 @@ export function ChatInterface({
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
+    lifecycleProjection,
   });
+  const showThinking = lifecycleProjection
+    ? lifecycleProjection.activeThinking
+    : activeRunLoading && !activeInlineTurn;
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
       key={turn.key}
@@ -365,7 +374,7 @@ export function ChatInterface({
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalReviewFiles}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
-      showThinking={activeRunLoading && !activeInlineTurn}
+      showThinking={showThinking}
       workflowDebug={
         SHOW_WORKFLOW_DEBUG_PANEL ? (
           <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">
