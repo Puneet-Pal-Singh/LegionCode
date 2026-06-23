@@ -1,13 +1,16 @@
 import type { FileStatus } from "@repo/shared-types";
-import type { RunTerminalViewModel } from "../workflow/RunTerminalViewModel";
 import type {
   LifecycleProjection,
   LifecycleProjectionTerminalState,
 } from "./LifecycleProjection";
+import type {
+  LifecycleTerminalDisplayState,
+  LifecycleTerminalViewModel,
+} from "./LifecycleTerminalTypes";
 
 export function buildLifecycleTerminalViewModel(
   projection: LifecycleProjection | null,
-): RunTerminalViewModel | null {
+): LifecycleTerminalViewModel | null {
   if (!projection?.terminal) {
     return null;
   }
@@ -39,7 +42,7 @@ export function collectLifecycleTurnDiffFiles(
 
 function mapTerminalState(
   state: LifecycleProjectionTerminalState,
-): RunTerminalViewModel["state"] {
+): LifecycleTerminalDisplayState {
   switch (state) {
     case "completed":
       return "completed";

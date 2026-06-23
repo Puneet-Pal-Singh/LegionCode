@@ -3,7 +3,7 @@ import type {
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import type { RunTerminalViewModel } from "../../../services/workflow/RunTerminalViewModel.js";
+import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 
 export function resolveChangedFilesSummary(input: {
   messageId: string;
@@ -87,7 +87,7 @@ export function buildArtifactChangedFileDiffCacheKey(
 }
 
 export function resolveTerminalChangedFilesSummary(input: {
-  terminalViewModel: RunTerminalViewModel;
+  terminalViewModel: LifecycleTerminalViewModel;
   files: FileStatus[];
   loadArtifactFileDiff: (
     artifactId: string,

@@ -160,34 +160,25 @@ describe("GitReviewProvider", () => {
     );
   });
 
-  it("uses saved edit files when live git status is empty", async () => {
+  it("keeps live git empty until saved edit files are explicitly selected", () => {
     mockGitStatusState.status = buildGitStatus([]);
     mockArtifactState.source = buildArtifactSource();
 
-    const view = render(
+    render(
       <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
 
-    expect(screen.getByTestId("review-scope")).toHaveTextContent(
-      "prompt-artifact",
-    );
+    expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
     expect(screen.getByTestId("review-source")).toHaveTextContent(
-      "prompt_artifact:live_git_empty_fallback",
+      "live_git:empty",
     );
-    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
-
-    await waitFor(() => {
-      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
-    });
-    view.rerender(
-      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
-        <ReviewSourceProbe />
-      </GitReviewProvider>,
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
     );
-
-    expect(mockFetchArtifactDiff).toHaveBeenCalledTimes(1);
+    expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
   });
 
@@ -200,11 +191,6 @@ describe("GitReviewProvider", () => {
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
-
-    await waitFor(() => {
-      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
-    });
-    mockFetchArtifactDiff.mockClear();
 
     fireEvent.click(screen.getByRole("button", { name: "select live git" }));
     fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
@@ -249,7 +235,7 @@ describe("GitReviewProvider", () => {
     expect(screen.getByTestId("review-files")).toHaveTextContent("none");
   });
 
-  it("loads review sources while the sidebar review surface is active", () => {
+  it("does not load saved edit fallback while the sidebar review surface is active", () => {
     mockGitStatusState.status = buildGitStatus([]);
     mockArtifactState.source = buildArtifactSource();
     mockArtifactState.resolved = true;
@@ -268,9 +254,9 @@ describe("GitReviewProvider", () => {
       expect.objectContaining({ enabled: true }),
     );
     expect(latestArtifactHookInput()).toEqual(
-      expect.objectContaining({ enabled: true }),
+      expect.objectContaining({ enabled: false }),
     );
-    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
   });
 
   it("loads an explicit saved edit selection even when live git has files", () => {
@@ -297,7 +283,7 @@ describe("GitReviewProvider", () => {
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
   });
 
-  it("starts saved edit lookup before live git status resolves empty", () => {
+  it("does not start saved edit lookup before live git status resolves empty", () => {
     mockGitStatusState.status = null;
     mockGitStatusState.loading = true;
     mockArtifactState.loading = false;
@@ -310,10 +296,10 @@ describe("GitReviewProvider", () => {
     );
 
     expect(latestArtifactHookInput()).toEqual(
-      expect.objectContaining({ enabled: true }),
+      expect.objectContaining({ enabled: false }),
     );
     expect(screen.getByTestId("review-source-loading")).toHaveTextContent(
-      "loading",
+      "idle",
     );
   });
 

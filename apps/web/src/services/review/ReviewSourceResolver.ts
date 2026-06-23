@@ -30,8 +30,8 @@ export type ReviewSourceSelection =
       kind: "prompt_artifact";
       artifactId: string;
       assistantMessageId?: string;
-      /** Tracks whether a saved edit was explicitly requested, opened from chat, or selected as fallback. */
-      reason: "explicit" | "chat_artifact" | "live_git_empty_fallback";
+      /** Tracks whether a saved edit was explicitly requested or opened from chat. */
+      reason: "explicit" | "chat_artifact";
     };
 
 export interface OpenedReviewArtifact {
@@ -70,13 +70,6 @@ export function resolveReviewSource(
     return { kind: "live_git", reason: "live_git_has_changes" };
   }
 
-  if (hasArtifactFiles(input.latestArtifactSource)) {
-    return toSavedEditSelection(
-      input.latestArtifactSource,
-      "live_git_empty_fallback",
-    );
-  }
-
   return { kind: "live_git", reason: "empty" };
 }
 
@@ -97,12 +90,6 @@ function resolveExplicitSavedEdit(
   }
 
   return { kind: "live_git", reason: "empty" };
-}
-
-function hasArtifactFiles(
-  source: PromptArtifactReviewSource | null,
-): source is PromptArtifactReviewSource {
-  return Boolean(source && source.files.length > 0);
 }
 
 function toSavedEditSelection(
