@@ -7,6 +7,7 @@ export {
   type LifecycleContinuationFixture,
   type LifecycleContinuationScenario,
 } from "./lifecycle-continuation.js";
+export { registerLifecycleGoldenMatrixConformance } from "./lifecycle-golden-matrix.js";
 export { registerLifecycleSettlementConformance } from "./lifecycle.js";
 export { registerPlatformTransportConformance } from "./platform-transport.js";
 export { registerWorkerProtocolConformance } from "./worker-protocol.js";
