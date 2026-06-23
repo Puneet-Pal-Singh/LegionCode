@@ -53,9 +53,6 @@ export class RunController {
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId")?.trim();
-      const requestedBackend = parseRequestedBackend(
-        url.searchParams.get("backend"),
-      );
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
@@ -82,12 +79,7 @@ export class RunController {
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      const runtimeSummary = await fetchRunSummaryFromRuntimeBestEffort(
-        env,
-        runId,
-        requestedBackend,
-      );
-      return jsonResponse(req, env, mergeRunSummary(summary, runtimeSummary));
+      return jsonResponse(req, env, summary);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
         return errorResponse(req, env, error.message, 503);
@@ -476,62 +468,6 @@ function resolvePostgresNextAction(terminalState: string): string {
   }
 }
 
-function mergeRunSummary(
-  postgresSummary: RunSummaryResponse,
-  runtimeSummary: RunSummaryResponse | null,
-): RunSummaryResponse {
-  if (!runtimeSummary) {
-    return postgresSummary;
-  }
-
-  if (
-    isTerminalSummaryStatus(postgresSummary.status) &&
-    !isTerminalSummaryStatus(runtimeSummary.status)
-  ) {
-    return {
-      ...postgresSummary,
-      terminalState:
-        runtimeSummary.terminalState ?? postgresSummary.terminalState,
-      terminalMessage:
-        runtimeSummary.terminalMessage ?? postgresSummary.terminalMessage,
-      permissionContext: runtimeSummary.permissionContext,
-      pendingApproval: runtimeSummary.pendingApproval,
-    };
-  }
-
-  return {
-    ...postgresSummary,
-    status: runtimeSummary.status ?? postgresSummary.status,
-    totalTasks: runtimeSummary.totalTasks ?? postgresSummary.totalTasks,
-    completedTasks:
-      runtimeSummary.completedTasks ?? postgresSummary.completedTasks,
-    failedTasks: runtimeSummary.failedTasks ?? postgresSummary.failedTasks,
-    runningTasks: runtimeSummary.runningTasks ?? postgresSummary.runningTasks,
-    pendingTasks: runtimeSummary.pendingTasks ?? postgresSummary.pendingTasks,
-    cancelledTasks:
-      runtimeSummary.cancelledTasks ?? postgresSummary.cancelledTasks,
-    eventCount: runtimeSummary.eventCount ?? postgresSummary.eventCount,
-    lastEventType:
-      runtimeSummary.lastEventType ?? postgresSummary.lastEventType,
-    terminalState:
-      runtimeSummary.terminalState ?? postgresSummary.terminalState,
-    terminalMessage:
-      runtimeSummary.terminalMessage ?? postgresSummary.terminalMessage,
-    permissionContext: runtimeSummary.permissionContext,
-    pendingApproval: runtimeSummary.pendingApproval,
-  };
-}
-
-function isTerminalSummaryStatus(status: string | null): boolean {
-  const normalized = status?.trim().toLowerCase();
-  return (
-    normalized === "completed" ||
-    normalized === "complete" ||
-    normalized === "failed" ||
-    normalized === "cancelled"
-  );
-}
-
 async function verifyRunOwnership(
   env: Env,
   runId: string,
@@ -541,39 +477,6 @@ async function verifyRunOwnership(
     const run = await repo.getRun(runId, userId);
     return run !== null;
   });
-}
-
-async function fetchRunSummaryFromRuntime(
-  env: Env,
-  runId: string,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<Response> {
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
-    method: "GET",
-    path: `/summary?runId=${encodeURIComponent(runId)}`,
-  });
-}
-
-async function fetchRunSummaryFromRuntimeBestEffort(
-  env: Env,
-  runId: string,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<RunSummaryResponse | null> {
-  try {
-    const response = await fetchRunSummaryFromRuntime(
-      env,
-      runId,
-      requestedBackend,
-    );
-    if (!response.ok) return null;
-    return (await response.json()) as RunSummaryResponse;
-  } catch (error) {
-    console.warn(
-      "[RunController:getSummary] Runtime summary overlay failed:",
-      extractErrorMessage(error),
-    );
-    return null;
-  }
 }
 
 async function fetchRunCancelFromRuntime(

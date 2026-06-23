@@ -133,15 +133,7 @@ describe("RunController", () => {
       env,
     );
 
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      run.id,
-      "execution-engine-v1",
-      {
-        method: "GET",
-        path: `/summary?runId=${encodeURIComponent(run.id)}`,
-      },
-    );
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       runId: run.id,
       status: "completed",
@@ -161,7 +153,7 @@ describe("RunController", () => {
     });
   });
 
-  it("overlays default run summary with live runtime terminal status", async () => {
+  it("does not overlay persisted run summary with live runtime terminal status", async () => {
     const env = {} as Env;
     const run = {
       id: "123e4567-e89b-42d3-a456-426614174100",
@@ -199,12 +191,13 @@ describe("RunController", () => {
       env,
     );
 
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       runId: run.id,
-      status: "COMPLETED",
-      completedTasks: 1,
-      runningTasks: 0,
-      lastEventType: "run.completed",
+      status: "running",
+      completedTasks: 0,
+      runningTasks: 1,
+      lastEventType: null,
     });
   });
 
@@ -244,6 +237,7 @@ describe("RunController", () => {
       env,
     );
 
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       runId: run.id,
       status: "completed",
