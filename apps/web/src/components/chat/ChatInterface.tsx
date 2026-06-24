@@ -109,7 +109,12 @@ export function ChatInterface({
     Record<string, boolean>
   >({});
 
+  const { projection: lifecycleProjection } = useTurnLifecycleProjection(
+    runId,
+    true,
+  );
   const { summary } = useRunSummary(runId, isLoading);
+  const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
   const isTerminalSummarySettled = Boolean(
     summary?.status &&
     isTerminalRunStatus(summary.status) &&
@@ -121,7 +126,9 @@ export function ChatInterface({
     isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
     Boolean(summary?.pendingApproval);
   const activeRunLoading =
-    !isTerminalSummarySettled && (isLoading || isCanonicalRunActive);
+    !isLifecycleTerminalSettled &&
+    !isTerminalSummarySettled &&
+    (isLoading || isCanonicalRunActive);
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -132,10 +139,6 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, activeRunLoading);
-  const { projection: lifecycleProjection } = useTurnLifecycleProjection(
-    runId,
-    activeRunLoading,
-  );
   const {
     pendingApproval,
     decisions: displayedApprovalDecisions,
@@ -145,9 +148,7 @@ export function ChatInterface({
     isResolutionPending: isApprovalResolutionPending,
     resolve: resolveApprovalDecision,
   } = useApprovalController({
-    runId,
-    summary,
-    events,
+    lifecycleProjection,
     onPendingApprovalChange,
   });
   const { feed } = useRunActivityFeed(runId, activeRunLoading);
@@ -373,6 +374,7 @@ export function ChatInterface({
       openPromptArtifactReview={openPromptArtifactReview}
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalReviewFiles}
+      terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
       showThinking={showThinking}
       workflowDebug={
