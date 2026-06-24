@@ -1,84 +1,70 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
+import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
+import {
+  createLifecycleClient,
+  type LifecycleClient,
+} from "../../../services/api/lifecycleClient";
 import type {
-  ApprovalDecisionKind,
-  ApprovalRequest,
-  RunEvent,
-} from "@repo/shared-types";
-import {
-  isApprovalRequiredRunStatus,
-  isTerminalRunStatus,
-} from "../../../lib/run-status.js";
-import { dispatchRunSummaryRefresh } from "../../../lib/run-summary-events.js";
+  LifecycleProjection,
+  LifecycleProjectionApproval,
+} from "../../../services/lifecycle/LifecycleProjection";
 import { getDisplayedApprovalDecisions } from "../approval/approvalDecisions.js";
-import {
-  derivePendingApprovalFromEvents,
-  fetchLatestPendingApproval,
-  isNoPendingApprovalError,
-  readApprovalErrorMessage,
-  submitApprovalDecision,
-} from "./approvals";
 
 const APPROVAL_NOTICE_CLEAR_DELAY_MS = 5_000;
-type ApprovalNotice = { kind: "resolved" | "stale"; requestId: string } | null;
-
-interface ApprovalSummary {
-  status: string | null;
-  pendingApproval?: ApprovalRequest | null;
-}
+type ApprovalNotice = { kind: "resolved"; requestId: string } | null;
 
 interface ApprovalControllerInput {
-  runId: string;
-  summary: ApprovalSummary | null;
-  events: RunEvent[];
+  lifecycleProjection: LifecycleProjection | null;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
+  lifecycleClient?: LifecycleClient;
 }
 
 export function useApprovalController(input: ApprovalControllerInput) {
+  const lifecycleClient = useMemo(
+    () => input.lifecycleClient ?? createLifecycleClient(),
+    [input.lifecycleClient],
+  );
   const [busyDecision, setBusyDecision] = useState<ApprovalDecisionKind | null>(
     null,
   );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ApprovalNotice>(null);
-  const [dismissed, setDismissed] = useState<{
-    requestId: string;
-    createdAt: string;
-  } | null>(null);
   const submittingRef = useRef(false);
-  const eventApproval = useMemo(
-    () => derivePendingApprovalFromEvents(input.events),
-    [input.events],
+  const pendingApproval = useMemo(
+    () => buildApprovalRequest(input.lifecycleProjection),
+    [input.lifecycleProjection],
   );
-  const candidate = useMemo(
-    () => resolveApprovalCandidate(input.summary, eventApproval),
-    [eventApproval, input.summary],
-  );
-  const pendingApproval =
-    candidate && !isSameApproval(candidate, dismissed) ? candidate : null;
 
   useApprovalLifecycle(
-    candidate,
     pendingApproval,
-    dismissed,
     notice,
     input.onPendingApprovalChange,
-    setDismissed,
     setNotice,
     setError,
   );
+
   const resolve = useCallback(
     (decision: ApprovalDecisionKind) =>
       resolveDecision({
-        ...input,
         decision,
-        eventApproval,
-        dismissed,
+        lifecycleClient,
+        projection: input.lifecycleProjection,
+        pendingApproval,
         submittingRef,
         setBusyDecision,
         setError,
         setNotice,
-        setDismissed,
       }),
-    [dismissed, eventApproval, input],
+    [input.lifecycleProjection, lifecycleClient, pendingApproval],
   );
 
   return {
@@ -94,41 +80,48 @@ export function useApprovalController(input: ApprovalControllerInput) {
   };
 }
 
-function resolveApprovalCandidate(
-  summary: ApprovalSummary | null,
-  eventApproval: ApprovalRequest | null,
+function buildApprovalRequest(
+  projection: LifecycleProjection | null,
 ): ApprovalRequest | null {
-  if (!summary) return eventApproval;
-  if (summary.pendingApproval) return summary.pendingApproval;
-  const terminal = isTerminalRunStatus(summary.status);
-  const waiting = isApprovalRequiredRunStatus(summary.status);
-  return terminal && !waiting ? null : eventApproval;
+  const approval = projection?.pendingApproval;
+  if (!projection || !approval || approval.decision) {
+    return null;
+  }
+  return {
+    requestId: approval.approvalId,
+    runId: projection.turnId,
+    turnId: projection.turnId,
+    itemId: approval.itemId,
+    origin: "agent",
+    category: "shell_command",
+    title: approval.question,
+    reason: approval.question,
+    actionFingerprint: `${projection.turnId}:${approval.approvalId}`,
+    availableDecisions: getCanonicalApprovalDecisions(approval),
+    createdAt: approval.requestedAt,
+  };
+}
+
+function getCanonicalApprovalDecisions(
+  approval: LifecycleProjectionApproval,
+): ApprovalDecisionKind[] {
+  const optionText = approval.options.join(" ").toLowerCase();
+  if (optionText.includes("cancel") || optionText.includes("abort")) {
+    return ["allow_once", "deny", "abort"];
+  }
+  return ["allow_once", "deny"];
 }
 
 function useApprovalLifecycle(
-  candidate: ApprovalRequest | null,
   pending: ApprovalRequest | null,
-  dismissed: { requestId: string; createdAt: string } | null,
   notice: ApprovalNotice,
   onPendingChange: ApprovalControllerInput["onPendingApprovalChange"],
-  setDismissed: React.Dispatch<
-    React.SetStateAction<{ requestId: string; createdAt: string } | null>
-  >,
-  setNotice: React.Dispatch<React.SetStateAction<ApprovalNotice>>,
-  setError: React.Dispatch<React.SetStateAction<string | null>>,
+  setNotice: Dispatch<SetStateAction<ApprovalNotice>>,
+  setError: Dispatch<SetStateAction<string | null>>,
 ) {
   useEffect(() => {
-    if (!candidate) {
-      setDismissed(null);
-      setNotice(null);
-      return;
-    }
-    if (dismissed && !isSameApproval(candidate, dismissed)) {
-      setDismissed(null);
-      setError(null);
-    }
-    if (notice && candidate.requestId !== notice.requestId) setNotice(null);
-  }, [candidate, dismissed, notice, setDismissed, setError, setNotice]);
+    setError(null);
+  }, [pending?.requestId, setError]);
   useEffect(() => {
     if (!notice) return;
     const timeoutId = window.setTimeout(
@@ -149,31 +142,44 @@ function useApprovalLifecycle(
   );
 }
 
-interface ResolveDecisionInput extends ApprovalControllerInput {
-  decision: ApprovalDecisionKind;
-  eventApproval: ApprovalRequest | null;
-  dismissed: { requestId: string; createdAt: string } | null;
-  submittingRef: React.MutableRefObject<boolean>;
-  setBusyDecision: React.Dispatch<
-    React.SetStateAction<ApprovalDecisionKind | null>
+interface ResolveDecisionInput {
+  readonly decision: ApprovalDecisionKind;
+  readonly lifecycleClient: LifecycleClient;
+  readonly projection: LifecycleProjection | null;
+  readonly pendingApproval: ApprovalRequest | null;
+  readonly submittingRef: MutableRefObject<boolean>;
+  readonly setBusyDecision: Dispatch<
+    SetStateAction<ApprovalDecisionKind | null>
   >;
-  setError: React.Dispatch<React.SetStateAction<string | null>>;
-  setNotice: React.Dispatch<React.SetStateAction<ApprovalNotice>>;
-  setDismissed: React.Dispatch<
-    React.SetStateAction<{ requestId: string; createdAt: string } | null>
-  >;
+  readonly setError: Dispatch<SetStateAction<string | null>>;
+  readonly setNotice: Dispatch<SetStateAction<ApprovalNotice>>;
 }
 
 async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
-  if (input.submittingRef.current) return;
-  const pending = input.summary?.pendingApproval ?? input.eventApproval;
-  if (!pending || isSameApproval(pending, input.dismissed)) return;
+  const canonicalApproval = input.projection?.pendingApproval;
+  if (
+    input.submittingRef.current ||
+    !input.pendingApproval ||
+    !input.projection ||
+    !canonicalApproval
+  )
+    return;
   input.submittingRef.current = true;
   input.setBusyDecision(input.decision);
   input.setError(null);
   input.setNotice(null);
   try {
-    await submitOrRecover(input, pending);
+    await input.lifecycleClient.submitApproval({
+      turnId: input.projection.turnId,
+      approvalId: canonicalApproval.approvalId,
+      decision: mapApprovalDecision(input.decision),
+      decidedBy: null,
+      reason: null,
+    });
+    input.setNotice({
+      kind: "resolved",
+      requestId: input.pendingApproval.requestId,
+    });
   } catch (error) {
     input.setNotice(null);
     input.setError(
@@ -187,88 +193,21 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   }
 }
 
-async function submitOrRecover(
-  input: ResolveDecisionInput,
-  pending: ApprovalRequest,
-): Promise<void> {
-  const response = await submitApprovalDecision({
-    runId: input.runId,
-    requestId: pending.requestId,
-    decision: input.decision,
-  });
-  if (response.ok) {
-    markResolved(input, pending.requestId);
-    return;
+function mapApprovalDecision(
+  decision: ApprovalDecisionKind,
+): "approved" | "denied" | "cancelled" {
+  switch (decision) {
+    case "deny":
+      return "denied";
+    case "abort":
+      return "cancelled";
+    case "allow_once":
+    case "allow_for_run":
+    case "allow_persistent_rule":
+      return "approved";
   }
-  const message = await readApprovalErrorMessage(response);
-  if (response.status !== 409 && !isNoPendingApprovalError(message))
-    throw new Error(
-      message || `Failed to resolve approval (${response.status})`,
-    );
-  const latest = await fetchLatestPendingApproval(input.runId);
-  if (
-    latest &&
-    latest.requestId !== pending.requestId &&
-    latest.availableDecisions.includes(input.decision)
-  ) {
-    await retryLatestApproval(input, latest);
-    return;
-  }
-  markStale(input, pending);
-}
-
-async function retryLatestApproval(
-  input: ResolveDecisionInput,
-  latest: ApprovalRequest,
-): Promise<void> {
-  const response = await submitApprovalDecision({
-    runId: input.runId,
-    requestId: latest.requestId,
-    decision: input.decision,
-  });
-  if (response.ok) {
-    markResolved(input, latest.requestId);
-    return;
-  }
-  const message = await readApprovalErrorMessage(response);
-  if (response.status === 409 || isNoPendingApprovalError(message)) {
-    markStale(input, latest);
-    return;
-  }
-  throw new Error(message || `Failed to resolve approval (${response.status})`);
-}
-
-function markResolved(input: ResolveDecisionInput, requestId: string): void {
-  input.setNotice({ kind: "resolved", requestId });
-  dispatchRunSummaryRefresh(input.runId);
-}
-
-function markStale(
-  input: ResolveDecisionInput,
-  request: ApprovalRequest,
-): void {
-  input.setDismissed({
-    requestId: request.requestId,
-    createdAt: request.createdAt,
-  });
-  input.setNotice({ kind: "stale", requestId: request.requestId });
-  dispatchRunSummaryRefresh(input.runId);
-}
-
-function isSameApproval(
-  request: ApprovalRequest,
-  other: { requestId: string; createdAt: string } | null,
-): boolean {
-  return Boolean(
-    other &&
-    request.requestId === other.requestId &&
-    request.createdAt === other.createdAt,
-  );
 }
 
 function getApprovalNoticeText(notice: ApprovalNotice): string | null {
-  if (!notice) return null;
-  return notice.kind === "resolved"
-    ? "Approval recorded. Continuing..."
-    : "Approval request is no longer pending.";
+  return notice ? "Approval recorded. Continuing..." : null;
 }

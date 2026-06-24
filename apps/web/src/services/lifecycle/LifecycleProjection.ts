@@ -31,6 +31,8 @@ export interface LifecycleProjectionItem {
 export interface LifecycleProjectionApproval {
   readonly approvalId: ApprovalId;
   readonly itemId: ItemId;
+  readonly question: string;
+  readonly options: readonly string[];
   readonly requestedAt: string;
   readonly decidedAt: string | null;
   readonly decision: string | null;
@@ -206,6 +208,8 @@ function requestApproval(
     pendingApproval: {
       approvalId: event.approvalId,
       itemId: event.itemId,
+      question: readString(event.payload, "question") ?? "Approval requested.",
+      options: readStringArray(event.payload, "options"),
       requestedAt: event.createdAt,
       decidedAt: null,
       decision: null,
@@ -354,4 +358,26 @@ function readString(
 ): string | null {
   const value = payload[key];
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readStringArray(
+  payload: Record<string, unknown>,
+  key: string,
+): readonly string[] {
+  const value = payload[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      if (typeof entry === "string") {
+        return entry.trim();
+      }
+      if (entry && typeof entry === "object" && "label" in entry) {
+        const label = (entry as { readonly label?: unknown }).label;
+        return typeof label === "string" ? label.trim() : "";
+      }
+      return "";
+    })
+    .filter(Boolean);
 }

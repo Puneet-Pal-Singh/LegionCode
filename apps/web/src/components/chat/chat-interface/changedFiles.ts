@@ -4,6 +4,8 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
+import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 
 export function resolveChangedFilesSummary(input: {
   messageId: string;
@@ -89,11 +91,11 @@ export function buildArtifactChangedFileDiffCacheKey(
 export function resolveTerminalChangedFilesSummary(input: {
   terminalViewModel: LifecycleTerminalViewModel;
   files: FileStatus[];
+  turnDiff: TurnDiffPayload | null;
   loadArtifactFileDiff: (
     artifactId: string,
     file: FileStatus,
   ) => Promise<DiffContent>;
-  loadFallbackFileDiff: (file: FileStatus) => Promise<DiffContent>;
   onPromptArtifactReview: (artifactId: string) => void;
   onReviewOpen?: () => void;
 }):
@@ -118,9 +120,23 @@ export function resolveTerminalChangedFilesSummary(input: {
 
   return {
     files: input.files,
-    loadFileDiff: input.loadFallbackFileDiff,
+    loadFileDiff: (file) => loadTurnDiffFile(input, file),
     onReviewOpen: input.onReviewOpen,
   };
+}
+
+async function loadTurnDiffFile(
+  input: Parameters<typeof resolveTerminalChangedFilesSummary>[0],
+  file: FileStatus,
+): Promise<DiffContent> {
+  if (!input.turnDiff) {
+    throw new Error(`Canonical turn diff is required to render ${file.path}`);
+  }
+  const diff = buildDiffContentFromTurnDiff(input.turnDiff, file.path);
+  if (!diff) {
+    throw new Error(`Canonical turn diff is missing ${file.path}`);
+  }
+  return diff;
 }
 
 export function buildDiffFromActivityPreview(

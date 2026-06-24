@@ -4,7 +4,6 @@ import type { Message } from "@ai-sdk/react";
 import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 import { ChatInterface } from "./ChatInterface.js";
-import { runApprovalPath } from "../../lib/platform-endpoints.js";
 import type { ReviewCommentDraft } from "../git/reviewComments.js";
 
 const mockChatInputBar = vi.hoisted(() =>
@@ -73,6 +72,23 @@ const mockGetEditArtifactDiff = vi.hoisted(() =>
 const mockGetEditArtifactReviewSourceByMessage = vi.hoisted(() =>
   vi.fn(async () => null),
 );
+const mockSubmitLifecycleApproval = vi.hoisted(() =>
+  vi.fn(async () => ({
+    eventId: "evt_approval_decided",
+    threadId: "thr_test001",
+    turnId: "trn_test001",
+    runAttemptId: "attempt_test001",
+    sequence: 2,
+    idempotencyKey: "approval.decided.2",
+    producer: { kind: "runtime_kernel", id: "web-test" },
+    schemaVersion: 1,
+    createdAt: "2026-01-01T00:00:01.000Z",
+    itemId: "itm_approval001",
+    approvalId: "appr_test001",
+    type: "approval.decided",
+    payload: { decision: "approved" },
+  })),
+);
 
 vi.mock("./ChatInputBar.js", () => ({
   ChatInputBar: (props: unknown) => mockChatInputBar(props),
@@ -138,6 +154,16 @@ vi.mock("../../lib/edit-artifacts-client.js", () => ({
     mockGetEditArtifactReviewSourceByMessage(),
 }));
 
+vi.mock("../../services/api/lifecycleClient.js", () => ({
+  createLifecycleClient: () => ({
+    startTurn: vi.fn(),
+    followTurnLifecycle: vi.fn(),
+    submitApproval: mockSubmitLifecycleApproval,
+    submitUserInputResponse: vi.fn(),
+    getTurnDiff: vi.fn(),
+  }),
+}));
+
 const mockDispatchRunSummaryRefresh = vi.fn();
 vi.mock("../../lib/run-summary-events.js", () => ({
   RUN_SUMMARY_REFRESH_EVENT: "shadowbox:run-summary:refresh",
@@ -196,8 +222,53 @@ function buildTerminalProjection(turnId: string): LifecycleProjection {
           previousPath: null,
         },
       ],
-      patch: "diff --git a/src/components/Hero.tsx b/src/components/Hero.tsx\n",
+      patch: `diff --git a/src/components/Hero.tsx b/src/components/Hero.tsx
+index 1111111..2222222 100644
+--- a/src/components/Hero.tsx
++++ b/src/components/Hero.tsx
+@@ -1 +1 @@
+-old hero
++new hero
+diff --git a/src/routes/agents.tsx b/src/routes/agents.tsx
+index 3333333..4444444 100644
+--- a/src/routes/agents.tsx
++++ b/src/routes/agents.tsx
+@@ -1 +1 @@
+-old route
++new route
+`,
     },
+    activeThinking: false,
+    assistantText: "",
+  };
+}
+
+function buildApprovalProjection(input: {
+  turnId: string;
+  approvalId?: string;
+  question: string;
+  options?: readonly string[];
+}): LifecycleProjection {
+  const typedTurnId = input.turnId as LifecycleProjection["turnId"];
+  return {
+    turnId: typedTurnId,
+    lastSequence: 1,
+    items: [],
+    pendingApproval: {
+      approvalId: (input.approvalId ?? "appr_test001") as NonNullable<
+        LifecycleProjection["pendingApproval"]
+      >["approvalId"],
+      itemId: "itm_approval001" as NonNullable<
+        LifecycleProjection["pendingApproval"]
+      >["itemId"],
+      question: input.question,
+      options: input.options ?? ["Approve", "Deny"],
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      decidedAt: null,
+      decision: null,
+    },
+    terminal: null,
+    turnDiff: null,
     activeThinking: false,
     assistantText: "",
   };
@@ -216,6 +287,7 @@ describe("ChatInterface", () => {
     mockGetGitDiff.mockClear();
     mockGetEditArtifactDiff.mockClear();
     mockGetEditArtifactReviewSourceByMessage.mockClear();
+    mockSubmitLifecycleApproval.mockClear();
     mockOpenPromptArtifactReview.mockReset();
     mockMarkReviewCommentsDispatching.mockReset();
     mockMarkReviewCommentsDispatched.mockReset();
@@ -642,14 +714,9 @@ describe("ChatInterface", () => {
       }),
     );
 
-    await waitFor(() => {
-      expect(mockGetGitDiff).toHaveBeenCalledWith({
-        runId,
-        sessionId: "session-1",
-        path: "src/components/Hero.tsx",
-        staged: false,
-      });
-    });
+    expect(await screen.findByText("+new hero")).toBeInTheDocument();
+    expect(screen.getByText("-old hero")).toBeInTheDocument();
+    expect(mockGetGitDiff).not.toHaveBeenCalled();
     expect(mockGetEditArtifactDiff).not.toHaveBeenCalled();
     expect(mockOpenPromptArtifactReview).not.toHaveBeenCalled();
   });
@@ -1102,55 +1169,18 @@ describe("ChatInterface", () => {
     });
   });
 
-  it("renders backend-provided approval decisions and resolves the selected decision", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ ok: true }), { status: 200 }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(useRunSummary).mockReturnValue({
-      summary: {
-        runId: "run-approval",
-        status: "WAITING",
-        totalTasks: 0,
-        completedTasks: 0,
-        failedTasks: 0,
-        planArtifact: null,
-        permissionContext: {
-          state: {
-            productMode: "auto_for_safe",
-            approvalPolicy: "ask_on_request",
-            executionScope: "workspace_safe",
-            workflowIntent: "ship",
-          },
-          label: "Default permissions",
-          resolverInput: {
-            runMode: "build",
-            entrypoint: "composer_submit",
-          },
-          resolvedAt: "2026-01-01T00:00:00.000Z",
-        },
-        pendingApproval: {
-          requestId: "req-1",
-          runId: "run-approval",
-          origin: "agent",
-          category: "git_mutation",
-          title: "LegionCode wants to commit repository changes",
-          reason: "Git mutation actions can change repository history.",
-          actionFingerprint: "git_mutation:git_commit:{}",
-          command: 'git commit -m "feat: update"',
-          availableDecisions: ["allow_once", "deny"],
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      },
+  it("renders canonical lifecycle approvals and resolves the selected decision", async () => {
+    mockTurnLifecycleProjection.projection = buildApprovalProjection({
+      turnId: "trn_approval001",
+      approvalId: "appr_approval001",
+      question: "Approve repository changes?",
     });
 
     render(
       <ChatInterface
         chatProps={{
           messages: [],
-          runId: "run-approval",
+          runId: "trn_approval001",
           input: "",
           handleInputChange: vi.fn(),
           handleSubmit: vi.fn(),
@@ -1166,9 +1196,7 @@ describe("ChatInterface", () => {
     );
 
     expect(screen.getAllByText("Pending approval")).toHaveLength(1);
-    expect(
-      screen.getByText("LegionCode wants to commit repository changes"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Approve repository changes?")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Permission mode" }),
     ).toBeInTheDocument();
@@ -1187,59 +1215,41 @@ describe("ChatInterface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        runApprovalPath(),
-        expect.objectContaining({
-          method: "POST",
-        }),
-      );
+      expect(mockSubmitLifecycleApproval).toHaveBeenCalledWith({
+        turnId: "trn_approval001",
+        approvalId: "appr_approval001",
+        decision: "approved",
+        decidedBy: null,
+        reason: null,
+      });
     });
-    expect(mockDispatchRunSummaryRefresh).toHaveBeenCalledWith("run-approval");
     expect(
       await screen.findByText("Approval recorded. Continuing..."),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
-  it("treats stale approval requests as already resolved", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ error: "No pending approval request found." }),
-        {
-          status: 409,
-        },
-      ),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(useRunSummary).mockReturnValue({
-      summary: {
-        runId: "run-stale-approval",
-        status: "WAITING",
-        totalTasks: 0,
-        completedTasks: 0,
-        failedTasks: 0,
-        planArtifact: null,
-        pendingApproval: {
-          requestId: "req-stale",
-          runId: "run-stale-approval",
-          origin: "agent",
-          category: "shell_command",
-          title: "LegionCode wants to run a shell command",
-          reason:
-            "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
-          command: "pnpm test",
-          availableDecisions: ["allow_once", "deny"],
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
+  it("hides lifecycle approvals once the canonical decision is settled", () => {
+    mockTurnLifecycleProjection.projection = {
+      ...buildApprovalProjection({
+        turnId: "trn_settledapproval001",
+        question: "Run shell command?",
+      }),
+      pendingApproval: {
+        ...buildApprovalProjection({
+          turnId: "trn_settledapproval001",
+          question: "Run shell command?",
+        }).pendingApproval!,
+        decidedAt: "2026-01-01T00:00:01.000Z",
+        decision: "approved",
       },
-    });
+    };
 
     render(
       <ChatInterface
         chatProps={{
           messages: [],
-          runId: "run-stale-approval",
+          runId: "trn_settledapproval001",
           input: "",
           handleInputChange: vi.fn(),
           handleSubmit: vi.fn(),
@@ -1254,59 +1264,24 @@ describe("ChatInterface", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
-
-    await waitFor(() => {
-      expect(mockDispatchRunSummaryRefresh).toHaveBeenCalledWith(
-        "run-stale-approval",
-      );
-    });
-    await waitFor(() => {
-      expect(
-        screen.queryByText("LegionCode wants to run a shell command"),
-      ).not.toBeInTheDocument();
-    });
-    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
     expect(
-      screen.queryByText("No pending approval request found."),
+      screen.queryByRole("button", { name: "Allow once" }),
     ).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
-  it("orders primary approval actions first but keeps additional actions visible", () => {
-    vi.mocked(useRunSummary).mockReturnValue({
-      summary: {
-        runId: "run-labels",
-        status: "WAITING",
-        totalTasks: 0,
-        completedTasks: 0,
-        failedTasks: 0,
-        planArtifact: null,
-        pendingApproval: {
-          requestId: "req-labels",
-          runId: "run-labels",
-          origin: "agent",
-          category: "shell_command",
-          title: "LegionCode wants to run a shell command",
-          reason:
-            "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
-          command: "pnpm test",
-          availableDecisions: [
-            "allow_once",
-            "allow_for_run",
-            "allow_persistent_rule",
-            "deny",
-          ],
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      },
+  it("maps canonical cancel options to the abort approval action", () => {
+    mockTurnLifecycleProjection.projection = buildApprovalProjection({
+      turnId: "trn_labels001",
+      question: "Continue with this action?",
+      options: ["Approve", "Deny", "Cancel"],
     });
 
     render(
       <ChatInterface
         chatProps={{
           messages: [],
-          runId: "run-labels",
+          runId: "trn_labels001",
           input: "",
           handleInputChange: vi.fn(),
           handleSubmit: vi.fn(),
@@ -1321,15 +1296,12 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("button", { name: "Allow for this run" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Allow in future" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abort" })).toBeInTheDocument();
   });
 
-  it("does not revive stale event-based approvals when summary reports no pending request", () => {
+  it("does not render legacy run-event approvals without canonical projection", () => {
     const staleApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested",
@@ -1419,7 +1391,7 @@ describe("ChatInterface", () => {
     expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", true);
   });
 
-  it("shows event-based pending approval when summary is temporarily stale during an active run", () => {
+  it("ignores event-based approvals while waiting for canonical projection", () => {
     const pendingApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested-active",
@@ -1479,41 +1451,21 @@ describe("ChatInterface", () => {
     );
 
     expect(
-      screen.getByText("LegionCode wants to run a shell command"),
-    ).toBeInTheDocument();
+      screen.queryByText("LegionCode wants to run a shell command"),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Allow once" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
+      screen.queryByRole("button", { name: "Allow once" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("shows unresolved event-based approval for approval-required terminal summaries", () => {
-    const pendingApprovalEvent: RunEvent = {
-      version: 1,
-      eventId: "evt-approval-required-terminal",
-      runId: "run-terminal-approval",
-      timestamp: "2026-01-01T00:00:00.000Z",
-      source: "brain",
-      type: "approval.requested",
-      payload: {
-        request: {
-          requestId: "req-terminal-approval",
-          runId: "run-terminal-approval",
-          origin: "agent",
-          category: "git_mutation",
-          title: "Create branch feat/demo-approval?",
-          reason: "Branch creation changes repository state.",
-          actionFingerprint: "git_mutation:create_branch:feat/demo-approval",
-          command: "git checkout -b feat/demo-approval",
-          availableDecisions: ["allow_once", "allow_for_run", "deny"],
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      },
-    };
-
+  it("shows unresolved canonical approval for approval-required terminal summaries", () => {
+    mockTurnLifecycleProjection.projection = buildApprovalProjection({
+      turnId: "trn_terminalapproval001",
+      question: "Create branch feat/demo-approval?",
+    });
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
-        runId: "run-terminal-approval",
+        runId: "trn_terminalapproval001",
         status: "approval_required",
         totalTasks: 1,
         completedTasks: 0,
@@ -1522,15 +1474,12 @@ describe("ChatInterface", () => {
         pendingApproval: null,
       },
     });
-    vi.mocked(useRunEvents).mockReturnValue({
-      events: [pendingApprovalEvent],
-    });
 
     render(
       <ChatInterface
         chatProps={{
           messages: [],
-          runId: "run-terminal-approval",
+          runId: "trn_terminalapproval001",
           input: "",
           handleInputChange: vi.fn(),
           handleSubmit: vi.fn(),
@@ -1549,41 +1498,22 @@ describe("ChatInterface", () => {
       screen.getAllByText("Create branch feat/demo-approval?").length,
     ).toBe(1);
     expect(
-      screen.getByRole("button", { name: "Allow for this run" }),
+      screen.getByRole("button", { name: "Allow once" }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input-bar")).not.toBeInTheDocument();
   });
 
   it("renders the approval title and command in the dock", () => {
-    vi.mocked(useRunSummary).mockReturnValue({
-      summary: {
-        runId: "run-shell-prompt",
-        status: "WAITING",
-        totalTasks: 0,
-        completedTasks: 0,
-        failedTasks: 0,
-        planArtifact: null,
-        pendingApproval: {
-          requestId: "req-shell-prompt",
-          runId: "run-shell-prompt",
-          origin: "agent",
-          category: "shell_command",
-          title: "Run shell command",
-          reason:
-            "Shell commands can change repository or environment state and should be confirmed.",
-          actionFingerprint: 'shell_command:bash:{"command":"pnpm test"}',
-          command: "pnpm test",
-          availableDecisions: ["allow_once", "deny"],
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      },
+    mockTurnLifecycleProjection.projection = buildApprovalProjection({
+      turnId: "trn_shellprompt001",
+      question: "Run shell command",
     });
 
     render(
       <ChatInterface
         chatProps={{
           messages: [],
-          runId: "run-shell-prompt",
+          runId: "trn_shellprompt001",
           input: "",
           handleInputChange: vi.fn(),
           handleSubmit: vi.fn(),
@@ -1599,7 +1529,6 @@ describe("ChatInterface", () => {
     );
 
     expect(screen.getByText("Run shell command")).toBeInTheDocument();
-    expect(screen.getAllByText("pnpm test")).toHaveLength(1);
   });
 
   it("switches to build mode and stages the approved handoff prompt", async () => {
