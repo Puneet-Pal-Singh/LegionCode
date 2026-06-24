@@ -5,6 +5,7 @@ on:
     branches: [main, dev, develop]
   pull_request:
     branches: [main, dev, develop]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -229,6 +230,52 @@ jobs:
       - name: Run deterministic dev smoke gate
         run: pnpm gate:dev-smoke
 
+  golden-repo-to-pr:
+    name: Golden Repo-To-PR Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run hermetic repo-to-PR golden gate
+        run: pnpm gate:golden-repo-to-pr
+
+  staging-cutover:
+    name: Staging Cutover Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run staging/cutover substitute gate
+        run: pnpm gate:staging-cutover
+
   pr-metadata-governance:
     name: PR Metadata Governance (report-only)
     if: github.event_name == 'pull_request'
@@ -306,6 +353,8 @@ jobs:
         capability-preservation,
         rebuild-governance,
         dev-smoke,
+        golden-repo-to-pr,
+        staging-cutover,
       ]
     steps:
       - uses: actions/checkout@v4
@@ -371,6 +420,8 @@ jobs:
         run: |
           pnpm gate:runtime-conformance
           pnpm gate:contract-conformance
+          pnpm gate:golden-repo-to-pr
+          pnpm gate:staging-cutover
 
       - name: Run rebuild governance gate (strict)
         run: pnpm gate:rebuild-governance

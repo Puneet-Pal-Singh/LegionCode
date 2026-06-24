@@ -803,6 +803,43 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.30)(jsdom@23.2.0)(lightningcss@1.30.2)
 
+  packages/rebuild-golden-conformance:
+    dependencies:
+      "@repo/event-store":
+        specifier: workspace:*
+        version: link:../event-store
+      "@repo/git-service":
+        specifier: workspace:*
+        version: link:../git-service
+      "@repo/platform-client-sdk":
+        specifier: workspace:*
+        version: link:../platform-client-sdk
+      "@repo/platform-protocol":
+        specifier: workspace:*
+        version: link:../platform-protocol
+      "@repo/runtime-kernel":
+        specifier: workspace:*
+        version: link:../runtime-kernel
+      "@repo/worker-protocol":
+        specifier: workspace:*
+        version: link:../worker-protocol
+      "@repo/workspace-core":
+        specifier: workspace:*
+        version: link:../workspace-core
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@24.10.9)(jsdom@23.2.0)(lightningcss@1.30.2)
+    devDependencies:
+      "@repo/eslint-config":
+        specifier: workspace:*
+        version: link:../eslint-config
+      "@repo/typescript-config":
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
   packages/runtime-cloudflare-worker:
     dependencies:
       "@repo/artifact-store":
