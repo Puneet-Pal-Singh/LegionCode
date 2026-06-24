@@ -33,6 +33,47 @@ export interface GitDiffResult {
   readonly patch: string;
 }
 
+export interface GitFileLineCount {
+  readonly path: string;
+  readonly additions: number;
+  readonly deletions: number;
+}
+
+export interface GitFileLineCountsInput {
+  readonly workspace: GitFilesystemContext;
+  readonly paths: readonly string[];
+}
+
+export interface GitUntrackedFileInput {
+  readonly workspace: GitFilesystemContext;
+  readonly path: string;
+}
+
+export interface GitUntrackedFileDiffResult {
+  readonly path: string;
+  readonly patch: string;
+}
+
+export interface GitRepoIdentityInput {
+  readonly workspace: GitFilesystemContext;
+}
+
+export interface GitConfigValueInput {
+  readonly workspace: GitFilesystemContext;
+  readonly key: "user.name" | "user.email" | "remote.origin.url";
+}
+
+export interface GitCapturePatchInput {
+  readonly workspace: GitFilesystemContext;
+  readonly internalPathPrefix?: string;
+}
+
+export interface GitPatchCaptureResult {
+  readonly patch: string;
+  readonly baseCommitSha: string | null;
+  readonly branch: string | null;
+}
+
 export interface GitSnapshotInput {
   readonly workspace: GitFilesystemContext;
   readonly snapshotKey: string;
@@ -86,6 +127,37 @@ export interface GitPushResult {
   readonly headSha: string;
 }
 
+export interface GitPullInput {
+  readonly workspace: GitFilesystemContext;
+  readonly remoteName: string;
+  readonly branchName?: string;
+  readonly authArgs?: readonly string[];
+}
+
+export interface GitFetchInput {
+  readonly workspace: GitFilesystemContext;
+  readonly remoteName: string;
+  readonly authArgs?: readonly string[];
+}
+
+export interface GitBranchInput {
+  readonly workspace: GitFilesystemContext;
+  readonly branchName: string;
+}
+
+export interface GitBranchResult {
+  readonly branchName: string;
+  readonly message: string;
+}
+
+export interface GitBranchListInput {
+  readonly workspace: GitFilesystemContext;
+}
+
+export interface GitBranchListResult {
+  readonly output: string;
+}
+
 export interface GitBranchValidationInput {
   readonly runId: string;
   readonly workspaceRoot: string;
@@ -110,12 +182,26 @@ export type GitChangedFileStatus =
 export interface GitService {
   getStatus(input: GitStatusInput): Promise<GitStatusResult>;
   getDiff(input: GitDiffInput): Promise<GitDiffResult>;
+  getFileLineCounts(
+    input: GitFileLineCountsInput,
+  ): Promise<readonly GitFileLineCount[]>;
+  getUntrackedFileDiff(
+    input: GitUntrackedFileInput,
+  ): Promise<GitUntrackedFileDiffResult | null>;
+  getRepoIdentity(input: GitRepoIdentityInput): Promise<string | null>;
+  readConfigValue(input: GitConfigValueInput): Promise<string | null>;
+  capturePatch(input: GitCapturePatchInput): Promise<GitPatchCaptureResult>;
   captureSnapshot(input: GitSnapshotInput): Promise<GitWorkspaceSnapshot>;
   getSnapshotDiff(input: GitSnapshotDiffInput): Promise<GitDiffResult>;
   stageFiles(input: GitStageInput): Promise<GitStatusResult>;
   unstageFiles(input: GitStageInput): Promise<GitStatusResult>;
   commit(input: GitCommitInput): Promise<GitCommitResult>;
   push(input: GitPushInput): Promise<GitPushResult>;
+  pull(input: GitPullInput): Promise<void>;
+  fetch(input: GitFetchInput): Promise<void>;
+  createBranch(input: GitBranchInput): Promise<GitBranchResult>;
+  switchBranch(input: GitBranchInput): Promise<GitBranchResult>;
+  listBranches(input: GitBranchListInput): Promise<GitBranchListResult>;
   validateBranch(
     input: GitBranchValidationInput,
   ): Promise<GitBranchValidationResult>;

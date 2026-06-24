@@ -288,6 +288,15 @@ function createGitService(): GitService {
   return {
     getStatus: vi.fn(async () => status),
     getDiff: vi.fn(async () => ({ files: [], patch: "" })),
+    getFileLineCounts: vi.fn(async () => []),
+    getUntrackedFileDiff: vi.fn(async () => null),
+    getRepoIdentity: vi.fn(async () => null),
+    readConfigValue: vi.fn(async () => null),
+    capturePatch: vi.fn(async () => ({
+      patch: "",
+      baseCommitSha: null,
+      branch: null,
+    })),
     captureSnapshot: vi.fn(async ({ workspace }) => ({
       runId: workspace.runId,
       filesystemRoot: workspace.filesystemRoot,
@@ -307,6 +316,17 @@ function createGitService(): GitService {
       branchName: "feat/example",
       headSha: "abcdef1",
     })),
+    pull: vi.fn(async () => undefined),
+    fetch: vi.fn(async () => undefined),
+    createBranch: vi.fn(async ({ branchName }) => ({
+      branchName,
+      message: `Created and switched to branch: ${branchName}`,
+    })),
+    switchBranch: vi.fn(async ({ branchName }) => ({
+      branchName,
+      message: `Switched to branch: ${branchName}`,
+    })),
+    listBranches: vi.fn(async () => ({ output: "* feat/example\n" })),
     validateBranch: vi.fn(async ({ branchName }) => ({
       branchName,
       checkedRef: branchName,

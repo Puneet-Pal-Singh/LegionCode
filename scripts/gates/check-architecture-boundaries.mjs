@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   APP_IMPORT_POLICY,
   CANONICAL_AUTHORITIES,
+  DIRECT_GIT_COMMAND_POLICY,
   PACKAGE_DEPENDENCY_POLICY,
   UNIQUE_ACTION_REGISTRIES,
 } from "./architecture-policy.mjs";
@@ -27,6 +28,7 @@ export async function validateArchitecture(root) {
   await validateAppImports(root, violations);
   await validateCanonicalAuthorities(root, violations);
   await validateUniqueActionRegistries(root, violations);
+  await validateDirectGitCommands(root, violations);
   return violations;
 }
 
@@ -102,6 +104,20 @@ async function validateUniqueActionRegistries(root, violations) {
   }
 }
 
+async function validateDirectGitCommands(root, violations) {
+  for (const policy of DIRECT_GIT_COMMAND_POLICY) {
+    const source = await readFile(join(root, policy.path), "utf8");
+    const directGitCommands = findDirectGitCommandSnippets(source);
+    for (const snippet of directGitCommands) {
+      if (!policy.allowedPatterns.some((pattern) => pattern.test(snippet))) {
+        violations.push(
+          `${policy.path}: direct git command is forbidden outside the documented adapter exceptions; route Git semantics through @repo/git-service.`,
+        );
+      }
+    }
+  }
+}
+
 async function findPackageRoot(root, collection, packageName) {
   const collectionRoot = join(root, collection);
   for (const entry of await readdir(collectionRoot, { withFileTypes: true })) {
@@ -172,6 +188,17 @@ function findDuplicateMatches(source, pattern) {
     }
   }
   return [...duplicates].sort();
+}
+
+function findDirectGitCommandSnippets(source) {
+  const snippets = [];
+  const pattern = /command:\s*["']git["']/g;
+  for (const match of source.matchAll(pattern)) {
+    const start = Math.max(0, match.index - 160);
+    const end = Math.min(source.length, match.index + 320);
+    snippets.push(source.slice(start, end));
+  }
+  return snippets;
 }
 
 function isDeepPackageSourceImport(specifier) {
