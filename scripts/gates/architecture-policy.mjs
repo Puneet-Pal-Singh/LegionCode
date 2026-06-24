@@ -86,4 +86,46 @@ export const CANONICAL_AUTHORITIES = [
     declaration:
       /\b(?:interface|class)\s+WorkspaceManifestRepository\s*\{|\btype\s+WorkspaceManifestRepository\s*=/,
   },
+  {
+    symbol: "WorkerProtocolRequest",
+    owner: "packages/worker-protocol/src/protocol.ts",
+    declaration:
+      /\b(?:interface|class)\s+WorkerProtocolRequest\s*\{|\btype\s+WorkerProtocolRequest\s*=/,
+  },
+  {
+    symbol: "WorkerOperationName",
+    owner: "packages/worker-protocol/src/common.ts",
+    declaration:
+      /\b(?:interface|class)\s+WorkerOperationName\s*\{|\btype\s+WorkerOperationName\s*=/,
+  },
+  {
+    symbol: "PermissionPolicy",
+    owner: "packages/permission-policy/src/types.ts",
+    declaration:
+      /\b(?:interface|class)\s+PermissionPolicy\s*\{|\btype\s+PermissionPolicy\s*=/,
+  },
+  {
+    symbol: "PermissionRequest",
+    owner: "packages/permission-policy/src/types.ts",
+    declaration:
+      /\b(?:interface|class)\s+PermissionRequest\s*\{|\btype\s+PermissionRequest\s*=/,
+  },
+];
+
+export const UNIQUE_ACTION_REGISTRIES = [
+  {
+    name: "secure git plugin schema names",
+    path: "apps/secure-agent-api/src/schemas/git.ts",
+    pattern: /\bname:\s*["'](git_[A-Za-z0-9_]+)["']/g,
+  },
+  {
+    name: "execution-engine git tool ids",
+    path: "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
+    pattern: /\bid:\s*["'](git_[A-Za-z0-9_]+)["']/g,
+  },
+  {
+    name: "worker protocol operation names",
+    path: "packages/worker-protocol/src/common.ts",
+    pattern: /^\s*["']([a-z]+(?:\.[A-Za-z0-9]+)+)["'],?$/gm,
+  },
 ];
