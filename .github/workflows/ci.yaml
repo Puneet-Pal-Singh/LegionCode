@@ -5,6 +5,7 @@ on:
     branches: [main, dev, develop]
   pull_request:
     branches: [main, dev, develop]
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
