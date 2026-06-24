@@ -117,6 +117,26 @@ test("rejects duplicate worker protocol operation names", async (context) => {
   );
 });
 
+test("rejects direct secure git plugin command bypasses", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "apps/secure-agent-api/src/plugins/GitPlugin.ts",
+    [
+      "export class GitPlugin {",
+      "  run() {",
+      '    return this.runToolboxCommand(sandbox, { command: "git", args: ["status"] }, ["git"], context, "git.status");',
+      "  }",
+      "}",
+    ].join("\n"),
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /direct git command is forbidden/,
+  );
+});
+
 test("rejects app deep imports into package source", async (context) => {
   const root = await createFixture(context);
   await writeFile(
@@ -261,6 +281,23 @@ async function createFixture(context) {
       '  { name: "git_status" },',
       '  { name: "git_diff" },',
       "];",
+    ].join("\n"),
+  );
+  await writeSource(
+    fixtureRoot,
+    "apps/secure-agent-api/src/plugins/GitPlugin.ts",
+    [
+      "export class GitPlugin {",
+      "  clone() {",
+      '    return this.runToolboxCommand(sandbox, { command: "git", args: [...authArgs, "clone", safeUrl, worktree], runId }, ["git"], context, "git.clone");',
+      "  }",
+      "  checkPatch() {",
+      '    return this.runToolboxCommand(sandbox, { command: "git", args: ["-C", worktree, "apply", "--check", patchPath], runId }, ["git"], context, "git.patch_apply.check");',
+      "  }",
+      "  applyPatch() {",
+      '    return this.runToolboxCommand(sandbox, { command: "git", args: ["-C", worktree, "apply", patchPath], runId }, ["git"], context, "git.patch_apply.apply");',
+      "  }",
+      "}",
     ].join("\n"),
   );
   await writeManifest(fixtureRoot, "apps", "web", "@shadowbox/web", {});

@@ -108,6 +108,90 @@ describe("DefaultGitService", () => {
     });
   });
 
+  it("reads repo identity from the canonical config path", async () => {
+    const executor = new FakeGitExecutor({
+      exitCode: 0,
+      stdout: "git@github.com:Shadowbox/App.git\n",
+      stderr: "",
+    });
+    const service = new DefaultGitService(executor);
+
+    await expect(service.getRepoIdentity({ workspace: WORKSPACE })).resolves.toBe(
+      "github.com/shadowbox/app",
+    );
+    expect(executor.calls[0]?.args).toEqual([
+      "config",
+      "--get",
+      "remote.origin.url",
+    ]);
+  });
+
+  it("reports line counts through canonical numstat commands", async () => {
+    const executor = new QueueGitExecutor([
+      { exitCode: 0, stdout: "2\t1\tsrc/app.ts\n", stderr: "" },
+      { exitCode: 0, stdout: "3\t0\tsrc/app.ts\n", stderr: "" },
+    ]);
+    const service = new DefaultGitService(executor);
+
+    await expect(
+      service.getFileLineCounts({
+        workspace: WORKSPACE,
+        paths: ["src/app.ts"],
+      }),
+    ).resolves.toEqual([{ path: "src/app.ts", additions: 5, deletions: 1 }]);
+    expect(executor.calls.map((call) => call.args)).toEqual([
+      ["diff", "--numstat"],
+      ["diff", "--cached", "--numstat"],
+    ]);
+  });
+
+  it("captures tracked and untracked patches without plugin-owned git commands", async () => {
+    const executor = new QueueGitExecutor([
+      { exitCode: 0, stdout: "tracked patch\n", stderr: "" },
+      { exitCode: 0, stdout: "src/new.ts\0.shadowbox/tmp.patch\0", stderr: "" },
+      { exitCode: 1, stdout: "untracked patch\n", stderr: "" },
+      { exitCode: 0, stdout: "abc123\n", stderr: "" },
+      { exitCode: 0, stdout: "feat/canonical-git\n", stderr: "" },
+    ]);
+    const service = new DefaultGitService(executor);
+
+    await expect(
+      service.capturePatch({
+        workspace: WORKSPACE,
+        internalPathPrefix: ".shadowbox",
+      }),
+    ).resolves.toEqual({
+      patch: "tracked patch\n\nuntracked patch\n",
+      baseCommitSha: "abc123",
+      branch: "feat/canonical-git",
+    });
+    expect(executor.calls.map((call) => call.args)).toEqual([
+      ["diff", "--binary", "--no-ext-diff", "--find-renames"],
+      ["ls-files", "-z", "--others", "--exclude-standard"],
+      ["diff", "--binary", "--no-index", "--", "/dev/null", "src/new.ts"],
+      ["rev-parse", "HEAD"],
+      ["branch", "--show-current"],
+    ]);
+  });
+
+  it("returns a patch for an untracked file through git-service", async () => {
+    const executor = new QueueGitExecutor([
+      { exitCode: 0, stdout: "src/new.ts\n", stderr: "" },
+      { exitCode: 1, stdout: "diff --git a/src/new.ts b/src/new.ts\n", stderr: "" },
+    ]);
+    const service = new DefaultGitService(executor);
+
+    await expect(
+      service.getUntrackedFileDiff({
+        workspace: WORKSPACE,
+        path: "src/new.ts",
+      }),
+    ).resolves.toEqual({
+      path: "src/new.ts",
+      patch: "diff --git a/src/new.ts b/src/new.ts\n",
+    });
+  });
+
   it("requires explicit paths for staging", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
@@ -202,6 +286,43 @@ describe("DefaultGitService", () => {
       "-u",
       "origin",
       "HEAD:feat/canonical-git",
+    ]);
+  });
+
+  it("routes pull, fetch, and branch operations through the service", async () => {
+    const executor = new QueueGitExecutor([
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" },
+      { exitCode: 0, stdout: "* main\n", stderr: "" },
+    ]);
+    const service = new DefaultGitService(executor);
+
+    await service.pull({
+      workspace: WORKSPACE,
+      remoteName: "origin",
+      branchName: "main",
+    });
+    await service.fetch({ workspace: WORKSPACE, remoteName: "origin" });
+    await service.createBranch({
+      workspace: WORKSPACE,
+      branchName: "feat/canonical-git",
+    });
+    await service.switchBranch({
+      workspace: WORKSPACE,
+      branchName: "main",
+    });
+    await expect(service.listBranches({ workspace: WORKSPACE })).resolves.toEqual(
+      { output: "* main\n" },
+    );
+
+    expect(executor.calls.map((call) => call.args)).toEqual([
+      ["pull", "--ff-only", "origin", "main"],
+      ["fetch", "origin"],
+      ["checkout", "-b", "feat/canonical-git"],
+      ["checkout", "main"],
+      ["branch", "-a"],
     ]);
   });
 

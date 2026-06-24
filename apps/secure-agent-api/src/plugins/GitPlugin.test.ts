@@ -100,18 +100,21 @@ describe("GitPlugin", () => {
       if (args.includes("user.name") || args.includes("user.email")) {
         return { exitCode: 1, stdout: "", stderr: "" };
       }
+      if (args.includes("ls-files")) {
+        return { exitCode: 0, stdout: "src/new.ts\n", stderr: "" };
+      }
+      if (args.includes("--no-index") && args.includes("--numstat")) {
+        return {
+          exitCode: 0,
+          stdout: "4\t0\tsrc/new.ts\n",
+          stderr: "",
+        };
+      }
       if (args.includes("--numstat") && !args.includes("--cached")) {
         return { exitCode: 0, stdout: "3\t1\tsrc/app.ts\n", stderr: "" };
       }
       if (args.includes("--numstat") && args.includes("--cached")) {
         return { exitCode: 0, stdout: "", stderr: "" };
-      }
-      if (spec.command === "wc") {
-        return {
-          exitCode: 0,
-          stdout: "4 /home/sandbox/runs/run_git_status_1/src/new.ts\n",
-          stderr: "",
-        };
       }
       return { exitCode: 0, stdout: "", stderr: "" };
     });
@@ -226,8 +229,9 @@ describe("GitPlugin", () => {
         stderr: "",
       } satisfies SafeCommandResult)
       .mockResolvedValueOnce({
-        exitCode: 0,
-        stdout: "export const value = 1;\n",
+        exitCode: 1,
+        stdout:
+          "diff --git a/src/new.ts b/src/new.ts\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1 @@\n+export const value = 1;\n",
         stderr: "",
       } satisfies SafeCommandResult);
 
@@ -285,7 +289,7 @@ describe("GitPlugin", () => {
         stderr: "",
       } satisfies SafeCommandResult)
       .mockResolvedValueOnce({
-        exitCode: 1,
+        exitCode: 2,
         stdout: "",
         stderr: "read failed",
       } satisfies SafeCommandResult);
@@ -354,20 +358,7 @@ describe("GitPlugin", () => {
 
   it("captures untracked edit artifact patches from NUL-delimited paths", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
-    const readFile = vi
-      .fn()
-      .mockResolvedValueOnce({
-        success: true,
-        content: "",
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        content: "diff --git a/src/new file.ts b/src/new file.ts\n",
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        content: "diff --git a/src/other.ts b/src/other.ts\n",
-      });
+    const readFile = vi.fn();
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
       if (spec.command === "mkdir" || spec.command === "rm") {
@@ -399,7 +390,12 @@ describe("GitPlugin", () => {
         };
       }
       if (args.includes("--no-index")) {
-        return { exitCode: 1, stdout: "", stderr: "" };
+        const path = args.at(-1);
+        return {
+          exitCode: 1,
+          stdout: `diff --git a/${path} b/${path}\n`,
+          stderr: "",
+        };
       }
       if (args.includes("diff")) {
         return { exitCode: 0, stdout: "", stderr: "" };
@@ -431,7 +427,7 @@ describe("GitPlugin", () => {
     expect(output.branch).toBe("main");
 
     const lsFilesCommandSpec = runSafeCommandMock.mock.calls.find(([, spec]) =>
-      spec.args?.includes("ls-files"),
+      spec.args?.includes("ls-files") && spec.args.includes("-z"),
     )?.[1] as { args?: string[] } | undefined;
     expect(lsFilesCommandSpec?.args).toEqual(
       expect.arrayContaining(["ls-files", "-z"]),
@@ -441,15 +437,12 @@ describe("GitPlugin", () => {
       .filter(([, spec]) => spec.args?.includes("--no-index"))
       .map(([, spec]) => spec.args?.at(-1));
     expect(untrackedDiffPaths).toEqual(["src/new file.ts", "src/other.ts"]);
-    expect(readFile).toHaveBeenCalledTimes(3);
+    expect(readFile).not.toHaveBeenCalled();
   });
 
-  it("captures tracked edit artifact patches from the sandbox patch file", async () => {
+  it("captures tracked edit artifact patches through git-service stdout", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
-    const readFile = vi.fn().mockResolvedValueOnce({
-      success: true,
-      content: "diff --git a/src/app.ts b/src/app.ts\n",
-    });
+    const readFile = vi.fn();
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
       if (spec.command === "mkdir" || spec.command === "rm") {
@@ -476,7 +469,11 @@ describe("GitPlugin", () => {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
       if (args.includes("diff")) {
-        return { exitCode: 0, stdout: "truncated stdout", stderr: "" };
+        return {
+          exitCode: 0,
+          stdout: "diff --git a/src/app.ts b/src/app.ts\n",
+          stderr: "",
+        };
       }
       if (args.includes("rev-parse")) {
         return { exitCode: 0, stdout: "abc123\n", stderr: "" };
@@ -496,13 +493,13 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(true);
     const output = JSON.parse(String(result.output)) as { patch: string };
     expect(output.patch).toBe("diff --git a/src/app.ts b/src/app.ts\n");
-    expect(output.patch).not.toContain("truncated stdout");
     const diffCommandSpec = runSafeCommandMock.mock.calls.find(([, spec]) =>
       spec.args?.includes("--find-renames"),
     )?.[1] as { args?: string[] } | undefined;
     expect(
       diffCommandSpec?.args?.some((arg) => arg.startsWith("--output=")),
-    ).toBe(true);
+    ).toBe(false);
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it("hydrates commit identity from GitHub token when local identity is missing", async () => {

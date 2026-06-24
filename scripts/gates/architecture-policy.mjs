@@ -129,3 +129,14 @@ export const UNIQUE_ACTION_REGISTRIES = [
     pattern: /^\s*["']([a-z]+(?:\.[A-Za-z0-9]+)+)["'],?$/gm,
   },
 ];
+
+export const DIRECT_GIT_COMMAND_POLICY = [
+  {
+    path: "apps/secure-agent-api/src/plugins/GitPlugin.ts",
+    allowedPatterns: [
+      /command:\s*["']git["'],\s*args:\s*\[\.\.\.authArgs,\s*["']clone["']/s,
+      /command:\s*["']git["'],\s*args:\s*\[\s*["']-C["'],\s*worktree,\s*["']apply["'],\s*["']--check["']/s,
+      /command:\s*["']git["'],\s*args:\s*\[\s*["']-C["'],\s*worktree,\s*["']apply["'],\s*patchPath\s*\]/s,
+    ],
+  },
+];
