@@ -1,0 +1,27 @@
+{
+  "name": "@repo/rebuild-golden-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@repo/event-store": "workspace:*",
+    "@repo/git-service": "workspace:*",
+    "@repo/platform-client-sdk": "workspace:*",
+    "@repo/platform-protocol": "workspace:*",
+    "@repo/runtime-kernel": "workspace:*",
+    "@repo/worker-protocol": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
+    "vitest": "^1.0.0"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "typescript": "^5.0.0"
+  }
+}
