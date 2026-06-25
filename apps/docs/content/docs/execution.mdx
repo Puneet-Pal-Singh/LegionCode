@@ -1,0 +1,35 @@
+---
+title: Execution and isolation
+description: Understand how LegionCode keeps each task isolated and why review remains required.
+category: Architecture
+toc:
+  - id: isolated-workspaces
+    text: Isolated workspaces
+  - id: tools-and-filesystem
+    text: Tools and filesystem
+  - id: review-boundary
+    text: Review boundary
+---
+
+Each LegionCode run works in its own cloud workspace. This keeps tasks separated while still allowing you to review and decide what, if anything, should move back into your repository.
+
+## Isolated workspaces
+
+Every run receives a separate checkout and execution context. Concurrent tasks can start from the same repository, but they do not share a writable working directory.
+
+Isolation reduces accidental cross-task interference. It does not guarantee that two separate diffs will merge cleanly; you still review and reconcile the results.
+
+## Tools and filesystem
+
+File reads, writes, commands, and Git operations are executed through the run workspace. Paths are resolved relative to that workspace and checked before use.
+
+The event stream updates the conversation, tool activity, changed files, and review panel as work progresses.
+
+<Callout variant="info" title="Isolation is not approval">
+  Sandbox isolation reduces blast radius. Permission policy and human diff
+  review still decide whether an action is appropriate.
+</Callout>
+
+## Review boundary
+
+Treat generated changes as proposed code. Review the diff, run the checks required by your repository, and use explicit Git actions only when the result is acceptable.

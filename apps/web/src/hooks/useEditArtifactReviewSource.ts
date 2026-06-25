@@ -5,6 +5,7 @@ import {
   getLatestEditArtifactReviewSource,
 } from "../lib/edit-artifacts-client.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseEditArtifactReviewSourceInput {
   runId?: string;
@@ -43,6 +44,13 @@ export function useEditArtifactReviewSource(
     }
 
     const requestId = ++requestIdRef.current;
+    const sourceKind = input.assistantMessageId ? "message" : "latest";
+    logClientEvent("review/source", "requested", {
+      runId: input.runId,
+      assistantMessageId: input.assistantMessageId ?? null,
+      sourceKind,
+      requestId,
+    });
     setLoading(true);
     setError(null);
     setResolved(false);
@@ -57,14 +65,37 @@ export function useEditArtifactReviewSource(
             sessionId: input.sessionId,
           });
       if (requestId !== requestIdRef.current) {
+        logClientEvent("review/source", "discarded", {
+          runId: input.runId,
+          assistantMessageId: input.assistantMessageId ?? null,
+          sourceKind,
+          requestId,
+          currentRequestId: requestIdRef.current,
+        });
         return;
       }
       setSource(nextSource);
+      logClientEvent("review/source", "resolved", {
+        runId: input.runId,
+        assistantMessageId: input.assistantMessageId ?? null,
+        returnedMessageId: nextSource?.assistantMessageId ?? null,
+        artifactId: nextSource?.artifactId ?? null,
+        fileCount: nextSource?.files.length ?? 0,
+        sourceKind,
+        requestId,
+      });
     } catch (err) {
       if (requestId !== requestIdRef.current) {
         return;
       }
       const message = err instanceof Error ? err.message : "Unknown error";
+      logClientWarning("review/source", "failed", {
+        runId: input.runId,
+        assistantMessageId: input.assistantMessageId ?? null,
+        sourceKind,
+        requestId,
+        error: message,
+      });
       setError(message);
       setSource(null);
     } finally {
@@ -73,12 +104,7 @@ export function useEditArtifactReviewSource(
         setResolved(true);
       }
     }
-  }, [
-    input.assistantMessageId,
-    input.enabled,
-    input.runId,
-    input.sessionId,
-  ]);
+  }, [input.assistantMessageId, input.enabled, input.runId, input.sessionId]);
 
   useEffect(() => {
     void refetch();

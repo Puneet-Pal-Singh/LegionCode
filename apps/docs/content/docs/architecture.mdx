@@ -1,0 +1,40 @@
+---
+title: System architecture
+description: Understand the public architecture behind the hosted workspace and self-hosted development stack.
+category: Architecture
+toc:
+  - id: service-boundaries
+    text: Service boundaries
+  - id: request-flow
+    text: Request flow
+  - id: self-hosting-notes
+    text: Self-hosting notes
+---
+
+LegionCode separates the browser workspace from the services that authenticate users, coordinate runs, and execute repository commands. That separation keeps review, policy, and execution responsibilities clear.
+
+## Service boundaries
+
+| Area          | Responsibility                                           |
+| ------------- | -------------------------------------------------------- |
+| Web workspace | User interface, review surface, and browser state        |
+| API service   | Authentication, workspace policy, provider selection     |
+| Secure runner | Repository checkout, command execution, tools, and Git   |
+| Persistence   | Users, repositories, runs, credentials, and review state |
+| Public site   | Landing page, docs, changelog, and edge routing          |
+
+The browser does not execute repository commands. The secure runner does not decide product access or provider policy. The API service coordinates the run and records the state needed for review.
+
+## Request flow
+
+1. The browser sends an authenticated request to start or continue a run.
+2. The API service validates the user, repository, branch, provider, and model.
+3. The secure runner prepares the isolated workspace and executes approved tools.
+4. Streaming events update the conversation and review surface.
+5. Changed files and artifacts remain attached to the run for inspection.
+
+## Self-hosting notes
+
+The repository is a pnpm monorepo with separate applications for the public site, documentation, workspace UI, API service, and secure runner. Local development runs those services on separate ports; production deploys them as Cloudflare Workers and Pages projects.
+
+If you self-host, keep the same boundary: the browser talks to the API service, the API service coordinates execution, and repository commands run only through the secure runner.

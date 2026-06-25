@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { runActivityPath } from "../lib/platform-endpoints.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
+import { logClientEvent } from "../lib/client-logger.js";
 
 interface UseRunActivityFeedResult {
   feed: ActivityFeedSnapshot | null;
@@ -27,13 +28,13 @@ export function useRunActivityFeed(
   const inFlightRunIdRef = useRef<string | null>(null);
   const lastFetchAtRef = useRef(0);
   const retryAfterRef = useRef(0);
-  const missingRunRef = useRef(false);
   const missedRefreshRef = useRef(false);
   const prevShouldPollRef = useRef(shouldPoll);
   const lastErrorLogRef = useRef<{
     timestamp: number;
     message: string;
   } | null>(null);
+  const lastLoggedSnapshotRef = useRef("");
 
   const fetchFeed = useCallback(
     async (options?: { force?: boolean }) => {
@@ -43,9 +44,6 @@ export function useRunActivityFeed(
         return;
       }
       if (inFlightRef.current) {
-        return;
-      }
-      if (missingRunRef.current) {
         return;
       }
       const now = Date.now();
@@ -71,7 +69,6 @@ export function useRunActivityFeed(
         }
         if (!response.ok) {
           if (response.status === 404) {
-            missingRunRef.current = true;
             return;
           }
           if (AUTH_BLOCKING_STATUS_CODES.has(response.status)) {
@@ -96,6 +93,15 @@ export function useRunActivityFeed(
           return;
         }
         retryAfterRef.current = 0;
+        const snapshotSignature = `${payload.status}:${payload.items.length}`;
+        if (lastLoggedSnapshotRef.current !== snapshotSignature) {
+          lastLoggedSnapshotRef.current = snapshotSignature;
+          logClientEvent("run/activity", "updated", {
+            runId: currentRunId,
+            status: payload.status,
+            itemCount: payload.items.length,
+          });
+        }
         setFeed(payload);
       } catch (error) {
         if (activeRunIdRef.current === currentRunId) {
@@ -118,9 +124,9 @@ export function useRunActivityFeed(
     inFlightRunIdRef.current = null;
     lastFetchAtRef.current = 0;
     retryAfterRef.current = 0;
-    missingRunRef.current = false;
     missedRefreshRef.current = false;
     lastErrorLogRef.current = null;
+    lastLoggedSnapshotRef.current = "";
     setFeed(null);
 
     if (!runId) {

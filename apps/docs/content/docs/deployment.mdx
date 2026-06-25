@@ -1,0 +1,66 @@
+---
+title: Deployment
+description: Deploy the public site, documentation, workspace, API service, and secure runner to Cloudflare.
+category: Operations
+toc:
+  - id: deployment-shape
+    text: Deployment shape
+  - id: required-bindings
+    text: Required bindings
+  - id: deploy-order
+    text: Deploy order
+  - id: verify
+    text: Verify
+---
+
+LegionCode uses separate Cloudflare deployments behind one public product origin.
+
+## Deployment shape
+
+| Public URL                       | Deployment                               |
+| -------------------------------- | ---------------------------------------- |
+| `legioncode.dev`                 | Landing Pages project                    |
+| `legioncode.dev/cloud/`          | Cloud private-alpha access page          |
+| `legioncode.dev/docs/*`          | Docs static project routed at the edge   |
+| `legioncode.dev/docs/changelog/` | Changelog route in the docs project      |
+| `legioncode.dev/agents/*`        | Agents workspace routed through Pages    |
+| `brain.legioncode.dev`           | API service Worker                       |
+| `api.legioncode.dev`             | Secure runner Worker and sandbox runtime |
+
+The agents app is built with a `/agents/` base path. OAuth callbacks should return users to the same public agents path.
+
+## Required bindings
+
+Production requires the configured Cloudflare bindings for the API service, secure runner, artifacts, sessions, database access, and edge routing. Keep bindings environment-specific and verify them before promoting a deployment.
+
+Set secrets with Wrangler rather than committing them:
+
+- GitHub client secret, session secret, and GitHub token-encryption key;
+- BYOK credential-encryption key and version;
+- internal runtime-event secret;
+- any managed provider credentials enabled for the environment.
+
+The landing Pages project requires a D1 binding named `WAITLIST_DB` for Cloud access requests. Apply `apps/landing/migrations/0001_waitlist.sql` before enabling the waitlist form.
+
+For private alpha, set `PRIVATE_ALPHA_ACCESS_MODE=allowlist` in production and list approved GitHub logins in `PRIVATE_ALPHA_GITHUB_LOGINS`.
+
+## Deploy order
+
+1. Apply pending Postgres migrations.
+2. Deploy the secure runner and verify its bindings.
+3. Deploy the API service and verify auth, database access, and service bindings.
+4. Build and deploy the agents app with all three required `VITE_*` endpoints.
+5. Build and deploy docs.
+6. Build and deploy landing last so public routes point at healthy upstreams.
+
+<Callout variant="warning" title="Deploy builds fail fast">
+  The agents deploy build requires `VITE_BRAIN_BASE_URL`,
+  `VITE_MUSCLE_BASE_URL`, and `VITE_MUSCLE_WS_URL`. Do not replace that check
+  with production defaults in source.
+</Callout>
+
+## Verify
+
+Check the landing page, Cloud page, waitlist submission, docs, changelog, agents shell, OAuth session endpoint, and runtime fingerprint endpoints. Then load one agents asset through `legioncode.dev/agents/assets/...` to verify prefix routing.
+
+Confirm production CORS allows the public origin and that the API service sends authenticated users to `https://legioncode.dev/agents`.

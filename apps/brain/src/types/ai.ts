@@ -91,6 +91,9 @@ export interface Env {
   BYOK_VALIDATE_RATE_LIMIT_WINDOW_SECONDS?: string;
   SESSION_SECRET: string;
   FRONTEND_URL: string;
+  PRIVATE_ALPHA_ACCESS_MODE?: "open" | "allowlist";
+  PRIVATE_ALPHA_GITHUB_LOGINS?: string;
+  PRIVATE_ALPHA_WAITLIST_URL?: string;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: "true" | "false" | "1" | "0";

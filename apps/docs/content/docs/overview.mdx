@@ -1,0 +1,55 @@
+---
+title: Overview
+description: Learn what LegionCode does, who the private alpha is for, and how the core workflow fits together.
+category: Getting started
+status: alpha
+toc:
+  - id: what-legioncode-is
+    text: What LegionCode is
+  - id: core-workflow
+    text: Core workflow
+  - id: what-is-available
+    text: What is available
+---
+
+LegionCode is an open-source workspace for running coding-agent tasks against GitHub repositories. You connect a repository, choose the provider and model for a run, give the agent a scoped task, and review the resulting diff before taking a Git action.
+
+<Callout variant="info" title="Private alpha">
+  Hosted access is approved manually in small batches. Join the waitlist from
+  the [Cloud page](/cloud/). Approved users sign in with GitHub to open the
+  web workspace.
+</Callout>
+
+## What LegionCode is
+
+LegionCode is built for review-first development:
+
+- **Repository context:** select the GitHub repository and branch a task should start from.
+- **Provider choice:** connect your own provider credentials and choose a model per run.
+- **Isolated work:** run each task in a separate cloud workspace so concurrent tasks do not share writable files.
+- **Code review:** inspect the conversation, changed files, and diff before committing, pushing, or opening a pull request.
+
+Repository commands do not run in the browser. The browser is the review and control surface; execution happens in the hosted runtime attached to the selected run.
+
+## Core workflow
+
+1. Request private-alpha access.
+2. Sign in with the approved GitHub account.
+3. Select a repository and base branch.
+4. Connect a provider credential and choose a model.
+5. Start a run with one concrete task.
+6. Review the agent response, changed files, and diff.
+7. Ask for revisions, restore files, or take an explicit Git action.
+
+Runs are independent. Starting two tasks creates two separate workspaces; it does not make two agents edit the same working tree.
+
+## What is available
+
+| Surface       | Status        | Purpose                                      |
+| ------------- | ------------- | -------------------------------------------- |
+| Cloud Agents  | Private alpha | Hosted repository tasks and review workflows |
+| Documentation | Available     | Product, setup, and operations guidance      |
+| Desktop       | Planned       | Local-first workspace experience             |
+| CLI           | Planned       | Scriptable terminal workflows                |
+
+Continue with the [quickstart](/docs/quickstart/) to run your first task, or review [providers and models](/docs/providers/) before connecting credentials.

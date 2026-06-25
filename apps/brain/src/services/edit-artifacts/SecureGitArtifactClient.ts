@@ -29,6 +29,9 @@ const PatchCapturePayloadSchema = z.object({
   baseCommitSha: z.string().min(1).nullable(),
   branch: z.string().min(1).nullable(),
 });
+const WorktreeSnapshotPayloadSchema = z.object({
+  treeSha: z.string().regex(/^[a-f0-9]{40,64}$/iu),
+});
 const CanonicalExecutionResponseSchema = z.object({
   taskId: z.string().min(1),
   status: z.enum(["success", "failure", "timeout", "cancelled"]),
@@ -86,12 +89,22 @@ export class SecureGitArtifactClient {
 
   private readonly sessionTimeoutMs: number;
 
-  async capturePatch(): Promise<CapturedGitPatch | null> {
-    const payload = await this.executeGitAction("git_patch_capture", {});
+  async capturePatch(input: {
+    baselineTree: string;
+    files: string[];
+  }): Promise<CapturedGitPatch | null> {
+    const payload = await this.executeGitAction("git_patch_capture", input);
     assertPluginSuccess(payload, "git_patch_capture");
     const output = parseJsonOutput(payload.output);
     const parsed = PatchCapturePayloadSchema.parse(output);
     return parsed.patch.trim().length > 0 ? parsed : null;
+  }
+
+  async captureWorktreeSnapshot(): Promise<string> {
+    const payload = await this.executeGitAction("git_worktree_snapshot", {});
+    assertPluginSuccess(payload, "git_worktree_snapshot");
+    return WorktreeSnapshotPayloadSchema.parse(parseJsonOutput(payload.output))
+      .treeSha;
   }
 
   async getStatus(): Promise<CapturedGitStatus | null> {

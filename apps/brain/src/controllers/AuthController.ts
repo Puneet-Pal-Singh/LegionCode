@@ -31,6 +31,10 @@ import {
 } from "../services/git/GitCommitIdentityService";
 import { errorResponse, jsonResponse } from "../http/response";
 import { getCorsHeaders } from "../lib/cors";
+import {
+  getPrivateAlphaWaitlistUrl,
+  hasPrivateAlphaAccess,
+} from "../services/auth/PrivateAlphaAccessPolicy";
 
 interface AuthSession {
   state: string;
@@ -209,6 +213,16 @@ export class AuthController {
       console.log("[auth/callback] fetching user details");
       const user = await fetchGitHubUser(tokenResponse.access_token);
       console.log("[auth/callback] user fetched:", user.login);
+      if (!hasPrivateAlphaAccess(user.login, env)) {
+        console.warn("[auth/callback] private-alpha access denied");
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: getPrivateAlphaWaitlistUrl(env),
+            ...getCorsHeaders(request, env),
+          },
+        });
+      }
       const commitIdentityDefaults =
         await resolveGitHubProfileIdentityFromOAuth(
           tokenResponse.access_token,
