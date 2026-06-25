@@ -29,7 +29,10 @@ type ServerMessagePart =
   | { type: string; [key: string]: unknown };
 
 type MessageWithActivityData = Message & {
-  data: { activityParts: TurnActivityTranscriptPart[] };
+  data: {
+    activityParts?: TurnActivityTranscriptPart[];
+    metadata?: Record<string, unknown>;
+  };
 };
 
 interface ServerMessage {
@@ -38,6 +41,10 @@ interface ServerMessage {
   content: string | ServerMessagePart[];
   tool_calls?: ServerToolCall[];
   createdAt?: string | Date;
+  data?: {
+    activityParts?: unknown[];
+    metadata?: Record<string, unknown>;
+  };
 }
 
 interface PaginatedHistoryResponse {
@@ -147,7 +154,10 @@ export class ChatHydrationService {
       .map((msg, index) => {
         let content = "";
         let toolInvocations: ToolInvocation[] = [];
-        const activityParts: TurnActivityTranscriptPart[] = [];
+        const activityParts: TurnActivityTranscriptPart[] = readActivityData(
+          msg.data,
+        );
+        const metadata = msg.data?.metadata;
 
         if (typeof msg.content === "string") {
           content = msg.content;
@@ -186,8 +196,11 @@ export class ChatHydrationService {
         if (toolInvocations.length > 0) {
           converted.toolInvocations = toolInvocations;
         }
-        if (activityParts.length > 0) {
-          return attachActivityParts(converted, activityParts);
+        if (activityParts.length > 0 || metadata) {
+          return attachMessageData(converted, {
+            activityParts,
+            metadata,
+          });
         }
 
         return converted;
@@ -236,12 +249,27 @@ function isToolCallPart(
   return value.type === "tool-call";
 }
 
-function attachActivityParts(
+function readActivityData(
+  data: ServerMessage["data"],
+): TurnActivityTranscriptPart[] {
+  return (data?.activityParts ?? []).filter(isTurnActivityTranscriptPart);
+}
+
+function attachMessageData(
   message: Message,
-  activityParts: TurnActivityTranscriptPart[],
+  data: {
+    activityParts: TurnActivityTranscriptPart[];
+    metadata: Record<string, unknown> | undefined;
+  },
 ): Message {
+  const messageData = {
+    ...(data.activityParts.length > 0
+      ? { activityParts: data.activityParts }
+      : {}),
+    ...(data.metadata ? { metadata: data.metadata } : {}),
+  };
   return {
     ...message,
-    data: { activityParts },
+    data: messageData,
   } as MessageWithActivityData;
 }

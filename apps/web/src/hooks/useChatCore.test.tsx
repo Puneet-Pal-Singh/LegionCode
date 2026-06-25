@@ -241,6 +241,7 @@ describe("useChatCore", () => {
       expect.objectContaining({
         body: expect.objectContaining({
           sessionId: "session-1",
+          runId: expect.stringMatching(/^run_/),
           mode: "plan",
         }),
       }),
@@ -402,6 +403,12 @@ describe("useChatCore", () => {
     });
 
     expect(result.current.isLoading).toBe(true);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "Start the next task",
+      }),
+    ]);
 
     await act(async () => {
       resolveAppend?.();
@@ -409,6 +416,7 @@ describe("useChatCore", () => {
     });
 
     expect(result.current.isLoading).toBe(false);
+    expect(result.current.messages).toEqual([]);
   });
 
   it("keeps stop active until the cancel request settles", async () => {

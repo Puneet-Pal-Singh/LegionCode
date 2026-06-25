@@ -88,23 +88,84 @@ function correlateActivityTurnsToMessages(
       turn.userMessage ? [turn.userMessage.id] : [],
     ),
   );
+  const promptQueues = buildPromptQueues(conversationTurns);
+  const latestUserMessageId = findLatestUserMessageId(conversationTurns);
 
   for (const activityTurn of turns) {
     if (!activityTurn?.hasVisibleRows) {
       continue;
     }
-    if (!userMessageIds.has(activityTurn.key)) {
+    const messageId = resolveActivityTurnMessageId(
+      activityTurn,
+      userMessageIds,
+      promptQueues,
+      latestUserMessageId,
+    );
+    if (!messageId) {
       if (logUnmatched) {
         warnUnmatchedActivityTurn(options.runId, activityTurn.key);
       }
       continue;
     }
-    const existingAssignments = assignments.get(activityTurn.key) ?? [];
+    const existingAssignments = assignments.get(messageId) ?? [];
     existingAssignments.push(activityTurn);
-    assignments.set(activityTurn.key, existingAssignments);
+    assignments.set(messageId, existingAssignments);
   }
 
   return assignments;
+}
+
+function resolveActivityTurnMessageId(
+  activityTurn: ActivityTurnViewModel,
+  userMessageIds: Set<string>,
+  promptQueues: Map<string, string[]>,
+  latestUserMessageId: string | null,
+): string | null {
+  if (userMessageIds.has(activityTurn.key)) {
+    return activityTurn.key;
+  }
+
+  const promptKey = normalizePrompt(activityTurn.userPrompt);
+  const promptMatch = promptKey ? promptQueues.get(promptKey)?.shift() : undefined;
+  if (promptMatch) {
+    return promptMatch;
+  }
+
+  return activityTurn.isActiveTurn ? latestUserMessageId : null;
+}
+
+function buildPromptQueues(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): Map<string, string[]> {
+  const queues = new Map<string, string[]>();
+  for (const conversationTurn of conversationTurns) {
+    const message = conversationTurn.userMessage;
+    if (!message) {
+      continue;
+    }
+    const promptKey = normalizePrompt(message.content);
+    if (!promptKey) {
+      continue;
+    }
+    queues.set(promptKey, [...(queues.get(promptKey) ?? []), message.id]);
+  }
+  return queues;
+}
+
+function findLatestUserMessageId(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): string | null {
+  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
+    const id = conversationTurns[index]?.userMessage?.id;
+    if (id) {
+      return id;
+    }
+  }
+  return null;
+}
+
+function normalizePrompt(value: string | null | undefined): string {
+  return value?.trim().replace(/\s+/g, " ") ?? "";
 }
 
 const unmatchedActivityWarningKeys = new Set<string>();
