@@ -42,6 +42,9 @@ importers:
       '@repo/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@repo/platform-protocol':
+        specifier: workspace:*
+        version: link:../../packages/platform-protocol
       '@repo/provider-core':
         specifier: workspace:*
         version: link:../../packages/provider-core

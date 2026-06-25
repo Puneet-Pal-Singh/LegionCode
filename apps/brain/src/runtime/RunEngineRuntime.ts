@@ -28,6 +28,7 @@ import {
   ProviderRateLimitService,
   readByokEncryptionConfig,
 } from "../services/providers";
+import { RunIdSchema } from "@repo/platform-protocol";
 import { ProviderConfigService } from "../services/providers/ProviderConfigService";
 import { createPostgresProviderConfigService } from "../services/providers/stores/PostgresStoreFactory";
 import { AXIS_PROVIDER_ID } from "../services/providers/axis";
@@ -41,7 +42,6 @@ import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
 
-const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
   .string()
   .min(1)

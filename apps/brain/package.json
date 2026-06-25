@@ -26,6 +26,7 @@
     "@ai-sdk/anthropic": "1.1.0",
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",
+    "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@shadowbox/context-pruner": "workspace:*",
     "@shadowbox/execution-engine": "workspace:*",
