@@ -66,6 +66,8 @@ export interface GitConfigValueInput {
 export interface GitCapturePatchInput {
   readonly workspace: GitFilesystemContext;
   readonly internalPathPrefix?: string;
+  readonly baselineTree?: string;
+  readonly paths?: readonly string[];
 }
 
 export interface GitPatchCaptureResult {

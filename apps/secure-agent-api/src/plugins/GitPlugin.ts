@@ -68,11 +68,6 @@ const GitPayloadSchema = z.object({
 
 type GitPayload = z.infer<typeof GitPayloadSchema>;
 
-interface BaselineIndexContext {
-  path: string;
-  env: Record<string, string>;
-}
-
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,200}$/;
 const MISSING_GIT_AUTHOR_ERROR =
   "Git commit author is not configured for this workspace commit request.";
@@ -496,206 +491,18 @@ export class GitPlugin implements IPlugin {
     baselineTree?: string,
     files?: string[],
   ): Promise<PluginResult> {
-    const status = await this.ensureGitStatusAvailable(
+    const gitService = this.createGitService(
       sandbox,
-      worktree,
       toolboxContext,
-      runId,
+      "git.patch_capture",
     );
-    if (!status.success) {
-      return status;
-    }
-
-    const trackedPatch = await this.captureTrackedPatch(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
+    const result = await gitService.capturePatch({
+      workspace: { runId, filesystemRoot: worktree },
+      internalPathPrefix: PATCH_WORK_DIR,
+      paths: files,
       baselineTree,
-      files,
-    );
-    if (!trackedPatch.success) {
-      return trackedPatch;
-    }
-
-    const untrackedPatch = await this.captureUntrackedPatch(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-      files,
-      baselineTree,
-    );
-    if (!untrackedPatch.success) {
-      return untrackedPatch;
-    }
-
-    const metadata = await this.capturePatchMetadata(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-    );
-
-    return buildPatchCaptureResult(
-      getPatchOutput(trackedPatch),
-      getPatchOutput(untrackedPatch),
-      metadata,
-    );
-  }
-
-  private async ensureGitStatusAvailable(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<PluginResult> {
-    return this.getStatus(sandbox, worktree, toolboxContext, runId);
-  }
-
-  private async captureTrackedPatch(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-    baselineTree?: string,
-    files?: string[],
-  ): Promise<PluginResult> {
-    const patchPath = await this.createTemporaryPatchPath(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-      "git.patch_capture.prepare",
-    );
-    const baseline = baselineTree
-      ? await this.createBaselineIndex(
-          sandbox,
-          worktree,
-          baselineTree,
-          toolboxContext,
-          runId,
-        )
-      : null;
-    try {
-      const diffResult = await this.runTrackedPatchDiff(
-        sandbox,
-        worktree,
-        patchPath,
-        files,
-        baseline,
-        toolboxContext,
-        runId,
-      );
-      if (diffResult.exitCode !== 0) {
-        return { success: false, error: diffResult.stderr };
-      }
-
-      return await this.readTemporaryPatch(sandbox, patchPath);
-    } finally {
-      await this.cleanupTrackedPatchCapture(
-        sandbox,
-        patchPath,
-        baseline,
-        toolboxContext,
-        runId,
-      );
-    }
-  }
-
-  private async cleanupTrackedPatchCapture(
-    sandbox: Sandbox,
-    patchPath: string,
-    baseline: BaselineIndexContext | null,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<void> {
-    await this.deleteTemporaryPatch(sandbox, patchPath, toolboxContext, runId);
-    if (baseline) {
-      await this.deleteTemporaryIndex(
-        sandbox,
-        baseline.path,
-        toolboxContext,
-        runId,
-      );
-    }
-  }
-
-  private async createBaselineIndex(
-    sandbox: Sandbox,
-    worktree: string,
-    baselineTree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<BaselineIndexContext> {
-    const path = `/tmp/shadowbox-baseline-${crypto.randomUUID()}.index`;
-    const env = { GIT_INDEX_FILE: path };
-    const validatedBaselineTree = validateGitObjectId(baselineTree);
-    const result = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "read-tree", validatedBaselineTree],
-        env,
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.baseline_index",
-    );
-    if (result.exitCode !== 0) {
-      throw new Error(`Failed to prepare turn baseline: ${result.stderr}`);
-    }
-    return { path, env };
-  }
-
-  private async runTrackedPatchDiff(
-    sandbox: Sandbox,
-    worktree: string,
-    patchPath: string,
-    files: string[] | undefined,
-    baseline: BaselineIndexContext | null,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ) {
-    return await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: [
-          "-C",
-          worktree,
-          "diff",
-          "--binary",
-          "--no-ext-diff",
-          "--find-renames",
-          "--unified=999999",
-          ...(baseline ? [] : ["HEAD"]),
-          `--output=${patchPath}`,
-          ...(files?.length ? ["--", ...normalizeFileList(files)] : []),
-        ],
-        env: baseline?.env,
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.diff",
-    );
-  }
-
-  private async deleteTemporaryIndex(
-    sandbox: Sandbox,
-    indexPath: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<void> {
-    await this.runToolboxCommand(
-      sandbox,
-      { command: "rm", args: ["-f", indexPath], runId },
-      ["rm"],
-      toolboxContext,
-      "git.patch_capture.baseline_cleanup",
-    );
+    });
+    return { success: true, output: JSON.stringify(result) };
   }
 
   private async createTemporaryPatchPath(
@@ -736,300 +543,25 @@ export class GitPlugin implements IPlugin {
     );
   }
 
-  private async readTemporaryPatch(
-    sandbox: Sandbox,
-    patchPath: string,
-  ): Promise<PluginResult> {
-    const result = await sandbox.readFile(patchPath, { encoding: "utf-8" });
-    if (!result.success) {
-      return {
-        success: false,
-        error: `Failed to read captured patch file: ${patchPath}`,
-      };
-    }
-    return { success: true, output: result.content };
-  }
-
-  private async captureUntrackedFilePatch(
-    sandbox: Sandbox,
-    worktree: string,
-    safePath: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<PluginResult> {
-    const patchPath = await this.createTemporaryPatchPath(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-      "git.patch_capture.untracked_prepare",
-    );
-    try {
-      const diffResult = await this.runToolboxCommand(
-        sandbox,
-        {
-          command: "git",
-          args: [
-            "diff",
-            "--binary",
-            "--no-index",
-            `--output=${patchPath}`,
-            "--",
-            "/dev/null",
-            safePath,
-          ],
-          cwd: worktree,
-          runId,
-        },
-        ["git"],
-        toolboxContext,
-        "git.patch_capture.untracked_diff",
-      );
-      if (diffResult.exitCode !== 0 && diffResult.exitCode !== 1) {
-        return { success: false, error: diffResult.stderr };
-      }
-
-      return await this.readTemporaryPatch(sandbox, patchPath);
-    } finally {
-      await this.deleteTemporaryPatch(
-        sandbox,
-        patchPath,
-        toolboxContext,
-        runId,
-      );
-    }
-  }
-
-  private isInternalPatchFile(safePath: string): boolean {
-    return (
-      safePath === PATCH_WORK_DIR || safePath.startsWith(`${PATCH_WORK_DIR}/`)
-    );
-  }
-
-  private async captureUntrackedPatch(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-    files?: string[],
-    baselineTree?: string,
-  ): Promise<PluginResult> {
-    const diffResult = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: [
-          "-C",
-          worktree,
-          "ls-files",
-          "-z",
-          "--others",
-          "--exclude-standard",
-        ],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.untracked_list",
-    );
-    if (diffResult.exitCode !== 0) {
-      return { success: false, error: diffResult.stderr };
-    }
-
-    const includedPaths = files?.length
-      ? new Set(normalizeFileList(files))
-      : null;
-    const baselinePaths = baselineTree
-      ? await this.loadTreePaths(
-          sandbox,
-          worktree,
-          baselineTree,
-          files,
-          toolboxContext,
-          runId,
-        )
-      : new Set<string>();
-    return await this.captureUntrackedPaths({
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-      paths: splitNullTerminatedPaths(diffResult.stdout),
-      includedPaths,
-      baselinePaths,
-    });
-  }
-
-  private async captureUntrackedPaths(input: {
-    sandbox: Sandbox;
-    worktree: string;
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>;
-    runId: string;
-    paths: string[];
-    includedPaths: Set<string> | null;
-    baselinePaths: Set<string>;
-  }): Promise<PluginResult> {
-    const patches: string[] = [];
-    for (const filePath of input.paths) {
-      const safePath = validateRepoRelativePath(filePath);
-      if (input.includedPaths && !input.includedPaths.has(safePath)) {
-        continue;
-      }
-      if (input.baselinePaths.has(safePath)) {
-        continue;
-      }
-      if (this.isInternalPatchFile(safePath)) {
-        continue;
-      }
-
-      const patch = await this.captureUntrackedFilePatch(
-        input.sandbox,
-        input.worktree,
-        safePath,
-        input.toolboxContext,
-        input.runId,
-      );
-      if (!patch.success) {
-        return patch;
-      }
-
-      const output = getPatchOutput(patch);
-      if (hasPatchContent(output)) {
-        patches.push(output);
-      }
-    }
-
-    return { success: true, output: patches.join("\n") };
-  }
-
-  private async loadTreePaths(
-    sandbox: Sandbox,
-    worktree: string,
-    baselineTree: string,
-    files: string[] | undefined,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<Set<string>> {
-    const result = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: [
-          "-C",
-          worktree,
-          "ls-tree",
-          "-r",
-          "--name-only",
-          validateGitObjectId(baselineTree),
-          ...(files?.length ? ["--", ...normalizeFileList(files)] : []),
-        ],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.baseline_paths",
-    );
-    if (result.exitCode !== 0) {
-      throw new Error(`Failed to read turn baseline paths: ${result.stderr}`);
-    }
-    return new Set(result.stdout.split(/\r?\n/u).filter(Boolean));
-  }
-
   private async captureWorktreeSnapshot(
     sandbox: Sandbox,
     worktree: string,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
-    const indexPath = `/tmp/shadowbox-turn-${crypto.randomUUID()}.index`;
-    const env = { GIT_INDEX_FILE: indexPath };
-    try {
-      const readTree = await this.runSnapshotGitCommand(
-        sandbox,
-        worktree,
-        ["read-tree", "HEAD"],
-        env,
-        runId,
-        toolboxContext,
-        "read_tree",
-      );
-      if (readTree.exitCode !== 0)
-        return { success: false, error: readTree.stderr };
-      const add = await this.runSnapshotGitCommand(
-        sandbox,
-        worktree,
-        ["add", "-A"],
-        env,
-        runId,
-        toolboxContext,
-        "add",
-      );
-      if (add.exitCode !== 0) return { success: false, error: add.stderr };
-      const tree = await this.runSnapshotGitCommand(
-        sandbox,
-        worktree,
-        ["write-tree"],
-        env,
-        runId,
-        toolboxContext,
-        "write_tree",
-      );
-      if (tree.exitCode !== 0) return { success: false, error: tree.stderr };
-      return {
-        success: true,
-        output: JSON.stringify({
-          treeSha: validateGitObjectId(tree.stdout.trim()),
-        }),
-      };
-    } finally {
-      await this.runToolboxCommand(
-        sandbox,
-        { command: "rm", args: ["-f", indexPath], runId },
-        ["rm"],
-        toolboxContext,
-        "git.worktree_snapshot.cleanup",
-      );
-    }
-  }
-
-  private async runSnapshotGitCommand(
-    sandbox: Sandbox,
-    worktree: string,
-    args: string[],
-    env: Record<string, string>,
-    runId: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    operation: string,
-  ) {
-    return this.runToolboxCommand(
+    const gitService = this.createGitService(
       sandbox,
-      { command: "git", args: ["-C", worktree, ...args], env, runId },
-      ["git"],
       toolboxContext,
-      `git.worktree_snapshot.${operation}`,
+      "git.worktree_snapshot",
     );
-  }
-
-  private async capturePatchMetadata(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<{ baseCommitSha: string | null; branch: string | null }> {
-    const baseCommitSha = await this.readHeadCommitSha(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-    );
-    const branch = await this.readCurrentBranch(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-    );
-
-    return { baseCommitSha, branch };
+    const snapshot = await gitService.captureSnapshot({
+      workspace: { runId, filesystemRoot: worktree },
+      snapshotKey: `turn-${crypto.randomUUID()}`,
+    });
+    return {
+      success: true,
+      output: JSON.stringify({ treeSha: snapshot.treeId }),
+    };
   }
 
   private async applyPatch(
@@ -1139,42 +671,6 @@ export class GitPlugin implements IPlugin {
     return result.exitCode === 0
       ? { success: true, output: "Patch applied" }
       : { success: false, error: result.stderr };
-  }
-
-  private async readHeadCommitSha(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<string | null> {
-    const result = await this.runToolboxCommand(
-      sandbox,
-      { command: "git", args: ["-C", worktree, "rev-parse", "HEAD"], runId },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.head",
-    );
-    return result.exitCode === 0 ? result.stdout.trim() || null : null;
-  }
-
-  private async readCurrentBranch(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<string | null> {
-    const result = await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["-C", worktree, "branch", "--show-current"],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.patch_capture.branch",
-    );
-    return result.exitCode === 0 ? result.stdout.trim() || null : null;
   }
 
   private async deleteTemporaryPatch(
@@ -1796,13 +1292,6 @@ function normalizeExplicitFileList(files: string[] | undefined): string[] {
   return files.map((file) => validateRepoRelativePath(file));
 }
 
-function normalizeFileList(files: string[] | undefined): string[] {
-  if (!files || files.length === 0) {
-    return ["."];
-  }
-  return files.map((file) => validateRepoRelativePath(file));
-}
-
 function toSharedStatus(entry: GitStatusEntry): FileStatus["status"] {
   switch (entry.status) {
     case "added":
@@ -1881,37 +1370,6 @@ function isNonFastForwardGitPushError(stderr: string): boolean {
   return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
 }
 
-function getPatchOutput(result: PluginResult): string {
-  return typeof result.output === "string" ? result.output : "";
-}
-
-function buildPatchCaptureResult(
-  trackedPatch: string,
-  untrackedPatch: string,
-  metadata: { baseCommitSha: string | null; branch: string | null },
-): PluginResult {
-  return {
-    success: true,
-    output: JSON.stringify({
-      patch: combinePatchParts(trackedPatch, untrackedPatch),
-      baseCommitSha: metadata.baseCommitSha,
-      branch: metadata.branch,
-    }),
-  };
-}
-
-function combinePatchParts(...parts: string[]): string {
-  return parts.filter(hasPatchContent).join("\n");
-}
-
-function hasPatchContent(patch: string): boolean {
-  return /\S/u.test(patch);
-}
-
-function splitNullTerminatedPaths(output: string): string[] {
-  return output.split("\0").filter((filePath) => filePath.length > 0);
-}
-
 function validatePatchPayload(
   patch: string | undefined,
 ): { success: true; patch: string } | { success: false; error: string } {
@@ -1922,13 +1380,6 @@ function validatePatchPayload(
     return { success: false, error: "Patch payload exceeds maximum size" };
   }
   return { success: true, patch };
-}
-
-function validateGitObjectId(value: string): string {
-  if (!/^[a-f0-9]{40,64}$/iu.test(value)) {
-    throw new Error("Invalid Git object id");
-  }
-  return value;
 }
 
 function buildNonFastForwardPushError(remote: string, branch: string): string {

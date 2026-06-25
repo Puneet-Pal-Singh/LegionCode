@@ -166,7 +166,14 @@ describe("DefaultGitService", () => {
       branch: "feat/canonical-git",
     });
     expect(executor.calls.map((call) => call.args)).toEqual([
-      ["diff", "--binary", "--no-ext-diff", "--find-renames"],
+      [
+        "diff",
+        "--binary",
+        "--no-ext-diff",
+        "--find-renames",
+        "--unified=999999",
+        "HEAD",
+      ],
       ["ls-files", "-z", "--others", "--exclude-standard"],
       ["diff", "--binary", "--no-index", "--", "/dev/null", "src/new.ts"],
       ["rev-parse", "HEAD"],

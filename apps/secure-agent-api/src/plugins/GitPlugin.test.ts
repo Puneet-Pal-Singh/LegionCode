@@ -353,20 +353,6 @@ describe("GitPlugin", () => {
 
   it("captures untracked edit artifact patches from NUL-delimited paths", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
-    const readFile = vi
-      .fn()
-      .mockResolvedValueOnce({
-        success: true,
-        content: "",
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        content: "diff --git a/src/new file.ts b/src/new file.ts\n",
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        content: "diff --git a/src/other.ts b/src/other.ts\n",
-      });
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
       if (spec.command === "mkdir" || spec.command === "rm") {
@@ -418,7 +404,7 @@ describe("GitPlugin", () => {
     });
 
     const plugin = new GitPlugin();
-    const result = await plugin.execute(asSandbox({ readFile }), {
+    const result = await plugin.execute(asSandbox({}), {
       action: "git_patch_capture",
       runId: "run_patch_capture_untracked",
     });
@@ -445,15 +431,10 @@ describe("GitPlugin", () => {
       .filter(([, spec]) => spec.args?.includes("--no-index"))
       .map(([, spec]) => spec.args?.at(-1));
     expect(untrackedDiffPaths).toEqual(["src/new file.ts", "src/other.ts"]);
-    expect(readFile).toHaveBeenCalledTimes(3);
   });
 
   it("captures tracked edit artifact patches through git-service stdout", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
-    const readFile = vi.fn().mockResolvedValue({
-      success: true,
-      content: "diff --git a/src/app.ts b/src/app.ts\n",
-    });
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
       if (spec.command === "mkdir" || spec.command === "rm") {
@@ -496,7 +477,7 @@ describe("GitPlugin", () => {
     });
 
     const plugin = new GitPlugin();
-    const result = await plugin.execute(asSandbox({ readFile }), {
+    const result = await plugin.execute(asSandbox({}), {
       action: "git_patch_capture",
       runId: "run_patch_capture_tracked",
     });
@@ -509,7 +490,7 @@ describe("GitPlugin", () => {
     )?.[1] as { args?: string[] } | undefined;
     expect(
       diffCommandSpec?.args?.some((arg) => arg.startsWith("--output=")),
-    ).toBe(true);
+    ).toBe(false);
     expect(diffCommandSpec?.args).toEqual(
       expect.arrayContaining(["--unified=999999", "HEAD"]),
     );
@@ -518,11 +499,19 @@ describe("GitPlugin", () => {
   it("captures an immutable worktree baseline without changing the real index", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
-      if (spec.command === "rm") {
-        return { exitCode: 0, stdout: "", stderr: "" };
+      const args = spec.args ?? [];
+      if (args.includes("--git-path")) {
+        return {
+          exitCode: 0,
+          stdout: "/home/sandbox/runs/run_snapshot/.git/index.legioncode-turn\n",
+          stderr: "",
+        };
       }
-      if (spec.args?.includes("write-tree")) {
+      if (args.includes("write-tree")) {
         return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" };
+      }
+      if (args.includes("rev-parse") && args.includes("HEAD")) {
+        return { exitCode: 0, stdout: `${"b".repeat(40)}\n`, stderr: "" };
       }
       return { exitCode: 0, stdout: "", stderr: "" };
     });
@@ -539,19 +528,18 @@ describe("GitPlugin", () => {
     const gitCalls = runSafeCommandMock.mock.calls.filter(
       ([, spec]) => spec.command === "git",
     );
-    expect(gitCalls).toHaveLength(3);
+    expect(gitCalls).toHaveLength(5);
+    expect(gitCalls[0]?.[1].args).toEqual(
+      expect.arrayContaining(["rev-parse", "--git-path"]),
+    );
     expect(
-      gitCalls.every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
+      gitCalls.slice(1, 4).every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
     ).toBe(true);
   });
 
   it("diffs prompt files against the prepared baseline index", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     const baselineTree = "b".repeat(40);
-    const readFile = vi.fn().mockResolvedValue({
-      success: true,
-      content: "diff --git a/src/app.ts b/src/app.ts\n",
-    });
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {
       const args = spec.args ?? [];
       if (spec.command === "mkdir" || spec.command === "rm") {
@@ -583,7 +571,7 @@ describe("GitPlugin", () => {
       return { exitCode: 0, stdout: "", stderr: "" };
     });
 
-    const result = await new GitPlugin().execute(asSandbox({ readFile }), {
+    const result = await new GitPlugin().execute(asSandbox({}), {
       action: "git_patch_capture",
       runId: "run_turn_patch",
       baselineTree,
