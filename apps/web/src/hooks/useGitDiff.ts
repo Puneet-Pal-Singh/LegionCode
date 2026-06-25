@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
 import { useOptionalRunContext } from "./useRunContext";
 import { getGitDiff } from "../lib/git-client.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseGitDiffResult {
   diff: DiffContent | null;
@@ -36,49 +37,101 @@ export function useGitDiff(
     setError(null);
   }, [scopeKey]);
 
-  const fetchDiff = useCallback(async (path: string, staged = false) => {
-    const requestId = ++latestRequestIdRef.current;
-    const requestScopeKey = scopeKey;
-    if (!runId || !sessionId) {
-      setError(!runId ? "No run context available" : "No session context available");
-      return;
-    }
+  const fetchDiff = useCallback(
+    async (path: string, staged = false) => {
+      const requestId = ++latestRequestIdRef.current;
+      const requestScopeKey = scopeKey;
+      if (!runId || !sessionId) {
+        const message = !runId
+          ? "No run context available"
+          : "No session context available";
+        logClientWarning("git/diff", "skipped", {
+          path,
+          reason: message,
+        });
+        setError(message);
+        return;
+      }
 
-    previousDiffRef.current = diffRef.current;
-    setDiff(null);
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = {
+      logClientEvent("git/diff", "requested", {
         runId,
-        sessionId,
         path,
         staged,
-      };
-      const data = (await getGitDiff(params)) as DiffContent;
-      if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
-        return;
+        requestId,
+      });
+
+      previousDiffRef.current = diffRef.current;
+      setDiff(null);
+      setLoading(true);
+      setError(null);
+
+      try {
+        const params = {
+          runId,
+          sessionId,
+          path,
+          staged,
+        };
+        const data = (await getGitDiff(params)) as DiffContent;
+        if (
+          requestId !== latestRequestIdRef.current ||
+          activeScopeKeyRef.current !== requestScopeKey
+        ) {
+          logClientEvent("git/diff", "discarded", {
+            runId,
+            path,
+            requestId,
+            currentRequestId: latestRequestIdRef.current,
+            reason:
+              activeScopeKeyRef.current === requestScopeKey
+                ? "newer-request"
+                : "scope-changed",
+          });
+          return;
+        }
+        diffRef.current = data;
+        setDiff(data);
+        logClientEvent("git/diff", "accepted", {
+          runId,
+          path,
+          requestId,
+          hunkCount: data.hunks.length,
+        });
+      } catch (err) {
+        if (
+          requestId !== latestRequestIdRef.current ||
+          activeScopeKeyRef.current !== requestScopeKey
+        ) {
+          logClientEvent("git/diff", "failure-discarded", {
+            runId,
+            path,
+            requestId,
+          });
+          return;
+        }
+        const message = err instanceof Error ? err.message : "Unknown error";
+        logClientWarning("git/diff", "failed", {
+          runId,
+          path,
+          requestId,
+          error: message,
+        });
+        setError(message);
+        const previous = previousDiffRef.current;
+        previousDiffRef.current = null;
+        diffRef.current = previous;
+        setDiff(previous);
+      } finally {
+        if (
+          requestId === latestRequestIdRef.current &&
+          activeScopeKeyRef.current === requestScopeKey
+        ) {
+          setLoading(false);
+        }
       }
-      diffRef.current = data;
-      setDiff(data);
-    } catch (err) {
-      if (requestId !== latestRequestIdRef.current || activeScopeKeyRef.current !== requestScopeKey) {
-        return;
-      }
-      const message = err instanceof Error ? err.message : "Unknown error";
-      setError(message);
-      const previous = previousDiffRef.current;
-      previousDiffRef.current = null;
-      diffRef.current = previous;
-      setDiff(previous);
-      console.error("[useGitDiff] Error:", err);
-    } finally {
-      if (requestId === latestRequestIdRef.current && activeScopeKeyRef.current === requestScopeKey) {
-        setLoading(false);
-      }
-    }
-  }, [runId, scopeKey, sessionId]);
+    },
+    [runId, scopeKey, sessionId],
+  );
 
   return { diff, loading, error, fetch: fetchDiff };
 }

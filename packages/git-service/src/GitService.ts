@@ -61,6 +61,7 @@ const GIT_DIFF_ARGS = [
 const GIT_COMMIT_MESSAGE_PATTERN = /[\0\r\n]/u;
 const BRANCH_PATHSPEC_MISSING_PATTERN =
   /pathspec .* did not match any file(?:\(s\))? known to git/i;
+const GIT_OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/u;
 
 export class DefaultGitService {
   constructor(private readonly executor: GitCommandExecutor) {}
@@ -459,19 +460,53 @@ export class DefaultGitService {
   private async captureTrackedPatch(
     input: GitCapturePatchInput,
   ): Promise<string> {
-    const result = await this.executeRequired(input.workspace, [
-      "diff",
-      "--binary",
-      "--no-ext-diff",
-      "--find-renames",
-    ]);
+    const baseline = input.baselineTree
+      ? await this.createBaselineIndex(input)
+      : null;
+    const result = await this.executeRequired(
+      input.workspace,
+      [
+        "diff",
+        "--binary",
+        "--no-ext-diff",
+        "--find-renames",
+        "--unified=999999",
+        ...(baseline ? [] : ["HEAD"]),
+        ...toPathspecArgs(input.paths),
+      ],
+      baseline?.environment,
+    );
     return result.stdout;
+  }
+
+  private async createBaselineIndex(input: GitCapturePatchInput): Promise<{
+    readonly path: string;
+    readonly environment: Readonly<Record<string, string>>;
+  }> {
+    const baselineTree = validateGitObjectId(input.baselineTree ?? "");
+    const path = `/tmp/shadowbox-baseline-${crypto.randomUUID()}.index`;
+    const environment = { GIT_INDEX_FILE: path };
+    await this.executeRequired(
+      input.workspace,
+      ["read-tree", baselineTree],
+      environment,
+    );
+    return { path, environment };
   }
 
   private async captureUntrackedPatch(
     input: GitCapturePatchInput,
   ): Promise<string> {
-    const paths = await this.listUntrackedPaths(input);
+    const baselinePaths = input.baselineTree
+      ? await this.listBaselinePaths(input)
+      : new Set<string>();
+    const includedPaths = input.paths?.length
+      ? new Set(validateExplicitRepoPaths(input.paths))
+      : null;
+    const paths = (await this.listUntrackedPaths(input)).filter((path) => {
+      if (includedPaths && !includedPaths.has(path)) return false;
+      return !baselinePaths.has(path);
+    });
     const patches: string[] = [];
     for (const path of paths) {
       const result = await this.executeGit(input.workspace, [
@@ -496,6 +531,20 @@ export class DefaultGitService {
     return patches.join("\n");
   }
 
+  private async listBaselinePaths(
+    input: GitCapturePatchInput,
+  ): Promise<ReadonlySet<string>> {
+    const baselineTree = validateGitObjectId(input.baselineTree ?? "");
+    const result = await this.executeRequired(input.workspace, [
+      "ls-tree",
+      "-r",
+      "--name-only",
+      baselineTree,
+      ...toPathspecArgs(input.paths),
+    ]);
+    return new Set(result.stdout.split(/\r?\n/u).filter(Boolean));
+  }
+
   private async listUntrackedPaths(
     input: GitCapturePatchInput,
   ): Promise<readonly string[]> {
@@ -513,8 +562,9 @@ export class DefaultGitService {
   private async executeRequired(
     workspace: GitFileLineCountsInput["workspace"],
     args: readonly string[],
+    environment?: Readonly<Record<string, string>>,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    const result = await this.executeGit(workspace, args);
+    const result = await this.executeGit(workspace, args, environment);
     if (result.exitCode !== 0) {
       throw createGitCommandFailedError(
         args,
@@ -528,11 +578,13 @@ export class DefaultGitService {
   private async executeGit(
     workspace: GitFileLineCountsInput["workspace"],
     args: readonly string[],
+    environment?: Readonly<Record<string, string>>,
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     return await this.executor.execute({
       runId: RunIdSchema.parse(workspace.runId),
       cwd: validateWorkspaceRoot(workspace.filesystemRoot),
       args,
+      environment,
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
   }
@@ -679,6 +731,20 @@ function shouldKeepPatchPath(
     return true;
   }
   return path !== internalPathPrefix && !path.startsWith(`${internalPathPrefix}/`);
+}
+
+function toPathspecArgs(paths: readonly string[] | undefined): readonly string[] {
+  if (!paths || paths.length === 0) {
+    return [];
+  }
+  return ["--", ...validateExplicitRepoPaths(paths)];
+}
+
+function validateGitObjectId(value: string): string {
+  if (!GIT_OBJECT_ID_PATTERN.test(value)) {
+    throw new GitServiceError("invalid_git_input", "Invalid Git object id");
+  }
+  return value;
 }
 
 function hasPatchContent(patch: string): boolean {

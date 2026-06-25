@@ -129,6 +129,22 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     return row ? mapArtifactRow(row) : null;
   }
 
+  async listRestorableArtifacts(input: {
+    runId: string;
+    userId?: string;
+  }): Promise<EditArtifactRecord[]> {
+    const result = input.userId
+      ? await this.client.query<ArtifactRow>(LIST_RESTORABLE_ARTIFACTS_SQL, [
+          input.runId,
+          input.userId,
+        ])
+      : await this.client.query<ArtifactRow>(
+          LIST_RESTORABLE_ARTIFACTS_FOR_RUN_SQL,
+          [input.runId],
+        );
+    return result.rows.map(mapArtifactRow);
+  }
+
   async getArtifactById(
     artifactId: string,
     userId: string,
@@ -206,36 +222,33 @@ export class PostgresArtifactRepository implements ArtifactRepository {
   async updateReviewMetadata(
     input: UpdateArtifactReviewMetadataInput,
   ): Promise<EditArtifactRecord> {
-    const result = await this.client.query(
-      UPDATE_REVIEW_METADATA_SQL,
-      [
-        input.artifactId,
-        input.userId,
-        hasOwn(input, "userMessageId"),
-        input.userMessageId ?? null,
-        hasOwn(input, "assistantMessageId"),
-        input.assistantMessageId ?? null,
-        hasOwn(input, "sourceTurnId"),
-        input.sourceTurnId ?? null,
-        hasOwn(input, "captureSequence"),
-        input.captureSequence ?? null,
-        hasOwn(input, "patchParseStatus"),
-        input.patchParseStatus ?? null,
-        hasOwn(input, "patchSha256"),
-        input.patchSha256 ?? null,
-        hasOwn(input, "storageBackend"),
-        input.storageBackend ?? null,
-        hasOwn(input, "cfArtifactRepo"),
-        input.cfArtifactRepo ?? null,
-        hasOwn(input, "cfArtifactCommitSha"),
-        input.cfArtifactCommitSha ?? null,
-        hasOwn(input, "cfArtifactPath"),
-        input.cfArtifactPath ?? null,
-        hasOwn(input, "storageReconciliationStatus"),
-        input.storageReconciliationStatus ?? null,
-        this.clock.now(),
-      ],
-    );
+    const result = await this.client.query(UPDATE_REVIEW_METADATA_SQL, [
+      input.artifactId,
+      input.userId,
+      hasOwn(input, "userMessageId"),
+      input.userMessageId ?? null,
+      hasOwn(input, "assistantMessageId"),
+      input.assistantMessageId ?? null,
+      hasOwn(input, "sourceTurnId"),
+      input.sourceTurnId ?? null,
+      hasOwn(input, "captureSequence"),
+      input.captureSequence ?? null,
+      hasOwn(input, "patchParseStatus"),
+      input.patchParseStatus ?? null,
+      hasOwn(input, "patchSha256"),
+      input.patchSha256 ?? null,
+      hasOwn(input, "storageBackend"),
+      input.storageBackend ?? null,
+      hasOwn(input, "cfArtifactRepo"),
+      input.cfArtifactRepo ?? null,
+      hasOwn(input, "cfArtifactCommitSha"),
+      input.cfArtifactCommitSha ?? null,
+      hasOwn(input, "cfArtifactPath"),
+      input.cfArtifactPath ?? null,
+      hasOwn(input, "storageReconciliationStatus"),
+      input.storageReconciliationStatus ?? null,
+      this.clock.now(),
+    ]);
     if (result.rowCount === 0) {
       throw new Error(`Artifact not found: ${input.artifactId}`);
     }
@@ -456,13 +469,23 @@ const UPDATE_STATUS_SQL = `
     AND user_id = $2
 `;
 
+const RESTORABLE_ARTIFACT_STATUS_SQL = `
+  'stored',
+  'stored_with_secondary',
+  'secondary_write_failed',
+  'restored',
+  'restore_failed',
+  'restore_in_progress',
+  'requires_user_resolution'
+`;
+
 const LATEST_RESTORABLE_ARTIFACT_SQL = `
   SELECT ${ARTIFACT_COLUMNS}
   FROM artifacts a
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.run_id = $1
     AND a.user_id = $2
-    AND a.status IN ('stored', 'restored', 'restore_failed', 'restore_in_progress')
+    AND a.status IN (${RESTORABLE_ARTIFACT_STATUS_SQL})
     AND EXISTS (
       SELECT 1
       FROM artifact_changed_files cf
@@ -478,7 +501,7 @@ const LATEST_RESTORABLE_ARTIFACT_FOR_RUN_SQL = `
   FROM artifacts a
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.run_id = $1
-    AND a.status IN ('stored', 'restored', 'restore_failed', 'restore_in_progress')
+    AND a.status IN (${RESTORABLE_ARTIFACT_STATUS_SQL})
     AND EXISTS (
       SELECT 1
       FROM artifact_changed_files cf
@@ -487,6 +510,33 @@ const LATEST_RESTORABLE_ARTIFACT_FOR_RUN_SQL = `
   GROUP BY ${ARTIFACT_GROUP_BY}
   ORDER BY a.updated_at DESC
   LIMIT 1
+`;
+
+const LIST_RESTORABLE_ARTIFACTS_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.run_id = $1
+    AND a.user_id = $2
+    AND a.status IN (${RESTORABLE_ARTIFACT_STATUS_SQL})
+    AND EXISTS (
+      SELECT 1 FROM artifact_changed_files cf WHERE cf.artifact_id = a.id
+    )
+  GROUP BY ${ARTIFACT_GROUP_BY}
+  ORDER BY a.created_at ASC, a.capture_sequence ASC, a.id ASC
+`;
+
+const LIST_RESTORABLE_ARTIFACTS_FOR_RUN_SQL = `
+  SELECT ${ARTIFACT_COLUMNS}
+  FROM artifacts a
+  LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
+  WHERE a.run_id = $1
+    AND a.status IN (${RESTORABLE_ARTIFACT_STATUS_SQL})
+    AND EXISTS (
+      SELECT 1 FROM artifact_changed_files cf WHERE cf.artifact_id = a.id
+    )
+  GROUP BY ${ARTIFACT_GROUP_BY}
+  ORDER BY a.created_at ASC, a.capture_sequence ASC, a.id ASC
 `;
 
 const LIST_EXPIRED_SQL = `

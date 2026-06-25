@@ -28,8 +28,7 @@ export const GitTools: ToolDefinition[] = [
   },
   {
     name: "git_stage",
-    description:
-      "Stage explicit files for commit. File paths are required.",
+    description: "Stage explicit files for commit. File paths are required.",
     parameters: {
       type: "object",
       properties: {
@@ -44,7 +43,8 @@ export const GitTools: ToolDefinition[] = [
   },
   {
     name: "git_commit",
-    description: "Stage explicit files and commit them with a descriptive message.",
+    description:
+      "Stage explicit files and commit them with a descriptive message.",
     parameters: {
       type: "object",
       properties: {
@@ -168,11 +168,23 @@ export const GitTools: ToolDefinition[] = [
     },
   },
   {
+    name: "git_worktree_snapshot",
+    description: "Capture the current worktree as an immutable Git tree.",
+    parameters: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
     name: "git_patch_capture",
     description: "Capture uncommitted workspace changes as a binary git patch.",
     parameters: {
       type: "object",
-      properties: {},
+      properties: {
+        baselineTree: { type: "string" },
+        files: { type: "array", items: { type: "string" } },
+      },
       required: [],
     },
   },

@@ -3,7 +3,6 @@ import {
   DefaultGitService,
   GitServiceError,
   type GitFileLineCount,
-  type GitPatchCaptureResult,
   type GitStatusEntry,
   type GitStatusResult,
 } from "@repo/git-service";
@@ -42,6 +41,7 @@ const GIT_ACTIONS = [
   "git_stage",
   "git_unstage",
   "git_status",
+  "git_worktree_snapshot",
   "git_patch_capture",
   "git_patch_apply",
 ] as const;
@@ -62,6 +62,7 @@ const GitPayloadSchema = z.object({
   remote: z.string().optional(),
   staged: z.boolean().optional(),
   patch: z.string().optional(),
+  baselineTree: z.string().optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -98,6 +99,15 @@ export class GitPlugin implements IPlugin {
           return await this.getStatus(sandbox, worktree, toolboxContext, runId);
         case "git_patch_capture":
           return await this.capturePatch(
+            sandbox,
+            worktree,
+            toolboxContext,
+            runId,
+            parsed.baselineTree,
+            parsed.files,
+          );
+        case "git_worktree_snapshot":
+          return await this.captureWorktreeSnapshot(
             sandbox,
             worktree,
             toolboxContext,
@@ -478,17 +488,9 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
+    baselineTree?: string,
+    files?: string[],
   ): Promise<PluginResult> {
-    const status = await this.ensureGitStatusAvailable(
-      sandbox,
-      worktree,
-      toolboxContext,
-      runId,
-    );
-    if (!status.success) {
-      return status;
-    }
-
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -497,17 +499,10 @@ export class GitPlugin implements IPlugin {
     const result = await gitService.capturePatch({
       workspace: { runId, filesystemRoot: worktree },
       internalPathPrefix: PATCH_WORK_DIR,
+      paths: files,
+      baselineTree,
     });
-    return buildPatchCaptureResult(result);
-  }
-
-  private async ensureGitStatusAvailable(
-    sandbox: Sandbox,
-    worktree: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<PluginResult> {
-    return this.getStatus(sandbox, worktree, toolboxContext, runId);
+    return { success: true, output: JSON.stringify(result) };
   }
 
   private async createTemporaryPatchPath(
@@ -548,18 +543,25 @@ export class GitPlugin implements IPlugin {
     );
   }
 
-  private async readTemporaryPatch(
+  private async captureWorktreeSnapshot(
     sandbox: Sandbox,
-    patchPath: string,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
   ): Promise<PluginResult> {
-    const result = await sandbox.readFile(patchPath, { encoding: "utf-8" });
-    if (!result.success) {
-      return {
-        success: false,
-        error: `Failed to read captured patch file: ${patchPath}`,
-      };
-    }
-    return { success: true, output: result.content };
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.worktree_snapshot",
+    );
+    const snapshot = await gitService.captureSnapshot({
+      workspace: { runId, filesystemRoot: worktree },
+      snapshotKey: `turn-${crypto.randomUUID()}`,
+    });
+    return {
+      success: true,
+      output: JSON.stringify({ treeSha: snapshot.treeId }),
+    };
   }
 
   private async applyPatch(
@@ -1099,7 +1101,11 @@ export class GitPlugin implements IPlugin {
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
-    const gitService = this.createGitService(sandbox, toolboxContext, "git.pull");
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.pull",
+    );
     await gitService.pull({
       workspace: { runId, filesystemRoot: worktree },
       remoteName: safeRemote,
@@ -1119,7 +1125,11 @@ export class GitPlugin implements IPlugin {
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
     const authArgs = this.buildGitAuthArgs(token);
-    const gitService = this.createGitService(sandbox, toolboxContext, "git.fetch");
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.fetch",
+    );
     await gitService.fetch({
       workspace: { runId, filesystemRoot: worktree },
       remoteName: safeRemote,
@@ -1265,9 +1275,10 @@ function createDiffLine(
   };
 }
 
-function toLineCountValue(
-  count: GitFileLineCount,
-): { additions: number; deletions: number } {
+function toLineCountValue(count: GitFileLineCount): {
+  additions: number;
+  deletions: number;
+} {
   return {
     additions: count.additions,
     deletions: count.deletions,
@@ -1359,19 +1370,6 @@ function isNonFastForwardGitPushError(stderr: string): boolean {
   return /non-fast-forward|tip of your current branch is behind/i.test(stderr);
 }
 
-function buildPatchCaptureResult(
-  result: GitPatchCaptureResult,
-): PluginResult {
-  return {
-    success: true,
-    output: JSON.stringify({
-      patch: result.patch,
-      baseCommitSha: result.baseCommitSha,
-      branch: result.branch,
-    }),
-  };
-}
-
 function validatePatchPayload(
   patch: string | undefined,
 ): { success: true; patch: string } | { success: false; error: string } {
@@ -1384,10 +1382,7 @@ function validatePatchPayload(
   return { success: true, patch };
 }
 
-function buildNonFastForwardPushError(
-  remote: string,
-  branch: string,
-): string {
+function buildNonFastForwardPushError(remote: string, branch: string): string {
   return `Push failed because ${remote}/${branch} already has newer commits. Your file changes are already committed locally. Sync the branch with git pull --ff-only and retry the push. If the branch cannot be fast-forwarded, resolve the branch conflict manually before retrying.`;
 }
 

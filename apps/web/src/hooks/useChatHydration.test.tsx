@@ -40,7 +40,7 @@ describe("useChatHydration", () => {
 
     const { rerender } = renderHook(
       ({ sessionId, runId }) =>
-        useChatHydration(sessionId, runId, 0, setMessages),
+        useChatHydration(sessionId, runId, [], setMessages),
       {
         initialProps: {
           sessionId: "session-1",
@@ -101,7 +101,15 @@ describe("useChatHydration", () => {
     );
 
     renderHook(() =>
-      useChatHydration("session-current", "run-current", 2, setMessages),
+      useChatHydration(
+        "session-current",
+        "run-current",
+        [
+          createMessage("stale-user", "user", "stale prompt"),
+          createMessage("stale-assistant", "assistant", "stale answer"),
+        ],
+        setMessages,
+      ),
     );
 
     await waitFor(() => {
@@ -134,7 +142,7 @@ describe("useChatHydration", () => {
       );
 
     const { result } = renderHook(() =>
-      useChatHydration("session-1", "run-1", 0, setMessages),
+      useChatHydration("session-1", "run-1", [], setMessages),
     );
 
     await waitFor(() => {
@@ -190,7 +198,7 @@ describe("useChatHydration", () => {
       ]),
     );
 
-    renderHook(() => useChatHydration("session-1", "run-1", 0, setMessages));
+    renderHook(() => useChatHydration("session-1", "run-1", [], setMessages));
 
     await waitFor(() => {
       expect(setMessages).toHaveBeenCalledWith([
@@ -208,7 +216,41 @@ describe("useChatHydration", () => {
       ]);
     });
   });
+
+  it("preserves live messages that arrive while history is loading", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const initialMessages: Message[] = [];
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration("session-live", "run-live", messages, setMessages),
+      { initialProps: { messages: initialMessages } },
+    );
+
+    const liveUser = createMessage("user-live", "user", "New prompt");
+    rerender({ messages: [liveUser] });
+    await act(async () => {
+      resolveHistory?.(createHistoryResponse([]));
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([liveUser]);
+  });
 });
+
+function createMessage(
+  id: string,
+  role: "user" | "assistant",
+  content: string,
+): Message {
+  return { id, role, content };
+}
 
 function createHistoryResponse(messages: unknown[]): Response {
   return new Response(JSON.stringify({ messages }), { status: 200 });

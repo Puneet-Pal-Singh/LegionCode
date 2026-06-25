@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
-import type { RunCompletedEvent, ToolCompletedEvent } from "@repo/shared-types";
+import type {
+  RunCompletedEvent,
+  RunFailedEvent,
+  ToolCompletedEvent,
+} from "@repo/shared-types";
 import {
   EditArtifactRunCaptureCoordinator,
   type EditArtifactCaptureService,
@@ -88,6 +92,7 @@ describe("EditArtifactCaptureService helpers", () => {
       Parameters<EditArtifactCaptureService["captureAfterRunMutation"]>[0]
     > = [];
     const service = {
+      captureBaseline: async () => "a".repeat(40),
       captureAfterRunMutation: async (
         input: Parameters<
           EditArtifactCaptureService["captureAfterRunMutation"]
@@ -107,7 +112,11 @@ describe("EditArtifactCaptureService helpers", () => {
       repoUrl: "https://github.com/owner/repo",
     });
 
+    await coordinator.prepare();
     coordinator.handleEvent(createWriteFileCompletedEvent());
+    coordinator.handleEvent(
+      createWriteFileCompletedEvent("canonical_edit_tool", "src/footer.tsx"),
+    );
     coordinator.handleEvent(createRunCompletedEvent());
     coordinator.setMessageContext({ assistantMessageId: "assistant-1" });
 
@@ -116,6 +125,7 @@ describe("EditArtifactCaptureService helpers", () => {
     expect(captures).toHaveLength(1);
     expect(captures[0]).toMatchObject({
       assistantMessageId: "assistant-1",
+      baselineTree: "a".repeat(40),
       changedFiles: [
         {
           path: "src/hero.tsx",
@@ -123,12 +133,47 @@ describe("EditArtifactCaptureService helpers", () => {
           additions: 2,
           deletions: 1,
         },
+        {
+          path: "src/footer.tsx",
+          status: "modified",
+          additions: 2,
+          deletions: 1,
+        },
       ],
     });
   });
+
+  it("does not capture an artifact for a failed turn without edit metadata", async () => {
+    const captureAfterRunMutation = vi.fn();
+    const coordinator = new EditArtifactRunCaptureCoordinator(
+      {
+        captureBaseline: async () => "a".repeat(40),
+        captureAfterRunMutation,
+      },
+      {
+        userId: "user-1",
+        runId: "run-1",
+        sessionId: "session-1",
+        workspaceId: "workspace-1",
+        muscleSession: "run-1",
+        repoOwner: "owner",
+        repoName: "repo",
+        repoUrl: "https://github.com/owner/repo",
+      },
+    );
+
+    await coordinator.prepare();
+    coordinator.handleEvent(createRunFailedEvent());
+    await coordinator.waitForPendingCapture();
+
+    expect(captureAfterRunMutation).not.toHaveBeenCalled();
+  });
 });
 
-function createWriteFileCompletedEvent(): ToolCompletedEvent {
+function createWriteFileCompletedEvent(
+  toolName = "write_file",
+  filePath = "src/hero.tsx",
+): ToolCompletedEvent {
   return {
     version: 1,
     eventId: "event-tool-1",
@@ -139,13 +184,13 @@ function createWriteFileCompletedEvent(): ToolCompletedEvent {
     type: RUN_EVENT_TYPES.TOOL_COMPLETED,
     payload: {
       toolId: "tool-1",
-      toolName: "write_file",
+      toolName,
       executionTimeMs: 1,
       result: {
         metadata: {
           activity: {
             family: "edit",
-            filePath: "src/hero.tsx",
+            filePath,
             additions: 2,
             deletions: 1,
           },
@@ -168,6 +213,23 @@ function createRunCompletedEvent(): RunCompletedEvent {
       status: "complete",
       totalDurationMs: 1,
       toolsUsed: 1,
+    },
+  };
+}
+
+function createRunFailedEvent(): RunFailedEvent {
+  return {
+    version: 1,
+    eventId: "event-run-failed-1",
+    runId: "run-1",
+    sessionId: "session-1",
+    timestamp: "2026-06-01T00:00:01.000Z",
+    source: "brain",
+    type: RUN_EVENT_TYPES.RUN_FAILED,
+    payload: {
+      status: "failed",
+      error: "Approval expired",
+      totalDurationMs: 1,
     },
   };
 }

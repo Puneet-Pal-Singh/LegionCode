@@ -15,6 +15,7 @@ import {
   type FormEvent,
 } from "react";
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
 import { agentStore } from "../store/agentStore";
 import { useProviderStore } from "./useProviderStore.js";
@@ -184,6 +185,10 @@ export function useChatCore(
         return;
       }
       dispatchRunSummaryRefresh(runId);
+      logClientEvent("chat/stream", "response", {
+        runId,
+        status: response.status,
+      });
       pushDebugEvent({
         phase: "response",
         summary: `HTTP ${response.status} ${response.statusText}`,
@@ -199,6 +204,10 @@ export function useChatCore(
         return;
       }
       dispatchRunSummaryRefresh(runId);
+      logClientEvent("chat/stream", "finished", {
+        runId,
+        responseLength: message.content.length,
+      });
       pushDebugEvent({
         phase: "finish",
         summary: "Stream finished",
@@ -215,6 +224,10 @@ export function useChatCore(
       dispatchRunSummaryRefresh(runId);
       const message = normalizeChatErrorMessage(error);
       setError(message);
+      logClientWarning("chat/stream", "failed", {
+        runId,
+        error: message,
+      });
       pushDebugEvent({
         phase: "error",
         summary: message,
@@ -385,6 +398,12 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      logClientEvent("chat/submit", "started", {
+        runId,
+        sessionId,
+        hasText: Boolean(content),
+        imageCount: message.imageMetadata?.length ?? 0,
+      });
       dispatchRunSummaryRefresh(runId);
 
       try {
@@ -397,12 +416,19 @@ export function useChatCore(
         }
 
         const requestBody = buildChatRequestBody(providerConfig);
+        logClientEvent("chat/submit", "provider-resolved", {
+          runId,
+          providerId: providerConfig.providerId,
+          modelId: providerConfig.modelId,
+          source: providerConfig.source,
+        });
         pushChatRequestDebugEvent(message, requestBody, providerConfig);
         dispatchRunSummaryRefresh(runId);
         await submitResolvedMessage(message, requestBody);
       } finally {
         if (isActiveScope(requestScopeKey)) {
           setIsSubmitting(false);
+          logClientEvent("chat/submit", "settled", { runId });
         }
       }
     },
@@ -413,6 +439,7 @@ export function useChatCore(
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
       runId,
+      sessionId,
       scopeKey,
       status,
       submitResolvedMessage,
@@ -456,7 +483,8 @@ export function useChatCore(
         summary: message,
         payload: {
           source: "appendWithResolution",
-          error: error instanceof Error ? error.message : "Unknown append error",
+          error:
+            error instanceof Error ? error.message : "Unknown append error",
         },
       });
       console.error(
@@ -504,13 +532,7 @@ export function useChatCore(
         originalInput,
       );
     },
-    [
-      clearChatInput,
-      input,
-      scopeKey,
-      shouldBlockSubmit,
-      submitPreparedInput,
-    ],
+    [clearChatInput, input, scopeKey, shouldBlockSubmit, submitPreparedInput],
   );
 
   const stop = useCallback(() => {

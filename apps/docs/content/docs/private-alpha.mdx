@@ -1,0 +1,42 @@
+---
+title: Private alpha
+description: Current availability, supported workflows, limitations, and how hosted access works.
+category: Getting started
+status: alpha
+toc:
+  - id: available-now
+    text: Available now
+  - id: current-limitations
+    text: Current limitations
+  - id: feedback
+    text: Feedback and issues
+---
+
+LegionCode Cloud is currently in private alpha. Joining the waitlist records an access request; it does not immediately create a product account.
+
+After approval, sign in with the GitHub account associated with your request. Unapproved GitHub accounts return to the Cloud access page without receiving a workspace session.
+
+## Available now
+
+- GitHub authentication and repository selection.
+- Independent coding-agent runs with isolated cloud execution.
+- Provider and model selection for each run.
+- Streaming conversations, tool activity, changed files, and diff review.
+- Explicit Git actions after review.
+
+## Current limitations
+
+- The web workspace is the only available product surface. Desktop and CLI are planned.
+- Provider catalogs depend on the connected provider and may change independently of LegionCode.
+- Hosted capacity, run duration, and concurrency may be restricted.
+- Waitlist approval is manual and may not be immediate.
+- Product behavior can change before a stable release.
+
+<Callout variant="warning" title="No unattended production changes">
+  Treat every generated change as untrusted until you review the diff and run
+  the checks required by your repository.
+</Callout>
+
+## Feedback and issues
+
+Use the [GitHub repository](https://github.com/Puneet-Pal-Singh/LegionCode) for reproducible bugs and source-level discussion. Do not include provider keys, OAuth tokens, repository secrets, private source code, or personal data in an issue.

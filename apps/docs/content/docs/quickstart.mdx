@@ -1,0 +1,55 @@
+---
+title: Quickstart
+description: Sign in, connect a repository and provider, then complete your first reviewed coding-agent run.
+category: Getting started
+toc:
+  - id: prerequisites
+    text: Prerequisites
+  - id: start-a-run
+    text: Start a run
+  - id: review-the-result
+    text: Review the result
+---
+
+This guide walks through the hosted private-alpha workflow. If you are running the project from source, use [local development](/docs/local-development/) instead.
+
+## Prerequisites
+
+You need:
+
+- approved private-alpha access;
+- a GitHub account with access to the repository you want to use;
+- permission to authorize the LegionCode GitHub app;
+- an API credential for a supported model provider.
+
+<Callout variant="warning" title="Use a test repository first">
+  Start with a repository and branch where you can safely inspect, revise, or
+  discard generated changes.
+</Callout>
+
+## Start a run
+
+1. Open the agents workspace and select **Connect GitHub**.
+2. Complete GitHub authorization.
+3. Select a repository and its base branch.
+4. Open provider settings, connect a provider, and choose a model.
+5. Start a task with a narrow outcome and a clear verification request.
+
+A useful first task is:
+
+```text
+Fix the empty-state copy in the repository picker. Reuse the existing component styles, do not change authentication behavior, and run its focused test.
+```
+
+LegionCode prepares an isolated workspace, streams the agent response, and records changed files for review.
+
+## Review the result
+
+Open **Review** after the run produces changes. Check:
+
+- every changed path belongs to the requested scope;
+- additions and deletions match the explanation;
+- tests or validation commands actually ran;
+- no generated secrets, environment files, or unrelated formatting changes were added.
+
+Continue the same conversation to request corrections. Git operations remain explicit; a completed agent response is not an approved merge.

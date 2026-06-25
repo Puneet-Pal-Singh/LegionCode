@@ -20,12 +20,15 @@ export function LockedShellCard({ onLogin }: LockedShellCardProps) {
         </div>
 
         <div className="space-y-3">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">
+            Private alpha access
+          </p>
           <h1 className="text-2xl font-semibold tracking-tight text-white">
-            You're one step away from your first run
+            Sign in with your approved GitHub account
           </h1>
           <p className="text-sm leading-6 text-zinc-400">
-            Connect GitHub to choose your repository and start building inside
-            the app. We'll guide you through provider setup right after sign-in.
+            GitHub verifies your approved identity and provides repository
+            access. Unapproved accounts return to the Cloud access page.
           </p>
         </div>
 

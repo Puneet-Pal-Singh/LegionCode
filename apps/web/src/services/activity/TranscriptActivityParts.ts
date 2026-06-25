@@ -152,7 +152,7 @@ function isProviderUnavailableRow(row: ActivityFeedRowViewModel): boolean {
 }
 
 function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
-  if (event.displayMode === "debug" || event.kind === "thinking") {
+  if (event.displayMode === "debug") {
     return null;
   }
 
@@ -190,7 +190,10 @@ function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
   };
 }
 
-function normalizeRowSummary(title: string, detail: string | undefined): string {
+function normalizeRowSummary(
+  title: string,
+  detail: string | undefined,
+): string {
   const normalizedDetail = detail?.trim() ?? "";
   return normalizedDetail === title.trim() ? "" : normalizedDetail;
 }

@@ -1,0 +1,46 @@
+---
+title: Providers and models
+description: Connect your own provider credentials, choose models per run, and understand how provider availability works.
+category: Configuration
+toc:
+  - id: supported-providers
+    text: Supported providers
+  - id: model-catalogs
+    text: Model catalogs
+  - id: choosing-a-model
+    text: Choosing a model
+---
+
+Provider configuration is explicit. Choose the provider and model for each agent run. LegionCode does not resell model access.
+
+## Supported providers
+
+| Provider      | Status      | Notes                                    |
+| ------------- | ----------- | ---------------------------------------- |
+| OpenRouter    | Supported   | Use an OpenRouter API key                |
+| OpenAI        | Supported   | Use an OpenAI API key                    |
+| Groq          | Supported   | Use a Groq API key                       |
+| Anthropic     | Supported   | Use an Anthropic API key                 |
+| Google Gemini | Supported   | Use a Gemini API key                     |
+| OpenCode      | Supported   | Use an OpenCode-compatible provider key  |
+| Together AI   | Supported   | Available where enabled for your account |
+| Cerebras      | Supported   | Available where enabled for your account |
+| Cloudflare AI | Coming soon | Not available for private-alpha runs yet |
+
+Provider availability can vary by account, region, model access, and upstream API changes.
+
+## Model catalogs
+
+LegionCode shows models available through the connected provider configuration. A model appearing in a provider catalog does not guarantee that your provider account can use it for every task.
+
+If a model is missing, check the provider console first. Some providers require separate model access, billing activation, or regional availability before a model can be used.
+
+## Choosing a model
+
+Use a model that matches the task:
+
+- Small code edits and documentation updates usually work best with fast, lower-cost models.
+- Multi-file refactors, debugging, and review-heavy tasks benefit from stronger reasoning models.
+- Tool-heavy tasks require models and provider routes that support the tool protocol used by the workspace.
+
+If execution is rejected, choose another model from the same provider or connect a provider with the required capabilities.

@@ -1,44 +1,38 @@
 {
   "name": "@shadowbox/landing",
+  "version": "0.1.0",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "deploy:pages": "pnpm run build && wrangler pages deploy",
-    "deploy:staging": "pnpm run build && wrangler pages deploy --branch staging",
-    "lint": "eslint .",
+    "dev": "next dev",
+    "build": "next build",
     "check-types": "tsc --noEmit",
+    "deploy:pages": "pnpm run build && wrangler pages deploy out",
+    "start": "next start",
+    "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "preview": "vite preview"
+    "test:browser": "pnpm run build && playwright test",
+    "clean": "rm -rf .next out"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.18",
     "lucide-react": "^0.563.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "tailwindcss": "^4.1.18"
+    "motion": "^12.23.24",
+    "next": "16.2.9",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1",
-    "@repo/typescript-config": "workspace:*",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.2.0",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.5",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.1",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
-    "globals": "^16.5.0",
-    "jsdom": "^23.0.0",
-    "typescript": "~5.9.3",
-    "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4",
+    "@cloudflare/workers-types": "4.20260226.1",
+    "@playwright/test": "1.51.1",
+    "@tailwindcss/postcss": "4.1.11",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "4.1.11",
+    "typescript": "5.9.3",
     "vitest": "^1.6.0",
-    "wrangler": "^4.61.0"
+    "wrangler": "4.70.0"
   }
 }

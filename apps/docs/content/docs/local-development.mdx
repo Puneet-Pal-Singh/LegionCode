@@ -1,0 +1,89 @@
+---
+title: Local development
+description: Install the monorepo, configure local services, and run the workspace development stack.
+category: Operations
+toc:
+  - id: prerequisites
+    text: Prerequisites
+  - id: install
+    text: Install
+  - id: configure
+    text: Configure
+  - id: run-and-verify
+    text: Run and verify
+---
+
+Use a local source checkout when contributing to LegionCode or testing deployment changes. Hosted product users do not need the monorepo.
+
+## Prerequisites
+
+- Node.js 20 LTS
+- pnpm 9
+- Git
+- a Cloudflare account for remote bindings and sandbox work
+- a Postgres database reachable through Cloudflare Hyperdrive
+- a GitHub OAuth application for authentication testing
+
+## Install
+
+```bash
+git clone https://github.com/Puneet-Pal-Singh/LegionCode.git
+cd LegionCode
+pnpm install
+```
+
+Run baseline checks before changing code:
+
+```bash
+pnpm lint
+pnpm check-types
+pnpm check:boundaries
+```
+
+## Configure
+
+Create `apps/brain/.dev.vars` from its example and provide GitHub OAuth, session, and credential-encryption secrets. A typical local configuration is:
+
+```dotenv
+GITHUB_REDIRECT_URI=http://localhost:8788/auth/github/callback
+FRONTEND_URL=http://localhost:5174
+MUSCLE_BASE_URL=http://localhost:8787
+BYOK_CREDENTIAL_ENCRYPTION_KEY=<64-character-hex-key>
+BYOK_CREDENTIAL_ENCRYPTION_KEY_VERSION=v1
+```
+
+Generate encryption material with `openssl rand -hex 32`. Never commit `.dev.vars`.
+
+Configure the Web endpoints in a local `.env` file when defaults do not match:
+
+```dotenv
+VITE_BRAIN_BASE_URL=http://localhost:8788
+VITE_MUSCLE_BASE_URL=http://localhost:8787
+VITE_MUSCLE_WS_URL=ws://localhost:8787
+```
+
+## Run and verify
+
+Start each service in its own terminal:
+
+```bash
+pnpm --filter @shadowbox/secure-agent-api dev  # 8787
+pnpm --filter @shadowbox/brain dev             # 8788
+pnpm --filter @shadowbox/web dev               # 5174
+```
+
+Verify runtime fingerprints before testing a task:
+
+```bash
+curl http://localhost:8787/api/debug/runtime
+curl http://localhost:8788/api/debug/runtime
+```
+
+The public site and docs can be developed independently:
+
+```bash
+pnpm --filter @shadowbox/landing dev
+pnpm --filter @shadowbox/docs dev
+```
+
+Use the Cloudflare Pages local commands from [deployment](/docs/deployment/) when you need to test edge functions, `/agents/` routing, `/docs/` routing, or the Cloud waitlist form.

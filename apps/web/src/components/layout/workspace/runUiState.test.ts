@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deriveWorkspaceRunUiState } from "./runUiState";
 
 describe("deriveWorkspaceRunUiState", () => {
-  it("blocks loading and stopping while an approval is waiting", () => {
+  it("keeps an approval-waiting run stoppable", () => {
     const state = deriveWorkspaceRunUiState({
       canonicalRunStatus: "PAUSED",
       hasPendingApproval: true,
@@ -14,7 +14,7 @@ describe("deriveWorkspaceRunUiState", () => {
 
     expect(state.kind).toBe("approval_waiting");
     expect(state.isRunLoading).toBe(false);
-    expect(state.canStopRun).toBe(false);
+    expect(state.canStopRun).toBe(true);
   });
 
   it("treats canonical running state as active without local completion", () => {

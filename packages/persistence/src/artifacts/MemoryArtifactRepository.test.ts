@@ -64,6 +64,44 @@ describe("MemoryArtifactRepository", () => {
     expect(artifact?.status).toBe("restored");
   });
 
+  it("lists all turn patches in capture order for workspace restoration", async () => {
+    const repository = new MemoryArtifactRepository();
+    await repository.createPendingArtifact(
+      baseArtifact({
+        id: "artifact-1",
+        userId: "user-1",
+        captureSequence: 1,
+      }),
+    );
+    await repository.createPendingArtifact(
+      baseArtifact({
+        id: "artifact-2",
+        userId: "user-1",
+        captureSequence: 2,
+      }),
+    );
+    await repository.updateStatus({
+      artifactId: "artifact-1",
+      userId: "user-1",
+      status: "stored_with_secondary",
+    });
+    await repository.updateStatus({
+      artifactId: "artifact-2",
+      userId: "user-1",
+      status: "requires_user_resolution",
+    });
+
+    const artifacts = await repository.listRestorableArtifacts({
+      runId: "run-1",
+      userId: "user-1",
+    });
+
+    expect(artifacts.map((artifact) => artifact.id)).toEqual([
+      "artifact-1",
+      "artifact-2",
+    ]);
+  });
+
   it("returns stale pending artifacts for retention repair", async () => {
     const repository = new MemoryArtifactRepository({
       now: () => new Date("2026-05-10T00:00:00.000Z"),
@@ -97,9 +135,14 @@ describe("MemoryArtifactRepository", () => {
   });
 });
 
-function baseArtifact(input: { userId: string }) {
+function baseArtifact(input: {
+  userId: string;
+  id?: string;
+  captureSequence?: number;
+}) {
+  const id = input.id ?? "artifact-1";
   return {
-    id: "artifact-1",
+    id,
     userId: input.userId,
     runId: "run-1",
     sessionId: "session-1",
@@ -110,9 +153,9 @@ function baseArtifact(input: { userId: string }) {
     branch: "main",
     baseCommitSha: "abc123",
     artifactKind: "git_patch" as const,
-    r2ObjectKey:
-      "edit-artifacts/user-1/workspace-1/run-1/artifact-1/diff.patch",
+    r2ObjectKey: `edit-artifacts/user-1/workspace-1/run-1/${id}/diff.patch`,
     changedFiles: [{ path: "src/main.ts", status: "modified" }],
+    captureSequence: input.captureSequence,
     expiresAt: "2999-01-01T00:00:00.000Z",
   };
 }

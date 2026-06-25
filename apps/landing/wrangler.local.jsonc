@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shadowbox-landing-local",
+  "compatibility_date": "2026-03-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./out",
+  "d1_databases": [
+    {
+      "binding": "WAITLIST_DB",
+      "database_name": "legioncode-waitlist-local",
+      "database_id": "local-waitlist-db"
+    }
+  ],
+  "vars": {
+    "AGENTS_ORIGIN": "http://127.0.0.1:5174",
+    "DOCS_ORIGIN": "http://127.0.0.1:3001"
+  }
+}

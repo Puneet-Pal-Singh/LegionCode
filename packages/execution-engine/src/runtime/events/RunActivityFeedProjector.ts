@@ -126,9 +126,16 @@ function updateTurnId(
     event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED &&
     event.payload.role === "user"
   ) {
-    return createTurnId();
+    return readClientMessageId(event.payload.metadata) ?? createTurnId();
   }
   return currentTurnId;
+}
+
+function readClientMessageId(
+  metadata: Record<string, unknown> | undefined,
+): string | null {
+  const value = metadata?.clientMessageId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function createMessagePart(
@@ -253,12 +260,11 @@ function mapTranscriptPhaseToCommentaryPhase(
     : COMMENTARY_ACTIVITY_PHASES.COMMENTARY;
 }
 
-function isRecoveryMessage(metadata: Record<string, unknown> | undefined): boolean {
+function isRecoveryMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
-  return (
-    code === "TASK_EXECUTION_TIMEOUT" ||
-    code === "TASK_MODEL_NO_ACTION"
-  );
+  return code === "TASK_EXECUTION_TIMEOUT" || code === "TASK_MODEL_NO_ACTION";
 }
 
 function createRequestedToolPart(
@@ -343,7 +349,10 @@ function applyToolFailure(
 
 function appendToolOutput(
   toolParts: Map<string, ToolActivityPart>,
-  event: Extract<RunEvent, { type: typeof RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED }>,
+  event: Extract<
+    RunEvent,
+    { type: typeof RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED }
+  >,
 ): void {
   const part = toolParts.get(event.payload.toolId);
   if (!part || part.metadata.family !== TOOL_ACTIVITY_FAMILIES.SHELL) {
@@ -406,7 +415,10 @@ function createApprovalRequestedPart(
     approvalType: "permission",
     status: "requested",
     summary: event.payload.request.title,
-    details: buildApprovalDetails(event.payload.request.reason, event.payload.request.command),
+    details: buildApprovalDetails(
+      event.payload.request.reason,
+      event.payload.request.command,
+    ),
     expiresAt: event.payload.request.expiresAt,
   };
 }
@@ -558,8 +570,7 @@ function buildToolMetadata(
     case "bash":
       return {
         family: TOOL_ACTIVITY_FAMILIES.SHELL,
-        displayText:
-          displayText ?? toolPresentation.displayText ?? undefined,
+        displayText: displayText ?? toolPresentation.displayText ?? undefined,
         command: readString(input?.command) ?? toolName,
         description: description ?? toolPresentation.description,
         cwd: readString(input?.cwd) ?? ".",
@@ -573,8 +584,7 @@ function buildToolMetadata(
     case "write_file":
       return {
         family: TOOL_ACTIVITY_FAMILIES.EDIT,
-        displayText:
-          displayText ?? toolPresentation.displayText ?? undefined,
+        displayText: displayText ?? toolPresentation.displayText ?? undefined,
         filePath: readString(input?.path) ?? "unknown",
         additions: 0,
         deletions: 0,
@@ -604,8 +614,7 @@ function buildToolMetadata(
     default:
       return {
         family: TOOL_ACTIVITY_FAMILIES.GENERIC,
-        displayText:
-          displayText ?? toolPresentation.displayText ?? undefined,
+        displayText: displayText ?? toolPresentation.displayText ?? undefined,
         summary: outputText || error || undefined,
       };
   }
