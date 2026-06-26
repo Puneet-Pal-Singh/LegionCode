@@ -3,7 +3,7 @@ import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
 import type { ProviderId } from "@repo/shared-types";
 
-const TEST_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+const TEST_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
 const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174111";
 const TEST_SESSION_SECRET = "test-session-secret";

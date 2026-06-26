@@ -1,18 +1,34 @@
 ALTER TABLE "sessions" DROP CONSTRAINT IF EXISTS "sessions_active_run_id_fk";
 --> statement-breakpoint
+ALTER TABLE "sessions" DROP CONSTRAINT IF EXISTS "sessions_active_run_id_fkey";
+--> statement-breakpoint
 ALTER TABLE "run_events" DROP CONSTRAINT IF EXISTS "run_events_run_id_runs_id_fk";
+--> statement-breakpoint
+ALTER TABLE "run_events" DROP CONSTRAINT IF EXISTS "run_events_run_id_fkey";
 --> statement-breakpoint
 ALTER TABLE "run_steps" DROP CONSTRAINT IF EXISTS "run_steps_run_id_runs_id_fk";
 --> statement-breakpoint
+ALTER TABLE "run_steps" DROP CONSTRAINT IF EXISTS "run_steps_run_id_fkey";
+--> statement-breakpoint
 ALTER TABLE "context_snapshots" DROP CONSTRAINT IF EXISTS "context_snapshots_run_id_runs_id_fk";
+--> statement-breakpoint
+ALTER TABLE "context_snapshots" DROP CONSTRAINT IF EXISTS "context_snapshots_run_id_fkey";
 --> statement-breakpoint
 ALTER TABLE "memory_events" DROP CONSTRAINT IF EXISTS "memory_events_run_id_runs_id_fk";
 --> statement-breakpoint
+ALTER TABLE "memory_events" DROP CONSTRAINT IF EXISTS "memory_events_run_id_fkey";
+--> statement-breakpoint
 ALTER TABLE "permission_requests" DROP CONSTRAINT IF EXISTS "permission_requests_run_id_runs_id_fk";
+--> statement-breakpoint
+ALTER TABLE "permission_requests" DROP CONSTRAINT IF EXISTS "permission_requests_run_id_fkey";
 --> statement-breakpoint
 ALTER TABLE "artifact_events" DROP CONSTRAINT IF EXISTS "artifact_events_run_id_runs_id_fk";
 --> statement-breakpoint
+ALTER TABLE "artifact_events" DROP CONSTRAINT IF EXISTS "artifact_events_run_id_fkey";
+--> statement-breakpoint
 ALTER TABLE "artifacts" DROP CONSTRAINT IF EXISTS "artifacts_run_id_runs_id_fk";
+--> statement-breakpoint
+ALTER TABLE "artifacts" DROP CONSTRAINT IF EXISTS "artifacts_run_id_fkey";
 --> statement-breakpoint
 ALTER TABLE "runs" ALTER COLUMN "id" SET DATA TYPE text USING "id"::text;
 --> statement-breakpoint

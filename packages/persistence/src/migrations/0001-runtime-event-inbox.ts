@@ -19,6 +19,7 @@ import { runProjectionsMigration } from "./0018-run-projections.js";
 import { workspaceManifestsArtifactMetadataMigration } from "./0019-workspace-manifests-artifact-metadata.js";
 import { lifecycleEventsProjectionsMigration } from "./0020-lifecycle-events-projections.js";
 import { canonicalWorkspaceManifestMigration } from "./0021-canonical-workspace-manifest.js";
+import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -82,4 +83,5 @@ export const persistenceMigrations = [
   workspaceManifestsArtifactMetadataMigration,
   lifecycleEventsProjectionsMigration,
   canonicalWorkspaceManifestMigration,
+  canonicalRunIdTextMigration,
 ] as const;
