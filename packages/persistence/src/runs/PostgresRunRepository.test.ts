@@ -88,7 +88,7 @@ describe("PostgresRunRepository", () => {
     const repository = new PostgresRunRepository(client);
 
     const run = await repository.ensureRun({
-      id: "123e4567-e89b-42d3-a456-426614174000",
+      id: "run_123e4567e89b42d3a456426614174000",
       userId: "123e4567-e89b-42d3-a456-426614174001",
       sessionId: "123e4567-e89b-42d3-a456-426614174002",
       taskId: "123e4567-e89b-42d3-a456-426614174003",
@@ -111,7 +111,7 @@ describe("PostgresRunRepository", () => {
     const repository = new PostgresRunRepository(client);
 
     const steps = await repository.listRunSteps(
-      "123e4567-e89b-42d3-a456-426614174000",
+      "run_123e4567e89b42d3a456426614174000",
       "123e4567-e89b-42d3-a456-426614174001",
     );
 
@@ -125,7 +125,7 @@ describe("PostgresRunRepository", () => {
     const repository = new PostgresRunRepository(client);
 
     const event = await repository.appendEvent({
-      runId: "123e4567-e89b-42d3-a456-426614174000",
+      runId: "run_123e4567e89b42d3a456426614174000",
       sessionId: "123e4567-e89b-42d3-a456-426614174002",
       eventType: "runtime.tool.completed",
       payload: { ok: true },

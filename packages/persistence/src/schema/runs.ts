@@ -23,7 +23,7 @@ import {
 export const runs = pgTable(
   "runs",
   {
-    id: uuid("id").primaryKey(),
+    id: text("id").primaryKey(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -62,7 +62,7 @@ export const runSteps = pgTable(
   "run_steps",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    runId: uuid("run_id")
+    runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     stepIndex: integer("step_index").notNull(),
@@ -87,7 +87,7 @@ export const runEvents = pgTable(
   "run_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    runId: uuid("run_id")
+    runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     sessionId: uuid("session_id")
