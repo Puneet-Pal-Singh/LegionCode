@@ -63,11 +63,21 @@ export function useRunEvents(
         lastFetchAtRef.current = now;
         const requestId = requestIdRef.current + 1;
         requestIdRef.current = requestId;
+        logClientEvent("run/events", "snapshot-requested", {
+          runId: currentRunId,
+          requestId,
+          force: Boolean(options?.force),
+        });
 
         const response = await fetch(runEventsPath(currentRunId), {
           credentials: "include",
         });
         if (!response.ok) {
+          logClientWarning("run/events", "snapshot-unavailable", {
+            runId: currentRunId,
+            requestId,
+            status: response.status,
+          });
           return;
         }
 
@@ -83,6 +93,7 @@ export function useRunEvents(
         logClientEvent("run/events", "snapshot", {
           runId: currentRunId,
           eventCount: parsedEvents.length,
+          eventTypes: summarizeEventTypes(parsedEvents),
         });
         setEvents((current) => mergeRunEvents(current, parsedEvents));
       } catch (error) {
@@ -274,6 +285,7 @@ function emitRunEventLine(
     runId,
     eventId: event.eventId,
     type: event.type,
+    sessionId: event.sessionId,
   });
   onEvent(event);
 }
@@ -352,6 +364,16 @@ function parseRunEventPayload(
   }
 
   return result.data;
+}
+
+function summarizeEventTypes(events: readonly RunEvent[]): string {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([type, count]) => `${type}:${count}`)
+    .join(",");
 }
 
 function tryParseJson(

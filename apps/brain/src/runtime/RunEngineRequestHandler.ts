@@ -39,6 +39,7 @@ import {
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
 import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersistence";
 import type { RealtimeEventPort } from "./ports";
+import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import {
   enforceGoldenFlowToolFloor,
   getGoldenFlowToolRegistry,
@@ -67,12 +68,21 @@ export interface RunEngineExecuteResult {
 export type RunEnginePostExecutionResult =
   PersistedAssistantMessageResult | null | void;
 
+export interface CanonicalRunEventSink {
+  persist(event: RunEvent, correlationId: string): Promise<void>;
+}
+
+export interface RunEngineRequestHandlerDependencies {
+  canonicalEventSink?: CanonicalRunEventSink;
+}
+
 export class RunEngineRequestHandler {
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
     private readonly withExecutionLock: RunEngineRequestLock,
     private readonly eventStream?: RealtimeEventPort,
+    private readonly dependencies: RunEngineRequestHandlerDependencies = {},
   ) {}
 
   async handleSummaryRequest(request: Request): Promise<Response> {
@@ -275,7 +285,8 @@ export class RunEngineRequestHandler {
       new RunEventRepository(runtimeState),
       runId,
       run.sessionId,
-      (event) => {
+      async (event) => {
+        await this.persistCanonicalRunEvent(event, "run-cancel");
         this.emitLiveEvent(event);
       },
     );
@@ -355,7 +366,8 @@ export class RunEngineRequestHandler {
       new RunEventRepository(runtimeState),
       payload.runId,
       run.sessionId,
-      (event) => {
+      async (event) => {
+        await this.persistCanonicalRunEvent(event, "run-approval");
         this.emitLiveEvent(event);
       },
     );
@@ -480,6 +492,7 @@ export class RunEngineRequestHandler {
           userMessageId: userMessageId ?? undefined,
           sourceTurnId: userMessageId ?? undefined,
         });
+        const canonicalEventSink = this.createCanonicalEventSink();
 
         const runEngine = new RunEngine(
           runtimeState,
@@ -496,7 +509,8 @@ export class RunEngineRequestHandler {
           {
             ...runEngineDeps,
             prepareMutationCapture: () => editArtifactCoordinator.prepare(),
-            runEventListener: (event) => {
+            runEventListener: async (event) => {
+              await canonicalEventSink.persist(event, payload.correlationId);
               this.emitLiveEvent(event);
               editArtifactCoordinator.handleEvent(event);
             },
@@ -563,16 +577,39 @@ export class RunEngineRequestHandler {
 
   private emitLiveEvent(event: RunEvent): void {
     if (!this.eventStream) {
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=skipped reason=stream-unavailable`,
+      );
       return;
     }
 
     this.eventStream.emit(event);
+    console.log(
+      `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
+    );
     if (
       event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
       event.type === RUN_EVENT_TYPES.RUN_FAILED
     ) {
       this.eventStream.complete(event.runId);
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=completed-stream`,
+      );
     }
+  }
+
+  private async persistCanonicalRunEvent(
+    event: RunEvent,
+    correlationId: string,
+  ): Promise<void> {
+    await this.createCanonicalEventSink().persist(event, correlationId);
+  }
+
+  private createCanonicalEventSink(): CanonicalRunEventSink {
+    return (
+      this.dependencies.canonicalEventSink ??
+      new RunEngineCanonicalEventSink(this.env)
+    );
   }
 
   private buildEventsResponse(events: unknown[], runId: string): Response {

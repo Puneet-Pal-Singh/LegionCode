@@ -48,30 +48,52 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   );
   const viewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(scopedFeed, nowMs);
+    const transcriptTurns = buildTranscriptActivityTurns(input.messages);
     return {
       ...liveViewModel,
       turns: mergeTranscriptAndLiveActivityTurns(
-        buildTranscriptActivityTurns(input.messages),
+        transcriptTurns,
         liveViewModel.turns,
       ),
     };
   }, [input.messages, nowMs, scopedFeed]);
 
-  const activeTurnKey = viewModel.turns.find((turn) => turn.isActiveTurn)?.key;
+  const presentationLogSnapshot = useMemo(() => {
+    const activeTurnKey =
+      viewModel.turns.find((turn) => turn.isActiveTurn)?.key ?? null;
+    const liveItemCount = liveFeed?.items.length ?? 0;
+    const persistedItemCount = scopedPersistedFeed?.items.length ?? 0;
+    const rowCount = viewModel.turns.reduce(
+      (total, turn) => total + turn.rows.length,
+      0,
+    );
+    return {
+      activeTurnKey,
+      liveItemCount,
+      persistedItemCount,
+      rowCount,
+      turnCount: viewModel.turns.length,
+    };
+  }, [liveFeed?.items.length, scopedPersistedFeed?.items.length, viewModel.turns]);
+
   useEffect(() => {
     logClientEvent("run/presentation", "updated", {
       runId: input.runId,
       loading: input.isLoading,
       feedStatus: scopedFeed?.status ?? null,
-      activeTurnKey: activeTurnKey ?? null,
-      turnCount: viewModel.turns.length,
+      eventCount: input.events.length,
+      liveItemCount: presentationLogSnapshot.liveItemCount,
+      persistedItemCount: presentationLogSnapshot.persistedItemCount,
+      activeTurnKey: presentationLogSnapshot.activeTurnKey,
+      turnCount: presentationLogSnapshot.turnCount,
+      rowCount: presentationLogSnapshot.rowCount,
     });
   }, [
-    activeTurnKey,
+    input.events.length,
     input.isLoading,
     input.runId,
+    presentationLogSnapshot,
     scopedFeed?.status,
-    viewModel.turns.length,
   ]);
 
   useEffect(() => {

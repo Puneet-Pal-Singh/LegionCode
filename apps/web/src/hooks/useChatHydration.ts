@@ -121,6 +121,9 @@ export function useChatHydration(
           hydratedMessageCount: result.messages.length,
           liveMessageCount: messagesRef.current.length,
           finalMessageCount: nextMessages.length,
+          hydratedRoles: summarizeMessageRoles(result.messages),
+          liveRoles: summarizeMessageRoles(messagesRef.current),
+          finalRoles: summarizeMessageRoles(nextMessages),
           mergeMode: replaceLiveMessages ? "replace" : "preserve-live",
         });
         setMessages(nextMessages);
@@ -157,6 +160,16 @@ export function useChatHydration(
   ]);
 
   return { isHydrating, hasHydrated };
+}
+
+function summarizeMessageRoles(messages: Message[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
 }
 
 function readMessageIds(messages: Message[]): string[] {

@@ -20,7 +20,10 @@ import {
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { Env } from "../types/ai";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
-import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+import {
+  RunEngineRequestHandler,
+  type CanonicalRunEventSink,
+} from "./RunEngineRequestHandler";
 
 describe("RunEngineRequestHandler", () => {
   it("serves run-engine runtime debug metadata with run-engine headers", async () => {
@@ -123,6 +126,8 @@ describe("RunEngineRequestHandler", () => {
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const response = await handler.handleSummaryRequest(
@@ -186,6 +191,8 @@ describe("RunEngineRequestHandler", () => {
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const response = await handler.handleSummaryRequest(
@@ -324,6 +331,7 @@ describe("RunEngineRequestHandler", () => {
       {} as Env,
       runImmediately,
       eventStream,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const response = await handler.handleEventsStreamRequest(
@@ -365,6 +373,7 @@ describe("RunEngineRequestHandler", () => {
       {} as Env,
       runImmediately,
       eventStream,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const streamResponse = await handler.handleEventsStreamRequest(
@@ -404,6 +413,8 @@ describe("RunEngineRequestHandler", () => {
       ctx as unknown as DurableObjectState,
       {} as Env,
       withExecutionLock,
+      undefined,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const cancelResponse = await handler.handleCancelRequest(
@@ -484,6 +495,8 @@ describe("RunEngineRequestHandler", () => {
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const response = await handler.handleActivityRequest(
@@ -543,6 +556,8 @@ describe("RunEngineRequestHandler", () => {
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const response = await handler.handleApprovalRequest(
@@ -596,6 +611,8 @@ describe("RunEngineRequestHandler", () => {
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
     const response = await handler.handleApprovalRequest(
@@ -683,6 +700,14 @@ async function runImmediately<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   return await operation();
+}
+
+function createNoopCanonicalEventSink(): CanonicalRunEventSink {
+  return {
+    async persist() {
+      return;
+    },
+  };
 }
 
 class InMemoryStorage implements RuntimeStorage {

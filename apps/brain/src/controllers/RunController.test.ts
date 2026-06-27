@@ -54,12 +54,26 @@ describe("RunController", () => {
       id: "123e4567-e89b-42d3-a456-426614174100",
       status: "running",
     };
+    const canonicalEvent = {
+      version: 1,
+      eventId: "evt-1",
+      runId: run.id,
+      sessionId: "123e4567-e89b-42d3-a456-426614174200",
+      timestamp: "2026-03-24T12:00:00.000Z",
+      source: "brain",
+      type: "tool.requested",
+      payload: {
+        toolId: "tool-1",
+        toolName: "read_file",
+        arguments: { path: "README.md" },
+      },
+    };
     const event = {
       id: "evt-1",
       runId: run.id,
       sessionId: "123e4567-e89b-42d3-a456-426614174200",
       eventType: "tool.requested",
-      payload: { toolName: "read_file" },
+      payload: canonicalEvent,
       sequence: 1,
       idempotencyKey: "key-1",
       createdAt: "2026-03-24T12:00:00.000Z",
@@ -88,7 +102,7 @@ describe("RunController", () => {
     expect(listRunEvents).toHaveBeenCalledWith(run.id, "user-1");
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual([event]);
+    await expect(response.json()).resolves.toEqual([canonicalEvent]);
   });
 
   it("reconstructs run summary from Postgres steps and events", async () => {
@@ -277,43 +291,45 @@ describe("RunController", () => {
     await expect(response.text()).resolves.toContain("evt-live");
   });
 
-  it("proxies run activity snapshots through the brain worker route", async () => {
+  it("projects run activity snapshots from persisted canonical events", async () => {
     const env = {} as Env;
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          runId: "123e4567-e89b-42d3-a456-426614174101",
-          sessionId: "session-1",
-          status: "RUNNING",
-          items: [
-            {
-              id: "tool-1",
-              runId: "123e4567-e89b-42d3-a456-426614174101",
-              sessionId: "session-1",
-              kind: "tool",
-              createdAt: "2026-03-24T12:00:00.000Z",
-              updatedAt: "2026-03-24T12:00:01.000Z",
-              source: "brain",
-              toolId: "tool-1",
-              toolName: "read_file",
-              status: "completed",
-              metadata: {
-                family: "read",
-                count: 1,
-                truncated: false,
-                loadedPaths: ["README.md"],
-                path: "README.md",
-              },
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      ),
+    const run = {
+      id: "123e4567-e89b-42d3-a456-426614174101",
+      sessionId: "session-1",
+      status: "running",
+    };
+    const canonicalEvent = {
+      version: 1,
+      eventId: "evt-tool-requested",
+      runId: run.id,
+      sessionId: run.sessionId,
+      timestamp: "2026-03-24T12:00:00.000Z",
+      source: "brain",
+      type: "tool.requested",
+      payload: {
+        toolId: "tool-1",
+        toolName: "read_file",
+        arguments: { path: "README.md" },
+      },
+    };
+    const listRunEvents = vi.fn().mockResolvedValue([
+      {
+        id: "row-1",
+        runId: run.id,
+        sessionId: run.sessionId,
+        eventType: "tool.requested",
+        payload: canonicalEvent,
+        sequence: 1,
+        idempotencyKey: "key-1",
+        createdAt: "2026-03-24T12:00:00.000Z",
+      },
+    ]);
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(run),
+        listRunEvents,
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
     );
 
     const response = await RunController.getActivity(
@@ -323,15 +339,8 @@ describe("RunController", () => {
       env,
     );
 
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      "123e4567-e89b-42d3-a456-426614174101",
-      "execution-engine-v1",
-      {
-        method: "GET",
-        path: "/activity?runId=123e4567-e89b-42d3-a456-426614174101",
-      },
-    );
+    expect(listRunEvents).toHaveBeenCalledWith(run.id, "user-1");
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       items: [{ toolName: "read_file" }],
     });

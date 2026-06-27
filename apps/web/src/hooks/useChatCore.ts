@@ -195,6 +195,7 @@ export function useChatCore(
       dispatchRunSummaryRefresh(runId);
       logClientEvent("chat/stream", "response", {
         runId,
+        sessionId,
         status: response.status,
       });
       pushDebugEvent({
@@ -214,6 +215,7 @@ export function useChatCore(
       dispatchRunSummaryRefresh(runId);
       logClientEvent("chat/stream", "finished", {
         runId,
+        sessionId,
         responseLength: message.content.length,
       });
       pushDebugEvent({
@@ -234,6 +236,7 @@ export function useChatCore(
       setError(message);
       logClientWarning("chat/stream", "failed", {
         runId,
+        sessionId,
         error: message,
       });
       pushDebugEvent({
@@ -276,6 +279,24 @@ export function useChatCore(
       ),
     [pendingUserMessage, scopedMessagesBase, scopeKey],
   );
+  useEffect(() => {
+    logClientEvent("chat/messages", "scoped-derived", {
+      runId,
+      sessionId,
+      baseCount: scopedMessagesBase.length,
+      finalCount: scopedMessages.length,
+      pendingUser: Boolean(pendingUserMessage?.scopeKey === scopeKey),
+      baseRoles: summarizeMessageRoles(scopedMessagesBase),
+      finalRoles: summarizeMessageRoles(scopedMessages),
+    });
+  }, [
+    pendingUserMessage,
+    runId,
+    scopedMessages,
+    scopedMessagesBase,
+    scopeKey,
+    sessionId,
+  ]);
 
   useLayoutEffect(() => {
     if (clearedScopeRef.current === scopeKey) return;
@@ -423,6 +444,7 @@ export function useChatCore(
       logClientEvent("chat/submit", "started", {
         runId,
         sessionId,
+        scopeKey: requestScopeKey,
         hasText: Boolean(content),
         imageCount: message.imageMetadata?.length ?? 0,
       });
@@ -432,14 +454,30 @@ export function useChatCore(
         const providerConfig =
           resolveSelectedProviderConfigForRequest() ??
           (await resolveProviderConfigFromApi(requestScopeKey));
-        if (!providerConfig) return;
+        if (!providerConfig) {
+          logClientWarning("chat/submit", "aborted", {
+            runId,
+            sessionId,
+            scopeKey: requestScopeKey,
+            reason: "provider-resolution-unavailable",
+          });
+          return;
+        }
         if (!isActiveScope(requestScopeKey)) {
+          logClientWarning("chat/submit", "aborted", {
+            runId,
+            sessionId,
+            scopeKey: requestScopeKey,
+            reason: "inactive-scope-after-provider-resolution",
+          });
           return;
         }
 
         const requestBody = buildChatRequestBody(providerConfig);
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
+          sessionId,
+          scopeKey: requestScopeKey,
           providerId: providerConfig.providerId,
           modelId: providerConfig.modelId,
           source: providerConfig.source,
@@ -453,7 +491,11 @@ export function useChatCore(
             current?.scopeKey === requestScopeKey ? null : current,
           );
           setIsSubmitting(false);
-          logClientEvent("chat/submit", "settled", { runId });
+          logClientEvent("chat/submit", "settled", {
+            runId,
+            sessionId,
+            scopeKey: requestScopeKey,
+          });
         }
       }
     },
@@ -506,6 +548,12 @@ export function useChatCore(
           ? normalizeChatErrorMessage(error)
           : "Failed to send message.";
       setError(message);
+      logClientWarning("chat/submit", "failed", {
+        runId,
+        sessionId,
+        scopeKey: requestScopeKey,
+        error: message,
+      });
       pushDebugEvent({
         phase: "error",
         summary: message,
@@ -520,7 +568,7 @@ export function useChatCore(
         error,
       );
     },
-    [isActiveScope, pushDebugEvent, restoreChatInput, sessionId],
+    [isActiveScope, pushDebugEvent, restoreChatInput, runId, sessionId],
   );
 
   const submitPreparedInput = useCallback(
@@ -551,6 +599,16 @@ export function useChatCore(
       const trimmedInput = input.trim();
       const imageAttachments = attachments?.imageAttachments ?? [];
       if (shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)) {
+        logClientWarning("chat/submit", "blocked", {
+          runId,
+          sessionId,
+          hasText: Boolean(trimmedInput),
+          imageCount: imageAttachments.length,
+          isLoading,
+          isSubmitting,
+          isStopping,
+          isModelConfigReady,
+        });
         return false;
       }
       clearChatInput();
@@ -560,7 +618,19 @@ export function useChatCore(
         originalInput,
       );
     },
-    [clearChatInput, input, scopeKey, shouldBlockSubmit, submitPreparedInput],
+    [
+      clearChatInput,
+      input,
+      isLoading,
+      isModelConfigReady,
+      isStopping,
+      isSubmitting,
+      runId,
+      scopeKey,
+      sessionId,
+      shouldBlockSubmit,
+      submitPreparedInput,
+    ],
   );
 
   const stop = useCallback(() => {
@@ -749,4 +819,14 @@ function haveSameMessageIds(left: Message[], right: Message[]): boolean {
     left.length === right.length &&
     left.every((message, index) => message.id === right[index]?.id)
   );
+}
+
+function summarizeMessageRoles(messages: Message[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
 }

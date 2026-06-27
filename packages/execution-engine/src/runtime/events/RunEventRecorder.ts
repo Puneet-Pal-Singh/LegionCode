@@ -122,8 +122,15 @@ export class RunEventRecorder {
 
     try {
       await this.eventListener(event);
+      console.log(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-completed`,
+      );
     } catch (error) {
-      console.warn("[run/events] failed to emit live run event", error);
+      console.error(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-failed`,
+        error,
+      );
+      throw error;
     }
 
     return inserted;
@@ -256,15 +263,31 @@ export class RunEventRecorder {
   }
 
   private async append(event: RunEvent): Promise<void> {
+    console.log(
+      `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=append-started`,
+    );
     await this.repository.append(this.runId, event);
+    console.log(
+      `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=stored-runtime-cache`,
+    );
     if (!this.eventListener) {
+      console.log(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-missing`,
+      );
       return;
     }
 
     try {
       await this.eventListener(event);
+      console.log(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-completed`,
+      );
     } catch (error) {
-      console.warn("[run/events] failed to emit live run event", error);
+      console.error(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-failed`,
+        error,
+      );
+      throw error;
     }
   }
 }

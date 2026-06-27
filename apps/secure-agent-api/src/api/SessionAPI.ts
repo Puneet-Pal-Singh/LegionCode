@@ -406,7 +406,9 @@ export async function handleExecuteTask(
   runtime: RuntimeStub,
   runtimeEventPublisher?: RuntimeEventPublisher,
 ): Promise<Response> {
-  console.log("[api/execute] Handling task execution request");
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  console.log(`[api/execute] requestId=${requestId} status=received`);
 
   try {
     const validation = await validateRequestBody(
@@ -414,13 +416,21 @@ export async function handleExecuteTask(
       ExecuteTaskRequestSchema,
     );
     if (!validation.valid) {
-      console.warn(`[api/execute] Validation failed: ${validation.error}`);
+      console.warn(
+        `[api/execute] requestId=${requestId} status=validation-failed error=${JSON.stringify(validation.error)} elapsedMs=${Date.now() - startedAt}`,
+      );
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
 
     const { sessionId } = validation.data;
+    console.log(
+      `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=validated`,
+    );
     const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
+      console.warn(
+        `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
+      );
       return auth.response;
     }
 
@@ -466,6 +476,9 @@ export async function handleExecuteTask(
     );
     const executionResult = parseExecutionResponse(runtimeResult);
     if (!executionResult) {
+      console.error(
+        `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=invalid-runtime-response elapsedMs=${Date.now() - startedAt}`,
+      );
       return errorResponse(
         "Runtime returned an invalid execution response",
         "INVALID_RUNTIME_RESPONSE",
@@ -490,10 +503,15 @@ export async function handleExecuteTask(
       executionResult.taskId,
     );
 
+    console.log(
+      `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${executionResult.taskId} action=${validation.data.action} status=${executionResult.status} outputLength=${executionResult.output?.length ?? 0} durationMs=${executionResult.metrics?.duration ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+    );
     return jsonResponse(executionResult, 200);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/execute] Unexpected error: ${msg}`);
+    console.error(
+      `[api/execute] requestId=${requestId} status=error elapsedMs=${Date.now() - startedAt} error=${JSON.stringify(msg)}`,
+    );
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
 }
