@@ -670,12 +670,34 @@ function buildFailedToolResult(
   title: string,
   result: Record<string, unknown>,
 ): ToolResult {
+  const failure = readPluginFailure(result);
   return {
     title,
-    output: readString(result.error) ?? "Tool execution failed",
-    metadata: { success: false },
-    diagnostics: [{ severity: "error", message: "Tool execution failed" }],
+    output: failure.message,
+    metadata: {
+      success: false,
+      ...(failure.status ? { status: failure.status } : {}),
+      ...(failure.code ? { code: failure.code } : {}),
+    },
+    diagnostics: [{ severity: "error", message: failure.message }],
     truncated: false,
+  };
+}
+
+function readPluginFailure(result: Record<string, unknown>): {
+  message: string;
+  status?: string;
+  code?: string;
+} {
+  const nestedError = isRecord(result.error) ? result.error : null;
+  return {
+    message:
+      readString(nestedError?.message) ??
+      readString(result.message) ??
+      readString(result.error) ??
+      "Tool execution failed",
+    status: readString(result.status) ?? undefined,
+    code: readString(nestedError?.code) ?? readString(result.code) ?? undefined,
   };
 }
 

@@ -313,6 +313,35 @@ describe("CodingToolGateway", () => {
     expect(untruncatedResult?.truncated).toBe(false);
   });
 
+  it("preserves typed plugin failures in ToolResult diagnostics", async () => {
+    const definition = getCodingToolDefinition("read_file");
+    const result = await definition?.execute(
+      { path: "missing.md" },
+      {
+        async execute() {
+          return {
+            success: false,
+            status: "failure",
+            error: {
+              code: "ENOENT",
+              message: "File not found: missing.md",
+            },
+          };
+        },
+      },
+    );
+
+    expect(result).toEqual({
+      title: "Read File",
+      output: "File not found: missing.md",
+      metadata: { success: false, status: "failure", code: "ENOENT" },
+      diagnostics: [
+        { severity: "error", message: "File not found: missing.md" },
+      ],
+      truncated: false,
+    });
+  });
+
   it("enforces bounded scope by dropping non-floor tools", () => {
     const filtered = enforceGoldenFlowToolFloor(
       {
