@@ -30,7 +30,7 @@ export type ReviewSourceSelection =
       kind: "prompt_artifact";
       artifactId: string;
       assistantMessageId?: string;
-      /** Tracks whether a saved edit was explicitly requested, opened from chat, or selected as fallback. */
+      /** Tracks whether a saved edit was explicitly requested or opened from chat. */
       reason: "explicit" | "chat_artifact";
     };
 

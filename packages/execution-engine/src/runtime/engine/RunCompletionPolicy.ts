@@ -40,7 +40,7 @@ export interface RunCompletionDependencies {
   runRepo: Pick<RunRepository, "getById" | "updateUnlessStatus">;
   safeMemoryOperation: <T>(
     operation: () => Promise<T>,
-  ) => Promise<T | undefined>;
+  ) => Promise<T>;
 }
 
 interface RunAssistantFinalizationParams {

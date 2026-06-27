@@ -160,37 +160,25 @@ describe("GitReviewProvider", () => {
     );
   });
 
-  it("uses saved edit files and automatically fetches their diff", async () => {
+  it("keeps live git empty until saved edit files are explicitly selected", () => {
     mockGitStatusState.status = buildGitStatus([]);
     mockArtifactState.source = buildArtifactSource();
 
-    const view = render(
+    render(
       <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
         <ReviewSourceProbe />
       </GitReviewProvider>,
     );
 
     expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
-    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
-
-    expect(screen.getByTestId("review-scope")).toHaveTextContent(
-      "prompt-artifact",
-    );
     expect(screen.getByTestId("review-source")).toHaveTextContent(
-      "prompt_artifact:explicit",
+      "live_git:empty",
     );
-    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
-
-    await waitFor(() => {
-      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
-    });
-    view.rerender(
-      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
-        <ReviewSourceProbe />
-      </GitReviewProvider>,
+    expect(screen.getByTestId("review-files")).toHaveTextContent("none");
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
     );
-
-    expect(mockFetchArtifactDiff).toHaveBeenCalledTimes(1);
+    expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
   });
 
@@ -204,12 +192,6 @@ describe("GitReviewProvider", () => {
       </GitReviewProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
-    await waitFor(() => {
-      expect(mockFetchArtifactDiff).toHaveBeenCalledWith("src/main.ts");
-    });
-    mockFetchArtifactDiff.mockClear();
-
     fireEvent.click(screen.getByRole("button", { name: "select live git" }));
     fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
 
@@ -219,7 +201,9 @@ describe("GitReviewProvider", () => {
   });
 
   it("fetches the first live diff when review files arrive", async () => {
-    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/live.ts"),
+    ]);
 
     render(
       <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
@@ -251,7 +235,7 @@ describe("GitReviewProvider", () => {
     expect(screen.getByTestId("review-files")).toHaveTextContent("none");
   });
 
-  it("loads review sources while the sidebar review surface is active", () => {
+  it("does not load saved edit fallback while the sidebar review surface is active", () => {
     mockGitStatusState.status = buildGitStatus([]);
     mockArtifactState.source = buildArtifactSource();
     mockArtifactState.resolved = true;
@@ -270,16 +254,15 @@ describe("GitReviewProvider", () => {
       expect.objectContaining({ enabled: true }),
     );
     expect(latestArtifactHookInput()).toEqual(
-      expect.objectContaining({ enabled: true }),
+      expect.objectContaining({ enabled: false }),
     );
     expect(screen.getByTestId("review-files")).toHaveTextContent("none");
-
-    fireEvent.click(screen.getByRole("button", { name: "select saved edit" }));
-    expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
   });
 
   it("loads an explicit saved edit selection even when live git has files", () => {
-    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/live.ts"),
+    ]);
     mockArtifactState.source = buildArtifactSource();
     mockArtifactState.resolved = true;
 
@@ -300,7 +283,7 @@ describe("GitReviewProvider", () => {
     expect(screen.getByTestId("review-files")).toHaveTextContent("src/main.ts");
   });
 
-  it("starts saved edit lookup before live git status resolves empty", () => {
+  it("does not start saved edit lookup before live git status resolves empty", () => {
     mockGitStatusState.status = null;
     mockGitStatusState.loading = true;
     mockArtifactState.loading = false;
@@ -313,15 +296,17 @@ describe("GitReviewProvider", () => {
     );
 
     expect(latestArtifactHookInput()).toEqual(
-      expect.objectContaining({ enabled: true }),
+      expect.objectContaining({ enabled: false }),
     );
     expect(screen.getByTestId("review-source-loading")).toHaveTextContent(
-      "loading",
+      "idle",
     );
   });
 
   it("pins chat-opened artifacts even when live git has files", () => {
-    mockGitStatusState.status = buildGitStatus([buildFileStatus("src/live.ts")]);
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/live.ts"),
+    ]);
     mockArtifactState.source = buildArtifactSource();
     mockArtifactState.resolved = true;
 
@@ -344,6 +329,25 @@ describe("GitReviewProvider", () => {
         assistantMessageId: "assistant-chat",
         enabled: true,
       }),
+    );
+  });
+
+  it("preserves every changed file in a multi-file live review", () => {
+    mockGitStatusState.status = buildGitStatus([
+      buildFileStatus("src/first.ts"),
+      buildFileStatus("src/second.ts"),
+      buildFileStatus("src/third.ts"),
+    ]);
+
+    render(
+      <GitReviewProvider isReviewOpen onReviewOpenChange={vi.fn()}>
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(screen.getByTestId("review-scope")).toHaveTextContent("git-changes");
+    expect(screen.getByTestId("review-files")).toHaveTextContent(
+      "src/first.ts,src/second.ts,src/third.ts",
     );
   });
 
@@ -379,7 +383,10 @@ function ReviewCommentSelectionProbe() {
       <span data-testid="delivery-state">
         {comment?.deliveryState ?? "none"}
       </span>
-      <button type="button" onClick={() => review.addReviewComment(buildInput())}>
+      <button
+        type="button"
+        onClick={() => review.addReviewComment(buildInput())}
+      >
         add comment
       </button>
       <button
@@ -428,7 +435,10 @@ function ReviewSourceProbe() {
       >
         select first file
       </button>
-      <button type="button" onClick={() => review.setReviewScope("git-changes")}>
+      <button
+        type="button"
+        onClick={() => review.setReviewScope("git-changes")}
+      >
         select live git
       </button>
       <button

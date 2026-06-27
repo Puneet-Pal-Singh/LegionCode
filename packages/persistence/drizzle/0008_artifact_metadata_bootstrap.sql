@@ -10,7 +10,7 @@ CREATE TABLE "artifact_changed_files" (
 CREATE TABLE "artifact_events" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"artifact_id" uuid NOT NULL,
-	"run_id" uuid NOT NULL,
+	"run_id" text NOT NULL,
 	"event_type" text NOT NULL,
 	"message" text NOT NULL,
 	"metadata_json" jsonb,
@@ -23,7 +23,7 @@ CREATE TABLE "artifacts" (
 	"user_id" uuid NOT NULL,
 	"workspace_id" uuid NOT NULL,
 	"session_id" uuid NOT NULL,
-	"run_id" uuid NOT NULL,
+	"run_id" text NOT NULL,
 	"repo_owner" text,
 	"repo_name" text,
 	"repo_url" text,

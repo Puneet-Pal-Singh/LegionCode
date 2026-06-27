@@ -6,7 +6,8 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 import type { ChatMessageMetadata } from "../messageMetadata";
-import type { RunTerminalViewModel } from "../../../services/workflow/RunTerminalViewModel.js";
+import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import { ChatMessage } from "../ChatMessage";
 import { formatDebugPayload } from "./approvals";
 import {
@@ -36,8 +37,9 @@ interface ChatInterfaceViewProps {
     file: FileStatus,
   ) => Promise<DiffContent>;
   openPromptArtifactReview: (artifactId: string, messageId?: string) => void;
-  terminalViewModel: RunTerminalViewModel | null;
+  terminalViewModel: LifecycleTerminalViewModel | null;
   terminalReviewFiles: FileStatus[];
+  terminalTurnDiff: TurnDiffPayload | null;
   loadArtifactChangedFileDiff: (
     artifactId: string,
     file: FileStatus,
@@ -124,9 +126,8 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
       changedFilesSummary={resolveTerminalChangedFilesSummary({
         terminalViewModel: terminal,
         files: props.terminalReviewFiles,
+        turnDiff: props.terminalTurnDiff,
         loadArtifactFileDiff: props.loadArtifactChangedFileDiff,
-        loadFallbackFileDiff: (file) =>
-          props.loadChangedFileDiff(terminal.id, file),
         onPromptArtifactReview: (artifactId) => {
           props.openPromptArtifactReview(artifactId);
           props.onReviewOpen?.();

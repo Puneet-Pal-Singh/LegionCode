@@ -34,6 +34,9 @@ export { sessionOrganizationMetadataMigration } from "./migrations/0012-session-
 export { artifactReviewMetadataMigration } from "./migrations/0013-artifact-review-metadata.js";
 export { pausedRunAndSessionStatusMigration } from "./migrations/0014-paused-run-and-session-status.js";
 export { providerConnectionConfigMigration } from "./migrations/0015-provider-connection-config.js";
+export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event-tables.js";
+export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
+export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-workspace-manifests-artifact-metadata.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -59,6 +62,60 @@ export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
+export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
+export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
+export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/PostgresLifecycleProjectionRepository.js";
+export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
+export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
+export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
+export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
+export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
+export { PostgresRunProjectionRepository } from "./run-projections/PostgresRunProjectionRepository.js";
+export { projectRunEvents } from "./run-projections/RunProjectionProjector.js";
+export {
+  LifecycleProjector,
+  projectLifecycleEvents,
+} from "./lifecycle-projections/LifecycleProjector.js";
+export {
+  LIFECYCLE_PROJECTION_VERSION,
+  LifecycleProjectionError,
+  LifecycleProjectionSnapshotSchema,
+  type LifecycleProjectionSnapshot,
+} from "./lifecycle-projections/types.js";
+export { PostgresArtifactMetadataRepository } from "./artifact-metadata/PostgresArtifactMetadataRepository.js";
+export {
+  THREAD_PROJECTION_VERSION,
+  ThreadProjectionError,
+  type RebuildThreadProjectionInput,
+  type ThreadProjectionEventInput,
+  type ThreadProjectionRepository,
+  type ThreadProjectionSnapshot,
+} from "./thread-projections/types.js";
+export {
+  ApprovalProjectionStatusSchema,
+  RUN_PROJECTION_VERSION,
+  RunProjectionError,
+  ToolCallProjectionStatusSchema,
+  buildApprovalDecisionSqlList,
+  buildApprovalProjectionStatusSqlList,
+  buildToolCallProjectionStatusSqlList,
+  type ApprovalProjection,
+  type ApprovalProjectionStatus,
+  type RebuildRunProjectionInput,
+  type RunProjectionEventInput,
+  type RunProjectionRepository,
+  type RunProjectionSnapshot,
+  type ToolCallProjection,
+  type ToolCallProjectionStatus,
+} from "./run-projections/types.js";
+export {
+  ARTIFACT_METADATA_VERSION,
+  ArtifactMetadataRecordSchema,
+  artifactMetadataVersion,
+  projectArtifactMetadataEvent,
+  type ArtifactMetadataRecord,
+  type ArtifactMetadataRepository,
+} from "./artifact-metadata/types.js";
 export { MemoryContextRepository } from "./context/MemoryContextRepository.js";
 export { PostgresContextRepository } from "./context/PostgresContextRepository.js";
 export { MemoryPermissionRepository } from "./permissions/MemoryPermissionRepository.js";
@@ -241,4 +298,10 @@ export {
   artifacts,
   artifactEvents,
   artifactChangedFiles,
+  canonicalEventScopeSequences,
+  canonicalEvents,
+  canonicalRunItemProjections,
+  canonicalRunProjections,
+  canonicalToolCallProjections,
+  canonicalApprovalProjections,
 } from "./schema/index.js";

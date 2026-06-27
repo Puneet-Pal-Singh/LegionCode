@@ -60,7 +60,7 @@ describe("RunEngineRequestHandler", () => {
 
     await runRepo.create(
       new Run(
-        "123e4567-e89b-42d3-a456-426614174000",
+        "run_123e4567e89b42d3a456426614174000",
         "session-1",
         "RUNNING",
         "coding",
@@ -73,7 +73,7 @@ describe("RunEngineRequestHandler", () => {
     );
 
     const toolInput = {
-      runId: "123e4567-e89b-42d3-a456-426614174000",
+      runId: "run_123e4567e89b42d3a456426614174000",
       sessionId: "session-1",
     };
     await eventRepo.append(
@@ -127,7 +127,7 @@ describe("RunEngineRequestHandler", () => {
 
     const response = await handler.handleSummaryRequest(
       new Request(
-        "https://brain.local/summary?runId=123e4567-e89b-42d3-a456-426614174000",
+        "https://brain.local/summary?runId=run_123e4567e89b42d3a456426614174000",
       ),
     );
 
@@ -157,7 +157,7 @@ describe("RunEngineRequestHandler", () => {
     const runRepo = new RunRepository(runtimeState);
 
     const run = new Run(
-      "123e4567-e89b-42d3-a456-426614174002",
+      "run_123e4567e89b42d3a456426614174002",
       "session-1",
       "COMPLETED",
       "coding",
@@ -216,7 +216,7 @@ describe("RunEngineRequestHandler", () => {
     const runRepo = new RunRepository(runtimeState);
 
     const run = new Run(
-      "123e4567-e89b-42d3-a456-426614174003",
+      "run_123e4567e89b42d3a456426614174003",
       "session-1",
       "COMPLETED",
       "coding",
@@ -261,7 +261,7 @@ describe("RunEngineRequestHandler", () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const eventRepo = new RunEventRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174001";
+    const runId = "run_123e4567e89b42d3a456426614174001";
 
     await eventRepo.append(
       runId,
@@ -317,7 +317,7 @@ describe("RunEngineRequestHandler", () => {
 
   it("streams events emitted after the event stream endpoint connects", async () => {
     const ctx = new MockDurableObjectState();
-    const runId = "123e4567-e89b-42d3-a456-426614174111";
+    const runId = "run_123e4567e89b42d3a456426614174111";
     const eventStream = new CloudflareEventStreamAdapter();
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
@@ -350,7 +350,7 @@ describe("RunEngineRequestHandler", () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174211";
+    const runId = "run_123e4567e89b42d3a456426614174211";
     await runRepo.create(
       new Run(runId, "session-1", "RUNNING", "coding", {
         agentType: "coding",
@@ -390,7 +390,7 @@ describe("RunEngineRequestHandler", () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174212";
+    const runId = "run_123e4567e89b42d3a456426614174212";
     await runRepo.create(
       new Run(runId, "session-1", "RUNNING", "coding", {
         agentType: "coding",
@@ -425,7 +425,7 @@ describe("RunEngineRequestHandler", () => {
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
     const eventRepo = new RunEventRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174099";
+    const runId = "run_123e4567e89b42d3a456426614174099";
 
     const run = new Run(runId, "session-1", "COMPLETED", "coding", {
       agentType: "coding",
@@ -518,7 +518,7 @@ describe("RunEngineRequestHandler", () => {
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
     const eventRepo = new RunEventRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174333";
+    const runId = "run_123e4567e89b42d3a456426614174333";
     const run = new Run(runId, "session-1", "RUNNING", "coding", {
       agentType: "coding",
       prompt: "commit changes",
@@ -583,7 +583,7 @@ describe("RunEngineRequestHandler", () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174334";
+    const runId = "run_123e4567e89b42d3a456426614174334";
     await runRepo.create(
       new Run(runId, "session-1", "RUNNING", "coding", {
         agentType: "coding",
@@ -628,7 +628,7 @@ describe("RunEngineRequestHandler", () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
-    const runId = "123e4567-e89b-42d3-a456-426614174335";
+    const runId = "run_123e4567e89b42d3a456426614174335";
     await runRepo.create(
       new Run(runId, "session-1", "RUNNING", "coding", {
         agentType: "coding",

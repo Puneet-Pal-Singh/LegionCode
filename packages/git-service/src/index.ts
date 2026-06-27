@@ -1,0 +1,75 @@
+export { DefaultGitService } from "./GitService.js";
+export {
+  createGitCommandFailedError,
+  createInvalidBranchRefError,
+  createMalformedStatusOutputError,
+  GitServiceError,
+  type GitServiceErrorCode,
+  type GitServiceErrorContext,
+  type GitServiceErrorContextValue,
+} from "./errors.js";
+export {
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  type GitCommandExecutionInput,
+  type GitCommandExecutionResult,
+  type GitCommandExecutor,
+} from "./executor.js";
+export {
+  validateBranchNamePolicy,
+  validateBranchWithGit,
+  validateRemoteName,
+} from "./refs.js";
+export {
+  GIT_STATUS_PORCELAIN_V2_ARGS,
+  parsePorcelainV2Status,
+} from "./status.js";
+export {
+  captureGitWorkspaceSnapshot,
+  diffGitWorkspaceSnapshots,
+} from "./snapshot.js";
+export { validateWorkspaceRoot } from "./validation.js";
+export type {
+  BaseGitStatusEntry,
+  GitBranchStatus,
+  GitBranchInput,
+  GitBranchListInput,
+  GitBranchListResult,
+  GitBranchResult,
+  GitBranchValidationInput,
+  GitBranchValidationResult,
+  GitCapturePatchInput,
+  GitChangedFileStatus,
+  GitConfigValueInput,
+  GitCommitIdentity,
+  GitCommitInput,
+  GitCommitResult,
+  GitDiffFile,
+  GitDiffInput,
+  GitDiffResult,
+  GitFetchInput,
+  GitFileLineCount,
+  GitFileLineCountsInput,
+  GitFilesystemContext,
+  GitPatchCaptureResult,
+  GitPullInput,
+  GitPushInput,
+  GitPushResult,
+  GitRepoIdentityInput,
+  GitSnapshotDiffInput,
+  GitSnapshotInput,
+  GitService,
+  GitStageInput,
+  GitStatusCode,
+  GitStatusEntry,
+  GitStatusInput,
+  GitStatusResult,
+  GitStatusXY,
+  GitUntrackedFileDiffResult,
+  GitUntrackedFileInput,
+  GitWorkspaceContext,
+  GitWorkspaceSnapshot,
+  OrdinaryGitStatusEntry,
+  RenamedOrCopiedGitStatusEntry,
+  UnmergedGitStatusEntry,
+  UntrackedGitStatusEntry,
+} from "./types.js";

@@ -3,7 +3,7 @@ import { ExecuteRunPayloadSchema } from "./ExecuteRunPayloadSchema";
 
 function createValidPayload() {
   return {
-    runId: "run-1",
+    runId: "run_100001",
     sessionId: "session-1",
     correlationId: "corr-1",
     input: {
@@ -21,6 +21,14 @@ function createValidPayload() {
 }
 
 describe("ExecuteRunPayloadSchema tools validation", () => {
+  it("rejects non-canonical run ids", () => {
+    const payload = createValidPayload();
+    payload.runId = "123e4567-e89b-42d3-a456-426614174000";
+
+    const result = ExecuteRunPayloadSchema.safeParse(payload);
+    expect(result.success).toBe(false);
+  });
+
   it("rejects primitive tool schema values in inputSchema/parameters", () => {
     const payload = createValidPayload();
     payload.tools = {

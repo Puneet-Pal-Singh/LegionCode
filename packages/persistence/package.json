@@ -16,11 +16,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/event-store": "workspace:*",
+    "@repo/platform-protocol": "workspace:*",
     "@repo/shared-types": "workspace:*",
+    "@repo/workspace-core": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "pg": "^8.16.3"
   },
   "devDependencies": {
+    "@repo/contract-conformance": "workspace:*",
     "@repo/typescript-config": "workspace:*",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",

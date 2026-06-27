@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import { RunIdSchema } from "@repo/platform-protocol";
 import {
   ApprovalDecisionKindSchema,
   ProviderModelTransportSchema,
@@ -75,7 +76,7 @@ export const SerializableToolDefinitionSchema = z.object({
  * - messages: conversation history (required, array of CoreMessage)
  */
 export const ExecuteRunPayloadSchema = z.object({
-  runId: z.string().trim().min(1),
+  runId: RunIdSchema,
   userId: z.string().trim().min(1).optional(),
   workspaceId: z.string().trim().min(1).optional(),
   sessionId: z.string().trim().min(1),

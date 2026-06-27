@@ -16,6 +16,8 @@ export {
 } from "./TaskInputContract.js";
 export {
   enforceGoldenFlowToolFloor,
+  getGoldenFlowRunCapabilityManifest,
+  getGoldenFlowToolCatalogSnapshot,
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
@@ -26,13 +28,39 @@ export {
   type ToolGatewayRoute,
 } from "./CodingToolGateway.js";
 export {
+  buildCorrectionHintText,
+  buildInvalidToolInputError,
+  buildPurposeBuiltToolWarning,
+  buildRuntimeCapabilityPromptSection,
+  buildToolCatalogSnapshot,
+  buildToolCorrectionHint,
+  buildUnavailableToolError,
+  createCloudSandboxRunCapabilityManifest,
+  type RunCapabilityManifest,
+  type StructuredToolError,
+  type ToolCatalogSnapshot,
+  type ToolCorrectionHint,
+} from "../capabilities/index.js";
+export {
   getCodingToolDefinition,
   getCodingToolDefinitions,
   isCodingToolId,
+  ToolDefinitionSchema,
+  codingToolRegistry,
+  type CodingToolRegistry,
   type ToolDefinition,
+  type ToolBackendCapability,
+  type ToolParallelism,
+  type ToolPermissionMetadata,
+  type ToolModelCapability,
   type ToolResult,
   type ToolSandboxClass,
   type ToolPermissionPolicy,
+  type ToolRendererHint,
   type ToolTokenPolicy,
   type ToolOutputRenderer,
 } from "../tools/CodingToolRegistry.js";
+export {
+  RegistryToolAuthorization,
+  type PermissionPolicyResolver,
+} from "./RegistryToolAuthorization.js";

@@ -522,6 +522,89 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(firstRequest.system).toContain("Branch: main");
     });
 
+    it("injects runtime capability manifest and tool catalog guidance", async () => {
+      vi.mocked(llmGateway.generateText!).mockResolvedValue({
+        text: "Done",
+        usage: { promptTokens: 10, completionTokens: 5 },
+      });
+
+      await loop.execute(
+        [{ role: "user", content: "inspect README.md" }],
+        {
+          read_file: { description: "Read a file" },
+          bash: { description: "Run bash" },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        {
+          agentType: "coding",
+          providerId: "openai",
+          modelId: "gpt-5.1-codex",
+        },
+      );
+
+      const firstRequest = vi.mocked(llmGateway.generateText).mock
+        .calls[0]?.[0] as {
+        system?: string;
+      };
+      expect(firstRequest.system).toContain("## Execution Environment");
+      expect(firstRequest.system).toContain("executionLocation: cloud_sandbox");
+      expect(firstRequest.system).toContain("- read_file [read, available]");
+      expect(firstRequest.system).toContain(
+        "- bash [shell, approval_required]",
+      );
+      expect(firstRequest.system).toContain("desktop_local");
+      expect(firstRequest.system).toContain(
+        "do not use shell commands like sed",
+      );
+    });
+
+    it("returns structured unavailable-tool errors with a correction retry", async () => {
+      vi.mocked(llmGateway.generateText!)
+        .mockResolvedValueOnce({
+          text: "Trying a desktop tool.",
+          toolCalls: [
+            {
+              id: "tool-call-1",
+              toolName: "open_desktop_app",
+              args: { name: "Finder" },
+            },
+          ],
+          usage: { promptTokens: 10, completionTokens: 5 },
+        })
+        .mockResolvedValueOnce({
+          text: "I can inspect the repository with read_file instead.",
+          toolCalls: [],
+          usage: { promptTokens: 12, completionTokens: 6 },
+        });
+
+      const onToolFailed = vi.fn(async () => undefined);
+      const result = await loop.execute(
+        [{ role: "user", content: "open the local app" }],
+        {
+          read_file: { description: "Read a file" },
+          grep: { description: "Search files" },
+        } as unknown as Record<string, import("ai").CoreTool>,
+        { agentType: "coding", onToolFailed },
+      );
+
+      expect(result.stopReason).toBe("llm_stop");
+      expect(result.failedToolCount).toBe(1);
+      expect(executor.execute).not.toHaveBeenCalled();
+      expect(onToolFailed.mock.calls[0]?.[1]).toContain(
+        '"error": "TOOL_UNAVAILABLE_IN_BACKEND"',
+      );
+      expect(onToolFailed.mock.calls[0]?.[1]).toContain(
+        '"attemptedTool": "open_desktop_app"',
+      );
+      const retryRequest = vi.mocked(llmGateway.generateText).mock
+        .calls[1]?.[0] as {
+        system?: string;
+      };
+      expect(retryRequest.system).toContain("Tool correction hint:");
+      expect(retryRequest.system).toContain(
+        "Available tools: read_file, grep.",
+      );
+    });
+
     it("adds CI log guardrails when the latest user turn asks for CI logs", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "Done",

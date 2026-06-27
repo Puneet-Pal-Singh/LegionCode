@@ -2,7 +2,7 @@ const CANONICAL_GIT_ACTIONS = {
   status: "git_status",
   diff: "git_diff",
   stage: "git_stage",
-  unstage: "unstage",
+  unstage: "git_unstage",
   commit: "git_commit",
   push: "git_push",
   git_clone: "git_clone",
@@ -16,8 +16,8 @@ const CANONICAL_GIT_ACTIONS = {
   git_branch_switch: "git_branch_switch",
   git_branch_list: "git_branch_list",
   git_stage: "git_stage",
+  git_unstage: "git_unstage",
   git_status: "git_status",
-  git_config: "git_config",
 } as const;
 
 export function toCanonicalGitExecutionAction(action: string): string {

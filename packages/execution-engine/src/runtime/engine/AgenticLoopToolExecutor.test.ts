@@ -11,6 +11,126 @@ describe("AgenticLoopToolExecutor", () => {
     expect(normalizeWorkspacePath('"@scope/pkg";')).toBe("@scope/pkg");
   });
 
+  it("routes normalized multi-file edits through the filesystem plugin", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { success: true, output: "Edited 2 files" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-edit-1",
+      toolName: "multi_edit",
+      toolInput: {
+        edits: [
+          { path: "src/a.ts", oldText: "one", newText: "two" },
+          { path: "src/b.ts", oldText: "three", newText: "four" },
+        ],
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "filesystem",
+        action: "multi_edit",
+        payload: {
+          edits: [
+            { path: "src/a.ts", oldText: "one", newText: "two" },
+            { path: "src/b.ts", oldText: "three", newText: "four" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("rejects traversal in edit paths before plugin execution", async () => {
+    let executeCallCount = 0;
+    const executionService: RuntimeExecutionService = {
+      execute: async () => {
+        executeCallCount += 1;
+        return { success: true };
+      },
+    };
+
+    await expect(
+      executeAgenticLoopTool(executionService, {
+        taskId: "task-edit-traversal",
+        toolName: "edit_file",
+        toolInput: {
+          path: "../outside.ts",
+          oldText: "one",
+          newText: "two",
+        },
+      }),
+    ).rejects.toThrow(/traversal/i);
+    expect(executeCallCount).toBe(0);
+  });
+
+  it("routes unified patches through the validated git apply action", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        return { success: true, output: "Patch validated successfully" };
+      },
+    };
+    const patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n";
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-patch-1",
+      toolName: "apply_patch",
+      toolInput: { patch, dryRun: true },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "git",
+        action: "git_patch_apply",
+        payload: { patch, dryRun: true },
+      },
+    ]);
+  });
+
+  it("routes formatter and diagnostics hooks through filesystem actions", async () => {
+    const calls: Array<{ plugin: string; action: string }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action) => {
+        calls.push({ plugin, action });
+        return { success: true, output: "ok" };
+      },
+    };
+
+    const formatResult = await executeAgenticLoopTool(executionService, {
+      taskId: "task-format-1",
+      toolName: "format_file",
+      toolInput: { path: "src/app.ts" },
+    });
+    const diagnosticsResult = await executeAgenticLoopTool(executionService, {
+      taskId: "task-diagnostics-1",
+      toolName: "language_diagnostics",
+      toolInput: { path: "src/app.ts" },
+    });
+
+    expect(formatResult.status).toBe("DONE");
+    expect(diagnosticsResult.status).toBe("DONE");
+    expect(calls).toEqual([
+      { plugin: "filesystem", action: "format_file" },
+      { plugin: "filesystem", action: "language_diagnostics" },
+    ]);
+  });
+
   it("executes github_pr_list through the github bridge route", async () => {
     const calls: Array<{
       plugin: string;
@@ -443,5 +563,80 @@ describe("AgenticLoopToolExecutor", () => {
         },
       },
     ]);
+  });
+
+  it("fails read_file when the filesystem gateway returns a typed failure", async () => {
+    const executionService: RuntimeExecutionService = {
+      execute: async () => ({
+        status: "failure",
+        error: {
+          code: "ENOENT",
+          message: "File not found: missing.md",
+        },
+      }),
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-read-missing",
+      toolName: "read_file",
+      toolInput: { path: "missing.md" },
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: {
+        message: "TOOL_FAILED: File not found: missing.md",
+      },
+    });
+  });
+
+  it("fails grep when the filesystem gateway times out", async () => {
+    const executionService: RuntimeExecutionService = {
+      execute: async () => ({
+        status: "timeout",
+        error: {
+          code: "EXECUTION_TIMEOUT",
+          message: "Execution request timed out after 120000ms",
+        },
+      }),
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-grep-timeout",
+      toolName: "grep",
+      toolInput: { pattern: "TODO" },
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: {
+        message: "TOOL_TIMEOUT: Execution request timed out after 120000ms",
+      },
+    });
+  });
+
+  it("fails glob when the filesystem gateway returns cancelled", async () => {
+    const executionService: RuntimeExecutionService = {
+      execute: async () => ({
+        status: "cancelled",
+        error: {
+          code: "CANCELLED",
+          message: "Execution was cancelled",
+        },
+      }),
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-glob-cancelled",
+      toolName: "glob",
+      toolInput: { pattern: "**/*.ts" },
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: {
+        message: "TOOL_CANCELLED: Execution was cancelled",
+      },
+    });
   });
 });

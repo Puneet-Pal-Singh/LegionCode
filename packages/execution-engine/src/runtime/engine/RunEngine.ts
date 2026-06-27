@@ -21,7 +21,10 @@ import { TaskScheduler, type TaskExecutor } from "../orchestration/index.js";
 import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
-import { enforceGoldenFlowToolFloor } from "../contracts/CodingToolGateway.js";
+import {
+  enforceGoldenFlowToolFloor,
+  getGoldenFlowToolRegistry,
+} from "../contracts/CodingToolGateway.js";
 import type {
   RunInput,
   RunStatus,
@@ -101,7 +104,6 @@ import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummar
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
 import {
   resolveGitTaskStrategyForRun,
-  restoreContinuationWorkspaceEditsIfNeeded,
 } from "./RunExecutionPreparationPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
@@ -128,7 +130,6 @@ export type {
   RunEngineEnv,
   RunEngineOptions,
 } from "./RunEngineTypes.js";
-
 export class RunEngine implements IRunEngine {
   private runRepo: RunRepository;
   private taskRepo: TaskRepository;
@@ -464,7 +465,10 @@ export class RunEngine implements IRunEngine {
           run,
           effectiveInput,
           messages,
-          enforceGoldenFlowToolFloor(tools, effectiveInput.metadata),
+          enforceGoldenFlowToolFloor(
+            { ...getGoldenFlowToolRegistry(), ...tools },
+            effectiveInput.metadata,
+          ),
           finalSummaryContractEnabled,
         );
       }
@@ -576,11 +580,6 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
-    const restoredPersistedEditCount =
-      await restoreContinuationWorkspaceEditsIfNeeded(
-        run,
-        directExecutionService,
-      );
     const loopCallbacks = buildAgenticLoopCallbacks({
       run,
       directExecutionService,
@@ -605,7 +604,6 @@ export class RunEngine implements IRunEngine {
           return currentRun?.status === "CANCELLED";
         },
         executeTool: loopCallbacks.executeTool,
-        initialCompletedMutatingToolCount: restoredPersistedEditCount,
         modelId: input.modelId,
         providerId: input.providerId,
         runtimeModelId: input.runtimeModelId,
@@ -843,7 +841,6 @@ export class RunEngine implements IRunEngine {
           runRepo: this.runRepo,
           createFreshRun: this.createFreshRun.bind(this),
         });
-        await this.runEventRecorder.clear();
         return resetRun;
       }
 
@@ -997,7 +994,7 @@ export class RunEngine implements IRunEngine {
 
   private async safeMemoryOperation<T>(
     operation: () => Promise<T>,
-  ): Promise<T | undefined> {
+  ): Promise<T> {
     return safeMemoryOperationPolicy(operation);
   }
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {

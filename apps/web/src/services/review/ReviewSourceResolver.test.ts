@@ -22,7 +22,7 @@ describe("resolveReviewSource", () => {
     });
   });
 
-  it("keeps live Git as the default when its current result is empty", () => {
+  it("returns empty live git when live git is empty and an artifact exists", () => {
     const source = resolveReviewSource({
       requestedScope: null,
       openedArtifact: null,

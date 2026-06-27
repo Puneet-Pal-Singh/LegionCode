@@ -106,6 +106,55 @@
       "when": 1779900200000,
       "tag": "0015_provider_connection_config",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781004800000,
+      "tag": "0016_canonical_event_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781007000000,
+      "tag": "0017_thread_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781010000000,
+      "tag": "0018_run_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781011800000,
+      "tag": "0019_workspace_manifests_artifact_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782090000000,
+      "tag": "0020_lifecycle_events_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1782090100000,
+      "tag": "0021_canonical_workspace_manifest",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782469500000,
+      "tag": "0022_canonical_run_id_text",
+      "breakpoints": true
     }
   ]
 }

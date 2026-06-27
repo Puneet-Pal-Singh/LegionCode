@@ -4,7 +4,10 @@ import { join, relative } from "node:path";
 
 const SOURCE_ROOT = join(process.cwd(), "src");
 const SDK_IMPORT_PATH = "@repo/platform-client-sdk";
-const ALLOWED_IMPORT_FILE = "services/api/providerClient.ts";
+const ALLOWED_IMPORT_FILES = new Set([
+  "services/api/providerClient.ts",
+  "services/api/lifecycleClient.ts",
+]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {
   it("blocks @repo/platform-client-sdk imports outside provider API boundary", () => {
@@ -48,7 +51,7 @@ function isTestFile(filePath: string): boolean {
 }
 
 function isAllowedImportFile(filePath: string): boolean {
-  return relative(SOURCE_ROOT, filePath) === ALLOWED_IMPORT_FILE;
+  return ALLOWED_IMPORT_FILES.has(relative(SOURCE_ROOT, filePath));
 }
 
 function containsSdkImport(filePath: string): boolean {

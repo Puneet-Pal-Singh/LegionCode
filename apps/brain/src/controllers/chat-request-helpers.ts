@@ -1,4 +1,5 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import { RunIdSchema } from "@repo/platform-protocol";
 import { ValidationError } from "../domain/errors";
 import {
   MAX_SCOPE_IDENTIFIER_LENGTH,
@@ -6,8 +7,6 @@ import {
 } from "../types/provider-scope";
 
 const SAFE_IDENTIFIER_REGEX = /^[A-Za-z0-9-]+$/;
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_IDENTIFIER_LENGTH = MAX_SCOPE_IDENTIFIER_LENGTH;
 
 export function extractIdentifiers(
@@ -96,14 +95,15 @@ function parseRunId(runId?: string, correlationId?: string): string {
     );
   }
   const normalized = runId.trim();
-  if (!UUID_V4_REGEX.test(normalized)) {
+  const result = RunIdSchema.safeParse(normalized);
+  if (!result.success) {
     throw new ValidationError(
-      "Invalid runId: expected UUID v4 format",
+      "Invalid runId: expected canonical run_ identifier",
       "INVALID_RUN_ID",
       correlationId,
     );
   }
-  return normalized;
+  return result.data;
 }
 
 function parseRequiredIdentifier(

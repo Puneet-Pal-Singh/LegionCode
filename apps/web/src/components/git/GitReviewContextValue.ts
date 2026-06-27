@@ -76,10 +76,11 @@ export interface GitReviewContextValue {
   stageAll: () => Promise<boolean>;
   unstageAll: () => Promise<boolean>;
   createBranch: (branch: string) => Promise<string>;
-  pushBranch: (branch?: string) => Promise<string>;
+  pushBranch: (branch: string) => Promise<string>;
   submitCommit: (identityOverride?: {
     authorName?: string;
     authorEmail?: string;
+    files?: string[];
   }) => Promise<boolean>;
   setCommitMessage: (message: string) => void;
   refetch: () => Promise<void>;

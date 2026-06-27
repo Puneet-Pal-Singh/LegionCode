@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   enforceGoldenFlowToolFloor,
   getCodingToolDefinition,
+  getGoldenFlowRunCapabilityManifest,
+  getGoldenFlowToolCatalogSnapshot,
   getGoldenFlowToolNames,
   getGoldenFlowToolRegistry,
   getGoldenFlowToolRoute,
   isMutatingGoldenFlowToolName,
   validateGoldenFlowToolInput,
 } from "./CodingToolGateway.js";
+import { ToolDefinitionSchema } from "../tools/CodingToolRegistry.js";
 
 describe("CodingToolGateway", () => {
   it("exposes the canonical golden-flow tool floor", () => {
@@ -16,6 +19,11 @@ describe("CodingToolGateway", () => {
       "read_file",
       "list_files",
       "write_file",
+      "edit_file",
+      "multi_edit",
+      "apply_patch",
+      "format_file",
+      "language_diagnostics",
       "bash",
       "git_stage",
       "git_commit",
@@ -50,6 +58,31 @@ describe("CodingToolGateway", () => {
       toolName: "read_file",
       plugin: "filesystem",
       action: "read_file",
+    });
+    expect(getGoldenFlowToolRoute("edit_file")).toEqual({
+      toolName: "edit_file",
+      plugin: "filesystem",
+      action: "edit_file",
+    });
+    expect(getGoldenFlowToolRoute("multi_edit")).toEqual({
+      toolName: "multi_edit",
+      plugin: "filesystem",
+      action: "multi_edit",
+    });
+    expect(getGoldenFlowToolRoute("apply_patch")).toEqual({
+      toolName: "apply_patch",
+      plugin: "git",
+      action: "git_patch_apply",
+    });
+    expect(getGoldenFlowToolRoute("format_file")).toEqual({
+      toolName: "format_file",
+      plugin: "filesystem",
+      action: "format_file",
+    });
+    expect(getGoldenFlowToolRoute("language_diagnostics")).toEqual({
+      toolName: "language_diagnostics",
+      plugin: "filesystem",
+      action: "language_diagnostics",
     });
     expect(getGoldenFlowToolRoute("bash")).toEqual({
       toolName: "bash",
@@ -131,6 +164,11 @@ describe("CodingToolGateway", () => {
 
   it("classifies mutating golden-flow tools conservatively", () => {
     expect(isMutatingGoldenFlowToolName("write_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("edit_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("multi_edit")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("apply_patch")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("format_file")).toBe(true);
+    expect(isMutatingGoldenFlowToolName("language_diagnostics")).toBe(false);
     expect(isMutatingGoldenFlowToolName("bash")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_commit")).toBe(true);
     expect(isMutatingGoldenFlowToolName("git_pull")).toBe(true);
@@ -166,6 +204,76 @@ describe("CodingToolGateway", () => {
       maxLineBytes: expect.any(Number),
       maxResults: expect.any(Number),
     });
+    expect(ToolDefinitionSchema.parse(grepDefinition)).toMatchObject({
+      id: "grep",
+      permissionMetadata: {
+        domain: "tool",
+        subject: "grep",
+        action: "grep",
+        riskLevel: "low",
+      },
+      requiredBackendCapabilities: ["filesystem_read"],
+      riskLevel: "low",
+      parallelism: "parallel_safe",
+      rendererHint: "json",
+    });
+  });
+
+  it("validates every native tool registry definition", () => {
+    for (const toolName of getGoldenFlowToolNames()) {
+      const definition = getCodingToolDefinition(toolName);
+      expect(definition).toBeDefined();
+      expect(ToolDefinitionSchema.safeParse(definition).success).toBe(true);
+      expect(definition?.permissionMetadata.subject).toBe(toolName);
+      expect(definition?.requiredBackendCapabilities.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("projects the golden-flow registry into a runtime capability manifest", () => {
+    const manifest = getGoldenFlowRunCapabilityManifest({
+      runId: "run-1",
+      availableToolIds: ["read_file", "bash", "git_status"],
+    });
+
+    expect(manifest.executionLocation).toBe("cloud_sandbox");
+    expect(manifest.availableTools.map((tool) => tool.logicalName)).toEqual([
+      "read_file",
+      "bash",
+      "git_status",
+    ]);
+    expect(manifest.availableTools).toContainEqual(
+      expect.objectContaining({
+        logicalName: "bash",
+        availability: "approval_required",
+        avoidWhen: expect.arrayContaining(["simple file inspection"]),
+      }),
+    );
+    expect(manifest.unavailableCapabilities).toContainEqual(
+      expect.objectContaining({ id: "desktop_local" }),
+    );
+  });
+
+  it("builds a prompt-facing tool catalog snapshot from the manifest", () => {
+    const snapshot = getGoldenFlowToolCatalogSnapshot({
+      runId: "run-1",
+      availableToolIds: ["read_file", "grep"],
+    });
+
+    expect(snapshot.tools).toEqual([
+      expect.objectContaining({
+        name: "read_file",
+        preferredFor: ["file inspection", "line range reads"],
+      }),
+      expect.objectContaining({
+        name: "grep",
+        preferredFor: ["content search", "symbol or text discovery"],
+      }),
+    ]);
+    expect(snapshot.unavailableCapabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "outside_workspace_files" }),
+      ]),
+    );
   });
 
   it("adapts legacy plugin responses into required ToolResult shape", async () => {
@@ -205,64 +313,123 @@ describe("CodingToolGateway", () => {
     expect(untruncatedResult?.truncated).toBe(false);
   });
 
-  it("enforces bounded scope by dropping non-floor tools", () => {
-    const filtered = enforceGoldenFlowToolFloor({
-      read_file: {
-        description: "custom read",
-        parameters: {},
-      } as unknown as import("ai").CoreTool,
-      web_search: {
-        description: "unsupported",
-        parameters: {},
-      } as unknown as import("ai").CoreTool,
-    }, {
-      featureFlags: {
-        ghCliLaneEnabled: true,
-        ghCliCiEnabled: true,
-        ghCliPrCommentEnabled: true,
+  it("preserves typed plugin failures in ToolResult diagnostics", async () => {
+    const definition = getCodingToolDefinition("read_file");
+    const result = await definition?.execute(
+      { path: "missing.md" },
+      {
+        async execute() {
+          return {
+            success: false,
+            status: "failure",
+            error: {
+              code: "ENOENT",
+              message: "File not found: missing.md",
+            },
+          };
+        },
       },
+    );
+
+    expect(result).toEqual({
+      title: "Read File",
+      output: "File not found: missing.md",
+      metadata: { success: false, status: "failure", code: "ENOENT" },
+      diagnostics: [
+        { severity: "error", message: "File not found: missing.md" },
+      ],
+      truncated: false,
     });
+  });
+
+  it("enforces bounded scope by dropping non-floor tools", () => {
+    const filtered = enforceGoldenFlowToolFloor(
+      {
+        read_file: {
+          description: "custom read",
+          parameters: {},
+        } as unknown as import("ai").CoreTool,
+        web_search: {
+          description: "unsupported",
+          parameters: {},
+        } as unknown as import("ai").CoreTool,
+      },
+      {
+        featureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
+      },
+    );
 
     expect(filtered.read_file?.description).toBe("custom read");
-    expect(Object.keys(filtered)).toEqual(getGoldenFlowToolNames());
+    expect(Object.keys(filtered)).toEqual(["read_file"]);
     expect("web_search" in filtered).toBe(false);
   });
 
   it("applies GitHub CLI lane feature flags to the tool floor", () => {
-    const allDisabled = enforceGoldenFlowToolFloor({}, {
-      featureFlags: {
-        ghCliLaneEnabled: false,
-        ghCliCiEnabled: false,
-        ghCliPrCommentEnabled: false,
+    const allDisabled = enforceGoldenFlowToolFloor(
+      {},
+      {
+        featureFlags: {
+          ghCliLaneEnabled: false,
+          ghCliCiEnabled: false,
+          ghCliPrCommentEnabled: false,
+        },
       },
-    });
+    );
     expect(allDisabled.github_cli_pr_checks_get).toBeUndefined();
     expect(allDisabled.github_cli_actions_run_get).toBeUndefined();
     expect(allDisabled.github_cli_actions_job_logs_get).toBeUndefined();
     expect(allDisabled.github_cli_pr_comment).toBeUndefined();
 
-    const ciOnly = enforceGoldenFlowToolFloor({}, {
-      featureFlags: {
-        ghCliLaneEnabled: true,
-        ghCliCiEnabled: true,
-        ghCliPrCommentEnabled: false,
+    const ciOnly = enforceGoldenFlowToolFloor(
+      {},
+      {
+        featureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliCiEnabled: true,
+          ghCliPrCommentEnabled: false,
+        },
       },
-    });
-    expect(ciOnly.github_cli_pr_checks_get).toBeDefined();
-    expect(ciOnly.github_cli_actions_run_get).toBeDefined();
-    expect(ciOnly.github_cli_actions_job_logs_get).toBeDefined();
+    );
+    expect(ciOnly.github_cli_pr_checks_get).toBeUndefined();
+    expect(ciOnly.github_cli_actions_run_get).toBeUndefined();
+    expect(ciOnly.github_cli_actions_job_logs_get).toBeUndefined();
     expect(ciOnly.github_cli_pr_comment).toBeUndefined();
 
-    const missingCiFlag = enforceGoldenFlowToolFloor({}, {
-      featureFlags: {
-        ghCliLaneEnabled: true,
-        ghCliPrCommentEnabled: true,
+    const missingCiFlag = enforceGoldenFlowToolFloor(
+      {},
+      {
+        featureFlags: {
+          ghCliLaneEnabled: true,
+          ghCliPrCommentEnabled: true,
+        },
       },
-    });
+    );
     expect(missingCiFlag.github_cli_pr_checks_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_run_get).toBeUndefined();
     expect(missingCiFlag.github_cli_actions_job_logs_get).toBeUndefined();
-    expect(missingCiFlag.github_cli_pr_comment).toBeDefined();
+    expect(missingCiFlag.github_cli_pr_comment).toBeUndefined();
+  });
+
+  it("fails closed for model-gated patch tooling", () => {
+    const patchTool = getGoldenFlowToolRegistry().apply_patch;
+    expect(patchTool).toBeDefined();
+
+    expect(
+      enforceGoldenFlowToolFloor({ apply_patch: patchTool! }).apply_patch,
+    ).toBeUndefined();
+    expect(
+      enforceGoldenFlowToolFloor(
+        { apply_patch: patchTool! },
+        { modelCapabilities: ["patch_application"] },
+      ).apply_patch,
+    ).toBeDefined();
+    expect(
+      getCodingToolDefinition("apply_patch")?.requiredModelCapabilities,
+    ).toEqual(["patch_application"]);
   });
 
   it("validates tool inputs against canonical schemas", () => {
@@ -291,6 +458,20 @@ describe("CodingToolGateway", () => {
       limit: 25,
     });
 
+    expect(
+      validateGoldenFlowToolInput("edit_file", {
+        path: "src/app.ts",
+        oldText: "before",
+        newText: "after",
+        expectedReplacements: 1,
+      }),
+    ).toEqual({
+      path: "src/app.ts",
+      oldText: "before",
+      newText: "after",
+      expectedReplacements: 1,
+    });
+
     expect(() =>
       validateGoldenFlowToolInput("grep", {
         pattern: "TODO",
@@ -307,7 +488,9 @@ describe("CodingToolGateway", () => {
 
     const registry = getGoldenFlowToolRegistry();
     expect(registry.git_status?.parameters.safeParse(null).success).toBe(true);
-    expect(registry.git_stage?.parameters.safeParse(undefined).success).toBe(true);
+    expect(registry.git_stage?.parameters.safeParse(undefined).success).toBe(
+      true,
+    );
     expect(registry.list_files?.parameters.safeParse(null).success).toBe(true);
     expect(registry.git_diff?.parameters.safeParse(null).success).toBe(true);
   });

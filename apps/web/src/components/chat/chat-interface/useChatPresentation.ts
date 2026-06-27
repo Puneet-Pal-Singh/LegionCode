@@ -5,7 +5,11 @@ import type {
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 import type { ActivityTurnViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
-import { buildRunTerminalViewModel } from "../../../services/workflow/RunTerminalViewModel.js";
+import {
+  buildLifecycleTerminalViewModel,
+  collectLifecycleTurnDiffFiles,
+} from "../../../services/lifecycle/LifecycleTerminalViewModel";
+import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import type { useRunEvents } from "../../../hooks/useRunEvents.js";
 import type { useRunSummary } from "../../../hooks/useRunSummary.js";
 import { buildConversationTurns } from "../messageMetadata";
@@ -13,8 +17,7 @@ import {
   hasArtifactChangedFileSnapshot,
   hasChangedFileSnapshot,
 } from "./changedFiles";
-import { buildChatEntries, collectActivityChangedFiles } from "./chatEntries";
-import { hasVisibleAssistantReply } from "./messageVisibility";
+import { buildChatEntries } from "./chatEntries";
 
 interface ChatPresentationInput {
   runId: string;
@@ -29,6 +32,7 @@ interface ChatPresentationInput {
   isLoading: boolean;
   hasPendingApproval: boolean;
   hasStartedSession: boolean;
+  lifecycleProjection?: LifecycleProjection | null;
 }
 
 export function useChatPresentation(input: ChatPresentationInput) {
@@ -41,22 +45,15 @@ export function useChatPresentation(input: ChatPresentationInput) {
       ),
     [input.activityTurns, input.conversationTurns, input.runId],
   );
-  const terminalFiles = useMemo(
-    () => collectActivityChangedFiles(input.activityTurns),
-    [input.activityTurns],
+  const lifecycleTerminalFiles = useMemo(
+    () => collectLifecycleTurnDiffFiles(input.lifecycleProjection ?? null),
+    [input.lifecycleProjection],
   );
+  const terminalFiles = lifecycleTerminalFiles;
   const terminalViewModel = useMemo(
     () =>
-      buildRunTerminalViewModel({
-        runId: input.runId,
-        summary: input.summary,
-        events: input.events,
-        hasVisibleAssistantMessage: hasVisibleAssistantReply(
-          input.conversationTurns,
-        ),
-        changedFileCount: terminalFiles.length || undefined,
-      }),
-    [input, terminalFiles.length],
+      buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
+    [input.lifecycleProjection],
   );
   const hasFileSummary =
     hasChangedFileSnapshot(input.snapshots) ||

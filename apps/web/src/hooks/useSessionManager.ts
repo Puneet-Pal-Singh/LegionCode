@@ -14,6 +14,7 @@ import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import { agentStore } from "../store/agentStore";
 import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
+import { createRunId } from "../lib/run-id";
 
 export type { AgentSession } from "../types/session";
 export type SessionHydrationStatus = "idle" | "loading" | "ready" | "failed";
@@ -246,11 +247,11 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
   );
 
   /**
-   * Generate a new UUID v4 run ID for execution
+   * Generate a canonical run ID for execution.
    * Note: Most use cases should use session.activeRunId instead
    */
   const generateRunId = useCallback(() => {
-    return crypto.randomUUID();
+    return createRunId();
   }, []);
 
   const addRepository = useCallback((repository: string) => {

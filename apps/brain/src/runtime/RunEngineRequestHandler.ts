@@ -7,6 +7,7 @@ import {
   RUN_WORKFLOW_STEPS,
   type RunEvent,
 } from "@repo/shared-types";
+import { RunIdSchema } from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
   RunEngine,
@@ -43,7 +44,6 @@ import {
   getGoldenFlowToolRegistry,
 } from "@shadowbox/execution-engine/runtime";
 
-const RunIdSchema = z.string().uuid();
 const CancelRunRequestSchema = z.object({
   runId: RunIdSchema,
 });

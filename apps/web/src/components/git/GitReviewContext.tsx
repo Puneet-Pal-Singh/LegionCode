@@ -86,7 +86,8 @@ export function GitReviewProvider({
         : liveGitFiles,
     [liveGitFiles, promptArtifactSource?.files, reviewSource.kind],
   );
-  const diff = reviewSource.kind === "prompt_artifact" ? artifactDiff : liveDiff;
+  const diff =
+    reviewSource.kind === "prompt_artifact" ? artifactDiff : liveDiff;
   const activeDiffLoading =
     reviewSource.kind === "prompt_artifact"
       ? artifactDiffLoading
@@ -99,7 +100,7 @@ export function GitReviewProvider({
       : liveDiffLoading;
   const diffError =
     reviewSource.kind === "prompt_artifact"
-      ? artifactDiffError ?? reviewSourceError
+      ? (artifactDiffError ?? reviewSourceError)
       : liveDiffError;
   const stagedFiles = useMemo(
     () => collectStagedFilePaths(status?.files ?? []),
@@ -189,11 +190,22 @@ export function GitReviewProvider({
     async (identityOverride?: {
       authorName?: string;
       authorEmail?: string;
+      files?: string[];
     }): Promise<boolean> => {
       stageActions.setStageError(null);
       const message =
         commitMessage.trim() || generateCommitMessage(status?.files ?? []);
-      const committed = await commit({ message, ...identityOverride });
+      const { files: explicitFiles, ...authorOverride } =
+        identityOverride ?? {};
+      const files = explicitFiles ?? Array.from(stagedFiles);
+      if (files.length === 0) {
+        stageActions.setStageError(
+          "Select at least one staged file before committing.",
+        );
+        return false;
+      }
+
+      const committed = await commit({ message, files, ...authorOverride });
       if (!committed) {
         return false;
       }
@@ -203,7 +215,15 @@ export function GitReviewProvider({
       await refetch(true);
       return true;
     },
-    [commit, commitMessage, fileSelection, refetch, stageActions, status?.files],
+    [
+      commit,
+      commitMessage,
+      fileSelection,
+      refetch,
+      stagedFiles,
+      stageActions,
+      status?.files,
+    ],
   );
   const forceRefetch = useCallback(async (): Promise<void> => {
     await refetch(true);

@@ -75,12 +75,10 @@ export function ChatMessage({
   changedFilesSummary,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
-  const [isThinkingVisible, setIsThinkingVisible] = useState(false);
 
-  const { content, thinkingBlocks } = useMemo(() => {
+  const content = useMemo(() => {
     const rawContent: unknown = message.content;
     let extractedText = "";
-    const extractedThinking: string[] = [];
 
     if (typeof rawContent === "string") {
       extractedText = rawContent;
@@ -92,14 +90,8 @@ export function ChatMessage({
         const record = part as Record<string, unknown>;
         const type = typeof record.type === "string" ? record.type : "";
         const text = typeof record.text === "string" ? record.text : "";
-        const reasoning =
-          typeof record.reasoning === "string" ? record.reasoning : "";
 
         if (type === "reasoning" || type === "thinking") {
-          const block = (text || reasoning).trim();
-          if (block) {
-            extractedThinking.push(block);
-          }
           continue;
         }
 
@@ -110,28 +102,11 @@ export function ChatMessage({
     }
 
     if (message.role !== "assistant") {
-      return {
-        content: extractedText.trim(),
-        thinkingBlocks: [],
-      };
+      return extractedText.trim();
     }
 
     const parsedText = parseThinkingTags(extractedText);
-    const visibleContent = sanitizeAssistantVisibleContent(
-      parsedText.visibleContent,
-    );
-    const dedupedThinking = Array.from(
-      new Set(
-        [...extractedThinking, ...parsedText.thinkingBlocks]
-          .map((block) => block.trim())
-          .filter((block) => block.length > 0),
-      ),
-    );
-
-    return {
-      content: visibleContent,
-      thinkingBlocks: dedupedThinking,
-    };
+    return sanitizeAssistantVisibleContent(parsedText.visibleContent);
   }, [message.content, message.role]);
   const displayContent = useMemo(() => {
     if (isUser || !changedFilesSummary || !content) {
@@ -174,35 +149,9 @@ export function ChatMessage({
         )}
 
         {/* Assistant message */}
-        {!isUser && (displayContent || thinkingBlocks.length > 0) && (
+        {!isUser && displayContent && (
           <div className="space-y-3">
-            {thinkingBlocks.length > 0 && (
-              <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/70">
-                <button
-                  type="button"
-                  onClick={() => setIsThinkingVisible((current) => !current)}
-                  className="w-full cursor-pointer select-none px-3 py-2 text-left text-xs font-medium text-zinc-300 hover:text-zinc-100"
-                >
-                  {isThinkingVisible ? "Hide thinking" : "Show thinking"}
-                </button>
-                {isThinkingVisible && (
-                  <div className="space-y-3 border-t border-zinc-800/80 px-3 py-3">
-                    {thinkingBlocks.map((block, index) => (
-                      <pre
-                        key={`thinking-${index}`}
-                        className="whitespace-pre-wrap break-words text-xs leading-relaxed text-zinc-400"
-                      >
-                        {block}
-                      </pre>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {displayContent && (
-              <MarkdownMessageContent content={displayContent} />
-            )}
+            <MarkdownMessageContent content={displayContent} />
           </div>
         )}
 

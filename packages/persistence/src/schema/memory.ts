@@ -22,7 +22,7 @@ export const memoryEvents = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     eventType: text("event_type").notNull(),
     payloadJson: jsonb("payload_json"),
     idempotencyKey: text("idempotency_key"),

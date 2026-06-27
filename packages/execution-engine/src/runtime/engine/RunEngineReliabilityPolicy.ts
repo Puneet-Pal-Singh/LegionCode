@@ -59,11 +59,11 @@ export async function handleExecutionErrorPolicy(input: {
 
 export async function safeMemoryOperation<T>(
   operation: () => Promise<T>,
-): Promise<T | undefined> {
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    console.warn("[run/engine] Memory subsystem operation failed:", error);
-    return undefined;
+    console.error("[run/engine] Memory subsystem operation failed:", error);
+    throw error;
   }
 }

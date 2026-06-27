@@ -329,7 +329,6 @@ export function Workspace({
 
   const { handleSidebarDiffSelected } = useSidebarOrchestration({
     activeRunId,
-    sessionId,
     status,
     repo,
     branch,

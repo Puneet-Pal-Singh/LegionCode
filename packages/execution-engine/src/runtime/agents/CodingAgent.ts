@@ -202,7 +202,7 @@ GIT: MUST have the git action (git_commit, git_push, git_status, git_clone, git_
 IMPORTANT TOOL ROUTING:
 - NEVER use shell tasks for git commands (git ...)
 - Use task type "git" for repository status/diff/branch/commit actions
-- Valid git actions: status, diff, stage, unstage, commit, push, git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_status, git_config
+- Valid git actions: git_clone, git_diff, git_commit, git_push, git_pull, git_fetch, git_branch_create, git_branch_switch, git_branch_list, git_stage, git_unstage, git_status
 - Use analyze tasks for file inspection and directory listing
 
 REVIEW: Only LLM task, no input needed - just use description
@@ -327,6 +327,16 @@ VALIDATION RULES:
         return this.executeListFilesTool(task);
       case "write_file":
         return this.executeWriteFileTool(task);
+      case "edit_file":
+        return this.executeEditFileTool(task);
+      case "multi_edit":
+        return this.executeMultiEditTool(task);
+      case "apply_patch":
+        return this.executeApplyPatchTool(task);
+      case "format_file":
+        return this.executePathTool(task, "format_file");
+      case "language_diagnostics":
+        return this.executePathTool(task, "language_diagnostics");
       case "bash":
         return this.executeBashTool(task);
       case "git_stage":
@@ -398,6 +408,7 @@ VALIDATION RULES:
     const result = await this.executeGatewayPlugin("write_file", {
       path,
       content,
+      expectedSha256: validatedInput.expectedSha256,
     });
     const failure = extractExecutionFailure(result);
     if (failure) {
@@ -406,6 +417,60 @@ VALIDATION RULES:
     return this.buildSuccessResult(task.id, formatExecutionResult(result), {
       activity: buildWriteActivityMetadata(path, existingContent, content),
     });
+  }
+
+  private async executeEditFileTool(task: Task): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput("edit_file", task.input);
+    const path = normalizeTaskPath(validated.path);
+    validateTaskPath(path);
+    validateSafePath(path);
+    return this.executeValidatedMutation(task.id, "edit_file", {
+      ...validated,
+      path,
+    });
+  }
+
+  private async executeMultiEditTool(task: Task): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput("multi_edit", task.input);
+    const edits = validated.edits.map((edit) => {
+      const path = normalizeTaskPath(edit.path);
+      validateTaskPath(path);
+      validateSafePath(path);
+      return { ...edit, path };
+    });
+    return this.executeValidatedMutation(task.id, "multi_edit", { edits });
+  }
+
+  private async executeValidatedMutation(
+    taskId: string,
+    toolName: "edit_file" | "multi_edit" | "apply_patch",
+    payload: Record<string, unknown>,
+  ): Promise<TaskResult> {
+    const result = await this.executeGatewayPlugin(toolName, payload);
+    const failure = extractExecutionFailure(result);
+    return failure
+      ? this.buildFailureResult(taskId, failure)
+      : this.buildSuccessResult(taskId, formatExecutionResult(result));
+  }
+
+  private async executeApplyPatchTool(task: Task): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput("apply_patch", task.input);
+    return this.executeValidatedMutation(task.id, "apply_patch", validated);
+  }
+
+  private async executePathTool(
+    task: Task,
+    toolName: "format_file" | "language_diagnostics",
+  ): Promise<TaskResult> {
+    const validated = this.validateGoldenFlowInput(toolName, task.input);
+    const path = normalizeTaskPath(validated.path);
+    validateTaskPath(path);
+    validateSafePath(path);
+    const result = await this.executeGatewayPlugin(toolName, { path });
+    const failure = extractExecutionFailure(result);
+    return failure
+      ? this.buildFailureResult(task.id, failure)
+      : this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
   private async executeBashTool(task: Task): Promise<TaskResult> {

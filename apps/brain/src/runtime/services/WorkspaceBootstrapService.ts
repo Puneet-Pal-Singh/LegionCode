@@ -214,41 +214,6 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       if (!cloneResult.success) {
         const cloneError =
           cloneResult.error ?? "Failed to clone repository into workspace.";
-        if (matchesAny(cloneError, CLONE_DESTINATION_NOT_EMPTY_PATTERNS)) {
-          const forcedCloneResult = await this.executeGit(
-            "git_clone",
-            {
-              url: cloneUrl,
-              replaceExisting: true,
-            },
-            request.runId,
-          );
-          if (forcedCloneResult.success) {
-            bootstrapResult = await this.syncBranch(
-              cacheKey,
-              normalized.branch,
-              request.runId,
-              bootstrapMode,
-              true,
-            );
-            this.logBootstrapTiming(
-              request.runId,
-              bootstrapResult,
-              bootstrapStartedAt,
-            );
-            return bootstrapResult;
-          }
-          bootstrapResult = mapGitFailure(
-            forcedCloneResult.error ??
-              "Failed to replace existing workspace contents for repository clone.",
-          );
-          this.logBootstrapTiming(
-            request.runId,
-            bootstrapResult,
-            bootstrapStartedAt,
-          );
-          return bootstrapResult;
-        }
         bootstrapResult = mapGitFailure(cloneError);
         this.logBootstrapTiming(
           request.runId,

@@ -61,7 +61,7 @@ class MockRuntimeDurableObjectState {
 describe("MemoryRepository", () => {
   let repository: MemoryRepository;
   let ctx: MockRuntimeDurableObjectState;
-  const testRunId = crypto.randomUUID();
+  const testRunId = "run_550e8400e29b41d4a716446655440001";
   const testSessionId = crypto.randomUUID();
 
   beforeEach(() => {

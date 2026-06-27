@@ -7,6 +7,7 @@ import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
+import { useTurnLifecycleProjection } from "../../hooks/useTurnLifecycleProjection.js";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
@@ -36,6 +37,7 @@ import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { useActivityPresentation } from "./chat-interface/useActivityPresentation";
 import { usePlanModeController } from "./chat-interface/usePlanModeController";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
+import { derivePendingApprovalFromEvents } from "./chat-interface/approvals";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
@@ -108,7 +110,12 @@ export function ChatInterface({
     Record<string, boolean>
   >({});
 
+  const { projection: lifecycleProjection } = useTurnLifecycleProjection(
+    runId,
+    true,
+  );
   const { summary } = useRunSummary(runId, isLoading);
+  const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
   const isTerminalSummarySettled = Boolean(
     summary?.status &&
     isTerminalRunStatus(summary.status) &&
@@ -120,7 +127,9 @@ export function ChatInterface({
     isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
     Boolean(summary?.pendingApproval);
   const activeRunLoading =
-    !isTerminalSummarySettled && (isLoading || isCanonicalRunActive);
+    !isLifecycleTerminalSettled &&
+    !isTerminalSummarySettled &&
+    (isLoading || isCanonicalRunActive);
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -130,21 +139,7 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, activeRunLoading);
-  const {
-    pendingApproval,
-    decisions: displayedApprovalDecisions,
-    busyDecision: approvalBusyDecision,
-    error: approvalError,
-    notice: approvalNoticeText,
-    isResolutionPending: isApprovalResolutionPending,
-    resolve: resolveApprovalDecision,
-  } = useApprovalController({
-    runId,
-    summary,
-    events,
-    onPendingApprovalChange,
-  });
+  const { events } = useRunEvents(runId, Boolean(runId));
   const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
@@ -185,7 +180,36 @@ export function ChatInterface({
     runId,
     messages,
     feed,
+    events,
     isLoading: activeRunLoading,
+  });
+  const fallbackApproval = useMemo(() => {
+    if (summary?.pendingApproval) {
+      return summary.pendingApproval;
+    }
+    if (!isCanonicalRunActive && !activeRunLoading) {
+      return null;
+    }
+    return derivePendingApprovalFromEvents(events);
+  }, [
+    activeRunLoading,
+    events,
+    isCanonicalRunActive,
+    summary?.pendingApproval,
+  ]);
+  const {
+    pendingApproval,
+    decisions: displayedApprovalDecisions,
+    busyDecision: approvalBusyDecision,
+    error: approvalError,
+    notice: approvalNoticeText,
+    isResolutionPending: isApprovalResolutionPending,
+    resolve: resolveApprovalDecision,
+  } = useApprovalController({
+    runId,
+    lifecycleProjection,
+    fallbackApproval,
+    onPendingApprovalChange,
   });
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
@@ -240,16 +264,8 @@ export function ChatInterface({
     }
     void refreshSession();
   }, [recoveryAdvice.recoveryTarget, refreshSession]);
-  const visibleUserMessageIds = new Set(
-    conversationTurns.flatMap((turn) =>
-      turn.userMessage ? [turn.userMessage.id] : [],
-    ),
-  );
   const activeInlineTurn = activityViewModel.turns.find(
-    (turn) =>
-      visibleUserMessageIds.has(turn.key) &&
-      turn.hasVisibleRows &&
-      !turn.defaultCollapsed,
+    (turn) => turn.isActiveTurn && turn.hasVisibleRows,
   );
   const {
     chatEntries,
@@ -271,7 +287,11 @@ export function ChatInterface({
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
+    lifecycleProjection,
   });
+  const showThinking = Boolean(
+    lifecycleProjection?.activeThinking && !activeInlineTurn,
+  );
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
       key={`activity:${turn.key}`}
@@ -372,8 +392,9 @@ export function ChatInterface({
       openPromptArtifactReview={openPromptArtifactReview}
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalReviewFiles}
+      terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
-      showThinking={activeRunLoading && !activeInlineTurn}
+      showThinking={showThinking}
       workflowDebug={
         SHOW_WORKFLOW_DEBUG_PANEL ? (
           <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">

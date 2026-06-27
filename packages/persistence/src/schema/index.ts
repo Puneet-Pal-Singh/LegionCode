@@ -15,3 +15,22 @@ export { memoryEvents } from "./memory.js";
 export { contextSnapshots, contextSnapshotSources } from "./context.js";
 export { permissionRequests, permissionDecisions } from "./permissions.js";
 export { artifacts, artifactEvents, artifactChangedFiles } from "./artifacts.js";
+export {
+  canonicalEventScopeSequences,
+  canonicalEvents,
+} from "./canonical-events.js";
+export {
+  canonicalThreadItemProjections,
+  canonicalThreadProjections,
+} from "./thread-projections.js";
+export {
+  canonicalApprovalProjections,
+  canonicalRunItemProjections,
+  canonicalRunProjections,
+  canonicalToolCallProjections,
+} from "./run-projections.js";
+export { workspaceManifests } from "./workspace-manifests.js";
+export {
+  artifactMetadata,
+  artifactMetadataChangedFiles,
+} from "./artifact-metadata.js";

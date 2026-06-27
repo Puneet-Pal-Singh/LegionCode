@@ -32,6 +32,7 @@ import type {
   SessionGitHubContext,
   SetupSessionState,
 } from "../types/session";
+import { createRunId, isCanonicalRunId } from "../lib/run-id";
 
 const SESSIONS_KEY = "shadowbox:sessions:v3";
 const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v3";
@@ -313,7 +314,7 @@ export class SessionStateService {
       if (
         parsed.kind !== "setup" ||
         !parsed.id ||
-        !parsed.activeRunId ||
+        !isCanonicalRunId(parsed.activeRunId) ||
         !parsed.createdAt ||
         !parsed.updatedAt
       ) {
@@ -522,7 +523,7 @@ export class SessionStateService {
     mode: RunMode = DEFAULT_RUN_MODE,
   ): AgentSession {
     const sessionId = crypto.randomUUID();
-    const runId = crypto.randomUUID();
+    const runId = createRunId();
     const timestamp = new Date().toISOString();
 
     return {
@@ -551,7 +552,7 @@ export class SessionStateService {
     return {
       id: crypto.randomUUID(),
       kind: "setup",
-      activeRunId: crypto.randomUUID(),
+      activeRunId: createRunId(),
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -619,8 +620,16 @@ export class SessionStateService {
         pass:
           session.titleSource === "generated" || session.titleSource === "user",
       },
-      { name: "activeRunId", pass: !!session.activeRunId },
-      { name: "runIds", pass: Array.isArray(session.runIds) },
+      {
+        name: "activeRunId",
+        pass: isCanonicalRunId(session.activeRunId),
+      },
+      {
+        name: "runIds",
+        pass:
+          Array.isArray(session.runIds) &&
+          session.runIds.every(isCanonicalRunId),
+      },
       {
         name: "status",
         pass: validStatuses.includes(
@@ -679,7 +688,7 @@ function normalizeStoredSessionStatus(
 }
 
 function mapServerSession(session: ServerSessionRecord): AgentSession | null {
-  if (!session.activeRunId) {
+  if (!isCanonicalRunId(session.activeRunId)) {
     return null;
   }
 

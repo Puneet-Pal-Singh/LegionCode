@@ -213,7 +213,7 @@ export class AuthController {
       console.log("[auth/callback] fetching user details");
       const user = await fetchGitHubUser(tokenResponse.access_token);
       console.log("[auth/callback] user fetched:", user.login);
-      if (!hasPrivateAlphaAccess(user.login, env)) {
+      if (!hasPrivateAlphaAccess(user.login, env, { requestUrl: request.url })) {
         console.warn("[auth/callback] private-alpha access denied");
         return new Response(null, {
           status: 302,

@@ -133,6 +133,7 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip \
     netcat-openbsd \
+    ripgrep \
     gh \
     && rm -rf /var/lib/apt/lists/*
 

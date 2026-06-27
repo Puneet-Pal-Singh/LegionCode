@@ -8,7 +8,7 @@ import type { Env } from "../types/ai";
 
 const TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000";
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440001";
-const TEST_RUN_ID = "550e8400-e29b-41d4-a716-446655440002";
+const TEST_RUN_ID = "run_550e8400e29b41d4a716446655440002";
 const TEST_WORKSPACE_ID = "default";
 
 describe("TranscriptController", () => {
@@ -191,6 +191,78 @@ describe("TranscriptController", () => {
           id: "client-user-1",
           role: "user",
           content: "hello",
+        },
+      ],
+    });
+  });
+
+  it("hydrates assistant activity parts and terminal metadata", async () => {
+    await repository.appendMessage({
+      sessionId: TEST_SESSION_ID,
+      runId: TEST_RUN_ID,
+      userId: TEST_USER_ID,
+      title: "Task",
+      activeRunId: TEST_RUN_ID,
+      status: "running",
+      role: "assistant",
+      clientMessageId: "client-assistant-1",
+      dedupeKey: "assistant-message",
+      parts: [
+        {
+          type: "text",
+          content: {
+            text: "done",
+            metadata: { terminalState: "completed" },
+          },
+        },
+        {
+          type: "activity",
+          content: {
+            version: 1,
+            type: "turn_activity",
+            compacted: false,
+            events: [
+              {
+                id: "event-1",
+                runId: TEST_RUN_ID,
+                sessionId: TEST_SESSION_ID,
+                turnId: TEST_RUN_ID,
+                sequence: 1,
+                kind: "progress",
+                status: "completed",
+                title: "Read files",
+                displayMode: "visible",
+                createdAt: "2026-05-15T00:00:00.000Z",
+                updatedAt: "2026-05-15T00:00:01.000Z",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const response = await TranscriptController.getHistory(
+      authenticatedRequest(
+        `https://brain.local/api/chat/history?runId=${TEST_RUN_ID}&session=${TEST_SESSION_ID}`,
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      messages: [
+        {
+          id: "client-assistant-1",
+          role: "assistant",
+          data: {
+            metadata: { terminalState: "completed" },
+            activityParts: [
+              {
+                type: "turn_activity",
+                events: [{ title: "Read files" }],
+              },
+            ],
+          },
         },
       ],
     });

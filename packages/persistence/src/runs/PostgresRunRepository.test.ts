@@ -58,8 +58,8 @@ class CapturingSqlClient implements SqlClient {
           workspace_id: params[2],
           session_id: params[3],
           task_id: params[4],
-          status: params[5] ?? "created",
-          mode: params[6] ?? "build",
+          status: typeof params[5] === "string" ? params[5] : "created",
+          mode: typeof params[6] === "string" ? params[6] : "build",
           provider_id: params[7],
           model_id: params[8],
           branch: params[9],
@@ -75,7 +75,9 @@ class CapturingSqlClient implements SqlClient {
     };
   }
 
-  async transaction<T>(callback: (client: SqlClient) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    callback: (client: SqlClient) => Promise<T>,
+  ): Promise<T> {
     return await callback(this);
   }
 }
@@ -86,7 +88,7 @@ describe("PostgresRunRepository", () => {
     const repository = new PostgresRunRepository(client);
 
     const run = await repository.ensureRun({
-      id: "123e4567-e89b-42d3-a456-426614174000",
+      id: "run_123e4567e89b42d3a456426614174000",
       userId: "123e4567-e89b-42d3-a456-426614174001",
       sessionId: "123e4567-e89b-42d3-a456-426614174002",
       taskId: "123e4567-e89b-42d3-a456-426614174003",
@@ -96,6 +98,12 @@ describe("PostgresRunRepository", () => {
     expect(run.mode).toBe("build");
     expect(client.queries[0]?.params[5]).toBeNull();
     expect(client.queries[0]?.params[6]).toBeNull();
+    expect(client.queries[0]?.statement).toContain(
+      "COALESCE($6::text, 'created')",
+    );
+    expect(client.queries[0]?.statement).toContain(
+      "status = COALESCE($6::text, runs.status)",
+    );
   });
 
   it("qualifies run step columns when listing joined rows", async () => {
@@ -103,7 +111,7 @@ describe("PostgresRunRepository", () => {
     const repository = new PostgresRunRepository(client);
 
     const steps = await repository.listRunSteps(
-      "123e4567-e89b-42d3-a456-426614174000",
+      "run_123e4567e89b42d3a456426614174000",
       "123e4567-e89b-42d3-a456-426614174001",
     );
 
@@ -117,7 +125,7 @@ describe("PostgresRunRepository", () => {
     const repository = new PostgresRunRepository(client);
 
     const event = await repository.appendEvent({
-      runId: "123e4567-e89b-42d3-a456-426614174000",
+      runId: "run_123e4567e89b42d3a456426614174000",
       sessionId: "123e4567-e89b-42d3-a456-426614174002",
       eventType: "runtime.tool.completed",
       payload: { ok: true },

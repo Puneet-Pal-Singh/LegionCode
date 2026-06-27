@@ -3,7 +3,6 @@ import { Sandbox } from "@cloudflare/sandbox";
 import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
 import { FileSystemTools } from "../schemas/filesystem";
 import { z } from "zod";
-import path from "node:path";
 import {
   getWorkspaceRoot,
   normalizeRunId,
@@ -15,12 +14,36 @@ import {
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
 import { RipgrepService } from "./filesystem/RipgrepService";
+import { WorkspaceEditService } from "./filesystem/WorkspaceEditService";
+import { LanguageToolService } from "./filesystem/LanguageToolService";
+import {
+  truncateUtf8,
+  utf8ByteLength,
+} from "./filesystem/Utf8Text";
 
 const DEFAULT_READ_LIMIT = 200;
 const MAX_READ_LIMIT = 1_000;
 const MAX_READ_LINE_LENGTH = 500;
 const MAX_READ_OUTPUT_BYTES = 24_000;
 const MAX_READ_FILE_BYTES = 1_048_576;
+const MAX_WRITE_CONTENT_BYTES = 200_000;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+const BoundedWriteContentSchema = z
+  .string()
+  .refine((value) => utf8ByteLength(value) <= MAX_WRITE_CONTENT_BYTES, {
+    message: `Content exceeds ${MAX_WRITE_CONTENT_BYTES} UTF-8 bytes`,
+  });
+
+const ExactEditSchema = z.object({
+  path: z.string().min(1),
+  oldText: BoundedWriteContentSchema.refine((value) => value.length > 0, {
+    message: "oldText must not be empty",
+  }),
+  newText: BoundedWriteContentSchema,
+  replaceAll: z.boolean().optional(),
+  expectedReplacements: z.number().int().min(1).max(10_000).optional(),
+  expectedSha256: z.string().regex(SHA256_PATTERN).optional(),
+});
 
 const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
@@ -68,7 +91,27 @@ const FileSystemPayloadSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("write_file"),
     path: z.string().min(1),
-    content: z.string(),
+    content: BoundedWriteContentSchema,
+    expectedSha256: z.string().regex(SHA256_PATTERN).optional(),
+    runId: z.string().optional(),
+  }),
+  ExactEditSchema.extend({
+    action: z.literal("edit_file"),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("multi_edit"),
+    edits: z.array(ExactEditSchema).min(1).max(20),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("format_file"),
+    path: z.string().min(1),
+    runId: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("language_diagnostics"),
+    path: z.string().min(1),
     runId: z.string().optional(),
   }),
   z.object({
@@ -84,6 +127,8 @@ export class FileSystemPlugin implements IPlugin {
   name = "filesystem";
   tools = FileSystemTools;
   private readonly ripgrepService = new RipgrepService();
+  private readonly workspaceEditService = new WorkspaceEditService();
+  private readonly languageToolService = new LanguageToolService();
 
   async execute(
     sandbox: Sandbox,
@@ -153,12 +198,33 @@ export class FileSystemPlugin implements IPlugin {
         );
       }
       if (parsedPayload.action === "write_file") {
-        return await this.writeFile(
-          sandbox,
-          workspaceRoot,
+        return await this.workspaceEditService.write(
+          { sandbox, workspaceRoot, toolboxContext, runId },
           parsedPayload,
-          toolboxContext,
-          runId,
+        );
+      }
+      if (parsedPayload.action === "edit_file") {
+        return await this.workspaceEditService.edit(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload,
+        );
+      }
+      if (parsedPayload.action === "multi_edit") {
+        return await this.workspaceEditService.multiEdit(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload.edits,
+        );
+      }
+      if (parsedPayload.action === "format_file") {
+        return await this.languageToolService.formatFile(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload.path,
+        );
+      }
+      if (parsedPayload.action === "language_diagnostics") {
+        return await this.languageToolService.diagnostics(
+          { sandbox, workspaceRoot, toolboxContext, runId },
+          parsedPayload.path,
         );
       }
       return await this.makeDirectory(
@@ -356,33 +422,6 @@ export class FileSystemPlugin implements IPlugin {
     return parseLineCount(result.stdout);
   }
 
-  private async writeFile(
-    sandbox: Sandbox,
-    workspaceRoot: string,
-    payload: Extract<FileSystemPayload, { action: "write_file" }>,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
-    runId: string,
-  ): Promise<PluginResult> {
-    const targetPath = resolveWorkspacePath(workspaceRoot, payload.path);
-    const parentDir = path.posix.dirname(targetPath);
-
-    await runSafeCommand(
-      sandbox,
-      withToolboxCommandContext(
-        { command: "mkdir", args: ["-p", parentDir], runId },
-        toolboxContext,
-        "filesystem.prepare_parent_dir",
-      ),
-      ["mkdir"],
-    );
-
-    await sandbox.writeFile(targetPath, payload.content);
-    return {
-      success: true,
-      output: `Wrote ${payload.content.length} bytes to ${payload.path}`,
-    };
-  }
-
   private async makeDirectory(
     sandbox: Sandbox,
     workspaceRoot: string,
@@ -459,13 +498,12 @@ function buildReadWindowArgs(
 }
 
 function capReadOutput(output: string): { output: string; truncated: boolean } {
-  if (output.length <= MAX_READ_OUTPUT_BYTES) {
-    return { output, truncated: false };
-  }
-  return {
-    output: `${output.slice(0, MAX_READ_OUTPUT_BYTES)}\n[output truncated]`,
-    truncated: true,
-  };
+  const capped = truncateUtf8(
+    output,
+    MAX_READ_OUTPUT_BYTES,
+    "\n[output truncated]",
+  );
+  return { output: capped.value, truncated: capped.truncated };
 }
 
 function countOutputLines(output: string): number {

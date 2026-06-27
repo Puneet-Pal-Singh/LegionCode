@@ -5,6 +5,7 @@
  * Centralized configuration for OpenRouter, Groq, and other direct providers.
  */
 
+import { builtinProviderRegistry } from "@repo/provider-core";
 import type { ProviderId } from "@repo/shared-types";
 
 /**
@@ -20,18 +21,27 @@ export interface ProviderEndpointConfig {
  * Direct provider endpoint configurations for BYOK runtime
  * Only includes providers with direct endpoints (not OpenAI or Anthropic).
  */
-export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpointConfig> = {
-  openrouter: {
-    baseURL: "https://openrouter.ai/api/v1",
-    apiKeyPrefix: "sk-or-",
-    requiresApiKey: true,
-  },
-  groq: {
-    baseURL: "https://api.groq.com/openai/v1",
-    apiKeyPrefix: "gsk_",
-    requiresApiKey: true,
-  },
-};
+export const PROVIDER_ENDPOINTS: Record<string, ProviderEndpointConfig> =
+  Object.fromEntries(
+    builtinProviderRegistry
+      .listProviders()
+      .flatMap((provider) => {
+        const prefix = provider.keyFormat?.prefix;
+        if (!provider.baseUrl || !prefix || !provider.directByokSupport) {
+          return [];
+        }
+        return [
+          [
+            provider.providerId,
+            {
+              baseURL: provider.baseUrl,
+              apiKeyPrefix: prefix,
+              requiresApiKey: true,
+            },
+          ] satisfies [string, ProviderEndpointConfig],
+        ];
+      }),
+  );
 
 /**
  * Validate API key format against provider requirements.

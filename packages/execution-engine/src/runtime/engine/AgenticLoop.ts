@@ -30,6 +30,16 @@ import {
   shouldClassifyAsGitOrShellFailure,
 } from "./GitToolFailureClassifier.js";
 import {
+  buildCorrectionHintText,
+  buildInvalidToolInputError,
+  buildRuntimeCapabilityPromptSection,
+  buildUnavailableToolError,
+  createCloudSandboxRunCapabilityManifest,
+  serializeStructuredToolError,
+  type RunCapabilityManifest,
+  type StructuredToolError,
+} from "../capabilities/index.js";
+import {
   classifyCurrentTurnIntentFromMessages,
   requiresMutationForIntent,
   type CurrentTurnIntent,
@@ -93,7 +103,6 @@ export interface AgenticLoopResult {
 
 interface AgenticLoopHooks {
   workspaceContext?: string;
-  initialCompletedMutatingToolCount?: number;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
   isRunCancelled?: () => Promise<boolean>;
@@ -178,18 +187,21 @@ export class AgenticLoop {
     } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
     this.reset();
-    this.completedMutatingToolCount = Math.max(
-      0,
-      context.initialCompletedMutatingToolCount ?? 0,
-    );
     const messages: CoreMessage[] = [...initialMessages];
     const currentTurnIntent =
       classifyCurrentTurnIntentFromMessages(initialMessages);
     const requiresMutation = requiresMutationForIntent(currentTurnIntent);
     const latestTurnExplicitCiLogRequest =
       latestTurnRequestsCiLogs(initialMessages);
+    const capabilityManifest = createCloudSandboxRunCapabilityManifest({
+      runId: this.config.runId,
+      availableToolIds: Object.keys(tools),
+      providerId: context.providerId,
+      modelId: context.runtimeModelId ?? context.modelId,
+    });
     let encounteredCiLogsAuthorizationBoundary = false;
     let attemptedCiLogsCliFallback = false;
+    let latestCorrectionHint: string | undefined;
     let stopReason: StopReason | null = null;
 
     for (let step = 0; step < this.config.maxSteps; step++) {
@@ -253,6 +265,8 @@ export class AgenticLoop {
               explicitCiLogRequest: latestTurnExplicitCiLogRequest,
               encounteredCiLogsAuthorizationBoundary,
               attemptedCiLogsCliFallback,
+              capabilityManifest,
+              latestCorrectionHint,
             }),
             tools: isFinalSynthesisStep ? undefined : tools,
             model: context.modelId,
@@ -347,7 +361,14 @@ export class AgenticLoop {
         try {
           if (!tools[toolCall.toolName]) {
             this.failedToolCount++;
-            const message = `Tool "${toolCall.toolName}" is not registered for this run`;
+            const structuredError = buildUnavailableToolError({
+              attemptedTool: toolCall.toolName,
+              manifest: capabilityManifest,
+            });
+            const message = serializeStructuredToolError(structuredError);
+            latestCorrectionHint = buildCorrectionHintText(structuredError);
+            const recoverable =
+              structuredError.availableAlternatives.length > 0;
             console.warn(`[agentic-loop] ${message} (call: ${toolCall.id})`);
             this.recordToolLifecycle(toolCall, "failed", message);
             await context.onToolFailed?.(toolCall, message, 0);
@@ -356,7 +377,7 @@ export class AgenticLoop {
               toolName: toolCall.toolName,
               result: null,
               error: message,
-              terminalError: true,
+              terminalError: !recoverable,
             });
             continue;
           }
@@ -438,17 +459,32 @@ export class AgenticLoop {
           this.failedToolCount++;
           const errorMessage =
             error instanceof Error ? error.message : "Unknown error";
+          const structuredError = buildStructuredToolFailureError({
+            toolName: toolCall.toolName,
+            errorMessage,
+            manifest: capabilityManifest,
+          });
+          const toolErrorMessage = structuredError
+            ? serializeStructuredToolError(structuredError)
+            : errorMessage;
+          if (structuredError) {
+            latestCorrectionHint = buildCorrectionHintText(structuredError);
+          }
           if (
             isCiLogsAuthorizationBoundaryFailure(
               toolCall.toolName,
-              errorMessage,
+              toolErrorMessage,
             )
           ) {
             encounteredCiLogsAuthorizationBoundary = true;
           }
           const executionTimeMs = 0;
-          this.recordToolLifecycle(toolCall, "failed", errorMessage);
-          await context.onToolFailed?.(toolCall, errorMessage, executionTimeMs);
+          this.recordToolLifecycle(toolCall, "failed", toolErrorMessage);
+          await context.onToolFailed?.(
+            toolCall,
+            toolErrorMessage,
+            executionTimeMs,
+          );
           console.error(
             `[agentic-loop] Tool execution failed: ${toolCall.toolName}`,
             error,
@@ -457,10 +493,10 @@ export class AgenticLoop {
             toolId: toolCall.id,
             toolName: toolCall.toolName,
             result: null,
-            error: errorMessage,
+            error: toolErrorMessage,
             terminalError: isTerminalToolFailure({
               toolName: toolCall.toolName,
-              error: errorMessage,
+              error: toolErrorMessage,
             }),
           });
         }
@@ -687,6 +723,8 @@ function buildAgenticLoopSystemPrompt(input: {
   explicitCiLogRequest: boolean;
   encounteredCiLogsAuthorizationBoundary: boolean;
   attemptedCiLogsCliFallback: boolean;
+  capabilityManifest?: RunCapabilityManifest;
+  latestCorrectionHint?: string;
 }): string {
   const sections = [
     "You are LegionCode's autonomous build agent.",
@@ -721,6 +759,16 @@ function buildAgenticLoopSystemPrompt(input: {
     "- Reference the files or git facts you actually observed.",
     "- Do not narrate internal self-talk, speculation loops, or hidden deliberation.",
   ];
+
+  if (input.capabilityManifest) {
+    sections.push(
+      buildRuntimeCapabilityPromptSection(input.capabilityManifest),
+    );
+  }
+
+  if (input.latestCorrectionHint) {
+    sections.push(`Tool correction hint:\n${input.latestCorrectionHint}`);
+  }
 
   if (input.requiresMutation) {
     sections.push(
@@ -831,6 +879,25 @@ function isTerminalToolFailure(input: {
   }
 
   return isMutatingGoldenFlowToolName(input.toolName);
+}
+
+function buildStructuredToolFailureError(input: {
+  toolName: string;
+  errorMessage: string;
+  manifest: RunCapabilityManifest;
+}): StructuredToolError | null {
+  if (!isValidationFailure(input.errorMessage, input.toolName)) {
+    return null;
+  }
+  return buildInvalidToolInputError({
+    attemptedTool: input.toolName,
+    validationMessage: input.errorMessage,
+    manifest: input.manifest,
+  });
+}
+
+function isValidationFailure(message: string, toolName: string): boolean {
+  return message.startsWith(`Invalid ${toolName} input.`);
 }
 
 function buildAssistantMessage(

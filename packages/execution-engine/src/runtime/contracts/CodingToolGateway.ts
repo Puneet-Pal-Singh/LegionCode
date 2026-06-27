@@ -7,6 +7,11 @@ import {
   READ_FILE_TOOL_INPUT_SCHEMA,
   LIST_FILES_TOOL_INPUT_SCHEMA,
   WRITE_FILE_TOOL_INPUT_SCHEMA,
+  EDIT_FILE_TOOL_INPUT_SCHEMA,
+  MULTI_EDIT_TOOL_INPUT_SCHEMA,
+  APPLY_PATCH_TOOL_INPUT_SCHEMA,
+  FORMAT_FILE_TOOL_INPUT_SCHEMA,
+  LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA,
   BASH_TOOL_INPUT_SCHEMA,
   GIT_STAGE_TOOL_INPUT_SCHEMA,
   GIT_COMMIT_TOOL_INPUT_SCHEMA,
@@ -28,6 +33,13 @@ import {
   type CodingToolId,
   type ToolGatewayRoute,
 } from "../tools/CodingToolRegistry.js";
+import {
+  buildToolCatalogSnapshot,
+  createCloudSandboxRunCapabilityManifest,
+  type RunCapabilityManifest,
+  type RunCapabilityManifestInput,
+  type ToolCatalogSnapshot,
+} from "../capabilities/index.js";
 
 export {
   getCodingToolDefinition,
@@ -44,6 +56,11 @@ export type GoldenFlowToolInputByName = {
   read_file: z.infer<typeof READ_FILE_TOOL_INPUT_SCHEMA>;
   list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
   write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
+  edit_file: z.infer<typeof EDIT_FILE_TOOL_INPUT_SCHEMA>;
+  multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
+  apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
+  format_file: z.infer<typeof FORMAT_FILE_TOOL_INPUT_SCHEMA>;
+  language_diagnostics: z.infer<typeof LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA>;
   bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
   git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
   git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
@@ -61,7 +78,9 @@ export type GoldenFlowToolInputByName = {
   github_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
   github_review_threads_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
   github_issue_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
-  github_actions_run_get: z.infer<typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_run_get: z.infer<
+    typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
   github_actions_job_logs_get: z.infer<
     typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
   >;
@@ -72,7 +91,9 @@ export type GoldenFlowToolInputByName = {
   github_cli_actions_job_logs_get: z.infer<
     typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
   >;
-  github_cli_pr_comment: z.infer<typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA>;
+  github_cli_pr_comment: z.infer<
+    typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA
+  >;
   glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
   grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
 };
@@ -107,24 +128,66 @@ export function getGoldenFlowToolRegistry(): Record<string, CoreTool> {
   return getCodingCoreToolRegistry();
 }
 
+export function getGoldenFlowRunCapabilityManifest(
+  input: RunCapabilityManifestInput & { availableToolIds: readonly string[] },
+): RunCapabilityManifest {
+  return createCloudSandboxRunCapabilityManifest(input);
+}
+
+export function getGoldenFlowToolCatalogSnapshot(
+  input: RunCapabilityManifestInput & { availableToolIds: readonly string[] },
+): ToolCatalogSnapshot {
+  return buildToolCatalogSnapshot(getGoldenFlowRunCapabilityManifest(input));
+}
+
 export function enforceGoldenFlowToolFloor(
   incomingTools: Record<string, CoreTool>,
   metadata?: Record<string, unknown>,
 ): Record<string, CoreTool> {
-  const defaults = getGoldenFlowToolRegistry();
   const constrained: Record<string, CoreTool> = {};
   const githubCliFlags = resolveGitHubCliFlags(metadata);
+  const modelCapabilities = resolveModelCapabilities(metadata);
   for (const toolName of CODING_TOOL_IDS) {
-    if (!isGoldenFlowToolEnabledByFlags(toolName, githubCliFlags)) {
+    if (
+      !isGoldenFlowToolEnabledByFlags(toolName, githubCliFlags) ||
+      !isToolEnabledByModelCapabilities(toolName, modelCapabilities)
+    ) {
       continue;
     }
     const incoming = incomingTools[toolName];
-    const fallback = defaults[toolName];
-    if (fallback) {
-      constrained[toolName] = incoming ?? fallback;
+    if (incoming) {
+      constrained[toolName] = incoming;
     }
   }
   return constrained;
+}
+
+function resolveModelCapabilities(
+  metadata: Record<string, unknown> | undefined,
+): ReadonlySet<string> {
+  const value = metadata?.modelCapabilities;
+  if (Array.isArray(value)) {
+    return new Set(
+      value.filter((item): item is string => typeof item === "string"),
+    );
+  }
+  if (!value || typeof value !== "object") {
+    return new Set();
+  }
+  return new Set(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, enabled]) => enabled === true)
+      .map(([capability]) => capability),
+  );
+}
+
+function isToolEnabledByModelCapabilities(
+  toolName: GoldenFlowToolName,
+  capabilities: ReadonlySet<string>,
+): boolean {
+  const required =
+    getCodingToolDefinition(toolName)?.requiredModelCapabilities ?? [];
+  return required.every((capability) => capabilities.has(capability));
 }
 
 export function validateGoldenFlowToolInput<T extends GoldenFlowToolName>(

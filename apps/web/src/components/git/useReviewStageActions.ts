@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import type { FileStatus } from "@repo/shared-types";
-import { createGitBranch, pushGitBranch, stageGitFiles } from "../../lib/git-client.js";
+import {
+  createGitBranch,
+  pushGitBranch,
+  stageGitFiles,
+} from "../../lib/git-client.js";
 
 interface UseReviewStageActionsInput {
   runId: string | null;
@@ -52,7 +56,8 @@ export function useReviewStageActions({
         await refetch(true);
         return true;
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
         setStageError(message);
         console.error("[git-review] Failed to update staged files", error);
         return false;
@@ -68,13 +73,17 @@ export function useReviewStageActions({
   );
   const stageAll = useCallback(async (): Promise<boolean> => {
     return await updateManyFilesStage(
-      files.filter((file) => !stagedFiles.has(file.path)).map((file) => file.path),
+      files
+        .filter((file) => !stagedFiles.has(file.path))
+        .map((file) => file.path),
       true,
     );
   }, [files, stagedFiles, updateManyFilesStage]);
   const unstageAll = useCallback(async (): Promise<boolean> => {
     return await updateManyFilesStage(
-      files.filter((file) => stagedFiles.has(file.path)).map((file) => file.path),
+      files
+        .filter((file) => stagedFiles.has(file.path))
+        .map((file) => file.path),
       false,
     );
   }, [files, stagedFiles, updateManyFilesStage]);
@@ -86,21 +95,29 @@ export function useReviewStageActions({
         );
       }
 
-      const result = await createGitBranch({ runId, sessionId, payload: { branch } });
+      const result = await createGitBranch({
+        runId,
+        sessionId,
+        payload: { branch },
+      });
       await refetch(true);
       return result.branch;
     },
     [refetch, runId, sessionId],
   );
   const pushBranch = useCallback(
-    async (branch?: string): Promise<string> => {
+    async (branch: string): Promise<string> => {
       if (!runId || !sessionId) {
         throw new Error(
           !runId ? "No run context available" : "No session context available",
         );
       }
 
-      const result = await pushGitBranch({ runId, sessionId, payload: { branch } });
+      const result = await pushGitBranch({
+        runId,
+        sessionId,
+        payload: { branch },
+      });
       await refetch(true);
       return result.branch;
     },

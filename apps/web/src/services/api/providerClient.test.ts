@@ -483,5 +483,32 @@ describe("ProviderApiClient", () => {
         statusCode: 0,
       });
     });
+
+    it("times out in-flight provider requests", async () => {
+      vi.useFakeTimers();
+      try {
+        fetchSpy.mockImplementationOnce((_url, init) => {
+          const signal = (init as RequestInit).signal;
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              const abortError = new Error("Request timed out");
+              abortError.name = "AbortError";
+              reject(abortError);
+            });
+          });
+        });
+
+        const request = client.getCatalog();
+        const assertion = expect(request).rejects.toMatchObject({
+          code: "ABORTED",
+          statusCode: 0,
+        });
+        await vi.advanceTimersByTimeAsync(15_000);
+
+        await assertion;
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
