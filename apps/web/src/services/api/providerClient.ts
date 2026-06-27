@@ -110,6 +110,7 @@ export class ProviderApiError extends Error {
 
 export class ProviderApiClient {
   private static readonly sessionRunIdKey = "currentRunId";
+  private static readonly requestTimeoutMs = 15_000;
   private readonly sdkClient;
   private readonly abortControllers = new Map<string, AbortController>();
 
@@ -258,9 +259,13 @@ export class ProviderApiClient {
     operation: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> {
     const controller = this.prepareAbortController(key);
+    const timeout = globalThis.setTimeout(() => {
+      controller.abort();
+    }, ProviderApiClient.requestTimeoutMs);
     try {
       return await this.call(() => operation(controller.signal));
     } finally {
+      globalThis.clearTimeout(timeout);
       this.releaseAbortController(key, controller);
     }
   }

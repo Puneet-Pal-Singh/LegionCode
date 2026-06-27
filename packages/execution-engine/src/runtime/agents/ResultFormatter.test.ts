@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatExecutionResult, formatTaskOutput } from "./ResultFormatter.js";
+import {
+  extractExecutionFailure,
+  formatExecutionResult,
+  formatTaskOutput,
+} from "./ResultFormatter.js";
 
 describe("ResultFormatter", () => {
   it("extracts content text from nested execution payloads", () => {
@@ -25,6 +29,34 @@ describe("ResultFormatter", () => {
 
   it("returns friendly fallback when task output is empty", () => {
     expect(formatTaskOutput(undefined)).toBe("no output");
+  });
+
+  it("extracts typed secure execution timeout failures", () => {
+    const result = {
+      status: "timeout",
+      error: {
+        code: "EXECUTION_TIMEOUT",
+        message: "Execution request timed out after 120000ms",
+      },
+    };
+
+    expect(extractExecutionFailure(result)).toBe(
+      "TOOL_TIMEOUT: Execution request timed out after 120000ms",
+    );
+  });
+
+  it("extracts typed secure execution failures", () => {
+    const result = {
+      status: "failure",
+      error: {
+        code: "ENOENT",
+        message: "File not found: README.md",
+      },
+    };
+
+    expect(extractExecutionFailure(result)).toBe(
+      "TOOL_FAILED: File not found: README.md",
+    );
   });
 
   it("redacts internal sandbox run paths from task output", () => {

@@ -43,22 +43,6 @@ export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
     idempotencyKey: string,
   ): Promise<void> {
     assertSessionScopedRunEvent(event);
-    const eventRecord = await this.persistenceService.writeRunProjection({
-      event: {
-        runId: event.runId,
-        sessionId: event.sessionId,
-        eventType: event.type,
-        payload: event.payload as unknown as JsonValue,
-        idempotencyKey,
-      },
-      status: buildRunStatusUpdate(event),
-    });
-
-    const step = buildRunStep(event, eventRecord.sequence);
-    if (!step) {
-      return;
-    }
-
     await this.persistenceService.writeRunProjection({
       event: {
         runId: event.runId,
@@ -67,7 +51,8 @@ export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
         payload: event.payload as unknown as JsonValue,
         idempotencyKey,
       },
-      step,
+      step: buildRunStepCandidate(event),
+      status: buildRunStatusUpdate(event),
     });
   }
 }
@@ -142,6 +127,12 @@ function buildRunStep(
     completedAt: isTerminalStepStatus(status) ? event.timestamp : undefined,
     payload: event.payload as unknown as JsonValue,
   };
+}
+
+function buildRunStepCandidate(
+  event: RunEvent & { sessionId: string },
+): UpsertRunStepInput | undefined {
+  return buildRunStep(event, 0);
 }
 
 function mapRunStatus(status: string): RunStatus | null {

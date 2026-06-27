@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { RunIdSchema } from "@repo/platform-protocol";
+
+const MemoryRunIdSchema = RunIdSchema.transform((value): string => value);
 
 export const MemoryScopeSchema = z.enum(["run", "session"]);
 export type MemoryScope = z.infer<typeof MemoryScopeSchema>;
@@ -25,7 +28,7 @@ export type MemorySource = z.infer<typeof MemorySourceSchema>;
 export const MemoryEventSchema = z.object({
   eventId: z.string().uuid(),
   idempotencyKey: z.string(),
-  runId: z.string().uuid(),
+  runId: MemoryRunIdSchema,
   sessionId: z.string(),
   taskId: z.string().uuid().optional(),
   scope: MemoryScopeSchema,
@@ -39,7 +42,7 @@ export const MemoryEventSchema = z.object({
 export type MemoryEvent = z.infer<typeof MemoryEventSchema>;
 
 export const MemorySnapshotSchema = z.object({
-  runId: z.string().uuid().optional(),
+  runId: MemoryRunIdSchema.optional(),
   sessionId: z.string(),
   summary: z.string().max(5000),
   constraints: z.array(z.string()).default([]),
@@ -78,7 +81,7 @@ export interface MemoryExtractionInput {
 
 export const ReplayCheckpointSchema = z.object({
   checkpointId: z.string().uuid(),
-  runId: z.string().uuid(),
+  runId: MemoryRunIdSchema,
   sequence: z.number().int().min(0),
   phase: z.enum(["planning", "execution", "synthesis"]),
   runStatus: z.string(),

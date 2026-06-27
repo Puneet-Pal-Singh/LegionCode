@@ -71,6 +71,10 @@ import {
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
 
+const PROVIDER_RUNTIME_TIMEOUT_MS = 15_000;
+
+type ProviderRuntimeStub = ReturnType<Env["RUN_ENGINE_RUNTIME"]["get"]>;
+
 const WorkspaceByokMetadataSchema = z.object({
   credentialLabels: z.record(z.string(), z.string()).default({}),
 });
@@ -1057,18 +1061,70 @@ async function proxyProviderOperation(
     body = JSON.stringify(operation.body);
   }
 
-  const response = await stub.fetch(`https://run-engine${operation.path}`, {
-    method: operation.method,
+  const response = await fetchRuntimeProviderResponse(
+    stub,
+    operation,
     headers,
     body,
-  });
+  );
+  const materialized = await materializeRuntimeResponse(response);
 
   return withEngineHeaders(
     req,
     env,
-    response as unknown as Response,
+    materialized,
     operation.scope.runId,
   );
+}
+
+async function fetchRuntimeProviderResponse(
+  stub: ProviderRuntimeStub,
+  operation: {
+    method: "GET" | "POST" | "PATCH" | "DELETE";
+    path: string;
+  },
+  headers: Headers,
+  body: string | undefined,
+): Promise<Response> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutResponse = new Promise<Response>((resolve) => {
+    timeout = setTimeout(() => {
+      resolve(
+        new Response(
+          JSON.stringify({
+            error: "Provider runtime request timed out.",
+            code: "PROVIDER_RUNTIME_TIMEOUT",
+            retryable: true,
+          }),
+          {
+            status: 504,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    }, PROVIDER_RUNTIME_TIMEOUT_MS);
+  });
+
+  try {
+    const runtimeResponse = stub.fetch(`https://run-engine${operation.path}`, {
+      method: operation.method,
+      headers,
+      body,
+    }) as unknown as Promise<Response>;
+    return await Promise.race([runtimeResponse, timeoutResponse]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function materializeRuntimeResponse(response: Response): Promise<Response> {
+  return new Response(await response.arrayBuffer(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: new Headers(response.headers),
+  });
 }
 
 async function proxyByokOperation(

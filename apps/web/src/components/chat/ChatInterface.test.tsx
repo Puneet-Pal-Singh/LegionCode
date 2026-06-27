@@ -1399,7 +1399,7 @@ describe("ChatInterface", () => {
     expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", true);
   });
 
-  it("ignores event-based approvals while waiting for canonical projection", () => {
+  it("renders active run-event approvals while canonical projection is unavailable", () => {
     const pendingApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested-active",
@@ -1459,11 +1459,11 @@ describe("ChatInterface", () => {
     );
 
     expect(
-      screen.queryByText("LegionCode wants to run a shell command"),
-    ).not.toBeInTheDocument();
+      screen.getByText("LegionCode wants to run a shell command"),
+    ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Allow once" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Allow once" }),
+    ).toBeInTheDocument();
   });
 
   it("shows unresolved canonical approval for approval-required terminal summaries", () => {

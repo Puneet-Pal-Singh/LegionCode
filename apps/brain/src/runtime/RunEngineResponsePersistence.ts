@@ -8,11 +8,32 @@ import {
   RunRepository,
   tagRuntimeStateSemantics,
 } from "@shadowbox/execution-engine/runtime";
+import { DomainError } from "../domain/errors";
 import { PersistenceService } from "../services/PersistenceService";
 import type { Env } from "../types/ai";
 
 export interface PersistedAssistantMessageResult {
   assistantMessageId: string;
+}
+
+class RunPostExecutionPersistenceError extends DomainError {
+  constructor(
+    operation: string,
+    cause: unknown,
+    correlationId: string,
+  ) {
+    super(
+      "RUN_POST_EXECUTION_PERSISTENCE_FAILED",
+      "Run post-execution persistence failed",
+      503,
+      true,
+      correlationId,
+      {
+        operation,
+        cause: describePersistenceCause(cause),
+      },
+    );
+  }
 }
 
 export async function persistAssistantMessageFromRunResponse(
@@ -35,19 +56,8 @@ export async function persistAssistantMessageFromRunResponse(
     correlationId,
   );
   await persistTerminalRunStatusFromRuntime(ctx, env, runId, correlationId);
-  if (persistedOutput) {
-    return toPersistedAssistantMessageResult(persistedOutput);
-  }
-
-  const persistedText = await persistAssistantMessageFromTextResponse(
-    env,
-    sessionId,
-    runId,
-    correlationId,
-    response,
-  );
-  return persistedText
-    ? toPersistedAssistantMessageResult(persistedText)
+  return persistedOutput
+    ? toPersistedAssistantMessageResult(persistedOutput)
     : null;
 }
 
@@ -57,18 +67,18 @@ async function persistTerminalRunStatusFromRuntime(
   runId: string,
   correlationId: string,
 ): Promise<void> {
-  try {
-    const runtimeState = tagRuntimeStateSemantics(
-      ctx as unknown as LegacyDurableObjectState,
-      "do",
-    );
-    const runRepository = new RunRepository(runtimeState);
-    const run = await runRepository.getById(runId);
-    const status = mapRuntimeTerminalStatus(run?.status);
-    if (!status) {
-      return;
-    }
+  const runtimeState = tagRuntimeStateSemantics(
+    ctx as unknown as LegacyDurableObjectState,
+    "do",
+  );
+  const runRepository = new RunRepository(runtimeState);
+  const run = await runRepository.getById(runId);
+  const status = mapRuntimeTerminalStatus(run?.status);
+  if (!status) {
+    return;
+  }
 
+  try {
     const persistenceService = new PersistenceService(env);
     await persistenceService.updateRunStatus(
       runId,
@@ -77,9 +87,10 @@ async function persistTerminalRunStatusFromRuntime(
       run?.metadata?.completedAt ?? new Date().toISOString(),
     );
   } catch (error) {
-    console.warn(
-      `[run/engine-runtime] ${correlationId}: Failed to persist terminal run status`,
+    throw new RunPostExecutionPersistenceError(
+      "persistTerminalRunStatus",
       error,
+      correlationId,
     );
   }
 }
@@ -91,20 +102,27 @@ async function persistAssistantMessageFromRunOutput(
   runId: string,
   correlationId: string,
 ): Promise<TranscriptMessageRecord | null> {
-  try {
-    const runtimeState = tagRuntimeStateSemantics(
-      ctx as unknown as LegacyDurableObjectState,
-      "do",
-    );
-    const runRepository = new RunRepository(runtimeState);
-    const runEventRepository = new RunEventRepository(runtimeState);
-    const run = await runRepository.getById(runId);
-    const outputContent = run?.output?.content?.trim();
+  const runtimeState = tagRuntimeStateSemantics(
+    ctx as unknown as LegacyDurableObjectState,
+    "do",
+  );
+  const runRepository = new RunRepository(runtimeState);
+  const runEventRepository = new RunEventRepository(runtimeState);
+  const run = await runRepository.getById(runId);
+  const outputContent = run?.output?.content?.trim();
 
-    if (!outputContent) {
-      return null;
+  if (!outputContent) {
+    if (requiresPersistedAssistantOutput(run?.status)) {
+      throw new RunPostExecutionPersistenceError(
+        "readCanonicalAssistantOutput",
+        new Error(`Missing canonical assistant output for run ${runId}`),
+        correlationId,
+      );
     }
+    return null;
+  }
 
+  try {
     const persistenceService = new PersistenceService(env);
     const events = await runEventRepository.getByRun(runId);
     return await persistenceService.persistAssistantTurn({
@@ -121,11 +139,11 @@ async function persistAssistantMessageFromRunOutput(
       }),
     });
   } catch (error) {
-    console.warn(
-      `[run/engine-runtime] ${correlationId}: Failed to persist assistant output from run state`,
+    throw new RunPostExecutionPersistenceError(
+      "persistAssistantTurn",
       error,
+      correlationId,
     );
-    return null;
   }
 }
 
@@ -167,42 +185,20 @@ function readTerminalReason(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-async function persistAssistantMessageFromTextResponse(
-  env: Env,
-  sessionId: string,
-  runId: string,
-  correlationId: string,
-  response: Response,
-): Promise<TranscriptMessageRecord | null> {
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/plain")) {
-    return null;
-  }
-
-  try {
-    const assistantText = (await response.clone().text()).trim();
-    if (!assistantText) {
-      return null;
-    }
-
-    const persistenceService = new PersistenceService(env);
-    return await persistenceService.persistUserMessage(sessionId, runId, {
-      role: "assistant",
-      content: assistantText,
-    });
-  } catch (error) {
-    console.warn(
-      `[run/engine-runtime] ${correlationId}: Failed to capture assistant stream for history persistence`,
-      error,
-    );
-  }
-  return null;
-}
-
 function toPersistedAssistantMessageResult(
   message: TranscriptMessageRecord,
 ): PersistedAssistantMessageResult {
   return { assistantMessageId: message.id };
+}
+
+function requiresPersistedAssistantOutput(
+  status: string | null | undefined,
+): boolean {
+  return status === "COMPLETED" || status === "PAUSED" || status === "FAILED";
+}
+
+function describePersistenceCause(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown persistence error";
 }
 
 function mapRuntimeTerminalStatus(

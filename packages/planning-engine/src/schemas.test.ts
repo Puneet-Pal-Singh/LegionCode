@@ -187,7 +187,7 @@ describe('Schema Validation', () => {
         metadata: {
           intent: 'implement',
           createdAt: 1707561600000,
-          runId: '550e8400-e29b-41d4-a716-446655440001',
+          runId: 'run_550e8400e29b41d4a716446655440001',
           contextBlocksUsed: ['block_1'],
           plannerVersion: '1.0.0',
           isAlternative: false,
@@ -222,7 +222,7 @@ describe('Schema Validation', () => {
         metadata: {
           intent: 'bugfix',
           createdAt: 1707561600000,
-          runId: '550e8400-e29b-41d4-a716-446655440001',
+          runId: 'run_550e8400e29b41d4a716446655440001',
           contextBlocksUsed: [],
           plannerVersion: '1.0.0',
           isAlternative: false,
@@ -246,7 +246,7 @@ describe('Schema Validation', () => {
         metadata: {
           intent: 'explore',
           createdAt: 1707561600000,
-          runId: '550e8400-e29b-41d4-a716-446655440001',
+          runId: 'run_550e8400e29b41d4a716446655440001',
           contextBlocksUsed: [],
           plannerVersion: '1.0.0',
           isAlternative: false,
@@ -281,7 +281,7 @@ describe('Schema Validation', () => {
         metadata: {
           intent: 'explore',
           createdAt: 1707561600000,
-          runId: '550e8400-e29b-41d4-a716-446655440001',
+          runId: 'run_550e8400e29b41d4a716446655440001',
           contextBlocksUsed: [],
           plannerVersion: '1.0.0',
           isAlternative: false,
@@ -328,7 +328,7 @@ describe('Schema Validation', () => {
         metadata: {
           intent: 'explore',
           createdAt: 1707561600000,
-          runId: '550e8400-e29b-41d4-a716-446655440001',
+          runId: 'run_550e8400e29b41d4a716446655440001',
           contextBlocksUsed: [],
           plannerVersion: '1.0.0',
           isAlternative: false,
@@ -368,7 +368,7 @@ describe('Schema Validation', () => {
           metadata: {
             intent: 'explore',
             createdAt: 1707561600000,
-            runId: '550e8400-e29b-41d4-a716-446655440001',
+            runId: 'run_550e8400e29b41d4a716446655440001',
             contextBlocksUsed: [],
             plannerVersion: '1.0.0',
             isAlternative: false,
@@ -407,7 +407,7 @@ describe('Schema Validation', () => {
           metadata: {
             intent: 'explore',
             createdAt: 1707561600000,
-            runId: '550e8400-e29b-41d4-a716-446655440001',
+            runId: 'run_550e8400e29b41d4a716446655440001',
             contextBlocksUsed: [],
             plannerVersion: '1.0.0',
             isAlternative: false,

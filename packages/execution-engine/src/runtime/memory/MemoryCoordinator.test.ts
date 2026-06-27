@@ -113,8 +113,8 @@ describe("MemoryCoordinator session memory wiring", () => {
 
   it("writes session-scoped memory to the session-memory client and retrieves it across runs", async () => {
     const sessionId = "session-shared-memory";
-    const runIdOne = crypto.randomUUID();
-    const runIdTwo = crypto.randomUUID();
+    const runIdOne = "run_550e8400e29b41d4a716446655440001";
+    const runIdTwo = "run_550e8400e29b41d4a716446655440002";
 
     const coordinatorOne = new MemoryCoordinator({
       repository: new MemoryRepository({
@@ -176,7 +176,7 @@ describe("MemoryCoordinator session memory wiring", () => {
     });
 
     const events = await coordinator.extractAndPersist({
-      runId: crypto.randomUUID(),
+      runId: "run_550e8400e29b41d4a716446655440003",
       sessionId: "session-run-scope-only",
       taskId: crypto.randomUUID(),
       source: "task",

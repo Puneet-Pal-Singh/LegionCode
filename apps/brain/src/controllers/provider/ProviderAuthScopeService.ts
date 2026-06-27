@@ -11,8 +11,8 @@ import {
   getAuthenticatedUserSession,
   type UserSessionRecord,
 } from "../../services/AuthService";
+import { RunIdSchema } from "@repo/platform-protocol";
 
-const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
   .string()
   .min(1)

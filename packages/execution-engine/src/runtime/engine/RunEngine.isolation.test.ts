@@ -6,8 +6,8 @@ import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
 describe("RunEngine runId isolation", () => {
   it("keeps concurrent runs isolated by runId", async () => {
     const state = new MockRuntimeState();
-    const runAId = "11111111-1111-4111-8111-111111111111";
-    const runBId = "22222222-2222-4222-8222-222222222222";
+    const runAId = "run_isolation_a";
+    const runBId = "run_isolation_b";
     const sharedSessionId = "session-shared";
     const engineA = createEngine(state, runAId, sharedSessionId);
     const engineB = createEngine(state, runBId, sharedSessionId);

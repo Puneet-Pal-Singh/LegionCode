@@ -3,11 +3,14 @@ import { RUN_TERMINAL_STATES } from "@repo/shared-types";
 import { Run } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import type { RunRepository } from "../run/index.js";
-import { handleExecutionErrorPolicy } from "./RunEngineReliabilityPolicy.js";
+import {
+  handleExecutionErrorPolicy,
+  safeMemoryOperation,
+} from "./RunEngineReliabilityPolicy.js";
 
 describe("RunEngineReliabilityPolicy", () => {
   it("persists and emits a sanitized final summary for failed runs", async () => {
-    const run = new Run("run-1", "session-1", "RUNNING", "coding", {
+    const run = new Run("run_100000", "session-1", "RUNNING", "coding", {
       agentType: "coding",
       prompt: "run tests",
       sessionId: "session-1",
@@ -24,7 +27,7 @@ describe("RunEngineReliabilityPolicy", () => {
     } as unknown as RunEventRecorder;
 
     await handleExecutionErrorPolicy({
-      runId: "run-1",
+      runId: "run_100000",
       error: new Error("runtime exploded at https://internal/errors/123"),
       runRepo,
       runEventRecorder,
@@ -45,5 +48,22 @@ describe("RunEngineReliabilityPolicy", () => {
       "runtime exploded at https://internal/errors/123",
       25,
     );
+  });
+
+  it("fails fast when memory persistence fails", async () => {
+    const failure = new Error("checkpoint rejected");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(safeMemoryOperation(async () => {
+      throw failure;
+    })).rejects.toThrow("checkpoint rejected");
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[run/engine] Memory subsystem operation failed:",
+      failure,
+    );
+    consoleError.mockRestore();
   });
 });

@@ -21,7 +21,7 @@ export const contextSnapshots = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     snapshotKind: text("snapshot_kind").notNull(),
     r2ObjectKey: text("r2_object_key"),
     payloadSizeBytes: integer("payload_size_bytes"),

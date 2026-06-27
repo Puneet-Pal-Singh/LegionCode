@@ -33,7 +33,7 @@ export const artifacts = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    runId: uuid("run_id")
+    runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     repoOwner: text("repo_owner"),
@@ -108,7 +108,7 @@ export const artifactEvents = pgTable(
     artifactId: uuid("artifact_id")
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
-    runId: uuid("run_id")
+    runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     eventType: text("event_type").notNull(),

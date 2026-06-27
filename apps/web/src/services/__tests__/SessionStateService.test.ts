@@ -103,7 +103,7 @@ describe("SessionStateService", () => {
                 id: "550e8400-e29b-41d4-a716-446655440000",
                 title: "Server Task",
                 repository: "acme/legioncode",
-                activeRunId: "550e8400-e29b-41d4-a716-446655440001",
+                activeRunId: "run_550e8400e29b41d4a716446655440001",
                 mode: "build",
                 status: "failed",
                 createdAt: "2026-05-14T00:00:00.000Z",
@@ -125,6 +125,34 @@ describe("SessionStateService", () => {
         expect.stringContaining("/api/sessions"),
         { credentials: "include" },
       );
+    });
+
+    it("drops server sessions that still use legacy UUID run ids", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              sessions: [
+                {
+                  id: "550e8400-e29b-41d4-a716-446655440000",
+                  title: "Legacy Task",
+                  repository: "acme/legioncode",
+                  activeRunId: "550e8400-e29b-41d4-a716-446655440001",
+                  mode: "build",
+                  status: "running",
+                  createdAt: "2026-05-14T00:00:00.000Z",
+                  updatedAt: "2026-05-15T00:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      await expect(
+        SessionStateService.hydrateSessionsFromServer(),
+      ).resolves.toEqual({});
     });
 
     it("persists created sessions to Brain", async () => {
@@ -500,7 +528,7 @@ describe("SessionStateService", () => {
   describe("Run Management", () => {
     it("should add run to session", () => {
       const session = SessionStateService.createSession("Test", "repo");
-      const newRunId = "run-123";
+      const newRunId = "run_123456";
 
       const updated = SessionStateService.addRunToSession(
         session,
@@ -515,7 +543,7 @@ describe("SessionStateService", () => {
     it("should add run without making it active", () => {
       const session = SessionStateService.createSession("Test", "repo");
       const originalRunId = session.activeRunId;
-      const newRunId = "run-123";
+      const newRunId = "run_123456";
 
       const updated = SessionStateService.addRunToSession(
         session,
@@ -547,6 +575,7 @@ describe("SessionStateService", () => {
     it("should validate correct session", () => {
       const session = SessionStateService.createSession("Test", "repo");
       expect(SessionStateService.validateSession(session)).toBe(true);
+      expect(session.activeRunId).toMatch(/^run_/);
     });
 
     it("should reject session with missing id", () => {
@@ -633,7 +662,7 @@ function createServerSession(title: string) {
     title,
     titleSource: "generated",
     repository: "repo",
-    activeRunId: "550e8400-e29b-41d4-a716-446655440001",
+    activeRunId: "run_550e8400e29b41d4a716446655440001",
     mode: "build",
     status: "idle",
     pinnedAt: null,

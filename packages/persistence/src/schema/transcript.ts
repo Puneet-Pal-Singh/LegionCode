@@ -68,7 +68,7 @@ export const sessions = pgTable(
     title: text("title").notNull(),
     titleSource: text("title_source").notNull().default("generated"),
     repository: text("repository"),
-    activeRunId: uuid("active_run_id"),
+    activeRunId: text("active_run_id"),
     mode: text("mode").notNull().default("build"),
     status: text("status").notNull().default("idle"),
     lastSequence: bigint("last_sequence", { mode: "number" })
@@ -111,7 +111,7 @@ export const messages = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    runId: uuid("run_id"),
+    runId: text("run_id"),
     role: text("role").notNull(),
     clientMessageId: text("client_message_id"),
     dedupeKey: text("dedupe_key").notNull(),
@@ -142,7 +142,7 @@ export const messageParts = pgTable(
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
     messageId: uuid("message_id").notNull(),
-    runId: uuid("run_id"),
+    runId: text("run_id"),
     partType: text("part_type").notNull(),
     sessionSequence: bigint("session_sequence", { mode: "number" }).notNull(),
     contentJson: jsonb("content_json").notNull(),

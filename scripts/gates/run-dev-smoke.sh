@@ -10,13 +10,13 @@ run() {
   "$@"
 }
 
-run pnpm --filter @shadowbox/brain test -- \
+run corepack pnpm --filter @shadowbox/brain test -- \
   src/architecture/layering.boundary.test.ts \
   src/architecture/no-legacy-imports.test.ts
 
-run pnpm --filter @shadowbox/secure-agent-api exec vitest run --dir src/conformance
+run corepack pnpm --filter @shadowbox/secure-agent-api exec vitest run --dir src/conformance
 
-run pnpm --filter @shadowbox/web test -- \
+run corepack pnpm --filter @shadowbox/web test -- \
   src/lib/run-status.test.ts \
   src/lib/run-summary-status-snapshot.test.ts \
   src/services/lifecycle/LifecycleTerminalViewModel.test.ts \

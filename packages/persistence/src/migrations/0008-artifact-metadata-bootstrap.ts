@@ -41,7 +41,7 @@ export const artifactMetadataBootstrapMigration: SqlMigration = {
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
         repo_owner TEXT,
         repo_name TEXT,
         repo_url TEXT,
@@ -83,7 +83,7 @@ export const artifactMetadataBootstrapMigration: SqlMigration = {
       CREATE TABLE IF NOT EXISTS artifact_events (
         id UUID PRIMARY KEY,
         artifact_id UUID NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
-        run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
         event_type TEXT NOT NULL,
         message TEXT NOT NULL,
         metadata_json JSONB,

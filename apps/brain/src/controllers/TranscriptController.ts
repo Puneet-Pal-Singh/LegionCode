@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { CHAT_TITLE_SOURCES, type JsonValue } from "@repo/shared-types";
+import {
+  CHAT_TITLE_SOURCES,
+  isTurnActivityTranscriptPart,
+  type JsonValue,
+  type TurnActivityTranscriptPart,
+} from "@repo/shared-types";
+import { RunIdSchema } from "@repo/platform-protocol";
 import type {
   SessionRecord,
   TranscriptMessagePartRecord,
@@ -16,7 +22,7 @@ import { withTranscriptRepository } from "../services/sessions/TranscriptPersist
 
 const SessionCreateRequestSchema = z.object({
   sessionId: z.string().uuid(),
-  runId: z.string().uuid().optional(),
+  runId: RunIdSchema.optional(),
   workspaceId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160).optional(),
   titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
@@ -26,7 +32,7 @@ const SessionCreateRequestSchema = z.object({
 
 const TranscriptQuerySchema = z.object({
   session: z.string().uuid(),
-  runId: z.string().uuid(),
+  runId: RunIdSchema,
   cursor: z.coerce.number().int().nonnegative().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
@@ -340,14 +346,20 @@ function toHydrationMessage(message: TranscriptMessageRecord): {
   role: TranscriptMessageRecord["role"];
   content: string | Array<{ type: "text"; text: string } | JsonValue>;
   createdAt: string;
+  data?: {
+    activityParts?: TurnActivityTranscriptPart[];
+    metadata?: Record<string, unknown>;
+  };
 } {
   const textContent = readSingleTextPart(message.parts);
-  return {
+  const data = readHydrationData(message.parts);
+  const hydratedMessage = {
     id: message.clientMessageId ?? message.id,
     role: message.role,
     content: textContent ?? message.parts.map(partToHydrationContent),
     createdAt: message.createdAt,
   };
+  return data ? { ...hydratedMessage, data } : hydratedMessage;
 }
 
 function readSingleTextPart(
@@ -375,6 +387,43 @@ function partToHydrationContent(
 
   const text = readSingleTextPart([part]);
   return { type: "text", text: text ?? "" };
+}
+
+function readHydrationData(
+  parts: TranscriptMessagePartRecord[],
+):
+  | {
+      activityParts?: TurnActivityTranscriptPart[];
+      metadata?: Record<string, unknown>;
+    }
+  | undefined {
+  const activityParts: TurnActivityTranscriptPart[] = [];
+  for (const part of parts) {
+    if (part.type === "activity" && isTurnActivityTranscriptPart(part.content)) {
+      activityParts.push(part.content);
+    }
+  }
+  const metadata = parts
+    .filter((part) => part.type === "text")
+    .map((part) => readPartMetadata(part.content))
+    .find((value): value is Record<string, unknown> => value !== null);
+  if (activityParts.length === 0 && !metadata) {
+    return undefined;
+  }
+  return {
+    ...(activityParts.length > 0 ? { activityParts } : {}),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+function readPartMetadata(value: JsonValue): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const metadata = value.metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata
+    : null;
 }
 
 function transcriptErrorResponse(

@@ -19,6 +19,8 @@ import type {
   PlanValidationResult,
 } from './types.js';
 
+const RUN_ID_PATTERN = /^run_[a-zA-Z0-9][a-zA-Z0-9_-]{5,127}$/;
+
 // ============================================================================
 // Base Schemas
 // ============================================================================
@@ -123,7 +125,7 @@ export const PlanMetadataSchema = z
   .object({
     intent: z.string().min(1).max(100),
     createdAt: z.number().int().min(0),
-    runId: z.string().uuid(),
+    runId: z.string().regex(RUN_ID_PATTERN),
     contextBlocksUsed: z.array(z.string()),
     plannerVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
     isAlternative: z.boolean(),

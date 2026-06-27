@@ -7,7 +7,6 @@ import type { SelectedDiff, SelectedFile, TabType } from "./useWorkspaceState";
 
 interface UseSidebarOrchestrationProps {
   activeRunId: string;
-  sessionId: string;
   status: { branch?: string } | null | undefined;
   repo: Repository | null;
   branch: string;
@@ -33,7 +32,6 @@ export interface UseSidebarOrchestrationResult {
 
 export function useSidebarOrchestration({
   activeRunId,
-  sessionId,
   status,
   repo,
   branch,
@@ -74,12 +72,6 @@ export function useSidebarOrchestration({
     setIsRightSidebarOpen,
     setIsViewingContent,
   ]);
-
-  useEffect(() => {
-    if (sessionId && activeRunId) {
-      localStorage.setItem(`shadowbox_runId:${sessionId}`, activeRunId);
-    }
-  }, [sessionId, activeRunId]);
 
   useEffect(() => {
     explorerRef.current?.refresh();

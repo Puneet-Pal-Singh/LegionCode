@@ -26,7 +26,7 @@ export const permissionRequests = pgTable(
     sessionId: uuid("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
-    runId: uuid("run_id")
+    runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
     requestType: text("request_type").notNull(),

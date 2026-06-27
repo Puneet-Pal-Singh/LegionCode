@@ -28,6 +28,7 @@ import {
   ProviderRateLimitService,
   readByokEncryptionConfig,
 } from "../services/providers";
+import { RunIdSchema } from "@repo/platform-protocol";
 import { ProviderConfigService } from "../services/providers/ProviderConfigService";
 import { createPostgresProviderConfigService } from "../services/providers/stores/PostgresStoreFactory";
 import { AXIS_PROVIDER_ID } from "../services/providers/axis";
@@ -41,7 +42,6 @@ import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
 
-const RunIdSchema = z.string().uuid();
 const ScopeIdSchema = z
   .string()
   .min(1)
@@ -70,22 +70,14 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return requestHandler.handleExecuteRequest(request, async (result) => {
-        try {
-          return await persistAssistantMessageFromRunResponse(
-            this.ctx,
-            this.env as Env,
-            result.sessionId,
-            result.runId,
-            result.correlationId,
-            result.response,
-          );
-        } catch (error) {
-          console.warn(
-            `[run/engine-runtime] ${result.correlationId}: Failed to persist assistant message`,
-            error,
-          );
-          return null;
-        }
+        return await persistAssistantMessageFromRunResponse(
+          this.ctx,
+          this.env as Env,
+          result.sessionId,
+          result.runId,
+          result.correlationId,
+          result.response,
+        );
       });
     }
 

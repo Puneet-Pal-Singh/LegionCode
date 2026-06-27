@@ -564,4 +564,79 @@ describe("AgenticLoopToolExecutor", () => {
       },
     ]);
   });
+
+  it("fails read_file when the filesystem gateway returns a typed failure", async () => {
+    const executionService: RuntimeExecutionService = {
+      execute: async () => ({
+        status: "failure",
+        error: {
+          code: "ENOENT",
+          message: "File not found: missing.md",
+        },
+      }),
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-read-missing",
+      toolName: "read_file",
+      toolInput: { path: "missing.md" },
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: {
+        message: "TOOL_FAILED: File not found: missing.md",
+      },
+    });
+  });
+
+  it("fails grep when the filesystem gateway times out", async () => {
+    const executionService: RuntimeExecutionService = {
+      execute: async () => ({
+        status: "timeout",
+        error: {
+          code: "EXECUTION_TIMEOUT",
+          message: "Execution request timed out after 120000ms",
+        },
+      }),
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-grep-timeout",
+      toolName: "grep",
+      toolInput: { pattern: "TODO" },
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: {
+        message: "TOOL_TIMEOUT: Execution request timed out after 120000ms",
+      },
+    });
+  });
+
+  it("fails glob when the filesystem gateway returns cancelled", async () => {
+    const executionService: RuntimeExecutionService = {
+      execute: async () => ({
+        status: "cancelled",
+        error: {
+          code: "CANCELLED",
+          message: "Execution was cancelled",
+        },
+      }),
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-glob-cancelled",
+      toolName: "glob",
+      toolInput: { pattern: "**/*.ts" },
+    });
+
+    expect(result).toMatchObject({
+      status: "FAILED",
+      error: {
+        message: "TOOL_CANCELLED: Execution was cancelled",
+      },
+    });
+  });
 });

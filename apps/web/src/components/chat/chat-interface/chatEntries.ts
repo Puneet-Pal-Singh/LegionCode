@@ -88,23 +88,110 @@ function correlateActivityTurnsToMessages(
       turn.userMessage ? [turn.userMessage.id] : [],
     ),
   );
+  const latestUserMessageId = findLatestUserMessageId(conversationTurns);
+  const promptQueues = buildPromptQueues(conversationTurns);
 
   for (const activityTurn of turns) {
     if (!activityTurn?.hasVisibleRows) {
       continue;
     }
-    if (!userMessageIds.has(activityTurn.key)) {
+    const messageId = resolveActivityTurnMessageId(
+      activityTurn,
+      userMessageIds,
+      promptQueues,
+      latestUserMessageId,
+    );
+    if (!messageId) {
       if (logUnmatched) {
         warnUnmatchedActivityTurn(options.runId, activityTurn.key);
       }
       continue;
     }
-    const existingAssignments = assignments.get(activityTurn.key) ?? [];
+    const existingAssignments = assignments.get(messageId) ?? [];
     existingAssignments.push(activityTurn);
-    assignments.set(activityTurn.key, existingAssignments);
+    assignments.set(messageId, existingAssignments);
   }
 
   return assignments;
+}
+
+function resolveActivityTurnMessageId(
+  activityTurn: ActivityTurnViewModel,
+  userMessageIds: Set<string>,
+  promptQueues: Map<string, string[]>,
+  latestUserMessageId: string | null,
+): string | null {
+  if (userMessageIds.has(activityTurn.key)) {
+    return activityTurn.key;
+  }
+
+  const promptKey = normalizePrompt(activityTurn.userPrompt);
+  const promptMatch = promptKey
+    ? promptQueues.get(promptKey)?.shift()
+    : undefined;
+  if (promptMatch) {
+    return promptMatch;
+  }
+
+  if (isUnkeyedActiveThinkingTurn(activityTurn)) {
+    return latestUserMessageId;
+  }
+
+  return null;
+}
+
+function isUnkeyedActiveThinkingTurn(
+  activityTurn: ActivityTurnViewModel,
+): boolean {
+  return (
+    activityTurn.isActiveTurn &&
+    !activityTurn.userPrompt?.trim() &&
+    activityTurn.rows.length > 0 &&
+    activityTurn.rows.every(
+      (row) =>
+        row.kind === "reasoning" &&
+        row.status === "active" &&
+        row.label === "Thinking" &&
+        row.summary.trim() === "",
+    )
+  );
+}
+
+function findLatestUserMessageId(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): string | null {
+  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
+    const message = conversationTurns[index]?.userMessage;
+    if (message) return message.id;
+  }
+  return null;
+}
+
+function buildPromptQueues(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): Map<string, string[]> {
+  const queues = new Map<string, string[]>();
+  for (const conversationTurn of conversationTurns) {
+    const message = conversationTurn.userMessage;
+    if (!message) {
+      continue;
+    }
+    const promptKey = normalizePrompt(message.content);
+    if (!promptKey) {
+      continue;
+    }
+    queues.set(promptKey, [...(queues.get(promptKey) ?? []), message.id]);
+  }
+  return queues;
+}
+
+function normalizePrompt(value: string | null | undefined): string {
+  return (
+    value
+      ?.trim()
+      .replace(/@(?=\S)/g, "")
+      .replace(/\s+/g, " ") ?? ""
+  );
 }
 
 const unmatchedActivityWarningKeys = new Set<string>();

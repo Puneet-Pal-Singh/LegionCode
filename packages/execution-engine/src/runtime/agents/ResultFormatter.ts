@@ -42,6 +42,17 @@ export function extractExecutionFailure(result: unknown): string | null {
     return null;
   }
 
+  const secureStatus = readStringField(result.status);
+  if (secureStatus === "timeout") {
+    return buildExecutionStatusFailure("TOOL_TIMEOUT", result);
+  }
+  if (secureStatus === "failure") {
+    return buildExecutionStatusFailure("TOOL_FAILED", result);
+  }
+  if (secureStatus === "cancelled") {
+    return buildExecutionStatusFailure("TOOL_CANCELLED", result);
+  }
+
   if (result.success === false) {
     const explicitError = readStringField(result.error);
     if (explicitError) {
@@ -65,6 +76,32 @@ export function extractExecutionFailure(result: unknown): string | null {
   }
 
   return null;
+}
+
+function buildExecutionStatusFailure(
+  code: "TOOL_TIMEOUT" | "TOOL_FAILED" | "TOOL_CANCELLED",
+  result: Record<string, unknown>,
+): string {
+  const message =
+    readStringField(result.error) ??
+    readStringField(result.message) ??
+    readStringField(result.stderr) ??
+    readStringField(result.output) ??
+    defaultExecutionStatusMessage(code);
+  return `${code}: ${redactInternalRuntimeDetails(message)}`;
+}
+
+function defaultExecutionStatusMessage(
+  code: "TOOL_TIMEOUT" | "TOOL_FAILED" | "TOOL_CANCELLED",
+): string {
+  switch (code) {
+    case "TOOL_TIMEOUT":
+      return "Tool execution timed out.";
+    case "TOOL_CANCELLED":
+      return "Tool execution was cancelled.";
+    case "TOOL_FAILED":
+      return "Tool execution failed.";
+  }
 }
 
 function findPrimaryText(record: Record<string, unknown>): string | null {
@@ -127,6 +164,10 @@ function readStringField(value: unknown): string | null {
         ? value.content
         : typeof value.output === "string"
           ? value.output
+          : typeof value.message === "string"
+            ? value.message
+            : typeof value.code === "string"
+              ? value.code
           : null;
     if (typeof content === "string" && content.trim().length > 0) {
       return content.trim();

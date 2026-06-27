@@ -41,6 +41,7 @@ import {
   toRedactedImageMetadata,
   type ChatImageAttachment,
 } from "../components/chat/chatImageAttachments";
+import { createRunId } from "../lib/run-id";
 
 type ChatUserContent =
   | string
@@ -96,11 +97,15 @@ export function useChatCore(
   productMode?: ProductMode,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
-    crypto.randomUUID(),
+    createRunId(),
   );
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [pendingUserMessage, setPendingUserMessage] = useState<{
+    scopeKey: string;
+    message: Message;
+  } | null>(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
   const lastLoggedStreamErrorRef = useRef<{
     message: string;
@@ -123,6 +128,9 @@ export function useChatCore(
     setIsSubmitting(false);
     setIsStopping(false);
     setDebugEvents([]);
+    setPendingUserMessage((current) =>
+      current?.scopeKey === scopeKey ? current : null,
+    );
     lastLoggedStreamErrorRef.current = null;
   }, [scopeKey]);
 
@@ -253,11 +261,21 @@ export function useChatCore(
     messages: Message[];
   } | null>(null);
   const [, setMessagesScopeVersion] = useState(0);
-  const scopedMessages =
+  const scopedMessagesBase =
     messagesReadyScopeKeyRef.current === scopeKey
       ? messages
       : (pendingScopeMessagesRef.current?.messages ??
         agentStore.getMessages(runId));
+  const scopedMessages = useMemo(
+    () =>
+      appendPendingUserMessage(
+        scopedMessagesBase,
+        pendingUserMessage?.scopeKey === scopeKey
+          ? pendingUserMessage.message
+          : null,
+      ),
+    [pendingUserMessage, scopedMessagesBase, scopeKey],
+  );
 
   useLayoutEffect(() => {
     if (clearedScopeRef.current === scopeKey) return;
@@ -289,7 +307,7 @@ export function useChatCore(
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {
-      setInternalRunId(crypto.randomUUID());
+      setInternalRunId(createRunId());
     }
     // setMessages will be called after the new instance is created via instanceKey change
   }, [externalRunId]);
@@ -398,6 +416,10 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      setPendingUserMessage({
+        scopeKey: requestScopeKey,
+        message: buildPendingUserMessage(message),
+      });
       logClientEvent("chat/submit", "started", {
         runId,
         sessionId,
@@ -427,6 +449,9 @@ export function useChatCore(
         await submitResolvedMessage(message, requestBody);
       } finally {
         if (isActiveScope(requestScopeKey)) {
+          setPendingUserMessage((current) =>
+            current?.scopeKey === requestScopeKey ? null : current,
+          );
           setIsSubmitting(false);
           logClientEvent("chat/submit", "settled", { runId });
         }
@@ -473,6 +498,9 @@ export function useChatCore(
         return;
       }
       restoreChatInput(originalInput);
+      setPendingUserMessage((current) =>
+        current?.scopeKey === requestScopeKey ? null : current,
+      );
       const message =
         error instanceof Error
           ? normalizeChatErrorMessage(error)
@@ -618,6 +646,55 @@ function extractTextContent(content: ChatUserContent): string {
   return content
     .filter((part) => part.type === "text")
     .map((part) => part.text)
+    .join("\n");
+}
+
+function buildPendingUserMessage(message: ChatAppendMessage): Message {
+  const content = extractTextContent(message.content).trim();
+  return {
+    id: `pending-user-${crypto.randomUUID()}`,
+    role: "user",
+    content: content || "Analyze the attached image(s).",
+    createdAt: new Date(),
+  };
+}
+
+function appendPendingUserMessage(
+  messages: Message[],
+  pending: Message | null,
+): Message[] {
+  if (!pending || hasEquivalentUserMessage(messages, pending)) {
+    return messages;
+  }
+  return [...messages, pending];
+}
+
+function hasEquivalentUserMessage(messages: Message[], pending: Message): boolean {
+  const pendingContent = pending.content.trim();
+  return messages.some(
+    (message) =>
+      message.role === "user" &&
+      extractMessageText(message.content).trim() === pendingContent,
+  );
+}
+
+function extractMessageText(content: Message["content"]): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  const unknownContent: unknown = content;
+  if (!Array.isArray(unknownContent)) {
+    return "";
+  }
+  return unknownContent
+    .map((part) => {
+      if (!part || typeof part !== "object") {
+        return "";
+      }
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .filter(Boolean)
     .join("\n");
 }
 

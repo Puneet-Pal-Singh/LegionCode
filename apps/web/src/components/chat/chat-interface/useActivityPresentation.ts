@@ -5,7 +5,12 @@ import {
   buildTranscriptActivityTurns,
   mergeTranscriptAndLiveActivityTurns,
 } from "../../../services/activity/TranscriptActivityParts.js";
+import {
+  mergeActivitySnapshots,
+  projectRunEventsToActivitySnapshot,
+} from "../../../services/activity/RunEventActivitySnapshot.js";
 import type { useRunActivityFeed } from "../../../hooks/useRunActivityFeed.js";
+import type { useRunEvents } from "../../../hooks/useRunEvents.js";
 import { logClientEvent } from "../../../lib/client-logger.js";
 
 type ActivityFeed = ReturnType<typeof useRunActivityFeed>["feed"];
@@ -14,27 +19,43 @@ interface ActivityPresentationInput {
   runId: string;
   messages: Message[];
   feed: ActivityFeed;
+  events: ReturnType<typeof useRunEvents>["events"];
   isLoading: boolean;
 }
 
 export function useActivityPresentation(input: ActivityPresentationInput) {
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const scopedFeed = input.feed?.runId === input.runId ? input.feed : null;
+  const scopedPersistedFeed =
+    input.feed?.runId === input.runId ? input.feed : null;
+  const liveFeed = useMemo(
+    () =>
+      projectRunEventsToActivitySnapshot({
+        runId: input.runId,
+        events: input.events,
+        isActive: input.isLoading,
+        fallbackSessionId: scopedPersistedFeed?.sessionId,
+      }),
+    [
+      input.events,
+      input.isLoading,
+      input.runId,
+      scopedPersistedFeed?.sessionId,
+    ],
+  );
+  const scopedFeed = useMemo(
+    () => mergeActivitySnapshots(scopedPersistedFeed, liveFeed),
+    [liveFeed, scopedPersistedFeed],
+  );
   const viewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(scopedFeed, nowMs);
-    const mergedTurns = mergeTranscriptAndLiveActivityTurns(
-      buildTranscriptActivityTurns(input.messages),
-      liveViewModel.turns,
-    );
     return {
       ...liveViewModel,
-      turns: addOptimisticThinkingTurn(
-        input.messages,
-        mergedTurns,
-        input.isLoading,
+      turns: mergeTranscriptAndLiveActivityTurns(
+        buildTranscriptActivityTurns(input.messages),
+        liveViewModel.turns,
       ),
     };
-  }, [input.isLoading, input.messages, nowMs, scopedFeed]);
+  }, [input.messages, nowMs, scopedFeed]);
 
   const activeTurnKey = viewModel.turns.find((turn) => turn.isActiveTurn)?.key;
   useEffect(() => {
@@ -54,10 +75,10 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   ]);
 
   useEffect(() => {
-    if (scopedFeed?.status !== "RUNNING") return;
+    if (!input.isLoading && scopedFeed?.status !== "RUNNING") return;
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1_000);
     return () => window.clearInterval(timerId);
-  }, [input.runId, scopedFeed?.status]);
+  }, [input.isLoading, input.runId, scopedFeed?.status]);
 
   const scrollSignal = useMemo(
     () =>
@@ -71,86 +92,4 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   );
 
   return { scopedFeed, viewModel, scrollSignal };
-}
-
-type ActivityTurn = ReturnType<
-  typeof buildActivityFeedViewModel
->["turns"][number];
-
-function addOptimisticThinkingTurn(
-  messages: Message[],
-  turns: ActivityTurn[],
-  isLoading: boolean,
-): ActivityTurn[] {
-  if (!isLoading) return turns;
-  const userMessage = findLatestUserMessage(messages);
-  if (!userMessage) return turns;
-  const existingIndex = findCurrentTurnIndex(turns, userMessage);
-  const existing = turns[existingIndex];
-  if (existing?.isActiveTurn && existing.hasVisibleRows) return turns;
-
-  const optimisticTurn = createOptimisticThinkingTurn(userMessage);
-  if (!existing) return [...turns, optimisticTurn];
-  const next = [...turns];
-  next[existingIndex] = existing.hasVisibleRows
-    ? mergeOptimisticThinking(existing, optimisticTurn)
-    : optimisticTurn;
-  return next;
-}
-
-function findCurrentTurnIndex(
-  turns: ActivityTurn[],
-  userMessage: Message,
-): number {
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    const turn = turns[index];
-    if (
-      turn?.key === userMessage.id ||
-      turn?.userPrompt?.trim() === userMessage.content.trim()
-    ) {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function findLatestUserMessage(messages: Message[]): Message | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === "user" && message.content.trim()) return message;
-  }
-  return null;
-}
-
-function createOptimisticThinkingTurn(message: Message): ActivityTurn {
-  return {
-    key: message.id,
-    userPrompt: message.content,
-    elapsedLabel: "Working for 1s",
-    summaryLabel: "Thinking",
-    defaultCollapsed: false,
-    isActiveTurn: true,
-    hasVisibleRows: true,
-    rows: [
-      {
-        kind: "reasoning",
-        key: `optimistic:${message.id}:thinking`,
-        label: "Thinking",
-        summary: "",
-        status: "active",
-      },
-    ],
-  };
-}
-
-function mergeOptimisticThinking(
-  existing: ActivityTurn,
-  optimistic: ActivityTurn,
-): ActivityTurn {
-  return {
-    ...existing,
-    defaultCollapsed: false,
-    isActiveTurn: true,
-    rows: [...existing.rows, ...optimistic.rows],
-  };
 }

@@ -148,6 +148,13 @@
       "when": 1782090100000,
       "tag": "0021_canonical_workspace_manifest",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782469500000,
+      "tag": "0022_canonical_run_id_text",
+      "breakpoints": true
     }
   ]
 }
