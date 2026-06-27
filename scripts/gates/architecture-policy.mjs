@@ -33,6 +33,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
     "@repo/persistence",
+    "@repo/platform-protocol",
     "@repo/provider-core",
     "@repo/runtime-kernel",
     "@repo/shared-types",
