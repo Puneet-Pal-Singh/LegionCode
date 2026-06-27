@@ -104,7 +104,6 @@ import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummar
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
 import {
   resolveGitTaskStrategyForRun,
-  restoreContinuationWorkspaceEditsIfNeeded,
 } from "./RunExecutionPreparationPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
@@ -581,11 +580,6 @@ export class RunEngine implements IRunEngine {
       this.agent instanceof BaseAgent
         ? this.agent.getRuntimeExecutionService()
         : undefined;
-    const restoredPersistedEditCount =
-      await restoreContinuationWorkspaceEditsIfNeeded(
-        run,
-        directExecutionService,
-      );
     const loopCallbacks = buildAgenticLoopCallbacks({
       run,
       directExecutionService,
@@ -610,7 +604,6 @@ export class RunEngine implements IRunEngine {
           return currentRun?.status === "CANCELLED";
         },
         executeTool: loopCallbacks.executeTool,
-        initialCompletedMutatingToolCount: restoredPersistedEditCount,
         modelId: input.modelId,
         providerId: input.providerId,
         runtimeModelId: input.runtimeModelId,

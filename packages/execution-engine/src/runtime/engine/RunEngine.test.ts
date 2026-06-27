@@ -3807,7 +3807,7 @@ describe("RunEngine", () => {
     ).toBe(false);
   });
 
-  it("restores persisted workspace edits when bootstrap had to recreate the repo", async () => {
+  it("does not replay persisted workspace edits when bootstrap recreates the repo", async () => {
     const state = new MockRuntimeState();
     const workspaceBootstrapper = {
       bootstrap: vi
@@ -3987,7 +3987,7 @@ describe("RunEngine", () => {
         payload?.path === "src/components/landing/hero/index.tsx" &&
         payload?.content === "export const hero = 'floating';\n",
     );
-    expect(restoredWrites).toHaveLength(2);
+    expect(restoredWrites).toHaveLength(1);
     expect(workspaceBootstrapper.bootstrap).toHaveBeenNthCalledWith(2, {
       runId: TEST_RUN_ID,
       mode: "mutation",
