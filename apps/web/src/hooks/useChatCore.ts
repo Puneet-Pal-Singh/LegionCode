@@ -674,8 +674,28 @@ function hasEquivalentUserMessage(messages: Message[], pending: Message): boolea
   return messages.some(
     (message) =>
       message.role === "user" &&
-      message.content.trim() === pendingContent,
+      extractMessageText(message.content).trim() === pendingContent,
   );
+}
+
+function extractMessageText(content: Message["content"]): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  const unknownContent: unknown = content;
+  if (!Array.isArray(unknownContent)) {
+    return "";
+  }
+  return unknownContent
+    .map((part) => {
+      if (!part || typeof part !== "object") {
+        return "";
+      }
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 function messageHasImageParts(message: ChatAppendMessage): boolean {

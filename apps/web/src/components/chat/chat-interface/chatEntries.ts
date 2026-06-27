@@ -88,6 +88,7 @@ function correlateActivityTurnsToMessages(
       turn.userMessage ? [turn.userMessage.id] : [],
     ),
   );
+  const latestUserMessageId = findLatestUserMessageId(conversationTurns);
   const promptQueues = buildPromptQueues(conversationTurns);
 
   for (const activityTurn of turns) {
@@ -98,6 +99,7 @@ function correlateActivityTurnsToMessages(
       activityTurn,
       userMessageIds,
       promptQueues,
+      latestUserMessageId,
     );
     if (!messageId) {
       if (logUnmatched) {
@@ -117,6 +119,7 @@ function resolveActivityTurnMessageId(
   activityTurn: ActivityTurnViewModel,
   userMessageIds: Set<string>,
   promptQueues: Map<string, string[]>,
+  latestUserMessageId: string | null,
 ): string | null {
   if (userMessageIds.has(activityTurn.key)) {
     return activityTurn.key;
@@ -130,6 +133,37 @@ function resolveActivityTurnMessageId(
     return promptMatch;
   }
 
+  if (isUnkeyedActiveThinkingTurn(activityTurn)) {
+    return latestUserMessageId;
+  }
+
+  return null;
+}
+
+function isUnkeyedActiveThinkingTurn(
+  activityTurn: ActivityTurnViewModel,
+): boolean {
+  return (
+    activityTurn.isActiveTurn &&
+    !activityTurn.userPrompt?.trim() &&
+    activityTurn.rows.length > 0 &&
+    activityTurn.rows.every(
+      (row) =>
+        row.kind === "reasoning" &&
+        row.status === "active" &&
+        row.label === "Thinking" &&
+        row.summary.trim() === "",
+    )
+  );
+}
+
+function findLatestUserMessageId(
+  conversationTurns: ReturnType<typeof buildConversationTurns>,
+): string | null {
+  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
+    const message = conversationTurns[index]?.userMessage;
+    if (message) return message.id;
+  }
   return null;
 }
 

@@ -5,7 +5,12 @@ import {
   buildTranscriptActivityTurns,
   mergeTranscriptAndLiveActivityTurns,
 } from "../../../services/activity/TranscriptActivityParts.js";
+import {
+  mergeActivitySnapshots,
+  projectRunEventsToActivitySnapshot,
+} from "../../../services/activity/RunEventActivitySnapshot.js";
 import type { useRunActivityFeed } from "../../../hooks/useRunActivityFeed.js";
+import type { useRunEvents } from "../../../hooks/useRunEvents.js";
 import { logClientEvent } from "../../../lib/client-logger.js";
 
 type ActivityFeed = ReturnType<typeof useRunActivityFeed>["feed"];
@@ -14,6 +19,7 @@ interface ActivityPresentationInput {
   runId: string;
   messages: Message[];
   feed: ActivityFeed;
+  events: ReturnType<typeof useRunEvents>["events"];
   isLoading: boolean;
 }
 
@@ -21,7 +27,27 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [optimisticStartedAtByMessageId, setOptimisticStartedAtByMessageId] =
     useState<Record<string, number>>({});
-  const scopedFeed = input.feed?.runId === input.runId ? input.feed : null;
+  const scopedPersistedFeed =
+    input.feed?.runId === input.runId ? input.feed : null;
+  const liveFeed = useMemo(
+    () =>
+      projectRunEventsToActivitySnapshot({
+        runId: input.runId,
+        events: input.events,
+        isActive: input.isLoading,
+        fallbackSessionId: scopedPersistedFeed?.sessionId,
+      }),
+    [
+      input.events,
+      input.isLoading,
+      input.runId,
+      scopedPersistedFeed?.sessionId,
+    ],
+  );
+  const scopedFeed = useMemo(
+    () => mergeActivitySnapshots(scopedPersistedFeed, liveFeed),
+    [liveFeed, scopedPersistedFeed],
+  );
   const viewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(scopedFeed, nowMs);
     const mergedTurns = mergeTranscriptAndLiveActivityTurns(

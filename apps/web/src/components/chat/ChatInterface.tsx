@@ -139,7 +139,7 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, activeRunLoading);
+  const { events } = useRunEvents(runId, Boolean(runId));
   const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
@@ -180,6 +180,7 @@ export function ChatInterface({
     runId,
     messages,
     feed,
+    events,
     isLoading: activeRunLoading,
   });
   const fallbackApproval = useMemo(() => {
