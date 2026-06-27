@@ -289,9 +289,9 @@ export function ChatInterface({
     hasStartedSession,
     lifecycleProjection,
   });
-  const showThinking = lifecycleProjection?.activeThinking
-    ? !activeInlineTurn
-    : activeRunLoading && !activeInlineTurn;
+  const showThinking = Boolean(
+    lifecycleProjection?.activeThinking && !activeInlineTurn,
+  );
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
       key={`activity:${turn.key}`}
