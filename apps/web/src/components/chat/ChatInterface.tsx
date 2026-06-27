@@ -37,6 +37,7 @@ import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { useActivityPresentation } from "./chat-interface/useActivityPresentation";
 import { usePlanModeController } from "./chat-interface/usePlanModeController";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
+import { derivePendingApprovalFromEvents } from "./chat-interface/approvals";
 
 // Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
@@ -139,18 +140,6 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, activeRunLoading);
-  const {
-    pendingApproval,
-    decisions: displayedApprovalDecisions,
-    busyDecision: approvalBusyDecision,
-    error: approvalError,
-    notice: approvalNoticeText,
-    isResolutionPending: isApprovalResolutionPending,
-    resolve: resolveApprovalDecision,
-  } = useApprovalController({
-    lifecycleProjection,
-    onPendingApprovalChange,
-  });
   const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
@@ -192,6 +181,34 @@ export function ChatInterface({
     messages,
     feed,
     isLoading: activeRunLoading,
+  });
+  const fallbackApproval = useMemo(() => {
+    if (summary?.pendingApproval) {
+      return summary.pendingApproval;
+    }
+    if (!isCanonicalRunActive && !activeRunLoading) {
+      return null;
+    }
+    return derivePendingApprovalFromEvents(events);
+  }, [
+    activeRunLoading,
+    events,
+    isCanonicalRunActive,
+    summary?.pendingApproval,
+  ]);
+  const {
+    pendingApproval,
+    decisions: displayedApprovalDecisions,
+    busyDecision: approvalBusyDecision,
+    error: approvalError,
+    notice: approvalNoticeText,
+    isResolutionPending: isApprovalResolutionPending,
+    resolve: resolveApprovalDecision,
+  } = useApprovalController({
+    runId,
+    lifecycleProjection,
+    fallbackApproval,
+    onPendingApprovalChange,
   });
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
@@ -246,16 +263,8 @@ export function ChatInterface({
     }
     void refreshSession();
   }, [recoveryAdvice.recoveryTarget, refreshSession]);
-  const visibleUserMessageIds = new Set(
-    conversationTurns.flatMap((turn) =>
-      turn.userMessage ? [turn.userMessage.id] : [],
-    ),
-  );
   const activeInlineTurn = activityViewModel.turns.find(
-    (turn) =>
-      visibleUserMessageIds.has(turn.key) &&
-      turn.hasVisibleRows &&
-      !turn.defaultCollapsed,
+    (turn) => turn.isActiveTurn && turn.hasVisibleRows,
   );
   const {
     chatEntries,
@@ -279,8 +288,8 @@ export function ChatInterface({
     hasStartedSession,
     lifecycleProjection,
   });
-  const showThinking = lifecycleProjection
-    ? lifecycleProjection.activeThinking
+  const showThinking = lifecycleProjection?.activeThinking
+    ? !activeInlineTurn
     : activeRunLoading && !activeInlineTurn;
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn

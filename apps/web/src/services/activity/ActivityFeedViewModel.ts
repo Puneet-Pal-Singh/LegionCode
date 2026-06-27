@@ -51,6 +51,7 @@ export interface ActivityApprovalRowViewModel {
   status: "requested" | "granted" | "denied" | "expired";
   summary: string;
   details?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ActivityHandoffRowViewModel {
@@ -375,9 +376,9 @@ function shouldRenderTrailingThinkingRow(
 ): row is ActivityReasoningRowViewModel {
   return Boolean(
     row &&
-      isTrailingThinkingIndicatorRow(row) &&
-      isActiveTurn &&
-      row.status === "active",
+    isTrailingThinkingIndicatorRow(row) &&
+    isActiveTurn &&
+    row.status === "active",
   );
 }
 
@@ -512,6 +513,7 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
         status: item.status,
         summary: item.summary,
         details: item.details,
+        metadata: readActivityPartMetadata(item),
       } satisfies ActivityApprovalRowViewModel;
     case ACTIVITY_PART_KINDS.HANDOFF:
       return {
@@ -522,6 +524,15 @@ function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
         status: item.status,
       } satisfies ActivityHandoffRowViewModel;
   }
+}
+
+function readActivityPartMetadata(
+  item: ActivityPart,
+): Record<string, unknown> | undefined {
+  const value = (item as { metadata?: unknown }).metadata;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function isSuppressedReasoning(

@@ -19,6 +19,8 @@ interface ActivityPresentationInput {
 
 export function useActivityPresentation(input: ActivityPresentationInput) {
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [optimisticStartedAtByMessageId, setOptimisticStartedAtByMessageId] =
+    useState<Record<string, number>>({});
   const scopedFeed = input.feed?.runId === input.runId ? input.feed : null;
   const viewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(scopedFeed, nowMs);
@@ -32,9 +34,17 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
         input.messages,
         mergedTurns,
         input.isLoading,
+        optimisticStartedAtByMessageId,
+        nowMs,
       ),
     };
-  }, [input.isLoading, input.messages, nowMs, scopedFeed]);
+  }, [
+    input.isLoading,
+    input.messages,
+    nowMs,
+    optimisticStartedAtByMessageId,
+    scopedFeed,
+  ]);
 
   const activeTurnKey = viewModel.turns.find((turn) => turn.isActiveTurn)?.key;
   useEffect(() => {
@@ -54,10 +64,20 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   ]);
 
   useEffect(() => {
-    if (scopedFeed?.status !== "RUNNING") return;
+    if (!input.isLoading && scopedFeed?.status !== "RUNNING") return;
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1_000);
     return () => window.clearInterval(timerId);
-  }, [input.runId, scopedFeed?.status]);
+  }, [input.isLoading, input.runId, scopedFeed?.status]);
+
+  useEffect(() => {
+    const latestUserMessage = findLatestUserMessage(input.messages);
+    if (!input.isLoading || !latestUserMessage) return;
+    setOptimisticStartedAtByMessageId((current) =>
+      current[latestUserMessage.id]
+        ? current
+        : { ...current, [latestUserMessage.id]: Date.now() },
+    );
+  }, [input.isLoading, input.messages]);
 
   const scrollSignal = useMemo(
     () =>
@@ -81,6 +101,8 @@ function addOptimisticThinkingTurn(
   messages: Message[],
   turns: ActivityTurn[],
   isLoading: boolean,
+  startedAtByMessageId: Record<string, number>,
+  nowMs: number,
 ): ActivityTurn[] {
   if (!isLoading) return turns;
   const userMessage = findLatestUserMessage(messages);
@@ -89,7 +111,11 @@ function addOptimisticThinkingTurn(
   const existing = turns[existingIndex];
   if (existing?.isActiveTurn && existing.hasVisibleRows) return turns;
 
-  const optimisticTurn = createOptimisticThinkingTurn(userMessage);
+  const optimisticTurn = createOptimisticThinkingTurn(
+    userMessage,
+    startedAtByMessageId[userMessage.id] ?? nowMs,
+    nowMs,
+  );
   if (!existing) return [...turns, optimisticTurn];
   const next = [...turns];
   next[existingIndex] = existing.hasVisibleRows
@@ -122,11 +148,15 @@ function findLatestUserMessage(messages: Message[]): Message | null {
   return null;
 }
 
-function createOptimisticThinkingTurn(message: Message): ActivityTurn {
+function createOptimisticThinkingTurn(
+  message: Message,
+  startedAtMs: number,
+  nowMs: number,
+): ActivityTurn {
   return {
     key: message.id,
     userPrompt: message.content,
-    elapsedLabel: "Working for 1s",
+    elapsedLabel: formatWorkingElapsed(startedAtMs, nowMs),
     summaryLabel: "Thinking",
     defaultCollapsed: false,
     isActiveTurn: true,
@@ -151,6 +181,26 @@ function mergeOptimisticThinking(
     ...existing,
     defaultCollapsed: false,
     isActiveTurn: true,
-    rows: [...existing.rows, ...optimistic.rows],
+    rows: existing.rows.some(isActiveThinkingRow)
+      ? existing.rows
+      : [...existing.rows, ...optimistic.rows],
   };
+}
+
+function isActiveThinkingRow(row: ActivityTurn["rows"][number]): boolean {
+  return (
+    row.kind === "reasoning" &&
+    row.status === "active" &&
+    row.label.trim() === "Thinking" &&
+    row.summary.trim() === ""
+  );
+}
+
+function formatWorkingElapsed(startedAtMs: number, nowMs: number): string {
+  const totalSeconds = Math.max(1, Math.floor((nowMs - startedAtMs) / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes === 0
+    ? `Working for ${seconds}s`
+    : `Working for ${minutes}m ${seconds}s`;
 }

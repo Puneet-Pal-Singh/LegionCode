@@ -89,7 +89,6 @@ function correlateActivityTurnsToMessages(
     ),
   );
   const promptQueues = buildPromptQueues(conversationTurns);
-  const latestUserMessageId = findLatestUserMessageId(conversationTurns);
 
   for (const activityTurn of turns) {
     if (!activityTurn?.hasVisibleRows) {
@@ -99,7 +98,6 @@ function correlateActivityTurnsToMessages(
       activityTurn,
       userMessageIds,
       promptQueues,
-      latestUserMessageId,
     );
     if (!messageId) {
       if (logUnmatched) {
@@ -119,19 +117,20 @@ function resolveActivityTurnMessageId(
   activityTurn: ActivityTurnViewModel,
   userMessageIds: Set<string>,
   promptQueues: Map<string, string[]>,
-  latestUserMessageId: string | null,
 ): string | null {
   if (userMessageIds.has(activityTurn.key)) {
     return activityTurn.key;
   }
 
   const promptKey = normalizePrompt(activityTurn.userPrompt);
-  const promptMatch = promptKey ? promptQueues.get(promptKey)?.shift() : undefined;
+  const promptMatch = promptKey
+    ? promptQueues.get(promptKey)?.shift()
+    : undefined;
   if (promptMatch) {
     return promptMatch;
   }
 
-  return activityTurn.isActiveTurn ? latestUserMessageId : null;
+  return null;
 }
 
 function buildPromptQueues(
@@ -152,20 +151,13 @@ function buildPromptQueues(
   return queues;
 }
 
-function findLatestUserMessageId(
-  conversationTurns: ReturnType<typeof buildConversationTurns>,
-): string | null {
-  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
-    const id = conversationTurns[index]?.userMessage?.id;
-    if (id) {
-      return id;
-    }
-  }
-  return null;
-}
-
 function normalizePrompt(value: string | null | undefined): string {
-  return value?.trim().replace(/\s+/g, " ") ?? "";
+  return (
+    value
+      ?.trim()
+      .replace(/@(?=\S)/g, "")
+      .replace(/\s+/g, " ") ?? ""
+  );
 }
 
 const unmatchedActivityWarningKeys = new Set<string>();
