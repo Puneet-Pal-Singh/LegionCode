@@ -195,7 +195,7 @@ export function ChatInterface({
     activeRunLoading,
     events,
     isCanonicalRunActive,
-    summary?.pendingApproval,
+    summary,
   ]);
   const {
     pendingApproval,
