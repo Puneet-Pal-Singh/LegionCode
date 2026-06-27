@@ -19,7 +19,6 @@ describe("useSidebarOrchestration", () => {
     const { result } = renderHook(() =>
       useSidebarOrchestration({
         activeRunId: "run-1",
-        sessionId: "session-1",
         status: null,
         repo: null,
         branch: "main",
@@ -52,7 +51,6 @@ describe("useSidebarOrchestration", () => {
     renderHook(() =>
       useSidebarOrchestration({
         activeRunId: "run-1",
-        sessionId: "session-1",
         status: null,
         repo: null,
         branch: "main",
