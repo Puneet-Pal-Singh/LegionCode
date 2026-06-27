@@ -143,7 +143,7 @@ describe("PostgresTranscriptRepository", () => {
 
     await repository.listTranscript({
       sessionId: "123e4567-e89b-42d3-a456-426614174000",
-      runId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "run_123e4567e89b42d3a456426614174001",
       userId: "123e4567-e89b-42d3-a456-426614174002",
     });
 
@@ -151,7 +151,7 @@ describe("PostgresTranscriptRepository", () => {
     expect(statement).toContain("JOIN sessions s2 ON s2.id = p2.session_id");
     expect(statement).toContain("AND p.session_id = $1");
     expect(statement).toContain(
-      "AND ($2::uuid IS NULL OR p.run_id = $2 OR m.run_id = $2)",
+      "AND ($2::text IS NULL OR p.run_id = $2 OR m.run_id = $2)",
     );
     expect(statement).toContain("AND ($5::uuid IS NULL OR s2.user_id = $5)");
   });

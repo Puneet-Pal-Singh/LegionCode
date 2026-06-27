@@ -123,12 +123,11 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     sessionId: string;
     status: SessionRecord["status"];
   }): Promise<SessionRecord | null> {
-    return await updateSessionWithClient(this.client, UPDATE_SESSION_STATUS_SQL, [
-      input.userId,
-      input.sessionId,
-      input.status,
-      this.clock.now(),
-    ]);
+    return await updateSessionWithClient(
+      this.client,
+      UPDATE_SESSION_STATUS_SQL,
+      [input.userId, input.sessionId, input.status, this.clock.now()],
+    );
   }
 
   async renameSessionTitle(input: {
@@ -900,7 +899,7 @@ const LIST_TRANSCRIPT_SQL = `
     JOIN message_parts p2 ON p2.message_id = m2.id
     JOIN sessions s2 ON s2.id = p2.session_id
     WHERE p2.session_id = $1
-      AND ($2::uuid IS NULL OR p2.run_id = $2 OR m2.run_id = $2)
+      AND ($2::text IS NULL OR p2.run_id = $2 OR m2.run_id = $2)
       AND p2.session_sequence > $3
       AND ($5::uuid IS NULL OR s2.user_id = $5)
     GROUP BY m2.id
@@ -908,7 +907,7 @@ const LIST_TRANSCRIPT_SQL = `
     LIMIT $4
   )
     AND p.session_id = $1
-    AND ($2::uuid IS NULL OR p.run_id = $2 OR m.run_id = $2)
+    AND ($2::text IS NULL OR p.run_id = $2 OR m.run_id = $2)
     AND ($5::uuid IS NULL OR s.user_id = $5)
   ORDER BY p.session_sequence ASC, p.id ASC
 `;
