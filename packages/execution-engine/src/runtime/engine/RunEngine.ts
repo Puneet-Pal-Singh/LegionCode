@@ -848,7 +848,6 @@ export class RunEngine implements IRunEngine {
           runRepo: this.runRepo,
           createFreshRun: this.createFreshRun.bind(this),
         });
-        await this.runEventRecorder.clear();
         return resetRun;
       }
 

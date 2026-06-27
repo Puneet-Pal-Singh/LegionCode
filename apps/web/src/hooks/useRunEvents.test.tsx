@@ -185,6 +185,56 @@ describe("useRunEvents", () => {
     }
   });
 
+  it("reopens a completed stream when the same run starts another turn", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        const streamCalls = fetchSpy.mock.calls.filter(([callInput]) =>
+          String(callInput).includes("/stream?"),
+        ).length;
+        if (url.includes("/stream?")) {
+          return streamCalls === 1
+            ? createStreamResponse(createRunCompletedEvent("run-reused"))
+            : createStreamResponse(
+                createMessageEvent("run-reused", "evt-second-turn", "Started"),
+              );
+        }
+
+        return createEventsResponse();
+      });
+
+    const { result } = renderHook(() => useRunEvents("run-reused", true));
+
+    await waitFor(() => {
+      expect(result.current.events.some(isRunCompletedEvent)).toBe(true);
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-reused" },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        fetchSpy.mock.calls.filter(([input]) =>
+          String(input).includes("/stream?"),
+        ),
+      ).toHaveLength(2);
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.events.some(
+          (event) => event.eventId === "evt-second-turn",
+        ),
+      ).toBe(true);
+    });
+  });
+
   it("retries after Brain reports the run missing before it is created", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -266,6 +316,27 @@ function createMessageEvent(runId: string, eventId: string, content: string) {
       role: "assistant",
     },
   };
+}
+
+function createRunCompletedEvent(runId: string) {
+  return {
+    version: 1,
+    eventId: "evt-run-completed",
+    runId,
+    sessionId: "session-1",
+    timestamp: "2026-03-24T00:00:01.000Z",
+    source: "brain",
+    type: RUN_EVENT_TYPES.RUN_COMPLETED,
+    payload: {
+      status: "complete",
+      totalDurationMs: 1_000,
+      toolsUsed: 0,
+    },
+  };
+}
+
+function isRunCompletedEvent(event: { type: string }): boolean {
+  return event.type === RUN_EVENT_TYPES.RUN_COMPLETED;
 }
 
 function setVisibilityState(state: DocumentVisibilityState): void {

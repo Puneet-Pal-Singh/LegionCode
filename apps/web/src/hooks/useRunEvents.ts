@@ -1,4 +1,8 @@
-import { safeParseRunEvent, type RunEvent } from "@repo/shared-types";
+import {
+  RUN_EVENT_TYPES,
+  safeParseRunEvent,
+  type RunEvent,
+} from "@repo/shared-types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import {
@@ -30,6 +34,7 @@ export function useRunEvents(
   const requestIdRef = useRef(0);
   const activeRunIdRef = useRef(runId);
   const missedRefreshRef = useRef(false);
+  const eventsRef = useRef<RunEvent[]>([]);
   const lastErrorLogRef = useRef<{
     timestamp: number;
     message: string;
@@ -95,6 +100,7 @@ export function useRunEvents(
 
   useEffect(() => {
     activeRunIdRef.current = runId;
+    eventsRef.current = [];
     inFlightRef.current = false;
     lastFetchAtRef.current = 0;
     requestIdRef.current += 1;
@@ -109,6 +115,10 @@ export function useRunEvents(
     setEvents([]);
     void fetchEvents({ force: true });
   }, [fetchEvents, runId]);
+
+  useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
 
   useEffect(() => {
     if (!runId || !shouldStream) {
@@ -133,7 +143,7 @@ export function useRunEvents(
   }, [fetchEvents, runId, shouldStream, streamRetryVersion]);
 
   useEffect(() => {
-    if (!runId || shouldStream) {
+    if (!runId) {
       return;
     }
 
@@ -147,6 +157,9 @@ export function useRunEvents(
         return;
       }
       void fetchEvents({ force: true });
+      if (shouldStream && hasTerminalLatestRunEvent(eventsRef.current)) {
+        setStreamRetryVersion((version) => version + 1);
+      }
     };
 
     const handleVisibilityChange = () => {
@@ -166,6 +179,14 @@ export function useRunEvents(
   }, [fetchEvents, runId, shouldStream]);
 
   return { events };
+}
+
+function hasTerminalLatestRunEvent(events: readonly RunEvent[]): boolean {
+  const latestEvent = events.at(-1);
+  return (
+    latestEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+    latestEvent?.type === RUN_EVENT_TYPES.RUN_FAILED
+  );
 }
 
 interface RunEventStreamConnection {

@@ -4296,7 +4296,7 @@ describe("RunEngine", () => {
     expect(resetRun.metadata.manifest?.modelId).toBe("llama-3.3-70b-versatile");
   });
 
-  it("clears prior run events when recycling a terminal run", async () => {
+  it("preserves prior run events when recycling a terminal run", async () => {
     const state = new MockRuntimeState();
     const runEngine = createRunEngineForRun({ state });
     const privateApi = runEngine as unknown as {
@@ -4355,7 +4355,13 @@ describe("RunEngine", () => {
     );
 
     const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    const [event] = events;
+    expect(event?.type).toBe(RUN_EVENT_TYPES.MESSAGE_EMITTED);
+    if (event?.type !== RUN_EVENT_TYPES.MESSAGE_EMITTED) {
+      throw new Error("Expected recycled run to preserve message event");
+    }
+    expect(event.payload.content).toBe("First run output");
   });
 
   it("restores tasks if recyclable-run reset fails after deleting tasks", async () => {
