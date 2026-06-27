@@ -13,7 +13,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-SCARY_OUTPUT_PATTERN='Memory subsystem operation failed|invalid canonical id|missing checkpoint|duplicate user prompt|terminal turn with active thinking|approval stuck|tool timeout without typed failure|read/grep unavailable|fallback path usage|non-canonical run id'
+SCARY_OUTPUT_PATTERN='Memory subsystem operation failed|invalid canonical id|missing checkpoint|duplicate user prompt|terminal turn with active thinking|approval stuck|tool timeout without typed failure|read/grep unavailable|fallback path usage|non-canonical run id|Restoring [0-9]+ persisted edit'
 PNPM_SHIM_DIR="$(mktemp -d)"
 
 cleanup() {

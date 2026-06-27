@@ -165,7 +165,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "packages/execution-engine/src/runtime/engine/RunEngine.test.ts",
-        "restores persisted workspace edits when bootstrap had to recreate the repo",
+        "does not replay persisted workspace edits when bootstrap recreates the repo",
       ],
       [
         "packages/execution-engine/tests/integration/artifact-store.test.ts",
@@ -181,7 +181,7 @@ const CAPABILITIES = [
         "--",
         "src/runtime/engine/RunEngine.test.ts",
         "-t",
-        "restores persisted workspace edits when bootstrap had to recreate the repo",
+        "does not replay persisted workspace edits when bootstrap recreates the repo",
       ],
       [
         "pnpm",
