@@ -287,14 +287,22 @@ function selectCapabilities(requested) {
 }
 
 function runCommand(command) {
-  console.log(`[capability-preservation] ${command.join(" ")}`);
-  const result = spawnSync(command[0], command.slice(1), {
+  const normalizedCommand = normalizePackageManagerCommand(command);
+  console.log(`[capability-preservation] ${normalizedCommand.join(" ")}`);
+  const result = spawnSync(normalizedCommand[0], normalizedCommand.slice(1), {
     stdio: "inherit",
     shell: false,
   });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function normalizePackageManagerCommand(command) {
+  if (command[0] !== "pnpm") {
+    return command;
+  }
+  return ["corepack", "pnpm", ...command.slice(1)];
 }
 
 validateRegistry();
