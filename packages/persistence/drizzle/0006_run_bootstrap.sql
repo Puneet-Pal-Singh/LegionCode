@@ -1,6 +1,6 @@
 CREATE TABLE "run_events" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"run_id" uuid NOT NULL,
+	"run_id" text NOT NULL,
 	"session_id" uuid NOT NULL,
 	"event_type" text NOT NULL,
 	"payload_json" jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE "run_events" (
 --> statement-breakpoint
 CREATE TABLE "run_steps" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"run_id" uuid NOT NULL,
+	"run_id" text NOT NULL,
 	"step_index" integer NOT NULL,
 	"step_type" text NOT NULL,
 	"status" text DEFAULT 'pending' NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE "run_steps" (
 );
 --> statement-breakpoint
 CREATE TABLE "runs" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" text PRIMARY KEY NOT NULL,
 	"user_id" uuid NOT NULL,
 	"workspace_id" uuid,
 	"session_id" uuid NOT NULL,

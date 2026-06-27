@@ -13,7 +13,7 @@ export const runBootstrapMigration: SqlMigration = {
   statements: [
     `
       CREATE TABLE IF NOT EXISTS runs (
-        id UUID PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -53,7 +53,7 @@ export const runBootstrapMigration: SqlMigration = {
     `
       CREATE TABLE IF NOT EXISTS run_steps (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
         step_index INTEGER NOT NULL,
         step_type TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -73,7 +73,7 @@ export const runBootstrapMigration: SqlMigration = {
     `
       CREATE TABLE IF NOT EXISTS run_events (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        run_id UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
         event_type TEXT NOT NULL,
         payload_json JSONB NOT NULL DEFAULT '{}',

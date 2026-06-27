@@ -138,7 +138,7 @@ export class PersistenceService {
       repository.transaction(async (txRepository) => {
         const event = await txRepository.appendEvent(input.event);
         if (input.step) {
-          await txRepository.upsertStep(input.step);
+          await txRepository.upsertStep(resolveRunStepIndex(input.step, event));
         }
         if (statusUpdate) {
           await txRepository.updateRunStatus(statusUpdate);
@@ -385,6 +385,19 @@ export class PersistenceService {
       content,
     );
   }
+}
+
+function resolveRunStepIndex(
+  step: UpsertRunStepInput,
+  event: RunEventRecord,
+): UpsertRunStepInput {
+  if (step.stepIndex > 0) {
+    return step;
+  }
+  return {
+    ...step,
+    stepIndex: event.sequence,
+  };
 }
 
 function mapRunStatusToSessionStatus(status: RunStatus): SessionStatus {
