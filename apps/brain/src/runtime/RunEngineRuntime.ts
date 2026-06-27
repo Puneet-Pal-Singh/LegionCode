@@ -70,22 +70,14 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return requestHandler.handleExecuteRequest(request, async (result) => {
-        try {
-          return await persistAssistantMessageFromRunResponse(
-            this.ctx,
-            this.env as Env,
-            result.sessionId,
-            result.runId,
-            result.correlationId,
-            result.response,
-          );
-        } catch (error) {
-          console.warn(
-            `[run/engine-runtime] ${result.correlationId}: Failed to persist assistant message`,
-            error,
-          );
-          return null;
-        }
+        return await persistAssistantMessageFromRunResponse(
+          this.ctx,
+          this.env as Env,
+          result.sessionId,
+          result.runId,
+          result.correlationId,
+          result.response,
+        );
       });
     }
 
