@@ -1002,7 +1002,7 @@ export class RunEngine implements IRunEngine {
 
   private async safeMemoryOperation<T>(
     operation: () => Promise<T>,
-  ): Promise<T | undefined> {
+  ): Promise<T> {
     return safeMemoryOperationPolicy(operation);
   }
   async getCostSnapshot(runId: string): Promise<CostSnapshot> {

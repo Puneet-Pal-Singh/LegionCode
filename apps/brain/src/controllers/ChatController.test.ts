@@ -6,7 +6,7 @@ import {
 import { ChatController } from "./ChatController";
 import type { Env } from "../types/ai";
 
-const VALID_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+const VALID_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
 const TEST_WORKSPACE_ID = "default";
 const mockCloudflareAgentExecute = vi.fn();

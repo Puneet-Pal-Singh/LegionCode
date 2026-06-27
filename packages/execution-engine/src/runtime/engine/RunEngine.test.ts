@@ -23,7 +23,7 @@ import {
 } from "../llm/LLMGateway.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 
-const TEST_RUN_ID = "f462a003-5c36-4c86-a95d-367b92bf46c9";
+const TEST_RUN_ID = "run_f462a0035c364c86a95d367b92bf46c9";
 
 describe("RunEngine", () => {
   it("answers ordinary chat with the model without workspace execution", async () => {
@@ -1436,7 +1436,7 @@ describe("RunEngine", () => {
 
   it("records interrupted terminal summary message on cancel when contract is enabled", async () => {
     const state = new MockRuntimeState();
-    const runId = "f462a003-5c36-4c86-a95d-367b92bf4701";
+    const runId = "run_f462a0035c364c86a95d367b92bf4701";
     const runtimeRunRepo = new RunRepository(state);
     await runtimeRunRepo.create(
       new Run(runId, "session-1", "RUNNING", "coding", {
@@ -1479,7 +1479,7 @@ describe("RunEngine", () => {
 
   it("does not cancel a paused terminal run", async () => {
     const state = new MockRuntimeState();
-    const runId = "f462a003-5c36-4c86-a95d-367b92bf4702";
+    const runId = "run_f462a0035c364c86a95d367b92bf4702";
     const runtimeRunRepo = new RunRepository(state);
     await runtimeRunRepo.create(
       new Run(runId, "session-1", "PAUSED", "coding", {
@@ -4104,7 +4104,7 @@ describe("RunEngine", () => {
         privateApi.runEventRecorder,
       );
 
-    const run = new Run("run-created", "session-1", "CREATED", "coding", {
+    const run = new Run("run_created000001", "session-1", "CREATED", "coding", {
       agentType: "coding",
       prompt: "check repo",
       sessionId: "session-1",
@@ -4112,7 +4112,7 @@ describe("RunEngine", () => {
     await privateApi.runRepo.create(run);
     vi.spyOn(privateApi.runRepo, "update").mockImplementation(
       async (nextRun) => {
-        if (nextRun.id === "run-created" && nextRun.status === "FAILED") {
+        if (nextRun.id === "run_created000001" && nextRun.status === "FAILED") {
           callOrder.push("update");
         }
         return originalUpdate(nextRun);
@@ -4125,9 +4125,9 @@ describe("RunEngine", () => {
       },
     );
 
-    await privateApi.handleExecutionError("run-created", new Error("boom"));
+    await privateApi.handleExecutionError("run_created000001", new Error("boom"));
 
-    const persisted = await privateApi.runRepo.getById("run-created");
+    const persisted = await privateApi.runRepo.getById("run_created000001");
     expect(persisted?.status).toBe("FAILED");
     expect(persisted?.metadata.error).toBe("boom");
     expect(callOrder).toEqual(["update", "failed"]);
@@ -4666,9 +4666,9 @@ describe("RunEngine", () => {
   it("maintains isolated lifecycle/telemetry state across a run matrix", async () => {
     const state = new MockRuntimeState();
     const runIds = [
-      "33333333-3333-4333-8333-333333333333",
-      "44444444-4444-4444-8444-444444444444",
-      "55555555-5555-4555-8555-555555555555",
+      "run_33333333333343338333333333333333",
+      "run_44444444444444448444444444444444",
+      "run_55555555555545558555555555555555",
     ];
     const sessionIds = [
       "session-matrix-a",
@@ -4733,7 +4733,7 @@ describe("RunEngine", () => {
     };
 
     const message = await privateApi.getWorkspaceBootstrapMessage(
-      "run-1",
+      "run_100000",
       "check the repository status",
       {
         owner: "sourcegraph",

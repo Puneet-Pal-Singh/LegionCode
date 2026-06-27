@@ -18,7 +18,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-1",
+      runId: "run_100001",
       mode: "git_write",
       repositoryContext: { owner: "", repo: "" },
     });
@@ -40,7 +40,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-1",
+      runId: "run_100001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -81,7 +81,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-retry-status",
+      runId: "run_retrystatus001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -117,7 +117,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-retry-local-dev-session",
+      runId: "run_retrylocaldev001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -153,7 +153,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-sync-failed-local-dev-session",
+      runId: "run_syncfailed001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -177,7 +177,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-1",
+      runId: "run_100001",
       mode: "git_write",
       repositoryContext: {
         owner: "private",
@@ -198,12 +198,12 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({
         success: false,
         error:
-          "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
+          "fatal: destination path '/home/sandbox/runs/run_100001' already exists and is not an empty directory.",
       });
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-1",
+      runId: "run_100001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -231,12 +231,12 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({
         success: false,
         error:
-          "fatal: destination path '/home/sandbox/runs/run-1' already exists and is not an empty directory.",
+          "fatal: destination path '/home/sandbox/runs/run_100001' already exists and is not an empty directory.",
       });
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-1",
+      runId: "run_100001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -270,7 +270,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-1",
+      runId: "run_100001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -302,7 +302,7 @@ describe("WorkspaceBootstrapService", () => {
       }); // second status
     const service = new WorkspaceBootstrapService({ execute }, 60_000);
     const request = {
-      runId: "run-cache-test",
+      runId: "run_cachetest001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -350,7 +350,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({ success: true }); // switch after clone
     const service = new WorkspaceBootstrapService({ execute }, 60_000);
     const request = {
-      runId: "run-cache-revalidates-repo",
+      runId: "run_cacherevalidates001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -394,7 +394,7 @@ describe("WorkspaceBootstrapService", () => {
     );
     const service = new WorkspaceBootstrapService({ execute }, 0);
     const request = {
-      runId: "run-concurrent-collapse",
+      runId: "run_concurrentcollapse001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -454,7 +454,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const mutationBootstrap = service.bootstrap({
-      runId: "run-mode-split",
+      runId: "run_modesplit001",
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
@@ -463,7 +463,7 @@ describe("WorkspaceBootstrapService", () => {
       },
     });
     const gitWriteBootstrap = service.bootstrap({
-      runId: "run-mode-split",
+      runId: "run_modesplit001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -527,7 +527,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const explicitMain = service.bootstrap({
-      runId: "run-implicit-main",
+      runId: "run_implicitmain001",
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
@@ -536,7 +536,7 @@ describe("WorkspaceBootstrapService", () => {
       },
     });
     const implicitMain = service.bootstrap({
-      runId: "run-implicit-main",
+      runId: "run_implicitmain001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -581,7 +581,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const mutationRequest = {
-      runId: "run-mixed-key",
+      runId: "run_mixedkey001",
       mode: "mutation",
       repositoryContext: {
         owner: "sourcegraph",
@@ -590,7 +590,7 @@ describe("WorkspaceBootstrapService", () => {
       },
     } as const;
     const gitWriteRequest = {
-      runId: "run-mixed-key",
+      runId: "run_mixedkey001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -640,7 +640,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-dirty",
+      runId: "run_dirty001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -671,7 +671,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-branch-mismatch",
+      runId: "run_branchmismatch001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -693,7 +693,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-invalid-status",
+      runId: "run_invalidstatus001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -714,7 +714,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-invalid-object-status",
+      runId: "run_invalidobjectstatus001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
@@ -758,7 +758,7 @@ describe("WorkspaceBootstrapService", () => {
     const service = new WorkspaceBootstrapService({ execute }, 0);
 
     const result = await service.bootstrap({
-      runId: "run-repo-mismatch",
+      runId: "run_repomismatch001",
       mode: "git_write",
       repositoryContext: {
         owner: "sourcegraph",
