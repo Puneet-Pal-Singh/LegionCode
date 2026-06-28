@@ -1,5 +1,4 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
-import type { CoreMessage } from "ai";
 import {
   ProductModeSchema,
   RunModeSchema,
@@ -22,7 +21,6 @@ import {
 import {
   isDomainError,
   mapDomainErrorToHttp,
-  ValidationError,
 } from "../domain/errors";
 import {
   extractIdentifiers,
@@ -37,6 +35,7 @@ import {
 } from "./chat-runtime-helpers";
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { errorMessageKey } from "../lib/error-message-key";
 import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
@@ -44,6 +43,10 @@ import {
   validateChatImageInput,
   type ChatImageInputState,
 } from "../services/chat/ChatImageInputPolicy";
+import {
+  applySubmittedClientMessageId,
+  summarizeCoreMessages,
+} from "../services/chat/SubmittedClientMessagePolicy";
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
@@ -343,78 +346,4 @@ export class ChatController {
     }
   }
 
-}
-
-function applySubmittedClientMessageId(
-  messages: CoreMessage[],
-  clientMessageId: string | undefined,
-  correlationId: string,
-): CoreMessage[] {
-  if (!clientMessageId) {
-    return messages;
-  }
-
-  const latestUserIndex = findLatestUserMessageIndex(messages);
-  if (latestUserIndex === -1) {
-    return messages;
-  }
-
-  const latestUserMessage = messages[latestUserIndex];
-  if (!latestUserMessage) {
-    return messages;
-  }
-  const existingId = readMessageId(latestUserMessage);
-  if (existingId && existingId !== clientMessageId) {
-    throw new ValidationError(
-      "Submitted client message id does not match the latest user message id",
-      "CLIENT_MESSAGE_ID_MISMATCH",
-      correlationId,
-    );
-  }
-  if (existingId === clientMessageId) {
-    return messages;
-  }
-
-  return messages.map((message, index) =>
-    index === latestUserIndex
-      ? attachClientMessageId(message, clientMessageId)
-      : message,
-  );
-}
-
-function findLatestUserMessageIndex(messages: CoreMessage[]): number {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === "user") {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function summarizeCoreMessages(messages: CoreMessage[]): string {
-  return messages
-    .map((message) => `${message.role}:${readMessageId(message) ?? "missing"}`)
-    .join(",");
-}
-
-function readMessageId(message: CoreMessage): string | null {
-  const candidate = message as { id?: unknown };
-  return typeof candidate.id === "string" ? candidate.id : null;
-}
-
-function attachClientMessageId(
-  message: CoreMessage,
-  clientMessageId: string,
-): CoreMessage {
-  return {
-    ...(message as object),
-    id: clientMessageId,
-  } as unknown as CoreMessage;
-}
-
-function errorMessageKey(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  return "internal-server-error";
 }
