@@ -110,11 +110,72 @@ export function projectRunActivityFeed(
   return {
     runId,
     sessionId: run?.sessionId,
-    status: run?.status ?? null,
+    status: resolveActivityFeedStatus(events, run?.status ?? null),
     items: items.sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     ),
   };
+}
+
+function resolveActivityFeedStatus(
+  events: RunEvent[],
+  fallbackStatus: string | null,
+): ActivityFeedSnapshot["status"] {
+  const latestLifecycleEvent = [...events]
+    .reverse()
+    .find(isRunLifecycleEvent);
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+    return "COMPLETED";
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_FAILED) {
+    return "FAILED";
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED) {
+    return mapCanonicalRunStatus(latestLifecycleEvent.payload.newStatus);
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
+    return "RUNNING";
+  }
+  if (events.some(isOpenActivityEvent)) {
+    return "RUNNING";
+  }
+  return fallbackStatus;
+}
+
+function isRunLifecycleEvent(event: RunEvent): boolean {
+  return (
+    event.type === RUN_EVENT_TYPES.RUN_STARTED ||
+    event.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED ||
+    event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+    event.type === RUN_EVENT_TYPES.RUN_FAILED
+  );
+}
+
+function isOpenActivityEvent(event: RunEvent): boolean {
+  return (
+    event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED ||
+    event.type === RUN_EVENT_TYPES.RUN_PROGRESS ||
+    event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
+    event.type === RUN_EVENT_TYPES.TOOL_REQUESTED ||
+    event.type === RUN_EVENT_TYPES.TOOL_STARTED ||
+    event.type === RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED
+  );
+}
+
+function mapCanonicalRunStatus(status: string): ActivityFeedSnapshot["status"] {
+  switch (status) {
+    case "complete":
+      return "COMPLETED";
+    case "failed":
+      return "FAILED";
+    case "queued":
+    case "running":
+    case "waiting":
+    case "paused":
+      return "RUNNING";
+    default:
+      return null;
+  }
 }
 
 function updateTurnId(

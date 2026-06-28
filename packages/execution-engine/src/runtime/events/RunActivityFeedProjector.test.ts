@@ -33,6 +33,62 @@ describe("RunActivityFeedProjector", () => {
     ]);
   });
 
+  it("marks activity running when canonical progress exists before the run row catches up", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "CREATED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.RUN_STARTED, {
+          status: "running",
+        }),
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("RUNNING");
+  });
+
+  it("lets terminal canonical events override stale non-terminal run rows", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "RUNNING",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_COMPLETED, {
+          status: "complete",
+          totalDurationMs: 100,
+          toolsUsed: 0,
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("COMPLETED");
+  });
+
   it("projects reasoning, shell tool, and approval activity parts", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
