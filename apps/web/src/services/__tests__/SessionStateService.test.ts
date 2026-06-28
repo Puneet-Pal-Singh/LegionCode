@@ -18,6 +18,7 @@ describe("SessionStateService", () => {
 
   afterEach(() => {
     localStorage.clear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -43,9 +44,14 @@ describe("SessionStateService", () => {
     });
 
     it("should handle corrupted localStorage gracefully", () => {
+      const errorSpy = silenceConsoleError();
       localStorage.setItem("shadowbox:sessions:v3", "invalid json");
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[SessionStateService] Failed to load sessions:"),
+        expect.any(SyntaxError),
+      );
     });
 
     it("normalizes legacy error sessions to failed", () => {
@@ -71,6 +77,7 @@ describe("SessionStateService", () => {
     });
 
     it("rejects sessions with unknown persisted statuses", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
 
       localStorage.setItem(
@@ -90,11 +97,18 @@ describe("SessionStateService", () => {
 
       const loaded = SessionStateService.loadSessions();
       expect(loaded[session.id]).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["status"]),
+      );
     });
   });
 
   describe("Server Session Hydration", () => {
     it("hydrates canonical sessions from Brain", async () => {
+      const warnSpy = silenceConsoleWarn();
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
@@ -124,6 +138,10 @@ describe("SessionStateService", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/api/sessions"),
         { credentials: "include" },
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[platform-endpoints] VITE_BRAIN_BASE_URL not set, using default:",
+        "http://localhost:8788",
       );
     });
 
@@ -238,11 +256,16 @@ describe("SessionStateService", () => {
     });
 
     it("should not save non-existent session as active", () => {
+      const warnSpy = silenceConsoleWarn();
       const sessions = {};
       SessionStateService.saveActiveSessionId("non-existent", sessions);
 
       const loaded = SessionStateService.loadActiveSessionId();
       expect(loaded).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Attempted to set non-existent session as active:",
+        "non-existent",
+      );
     });
 
     it("should clear active session ID when null", () => {
@@ -579,33 +602,61 @@ describe("SessionStateService", () => {
     });
 
     it("should reject session with missing id", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = { ...session, id: "" };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        "",
+        "Failed checks:",
+        expect.arrayContaining(["id"]),
+      );
     });
 
     it("should reject session with activeRunId not in runIds", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = { ...session, activeRunId: "unknown-run" };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["activeRunId", "activeRunId-in-runIds"]),
+      );
     });
 
     it("should reject session with invalid status", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = {
         ...session,
         status: "invalid" as unknown as AgentSession["status"],
       };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["status"]),
+      );
     });
 
     it("should reject session with non-array runIds", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = {
         ...session,
         runIds: "not an array" as unknown as string[],
       };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["runIds", "activeRunId-in-runIds"]),
+      );
     });
   });
 
@@ -670,4 +721,12 @@ function createServerSession(title: string) {
     createdAt: "2026-05-14T00:00:00.000Z",
     updatedAt: "2026-05-15T00:00:00.000Z",
   };
+}
+
+function silenceConsoleWarn() {
+  return vi.spyOn(console, "warn").mockImplementation(() => undefined);
+}
+
+function silenceConsoleError() {
+  return vi.spyOn(console, "error").mockImplementation(() => undefined);
 }

@@ -75,6 +75,9 @@ describe("useRunEvents", () => {
   });
 
   it("drops parsed events that belong to a different runId", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       createEventsJsonResponse(
         createMessageEvent("run-other", "evt-other", "Wrong run"),
@@ -89,6 +92,9 @@ describe("useRunEvents", () => {
     });
 
     expect(result.current.events[0]?.eventId).toBe("evt-current");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[run/events] dropped event for mismatched runId=run-other; active runId=run-current",
+    );
   });
 
   it("catches up hidden-tab refreshes when the document becomes visible again", async () => {

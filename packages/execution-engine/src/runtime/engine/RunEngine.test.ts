@@ -1219,23 +1219,36 @@ describe("RunEngine", () => {
       { llmGateway },
     );
 
-    const response = await runEngine.execute(
-      {
-        agentType: "coding",
-        prompt: "run tests",
-        sessionId: "session-1",
-      },
-      [{ role: "user", content: "run tests" }],
-      {},
-    );
+    const toolErrorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    expect(response.status).toBe(200);
-    const text = await response.text();
-    expect(text).toContain(
-      "Outcome: I could not finish because a required tool step failed.",
-    );
-    expect(text).toContain("What happened:");
-    expect(text).toContain("What you can do next:");
+    try {
+      const response = await runEngine.execute(
+        {
+          agentType: "coding",
+          prompt: "run tests",
+          sessionId: "session-1",
+        },
+        [{ role: "user", content: "run tests" }],
+        {},
+      );
+
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).toContain(
+        "Outcome: I could not finish because a required tool step failed.",
+      );
+      expect(text).toContain("What happened:");
+      expect(text).toContain("What you can do next:");
+      expect(toolErrorLog).toHaveBeenCalledTimes(1);
+      expect(toolErrorLog).toHaveBeenCalledWith(
+        expect.stringContaining('"status":"threw"'),
+      );
+      expect(toolErrorLog).toHaveBeenCalledWith(
+        expect.stringContaining('"errorName":"PermissionGateError"'),
+      );
+    } finally {
+      toolErrorLog.mockRestore();
+    }
 
     const persisted = await new RunRepository(state).getById(TEST_RUN_ID);
     expect(persisted?.metadata.terminalState).toBe("failed_tool");

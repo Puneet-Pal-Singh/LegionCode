@@ -37,6 +37,9 @@ describe("useChatPersistence", () => {
   });
 
   it("retries a pending query restore after retryable append failure", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     localStorage.setItem("shadowbox:pending-query:session-1", "retry me");
     const append = vi
       .fn<[{ role: "user"; content: string }], Promise<void>>()
@@ -65,6 +68,10 @@ describe("useChatPersistence", () => {
       expect(append).toHaveBeenCalledTimes(2);
     }, { timeout: 1500 });
     expect(localStorage.getItem("shadowbox:pending-query:session-1")).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[useChatPersistence] Failed to restore pending query",
+      expect.objectContaining({ message: "HTTP 503" }),
+    );
   });
 
   it("syncs empty message arrays to clear stale agent store entries", async () => {
