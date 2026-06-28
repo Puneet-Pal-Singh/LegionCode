@@ -152,6 +152,7 @@ export class ChatHydrationService {
       const errorPreview = await readResponsePreview(res);
       logClientWarning("chat/history", "page-failed", {
         requestId: pageRequestId,
+        sessionId,
         runId,
         status: res.status,
         statusText: res.statusText,
@@ -175,6 +176,7 @@ export class ChatHydrationService {
       const paginatedResponse = data as PaginatedHistoryResponse;
       logClientEvent("chat/history", "page-received", {
         requestId: pageRequestId,
+        sessionId,
         runId,
         messageCount: paginatedResponse.messages.length,
         messageIds: summarizeServerMessages(paginatedResponse.messages),
@@ -188,6 +190,7 @@ export class ChatHydrationService {
 
     logClientWarning("chat/history", "page-invalid", {
       requestId: pageRequestId,
+      sessionId,
       runId,
       payloadType: typeof data,
     });

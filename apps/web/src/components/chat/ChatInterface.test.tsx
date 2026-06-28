@@ -1311,6 +1311,7 @@ describe("ChatInterface", () => {
   });
 
   it("does not render legacy run-event approvals without canonical projection", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const staleApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested",
@@ -1350,29 +1351,37 @@ describe("ChatInterface", () => {
       events: [staleApprovalEvent],
     });
 
-    render(
-      <ChatInterface
-        chatProps={{
-          messages: [],
-          runId: "run-no-pending",
-          input: "",
-          handleInputChange: vi.fn(),
-          handleSubmit: vi.fn(),
-          append: vi.fn(),
-          stop: vi.fn(),
-          isLoading: false,
-          error: null,
-          debugEvents: [],
-        }}
-        sessionId="session-1"
-        mode="build"
-      />,
-    );
+    try {
+      render(
+        <ChatInterface
+          chatProps={{
+            messages: [],
+            runId: "run-no-pending",
+            input: "",
+            handleInputChange: vi.fn(),
+            handleSubmit: vi.fn(),
+            append: vi.fn(),
+            stop: vi.fn(),
+            isLoading: false,
+            error: null,
+            debugEvents: [],
+          }}
+          sessionId="session-1"
+          mode="build"
+        />,
+      );
 
-    expect(
-      screen.queryByRole("button", { name: "Allow once" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Allow once" }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[activity/feed] Skipping activity turn without canonical turnId.",
+        expect.objectContaining({ runId: "run-no-pending" }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("subscribes to live run events while the chat run is active", () => {
@@ -1466,6 +1475,7 @@ describe("ChatInterface", () => {
   });
 
   it("renders active run-event approvals while canonical projection is unavailable", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const pendingApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested-active",
@@ -1505,31 +1515,39 @@ describe("ChatInterface", () => {
       events: [pendingApprovalEvent],
     });
 
-    render(
-      <ChatInterface
-        chatProps={{
-          messages: [],
-          runId: "run-active-no-summary-pending",
-          input: "",
-          handleInputChange: vi.fn(),
-          handleSubmit: vi.fn(),
-          append: vi.fn(),
-          stop: vi.fn(),
-          isLoading: true,
-          error: null,
-          debugEvents: [],
-        }}
-        sessionId="session-1"
-        mode="build"
-      />,
-    );
+    try {
+      render(
+        <ChatInterface
+          chatProps={{
+            messages: [],
+            runId: "run-active-no-summary-pending",
+            input: "",
+            handleInputChange: vi.fn(),
+            handleSubmit: vi.fn(),
+            append: vi.fn(),
+            stop: vi.fn(),
+            isLoading: true,
+            error: null,
+            debugEvents: [],
+          }}
+          sessionId="session-1"
+          mode="build"
+        />,
+      );
 
-    expect(
-      screen.getByText("LegionCode wants to run a shell command"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Allow once" }),
-    ).toBeInTheDocument();
+      expect(
+        screen.getByText("LegionCode wants to run a shell command"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Allow once" }),
+      ).toBeInTheDocument();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[activity/feed] Skipping activity turn without canonical turnId.",
+        expect.objectContaining({ runId: "run-active-no-summary-pending" }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("shows unresolved canonical approval for approval-required terminal summaries", () => {
@@ -1869,41 +1887,49 @@ describe("ChatInterface", () => {
 
   it("auto-switches back to build mode after recoverable planner failures in plan mode", () => {
     const onModeChange = vi.fn();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    render(
-      <ChatInterface
-        chatProps={{
-          messages: [
-            {
-              id: "user-1",
-              role: "user",
-              content: "hey",
-            },
-            {
-              id: "assistant-1",
-              role: "assistant",
-              content:
-                "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
-            },
-          ],
-          runId: "run-1",
-          input: "",
-          handleInputChange: vi.fn(),
-          handleSubmit: vi.fn(),
-          append: vi.fn(),
-          stop: vi.fn(),
-          isLoading: false,
-          error: null,
-          debugEvents: [],
-        }}
-        sessionId="session-1"
-        mode="plan"
-        onModeChange={onModeChange}
-      />,
-    );
+    try {
+      render(
+        <ChatInterface
+          chatProps={{
+            messages: [
+              {
+                id: "user-1",
+                role: "user",
+                content: "hey",
+              },
+              {
+                id: "assistant-1",
+                role: "assistant",
+                content:
+                  "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
+              },
+            ],
+            runId: "run-1",
+            input: "",
+            handleInputChange: vi.fn(),
+            handleSubmit: vi.fn(),
+            append: vi.fn(),
+            stop: vi.fn(),
+            isLoading: false,
+            error: null,
+            debugEvents: [],
+          }}
+          sessionId="session-1"
+          mode="plan"
+          onModeChange={onModeChange}
+        />,
+      );
 
-    expect(onModeChange).toHaveBeenCalledWith("build");
-    expect(onModeChange).toHaveBeenCalledTimes(1);
+      expect(onModeChange).toHaveBeenCalledWith("build");
+      expect(onModeChange).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[chat/interface] Auto-switching runId=run-1 from plan to build after planner recovery output.",
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("passes the active repository through to the chat input bar", () => {

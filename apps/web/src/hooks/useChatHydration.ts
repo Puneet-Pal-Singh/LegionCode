@@ -79,9 +79,12 @@ export function useChatHydration(
     const retryOnError = (error: unknown): void => {
       const message = error instanceof Error ? error.message : String(error);
       logClientWarning("chat/hydration", "failed", {
+        sessionId,
         runId,
+        scopeKey: requestScopeKey,
         error: message,
         retrySignal,
+        liveMessageCount: messagesRef.current.length,
       });
       if (isCurrentScope()) {
         scheduleRetry();
