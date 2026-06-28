@@ -99,6 +99,24 @@ async function handleTaskTimeoutRecovery(
     modelId: timeoutDetails.modelId,
     lastCompletedAction: timeoutDetails.lastCompletedAction,
   });
+  console.log(
+    `[run/recovery] ${JSON.stringify({
+      runId: run.id,
+      sessionId: run.sessionId,
+      reason: "task-execution-timeout",
+      timeoutMs: timeoutDetails.timeoutMs,
+      providerId: timeoutDetails.providerId,
+      modelId: timeoutDetails.modelId,
+      lastCompletedAction: timeoutDetails.lastCompletedAction,
+      stepsExecuted: context.stats.stepsExecuted,
+      toolExecutionCount: context.stats.toolExecutionCount,
+      failedToolCount: context.stats.failedToolCount,
+      completedMutatingToolCount: context.stats.completedMutatingToolCount,
+      completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
+      llmRetryCount: context.stats.llmRetryCount,
+      toolLifecycleCount: context.stats.toolLifecycle.length,
+    })}`,
+  );
 
   await deps.runEventRecorder.recordRunProgress(
     RUN_WORKFLOW_STEPS.EXECUTION,

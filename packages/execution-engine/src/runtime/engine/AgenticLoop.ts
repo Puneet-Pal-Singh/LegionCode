@@ -246,6 +246,25 @@ export class AgenticLoop {
 
       // Call LLM with tool definitions for this step.
       let response;
+      const llmCallStartedAt = Date.now();
+      const requestToolCount = isFinalSynthesisStep
+        ? 0
+        : Object.keys(tools).length;
+      console.log(
+        `[agentic-loop/model] ${JSON.stringify({
+          runId: this.config.runId,
+          sessionId: this.config.sessionId,
+          step: step + 1,
+          maxSteps: this.config.maxSteps,
+          status: "started",
+          providerId: context.providerId ?? null,
+          modelId: context.runtimeModelId ?? context.modelId ?? null,
+          finalSynthesisStep: isFinalSynthesisStep,
+          messageCount: messages.length,
+          messageRoles: summarizeMessageRoles(messages),
+          toolDefinitionCount: requestToolCount,
+        })}`,
+      );
       try {
         response = await this.generateLoopText(
           {
@@ -280,12 +299,38 @@ export class AgenticLoop {
           context,
         );
       } catch (error) {
-        console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
+        console.error(
+          `[agentic-loop/model] ${JSON.stringify({
+            runId: this.config.runId,
+            sessionId: this.config.sessionId,
+            step: step + 1,
+            status: "failed",
+            elapsedMs: Date.now() - llmCallStartedAt,
+            providerId: context.providerId ?? null,
+            modelId: context.runtimeModelId ?? context.modelId ?? null,
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            errorMessage: boundLogText(
+              error instanceof Error ? error.message : String(error),
+            ),
+          })}`,
+        );
         throw error;
       }
 
       const responseText =
         typeof response.text === "string" ? response.text : "";
+      console.log(
+        `[agentic-loop/model] ${JSON.stringify({
+          runId: this.config.runId,
+          sessionId: this.config.sessionId,
+          step: step + 1,
+          status: "completed",
+          elapsedMs: Date.now() - llmCallStartedAt,
+          responseChars: responseText.length,
+          toolCallCount: response.toolCalls?.length ?? 0,
+          toolCalls: summarizeToolCalls(response.toolCalls ?? []),
+        })}`,
+      );
 
       // Add LLM response to messages
       messages.push(buildAssistantMessage(responseText, response.toolCalls));
@@ -383,7 +428,15 @@ export class AgenticLoop {
           }
 
           console.log(
-            `[agentic-loop] Executing tool: ${toolCall.toolName} (call: ${toolCall.id})`,
+            `[agentic-loop/tool] ${JSON.stringify({
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              status: "started",
+              argKeys: Object.keys(toolCall.args).sort(),
+            })}`,
           );
 
           const toolStartedAt = Date.now();
@@ -395,6 +448,22 @@ export class AgenticLoop {
                 this.createToolTask(toolCall.id, toolCall),
               );
           const executionTimeMs = Date.now() - toolStartedAt;
+          console.log(
+            `[agentic-loop/tool] ${JSON.stringify({
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              status: result.status,
+              elapsedMs: executionTimeMs,
+              outputChars: readToolOutputLength(result),
+              errorCode: result.error?.code ?? null,
+              errorMessage: result.error?.message
+                ? boundLogText(result.error.message)
+                : null,
+            })}`,
+          );
 
           if (result.status === "DONE") {
             if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
@@ -486,8 +555,16 @@ export class AgenticLoop {
             executionTimeMs,
           );
           console.error(
-            `[agentic-loop] Tool execution failed: ${toolCall.toolName}`,
-            error,
+            `[agentic-loop/tool] ${JSON.stringify({
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              status: "threw",
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: boundLogText(errorMessage),
+            })}`,
           );
           toolResults.push({
             toolId: toolCall.id,
@@ -987,6 +1064,34 @@ function extractToolActivityMetadata(
   const activity = (metadata as Record<string, unknown>).activity;
   const parsed = safeParseToolActivityMetadata(activity);
   return parsed.success ? parsed.data : undefined;
+}
+
+function summarizeMessageRoles(messages: CoreMessage[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
+}
+
+function summarizeToolCalls(toolCalls: AgenticLoopToolCall[]): string {
+  return toolCalls
+    .map(
+      (toolCall) =>
+        `${toolCall.toolName}:${toolCall.id}:${Object.keys(toolCall.args).sort().join("|")}`,
+    )
+    .join(",");
+}
+
+function readToolOutputLength(result: TaskResult): number {
+  return result.output?.content.length ?? 0;
+}
+
+function boundLogText(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length <= 240 ? compact : `${compact.slice(0, 237)}...`;
 }
 
 function latestTurnRequestsCiLogs(initialMessages: CoreMessage[]): boolean {
