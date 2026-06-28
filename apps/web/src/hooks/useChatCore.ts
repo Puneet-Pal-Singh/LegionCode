@@ -56,6 +56,7 @@ type ChatUserContent =
     >;
 
 interface ChatAppendMessage {
+  id?: string;
   role: "user";
   content: ChatUserContent;
   imageMetadata?: ReturnType<typeof toRedactedImageMetadata>;
@@ -288,6 +289,8 @@ export function useChatCore(
       pendingUser: Boolean(pendingUserMessage?.scopeKey === scopeKey),
       baseRoles: summarizeMessageRoles(scopedMessagesBase),
       finalRoles: summarizeMessageRoles(scopedMessages),
+      baseIds: summarizeMessageIdentities(scopedMessagesBase),
+      finalIds: summarizeMessageIdentities(scopedMessages),
     });
   }, [
     pendingUserMessage,
@@ -367,10 +370,14 @@ export function useChatCore(
   );
 
   const buildChatRequestBody = useCallback(
-    (config: ResolvedProviderConfig): ChatRequestBody =>
+    (
+      config: ResolvedProviderConfig,
+      clientMessageId: string,
+    ): ChatRequestBody =>
       parseChatRequestBody({
         sessionId,
         runId,
+        clientMessageId,
         mode,
         productMode,
         harnessId: resolveRuntimeHarnessId(sessionId),
@@ -394,7 +401,8 @@ export function useChatCore(
         payload: {
           endpoint: apiPath,
           requestBody,
-          userMessage: text,
+          clientMessageId: message.id,
+          userContentHash: hashLogString(text),
           imageAttachments:
             message.imageMetadata ??
             toRedactedImageMetadataFromParts(message.content),
@@ -434,19 +442,22 @@ export function useChatCore(
           "Chat is still initializing model settings. Wait a moment, then try again. If this continues, open Settings and reconnect a provider key.",
         );
       }
+      const submittedMessage = ensureClientMessageId(message);
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
       setPendingUserMessage({
         scopeKey: requestScopeKey,
-        message: buildPendingUserMessage(message),
+        message: buildPendingUserMessage(submittedMessage),
       });
       logClientEvent("chat/submit", "started", {
         runId,
         sessionId,
         scopeKey: requestScopeKey,
+        clientMessageId: submittedMessage.id,
+        userContentHash: hashLogString(content),
         hasText: Boolean(content),
-        imageCount: message.imageMetadata?.length ?? 0,
+        imageCount: submittedMessage.imageMetadata?.length ?? 0,
       });
       dispatchRunSummaryRefresh(runId);
 
@@ -473,18 +484,26 @@ export function useChatCore(
           return;
         }
 
-        const requestBody = buildChatRequestBody(providerConfig);
+        const requestBody = buildChatRequestBody(
+          providerConfig,
+          submittedMessage.id,
+        );
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
           sessionId,
           scopeKey: requestScopeKey,
+          clientMessageId: submittedMessage.id,
           providerId: providerConfig.providerId,
           modelId: providerConfig.modelId,
           source: providerConfig.source,
         });
-        pushChatRequestDebugEvent(message, requestBody, providerConfig);
+        pushChatRequestDebugEvent(
+          submittedMessage,
+          requestBody,
+          providerConfig,
+        );
         dispatchRunSummaryRefresh(runId);
-        await submitResolvedMessage(message, requestBody);
+        await submitResolvedMessage(submittedMessage, requestBody);
       } finally {
         if (isActiveScope(requestScopeKey)) {
           setPendingUserMessage((current) =>
@@ -495,6 +514,7 @@ export function useChatCore(
             runId,
             sessionId,
             scopeKey: requestScopeKey,
+            clientMessageId: submittedMessage.id,
           });
         }
       }
@@ -722,11 +742,24 @@ function extractTextContent(content: ChatUserContent): string {
 function buildPendingUserMessage(message: ChatAppendMessage): Message {
   const content = extractTextContent(message.content).trim();
   return {
-    id: `pending-user-${crypto.randomUUID()}`,
+    id: message.id ?? createClientMessageId(),
     role: "user",
     content: content || "Analyze the attached image(s).",
     createdAt: new Date(),
   };
+}
+
+function ensureClientMessageId(message: ChatAppendMessage): ChatAppendMessage & {
+  id: string;
+} {
+  return {
+    ...message,
+    id: message.id ?? createClientMessageId(),
+  };
+}
+
+function createClientMessageId(): string {
+  return `client_msg_${crypto.randomUUID()}`;
 }
 
 function appendPendingUserMessage(
@@ -766,6 +799,14 @@ function extractMessageText(content: Message["content"]): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function hashLogString(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 function messageHasImageParts(message: ChatAppendMessage): boolean {
@@ -828,5 +869,14 @@ function summarizeMessageRoles(messages: Message[]): string {
   }
   return [...counts.entries()]
     .map(([role, count]) => `${role}:${count}`)
+    .join(",");
+}
+
+function summarizeMessageIdentities(messages: Message[]): string {
+  return messages
+    .map(
+      (message) =>
+        `${message.role}:${message.id}:${hashLogString(extractMessageText(message.content))}`,
+    )
     .join(",");
 }

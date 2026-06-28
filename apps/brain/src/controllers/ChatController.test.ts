@@ -274,6 +274,61 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.prompt).toBe("so? what is your name?");
   });
 
+  it("attaches envelope clientMessageId to the latest user message", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const request = await createChatRequest(env, {
+      clientMessageId: "client_msg_from_envelope",
+      messages: [
+        {
+          role: "user",
+          content: "persist this id",
+        },
+      ],
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      messages: Array<{ id?: string; role: string; content: string }>;
+    };
+    expect(payload.messages).toEqual([
+      {
+        id: "client_msg_from_envelope",
+        role: "user",
+        content: "persist this id",
+      },
+    ]);
+  });
+
+  it("rejects mismatched envelope and latest user message ids", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const request = await createChatRequest(env, {
+      clientMessageId: "client_msg_envelope",
+      messages: [
+        {
+          id: "client_msg_message",
+          role: "user",
+          content: "do not split identity",
+        },
+      ],
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; code: string };
+    expect(body.code).toBe("CLIENT_MESSAGE_ID_MISMATCH");
+    expect(body.error).toContain("does not match");
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
   it("returns validation error for unsupported agentId", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
@@ -392,11 +447,13 @@ async function createChatRequest(
     executionBackend?: "cloudflare_sandbox" | "e2b" | "daytona";
     harnessMode?: "platform_owned" | "delegated";
     authMode?: "api_key" | "oauth";
+    clientMessageId?: string;
     repositoryOwner?: string;
     repositoryName?: string;
     repositoryBranch?: string;
     repositoryBaseUrl?: string;
     messages?: Array<{
+      id?: string;
       role: string;
       content: unknown;
     }>;
@@ -422,6 +479,7 @@ async function createChatRequest(
       executionBackend: overrides.executionBackend,
       harnessMode: overrides.harnessMode,
       authMode: overrides.authMode,
+      clientMessageId: overrides.clientMessageId,
       repositoryOwner: overrides.repositoryOwner,
       repositoryName: overrides.repositoryName,
       repositoryBranch: overrides.repositoryBranch,

@@ -1,4 +1,5 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
+import type { CoreMessage } from "ai";
 import {
   ProductModeSchema,
   RunModeSchema,
@@ -21,6 +22,7 @@ import {
 import {
   isDomainError,
   mapDomainErrorToHttp,
+  ValidationError,
 } from "../domain/errors";
 import {
   extractIdentifiers,
@@ -52,6 +54,7 @@ const SerializableToolDefinitionSchema = z.object({
 // Zod schema for request body validation
 const ChatRequestBodySchema = z.object({
   messages: z.array(z.unknown()).optional(),
+  clientMessageId: z.string().trim().min(1).optional(),
   tools: z.record(SerializableToolDefinitionSchema).optional(),
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
@@ -114,6 +117,17 @@ export class ChatController {
       );
       console.log(
         `[chat/request] ${correlationId} messages: ${body.messages?.length || 0}`,
+      );
+      console.log(
+        `[chat/request] ${correlationId} envelope=${JSON.stringify({
+          sessionId: identifiers.sessionId,
+          runId: identifiers.runId,
+          clientMessageId: body.clientMessageId ?? null,
+          providerId: body.providerId ?? null,
+          modelId: body.modelId ?? null,
+          mode: body.mode ?? null,
+          messageCount: body.messages?.length ?? 0,
+        })}`,
       );
 
       // Validate provider/model selection if provided
@@ -234,7 +248,14 @@ export class ChatController {
       ReturnType<RunAdmissionService["enforce"]>
     > | undefined;
 
-    const coreMessages = chatRequest.imageInput.messages;
+    const coreMessages = applySubmittedClientMessageId(
+      chatRequest.imageInput.messages,
+      body.clientMessageId,
+      correlationId,
+    );
+    console.log(
+      `[chat/request] ${correlationId} normalizedMessages=${summarizeCoreMessages(coreMessages)}`,
+    );
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
     const admissionInput = {
@@ -322,6 +343,73 @@ export class ChatController {
     }
   }
 
+}
+
+function applySubmittedClientMessageId(
+  messages: CoreMessage[],
+  clientMessageId: string | undefined,
+  correlationId: string,
+): CoreMessage[] {
+  if (!clientMessageId) {
+    return messages;
+  }
+
+  const latestUserIndex = findLatestUserMessageIndex(messages);
+  if (latestUserIndex === -1) {
+    return messages;
+  }
+
+  const latestUserMessage = messages[latestUserIndex];
+  if (!latestUserMessage) {
+    return messages;
+  }
+  const existingId = readMessageId(latestUserMessage);
+  if (existingId && existingId !== clientMessageId) {
+    throw new ValidationError(
+      "Submitted client message id does not match the latest user message id",
+      "CLIENT_MESSAGE_ID_MISMATCH",
+      correlationId,
+    );
+  }
+  if (existingId === clientMessageId) {
+    return messages;
+  }
+
+  return messages.map((message, index) =>
+    index === latestUserIndex
+      ? attachClientMessageId(message, clientMessageId)
+      : message,
+  );
+}
+
+function findLatestUserMessageIndex(messages: CoreMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function summarizeCoreMessages(messages: CoreMessage[]): string {
+  return messages
+    .map((message) => `${message.role}:${readMessageId(message) ?? "missing"}`)
+    .join(",");
+}
+
+function readMessageId(message: CoreMessage): string | null {
+  const candidate = message as { id?: unknown };
+  return typeof candidate.id === "string" ? candidate.id : null;
+}
+
+function attachClientMessageId(
+  message: CoreMessage,
+  clientMessageId: string,
+): CoreMessage {
+  return {
+    ...(message as object),
+    id: clientMessageId,
+  } as unknown as CoreMessage;
 }
 
 function errorMessageKey(error: unknown): string {

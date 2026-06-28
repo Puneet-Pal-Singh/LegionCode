@@ -233,7 +233,7 @@ export class TranscriptController {
         nextCursor: result.nextCursor?.toString(),
       };
       console.log(
-        `[chat/history] requestId=${requestId} runId=${query.runId} sessionId=${query.session} status=success messageCount=${response.messages.length} nextCursor=${response.nextCursor ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+        `[chat/history] requestId=${requestId} runId=${query.runId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} elapsedMs=${Date.now() - startedAt}`,
       );
       return jsonResponse(request, env, response);
     } catch (error) {
@@ -244,6 +244,14 @@ export class TranscriptController {
       return transcriptErrorResponse(request, env, error);
     }
   }
+}
+
+function summarizeHydrationMessages(
+  messages: Array<ReturnType<typeof toHydrationMessage>>,
+): string {
+  return messages
+    .map((message) => `${message.role}:${message.id}`)
+    .join(",");
 }
 
 async function createPersistedSession(

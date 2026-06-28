@@ -242,6 +242,43 @@ describe("useChatHydration", () => {
 
     expect(setMessages).toHaveBeenCalledWith([liveUser]);
   });
+
+  it("does not duplicate a live user prompt when canonical history replays it", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const liveUser = createMessage(
+      "client_msg_same",
+      "user",
+      "Keep this prompt singular",
+    );
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration("session-live", "run-live", messages, setMessages),
+      { initialProps: { messages: [] as Message[] } },
+    );
+
+    rerender({ messages: [liveUser] });
+    await act(async () => {
+      resolveHistory?.(
+        createHistoryResponse([
+          {
+            id: "client_msg_same",
+            role: "user",
+            content: "Keep this prompt singular",
+          },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([liveUser]);
+  });
 });
 
 function createMessage(

@@ -103,6 +103,7 @@ export class ChatHydrationService {
         requestId,
         runId,
         messageCount: messages.length,
+        messageIds: summarizeServerMessages(allMessages),
         durationMs: Date.now() - startedAt,
       });
       return { messages };
@@ -176,6 +177,7 @@ export class ChatHydrationService {
         requestId: pageRequestId,
         runId,
         messageCount: paginatedResponse.messages.length,
+        messageIds: summarizeServerMessages(paginatedResponse.messages),
         hasNextCursor: Boolean(paginatedResponse.nextCursor),
       });
       return {
@@ -277,6 +279,12 @@ export class ChatHydrationService {
       return {};
     }
   }
+}
+
+function summarizeServerMessages(messages: ServerMessage[]): string {
+  return messages
+    .map((message) => `${message.role}:${message.id ?? "missing"}`)
+    .join(",");
 }
 
 async function readResponsePreview(response: Response): Promise<string> {

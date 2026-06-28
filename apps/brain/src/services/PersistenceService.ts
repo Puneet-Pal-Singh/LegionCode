@@ -345,8 +345,12 @@ export class PersistenceService {
     repository: TranscriptRepository,
   ): Promise<TranscriptMessageRecord> {
     const parts = coreMessageToTranscriptParts(input.message);
+    const clientMessageId = readClientMessageId(input.message);
+    console.log(
+      `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} role=${input.message.role} clientMessageId=${clientMessageId ?? "missing"} dedupeKey=${input.idempotencyKey} status=append-started`,
+    );
     if (input.context.userId) {
-      return await repository.appendMessage({
+      const record = await repository.appendMessage({
         sessionId: input.sessionId,
         runId: input.runId,
         userId: input.context.userId,
@@ -356,20 +360,28 @@ export class PersistenceService {
         activeRunId: input.runId,
         status: "running",
         role: input.message.role,
-        clientMessageId: readClientMessageId(input.message),
+        clientMessageId,
         dedupeKey: input.idempotencyKey,
         parts,
       });
+      console.log(
+        `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} messageId=${record.id} role=${record.role} clientMessageId=${record.clientMessageId ?? "missing"} status=appended`,
+      );
+      return record;
     }
 
-    return await repository.appendMessageToExistingSession({
+    const record = await repository.appendMessageToExistingSession({
       sessionId: input.sessionId,
       runId: input.runId,
       role: input.message.role,
-      clientMessageId: readClientMessageId(input.message),
+      clientMessageId,
       dedupeKey: input.idempotencyKey,
       parts,
     });
+    console.log(
+      `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} messageId=${record.id} role=${record.role} clientMessageId=${record.clientMessageId ?? "missing"} status=appended-existing-session`,
+    );
+    return record;
   }
 
   private async generateMessageIdempotencyKey(

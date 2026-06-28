@@ -124,6 +124,9 @@ export function useChatHydration(
           hydratedRoles: summarizeMessageRoles(result.messages),
           liveRoles: summarizeMessageRoles(messagesRef.current),
           finalRoles: summarizeMessageRoles(nextMessages),
+          hydratedIds: summarizeMessageIdentities(result.messages),
+          liveIds: summarizeMessageIdentities(messagesRef.current),
+          finalIds: summarizeMessageIdentities(nextMessages),
           mergeMode: replaceLiveMessages ? "replace" : "preserve-live",
         });
         setMessages(nextMessages);
@@ -170,6 +173,30 @@ function summarizeMessageRoles(messages: Message[]): string {
   return [...counts.entries()]
     .map(([role, count]) => `${role}:${count}`)
     .join(",");
+}
+
+function summarizeMessageIdentities(messages: Message[]): string {
+  return messages
+    .map(
+      (message) =>
+        `${message.role}:${message.id}:${hashLogString(readMessageText(message))}`,
+    )
+    .join(",");
+}
+
+function readMessageText(message: Message): string {
+  if (typeof message.content === "string") {
+    return message.content.trim();
+  }
+  return "";
+}
+
+function hashLogString(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 function readMessageIds(messages: Message[]): string[] {
