@@ -19,6 +19,7 @@ import { LLMUnusableResponseError, type ILLMGateway } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { Task } from "../task/index.js";
 import type {
   AgenticLoopTerminalLlmIssue,
@@ -252,19 +253,18 @@ export class AgenticLoop {
         ? 0
         : Object.keys(tools).length;
       console.log(
-        `[agentic-loop/model] ${JSON.stringify({
+        formatRuntimeDiagnosticLogLine("agentic-loop/model", "started", {
           runId: this.config.runId,
           sessionId: this.config.sessionId,
           step: step + 1,
           maxSteps: this.config.maxSteps,
-          status: "started",
           providerId: context.providerId ?? null,
           modelId: context.runtimeModelId ?? context.modelId ?? null,
           finalSynthesisStep: isFinalSynthesisStep,
           messageCount: messages.length,
           messageRoles: summarizeMessageRoles(messages),
           toolDefinitionCount: requestToolCount,
-        })}`,
+        }),
       );
       try {
         response = await this.generateLoopText(
@@ -301,11 +301,10 @@ export class AgenticLoop {
         );
       } catch (error) {
         console.error(
-          `[agentic-loop/model] ${JSON.stringify({
+          formatRuntimeDiagnosticLogLine("agentic-loop/model", "failed", {
             runId: this.config.runId,
             sessionId: this.config.sessionId,
             step: step + 1,
-            status: "failed",
             elapsedMs: Date.now() - llmCallStartedAt,
             providerId: context.providerId ?? null,
             modelId: context.runtimeModelId ?? context.modelId ?? null,
@@ -313,7 +312,7 @@ export class AgenticLoop {
             errorMessage: boundLogText(
               error instanceof Error ? error.message : String(error),
             ),
-          })}`,
+          }),
         );
         throw error;
       }
@@ -321,16 +320,15 @@ export class AgenticLoop {
       const responseText =
         typeof response.text === "string" ? response.text : "";
       console.log(
-        `[agentic-loop/model] ${JSON.stringify({
+        formatRuntimeDiagnosticLogLine("agentic-loop/model", "completed", {
           runId: this.config.runId,
           sessionId: this.config.sessionId,
           step: step + 1,
-          status: "completed",
           elapsedMs: Date.now() - llmCallStartedAt,
           responseChars: responseText.length,
           toolCallCount: response.toolCalls?.length ?? 0,
           toolCalls: summarizeToolCalls(response.toolCalls ?? []),
-        })}`,
+        }),
       );
 
       // Add LLM response to messages
@@ -429,15 +427,14 @@ export class AgenticLoop {
           }
 
           console.log(
-            `[agentic-loop/tool] ${JSON.stringify({
+            formatRuntimeDiagnosticLogLine("agentic-loop/tool", "started", {
               runId: this.config.runId,
               sessionId: this.config.sessionId,
               step: step + 1,
               toolCallId: toolCall.id,
               toolName: toolCall.toolName,
-              status: "started",
               argKeys: Object.keys(toolCall.args).sort(),
-            })}`,
+            }),
           );
 
           const toolStartedAt = Date.now();
@@ -450,20 +447,20 @@ export class AgenticLoop {
               );
           const executionTimeMs = Date.now() - toolStartedAt;
           console.log(
-            `[agentic-loop/tool] ${JSON.stringify({
+            formatRuntimeDiagnosticLogLine("agentic-loop/tool", "finished", {
               runId: this.config.runId,
               sessionId: this.config.sessionId,
               step: step + 1,
               toolCallId: toolCall.id,
               toolName: toolCall.toolName,
-              status: result.status,
+              resultStatus: result.status,
               elapsedMs: executionTimeMs,
               outputChars: readToolOutputLength(result),
               errorCode: result.error?.code ?? null,
               errorMessage: result.error?.message
                 ? boundLogText(result.error.message)
                 : null,
-            })}`,
+            }),
           );
 
           if (result.status === "DONE") {
@@ -557,21 +554,25 @@ export class AgenticLoop {
           );
           const permissionGate =
             error instanceof PermissionGateError ? error.gateResult.kind : null;
-          const logLine = `[agentic-loop/tool] ${JSON.stringify({
-            runId: this.config.runId,
-            sessionId: this.config.sessionId,
-            step: step + 1,
-            toolCallId: toolCall.id,
-            toolName: toolCall.toolName,
-            status:
-              permissionGate === "ask"
-                ? "permission_gated"
-                : permissionGate === "deny"
-                  ? "permission_denied"
-                  : "threw",
-            errorName: error instanceof Error ? error.name : "UnknownError",
-            errorMessage: boundLogText(errorMessage),
-          })}`;
+          const logLine = formatRuntimeDiagnosticLogLine(
+            "agentic-loop/tool",
+            "failed",
+            {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              status:
+                permissionGate === "ask"
+                  ? "permission_gated"
+                  : permissionGate === "deny"
+                    ? "permission_denied"
+                    : "threw",
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: boundLogText(errorMessage),
+            },
+          );
           if (permissionGate) {
             console.warn(logLine);
           } else {

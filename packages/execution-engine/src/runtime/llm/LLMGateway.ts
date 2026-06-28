@@ -3,6 +3,7 @@ import type { BudgetPolicy } from "../cost/BudgetManager.js";
 import type { CostEvent, LLMUsage } from "../cost/types.js";
 import type { ICostLedger } from "../cost/CostLedger.js";
 import type { IPricingResolver } from "../cost/PricingResolver.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import type {
   ILLMGateway,
   LLMExecutionLane,
@@ -119,19 +120,17 @@ export class LLMGateway implements ILLMGateway {
     const timeoutMs = this.resolveTextTimeoutMs(req);
     const startedAt = Date.now();
     console.log(
-      `[llm/gateway] ${JSON.stringify({
+      formatRuntimeDiagnosticLogLine("llm/gateway", "text-started", {
         runId: req.context.runId,
         sessionId: req.context.sessionId,
         phase: req.context.phase,
-        operation: "text",
-        status: "started",
         providerId: req.providerId ?? null,
         modelId: req.runtimeModelId ?? req.model ?? null,
         timeoutMs,
         messageCount: req.messages.length,
         messageRoles: summarizeCoreMessageRoles(req.messages),
         toolDefinitionCount: req.tools ? Object.keys(req.tools).length : 0,
-      })}`,
+      }),
     );
     try {
       result = await this.withTimeout(
@@ -155,19 +154,17 @@ export class LLMGateway implements ILLMGateway {
     } catch (error) {
       if (error instanceof LLMTimeoutError) {
         console.error(
-          `[llm/gateway] ${JSON.stringify({
+          formatRuntimeDiagnosticLogLine("llm/gateway", "text-timeout", {
             runId: req.context.runId,
             sessionId: req.context.sessionId,
             phase: req.context.phase,
-            operation: "text",
-            status: "timeout",
             providerId: req.providerId ?? null,
             modelId: req.runtimeModelId ?? req.model ?? null,
             timeoutMs: error.timeoutMs,
             elapsedMs: Date.now() - startedAt,
             messageCount: req.messages.length,
             toolDefinitionCount: req.tools ? Object.keys(req.tools).length : 0,
-          })}`,
+          }),
         );
       }
       const unusableResponse = this.normalizeUnusableResponseError(
@@ -197,19 +194,17 @@ export class LLMGateway implements ILLMGateway {
       args: normalizeToolArgs(toolCall.args),
     }));
     console.log(
-      `[llm/gateway] ${JSON.stringify({
+      formatRuntimeDiagnosticLogLine("llm/gateway", "text-completed", {
         runId: req.context.runId,
         sessionId: req.context.sessionId,
         phase: req.context.phase,
-        operation: "text",
-        status: "completed",
         providerId: req.providerId ?? null,
         modelId: req.runtimeModelId ?? req.model ?? null,
         elapsedMs: Date.now() - startedAt,
         responseChars: result.text?.length ?? 0,
         finishReason: result.finishReason ?? null,
         toolCallCount: toolCalls?.length ?? 0,
-      })}`,
+      }),
     );
 
     return {
@@ -442,10 +437,7 @@ export class LLMGateway implements ILLMGateway {
       return content.length;
     }
     if (Array.isArray(content)) {
-      return content.reduce(
-        (sum, part) => sum + getMessagePartLength(part),
-        0,
-      );
+      return content.reduce((sum, part) => sum + getMessagePartLength(part), 0);
     }
     return getMessagePartLength(content);
   }

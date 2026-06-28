@@ -520,7 +520,10 @@ describe("LLMGateway provider capabilities", () => {
       });
       await rejection;
       expect(timeoutLog).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"timeout"'),
+        expect.stringContaining("[llm/gateway/text-timeout]"),
+      );
+      expect(timeoutLog).toHaveBeenCalledWith(
+        expect.stringContaining("timeoutMs=90000"),
       );
     } finally {
       timeoutLog.mockRestore();
@@ -564,7 +567,7 @@ describe("LLMGateway provider capabilities", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejection;
       expect(timeoutLog).toHaveBeenCalledWith(
-        expect.stringContaining('"timeoutMs":60000'),
+        expect.stringContaining("timeoutMs=60000"),
       );
     } finally {
       timeoutLog.mockRestore();
@@ -603,7 +606,7 @@ describe("LLMGateway provider capabilities", () => {
       await vi.advanceTimersByTimeAsync(180_000);
       await rejection;
       expect(timeoutLog).toHaveBeenCalledWith(
-        expect.stringContaining('"timeoutMs":180000'),
+        expect.stringContaining("timeoutMs=180000"),
       );
     } finally {
       timeoutLog.mockRestore();
@@ -645,7 +648,7 @@ describe("LLMGateway provider capabilities", () => {
       await vi.advanceTimersByTimeAsync(20_000);
       await rejection;
       expect(timeoutLog).toHaveBeenCalledWith(
-        expect.stringContaining('"phase":"synthesis"'),
+        expect.stringContaining("phase=synthesis"),
       );
     } finally {
       timeoutLog.mockRestore();

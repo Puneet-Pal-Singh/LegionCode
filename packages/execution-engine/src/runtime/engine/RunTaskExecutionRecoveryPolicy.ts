@@ -1,6 +1,7 @@
 import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import {
   LLMTimeoutError,
   LLMUnusableResponseError,
@@ -108,10 +109,9 @@ async function handleTaskTimeoutRecovery(
     completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
   });
   console.log(
-    `[run/recovery] ${JSON.stringify({
+    formatRuntimeDiagnosticLogLine("run/recovery", "task-timeout", {
       runId: run.id,
       sessionId: run.sessionId,
-      reason: "task-execution-timeout",
       timeoutMs: timeoutDetails.timeoutMs,
       providerId: timeoutDetails.providerId,
       modelId: timeoutDetails.modelId,
@@ -123,7 +123,7 @@ async function handleTaskTimeoutRecovery(
       completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
       llmRetryCount: context.stats.llmRetryCount,
       toolLifecycleCount: context.stats.toolLifecycle.length,
-    })}`,
+    }),
   );
 
   await deps.runEventRecorder.recordRunProgress(
