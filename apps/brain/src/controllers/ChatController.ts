@@ -47,6 +47,7 @@ import {
   applySubmittedClientMessageId,
   summarizeCoreMessages,
 } from "../services/chat/SubmittedClientMessagePolicy";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 
 const SerializableToolDefinitionSchema = z.object({
   description: z.string().optional(),
@@ -319,16 +320,15 @@ export class ChatController {
 
       const runEngineStartedAt = Date.now();
       console.log(
-        `[chat/runtime] ${JSON.stringify({
+        formatDiagnosticLogLine("chat/runtime", "dispatching-run-engine", {
           correlationId,
           runId,
           sessionId,
-          status: "dispatching-run-engine",
           providerId: body.providerId ?? null,
           modelId: body.modelId ?? null,
           mode: body.mode,
           clientMessageId: body.clientMessageId ?? null,
-        })}`,
+        }),
       );
       const doResponse = await executeViaRunEngineDurableObject(
         env,
@@ -341,24 +341,35 @@ export class ChatController {
       );
       const runEngineElapsedMs = Date.now() - runEngineStartedAt;
       console.log(
-        `[chat/runtime] ${JSON.stringify({
+        formatDiagnosticLogLine("chat/runtime", "run-engine-returned", {
           correlationId,
           runId,
           sessionId,
-          status: "run-engine-returned",
           responseStatus: doResponse.status,
           runtimeTarget,
           elapsedMs: runEngineElapsedMs,
-        })}`,
+        }),
       );
       console.log(
-        `[chat/timing] ${correlationId} useCaseMs=${useCaseElapsedMs} runEngineMs=${runEngineElapsedMs} handleMs=${Date.now() - executionStartedAt}`,
+        formatDiagnosticLogLine("chat/runtime", "timing", {
+          correlationId,
+          runId,
+          sessionId,
+          useCaseMs: useCaseElapsedMs,
+          runEngineMs: runEngineElapsedMs,
+          handleMs: Date.now() - executionStartedAt,
+        }),
       );
 
       return withEngineHeaders(req, env, doResponse, runId, runtimeTarget);
     } catch (error) {
       console.error(
-        `[chat/runtime] ${correlationId}: RunEngine execution failed:`,
+        formatDiagnosticLogLine("chat/runtime", "run-engine-failed", {
+          correlationId,
+          runId,
+          sessionId,
+          error,
+        }),
         error,
       );
       throw error;

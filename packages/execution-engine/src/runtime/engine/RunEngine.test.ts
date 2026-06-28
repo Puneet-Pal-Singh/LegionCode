@@ -4789,12 +4789,16 @@ describe("RunEngine", () => {
   });
 
   it("records expected bootstrap misses separately from generic failures", async () => {
-    const runEngine = createRunEngine({
-      workspaceBootstrapper: {
-        bootstrap: async () => ({
-          status: "sync-failed",
-          message: "fatal: not a git repository",
-        }),
+    const state = new MockRuntimeState();
+    const runEngine = createRunEngineForRun({
+      state,
+      dependencies: {
+        workspaceBootstrapper: {
+          bootstrap: async () => ({
+            status: "sync-failed",
+            message: "fatal: not a git repository",
+          }),
+        },
       },
     });
 
@@ -4814,7 +4818,11 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain(
+      "I couldn't prepare the workspace",
+    );
     const persisted = await runEngine.getRun(TEST_RUN_ID);
+    expect(persisted?.status).toBe("COMPLETED");
     expect(persisted?.metadata.workspaceBootstrap).toMatchObject({
       requested: true,
       ready: false,
@@ -4822,6 +4830,13 @@ describe("RunEngine", () => {
       blocked: true,
       expectedMiss: true,
     });
+    const events = await new RunEventRepository(state).getByRun(TEST_RUN_ID);
+    expect(
+      events.some((event) => event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED),
+    ).toBe(true);
+    expect(
+      events.some((event) => event.type === RUN_EVENT_TYPES.RUN_COMPLETED),
+    ).toBe(true);
   });
 
   it("blocks cross-repo actions until explicit approval is recorded", async () => {

@@ -425,6 +425,9 @@ export class RunEngine implements IRunEngine {
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
         );
+        console.log(
+          `[run/engine/workspace-bootstrap-evaluated] runId=${runId} status=${bootstrapEvaluation.status} blocked=${bootstrapEvaluation.blocked} hasMessage=${Boolean(bootstrapEvaluation.message)} expectedMiss=${bootstrapEvaluation.expectedMiss} mode=${bootstrapEvaluation.mode ?? "none"} clonedDuringBootstrap=${bootstrapEvaluation.clonedDuringBootstrap}`,
+        );
         run.metadata.workspaceBootstrap = {
           requested: bootstrapEvaluation.status !== "skipped",
           ready: !bootstrapEvaluation.blocked,
@@ -451,7 +454,9 @@ export class RunEngine implements IRunEngine {
           const bootstrapLogLabel = bootstrapEvaluation.expectedMiss
             ? "Workspace bootstrap expected miss blocked action planning"
             : "Workspace bootstrap blocked action planning";
-          console.log(`[run/engine] ${bootstrapLogLabel} for run ${runId}`);
+          console.log(
+            `[run/engine/workspace-bootstrap-finalizing] runId=${runId} label="${bootstrapLogLabel}" terminalState=${RUN_TERMINAL_STATES.COMPLETED} messageLength=${bootstrapEvaluation.message.length}`,
+          );
           return await this.completeRunWithAssistantMessage(
             run,
             bootstrapEvaluation.message,
