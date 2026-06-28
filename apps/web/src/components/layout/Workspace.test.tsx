@@ -465,7 +465,7 @@ describe("Workspace", () => {
     });
   });
 
-  it("marks session as paused when canonical run status pauses", async () => {
+  it("marks paused canonical runs as waiting for approval", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -487,7 +487,7 @@ describe("Workspace", () => {
     );
 
     await waitFor(() => {
-      expect(onSessionStatusChange).toHaveBeenCalledWith("paused");
+      expect(onSessionStatusChange).toHaveBeenCalledWith("waiting_for_approval");
     });
   });
 
@@ -532,6 +532,7 @@ describe("Workspace", () => {
   });
 
   it("forces a fresh git status fetch after workspace bootstrap succeeds", async () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
@@ -559,6 +560,7 @@ describe("Workspace", () => {
   });
 
   it("reruns workspace bootstrap when known repository git state becomes unavailable", async () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
@@ -642,7 +644,53 @@ describe("Workspace", () => {
     });
   });
 
+  it("does not fetch git status before canonical summary catches up to the active run", () => {
+    mockRunSummaryState.summary = null;
+    mockChatState.isLoading = false;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    const latestGitStatusInput =
+      mockUseGitStatusInputs[mockUseGitStatusInputs.length - 1];
+    expect(latestGitStatusInput).toEqual({
+      runId: "run-123",
+      sessionId: "session-123",
+      enabled: false,
+    });
+  });
+
+  it("does not trigger workspace bootstrap before canonical summary catches up", async () => {
+    mockRunSummaryState.summary = null;
+    mockChatState.isLoading = false;
+    mockGitHubTreeState.repo = {
+      owner: { login: "Puneet-Pal-Singh" },
+      name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
+      html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
+      default_branch: "main",
+    };
+    mockGitHubTreeState.isGitHubLoaded = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockBootstrapGitWorkspace).not.toHaveBeenCalled();
+  });
+
   it("does not trigger workspace bootstrap when repository context mismatches active workspace", async () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",

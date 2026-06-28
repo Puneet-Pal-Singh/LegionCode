@@ -211,6 +211,8 @@ export function Workspace({
     isRunLoading,
     canStopRun,
   } = runUiState;
+  const passiveGitProbeEnabled =
+    !activeRunId || (runSummaryMatchesActiveRun && !isRunLoading);
   useEffect(() => {
     logClientEvent("run/ui-state", "derived", {
       runId: activeRunId,
@@ -225,6 +227,7 @@ export function Workspace({
       runLoading: isRunLoading,
       approvalWaiting: isApprovalWaitingRun,
       canStop: canStopRun,
+      passiveGitProbeEnabled,
     });
   }, [
     activeRunId,
@@ -236,6 +239,7 @@ export function Workspace({
     isLocallyStoppedRun,
     isRunLoading,
     isSessionRunning,
+    passiveGitProbeEnabled,
     pendingApprovalRequestId,
     runSummaryMatchesActiveRun,
     runUiState.kind,
@@ -244,7 +248,7 @@ export function Workspace({
     status,
     gitAvailable,
     refetch: refetchGitStatus,
-  } = useGitStatus(activeRunId, sessionId, !isRunLoading);
+  } = useGitStatus(activeRunId, sessionId, passiveGitProbeEnabled);
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
   const repositoryBranch = (
@@ -317,7 +321,7 @@ export function Workspace({
     sessionId,
     activeRunId,
     gitAvailable,
-    isRunLoading,
+    isRunLoading: !passiveGitProbeEnabled || isRunLoading,
     isContextMismatch,
     isGitHubLoaded,
     repositoryOwner,
@@ -372,6 +376,7 @@ export function Workspace({
         isReviewActive={
           isGitReviewOpen || activeTab === "review" || activeTab === "changes"
         }
+        isReviewDataEnabled={passiveGitProbeEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={isGitWorkspaceRecovering}
       >
