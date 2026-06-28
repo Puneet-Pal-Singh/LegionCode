@@ -44,6 +44,7 @@ import {
   requiresMutationForIntent,
   type CurrentTurnIntent,
 } from "./RunCurrentTurnIntent.js";
+import { PermissionGateError } from "./PermissionGateError.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -554,18 +555,28 @@ export class AgenticLoop {
             toolErrorMessage,
             executionTimeMs,
           );
-          console.error(
-            `[agentic-loop/tool] ${JSON.stringify({
-              runId: this.config.runId,
-              sessionId: this.config.sessionId,
-              step: step + 1,
-              toolCallId: toolCall.id,
-              toolName: toolCall.toolName,
-              status: "threw",
-              errorName: error instanceof Error ? error.name : "UnknownError",
-              errorMessage: boundLogText(errorMessage),
-            })}`,
-          );
+          const permissionGate =
+            error instanceof PermissionGateError ? error.gateResult.kind : null;
+          const logLine = `[agentic-loop/tool] ${JSON.stringify({
+            runId: this.config.runId,
+            sessionId: this.config.sessionId,
+            step: step + 1,
+            toolCallId: toolCall.id,
+            toolName: toolCall.toolName,
+            status:
+              permissionGate === "ask"
+                ? "permission_gated"
+                : permissionGate === "deny"
+                  ? "permission_denied"
+                  : "threw",
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            errorMessage: boundLogText(errorMessage),
+          })}`;
+          if (permissionGate) {
+            console.warn(logLine);
+          } else {
+            console.error(logLine);
+          }
           toolResults.push({
             toolId: toolCall.id,
             toolName: toolCall.toolName,

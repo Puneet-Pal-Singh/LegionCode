@@ -318,6 +318,18 @@ export class ChatController {
       const useCaseElapsedMs = Date.now() - useCaseStartedAt;
 
       const runEngineStartedAt = Date.now();
+      console.log(
+        `[chat/runtime] ${JSON.stringify({
+          correlationId,
+          runId,
+          sessionId,
+          status: "dispatching-run-engine",
+          providerId: body.providerId ?? null,
+          modelId: body.modelId ?? null,
+          mode: body.mode,
+          clientMessageId: body.clientMessageId ?? null,
+        })}`,
+      );
       const doResponse = await executeViaRunEngineDurableObject(
         env,
         runId,
@@ -328,6 +340,17 @@ export class ChatController {
         useCaseResult.executionPayload.input.orchestratorBackend,
       );
       const runEngineElapsedMs = Date.now() - runEngineStartedAt;
+      console.log(
+        `[chat/runtime] ${JSON.stringify({
+          correlationId,
+          runId,
+          sessionId,
+          status: "run-engine-returned",
+          responseStatus: doResponse.status,
+          runtimeTarget,
+          elapsedMs: runEngineElapsedMs,
+        })}`,
+      );
       console.log(
         `[chat/timing] ${correlationId} useCaseMs=${useCaseElapsedMs} runEngineMs=${runEngineElapsedMs} handleMs=${Date.now() - executionStartedAt}`,
       );

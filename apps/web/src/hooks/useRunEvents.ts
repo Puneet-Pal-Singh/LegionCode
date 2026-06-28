@@ -141,7 +141,17 @@ export function useRunEvents(
       runId: currentRunId,
       isActive: () => activeRunIdRef.current === currentRunId,
       onEvent: (event) => {
-        setEvents((current) => mergeRunEvents(current, [event]));
+        setEvents((current) => {
+          const merged = mergeRunEvents(current, [event]);
+          logClientEvent("run/events", "merged", {
+            runId: currentRunId,
+            eventId: event.eventId,
+            type: event.type,
+            beforeCount: current.length,
+            afterCount: merged.length,
+          });
+          return merged;
+        });
         dispatchRunSummaryRefresh(currentRunId);
       },
       onError: (error) =>
@@ -335,9 +345,10 @@ function parseRunEventLine(line: string, runId: string): RunEvent | null {
 
   const parsedJson = tryParseJson(trimmedLine);
   if (!parsedJson.ok) {
-    console.warn(
-      `[run/events] dropped invalid JSON event for runId=${runId}: ${parsedJson.error.message}`,
-    );
+    logClientWarning("run/events", "dropped-invalid-json", {
+      runId,
+      error: parsedJson.error.message,
+    });
     return null;
   }
 
@@ -350,16 +361,18 @@ function parseRunEventPayload(
 ): RunEvent | null {
   const result = safeParseRunEvent(payload);
   if (!result.success) {
-    console.warn(
-      `[run/events] dropped invalid event for runId=${runId}: ${result.error}`,
-    );
+    logClientWarning("run/events", "dropped-invalid-event", {
+      runId,
+      error: result.error,
+    });
     return null;
   }
 
   if (result.data.runId !== runId) {
-    console.warn(
-      `[run/events] dropped event for mismatched runId=${result.data.runId}; active runId=${runId}`,
-    );
+    logClientWarning("run/events", "dropped-mismatched-run", {
+      runId,
+      eventRunId: result.data.runId,
+    });
     return null;
   }
 

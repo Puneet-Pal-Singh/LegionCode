@@ -21,6 +21,8 @@ describe("useRunEvents", () => {
 
   afterEach(() => {
     setVisibilityState(originalVisibilityState);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("resets fetch state for a new runId and ignores stale responses", async () => {
@@ -75,6 +77,13 @@ describe("useRunEvents", () => {
   });
 
   it("drops parsed events that belong to a different runId", async () => {
+    vi.stubEnv("MODE", "development");
+    const sendBeaconSpy = vi.fn();
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      sendBeacon: sendBeaconSpy,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const warnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
@@ -93,8 +102,12 @@ describe("useRunEvents", () => {
 
     expect(result.current.events[0]?.eventId).toBe("evt-current");
     expect(warnSpy).toHaveBeenCalledWith(
-      "[run/events] dropped event for mismatched runId=run-other; active runId=run-current",
+      expect.stringContaining("[run/events/dropped-mismatched-run]"),
     );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"eventRunId":"run-other"'),
+    );
+    expect(logSpy).toHaveBeenCalled();
   });
 
   it("catches up hidden-tab refreshes when the document becomes visible again", async () => {

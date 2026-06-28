@@ -154,6 +154,20 @@ export class HandleChatRequest {
       // then persist the message and mark the run active on the session.
       if (userId) {
         try {
+          console.log(
+            `[chat/persistence] ${JSON.stringify({
+              correlationId,
+              runId,
+              sessionId,
+              status: "ensure-started",
+              userId,
+              workspaceId: workspaceId ?? null,
+              taskId,
+              repository: repositorySlug ?? null,
+              providerId: input.providerId ?? null,
+              modelId: input.modelId ?? null,
+            })}`,
+          );
           await this.persistenceService.ensureTranscriptSession({
             sessionId,
             userId,
@@ -173,6 +187,15 @@ export class HandleChatRequest {
             modelId: input.modelId ?? null,
             branch: repositoryBranch ?? null,
           });
+          console.log(
+            `[chat/persistence] ${JSON.stringify({
+              correlationId,
+              runId,
+              sessionId,
+              status: "run-ensured",
+              taskId,
+            })}`,
+          );
         } catch (ensureError) {
           const message =
             ensureError instanceof Error
@@ -185,6 +208,16 @@ export class HandleChatRequest {
         }
       }
 
+      console.log(
+        `[chat/persistence] ${JSON.stringify({
+          correlationId,
+          runId,
+          sessionId,
+          status: "user-message-persist-started",
+          messageId: readMessageId(lastUserMessage),
+          role: lastUserMessage.role,
+        })}`,
+      );
       await this.persistenceService.persistUserMessage(
         sessionId,
         runId,
@@ -194,6 +227,15 @@ export class HandleChatRequest {
           workspaceId,
           repository: repositorySlug,
         },
+      );
+      console.log(
+        `[chat/persistence] ${JSON.stringify({
+          correlationId,
+          runId,
+          sessionId,
+          status: "user-message-persisted",
+          messageId: readMessageId(lastUserMessage),
+        })}`,
       );
 
       // Build execution payload with repository context
@@ -256,7 +298,18 @@ export class HandleChatRequest {
       };
 
       console.log(
-        `[chat/usecase] ${correlationId}: Chat request prepared for RunEngine execution`,
+        `[chat/usecase] ${JSON.stringify({
+          correlationId,
+          runId,
+          sessionId,
+          status: "prepared-for-run-engine",
+          mode,
+          providerId: input.providerId ?? null,
+          modelId: input.modelId ?? null,
+          harnessId: input.harnessId ?? null,
+          repository: repositorySlug ?? null,
+          branch: repositoryBranch ?? null,
+        })}`,
       );
 
       return {
@@ -310,6 +363,11 @@ export class HandleChatRequest {
     const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
+}
+
+function readMessageId(message: CoreMessage): string | null {
+  const value = (message as Record<string, unknown>).id;
+  return typeof value === "string" ? value : null;
 }
 
 function validateSubmittedMessages(

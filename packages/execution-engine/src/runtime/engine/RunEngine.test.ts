@@ -319,6 +319,9 @@ describe("RunEngine", () => {
         }),
     };
     const runEngine = createRunEngine({ llmGateway });
+    const expectedErrorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
     const response = await runEngine.execute(
       {
@@ -340,6 +343,11 @@ describe("RunEngine", () => {
       ],
       {},
     );
+    expect(expectedErrorLog).toHaveBeenCalledWith(
+      expect.stringContaining("[planner/service] Failed to generate plan"),
+      expect.any(Error),
+    );
+    expectedErrorLog.mockRestore();
 
     expect(response.status).toBe(200);
     const output = await response.text();
@@ -417,6 +425,9 @@ describe("RunEngine", () => {
       state,
       dependencies: { llmGateway },
     });
+    const expectedErrorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
     const response = await runEngine.execute(
       {
@@ -427,6 +438,10 @@ describe("RunEngine", () => {
       [{ role: "user", content: "update the footer CTA" }],
       {},
     );
+    expect(expectedErrorLog).toHaveBeenCalledWith(
+      expect.stringContaining('"errorName":"LLMTimeoutError"'),
+    );
+    expectedErrorLog.mockRestore();
 
     expect(response.status).toBe(200);
     const output = await response.text();
@@ -502,6 +517,9 @@ describe("RunEngine", () => {
       state,
       dependencies: { llmGateway },
     });
+    const expectedErrorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
     const response = await runEngine.execute(
       {
@@ -514,6 +532,10 @@ describe("RunEngine", () => {
       [{ role: "user", content: "check my open PR and CI checks" }],
       {},
     );
+    expect(expectedErrorLog).toHaveBeenCalledWith(
+      expect.stringContaining('"errorName":"AI_RetryError"'),
+    );
+    expectedErrorLog.mockRestore();
 
     expect(response.status).toBe(200);
     const output = await response.text();
@@ -1219,7 +1241,9 @@ describe("RunEngine", () => {
       { llmGateway },
     );
 
-    const toolErrorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const toolWarningLog = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => {});
 
     try {
       const response = await runEngine.execute(
@@ -1239,15 +1263,15 @@ describe("RunEngine", () => {
       );
       expect(text).toContain("What happened:");
       expect(text).toContain("What you can do next:");
-      expect(toolErrorLog).toHaveBeenCalledTimes(1);
-      expect(toolErrorLog).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"threw"'),
+      expect(toolWarningLog).toHaveBeenCalledTimes(1);
+      expect(toolWarningLog).toHaveBeenCalledWith(
+        expect.stringContaining('"status":"permission_gated"'),
       );
-      expect(toolErrorLog).toHaveBeenCalledWith(
+      expect(toolWarningLog).toHaveBeenCalledWith(
         expect.stringContaining('"errorName":"PermissionGateError"'),
       );
     } finally {
-      toolErrorLog.mockRestore();
+      toolWarningLog.mockRestore();
     }
 
     const persisted = await new RunRepository(state).getById(TEST_RUN_ID);

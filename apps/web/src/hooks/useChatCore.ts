@@ -427,9 +427,28 @@ export function useChatCore(
         input: ChatAppendMessage,
         options: { body: ChatRequestBody },
       ) => Promise<string | null | undefined>;
-      await appendMultimodal(message, { body: requestBody });
+      logClientEvent("chat/append", "dispatching", {
+        runId,
+        sessionId,
+        scopeKey,
+        clientMessageId: message.id,
+        requestRunId: requestBody.runId,
+        requestSessionId: requestBody.sessionId,
+        providerId: requestBody.providerId,
+        modelId: requestBody.modelId,
+      });
+      const responseMessageId = await appendMultimodal(message, {
+        body: requestBody,
+      });
+      logClientEvent("chat/append", "returned", {
+        runId,
+        sessionId,
+        scopeKey,
+        clientMessageId: message.id,
+        responseMessageId: responseMessageId ?? null,
+      });
     },
-    [append],
+    [append, runId, scopeKey, sessionId],
   );
 
   const appendWithResolution = useCallback(
@@ -449,6 +468,13 @@ export function useChatCore(
       setPendingUserMessage({
         scopeKey: requestScopeKey,
         message: buildPendingUserMessage(submittedMessage),
+      });
+      logClientEvent("chat/pending-user", "projected", {
+        runId,
+        sessionId,
+        scopeKey: requestScopeKey,
+        clientMessageId: submittedMessage.id,
+        userContentHash: hashLogString(content),
       });
       logClientEvent("chat/submit", "started", {
         runId,
@@ -510,6 +536,12 @@ export function useChatCore(
             current?.scopeKey === requestScopeKey ? null : current,
           );
           setIsSubmitting(false);
+          logClientEvent("chat/pending-user", "cleared", {
+            runId,
+            sessionId,
+            scopeKey: requestScopeKey,
+            clientMessageId: submittedMessage.id,
+          });
           logClientEvent("chat/submit", "settled", {
             runId,
             sessionId,

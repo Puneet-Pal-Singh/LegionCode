@@ -116,6 +116,23 @@ export class LLMGateway implements ILLMGateway {
     );
 
     let result: Awaited<ReturnType<LLMRuntimeAIService["generateText"]>>;
+    const timeoutMs = this.resolveTextTimeoutMs(req);
+    const startedAt = Date.now();
+    console.log(
+      `[llm/gateway] ${JSON.stringify({
+        runId: req.context.runId,
+        sessionId: req.context.sessionId,
+        phase: req.context.phase,
+        operation: "text",
+        status: "started",
+        providerId: req.providerId ?? null,
+        modelId: req.runtimeModelId ?? req.model ?? null,
+        timeoutMs,
+        messageCount: req.messages.length,
+        messageRoles: summarizeCoreMessageRoles(req.messages),
+        toolDefinitionCount: req.tools ? Object.keys(req.tools).length : 0,
+      })}`,
+    );
     try {
       result = await this.withTimeout(
         this.deps.aiService.generateText({
@@ -130,12 +147,29 @@ export class LLMGateway implements ILLMGateway {
           tools: req.tools,
         }),
         {
-          timeoutMs: this.resolveTextTimeoutMs(req),
+          timeoutMs,
           phase: req.context.phase,
           operation: "text",
         },
       );
     } catch (error) {
+      if (error instanceof LLMTimeoutError) {
+        console.error(
+          `[llm/gateway] ${JSON.stringify({
+            runId: req.context.runId,
+            sessionId: req.context.sessionId,
+            phase: req.context.phase,
+            operation: "text",
+            status: "timeout",
+            providerId: req.providerId ?? null,
+            modelId: req.runtimeModelId ?? req.model ?? null,
+            timeoutMs: error.timeoutMs,
+            elapsedMs: Date.now() - startedAt,
+            messageCount: req.messages.length,
+            toolDefinitionCount: req.tools ? Object.keys(req.tools).length : 0,
+          })}`,
+        );
+      }
       const unusableResponse = this.normalizeUnusableResponseError(
         error,
         req,
@@ -162,6 +196,21 @@ export class LLMGateway implements ILLMGateway {
       toolName: toolCall.toolName,
       args: normalizeToolArgs(toolCall.args),
     }));
+    console.log(
+      `[llm/gateway] ${JSON.stringify({
+        runId: req.context.runId,
+        sessionId: req.context.sessionId,
+        phase: req.context.phase,
+        operation: "text",
+        status: "completed",
+        providerId: req.providerId ?? null,
+        modelId: req.runtimeModelId ?? req.model ?? null,
+        elapsedMs: Date.now() - startedAt,
+        responseChars: result.text?.length ?? 0,
+        finishReason: result.finishReason ?? null,
+        toolCallCount: toolCalls?.length ?? 0,
+      })}`,
+    );
 
     return {
       text: result.text,
@@ -660,6 +709,16 @@ export class LLMGateway implements ILLMGateway {
         return STANDARD_TASK_TEXT_TIMEOUT_MS;
     }
   }
+}
+
+function summarizeCoreMessageRoles(messages: readonly CoreMessage[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
 }
 
 function clampTaskTextTimeoutMs(timeoutMs: number): number {

@@ -12,6 +12,8 @@ export type ClientLogContext = Readonly<Record<string, ClientLogValue>>;
 let clientLogSequence = 0;
 const clientLogStartedAt = Date.now();
 const CLIENT_LOG_FORMAT_VERSION = "json-v2";
+const CLIENT_LOG_DEV_ENDPOINT = "/__legioncode/client-log";
+const CLIENT_LOG_MAX_BYTES = 8_000;
 
 export function logClientEvent(
   domain: string,
@@ -19,7 +21,9 @@ export function logClientEvent(
   context: ClientLogContext = {},
 ): void {
   if (!shouldWriteClientLogs()) return;
-  console.log(formatClientLogLine(domain, operation, context));
+  const line = formatClientLogLine(domain, operation, context);
+  console.log(line);
+  forwardClientLogLine(line);
 }
 
 export function logClientWarning(
@@ -28,7 +32,9 @@ export function logClientWarning(
   context: ClientLogContext = {},
 ): void {
   if (!shouldWriteClientLogs()) return;
-  console.warn(formatClientLogLine(domain, operation, context));
+  const line = formatClientLogLine(domain, operation, context);
+  console.warn(line);
+  forwardClientLogLine(line);
 }
 
 function shouldWriteClientLogs(): boolean {
@@ -91,4 +97,31 @@ function stringifyClientLogObject(value: object): string {
     const message = error instanceof Error ? error.message : String(error);
     return JSON.stringify({ serializationError: message });
   }
+}
+
+function forwardClientLogLine(line: string): void {
+  if (typeof window === "undefined") return;
+
+  const body = boundLogLine(line);
+  try {
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(CLIENT_LOG_DEV_ENDPOINT, body);
+      return;
+    }
+    void fetch(CLIENT_LOG_DEV_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body,
+      keepalive: true,
+    });
+  } catch {
+    // Console logging above is the primary sink; dev-server forwarding is best effort.
+  }
+}
+
+function boundLogLine(line: string): string {
+  if (line.length <= CLIENT_LOG_MAX_BYTES) {
+    return line;
+  }
+  return `${line.slice(0, CLIENT_LOG_MAX_BYTES)} [client-log-truncated]`;
 }
