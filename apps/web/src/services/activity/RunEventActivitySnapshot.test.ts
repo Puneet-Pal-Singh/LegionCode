@@ -7,6 +7,7 @@ import {
   type RunEvent,
 } from "@repo/shared-types";
 import {
+  isRunEventActivityOpen,
   mergeActivitySnapshots,
   projectRunEventsToActivitySnapshot,
 } from "./RunEventActivitySnapshot";
@@ -107,6 +108,55 @@ describe("projectRunEventsToActivitySnapshot", () => {
       "event-user",
       "event-thinking-2",
     ]);
+  });
+
+  it("treats non-terminal canonical events as an open activity run", () => {
+    const events = [
+      createEvent("event-user", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+        role: "user",
+        content: "Update footer",
+        metadata: { clientMessageId: "user-message-1" },
+      }),
+      createEvent("event-thinking", RUN_EVENT_TYPES.RUN_PROGRESS, {
+        phase: RUN_WORKFLOW_STEPS.EXECUTION,
+        label: "Thinking",
+        summary: "",
+        status: "active",
+      }),
+    ];
+
+    expect(isRunEventActivityOpen({ runId: "run_live", events })).toBe(true);
+    expect(
+      projectRunEventsToActivitySnapshot({
+        runId: "run_live",
+        isActive: false,
+        events,
+      })?.status,
+    ).toBe("RUNNING");
+  });
+
+  it("lets terminal canonical events settle activity even if local loading is stale", () => {
+    const events = [
+      createEvent("event-user", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+        role: "user",
+        content: "Hi",
+        metadata: { clientMessageId: "user-message-1" },
+      }),
+      createEvent("event-done", RUN_EVENT_TYPES.RUN_COMPLETED, {
+        status: "complete",
+        totalDurationMs: 1000,
+        toolsUsed: 0,
+      }),
+    ];
+
+    expect(isRunEventActivityOpen({ runId: "run_live", events })).toBe(false);
+    expect(
+      projectRunEventsToActivitySnapshot({
+        runId: "run_live",
+        isActive: true,
+        events,
+      })?.status,
+    ).toBe("COMPLETED");
   });
 });
 

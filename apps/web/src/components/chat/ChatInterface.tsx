@@ -19,11 +19,13 @@ import {
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
+import { isRunEventActivityOpen } from "../../services/activity/RunEventActivitySnapshot.js";
 import {
   isApprovalRequiredRunStatus,
   isTerminalRunStatus,
   normalizeRunStatus,
 } from "../../lib/run-status.js";
+import { logClientEvent } from "../../lib/client-logger.js";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";
@@ -140,7 +142,35 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, Boolean(runId));
-  const { feed } = useRunActivityFeed(runId, activeRunLoading);
+  const isCanonicalEventRunActive = useMemo(
+    () => isRunEventActivityOpen({ runId, events }),
+    [events, runId],
+  );
+  const shouldPollActivityFeed = activeRunLoading || isCanonicalEventRunActive;
+  const { feed } = useRunActivityFeed(runId, shouldPollActivityFeed);
+  useEffect(() => {
+    logClientEvent("chat/workflow", "activity-polling-decision", {
+      runId,
+      localLoading: isLoading,
+      activeRunLoading,
+      summaryStatus: summary?.status ?? null,
+      lifecycleTerminal: isLifecycleTerminalSettled,
+      summaryTerminal: isTerminalSummarySettled,
+      eventActivityOpen: isCanonicalEventRunActive,
+      eventCount: events.length,
+      shouldPollActivityFeed,
+    });
+  }, [
+    activeRunLoading,
+    events.length,
+    isCanonicalEventRunActive,
+    isLifecycleTerminalSettled,
+    isLoading,
+    isTerminalSummarySettled,
+    runId,
+    shouldPollActivityFeed,
+    summary?.status,
+  ]);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const { providerModels } = useProviderStore(runId);

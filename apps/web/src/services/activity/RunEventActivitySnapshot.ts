@@ -33,11 +33,21 @@ export function projectRunEventsToActivitySnapshot(input: {
   return {
     runId: input.runId,
     sessionId: resolveSessionId(events, input.fallbackSessionId),
-    status: input.isActive ? "RUNNING" : resolveTerminalStatus(events),
+    status: resolveActivityStatus(events, input.isActive),
     items: state.items.sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     ),
   };
+}
+
+export function isRunEventActivityOpen(input: {
+  runId: string;
+  events: RunEvent[];
+}): boolean {
+  const events = input.events
+    .filter((event) => event.runId === input.runId)
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  return events.length > 0 && resolveActivityStatus(events, false) === "RUNNING";
 }
 
 export function mergeActivitySnapshots(
@@ -302,14 +312,58 @@ function isCommentaryEvent(
   );
 }
 
-function resolveTerminalStatus(events: RunEvent[]): string | null {
-  const terminal = [...events].reverse().find(
-    (event) =>
-      event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
-      event.type === RUN_EVENT_TYPES.RUN_FAILED,
+function resolveActivityStatus(
+  events: RunEvent[],
+  isActive: boolean,
+): "RUNNING" | "COMPLETED" | "FAILED" | null {
+  const lifecycleEvent = [...events].reverse().find(isRunLifecycleEvent);
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+    return "COMPLETED";
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_FAILED) {
+    return "FAILED";
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED) {
+    return isOpenRunStatus(lifecycleEvent.payload.newStatus)
+      ? "RUNNING"
+      : null;
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
+    return "RUNNING";
+  }
+  if (isActive || events.some(isOpenActivityEvent)) {
+    return "RUNNING";
+  }
+  return null;
+}
+
+function isRunLifecycleEvent(event: RunEvent): boolean {
+  return (
+    event.type === RUN_EVENT_TYPES.RUN_STARTED ||
+    event.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED ||
+    event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+    event.type === RUN_EVENT_TYPES.RUN_FAILED
   );
-  if (!terminal) return null;
-  return terminal.type === RUN_EVENT_TYPES.RUN_COMPLETED ? "COMPLETED" : "FAILED";
+}
+
+function isOpenRunStatus(status: string): boolean {
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting" ||
+    status === "paused"
+  );
+}
+
+function isOpenActivityEvent(event: RunEvent): boolean {
+  return (
+    event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED ||
+    event.type === RUN_EVENT_TYPES.RUN_PROGRESS ||
+    event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
+    event.type === RUN_EVENT_TYPES.TOOL_REQUESTED ||
+    event.type === RUN_EVENT_TYPES.TOOL_STARTED ||
+    event.type === RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED
+  );
 }
 
 function resolveSessionId(

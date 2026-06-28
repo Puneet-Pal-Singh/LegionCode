@@ -6,6 +6,7 @@ import {
   mergeTranscriptAndLiveActivityTurns,
 } from "../../../services/activity/TranscriptActivityParts.js";
 import {
+  isRunEventActivityOpen,
   mergeActivitySnapshots,
   projectRunEventsToActivitySnapshot,
 } from "../../../services/activity/RunEventActivitySnapshot.js";
@@ -27,17 +28,24 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const scopedPersistedFeed =
     input.feed?.runId === input.runId ? input.feed : null;
+  const eventActivityOpen = useMemo(
+    () => isRunEventActivityOpen({ runId: input.runId, events: input.events }),
+    [input.events, input.runId],
+  );
+  const persistedFeedOpen = scopedPersistedFeed?.status === "RUNNING";
+  const resolvedActivityOpen =
+    input.isLoading || eventActivityOpen || persistedFeedOpen;
   const liveFeed = useMemo(
     () =>
       projectRunEventsToActivitySnapshot({
         runId: input.runId,
         events: input.events,
-        isActive: input.isLoading,
+        isActive: resolvedActivityOpen,
         fallbackSessionId: scopedPersistedFeed?.sessionId,
       }),
     [
+      resolvedActivityOpen,
       input.events,
-      input.isLoading,
       input.runId,
       scopedPersistedFeed?.sessionId,
     ],
@@ -80,6 +88,9 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
     logClientEvent("run/presentation", "updated", {
       runId: input.runId,
       loading: input.isLoading,
+      eventActivityOpen,
+      persistedFeedOpen,
+      resolvedActivityOpen,
       feedStatus: scopedFeed?.status ?? null,
       eventCount: input.events.length,
       liveItemCount: presentationLogSnapshot.liveItemCount,
@@ -92,15 +103,18 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
     input.events.length,
     input.isLoading,
     input.runId,
+    eventActivityOpen,
+    persistedFeedOpen,
+    resolvedActivityOpen,
     presentationLogSnapshot,
     scopedFeed?.status,
   ]);
 
   useEffect(() => {
-    if (!input.isLoading && scopedFeed?.status !== "RUNNING") return;
+    if (!resolvedActivityOpen && scopedFeed?.status !== "RUNNING") return;
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1_000);
     return () => window.clearInterval(timerId);
-  }, [input.isLoading, input.runId, scopedFeed?.status]);
+  }, [input.runId, resolvedActivityOpen, scopedFeed?.status]);
 
   const scrollSignal = useMemo(
     () =>

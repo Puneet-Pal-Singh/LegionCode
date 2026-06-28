@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
+import { RUN_EVENT_TYPES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 import { ChatInterface } from "./ChatInterface.js";
@@ -1397,6 +1398,71 @@ describe("ChatInterface", () => {
     );
 
     expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", true);
+  });
+
+  it("keeps activity polling when canonical events remain open after local loading clears", () => {
+    const events: RunEvent[] = [
+      {
+        version: 1,
+        eventId: "event-user",
+        runId: "run-event-open",
+        sessionId: "session-1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: {
+          role: "user",
+          content: "Update footer",
+          metadata: { clientMessageId: "user-message-1" },
+        },
+      },
+      {
+        version: 1,
+        eventId: "event-thinking",
+        runId: "run-event-open",
+        sessionId: "session-1",
+        timestamp: "2026-01-01T00:00:01.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.RUN_PROGRESS,
+        payload: {
+          phase: RUN_WORKFLOW_STEPS.EXECUTION,
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        },
+      },
+    ];
+    vi.mocked(useRunSummary).mockReturnValue({ summary: null });
+    vi.mocked(useRunEvents).mockReturnValue({ events });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-message-1",
+              role: "user",
+              content: "Update footer",
+            },
+          ],
+          runId: "run-event-open",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(useRunActivityFeed).toHaveBeenCalledWith("run-event-open", true);
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
   });
 
   it("renders active run-event approvals while canonical projection is unavailable", () => {
