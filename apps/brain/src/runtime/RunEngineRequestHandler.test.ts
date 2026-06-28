@@ -12,6 +12,7 @@ import {
   RunRepository,
   type RuntimeDurableObjectState,
   type RuntimeStorage,
+  createRunCompletedEvent,
   createToolCompletedEvent,
   createToolRequestedEvent,
   createToolStartedEvent,
@@ -488,6 +489,17 @@ describe("RunEngineRequestHandler", () => {
         },
         { content: "ok" },
         8,
+      ),
+    );
+    await eventRepo.append(
+      runId,
+      createRunCompletedEvent(
+        {
+          runId,
+          sessionId: "session-1",
+        },
+        12,
+        1,
       ),
     );
 
