@@ -99,6 +99,14 @@ async function handleTaskTimeoutRecovery(
     modelId: timeoutDetails.modelId,
     lastCompletedAction: timeoutDetails.lastCompletedAction,
   });
+  const timeoutMetadata = buildTaskExecutionTimeoutMetadata({
+    ...timeoutDetails,
+    stepsExecuted: context.stats.stepsExecuted,
+    toolExecutionCount: context.stats.toolExecutionCount,
+    failedToolCount: context.stats.failedToolCount,
+    completedMutatingToolCount: context.stats.completedMutatingToolCount,
+    completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
+  });
   console.log(
     `[run/recovery] ${JSON.stringify({
       runId: run.id,
@@ -123,12 +131,13 @@ async function handleTaskTimeoutRecovery(
     "Recoverable timeout",
     "The model timed out before choosing the next action.",
     "completed",
+    { metadata: timeoutMetadata },
   );
 
   return deps.completeRunWithRecoveredAssistantMessage(
     run,
     text,
-    buildTaskExecutionTimeoutMetadata(timeoutDetails),
+    timeoutMetadata,
     "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
   );
 }
@@ -308,6 +317,11 @@ function buildTaskExecutionTimeoutMetadata(input: {
   providerId: string | null;
   modelId: string | null;
   lastCompletedAction: string | null;
+  stepsExecuted: number;
+  toolExecutionCount: number;
+  failedToolCount: number;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
 }): Record<string, unknown> {
   return {
     code: "TASK_EXECUTION_TIMEOUT",
@@ -320,6 +334,12 @@ function buildTaskExecutionTimeoutMetadata(input: {
     ...(input.lastCompletedAction
       ? { lastCompletedAction: input.lastCompletedAction }
       : undefined),
+    stepsExecuted: input.stepsExecuted,
+    toolExecutionCount: input.toolExecutionCount,
+    failedToolCount: input.failedToolCount,
+    completedMutatingToolCount: input.completedMutatingToolCount,
+    completedReadOnlyToolCount: input.completedReadOnlyToolCount,
+    noFilesChanged: input.completedMutatingToolCount === 0,
     resumeHint: "Retry the task or switch to a faster or more reliable model.",
     resumeActions: ["retry", "switch_model"],
   };
