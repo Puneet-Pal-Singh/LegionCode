@@ -48,17 +48,12 @@ function buildLogContext(context: ClientLogContext): ClientLogContext {
   };
 }
 
-function formatClientLogLine(
+export function formatClientLogLine(
   domain: string,
   operation: string,
   context: ClientLogContext,
 ): string {
-  const formattedContext = Object.entries(buildLogContext(context))
-    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
-    .join(" ");
-  return formattedContext
-    ? `[${domain}/${operation}] ${formattedContext}`
-    : `[${domain}/${operation}]`;
+  return `[${domain}/${operation}] ${formatLogValue(buildLogContext(context))}`;
 }
 
 function formatLogValue(value: ClientLogValue): string {

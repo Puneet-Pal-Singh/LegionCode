@@ -135,11 +135,15 @@ export class FileSystemPlugin implements IPlugin {
     payload: unknown,
     _onLog?: LogCallback,
   ): Promise<PluginResult> {
+    const startedAt = Date.now();
     try {
       const toolboxContext = readToolboxCommandContext(payload);
       const parsedPayload = FileSystemPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsedPayload.runId ?? toolboxContext.runId);
       const workspaceRoot = getWorkspaceRoot(runId);
+      console.log(
+        `[filesystem/tool] runId=${runId} action=${parsedPayload.action} status=entered workspaceRoot=${workspaceRoot}`,
+      );
 
       await runSafeCommand(
         sandbox,
@@ -152,91 +156,154 @@ export class FileSystemPlugin implements IPlugin {
       );
 
       if (parsedPayload.action === "list_files") {
-        return await this.listFiles(
-          sandbox,
-          workspaceRoot,
-          parsedPayload,
-          toolboxContext,
+        return logFilesystemResult(
           runId,
+          parsedPayload.action,
+          startedAt,
+          await this.listFiles(
+            sandbox,
+            workspaceRoot,
+            parsedPayload,
+            toolboxContext,
+            runId,
+          ),
         );
       }
       if (parsedPayload.action === "read_file") {
-        return await this.readFile(
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.readFile(
+            sandbox,
+            workspaceRoot,
+            parsedPayload,
+            toolboxContext,
+            runId,
+          ),
+        );
+      }
+      if (parsedPayload.action === "files") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.files(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "tree") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.tree(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "glob") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.glob(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            {
+              path: parsedPayload.path,
+              glob: parsedPayload.pattern,
+              maxResults: parsedPayload.maxResults,
+            },
+          ),
+        );
+      }
+      if (parsedPayload.action === "grep") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.grep(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "write_file") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.workspaceEditService.write(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "edit_file") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.workspaceEditService.edit(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "multi_edit") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.workspaceEditService.multiEdit(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload.edits,
+          ),
+        );
+      }
+      if (parsedPayload.action === "format_file") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.languageToolService.formatFile(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload.path,
+          ),
+        );
+      }
+      if (parsedPayload.action === "language_diagnostics") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.languageToolService.diagnostics(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload.path,
+          ),
+        );
+      }
+      return logFilesystemResult(
+        runId,
+        parsedPayload.action,
+        startedAt,
+        await this.makeDirectory(
           sandbox,
           workspaceRoot,
           parsedPayload,
           toolboxContext,
           runId,
-        );
-      }
-      if (parsedPayload.action === "files") {
-        return await this.ripgrepService.files(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "tree") {
-        return await this.ripgrepService.tree(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "glob") {
-        return await this.ripgrepService.glob(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          {
-            path: parsedPayload.path,
-            glob: parsedPayload.pattern,
-            maxResults: parsedPayload.maxResults,
-          },
-        );
-      }
-      if (parsedPayload.action === "grep") {
-        return await this.ripgrepService.grep(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "write_file") {
-        return await this.workspaceEditService.write(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "edit_file") {
-        return await this.workspaceEditService.edit(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "multi_edit") {
-        return await this.workspaceEditService.multiEdit(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload.edits,
-        );
-      }
-      if (parsedPayload.action === "format_file") {
-        return await this.languageToolService.formatFile(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload.path,
-        );
-      }
-      if (parsedPayload.action === "language_diagnostics") {
-        return await this.languageToolService.diagnostics(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload.path,
-        );
-      }
-      return await this.makeDirectory(
-        sandbox,
-        workspaceRoot,
-        parsedPayload,
-        toolboxContext,
-        runId,
+        ),
       );
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Filesystem operation failed";
+      console.error(
+        `[filesystem/tool] action=unknown status=failed elapsedMs=${Date.now() - startedAt} error=${message}`,
+      );
       return { success: false, error: message };
     }
   }
@@ -518,4 +585,24 @@ function countOutputLines(output: string): number {
 function parseLineCount(output: string): number | null {
   const value = Number(output.trim().split(/\s+/)[0]);
   return Number.isFinite(value) ? value : null;
+}
+
+function logFilesystemResult(
+  runId: string,
+  action: FileSystemPayload["action"],
+  startedAt: number,
+  result: PluginResult,
+): PluginResult {
+  const error = typeof result.error === "string" ? result.error : undefined;
+  const metadata =
+    result.metadata && typeof result.metadata === "object"
+      ? JSON.stringify(result.metadata)
+      : "none";
+  const message = `[filesystem/tool] runId=${runId} action=${action} status=completed success=${result.success} truncated=${result.truncated ?? false} elapsedMs=${Date.now() - startedAt} error=${error ?? "none"} metadata=${metadata}`;
+  if (result.success) {
+    console.log(message);
+  } else {
+    console.error(message);
+  }
+  return result;
 }

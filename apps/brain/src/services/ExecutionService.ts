@@ -25,6 +25,19 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
 const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
 
+type SecureExecutionStatus = "success" | "failure" | "timeout" | "cancelled";
+
+interface SecureExecutionError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+interface SecureExecutionMetrics {
+  duration: number;
+  memoryUsed?: number;
+}
+
 interface SecureExecutionSession {
   sessionId: string;
   token: string;
@@ -36,23 +49,18 @@ interface SecureExecutionSessionResponse extends SecureExecutionSession {
 
 interface SecureExecutionTaskResponse {
   taskId: string;
-  status: "success" | "failure" | "timeout" | "cancelled";
+  status: SecureExecutionStatus;
   output?: string;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-  metrics?: {
-    duration: number;
-    memoryUsed?: number;
-  };
+  error?: SecureExecutionError;
+  metrics?: SecureExecutionMetrics;
 }
 
 interface LegacyExecutionResult {
   success: boolean;
+  status?: SecureExecutionStatus;
   output?: string;
-  error?: string;
+  error?: string | SecureExecutionError;
+  metrics?: SecureExecutionMetrics;
 }
 
 interface SecureExecutionLogEntry {
@@ -103,7 +111,7 @@ export class ExecutionService {
     let executionFinished = false;
     let logForwardingPromise: Promise<void> | null = null;
     console.log(
-      `[ExecutionService] ${plugin}:${executionAction}`,
+      `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} plugin=${plugin} action=${executionAction} status=requested`,
       sanitizeLogPayload(payload),
     );
 
@@ -135,14 +143,17 @@ export class ExecutionService {
       await logForwardingPromise;
       if (isExpectedGitStatusExecutionError(plugin, executionAction, error)) {
         console.log(
-          `[ExecutionService] ${plugin}:${executionAction} transient startup miss`,
+          `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} plugin=${plugin} action=${executionAction} status=transient-startup-miss`,
           sanitizeLogPayload({
             errorMessage:
               error instanceof Error ? error.message : String(error),
           }),
         );
       } else {
-        console.error(`[ExecutionService] Error:`, sanitizeUnknownError(error));
+        console.error(
+          `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} plugin=${plugin} action=${executionAction} status=threw`,
+          sanitizeUnknownError(error),
+        );
       }
       throw error;
     }
@@ -279,6 +290,10 @@ export class ExecutionService {
     const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
     const executionSession = await this.getExecutionSession();
     const taskId = createExecutionTaskId(plugin, action);
+    const startedAt = Date.now();
+    console.log(
+      `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=dispatching timeoutMs=${timeoutMs}`,
+    );
     const logForwardingPromise = options?.onOutput
       ? this.forwardExecutionLogs({
           sessionId: executionSession.sessionId,
@@ -314,6 +329,9 @@ export class ExecutionService {
 
       if (!res.ok) {
         await logForwardingPromise;
+        console.error(
+          `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=http-failed httpStatus=${res.status} elapsedMs=${Date.now() - startedAt}`,
+        );
         throw new Error(
           (await res.text()) || `Failed to execute ${plugin}:${action}`,
         );
@@ -322,10 +340,17 @@ export class ExecutionService {
       const executionResult =
         await parseJsonResponse<SecureExecutionTaskResponse>(res);
       await logForwardingPromise;
+      console.log(
+        `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=completed secureStatus=${executionResult.status} errorCode=${executionResult.error?.code ?? "none"} durationMs=${executionResult.metrics?.duration ?? "unknown"} elapsedMs=${Date.now() - startedAt}`,
+      );
       return executionResult;
     } catch (error) {
       setFinished(true);
       await logForwardingPromise;
+      console.error(
+        `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=failed elapsedMs=${Date.now() - startedAt}`,
+        sanitizeUnknownError(error),
+      );
       throw error;
     }
   }
@@ -350,7 +375,7 @@ export class ExecutionService {
         return {
           success: false,
           error:
-            gitStatusResult.error ??
+            readLegacyExecutionErrorMessage(gitStatusResult.error) ??
             "Unable to verify git branch state before creating a pull request.",
         };
       }
@@ -615,16 +640,40 @@ function toLegacyExecutionResult(
   if (result.status === "success") {
     return {
       success: true,
+      status: result.status,
       output: result.output ?? "",
+      metrics: result.metrics,
     };
   }
 
   return {
     success: false,
+    status: result.status,
     error:
-      result.error?.message ??
-      `Task execution ended with status '${result.status}'`,
+      result.error ??
+      createFallbackSecureExecutionError(result.status, result.output),
+    output: result.output,
+    metrics: result.metrics,
   };
+}
+
+function createFallbackSecureExecutionError(
+  status: Exclude<SecureExecutionStatus, "success">,
+  output: string | undefined,
+): SecureExecutionError {
+  return {
+    code: `EXECUTION_${status.toUpperCase()}`,
+    message: output ?? `Task execution ended with status '${status}'`,
+  };
+}
+
+function readLegacyExecutionErrorMessage(
+  error: LegacyExecutionResult["error"],
+): string | undefined {
+  if (typeof error === "string") {
+    return error;
+  }
+  return error?.message;
 }
 
 function logExecutionFailure(
@@ -641,7 +690,7 @@ function logExecutionFailure(
       ? "expected bootstrap miss"
       : "status check failed";
     console.log(
-      `[ExecutionService] ${plugin}:${action} ${message}`,
+      `[execution/tool] plugin=${plugin} action=${action} status=${message}`,
       sanitizeLogPayload({
         status: result.status,
         errorCode: result.error?.code,
@@ -652,7 +701,7 @@ function logExecutionFailure(
   }
 
   console.error(
-    `[ExecutionService] ${plugin}:${action} failed`,
+    `[execution/tool] plugin=${plugin} action=${action} status=failed`,
     sanitizeLogPayload({
       status: result.status,
       errorCode: result.error?.code,

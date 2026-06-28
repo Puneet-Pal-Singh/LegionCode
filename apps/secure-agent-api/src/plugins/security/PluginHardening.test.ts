@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { BashPlugin } from "../BashPlugin";
 import { NodePlugin } from "../NodePlugin";
@@ -258,6 +258,7 @@ describe("secure-agent-api plugin hardening", () => {
   });
 
   it("rejects filesystem traversal and absolute paths", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = new FileSystemPlugin();
     const sandbox = createSandboxMock();
 
@@ -276,6 +277,8 @@ describe("secure-agent-api plugin hardening", () => {
     });
     expect(absolute.success).toBe(false);
     expect(absolute.error).toMatch(/absolute paths are not allowed/i);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
+    errorSpy.mockRestore();
   });
 
   it("returns read windows with line metadata", async () => {
@@ -355,6 +358,7 @@ describe("secure-agent-api plugin hardening", () => {
   });
 
   it("routes invalid grep regex errors through filesystem metadata", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = new FileSystemPlugin();
     const sandbox = createSandboxMockWithResponder((command) => {
       if (command.includes("'rg'")) {
@@ -378,9 +382,16 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.error).toMatch(/Invalid grep regex/);
     expect(result.metadata).toMatchObject({ reason: "invalid_regex" });
     expect(result.truncated).toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[filesystem/tool] runId=run-safe-grep action=grep status=completed success=false",
+      ),
+    );
+    errorSpy.mockRestore();
   });
 
   it("rejects traversal in fast glob paths", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = new FileSystemPlugin();
     const sandbox = createSandboxMock();
 
@@ -393,6 +404,10 @@ describe("secure-agent-api plugin hardening", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/traversal|Access Denied/i);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[filesystem/tool] action=unknown status=failed"),
+    );
+    errorSpy.mockRestore();
   });
 
   it("returns an empty successful result for fast glob misses", async () => {
@@ -441,7 +456,7 @@ describe("secure-agent-api plugin hardening", () => {
 
     const result = await plugin.execute(asSandbox(sandbox), {
       action: "git_commit",
-      runId: "run-safe-5",
+      runId: "run_safe_5",
       message: "feat: test commit",
       files: ["src/app.ts"],
     });
