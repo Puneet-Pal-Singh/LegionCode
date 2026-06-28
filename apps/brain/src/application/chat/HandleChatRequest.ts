@@ -23,6 +23,7 @@ import {
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
+import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
 import type { SerializableToolDefinition } from "../../types/tools";
 import type {
@@ -155,18 +156,17 @@ export class HandleChatRequest {
       if (userId) {
         try {
           console.log(
-            `[chat/persistence] ${JSON.stringify({
+            formatDiagnosticLogLine("chat/persistence", "ensure-started", {
               correlationId,
               runId,
               sessionId,
-              status: "ensure-started",
               userId,
               workspaceId: workspaceId ?? null,
               taskId,
               repository: repositorySlug ?? null,
               providerId: input.providerId ?? null,
               modelId: input.modelId ?? null,
-            })}`,
+            }),
           );
           await this.persistenceService.ensureTranscriptSession({
             sessionId,
@@ -188,13 +188,14 @@ export class HandleChatRequest {
             branch: repositoryBranch ?? null,
           });
           console.log(
-            `[chat/persistence] ${JSON.stringify({
+            formatDiagnosticLogLine("chat/persistence", "run-ensured", {
               correlationId,
               runId,
               sessionId,
-              status: "run-ensured",
               taskId,
-            })}`,
+              mode,
+              branch: repositoryBranch ?? null,
+            }),
           );
         } catch (ensureError) {
           const message =
@@ -209,14 +210,14 @@ export class HandleChatRequest {
       }
 
       console.log(
-        `[chat/persistence] ${JSON.stringify({
+        formatDiagnosticLogLine("chat/persistence", "user-message-started", {
           correlationId,
           runId,
           sessionId,
-          status: "user-message-persist-started",
           messageId: readMessageId(lastUserMessage),
           role: lastUserMessage.role,
-        })}`,
+          messageCount: messages.length,
+        }),
       );
       await this.persistenceService.persistUserMessage(
         sessionId,
@@ -229,13 +230,12 @@ export class HandleChatRequest {
         },
       );
       console.log(
-        `[chat/persistence] ${JSON.stringify({
+        formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
           correlationId,
           runId,
           sessionId,
-          status: "user-message-persisted",
           messageId: readMessageId(lastUserMessage),
-        })}`,
+        }),
       );
 
       // Build execution payload with repository context
@@ -298,18 +298,19 @@ export class HandleChatRequest {
       };
 
       console.log(
-        `[chat/usecase] ${JSON.stringify({
+        formatDiagnosticLogLine("chat/usecase", "prepared-for-run-engine", {
           correlationId,
           runId,
           sessionId,
-          status: "prepared-for-run-engine",
           mode,
           providerId: input.providerId ?? null,
           modelId: input.modelId ?? null,
           harnessId: input.harnessId ?? null,
           repository: repositorySlug ?? null,
           branch: repositoryBranch ?? null,
-        })}`,
+          toolCount: input.tools ? Object.keys(input.tools).length : 0,
+          messageCount: messages.length,
+        }),
       );
 
       return {

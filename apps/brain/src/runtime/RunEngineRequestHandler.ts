@@ -31,6 +31,7 @@ import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import {
   runEngineErrorResponse,
   runEngineJsonResponse,
@@ -471,15 +472,16 @@ export class RunEngineRequestHandler {
 
     try {
       console.log(
-        `[run/runtime] ${JSON.stringify({
+        formatDiagnosticLogLine("run/runtime", "execute-request-accepted", {
           correlationId: payload.correlationId,
           runId: payload.runId,
           sessionId: payload.sessionId,
-          status: "execute-request-accepted",
           providerId: payload.input.providerId ?? null,
           modelId: payload.input.modelId ?? null,
           mode: payload.input.mode,
-        })}`,
+          messageCount: payload.messages.length,
+          toolCount: payload.tools?.length ?? 0,
+        }),
       );
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
@@ -491,14 +493,13 @@ export class RunEngineRequestHandler {
           { strict: true },
         );
         console.log(
-          `[run/runtime] ${JSON.stringify({
+          formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
             correlationId: payload.correlationId,
             runId: payload.runId,
             sessionId: payload.sessionId,
-            status: "dependencies-ready",
             hasEventStream: Boolean(this.eventStream),
             toolCount: payload.tools?.length ?? 0,
-          })}`,
+          }),
         );
         const editArtifactCoordinator = createEditArtifactCoordinator({
           env: this.env,
@@ -544,13 +545,12 @@ export class RunEngineRequestHandler {
           toRuntimeCoreTools(payload.tools),
         );
         console.log(
-          `[run/runtime] ${JSON.stringify({
+          formatDiagnosticLogLine("run/runtime", "engine-executed", {
             correlationId: payload.correlationId,
             runId: payload.runId,
             sessionId: payload.sessionId,
-            status: "engine-executed",
             responseStatus: executionResponse.status,
-          })}`,
+          }),
         );
 
         const postExecutionResult = onExecuteResult
@@ -562,13 +562,12 @@ export class RunEngineRequestHandler {
             })
           : null;
         console.log(
-          `[run/runtime] ${JSON.stringify({
+          formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
             correlationId: payload.correlationId,
             runId: payload.runId,
             sessionId: payload.sessionId,
-            status: "post-execution-handled",
             assistantMessageId: postExecutionResult?.assistantMessageId ?? null,
-          })}`,
+          }),
         );
         if (postExecutionResult?.assistantMessageId) {
           editArtifactCoordinator.setMessageContext({
@@ -577,12 +576,11 @@ export class RunEngineRequestHandler {
         }
         await editArtifactCoordinator.waitForPendingCapture();
         console.log(
-          `[run/runtime] ${JSON.stringify({
+          formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
             correlationId: payload.correlationId,
             runId: payload.runId,
             sessionId: payload.sessionId,
-            status: "artifacts-settled",
-          })}`,
+          }),
         );
 
         return withRunEngineHeaders(request, this.env, executionResponse);

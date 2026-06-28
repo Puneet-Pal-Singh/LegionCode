@@ -9,6 +9,7 @@ import {
   tagRuntimeStateSemantics,
 } from "@shadowbox/execution-engine/runtime";
 import { DomainError } from "../domain/errors";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { PersistenceService } from "../services/PersistenceService";
 import type { Env } from "../types/ai";
 
@@ -75,16 +76,38 @@ async function persistTerminalRunStatusFromRuntime(
   const run = await runRepository.getById(runId);
   const status = mapRuntimeTerminalStatus(run?.status);
   if (!status) {
+    console.log(
+      formatDiagnosticLogLine("run/post-execution", "terminal-status-skipped", {
+        correlationId,
+        runId,
+        runtimeStatus: run?.status ?? null,
+      }),
+    );
     return;
   }
 
   try {
+    console.log(
+      formatDiagnosticLogLine("run/post-execution", "terminal-status-entered", {
+        correlationId,
+        runId,
+        runtimeStatus: run?.status ?? null,
+        persistedStatus: status,
+      }),
+    );
     const persistenceService = new PersistenceService(env);
     await persistenceService.updateRunStatus(
       runId,
       status,
       run?.metadata?.startedAt,
       run?.metadata?.completedAt ?? new Date().toISOString(),
+    );
+    console.log(
+      formatDiagnosticLogLine("run/post-execution", "terminal-status-persisted", {
+        correlationId,
+        runId,
+        persistedStatus: status,
+      }),
     );
   } catch (error) {
     throw new RunPostExecutionPersistenceError(
@@ -110,6 +133,16 @@ async function persistAssistantMessageFromRunOutput(
   const runEventRepository = new RunEventRepository(runtimeState);
   const run = await runRepository.getById(runId);
   const outputContent = run?.output?.content?.trim();
+  console.log(
+    formatDiagnosticLogLine("run/post-execution", "assistant-output-read", {
+      correlationId,
+      runId,
+      sessionId,
+      runStatus: run?.status ?? null,
+      hasOutput: Boolean(outputContent),
+      outputChars: outputContent?.length ?? 0,
+    }),
+  );
 
   if (!outputContent) {
     if (requiresPersistedAssistantOutput(run?.status)) {
@@ -125,18 +158,29 @@ async function persistAssistantMessageFromRunOutput(
   try {
     const persistenceService = new PersistenceService(env);
     const events = await runEventRepository.getByRun(runId);
+    const activity = projectRunActivityTranscript({
+      runId,
+      sessionId,
+      events,
+      terminalStatus: mapRuntimeActivityTerminalStatus(run?.status),
+      terminalReason: readTerminalReason(run?.metadata?.error),
+    });
+    console.log(
+      formatDiagnosticLogLine("run/post-execution", "activity-projected", {
+        correlationId,
+        runId,
+        sessionId,
+        eventCount: events.length,
+        activityEventCount: activity.events.length,
+        terminalStatus: mapRuntimeActivityTerminalStatus(run?.status),
+      }),
+    );
     return await persistenceService.persistAssistantTurn({
       sessionId,
       runId,
       text: outputContent,
       metadata: readTerminalAssistantMetadata(events),
-      activity: projectRunActivityTranscript({
-        runId,
-        sessionId,
-        events,
-        terminalStatus: mapRuntimeActivityTerminalStatus(run?.status),
-        terminalReason: readTerminalReason(run?.metadata?.error),
-      }),
+      activity,
     });
   } catch (error) {
     throw new RunPostExecutionPersistenceError(
