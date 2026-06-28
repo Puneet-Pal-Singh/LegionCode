@@ -582,8 +582,8 @@ describe("ChatInterface", () => {
     expect(screen.queryByText(/Run completed\./)).not.toBeInTheDocument();
     expect(mockChatInputBar).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        canStop: false,
-        isLoading: false,
+        canStop: true,
+        isLoading: true,
       }),
     );
   });
@@ -1406,7 +1406,11 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", true);
+    expect(useRunEvents).toHaveBeenCalledWith(
+      "run-local-polling",
+      true,
+      expect.any(Number),
+    );
   });
 
   it("keeps activity polling when canonical events remain open after local loading clears", () => {

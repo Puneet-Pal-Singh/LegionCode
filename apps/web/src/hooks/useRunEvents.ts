@@ -26,6 +26,7 @@ const RUN_EVENTS_STREAM_RETRY_DELAY_MS = 500;
 export function useRunEvents(
   runId: string,
   shouldStream: boolean = false,
+  reconnectTrigger?: number,
 ): UseRunEventsResult {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [streamRetryVersion, setStreamRetryVersion] = useState(0);
@@ -161,7 +162,7 @@ export function useRunEvents(
         setStreamRetryVersion((version) => version + 1);
       },
     });
-  }, [fetchEvents, runId, shouldStream, streamRetryVersion]);
+  }, [fetchEvents, runId, shouldStream, streamRetryVersion, reconnectTrigger]);
 
   useEffect(() => {
     if (!runId) {

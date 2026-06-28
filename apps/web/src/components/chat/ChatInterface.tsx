@@ -120,8 +120,7 @@ export function ChatInterface({
   const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
   const isTerminalSummarySettled = Boolean(
     summary?.status &&
-    isTerminalRunStatus(summary.status) &&
-    !isApprovalRequiredRunStatus(summary.status),
+    isTerminalRunStatus(summary.status),
   );
   const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
   const isCanonicalRunActive =
@@ -129,9 +128,18 @@ export function ChatInterface({
     isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
     Boolean(summary?.pendingApproval);
   const activeRunLoading =
-    !isLifecycleTerminalSettled &&
-    !isTerminalSummarySettled &&
-    (isLoading || isCanonicalRunActive);
+    isLoading ||
+    (!isLifecycleTerminalSettled &&
+      !isTerminalSummarySettled &&
+      isCanonicalRunActive);
+  const [eventReconnectTrigger, setEventReconnectTrigger] = useState(0);
+  const previousIsLoadingRef = useRef(isLoading);
+  useEffect(() => {
+    if (isLoading && !previousIsLoadingRef.current) {
+      setEventReconnectTrigger((v) => v + 1);
+    }
+    previousIsLoadingRef.current = isLoading;
+  }, [isLoading]);
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -141,7 +149,7 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, Boolean(runId));
+  const { events } = useRunEvents(runId, Boolean(runId), eventReconnectTrigger);
   const isCanonicalEventRunActive = useMemo(
     () => isRunEventActivityOpen({ runId, events }),
     [events, runId],
@@ -211,7 +219,7 @@ export function ChatInterface({
     messages,
     feed,
     events,
-    isLoading: activeRunLoading,
+    isLoading: isLoading || activeRunLoading,
   });
   const fallbackApproval = useMemo(() => {
     if (summary?.pendingApproval) {
@@ -314,7 +322,7 @@ export function ChatInterface({
     snapshots: changedFileSnapshotsByAssistantMessageId,
     artifacts: artifactSourcesByAssistantMessageId,
     hasHydrated,
-    isLoading: activeRunLoading,
+    isLoading: isLoading || activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
     lifecycleProjection,
@@ -374,6 +382,7 @@ export function ChatInterface({
       canStop={activeRunLoading && (canStop ?? true)}
       isLoading={activeRunLoading || isTranscriptHydrating}
       sessionId={sessionId}
+      runId={runId}
       mode={mode}
       onModeChange={onModeChange}
       hasMessages={messages.length > 0}

@@ -226,7 +226,11 @@ export function useRunSummary(
       Boolean(summary?.status) &&
       !isTerminalRunStatus(summary?.status) &&
       !isApprovalRequiredRunStatus(summary?.status);
-    if (!runId || (!shouldPoll && !shouldSettleCanonicalStatus)) {
+    const isApprovalActive = isApprovalRequiredRunStatus(summary?.status);
+    if (
+      !runId ||
+      (!shouldPoll && !shouldSettleCanonicalStatus && !isApprovalActive)
+    ) {
       return;
     }
 
@@ -238,7 +242,10 @@ export function useRunSummary(
         return;
       }
       const currentStatus = summaryStatusRef.current;
-      if (isTerminalRunStatus(currentStatus)) {
+      if (
+        isTerminalRunStatus(currentStatus) &&
+        !isApprovalRequiredRunStatus(currentStatus)
+      ) {
         return;
       }
       void fetchSummary();
