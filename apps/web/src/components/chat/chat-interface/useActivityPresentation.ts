@@ -81,6 +81,7 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
       persistedItemCount,
       rowCount,
       turnCount: viewModel.turns.length,
+      turnKeys: viewModel.turns.map((turn) => turn.key).join(","),
     };
   }, [liveFeed?.items.length, scopedPersistedFeed?.items.length, viewModel.turns]);
 
@@ -96,6 +97,7 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
       liveItemCount: presentationLogSnapshot.liveItemCount,
       persistedItemCount: presentationLogSnapshot.persistedItemCount,
       activeTurnKey: presentationLogSnapshot.activeTurnKey,
+      turnKeys: presentationLogSnapshot.turnKeys,
       turnCount: presentationLogSnapshot.turnCount,
       rowCount: presentationLogSnapshot.rowCount,
     });

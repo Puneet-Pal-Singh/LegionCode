@@ -10,6 +10,7 @@ describe("client logger", () => {
 
     expect(line).toContain("[run/events/received]");
     expect(line).toContain('"format":"json-v2"');
+    expect(line).toMatch(/"clientInstanceId":"(server|tab_[^"]+)"/);
     expect(line).toContain('"runId":"run_123"');
     expect(line).toContain('"type":"run.progress"');
     expect(line).not.toContain("[object Object]");

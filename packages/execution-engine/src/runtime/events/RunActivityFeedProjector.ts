@@ -124,6 +124,14 @@ function resolveActivityFeedStatus(
   const latestLifecycleEvent = [...events]
     .reverse()
     .find(isRunLifecycleEvent);
+  const latestOpenActivityEvent = [...events].reverse().find(isOpenActivityEvent);
+  if (
+    latestOpenActivityEvent &&
+    (!latestLifecycleEvent ||
+      latestOpenActivityEvent.timestamp > latestLifecycleEvent.timestamp)
+  ) {
+    return "RUNNING";
+  }
   if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
     return "COMPLETED";
   }
@@ -152,14 +160,19 @@ function isRunLifecycleEvent(event: RunEvent): boolean {
 }
 
 function isOpenActivityEvent(event: RunEvent): boolean {
-  return (
-    event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED ||
-    event.type === RUN_EVENT_TYPES.RUN_PROGRESS ||
-    event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
-    event.type === RUN_EVENT_TYPES.TOOL_REQUESTED ||
-    event.type === RUN_EVENT_TYPES.TOOL_STARTED ||
-    event.type === RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED
-  );
+  switch (event.type) {
+    case RUN_EVENT_TYPES.MESSAGE_EMITTED:
+      return event.payload.role === "user";
+    case RUN_EVENT_TYPES.RUN_PROGRESS:
+      return event.payload.status === "active";
+    case RUN_EVENT_TYPES.APPROVAL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_STARTED:
+    case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED:
+      return true;
+    default:
+      return false;
+  }
 }
 
 function mapCanonicalRunStatus(status: string): ActivityFeedSnapshot["status"] {

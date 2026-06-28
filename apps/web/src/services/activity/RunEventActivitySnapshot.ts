@@ -317,6 +317,13 @@ function resolveActivityStatus(
   isActive: boolean,
 ): "RUNNING" | "COMPLETED" | "FAILED" | null {
   const lifecycleEvent = [...events].reverse().find(isRunLifecycleEvent);
+  const openActivityEvent = [...events].reverse().find(isOpenActivityEvent);
+  if (
+    openActivityEvent &&
+    (!lifecycleEvent || openActivityEvent.timestamp > lifecycleEvent.timestamp)
+  ) {
+    return "RUNNING";
+  }
   if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
     return "COMPLETED";
   }
@@ -331,7 +338,7 @@ function resolveActivityStatus(
   if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
     return "RUNNING";
   }
-  if (isActive || events.some(isOpenActivityEvent)) {
+  if (isActive || Boolean(openActivityEvent)) {
     return "RUNNING";
   }
   return null;
@@ -356,14 +363,19 @@ function isOpenRunStatus(status: string): boolean {
 }
 
 function isOpenActivityEvent(event: RunEvent): boolean {
-  return (
-    event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED ||
-    event.type === RUN_EVENT_TYPES.RUN_PROGRESS ||
-    event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
-    event.type === RUN_EVENT_TYPES.TOOL_REQUESTED ||
-    event.type === RUN_EVENT_TYPES.TOOL_STARTED ||
-    event.type === RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED
-  );
+  switch (event.type) {
+    case RUN_EVENT_TYPES.MESSAGE_EMITTED:
+      return event.payload.role === "user";
+    case RUN_EVENT_TYPES.RUN_PROGRESS:
+      return event.payload.status === "active";
+    case RUN_EVENT_TYPES.APPROVAL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_STARTED:
+    case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED:
+      return true;
+    default:
+      return false;
+  }
 }
 
 function resolveSessionId(

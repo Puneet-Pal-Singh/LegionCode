@@ -158,6 +158,51 @@ describe("projectRunEventsToActivitySnapshot", () => {
       })?.status,
     ).toBe("COMPLETED");
   });
+
+  it("reopens activity when a later prompt starts after a completed turn", () => {
+    const events = [
+      createEvent("event-first-user", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+        role: "user",
+        content: "Hi",
+        metadata: { clientMessageId: "user-message-1" },
+      }),
+      createEvent("event-first-done", RUN_EVENT_TYPES.RUN_COMPLETED, {
+        status: "complete",
+        totalDurationMs: 1000,
+        toolsUsed: 0,
+      }),
+      createEvent(
+        "event-second-user",
+        RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        {
+          role: "user",
+          content: "Update footer",
+          metadata: { clientMessageId: "user-message-2" },
+        },
+        "2026-06-27T09:00:10.000Z",
+      ),
+      createEvent(
+        "event-second-thinking",
+        RUN_EVENT_TYPES.RUN_PROGRESS,
+        {
+          phase: RUN_WORKFLOW_STEPS.EXECUTION,
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        },
+        "2026-06-27T09:00:11.000Z",
+      ),
+    ];
+
+    expect(isRunEventActivityOpen({ runId: "run_live", events })).toBe(true);
+    expect(
+      projectRunEventsToActivitySnapshot({
+        runId: "run_live",
+        isActive: false,
+        events,
+      })?.status,
+    ).toBe("RUNNING");
+  });
 });
 
 describe("mergeActivitySnapshots", () => {
@@ -204,13 +249,14 @@ function createEvent<TType extends RunEvent["type"]>(
   eventId: string,
   type: TType,
   payload: Extract<RunEvent, { type: TType }>["payload"],
+  timestamp = `2026-06-27T09:00:0${eventId.length % 10}.000Z`,
 ): Extract<RunEvent, { type: TType }> {
   return {
     version: 1,
     eventId,
     runId: "run_live",
     sessionId: "session-1",
-    timestamp: `2026-06-27T09:00:0${eventId.length % 10}.000Z`,
+    timestamp,
     source: "brain",
     type,
     payload,

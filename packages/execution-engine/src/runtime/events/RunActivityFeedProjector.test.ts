@@ -89,6 +89,94 @@ describe("RunActivityFeedProjector", () => {
     expect(snapshot.status).toBe("COMPLETED");
   });
 
+  it("marks activity running when a later prompt follows a completed turn", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "inspect repository",
+            role: "user",
+            metadata: { clientMessageId: "client-user-1" },
+          },
+          "2026-03-24T10:00:00.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 100,
+            toolsUsed: 0,
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "update footer",
+            role: "user",
+            metadata: { clientMessageId: "client-user-2" },
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: "execution",
+            label: "Thinking",
+            summary: "",
+            status: "active",
+          },
+          "2026-03-24T10:00:03.000Z",
+        ),
+      ],
+    });
+
+    expect(snapshot.status).toBe("RUNNING");
+  });
+
+  it("does not reopen activity for a final assistant message", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 100,
+            toolsUsed: 0,
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "Done",
+            role: "assistant",
+            transcriptPhase: "final_answer",
+            transcriptStatus: "completed",
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+    });
+
+    expect(snapshot.status).toBe("COMPLETED");
+  });
+
   it("projects reasoning, shell tool, and approval activity parts", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
@@ -576,13 +664,14 @@ describe("RunActivityFeedProjector", () => {
 function createEvent<T extends RunEvent["type"]>(
   type: T,
   payload: Extract<RunEvent, { type: T }>["payload"],
+  timestamp = "2026-03-24T10:00:00.000Z",
 ): Extract<RunEvent, { type: T }> {
   return {
     version: 1,
     eventId: `${type}-event`,
     runId: "run-1",
     sessionId: "session-1",
-    timestamp: "2026-03-24T10:00:00.000Z",
+    timestamp,
     source: "brain",
     type,
     payload,

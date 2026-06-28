@@ -14,6 +14,8 @@ const clientLogStartedAt = Date.now();
 const CLIENT_LOG_FORMAT_VERSION = "json-v2";
 const CLIENT_LOG_DEV_ENDPOINT = "/__legioncode/client-log";
 const CLIENT_LOG_MAX_BYTES = 8_000;
+const CLIENT_INSTANCE_STORAGE_KEY = "legioncode.clientLogInstanceId";
+const clientLogInstanceId = createClientLogInstanceId();
 
 export function logClientEvent(
   domain: string,
@@ -51,6 +53,7 @@ function buildLogContext(context: ClientLogContext): ClientLogContext {
   return {
     format: CLIENT_LOG_FORMAT_VERSION,
     ...compactContext(context),
+    clientInstanceId: clientLogInstanceId,
     sequence: ++clientLogSequence,
     elapsedMs: Date.now() - clientLogStartedAt,
   };
@@ -124,4 +127,45 @@ function boundLogLine(line: string): string {
     return line;
   }
   return `${line.slice(0, CLIENT_LOG_MAX_BYTES)} [client-log-truncated]`;
+}
+
+function createClientLogInstanceId(): string {
+  if (typeof window === "undefined") {
+    return "server";
+  }
+
+  const existing = readStoredClientInstanceId();
+  if (existing) {
+    return existing;
+  }
+
+  const created = `tab_${createRandomLogId()}`;
+  storeClientInstanceId(created);
+  return created;
+}
+
+function readStoredClientInstanceId(): string | null {
+  try {
+    return window.sessionStorage.getItem(CLIENT_INSTANCE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeClientInstanceId(clientInstanceId: string): void {
+  try {
+    window.sessionStorage.setItem(
+      CLIENT_INSTANCE_STORAGE_KEY,
+      clientInstanceId,
+    );
+  } catch {
+    // The ID still appears in this page's logs even if sessionStorage is blocked.
+  }
+}
+
+function createRandomLogId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
