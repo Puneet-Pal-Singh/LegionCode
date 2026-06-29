@@ -243,6 +243,137 @@ describe("mergeActivitySnapshots", () => {
       "event-thinking",
     ]);
   });
+
+  it("does not let stale live thinking reopen a terminal persisted turn", () => {
+    const persisted = projectRunEventsToActivitySnapshot({
+      runId: "run_live",
+      isActive: false,
+      events: [
+        createEvent(
+          "event-user",
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            role: "user",
+            content: "Review hero",
+            metadata: { clientMessageId: "user-message-1" },
+          },
+          "2026-06-27T09:00:00.000Z",
+        ),
+        createEvent(
+          "event-done",
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 1000,
+            toolsUsed: 0,
+          },
+          "2026-06-27T09:00:02.000Z",
+        ),
+        createEvent(
+          "event-final",
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            role: "assistant",
+            content: "I couldn't prepare the workspace. Bad Gateway",
+            transcriptPhase: MESSAGE_TRANSCRIPT_PHASES.FINAL_ANSWER,
+            transcriptStatus: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+          "2026-06-27T09:00:03.000Z",
+        ),
+      ],
+    });
+    const live = projectRunEventsToActivitySnapshot({
+      runId: "run_live",
+      isActive: true,
+      events: [
+        createEvent(
+          "event-user",
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            role: "user",
+            content: "Review hero",
+            metadata: { clientMessageId: "user-message-1" },
+          },
+          "2026-06-27T09:00:00.000Z",
+        ),
+        createEvent(
+          "event-thinking",
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: RUN_WORKFLOW_STEPS.EXECUTION,
+            label: "Thinking",
+            summary: "",
+            status: "active",
+          },
+          "2026-06-27T09:00:01.000Z",
+        ),
+      ],
+    });
+
+    const merged = mergeActivitySnapshots(persisted, live);
+
+    expect(merged?.status).toBe("COMPLETED");
+  });
+
+  it("lets newer live activity reopen a terminal persisted turn", () => {
+    const persisted = projectRunEventsToActivitySnapshot({
+      runId: "run_live",
+      isActive: false,
+      events: [
+        createEvent(
+          "event-user",
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            role: "user",
+            content: "Review hero",
+            metadata: { clientMessageId: "user-message-1" },
+          },
+          "2026-06-27T09:00:00.000Z",
+        ),
+        createEvent(
+          "event-done",
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 1000,
+            toolsUsed: 0,
+          },
+          "2026-06-27T09:00:02.000Z",
+        ),
+      ],
+    });
+    const live = projectRunEventsToActivitySnapshot({
+      runId: "run_live",
+      isActive: true,
+      events: [
+        createEvent(
+          "event-second-user",
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            role: "user",
+            content: "Try again",
+            metadata: { clientMessageId: "user-message-2" },
+          },
+          "2026-06-27T09:00:03.000Z",
+        ),
+        createEvent(
+          "event-second-thinking",
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: RUN_WORKFLOW_STEPS.EXECUTION,
+            label: "Thinking",
+            summary: "",
+            status: "active",
+          },
+          "2026-06-27T09:00:04.000Z",
+        ),
+      ],
+    });
+
+    const merged = mergeActivitySnapshots(persisted, live);
+
+    expect(merged?.status).toBe("RUNNING");
+  });
 });
 
 function createEvent<TType extends RunEvent["type"]>(

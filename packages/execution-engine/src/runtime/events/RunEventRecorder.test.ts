@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import { RunEventRepository } from "./RunEventRepository.js";
 import { RunEventRecorder } from "./RunEventRecorder.js";
 
@@ -34,5 +35,31 @@ describe("RunEventRecorder", () => {
       expect.any(Error),
     );
     consoleError.mockRestore();
+  });
+
+  it("records cancelled runtime status as a terminal run-event status", async () => {
+    const repository = {
+      append: vi.fn(async () => undefined),
+    } as unknown as RunEventRepository;
+    const recorder = new RunEventRecorder(repository, "run-1", "session-1");
+
+    await recorder.recordRunStatusChanged(
+      "RUNNING",
+      "CANCELLED",
+      "execution",
+      "user_cancelled",
+    );
+
+    expect(repository.append).toHaveBeenCalledWith(
+      "run-1",
+      expect.objectContaining({
+        type: RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+        payload: expect.objectContaining({
+          previousStatus: "running",
+          newStatus: "cancelled",
+          reason: "user_cancelled",
+        }),
+      }),
+    );
   });
 });

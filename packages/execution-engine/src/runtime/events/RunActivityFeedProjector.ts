@@ -125,11 +125,15 @@ function resolveActivityFeedStatus(
     .reverse()
     .find(isRunLifecycleEvent);
   const latestOpenActivityEvent = [...events].reverse().find(isOpenActivityEvent);
+  const fallbackActivityStatus = mapCanonicalRunStatus(fallbackStatus);
   if (
     latestOpenActivityEvent &&
     (!latestLifecycleEvent ||
       latestOpenActivityEvent.timestamp > latestLifecycleEvent.timestamp)
   ) {
+    if (!latestLifecycleEvent && isTerminalActivityStatus(fallbackActivityStatus)) {
+      return fallbackActivityStatus;
+    }
     return "RUNNING";
   }
   if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
@@ -144,10 +148,13 @@ function resolveActivityFeedStatus(
   if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
     return "RUNNING";
   }
+  if (isTerminalActivityStatus(fallbackActivityStatus)) {
+    return fallbackActivityStatus;
+  }
   if (events.some(isOpenActivityEvent)) {
     return "RUNNING";
   }
-  return fallbackStatus;
+  return fallbackActivityStatus;
 }
 
 function isRunLifecycleEvent(event: RunEvent): boolean {
@@ -175,20 +182,36 @@ function isOpenActivityEvent(event: RunEvent): boolean {
   }
 }
 
-function mapCanonicalRunStatus(status: string): ActivityFeedSnapshot["status"] {
+function mapCanonicalRunStatus(
+  status: string | null,
+): ActivityFeedSnapshot["status"] {
   switch (status) {
     case "complete":
+    case "completed":
+    case "COMPLETED":
       return "COMPLETED";
     case "failed":
+    case "FAILED":
+    case "cancelled":
+    case "CANCELLED":
       return "FAILED";
     case "queued":
     case "running":
     case "waiting":
     case "paused":
+    case "CREATED":
+    case "RUNNING":
+    case "PAUSED":
       return "RUNNING";
     default:
       return null;
   }
+}
+
+function isTerminalActivityStatus(
+  status: ActivityFeedSnapshot["status"],
+): status is "COMPLETED" | "FAILED" {
+  return status === "COMPLETED" || status === "FAILED";
 }
 
 function updateTurnId(

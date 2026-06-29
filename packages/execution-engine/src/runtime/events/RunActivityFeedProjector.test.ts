@@ -89,6 +89,78 @@ describe("RunActivityFeedProjector", () => {
     expect(snapshot.status).toBe("COMPLETED");
   });
 
+  it("lets terminal run rows override stale open activity when terminal events are missing", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "FAILED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("FAILED");
+  });
+
+  it("treats user-cancelled status events as terminal after stale thinking", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "CREATED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "try again",
+            role: "user",
+            metadata: { clientMessageId: "client-user-1" },
+          },
+          "2026-03-24T10:00:00.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: "execution",
+            label: "Thinking",
+            summary: "",
+            status: "active",
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+          {
+            previousStatus: "running",
+            newStatus: "cancelled",
+            workflowStep: "execution",
+            reason: "user_cancelled",
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+    });
+
+    expect(snapshot.status).toBe("FAILED");
+  });
+
   it("marks activity running when a later prompt follows a completed turn", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
