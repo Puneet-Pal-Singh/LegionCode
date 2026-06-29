@@ -15,7 +15,11 @@ import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
-import { LLMUnusableResponseError, type ILLMGateway } from "../llm/index.js";
+import {
+  LLMUnusableResponseError,
+  type ILLMGateway,
+  type LLMTextResponse,
+} from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
@@ -247,7 +251,7 @@ export class AgenticLoop {
       }
 
       // Call LLM with tool definitions for this step.
-      let response;
+      let response: LLMTextResponse | null = null;
       const llmCallStartedAt = Date.now();
       const requestToolCount = isFinalSynthesisStep
         ? 0
@@ -267,54 +271,65 @@ export class AgenticLoop {
         }),
       );
       try {
-        response = await this.generateLoopText(
-          {
-            context: {
-              runId: this.config.runId,
-              sessionId: this.config.sessionId,
-              agentType: context.agentType,
-              phase: "task",
+        response = await runWithCancellationPolling(
+          this.generateLoopText(
+            {
+              context: {
+                runId: this.config.runId,
+                sessionId: this.config.sessionId,
+                agentType: context.agentType,
+                phase: "task",
+              },
+              messages,
+              system: buildAgenticLoopSystemPrompt({
+                workspaceContext: context.workspaceContext,
+                finalSynthesisOnly: isFinalSynthesisStep,
+                requiresMutation,
+                completedMutatingToolCount: this.completedMutatingToolCount,
+                completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+                explicitCiLogRequest: latestTurnExplicitCiLogRequest,
+                encounteredCiLogsAuthorizationBoundary,
+                attemptedCiLogsCliFallback,
+                capabilityManifest,
+                latestCorrectionHint,
+              }),
+              tools: isFinalSynthesisStep ? undefined : tools,
+              model: context.modelId,
+              providerId: context.providerId,
+              runtimeModelId: context.runtimeModelId,
+              providerTransport: context.providerTransport,
+              providerEndpoint: context.providerEndpoint,
+              temperature: context.temperature,
             },
-            messages,
-            system: buildAgenticLoopSystemPrompt({
-              workspaceContext: context.workspaceContext,
-              finalSynthesisOnly: isFinalSynthesisStep,
-              requiresMutation,
-              completedMutatingToolCount: this.completedMutatingToolCount,
-              completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-              explicitCiLogRequest: latestTurnExplicitCiLogRequest,
-              encounteredCiLogsAuthorizationBoundary,
-              attemptedCiLogsCliFallback,
-              capabilityManifest,
-              latestCorrectionHint,
-            }),
-            tools: isFinalSynthesisStep ? undefined : tools,
-            model: context.modelId,
-            providerId: context.providerId,
-            runtimeModelId: context.runtimeModelId,
-            providerTransport: context.providerTransport,
-            providerEndpoint: context.providerEndpoint,
-            temperature: context.temperature,
-          },
-          step,
+            step,
+            context,
+          ),
           context,
         );
       } catch (error) {
-        console.error(
-          formatRuntimeDiagnosticLogLine("agentic-loop/model", "failed", {
-            runId: this.config.runId,
-            sessionId: this.config.sessionId,
-            step: step + 1,
-            elapsedMs: Date.now() - llmCallStartedAt,
-            providerId: context.providerId ?? null,
-            modelId: context.runtimeModelId ?? context.modelId ?? null,
-            errorName: error instanceof Error ? error.name : "UnknownError",
-            errorMessage: boundLogText(
-              error instanceof Error ? error.message : String(error),
-            ),
-          }),
-        );
-        throw error;
+        if (error instanceof AgenticLoopCancelledError) {
+          stopReason = "cancelled";
+        } else {
+          console.error(
+            formatRuntimeDiagnosticLogLine("agentic-loop/model", "failed", {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              elapsedMs: Date.now() - llmCallStartedAt,
+              providerId: context.providerId ?? null,
+              modelId: context.runtimeModelId ?? context.modelId ?? null,
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: boundLogText(
+                error instanceof Error ? error.message : String(error),
+              ),
+            }),
+          );
+          throw error;
+        }
+      }
+
+      if (stopReason === "cancelled" || response === null) {
+        break;
       }
 
       const responseText =
@@ -920,6 +935,53 @@ function buildAgenticLoopTextAttemptIdempotencyKey(
   executionNonce?: string,
 ): string {
   return `agentic-loop:${runId}:${executionNonce ?? "default"}:step:${step + 1}:attempt:${attempt}`;
+}
+
+const CANCELLATION_POLL_INTERVAL_MS = 2_000;
+
+async function runWithCancellationPolling<T>(
+  operation: Promise<T>,
+  context: Pick<AgenticLoopHooks, "isRunCancelled">,
+): Promise<T> {
+  if (!context.isRunCancelled) {
+    return operation;
+  }
+
+  let stopPolling = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const cancellation = new Promise<never>((_, reject) => {
+    const schedulePoll = (): void => {
+      timeout = setTimeout(() => {
+        void pollCancellation(context, () => stopPolling).catch(reject);
+      }, CANCELLATION_POLL_INTERVAL_MS);
+    };
+
+    const pollCancellation = async (
+      pollContext: Pick<AgenticLoopHooks, "isRunCancelled">,
+      shouldStop: () => boolean,
+    ): Promise<void> => {
+      if (shouldStop()) {
+        return;
+      }
+      if (await isCancellationRequested(pollContext)) {
+        throw new AgenticLoopCancelledError();
+      }
+      if (!shouldStop()) {
+        schedulePoll();
+      }
+    };
+
+    schedulePoll();
+  });
+
+  try {
+    return await Promise.race([operation, cancellation]);
+  } finally {
+    stopPolling = true;
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 async function isCancellationRequested(

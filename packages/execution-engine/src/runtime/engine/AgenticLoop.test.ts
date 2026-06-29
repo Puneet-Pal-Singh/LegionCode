@@ -289,6 +289,67 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
       expect(executor.execute).toHaveBeenCalledTimes(0);
     });
+
+    it("stops while the model call is in flight when the run is cancelled", async () => {
+      vi.useFakeTimers();
+      try {
+        const isRunCancelled = vi
+          .fn<() => Promise<boolean>>()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+
+        vi.mocked(llmGateway.generateText!).mockReturnValue(
+          new Promise(() => undefined),
+        );
+
+        const resultPromise = loop.execute(
+          [{ role: "user", content: "update the footer" }],
+          {},
+          {
+            agentType: "coding",
+            isRunCancelled,
+          },
+        );
+
+        await vi.advanceTimersByTimeAsync(2_000);
+        const result = await resultPromise;
+
+        expect(result.stopReason).toBe("cancelled");
+        expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops cancellation polling after the model returns", async () => {
+      vi.useFakeTimers();
+      try {
+        const isRunCancelled = vi
+          .fn<() => Promise<boolean>>()
+          .mockResolvedValue(false);
+        vi.mocked(llmGateway.generateText!).mockResolvedValue({
+          text: "Done",
+          usage: { promptTokens: 10, completionTokens: 5 },
+        });
+
+        const result = await loop.execute(
+          [{ role: "user", content: "inspect the repository" }],
+          {},
+          {
+            agentType: "coding",
+            isRunCancelled,
+          },
+        );
+        const callsAfterCompletion = isRunCancelled.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(6_000);
+
+        expect(result.stopReason).toBe("llm_stop");
+        expect(isRunCancelled).toHaveBeenCalledTimes(callsAfterCompletion);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("Message Handling", () => {
