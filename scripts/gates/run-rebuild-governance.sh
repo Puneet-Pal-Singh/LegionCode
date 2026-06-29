@@ -5,7 +5,7 @@ echo "[rebuild-governance] Validating feature flags, changed paths, and lifecycl
 node scripts/gates/check-rebuild-governance.mjs
 
 echo "[rebuild-governance] Running migration safety checks"
-pnpm --filter @repo/persistence test -- \
+corepack pnpm --filter @repo/persistence test -- \
   src/migrations/PostgresMigrationRunner.test.ts \
   src/canonical-events/canonical-event-migration.test.ts \
   src/runtime-events/runtime-event-inbox-status.test.ts \
