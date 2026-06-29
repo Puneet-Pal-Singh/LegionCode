@@ -147,7 +147,11 @@ function readActivitySnapshot(
 
   try {
     return parseActivityFeedSnapshot(snapshot);
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[activity/transcript] Ignoring invalid activity snapshot:",
+      error,
+    );
     return null;
   }
 }
