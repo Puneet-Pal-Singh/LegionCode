@@ -4,6 +4,7 @@ import {
   sanitizeLogPayload,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import {
   describeGitHubScopeBoundaryError,
   parseGitHubScopeList,
@@ -111,8 +112,13 @@ export class ExecutionService {
     let executionFinished = false;
     let logForwardingPromise: Promise<void> | null = null;
     console.log(
-      `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} plugin=${plugin} action=${executionAction} status=requested`,
-      sanitizeLogPayload(payload),
+      formatDiagnosticLogLine("execution/tool", "requested", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        plugin,
+        action: executionAction,
+        payloadKeys: Object.keys(sanitizeLogPayload(payload)).sort().join(","),
+      }),
     );
 
     try {
@@ -136,15 +142,24 @@ export class ExecutionService {
           executionFinished = nextValue;
         },
       );
-      logExecutionFailure(plugin, executionAction, executionResult);
+      logExecutionFailure(
+        this.runId,
+        this.sessionId,
+        plugin,
+        executionAction,
+        executionResult,
+      );
       return toLegacyExecutionResult(executionResult);
     } catch (error) {
       executionFinished = true;
       await logForwardingPromise;
       if (isExpectedGitStatusExecutionError(plugin, executionAction, error)) {
         console.log(
-          `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} plugin=${plugin} action=${executionAction} status=transient-startup-miss`,
-          sanitizeLogPayload({
+          formatDiagnosticLogLine("execution/tool", "transient-startup-miss", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            plugin,
+            action: executionAction,
             errorMessage:
               error instanceof Error ? error.message : String(error),
           }),
@@ -677,6 +692,8 @@ function readLegacyExecutionErrorMessage(
 }
 
 function logExecutionFailure(
+  runId: string,
+  sessionId: string,
   plugin: string,
   action: string,
   result: Pick<SecureExecutionTaskResponse, "status" | "error">,
@@ -690,9 +707,13 @@ function logExecutionFailure(
       ? "expected bootstrap miss"
       : "status check failed";
     console.log(
-      `[execution/tool] plugin=${plugin} action=${action} status=${message}`,
-      sanitizeLogPayload({
-        status: result.status,
+      formatDiagnosticLogLine("execution/tool", "result-warning", {
+        runId,
+        sessionId,
+        plugin,
+        action,
+        warning: message,
+        secureStatus: result.status,
         errorCode: result.error?.code,
         errorMessage: result.error?.message,
       }),
@@ -701,9 +722,12 @@ function logExecutionFailure(
   }
 
   console.error(
-    `[execution/tool] plugin=${plugin} action=${action} status=failed`,
-    sanitizeLogPayload({
-      status: result.status,
+    formatDiagnosticLogLine("execution/tool", "result-failed", {
+      runId,
+      sessionId,
+      plugin,
+      action,
+      secureStatus: result.status,
       errorCode: result.error?.code,
       errorMessage: result.error?.message,
       errorDetails: result.error?.details,

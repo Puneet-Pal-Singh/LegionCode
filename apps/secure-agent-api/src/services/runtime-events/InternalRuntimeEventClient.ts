@@ -37,6 +37,10 @@ export class InternalRuntimeEventClient implements RuntimeEventPublisher {
       timestamp,
       rawBody,
     );
+    const startedAt = Date.now();
+    console.log(
+      `[runtime-event/client] eventType=${formatLogValue(event.eventType)} idempotencyKey=${formatLogValue(event.idempotencyKey)} runId=${formatLogValue(readPayloadString(event.payload, "runId") ?? "missing")} sessionId=${formatLogValue(readPayloadString(event.payload, "sessionId") ?? "missing")} status=dispatching bodyBytes=${rawBody.length}`,
+    );
     const response = await this.config.brain.fetch(BRAIN_RUNTIME_EVENT_URL, {
       method: "POST",
       headers: {
@@ -48,10 +52,16 @@ export class InternalRuntimeEventClient implements RuntimeEventPublisher {
     });
 
     if (!response.ok) {
+      console.error(
+        `[runtime-event/client] eventType=${formatLogValue(event.eventType)} idempotencyKey=${formatLogValue(event.idempotencyKey)} runId=${formatLogValue(readPayloadString(event.payload, "runId") ?? "missing")} sessionId=${formatLogValue(readPayloadString(event.payload, "sessionId") ?? "missing")} status=failed httpStatus=${response.status} elapsedMs=${Date.now() - startedAt}`,
+      );
       throw new Error(
         `Brain runtime event ingestion returned ${response.status}`,
       );
     }
+    console.log(
+      `[runtime-event/client] eventType=${formatLogValue(event.eventType)} idempotencyKey=${formatLogValue(event.idempotencyKey)} runId=${formatLogValue(readPayloadString(event.payload, "runId") ?? "missing")} sessionId=${formatLogValue(readPayloadString(event.payload, "sessionId") ?? "missing")} status=accepted httpStatus=${response.status} elapsedMs=${Date.now() - startedAt}`,
+    );
   }
 }
 
@@ -80,4 +90,20 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function readPayloadString(
+  payload: InternalRuntimeEventRequest["payload"],
+  key: string,
+): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function formatLogValue(value: string): string {
+  if (/^[a-zA-Z0-9_./:@-]+$/.test(value)) return value;
+  return JSON.stringify(value);
 }

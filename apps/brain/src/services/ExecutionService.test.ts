@@ -174,11 +174,16 @@ describe("ExecutionService", () => {
       metrics: { duration: 12 },
     });
     expect(errorSpy).toHaveBeenCalledWith(
-      "[execution/tool] plugin=node action=run status=failed",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-      }),
+      expect.stringContaining("[execution/tool/result-failed]"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=node action=run"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=failure"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("errorCode=PLUGIN_EXECUTION_FAILED"),
     );
     errorSpy.mockRestore();
   });
@@ -240,11 +245,16 @@ describe("ExecutionService", () => {
       metrics: { duration: 120000 },
     });
     expect(errorSpy).toHaveBeenCalledWith(
-      "[execution/tool] plugin=filesystem action=read_file status=failed",
-      expect.objectContaining({
-        status: "timeout",
-        errorCode: "EXECUTION_TIMEOUT",
-      }),
+      expect.stringContaining("[execution/tool/result-failed]"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=filesystem action=read_file"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=timeout"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("errorCode=EXECUTION_TIMEOUT"),
     );
     errorSpy.mockRestore();
   });
@@ -824,12 +834,21 @@ describe("ExecutionService", () => {
     });
 
     expect(errorSpy).toHaveBeenCalledWith(
-      "[execution/tool] plugin=git action=git_commit status=failed",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-        errorMessage: "Git commit author is not configured.",
-      }),
+      expect.stringContaining("[execution/tool/result-failed]"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=git action=git_commit"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=failure"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("errorCode=PLUGIN_EXECUTION_FAILED"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'errorMessage="Git commit author is not configured."',
+      ),
     );
 
     errorSpy.mockRestore();
@@ -888,15 +907,19 @@ describe("ExecutionService", () => {
     });
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      "[execution/tool] plugin=git action=git_status status=failed",
-      expect.anything(),
+      expect.stringContaining("[execution/tool/result-failed]"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      "[execution/tool] plugin=git action=git_status status=expected bootstrap miss",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-      }),
+      expect.stringContaining("[execution/tool/result-warning]"),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=git action=git_status"),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('warning="expected bootstrap miss"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=failure"),
     );
 
     logSpy.mockRestore();
@@ -931,16 +954,18 @@ describe("ExecutionService", () => {
     );
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      "[execution/tool] runId=run-status-local-dev sessionId=session-status-local-dev plugin=git action=git_status status=threw",
-      expect.anything(),
+      expect.stringContaining("status=threw"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      "[execution/tool] runId=run-status-local-dev sessionId=session-status-local-dev plugin=git action=git_status status=transient-startup-miss",
-      expect.objectContaining({
-        errorMessage: expect.stringMatching(
-          /Couldn't find a local dev session/i,
-        ),
-      }),
+      expect.stringContaining("[execution/tool/transient-startup-miss]"),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "runId=run-status-local-dev sessionId=session-status-local-dev",
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/errorMessage=.*local dev session/i),
     );
 
     logSpy.mockRestore();

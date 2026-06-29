@@ -1,6 +1,7 @@
 import type { JsonValue, RunEvent } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import { RuntimeEventProcessor } from "../services/runtime-events/RuntimeEventProcessor";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 
 export class RunEngineCanonicalEventSink {
   private readonly processor: RuntimeEventProcessor;
@@ -12,7 +13,13 @@ export class RunEngineCanonicalEventSink {
   async persist(event: RunEvent, correlationId: string): Promise<void> {
     const startedAt = Date.now();
     console.log(
-      `[run/event-sink] correlationId=${correlationId} runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=started`,
+      formatDiagnosticLogLine("run/event-sink", "persist-started", {
+        correlationId,
+        runId: event.runId,
+        sessionId: event.sessionId ?? "missing",
+        eventId: event.eventId,
+        eventType: event.type,
+      }),
     );
 
     await this.processor.process({
@@ -24,7 +31,14 @@ export class RunEngineCanonicalEventSink {
     });
 
     console.log(
-      `[run/event-sink] correlationId=${correlationId} runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=persisted elapsedMs=${Date.now() - startedAt}`,
+      formatDiagnosticLogLine("run/event-sink", "persisted", {
+        correlationId,
+        runId: event.runId,
+        sessionId: event.sessionId ?? "missing",
+        eventId: event.eventId,
+        eventType: event.type,
+        elapsedMs: Date.now() - startedAt,
+      }),
     );
   }
 }

@@ -102,7 +102,11 @@ export function useChatHydration(
           logClientEvent("chat/hydration", "discarded", {
             runId,
             reason: "scope-changed",
+            requestScopeKey,
+            activeScopeKey: activeScopeKeyRef.current,
+            cancelled,
             hydratedMessageCount: result.messages.length,
+            hydratedIds: readMessageIds(result.messages).join(","),
           });
           return;
         }

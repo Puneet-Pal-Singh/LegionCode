@@ -615,10 +615,12 @@ export function useChatCore(
             error instanceof Error ? error.message : "Unknown append error",
         },
       });
-      console.error(
-        `[useChatCore] Failed to append resolved message for session ${sessionId}`,
-        error,
-      );
+      logClientWarning("chat/submit", "append-failed", {
+        runId,
+        sessionId,
+        scopeKey: requestScopeKey,
+        error: error instanceof Error ? error.message : "Unknown append error",
+      });
     },
     [isActiveScope, pushDebugEvent, restoreChatInput, runId, sessionId],
   );
@@ -710,9 +712,10 @@ export function useChatCore(
         }
         dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
-        console.warn("[chat/stop] Failed to cancel run", {
+        logClientWarning("chat/stop", "cancel-failed", {
           runId: requestRunId,
-          error,
+          scopeKey: requestScopeKey,
+          error: error instanceof Error ? error.message : String(error),
         });
       } finally {
         if (isActiveScope(requestScopeKey)) {
@@ -781,7 +784,9 @@ function buildPendingUserMessage(message: ChatAppendMessage): Message {
   };
 }
 
-function ensureClientMessageId(message: ChatAppendMessage): ChatAppendMessage & {
+function ensureClientMessageId(
+  message: ChatAppendMessage,
+): ChatAppendMessage & {
   id: string;
 } {
   return {
@@ -804,7 +809,10 @@ function appendPendingUserMessage(
   return [...messages, pending];
 }
 
-function hasEquivalentUserMessage(messages: Message[], pending: Message): boolean {
+function hasEquivalentUserMessage(
+  messages: Message[],
+  pending: Message,
+): boolean {
   const pendingContent = pending.content.trim();
   return messages.some(
     (message) =>

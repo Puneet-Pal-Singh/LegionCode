@@ -119,8 +119,7 @@ export function ChatInterface({
   const { summary } = useRunSummary(runId, isLoading);
   const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
   const isTerminalSummarySettled = Boolean(
-    summary?.status &&
-    isTerminalRunStatus(summary.status),
+    summary?.status && isTerminalRunStatus(summary.status),
   );
   const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
   const isCanonicalRunActive =
@@ -166,6 +165,8 @@ export function ChatInterface({
       summaryTerminal: isTerminalSummarySettled,
       eventActivityOpen: isCanonicalEventRunActive,
       eventCount: events.length,
+      feedStatus: feed?.status ?? null,
+      feedItemCount: feed?.items.length ?? 0,
       shouldPollActivityFeed,
     });
   }, [
@@ -177,6 +178,8 @@ export function ChatInterface({
     isTerminalSummarySettled,
     runId,
     shouldPollActivityFeed,
+    feed?.status,
+    feed?.items.length,
     summary?.status,
   ]);
   const showDebugPanel =
@@ -229,12 +232,7 @@ export function ChatInterface({
       return null;
     }
     return derivePendingApprovalFromEvents(events);
-  }, [
-    activeRunLoading,
-    events,
-    isCanonicalRunActive,
-    summary,
-  ]);
+  }, [activeRunLoading, events, isCanonicalRunActive, summary]);
   const {
     pendingApproval,
     decisions: displayedApprovalDecisions,

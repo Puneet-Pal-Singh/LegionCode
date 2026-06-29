@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   INTERNAL_RUNTIME_EVENT_SIGNATURE_HEADER,
   INTERNAL_RUNTIME_EVENT_TIMESTAMP_HEADER,
@@ -8,7 +8,12 @@ import { InternalRuntimeEventClient } from "./InternalRuntimeEventClient";
 const NOW = 1778716800000;
 
 describe("InternalRuntimeEventClient", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("posts signed runtime events to Brain", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
     const requests: Array<{ input: string; init?: RequestInit }> = [];
     const client = new InternalRuntimeEventClient({
       brain: {
@@ -50,6 +55,10 @@ describe("InternalRuntimeEventClient", () => {
   });
 
   it("fails when Brain rejects the event", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const errorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const client = new InternalRuntimeEventClient({
       brain: {
         async fetch() {
@@ -69,5 +78,8 @@ describe("InternalRuntimeEventClient", () => {
         payload: {},
       }),
     ).rejects.toThrow("Brain runtime event ingestion returned 500");
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining("[runtime-event/client]"),
+    );
   });
 });
