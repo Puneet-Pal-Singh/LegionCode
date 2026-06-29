@@ -87,6 +87,7 @@ export function useRunSummary(
   const summaryStatusRef = useRef<string | null>(null);
   const lastLoggedSummaryRef = useRef("");
   const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
+  const summaryStatus = summary?.status ?? null;
 
   useEffect(() => {
     activeRunIdRef.current = runId;
@@ -206,8 +207,8 @@ export function useRunSummary(
   );
 
   useEffect(() => {
-    summaryStatusRef.current = summary?.status ?? null;
-  }, [summary?.status]);
+    summaryStatusRef.current = summaryStatus;
+  }, [summaryStatus]);
 
   useEffect(() => {
     if (!runId) {
@@ -229,8 +230,8 @@ export function useRunSummary(
 
       const shouldSkipTerminalSummary =
         !shouldPoll &&
-        isTerminalRunStatus(summary?.status) &&
-        !isApprovalRequiredRunStatus(summary?.status) &&
+        isTerminalRunStatus(summaryStatus) &&
+        !isApprovalRequiredRunStatus(summaryStatus) &&
         !pendingApprovalRequestId;
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
@@ -247,16 +248,16 @@ export function useRunSummary(
     pendingApprovalRequestId,
     runId,
     shouldPoll,
-    summary?.status,
+    summaryStatus,
   ]);
 
   useEffect(() => {
     const isMissingCanonicalSummary = summary === null;
     const shouldSettleCanonicalStatus =
-      Boolean(summary?.status) &&
-      !isTerminalRunStatus(summary?.status) &&
-      !isApprovalRequiredRunStatus(summary?.status);
-    const isApprovalActive = isApprovalRequiredRunStatus(summary?.status);
+      Boolean(summaryStatus) &&
+      !isTerminalRunStatus(summaryStatus) &&
+      !isApprovalRequiredRunStatus(summaryStatus);
+    const isApprovalActive = isApprovalRequiredRunStatus(summaryStatus);
     if (
       !runId ||
       (!shouldPoll &&
@@ -287,7 +288,7 @@ export function useRunSummary(
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchSummary, runId, shouldPoll, summary?.status]);
+  }, [fetchSummary, runId, shouldPoll, summary, summaryStatus]);
 
   return { summary };
 }

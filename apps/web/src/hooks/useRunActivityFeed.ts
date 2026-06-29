@@ -163,7 +163,7 @@ export function useRunActivityFeed(
         }
       }
     },
-    [runId],
+    [runId, shouldPoll],
   );
 
   useEffect(() => {

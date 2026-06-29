@@ -131,14 +131,7 @@ export function ChatInterface({
     (!isLifecycleTerminalSettled &&
       !isTerminalSummarySettled &&
       isCanonicalRunActive);
-  const [eventReconnectTrigger, setEventReconnectTrigger] = useState(0);
-  const previousIsLoadingRef = useRef(isLoading);
-  useEffect(() => {
-    if (isLoading && !previousIsLoadingRef.current) {
-      setEventReconnectTrigger((v) => v + 1);
-    }
-    previousIsLoadingRef.current = isLoading;
-  }, [isLoading]);
+  const eventReconnectTrigger = isLoading ? 1 : 0;
   const {
     status: gitStatus,
     selectedReviewComments,
