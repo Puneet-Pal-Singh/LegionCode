@@ -207,7 +207,7 @@ export function buildStaticActivityFeedViewModel(
           key: turnKey,
           userPrompt: getTurnUserPrompt(turn.items),
           summaryLabel: buildTurnSummary(rows),
-          defaultCollapsed: !isActiveTurn,
+          defaultCollapsed: !isActiveTurn && !hasProviderInterruption(rows),
           isActiveTurn,
           hasVisibleRows: rows.length > 0,
           rows,
@@ -419,6 +419,10 @@ function getTurnUserPrompt(items: ActivityPart[]): string | null {
 }
 
 function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
+  if (hasProviderInterruption(rows)) {
+    return "Paused after provider interruption";
+  }
+
   const toolCount = rows.reduce((count, row) => {
     if (row.kind === "tool") {
       return count + 1;
@@ -464,6 +468,14 @@ function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
   }
 
   return parts[0] ? parts.slice(0, 3).join(" · ") : "Workflow captured";
+}
+
+function hasProviderInterruption(rows: ActivityFeedRowViewModel[]): boolean {
+  return rows.some(
+    (row) =>
+      row.kind === "commentary" &&
+      row.metadata?.code === "PROVIDER_UNAVAILABLE",
+  );
 }
 
 function isThinkingReasoningRow(
