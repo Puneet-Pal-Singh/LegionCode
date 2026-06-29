@@ -21,6 +21,8 @@ describe("useRunEvents", () => {
 
   afterEach(() => {
     setVisibilityState(originalVisibilityState);
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("resets fetch state for a new runId and ignores stale responses", async () => {
@@ -75,6 +77,16 @@ describe("useRunEvents", () => {
   });
 
   it("drops parsed events that belong to a different runId", async () => {
+    vi.stubEnv("MODE", "development");
+    const sendBeaconSpy = vi.fn();
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      sendBeacon: sendBeaconSpy,
+    });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       createEventsJsonResponse(
         createMessageEvent("run-other", "evt-other", "Wrong run"),
@@ -89,6 +101,13 @@ describe("useRunEvents", () => {
     });
 
     expect(result.current.events[0]?.eventId).toBe("evt-current");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[run/events/dropped-mismatched-run]"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("eventRunId=run-other"),
+    );
+    expect(logSpy).toHaveBeenCalled();
   });
 
   it("catches up hidden-tab refreshes when the document becomes visible again", async () => {
@@ -152,6 +171,46 @@ describe("useRunEvents", () => {
         type: RUN_SUMMARY_REFRESH_EVENT,
       }),
     );
+  });
+
+  it("reconnects when the stream endpoint is temporarily unavailable", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        const streamCalls = fetchSpy.mock.calls.filter(([callInput]) =>
+          String(callInput).includes("/stream?"),
+        ).length;
+        if (url.includes("/stream?")) {
+          return streamCalls === 1
+            ? new Response("Not ready", { status: 404 })
+            : createStreamResponse(
+                createMessageEvent("run-retry", "evt-retry", "Started"),
+              );
+        }
+
+        return createEventsResponse();
+      });
+
+    const { result, unmount } = renderHook(() =>
+      useRunEvents("run-retry", true),
+    );
+
+    await waitFor(() => {
+      expect(
+        fetchSpy.mock.calls.filter(([input]) =>
+          String(input).includes("/stream?"),
+        ),
+      ).toHaveLength(2);
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.events.some((event) => event.eventId === "evt-retry"),
+      ).toBe(true);
+    });
+
+    unmount();
   });
 
   it("does not reconnect after a normally closed terminal stream", async () => {

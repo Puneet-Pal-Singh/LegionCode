@@ -1,11 +1,4 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
-import {
-  ProductModeSchema,
-  RunModeSchema,
-  WorkflowEntrypointSchema,
-  WorkflowIntentSchema,
-} from "@repo/shared-types";
-import { z } from "zod";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
@@ -35,6 +28,7 @@ import {
 } from "./chat-runtime-helpers";
 import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
+import { errorMessageKey } from "../lib/error-message-key";
 import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
@@ -42,42 +36,15 @@ import {
   validateChatImageInput,
   type ChatImageInputState,
 } from "../services/chat/ChatImageInputPolicy";
-
-const SerializableToolDefinitionSchema = z.object({
-  description: z.string().optional(),
-  inputSchema: z.object({}).catchall(z.unknown()).optional(),
-  parameters: z.object({}).catchall(z.unknown()).optional(),
-});
-
-// Zod schema for request body validation
-const ChatRequestBodySchema = z.object({
-  messages: z.array(z.unknown()).optional(),
-  tools: z.record(SerializableToolDefinitionSchema).optional(),
-  sessionId: z.string().optional(),
-  agentId: z.string().optional(),
-  runId: z.string().optional(),
-  mode: RunModeSchema.optional(),
-  providerId: z.string().optional(),
-  modelId: z.string().optional(),
-  harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
-  orchestratorBackend: z
-    .enum(["execution-engine-v1", "cloudflare_agents"])
-    .optional(),
-  executionBackend: z
-    .enum(["cloudflare_sandbox", "e2b", "daytona"])
-    .optional(),
-  harnessMode: z.enum(["platform_owned", "delegated"]).optional(),
-  authMode: z.enum(["api_key", "oauth"]).optional(),
-  productMode: ProductModeSchema.optional(),
-  workflowIntent: WorkflowIntentSchema.optional(),
-  workflowEntrypoint: WorkflowEntrypointSchema.optional(),
-  repositoryOwner: z.string().optional(),
-  repositoryName: z.string().optional(),
-  repositoryBranch: z.string().optional(),
-  repositoryBaseUrl: z.string().optional(),
-});
-
-type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
+import {
+  applySubmittedClientMessageId,
+  summarizeCoreMessages,
+} from "../services/chat/SubmittedClientMessagePolicy";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
+import {
+  ChatRequestBodySchema,
+  type ChatRequestBody,
+} from "./chat-request-schema";
 
 interface ChatRequest {
   body: ChatRequestBody;
@@ -114,6 +81,17 @@ export class ChatController {
       );
       console.log(
         `[chat/request] ${correlationId} messages: ${body.messages?.length || 0}`,
+      );
+      console.log(
+        `[chat/request] ${correlationId} envelope=${JSON.stringify({
+          sessionId: identifiers.sessionId,
+          runId: identifiers.runId,
+          clientMessageId: body.clientMessageId ?? null,
+          providerId: body.providerId ?? null,
+          modelId: body.modelId ?? null,
+          mode: body.mode ?? null,
+          messageCount: body.messages?.length ?? 0,
+        })}`,
       );
 
       // Validate provider/model selection if provided
@@ -234,7 +212,14 @@ export class ChatController {
       ReturnType<RunAdmissionService["enforce"]>
     > | undefined;
 
-    const coreMessages = chatRequest.imageInput.messages;
+    const coreMessages = applySubmittedClientMessageId(
+      chatRequest.imageInput.messages,
+      body.clientMessageId,
+      correlationId,
+    );
+    console.log(
+      `[chat/request] ${correlationId} normalizedMessages=${summarizeCoreMessages(coreMessages)}`,
+    );
 
     const prompt = extractPromptFromMessages(coreMessages, correlationId);
     const admissionInput = {
@@ -294,6 +279,17 @@ export class ChatController {
       const useCaseElapsedMs = Date.now() - useCaseStartedAt;
 
       const runEngineStartedAt = Date.now();
+      console.log(
+        formatDiagnosticLogLine("chat/runtime", "dispatching-run-engine", {
+          correlationId,
+          runId,
+          sessionId,
+          providerId: body.providerId ?? null,
+          modelId: body.modelId ?? null,
+          mode: body.mode,
+          clientMessageId: body.clientMessageId ?? null,
+        }),
+      );
       const doResponse = await executeViaRunEngineDurableObject(
         env,
         runId,
@@ -305,13 +301,35 @@ export class ChatController {
       );
       const runEngineElapsedMs = Date.now() - runEngineStartedAt;
       console.log(
-        `[chat/timing] ${correlationId} useCaseMs=${useCaseElapsedMs} runEngineMs=${runEngineElapsedMs} handleMs=${Date.now() - executionStartedAt}`,
+        formatDiagnosticLogLine("chat/runtime", "run-engine-returned", {
+          correlationId,
+          runId,
+          sessionId,
+          responseStatus: doResponse.status,
+          runtimeTarget,
+          elapsedMs: runEngineElapsedMs,
+        }),
+      );
+      console.log(
+        formatDiagnosticLogLine("chat/runtime", "timing", {
+          correlationId,
+          runId,
+          sessionId,
+          useCaseMs: useCaseElapsedMs,
+          runEngineMs: runEngineElapsedMs,
+          handleMs: Date.now() - executionStartedAt,
+        }),
       );
 
       return withEngineHeaders(req, env, doResponse, runId, runtimeTarget);
     } catch (error) {
       console.error(
-        `[chat/runtime] ${correlationId}: RunEngine execution failed:`,
+        formatDiagnosticLogLine("chat/runtime", "run-engine-failed", {
+          correlationId,
+          runId,
+          sessionId,
+          error,
+        }),
         error,
       );
       throw error;
@@ -322,11 +340,4 @@ export class ChatController {
     }
   }
 
-}
-
-function errorMessageKey(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  return "internal-server-error";
 }

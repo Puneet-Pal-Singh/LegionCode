@@ -33,11 +33,21 @@ export function projectRunEventsToActivitySnapshot(input: {
   return {
     runId: input.runId,
     sessionId: resolveSessionId(events, input.fallbackSessionId),
-    status: input.isActive ? "RUNNING" : resolveTerminalStatus(events),
+    status: resolveActivityStatus(events, input.isActive),
     items: state.items.sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     ),
   };
+}
+
+export function isRunEventActivityOpen(input: {
+  runId: string;
+  events: RunEvent[];
+}): boolean {
+  const events = input.events
+    .filter((event) => event.runId === input.runId)
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  return events.length > 0 && resolveActivityStatus(events, false) === "RUNNING";
 }
 
 export function mergeActivitySnapshots(
@@ -54,11 +64,55 @@ export function mergeActivitySnapshots(
   return {
     runId: persisted.runId,
     sessionId: live.sessionId ?? persisted.sessionId,
-    status: live.status ?? persisted.status,
+    status: resolveMergedActivityStatus(persisted, live),
     items: [...itemsById.values()].sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     ),
   };
+}
+
+function resolveMergedActivityStatus(
+  persisted: ActivityFeedSnapshot,
+  live: ActivityFeedSnapshot,
+): ActivityFeedSnapshot["status"] {
+  if (persisted.status !== "COMPLETED" && persisted.status !== "FAILED") {
+    return live.status ?? persisted.status;
+  }
+
+  if (live.status !== "RUNNING") {
+    return live.status ?? persisted.status;
+  }
+
+  const persistedLatestMs = readLatestActivityTimestampMs(persisted.items);
+  const liveLatestMs = readLatestActivityTimestampMs(live.items);
+  if (persistedLatestMs === null) {
+    return live.status;
+  }
+  if (liveLatestMs === null) {
+    return persisted.status;
+  }
+  return liveLatestMs > persistedLatestMs ? live.status : persisted.status;
+}
+
+function readLatestActivityTimestampMs(items: ActivityPart[]): number | null {
+  let latestMs: number | null = null;
+  for (const item of items) {
+    const timestampMs = readActivityTimestampMs(item);
+    if (timestampMs === null) continue;
+    latestMs = latestMs === null ? timestampMs : Math.max(latestMs, timestampMs);
+  }
+  return latestMs;
+}
+
+function readActivityTimestampMs(item: ActivityPart): number | null {
+  const candidates = [item.updatedAt, item.createdAt];
+  for (const candidate of candidates) {
+    const timestampMs = Date.parse(candidate);
+    if (!Number.isNaN(timestampMs)) {
+      return timestampMs;
+    }
+  }
+  return null;
 }
 
 interface ProjectionState {
@@ -302,14 +356,70 @@ function isCommentaryEvent(
   );
 }
 
-function resolveTerminalStatus(events: RunEvent[]): string | null {
-  const terminal = [...events].reverse().find(
-    (event) =>
-      event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
-      event.type === RUN_EVENT_TYPES.RUN_FAILED,
+function resolveActivityStatus(
+  events: RunEvent[],
+  isActive: boolean,
+): "RUNNING" | "COMPLETED" | "FAILED" | null {
+  const lifecycleEvent = [...events].reverse().find(isRunLifecycleEvent);
+  const openActivityEvent = [...events].reverse().find(isOpenActivityEvent);
+  if (
+    openActivityEvent &&
+    (!lifecycleEvent || openActivityEvent.timestamp > lifecycleEvent.timestamp)
+  ) {
+    return "RUNNING";
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+    return "COMPLETED";
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_FAILED) {
+    return "FAILED";
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED) {
+    return isOpenRunStatus(lifecycleEvent.payload.newStatus)
+      ? "RUNNING"
+      : null;
+  }
+  if (lifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
+    return "RUNNING";
+  }
+  if (isActive || Boolean(openActivityEvent)) {
+    return "RUNNING";
+  }
+  return null;
+}
+
+function isRunLifecycleEvent(event: RunEvent): boolean {
+  return (
+    event.type === RUN_EVENT_TYPES.RUN_STARTED ||
+    event.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED ||
+    event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+    event.type === RUN_EVENT_TYPES.RUN_FAILED
   );
-  if (!terminal) return null;
-  return terminal.type === RUN_EVENT_TYPES.RUN_COMPLETED ? "COMPLETED" : "FAILED";
+}
+
+function isOpenRunStatus(status: string): boolean {
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting" ||
+    status === "paused"
+  );
+}
+
+function isOpenActivityEvent(event: RunEvent): boolean {
+  switch (event.type) {
+    case RUN_EVENT_TYPES.MESSAGE_EMITTED:
+      return event.payload.role === "user";
+    case RUN_EVENT_TYPES.RUN_PROGRESS:
+      return event.payload.status === "active";
+    case RUN_EVENT_TYPES.APPROVAL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_STARTED:
+    case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED:
+      return true;
+    default:
+      return false;
+  }
 }
 
 function resolveSessionId(

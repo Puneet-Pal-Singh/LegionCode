@@ -110,11 +110,108 @@ export function projectRunActivityFeed(
   return {
     runId,
     sessionId: run?.sessionId,
-    status: run?.status ?? null,
+    status: resolveActivityFeedStatus(events, run?.status ?? null),
     items: items.sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     ),
   };
+}
+
+function resolveActivityFeedStatus(
+  events: RunEvent[],
+  fallbackStatus: string | null,
+): ActivityFeedSnapshot["status"] {
+  const latestLifecycleEvent = [...events]
+    .reverse()
+    .find(isRunLifecycleEvent);
+  const latestOpenActivityEvent = [...events].reverse().find(isOpenActivityEvent);
+  const fallbackActivityStatus = mapCanonicalRunStatus(fallbackStatus);
+  if (
+    latestOpenActivityEvent &&
+    (!latestLifecycleEvent ||
+      latestOpenActivityEvent.timestamp > latestLifecycleEvent.timestamp)
+  ) {
+    if (!latestLifecycleEvent && isTerminalActivityStatus(fallbackActivityStatus)) {
+      return fallbackActivityStatus;
+    }
+    return "RUNNING";
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_COMPLETED) {
+    return "COMPLETED";
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_FAILED) {
+    return "FAILED";
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED) {
+    return mapCanonicalRunStatus(latestLifecycleEvent.payload.newStatus);
+  }
+  if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
+    return "RUNNING";
+  }
+  if (isTerminalActivityStatus(fallbackActivityStatus)) {
+    return fallbackActivityStatus;
+  }
+  if (events.some(isOpenActivityEvent)) {
+    return "RUNNING";
+  }
+  return fallbackActivityStatus;
+}
+
+function isRunLifecycleEvent(event: RunEvent): boolean {
+  return (
+    event.type === RUN_EVENT_TYPES.RUN_STARTED ||
+    event.type === RUN_EVENT_TYPES.RUN_STATUS_CHANGED ||
+    event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
+    event.type === RUN_EVENT_TYPES.RUN_FAILED
+  );
+}
+
+function isOpenActivityEvent(event: RunEvent): boolean {
+  switch (event.type) {
+    case RUN_EVENT_TYPES.MESSAGE_EMITTED:
+      return event.payload.role === "user";
+    case RUN_EVENT_TYPES.RUN_PROGRESS:
+      return event.payload.status === "active";
+    case RUN_EVENT_TYPES.APPROVAL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_REQUESTED:
+    case RUN_EVENT_TYPES.TOOL_STARTED:
+    case RUN_EVENT_TYPES.TOOL_OUTPUT_APPENDED:
+      return true;
+    default:
+      return false;
+  }
+}
+
+function mapCanonicalRunStatus(
+  status: string | null,
+): ActivityFeedSnapshot["status"] {
+  switch (status) {
+    case "complete":
+    case "completed":
+    case "COMPLETED":
+      return "COMPLETED";
+    case "failed":
+    case "FAILED":
+    case "cancelled":
+    case "CANCELLED":
+      return "FAILED";
+    case "queued":
+    case "running":
+    case "waiting":
+    case "paused":
+    case "CREATED":
+    case "RUNNING":
+    case "PAUSED":
+      return "RUNNING";
+    default:
+      return null;
+  }
+}
+
+function isTerminalActivityStatus(
+  status: ActivityFeedSnapshot["status"],
+): status is "COMPLETED" | "FAILED" {
+  return status === "COMPLETED" || status === "FAILED";
 }
 
 function updateTurnId(

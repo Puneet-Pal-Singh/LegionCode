@@ -1,6 +1,7 @@
 import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import {
   LLMTimeoutError,
   LLMUnusableResponseError,
@@ -99,18 +100,44 @@ async function handleTaskTimeoutRecovery(
     modelId: timeoutDetails.modelId,
     lastCompletedAction: timeoutDetails.lastCompletedAction,
   });
+  const timeoutMetadata = buildTaskExecutionTimeoutMetadata({
+    ...timeoutDetails,
+    stepsExecuted: context.stats.stepsExecuted,
+    toolExecutionCount: context.stats.toolExecutionCount,
+    failedToolCount: context.stats.failedToolCount,
+    completedMutatingToolCount: context.stats.completedMutatingToolCount,
+    completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
+  });
+  console.log(
+    formatRuntimeDiagnosticLogLine("run/recovery", "task-timeout", {
+      runId: run.id,
+      sessionId: run.sessionId,
+      timeoutMs: timeoutDetails.timeoutMs,
+      providerId: timeoutDetails.providerId,
+      modelId: timeoutDetails.modelId,
+      lastCompletedAction: timeoutDetails.lastCompletedAction,
+      stepsExecuted: context.stats.stepsExecuted,
+      toolExecutionCount: context.stats.toolExecutionCount,
+      failedToolCount: context.stats.failedToolCount,
+      completedMutatingToolCount: context.stats.completedMutatingToolCount,
+      completedReadOnlyToolCount: context.stats.completedReadOnlyToolCount,
+      llmRetryCount: context.stats.llmRetryCount,
+      toolLifecycleCount: context.stats.toolLifecycle.length,
+    }),
+  );
 
   await deps.runEventRecorder.recordRunProgress(
     RUN_WORKFLOW_STEPS.EXECUTION,
     "Recoverable timeout",
     "The model timed out before choosing the next action.",
     "completed",
+    { metadata: timeoutMetadata },
   );
 
   return deps.completeRunWithRecoveredAssistantMessage(
     run,
     text,
-    buildTaskExecutionTimeoutMetadata(timeoutDetails),
+    timeoutMetadata,
     "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
   );
 }
@@ -290,6 +317,11 @@ function buildTaskExecutionTimeoutMetadata(input: {
   providerId: string | null;
   modelId: string | null;
   lastCompletedAction: string | null;
+  stepsExecuted: number;
+  toolExecutionCount: number;
+  failedToolCount: number;
+  completedMutatingToolCount: number;
+  completedReadOnlyToolCount: number;
 }): Record<string, unknown> {
   return {
     code: "TASK_EXECUTION_TIMEOUT",
@@ -302,6 +334,12 @@ function buildTaskExecutionTimeoutMetadata(input: {
     ...(input.lastCompletedAction
       ? { lastCompletedAction: input.lastCompletedAction }
       : undefined),
+    stepsExecuted: input.stepsExecuted,
+    toolExecutionCount: input.toolExecutionCount,
+    failedToolCount: input.failedToolCount,
+    completedMutatingToolCount: input.completedMutatingToolCount,
+    completedReadOnlyToolCount: input.completedReadOnlyToolCount,
+    noFilesChanged: input.completedMutatingToolCount === 0,
     resumeHint: "Retry the task or switch to a faster or more reliable model.",
     resumeActions: ["retry", "switch_model"],
   };

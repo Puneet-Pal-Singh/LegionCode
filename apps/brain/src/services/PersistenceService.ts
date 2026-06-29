@@ -21,6 +21,7 @@ import {
   buildRedactedMessageText,
   messageHasImageParts,
 } from "./chat/ImageMessageRedactor";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 
 interface PersistMessageContext {
   userId?: string;
@@ -191,6 +192,17 @@ export class PersistenceService {
     context: PersistMessageContext = {},
   ): Promise<TranscriptMessageRecord> {
     try {
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-entered", {
+          runId,
+          sessionId,
+          role: message.role,
+          messageId: readClientMessageId(message),
+          hasImages: messageHasImageParts(message),
+          repository: context.repository ?? null,
+          workspaceId: context.workspaceId ?? null,
+        }),
+      );
       const content = buildPersistenceDedupeContent(message);
 
       const idempotencyKey = await this.generateMessageIdempotencyKey(
@@ -207,10 +219,27 @@ export class PersistenceService {
         idempotencyKey,
         context,
       });
-      console.log(`[Brain] Persisted ${message.role} message for run ${runId}`);
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-persisted", {
+          runId,
+          sessionId,
+          role: message.role,
+          inputMessageId: readClientMessageId(message),
+          persistedMessageId: persistedMessage.id,
+          dedupeKey: idempotencyKey,
+        }),
+      );
       return persistedMessage;
     } catch (error) {
-      console.error("[Brain] Persist user message failed", error);
+      console.error(
+        formatDiagnosticLogLine("chat/persistence", "user-message-failed", {
+          runId,
+          sessionId,
+          role: message.role,
+          messageId: readClientMessageId(message),
+          error,
+        }),
+      );
       throw new TranscriptPersistenceError("persistUserMessage", error);
     }
   }
@@ -260,6 +289,17 @@ export class PersistenceService {
     activity?: TurnActivityTranscriptPart | null;
   }): Promise<TranscriptMessageRecord> {
     try {
+      const parts = buildAssistantTurnParts(input);
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "assistant-turn-entered", {
+          runId: input.runId,
+          sessionId: input.sessionId,
+          textChars: input.text.length,
+          metadataKeys: Object.keys(input.metadata ?? {}).join(",") || "none",
+          activityEventCount: input.activity?.events.length ?? 0,
+          partCount: parts.length,
+        }),
+      );
       const idempotencyKey = await this.generateIdempotencyKey(
         input.sessionId,
         input.runId,
@@ -275,14 +315,30 @@ export class PersistenceService {
             runId: input.runId,
             role: "assistant",
             dedupeKey: idempotencyKey,
-            parts: buildAssistantTurnParts(input),
+            parts,
           });
         },
       );
-      console.log(`[Brain] Persisted assistant turn for run ${input.runId}`);
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "assistant-turn-persisted", {
+          runId: input.runId,
+          sessionId: input.sessionId,
+          persistedMessageId: message.id,
+          dedupeKey: idempotencyKey,
+          activityEventCount: input.activity?.events.length ?? 0,
+          partCount: parts.length,
+        }),
+      );
       return message;
     } catch (error) {
-      console.error("[Brain] Persist assistant turn failed", error);
+      console.error(
+        formatDiagnosticLogLine("chat/persistence", "assistant-turn-failed", {
+          runId: input.runId,
+          sessionId: input.sessionId,
+          textChars: input.text.length,
+          error,
+        }),
+      );
       throw new TranscriptPersistenceError("persistAssistantTurn", error);
     }
   }
@@ -345,8 +401,12 @@ export class PersistenceService {
     repository: TranscriptRepository,
   ): Promise<TranscriptMessageRecord> {
     const parts = coreMessageToTranscriptParts(input.message);
+    const clientMessageId = readClientMessageId(input.message);
+    console.log(
+      `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} role=${input.message.role} clientMessageId=${clientMessageId ?? "missing"} dedupeKey=${input.idempotencyKey} status=append-started`,
+    );
     if (input.context.userId) {
-      return await repository.appendMessage({
+      const record = await repository.appendMessage({
         sessionId: input.sessionId,
         runId: input.runId,
         userId: input.context.userId,
@@ -356,20 +416,28 @@ export class PersistenceService {
         activeRunId: input.runId,
         status: "running",
         role: input.message.role,
-        clientMessageId: readClientMessageId(input.message),
+        clientMessageId,
         dedupeKey: input.idempotencyKey,
         parts,
       });
+      console.log(
+        `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} messageId=${record.id} role=${record.role} clientMessageId=${record.clientMessageId ?? "missing"} status=appended`,
+      );
+      return record;
     }
 
-    return await repository.appendMessageToExistingSession({
+    const record = await repository.appendMessageToExistingSession({
       sessionId: input.sessionId,
       runId: input.runId,
       role: input.message.role,
-      clientMessageId: readClientMessageId(input.message),
+      clientMessageId,
       dedupeKey: input.idempotencyKey,
       parts,
     });
+    console.log(
+      `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} messageId=${record.id} role=${record.role} clientMessageId=${record.clientMessageId ?? "missing"} status=appended-existing-session`,
+    );
+    return record;
   }
 
   private async generateMessageIdempotencyKey(

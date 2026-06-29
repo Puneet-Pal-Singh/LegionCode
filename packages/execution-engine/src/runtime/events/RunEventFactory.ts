@@ -256,7 +256,7 @@ export function mapRuntimeStatusToRunEventStatus(
     case "PAUSED":
       return "paused";
     case "CANCELLED":
-      return "waiting";
+      return "cancelled";
     case "CREATED":
     case "PLANNING":
     default:

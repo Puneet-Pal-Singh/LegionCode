@@ -1,8 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { _resetEndpointCache } from "../lib/platform-endpoints";
 import { ChatHydrationService } from "./ChatHydrationService";
 
 describe("ChatHydrationService", () => {
+  beforeEach(() => {
+    _resetEndpointCache();
+    vi.stubEnv("VITE_BRAIN_BASE_URL", "http://localhost:8787");
+  });
+
   afterEach(() => {
+    _resetEndpointCache();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -52,6 +59,77 @@ describe("ChatHydrationService", () => {
     expect(secondUrl.searchParams.get("cursor")).toBe("cursor-page-2");
   });
 
+  it("hydrates assistant activity parts for replay after refresh", async () => {
+    const runId = "run_123e4567e89b42d3a456426614174000";
+    const sessionId = "agent-session-activity";
+    const activityPart = {
+      version: 1,
+      type: "turn_activity",
+      compacted: false,
+      events: [
+        {
+          id: "activity-1",
+          runId,
+          sessionId,
+          turnId: "client-msg-2",
+          sequence: 1,
+          kind: "progress",
+          status: "completed",
+          title: "Finding files",
+          detail: "Finding **/Footer.tsx",
+          displayMode: "visible",
+          createdAt: "2026-05-15T00:00:00.000Z",
+          updatedAt: "2026-05-15T00:00:00.000Z",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          messages: [
+            {
+              id: "assistant-activity-1",
+              role: "assistant",
+              content: "Done",
+              data: {
+                activityParts: [activityPart],
+                metadata: { terminalState: "completed" },
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new ChatHydrationService("http://localhost:8787");
+    const result = await service.hydrateMessages(sessionId, runId);
+
+    expect(result.error).toBeUndefined();
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      id: "assistant-activity-1",
+      role: "assistant",
+      content: "Done",
+      data: {
+        metadata: { terminalState: "completed" },
+        activityParts: [
+          {
+            type: "turn_activity",
+            events: [
+              {
+                turnId: "client-msg-2",
+                title: "Finding files",
+                detail: "Finding **/Footer.tsx",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
   it("rejects legacy array chat history responses", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -75,9 +153,11 @@ describe("ChatHydrationService", () => {
   });
 
   it("returns a hydration error for invalid history response shape", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ invalid: true }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ invalid: true }), { status: 200 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const service = new ChatHydrationService("http://localhost:8787");

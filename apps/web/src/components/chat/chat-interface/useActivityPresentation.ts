@@ -6,6 +6,7 @@ import {
   mergeTranscriptAndLiveActivityTurns,
 } from "../../../services/activity/TranscriptActivityParts.js";
 import {
+  isRunEventActivityOpen,
   mergeActivitySnapshots,
   projectRunEventsToActivitySnapshot,
 } from "../../../services/activity/RunEventActivitySnapshot.js";
@@ -27,17 +28,24 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const scopedPersistedFeed =
     input.feed?.runId === input.runId ? input.feed : null;
+  const eventActivityOpen = useMemo(
+    () => isRunEventActivityOpen({ runId: input.runId, events: input.events }),
+    [input.events, input.runId],
+  );
+  const persistedFeedOpen = scopedPersistedFeed?.status === "RUNNING";
+  const resolvedActivityOpen =
+    input.isLoading || eventActivityOpen || persistedFeedOpen;
   const liveFeed = useMemo(
     () =>
       projectRunEventsToActivitySnapshot({
         runId: input.runId,
         events: input.events,
-        isActive: input.isLoading,
+        isActive: resolvedActivityOpen,
         fallbackSessionId: scopedPersistedFeed?.sessionId,
       }),
     [
+      resolvedActivityOpen,
       input.events,
-      input.isLoading,
       input.runId,
       scopedPersistedFeed?.sessionId,
     ],
@@ -48,37 +56,67 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   );
   const viewModel = useMemo(() => {
     const liveViewModel = buildActivityFeedViewModel(scopedFeed, nowMs);
+    const transcriptTurns = buildTranscriptActivityTurns(input.messages);
     return {
       ...liveViewModel,
       turns: mergeTranscriptAndLiveActivityTurns(
-        buildTranscriptActivityTurns(input.messages),
+        transcriptTurns,
         liveViewModel.turns,
       ),
     };
   }, [input.messages, nowMs, scopedFeed]);
 
-  const activeTurnKey = viewModel.turns.find((turn) => turn.isActiveTurn)?.key;
+  const presentationLogSnapshot = useMemo(() => {
+    const activeTurnKey =
+      viewModel.turns.find((turn) => turn.isActiveTurn)?.key ?? null;
+    const liveItemCount = liveFeed?.items.length ?? 0;
+    const persistedItemCount = scopedPersistedFeed?.items.length ?? 0;
+    const rowCount = viewModel.turns.reduce(
+      (total, turn) => total + turn.rows.length,
+      0,
+    );
+    return {
+      activeTurnKey,
+      liveItemCount,
+      persistedItemCount,
+      rowCount,
+      turnCount: viewModel.turns.length,
+      turnKeys: viewModel.turns.map((turn) => turn.key).join(","),
+    };
+  }, [liveFeed?.items.length, scopedPersistedFeed?.items.length, viewModel.turns]);
+
   useEffect(() => {
     logClientEvent("run/presentation", "updated", {
       runId: input.runId,
       loading: input.isLoading,
+      eventActivityOpen,
+      persistedFeedOpen,
+      resolvedActivityOpen,
       feedStatus: scopedFeed?.status ?? null,
-      activeTurnKey: activeTurnKey ?? null,
-      turnCount: viewModel.turns.length,
+      eventCount: input.events.length,
+      liveItemCount: presentationLogSnapshot.liveItemCount,
+      persistedItemCount: presentationLogSnapshot.persistedItemCount,
+      activeTurnKey: presentationLogSnapshot.activeTurnKey,
+      turnKeys: presentationLogSnapshot.turnKeys,
+      turnCount: presentationLogSnapshot.turnCount,
+      rowCount: presentationLogSnapshot.rowCount,
     });
   }, [
-    activeTurnKey,
+    input.events.length,
     input.isLoading,
     input.runId,
+    eventActivityOpen,
+    persistedFeedOpen,
+    resolvedActivityOpen,
+    presentationLogSnapshot,
     scopedFeed?.status,
-    viewModel.turns.length,
   ]);
 
   useEffect(() => {
-    if (!input.isLoading && scopedFeed?.status !== "RUNNING") return;
+    if (!resolvedActivityOpen && scopedFeed?.status !== "RUNNING") return;
     const timerId = window.setInterval(() => setNowMs(Date.now()), 1_000);
     return () => window.clearInterval(timerId);
-  }, [input.isLoading, input.runId, scopedFeed?.status]);
+  }, [input.runId, resolvedActivityOpen, scopedFeed?.status]);
 
   const scrollSignal = useMemo(
     () =>

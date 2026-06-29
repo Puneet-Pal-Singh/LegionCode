@@ -23,6 +23,7 @@ import {
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
+import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
 import type { SerializableToolDefinition } from "../../types/tools";
 import type {
@@ -154,6 +155,19 @@ export class HandleChatRequest {
       // then persist the message and mark the run active on the session.
       if (userId) {
         try {
+          console.log(
+            formatDiagnosticLogLine("chat/persistence", "ensure-started", {
+              correlationId,
+              runId,
+              sessionId,
+              userId,
+              workspaceId: workspaceId ?? null,
+              taskId,
+              repository: repositorySlug ?? null,
+              providerId: input.providerId ?? null,
+              modelId: input.modelId ?? null,
+            }),
+          );
           await this.persistenceService.ensureTranscriptSession({
             sessionId,
             userId,
@@ -173,6 +187,16 @@ export class HandleChatRequest {
             modelId: input.modelId ?? null,
             branch: repositoryBranch ?? null,
           });
+          console.log(
+            formatDiagnosticLogLine("chat/persistence", "run-ensured", {
+              correlationId,
+              runId,
+              sessionId,
+              taskId,
+              mode,
+              branch: repositoryBranch ?? null,
+            }),
+          );
         } catch (ensureError) {
           const message =
             ensureError instanceof Error
@@ -185,6 +209,16 @@ export class HandleChatRequest {
         }
       }
 
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-started", {
+          correlationId,
+          runId,
+          sessionId,
+          messageId: readMessageId(lastUserMessage),
+          role: lastUserMessage.role,
+          messageCount: messages.length,
+        }),
+      );
       await this.persistenceService.persistUserMessage(
         sessionId,
         runId,
@@ -194,6 +228,14 @@ export class HandleChatRequest {
           workspaceId,
           repository: repositorySlug,
         },
+      );
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
+          correlationId,
+          runId,
+          sessionId,
+          messageId: readMessageId(lastUserMessage),
+        }),
       );
 
       // Build execution payload with repository context
@@ -256,7 +298,19 @@ export class HandleChatRequest {
       };
 
       console.log(
-        `[chat/usecase] ${correlationId}: Chat request prepared for RunEngine execution`,
+        formatDiagnosticLogLine("chat/usecase", "prepared-for-run-engine", {
+          correlationId,
+          runId,
+          sessionId,
+          mode,
+          providerId: input.providerId ?? null,
+          modelId: input.modelId ?? null,
+          harnessId: input.harnessId ?? null,
+          repository: repositorySlug ?? null,
+          branch: repositoryBranch ?? null,
+          toolCount: input.tools ? Object.keys(input.tools).length : 0,
+          messageCount: messages.length,
+        }),
       );
 
       return {
@@ -310,6 +364,11 @@ export class HandleChatRequest {
     const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
+}
+
+function readMessageId(message: CoreMessage): string | null {
+  const value = (message as Record<string, unknown>).id;
+  return typeof value === "string" ? value : null;
 }
 
 function validateSubmittedMessages(

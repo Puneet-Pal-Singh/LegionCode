@@ -198,14 +198,25 @@ export class TranscriptController {
   }
 
   static async getHistory(request: Request, env: Env): Promise<Response> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const queryParams = new URL(request.url).searchParams;
+    const requestedRunId = queryParams.get("runId")?.trim() ?? "";
+    const requestedSessionId = queryParams.get("session")?.trim() ?? "";
     try {
+      console.log(
+        `[chat/history] requestId=${requestId} runId=${requestedRunId || "missing"} sessionId=${requestedSessionId || "missing"} status=started`,
+      );
       const auth = await getAuthenticatedUserSession(request, env);
       if (!auth) {
+        console.warn(
+          `[chat/history] requestId=${requestId} runId=${requestedRunId || "missing"} sessionId=${requestedSessionId || "missing"} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
+        );
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
       const query = TranscriptQuerySchema.parse(
-        Object.fromEntries(new URL(request.url).searchParams),
+        Object.fromEntries(queryParams),
       );
       const result = await withTranscriptRepository(env, (repository) =>
         repository.listTranscript({
@@ -217,14 +228,30 @@ export class TranscriptController {
         }),
       );
 
-      return jsonResponse(request, env, {
+      const response = {
         messages: result.messages.map(toHydrationMessage),
         nextCursor: result.nextCursor?.toString(),
-      });
+      };
+      console.log(
+        `[chat/history] requestId=${requestId} runId=${query.runId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+      );
+      return jsonResponse(request, env, response);
     } catch (error) {
+      console.error(
+        `[chat/history] requestId=${requestId} runId=${requestedRunId || "unknown"} sessionId=${requestedSessionId || "unknown"} status=failed elapsedMs=${Date.now() - startedAt}`,
+        summarizeTranscriptError(error),
+      );
       return transcriptErrorResponse(request, env, error);
     }
   }
+}
+
+function summarizeHydrationMessages(
+  messages: Array<ReturnType<typeof toHydrationMessage>>,
+): string {
+  return messages
+    .map((message) => `${message.role}:${message.id}`)
+    .join(",");
 }
 
 async function createPersistedSession(
@@ -432,6 +459,7 @@ function transcriptErrorResponse(
   error: unknown,
 ): Response {
   if (error instanceof z.ZodError) {
+    console.warn("[transcript/request] invalid request", error.issues);
     return errorResponse(request, env, "Invalid transcript request", 400);
   }
 
@@ -441,4 +469,14 @@ function transcriptErrorResponse(
 
   console.error("[transcript/persistence] request failed:", error);
   return errorResponse(request, env, "Failed to load transcript state", 500);
+}
+
+function summarizeTranscriptError(error: unknown): {
+  name: string;
+  message: string;
+} {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+  return { name: "UnknownError", message: String(error) };
 }

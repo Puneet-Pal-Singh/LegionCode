@@ -76,8 +76,18 @@ describe("ExecutionService", () => {
       command: "pnpm test",
     });
 
-    expect(first).toEqual({ success: true, output: "file contents" });
-    expect(second).toEqual({ success: true, output: "second call" });
+    expect(first).toEqual({
+      success: true,
+      status: "success",
+      output: "file contents",
+      metrics: { duration: 8 },
+    });
+    expect(second).toEqual({
+      success: true,
+      status: "success",
+      output: "second call",
+      metrics: { duration: 9 },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
@@ -112,6 +122,7 @@ describe("ExecutionService", () => {
   });
 
   it("maps task failures back into the legacy execution shape", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
       ReturnType<Env["SECURE_API"]["fetch"]>
@@ -155,8 +166,97 @@ describe("ExecutionService", () => {
       service.execute("node", "run", { command: "pnpm lint" }),
     ).resolves.toEqual({
       success: false,
-      error: "command failed",
+      status: "failure",
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "command failed",
+      },
+      metrics: { duration: 12 },
     });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[execution/tool/result-failed]"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=node action=run"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=failure"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("errorCode=PLUGIN_EXECUTION_FAILED"),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("preserves typed secure execution timeout failures", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-timeout",
+            token: "tok-timeout",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-timeout",
+            status: "timeout",
+            output: "partial output",
+            error: {
+              code: "EXECUTION_TIMEOUT",
+              message: "Execution request timed out after 120000ms",
+              details: { timeoutMs: 120000 },
+            },
+            metrics: { duration: 120000 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-timeout",
+      "run-timeout",
+    );
+
+    await expect(
+      service.execute("filesystem", "read_file", { path: "src/index.ts" }),
+    ).resolves.toEqual({
+      success: false,
+      status: "timeout",
+      output: "partial output",
+      error: {
+        code: "EXECUTION_TIMEOUT",
+        message: "Execution request timed out after 120000ms",
+        details: { timeoutMs: 120000 },
+      },
+      metrics: { duration: 120000 },
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[execution/tool/result-failed]"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=filesystem action=read_file"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=timeout"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("errorCode=EXECUTION_TIMEOUT"),
+    );
+    errorSpy.mockRestore();
   });
 
   it("normalizes git actions before sending execute payloads", async () => {
@@ -504,6 +604,7 @@ describe("ExecutionService", () => {
   });
 
   it("fails fast on persisted missing-scope boundary for GitHub Actions logs", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
       ReturnType<Env["SECURE_API"]["fetch"]>
@@ -546,6 +647,11 @@ describe("ExecutionService", () => {
       }),
     ).rejects.toThrow("Missing GitHub OAuth scope");
     expect(fetchMock).toHaveBeenCalledTimes(0);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[execution/tool] runId=run-github-cli-scope sessionId=session-github-cli-scope plugin=github_cli action=actions_job_logs_get status=threw",
+      expect.stringContaining("Missing GitHub OAuth scope"),
+    );
+    errorSpy.mockRestore();
   });
 
   it("does not allow payload to override canonical action or runId", async () => {
@@ -719,16 +825,30 @@ describe("ExecutionService", () => {
       service.execute("git", "git_commit", { message: "feat: add hero" }),
     ).resolves.toEqual({
       success: false,
-      error: "Git commit author is not configured.",
+      status: "failure",
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "Git commit author is not configured.",
+        details: { stderr: "fatal: empty ident name" },
+      },
     });
 
     expect(errorSpy).toHaveBeenCalledWith(
-      "[ExecutionService] git:git_commit failed",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-        errorMessage: "Git commit author is not configured.",
-      }),
+      expect.stringContaining("[execution/tool/result-failed]"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=git action=git_commit"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=failure"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("errorCode=PLUGIN_EXECUTION_FAILED"),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'errorMessage="Git commit author is not configured."',
+      ),
     );
 
     errorSpy.mockRestore();
@@ -778,20 +898,28 @@ describe("ExecutionService", () => {
 
     await expect(service.execute("git", "git_status", {})).resolves.toEqual({
       success: false,
-      error:
-        "fatal: not a git repository (or any of the parent directories): .git",
+      status: "failure",
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message:
+          "fatal: not a git repository (or any of the parent directories): .git",
+      },
     });
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      "[ExecutionService] git:git_status failed",
-      expect.anything(),
+      expect.stringContaining("[execution/tool/result-failed]"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      "[ExecutionService] git:git_status expected bootstrap miss",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-      }),
+      expect.stringContaining("[execution/tool/result-warning]"),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin=git action=git_status"),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('warning="expected bootstrap miss"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("secureStatus=failure"),
     );
 
     logSpy.mockRestore();
@@ -826,16 +954,18 @@ describe("ExecutionService", () => {
     );
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      "[ExecutionService] Error:",
-      expect.anything(),
+      expect.stringContaining("status=threw"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      "[ExecutionService] git:git_status transient startup miss",
-      expect.objectContaining({
-        errorMessage: expect.stringMatching(
-          /Couldn't find a local dev session/i,
-        ),
-      }),
+      expect.stringContaining("[execution/tool/transient-startup-miss]"),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "runId=run-status-local-dev sessionId=session-status-local-dev",
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/errorMessage=.*local dev session/i),
     );
 
     logSpy.mockRestore();

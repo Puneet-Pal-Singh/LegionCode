@@ -4,6 +4,7 @@ import {
   type TurnActivityTranscriptPart,
 } from "@repo/shared-types";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 
@@ -64,6 +65,13 @@ export class ChatHydrationService {
     sessionId: string,
     runId: string,
   ): Promise<HydrationResult> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
+    logClientEvent("chat/hydration-service", "started", {
+      requestId,
+      sessionId,
+      runId,
+    });
     try {
       const allMessages: ServerMessage[] = [];
       let cursor: string | undefined;
@@ -91,10 +99,23 @@ export class ChatHydrationService {
       }
 
       const messages = this.convertServerMessages(allMessages, runId);
+      logClientEvent("chat/hydration-service", "completed", {
+        requestId,
+        runId,
+        messageCount: messages.length,
+        messageIds: summarizeServerMessages(allMessages),
+        durationMs: Date.now() - startedAt,
+      });
       return { messages };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
+      logClientWarning("chat/hydration-service", "failed", {
+        requestId,
+        runId,
+        error: errorMessage,
+        durationMs: Date.now() - startedAt,
+      });
       return { messages: [], error: errorMessage };
     }
   }
@@ -117,9 +138,26 @@ export class ChatHydrationService {
       url.searchParams.set("cursor", cursor);
     }
 
+    const pageRequestId = crypto.randomUUID();
+    logClientEvent("chat/history", "page-requested", {
+      requestId: pageRequestId,
+      sessionId,
+      runId,
+      cursor: cursor ?? null,
+      limit,
+    });
     const res = await fetch(url.toString(), { credentials: "include" });
 
     if (!res.ok) {
+      const errorPreview = await readResponsePreview(res);
+      logClientWarning("chat/history", "page-failed", {
+        requestId: pageRequestId,
+        sessionId,
+        runId,
+        status: res.status,
+        statusText: res.statusText,
+        preview: errorPreview,
+      });
       return {
         messages: [],
         error: `History fetch failed: ${res.status} ${res.statusText}`,
@@ -136,12 +174,26 @@ export class ChatHydrationService {
       Array.isArray(data.messages)
     ) {
       const paginatedResponse = data as PaginatedHistoryResponse;
+      logClientEvent("chat/history", "page-received", {
+        requestId: pageRequestId,
+        sessionId,
+        runId,
+        messageCount: paginatedResponse.messages.length,
+        messageIds: summarizeServerMessages(paginatedResponse.messages),
+        hasNextCursor: Boolean(paginatedResponse.nextCursor),
+      });
       return {
         messages: paginatedResponse.messages,
         nextCursor: paginatedResponse.nextCursor,
       };
     }
 
+    logClientWarning("chat/history", "page-invalid", {
+      requestId: pageRequestId,
+      sessionId,
+      runId,
+      payloadType: typeof data,
+    });
     return { messages: [], error: "Invalid history format" };
   }
 
@@ -229,6 +281,20 @@ export class ChatHydrationService {
     } catch {
       return {};
     }
+  }
+}
+
+function summarizeServerMessages(messages: ServerMessage[]): string {
+  return messages
+    .map((message) => `${message.role}:${message.id ?? "missing"}`)
+    .join(",");
+}
+
+async function readResponsePreview(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 240);
+  } catch {
+    return "";
   }
 }
 

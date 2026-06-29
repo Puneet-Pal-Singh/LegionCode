@@ -134,6 +134,9 @@ async function persistFinalAssistantRun(
     terminalState: params.terminalState,
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
+  console.log(
+    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${params.terminalStatus} terminalState=${params.terminalState} textLength=${sanitizedText.length}`,
+  );
   recordLifecycleStep(run, "SYNTHESIS");
   transitionFinalAssistantRun(run, params.terminalStatus);
   recordLifecycleStep(run, "TERMINAL", `status=${params.terminalStatus}`);
@@ -146,10 +149,13 @@ async function persistFinalAssistantRun(
   run.metadata.terminalMessage = finalMessage.metadata;
   if (!(await updateFinalizedRunIfActive(run, deps, params.terminalStatus))) {
     console.log(
-      `[run/engine] Skipping assistant completion for terminal run ${run.id}`,
+      `[run/completion/finalization-skipped] runId=${run.id} reason=terminal-or-blocked terminalStatus=${params.terminalStatus}`,
     );
     return createStreamResponse("");
   }
+  console.log(
+    `[run/completion/run-persisted] runId=${run.id} status=${run.status} terminalState=${params.terminalState}`,
+  );
   recordPhaseSelectionSnapshot(run, "synthesis");
   await deps.runEventRecorder.recordRunStatusChanged(
     previousStatus,
@@ -168,7 +174,9 @@ async function persistFinalAssistantRun(
       run.metadata.agenticLoop?.toolExecutionCount ?? 0,
     );
   }
-  console.log(buildFinalAssistantRunLog(run.id, params.terminalStatus));
+  console.log(
+    `[run/completion/finalization-finished] runId=${run.id} status=${run.status} terminalStatus=${params.terminalStatus} terminalState=${params.terminalState}`,
+  );
 
   return createStreamResponse(sanitizedText);
 }
@@ -419,17 +427,6 @@ function transitionFinalAssistantRun(
   }
 
   transitionRunToCompleted(run, run.id);
-}
-
-function buildFinalAssistantRunLog(
-  runId: string,
-  terminalStatus: FinalizedRunTerminalStatus,
-): string {
-  if (terminalStatus === "PAUSED") {
-    return `[run/engine] Paused assistant run ${runId} for approval`;
-  }
-
-  return `[run/engine] Completed assistant run ${runId}`;
 }
 
 function assertCompletionTerminalState(terminalState: RunTerminalState): void {

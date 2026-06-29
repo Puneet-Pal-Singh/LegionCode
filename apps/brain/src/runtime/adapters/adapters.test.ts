@@ -86,7 +86,7 @@ describe("Runtime Adapters", () => {
       expect(stream instanceof ReadableStream).toBe(true);
     });
 
-    it("should keep completed run lifecycles closed", async () => {
+    it("should keep terminal subscribers waiting for the next lifecycle start", async () => {
       const event: StreamEvent = {
         version: 1,
         eventId: "evt-1",
@@ -100,10 +100,19 @@ describe("Runtime Adapters", () => {
       adapter.complete("test-run");
       const stream = adapter.getStream("test-run");
       adapter.emit(event);
+      adapter.start("test-run");
+      adapter.emit({
+        ...event,
+        eventId: "evt-next-turn",
+        payload: { content: "next turn", role: "assistant" },
+      });
+      adapter.complete("test-run");
 
       const events = await readStreamEvents(stream);
 
-      expect(events).toHaveLength(0);
+      expect(events.map((emittedEvent) => emittedEvent.eventId)).toEqual([
+        "evt-next-turn",
+      ]);
     });
 
     it("should reopen a completed run lifecycle when a new turn starts", async () => {

@@ -127,6 +127,37 @@ describe("useRunSummary", () => {
     });
   });
 
+  it("polls missing canonical summaries until the run record appears", async () => {
+    vi.useFakeTimers();
+    let now = 2_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetchSpy = vi
+      .mocked(globalThis.fetch)
+      .mockResolvedValueOnce(new Response("Not Found", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ runId: "late-run", status: "RUNNING" }), {
+          status: 200,
+        }),
+      );
+
+    const { result } = renderHook(() => useRunSummary("late-run", false));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.summary).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    now += 5_000;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result.current.summary?.status).toBe("RUNNING");
+  });
+
   it("settles a running canonical summary after stream polling stops", async () => {
     vi.useFakeTimers();
     let now = 2_000;

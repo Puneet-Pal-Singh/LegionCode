@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentStore } from "../store/agentStore";
 import { useChatCore } from "./useChatCore";
@@ -107,6 +107,9 @@ describe("useChatCore", () => {
   });
 
   it("surfaces expired session auth as a clear login message", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const { result } = renderHook(() => useChatCore("session-1"));
 
     const options = mockUseChat.mock.calls[0]?.[0] as {
@@ -125,6 +128,10 @@ describe("useChatCore", () => {
     });
 
     expect(result.current.error).toBe(
+      "Your session is missing or expired. Log in again and retry.",
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "🧬 [LegionCode] Chat Stream Error:",
       "Your session is missing or expired. Log in again and retry.",
     );
   });
@@ -237,11 +244,16 @@ describe("useChatCore", () => {
     });
 
     expect(appendSpy).toHaveBeenCalledWith(
-      { role: "user", content: "Design this first" },
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
+        role: "user",
+        content: "Design this first",
+      }),
       expect.objectContaining({
         body: expect.objectContaining({
           sessionId: "session-1",
           runId: expect.stringMatching(/^run_/),
+          clientMessageId: expect.stringMatching(/^client_msg_/),
           mode: "plan",
         }),
       }),
@@ -261,10 +273,15 @@ describe("useChatCore", () => {
     });
 
     expect(appendSpy).toHaveBeenCalledWith(
-      { role: "user", content: "Run this end-to-end" },
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
+        role: "user",
+        content: "Run this end-to-end",
+      }),
       expect.objectContaining({
         body: expect.objectContaining({
           sessionId: "session-1",
+          clientMessageId: expect.stringMatching(/^client_msg_/),
           mode: "build",
           productMode: "full_agent",
         }),
@@ -284,9 +301,14 @@ describe("useChatCore", () => {
 
     expect(mockResolveForChat).not.toHaveBeenCalled();
     expect(appendSpy).toHaveBeenCalledWith(
-      { role: "user", content: "Fast path submit" },
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
+        role: "user",
+        content: "Fast path submit",
+      }),
       expect.objectContaining({
         body: expect.objectContaining({
+          clientMessageId: expect.stringMatching(/^client_msg_/),
           providerId: "axis",
           modelId: "z-ai/glm-4.5-air:free",
         }),
@@ -325,10 +347,15 @@ describe("useChatCore", () => {
 
     expect(submitted).toBe(true);
     expect(appendSpy).toHaveBeenCalledWith(
-      { role: "user", content: "Review the diff" },
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
+        role: "user",
+        content: "Review the diff",
+      }),
       expect.objectContaining({
         body: expect.objectContaining({
           sessionId: "session-1",
+          clientMessageId: expect.stringMatching(/^client_msg_/),
         }),
       }),
     );
@@ -356,7 +383,8 @@ describe("useChatCore", () => {
 
     expect(submitted).toBe(true);
     expect(appendSpy).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
         role: "user",
         content: [
           { type: "text", text: "Analyze the attached image(s)." },
@@ -376,13 +404,52 @@ describe("useChatCore", () => {
             source: "paste",
           },
         ],
-      },
+      }),
       expect.objectContaining({
         body: expect.objectContaining({
           sessionId: "session-1",
+          clientMessageId: expect.stringMatching(/^client_msg_/),
         }),
       }),
     );
+  });
+
+  it("uses one client message id for pending echo and append request", async () => {
+    let resolveAppend: (() => void) | null = null;
+    appendSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    act(() => {
+      void result.current.append({
+        role: "user",
+        content: "Keep this prompt singular",
+      });
+    });
+
+    const pendingMessage = result.current.messages[0];
+    expect(pendingMessage).toMatchObject({
+      id: expect.stringMatching(/^client_msg_/),
+      role: "user",
+      content: "Keep this prompt singular",
+    });
+
+    await waitFor(() => expect(appendSpy).toHaveBeenCalledTimes(1));
+    const [appendedMessage, options] = appendSpy.mock.calls[0] as [
+      { id?: string },
+      { body: { clientMessageId?: string } },
+    ];
+    expect(appendedMessage.id).toBe(pendingMessage?.id);
+    expect(options.body.clientMessageId).toBe(pendingMessage?.id);
+
+    await act(async () => {
+      resolveAppend?.();
+      await Promise.resolve();
+    });
   });
 
   it("marks chat loading immediately while append setup is in flight", async () => {
@@ -417,6 +484,54 @@ describe("useChatCore", () => {
 
     expect(result.current.isLoading).toBe(false);
     expect(result.current.messages).toEqual([]);
+  });
+
+  it("shows a repeated pending prompt after an assistant response", async () => {
+    let resolveAppend: (() => void) | null = null;
+    appendSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    agentStore.setMessages("run-repeated-prompt", [
+      { id: "user-1", role: "user", content: "try again" },
+      { id: "assistant-1", role: "assistant", content: "First answer" },
+    ]);
+    mockUseChat.mockReturnValue({
+      messages: agentStore.getMessages("run-repeated-prompt"),
+      input: "",
+      handleInputChange: vi.fn(),
+      isLoading: false,
+      stop: stopStreamSpy,
+      setMessages: setMessagesSpy,
+      append: appendSpy,
+    });
+    const { result } = renderHook(() =>
+      useChatCore("session-1", "run-repeated-prompt"),
+    );
+
+    act(() => {
+      void result.current.append({
+        role: "user",
+        content: "try again",
+      });
+    });
+
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "user-1", role: "user" }),
+      expect.objectContaining({ id: "assistant-1", role: "assistant" }),
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
+        role: "user",
+        content: "try again",
+      }),
+    ]);
+
+    await act(async () => {
+      resolveAppend?.();
+      await Promise.resolve();
+    });
   });
 
   it("keeps stop active until the cancel request settles", async () => {

@@ -33,6 +33,222 @@ describe("RunActivityFeedProjector", () => {
     ]);
   });
 
+  it("marks activity running when canonical progress exists before the run row catches up", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "CREATED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.RUN_STARTED, {
+          status: "running",
+        }),
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("RUNNING");
+  });
+
+  it("lets terminal canonical events override stale non-terminal run rows", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "RUNNING",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_COMPLETED, {
+          status: "complete",
+          totalDurationMs: 100,
+          toolsUsed: 0,
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("COMPLETED");
+  });
+
+  it("lets terminal run rows override stale open activity when terminal events are missing", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "FAILED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("FAILED");
+  });
+
+  it("treats user-cancelled status events as terminal after stale thinking", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "CREATED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "try again",
+            role: "user",
+            metadata: { clientMessageId: "client-user-1" },
+          },
+          "2026-03-24T10:00:00.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: "execution",
+            label: "Thinking",
+            summary: "",
+            status: "active",
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+          {
+            previousStatus: "running",
+            newStatus: "cancelled",
+            workflowStep: "execution",
+            reason: "user_cancelled",
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+    });
+
+    expect(snapshot.status).toBe("FAILED");
+  });
+
+  it("marks activity running when a later prompt follows a completed turn", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "inspect repository",
+            role: "user",
+            metadata: { clientMessageId: "client-user-1" },
+          },
+          "2026-03-24T10:00:00.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 100,
+            toolsUsed: 0,
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "update footer",
+            role: "user",
+            metadata: { clientMessageId: "client-user-2" },
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.RUN_PROGRESS,
+          {
+            phase: "execution",
+            label: "Thinking",
+            summary: "",
+            status: "active",
+          },
+          "2026-03-24T10:00:03.000Z",
+        ),
+      ],
+    });
+
+    expect(snapshot.status).toBe("RUNNING");
+  });
+
+  it("does not reopen activity for a final assistant message", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "COMPLETED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(
+          RUN_EVENT_TYPES.RUN_COMPLETED,
+          {
+            status: "complete",
+            totalDurationMs: 100,
+            toolsUsed: 0,
+          },
+          "2026-03-24T10:00:01.000Z",
+        ),
+        createEvent(
+          RUN_EVENT_TYPES.MESSAGE_EMITTED,
+          {
+            content: "Done",
+            role: "assistant",
+            transcriptPhase: "final_answer",
+            transcriptStatus: "completed",
+          },
+          "2026-03-24T10:00:02.000Z",
+        ),
+      ],
+    });
+
+    expect(snapshot.status).toBe("COMPLETED");
+  });
+
   it("projects reasoning, shell tool, and approval activity parts", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
@@ -520,13 +736,14 @@ describe("RunActivityFeedProjector", () => {
 function createEvent<T extends RunEvent["type"]>(
   type: T,
   payload: Extract<RunEvent, { type: T }>["payload"],
+  timestamp = "2026-03-24T10:00:00.000Z",
 ): Extract<RunEvent, { type: T }> {
   return {
     version: 1,
     eventId: `${type}-event`,
     runId: "run-1",
     sessionId: "session-1",
-    timestamp: "2026-03-24T10:00:00.000Z",
+    timestamp,
     source: "brain",
     type,
     payload,

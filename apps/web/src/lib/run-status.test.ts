@@ -18,9 +18,13 @@ describe("run status helpers", () => {
     expect(mapRunStatusToSessionStatus("cancelled")).toBe("failed");
   });
 
-  it("treats paused as terminal without mapping it to failure", () => {
+  it("treats paused as approval-required (backend uses PAUSED for approval pauses)", () => {
     expect(isTerminalRunStatus("paused")).toBe(true);
-    expect(mapRunStatusToSessionStatus("paused")).toBe("paused");
+    expect(isApprovalRequiredRunStatus("paused")).toBe(true);
+    expect(mapRunStatusToSessionStatus("paused")).toBe("waiting_for_approval");
+    expect(
+      mapRunStatusToSessionStatus("paused", { hasPendingApproval: true }),
+    ).toBe("waiting_for_approval");
   });
 
   it("maps approval waiting states to a waiting approval session state", () => {

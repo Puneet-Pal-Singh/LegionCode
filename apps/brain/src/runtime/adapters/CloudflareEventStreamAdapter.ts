@@ -98,11 +98,6 @@ export class CloudflareEventStreamAdapter implements RealtimeEventPort {
 
     return new ReadableStream<Uint8Array>({
       start: (controller: ReadableStreamDefaultController<Uint8Array>) => {
-        if (this.completed.has(runId)) {
-          controller.close();
-          return;
-        }
-
         const subscriber = {
           controller,
           nextEventIndex: 0,
