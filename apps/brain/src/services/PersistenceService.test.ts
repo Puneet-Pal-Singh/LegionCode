@@ -89,6 +89,9 @@ describe("PersistenceService", () => {
   });
 
   it("throws a typed retryable error when transcript append fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const repository = {
       appendMessage: vi.fn(async () => {
         throw new Error("database unavailable");
@@ -118,6 +121,9 @@ describe("PersistenceService", () => {
       retryable: true,
       status: 503,
     });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("[chat/persistence/user-message-failed]"),
+    );
   });
 
   it("does not replay prior conversation history under the current run", async () => {
