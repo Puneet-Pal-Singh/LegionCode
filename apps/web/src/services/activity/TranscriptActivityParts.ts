@@ -1,10 +1,14 @@
 import type { Message } from "@ai-sdk/react";
 import {
   isTurnActivityTranscriptPart,
+  parseActivityFeedSnapshot,
+  type ActivityFeedSnapshot,
   type TurnActivityEvent,
   type TurnActivityTranscriptPart,
 } from "@repo/shared-types";
-import type {
+import {
+  buildActivityFeedViewModel,
+  type ActivityFeedViewModel,
   ActivityFeedRowViewModel,
   ActivityTurnViewModel,
 } from "./ActivityFeedViewModel.js";
@@ -80,6 +84,11 @@ function buildTurns(
   part: TurnActivityTranscriptPart,
   userPrompt: string | null,
 ): ActivityTurnViewModel[] {
+  const snapshotTurns = buildSnapshotTurns(part);
+  if (snapshotTurns) {
+    return snapshotTurns;
+  }
+
   const grouped = new Map<string, TurnActivityEvent[]>();
   for (const event of part.events) {
     const events = grouped.get(event.turnId) ?? [];
@@ -115,6 +124,32 @@ function buildTurns(
       },
     ];
   });
+}
+
+function buildSnapshotTurns(
+  part: TurnActivityTranscriptPart,
+): ActivityFeedViewModel["turns"] | null {
+  const snapshot = readActivitySnapshot(part);
+  if (!snapshot) {
+    return null;
+  }
+
+  return buildActivityFeedViewModel(snapshot).turns;
+}
+
+function readActivitySnapshot(
+  part: TurnActivityTranscriptPart,
+): ActivityFeedSnapshot | null {
+  const snapshot = part.activitySnapshot;
+  if (!snapshot) {
+    return null;
+  }
+
+  try {
+    return parseActivityFeedSnapshot(snapshot);
+  } catch {
+    return null;
+  }
 }
 
 function choosePreferredTurn(

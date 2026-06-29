@@ -1,6 +1,7 @@
 import type { Message } from "@ai-sdk/react";
 import { describe, expect, it } from "vitest";
 import type {
+  ActivityFeedSnapshot,
   TurnActivityEvent,
   TurnActivityTranscriptPart,
 } from "@repo/shared-types";
@@ -83,6 +84,41 @@ describe("TranscriptActivityParts", () => {
       title: "Inspecting checks",
     });
     expect(turns[0]?.elapsedLabel).toBe("Worked for 1s");
+  });
+
+  it("prefers canonical activity snapshots over lossy transcript events", () => {
+    const turns = buildTranscriptActivityTurns([
+      createMessage("user", "inspect the project"),
+      createAssistantMessageWithActivity({
+        ...createPart("user-1", [createToolEvent()]),
+        activitySnapshot: createCanonicalActivitySnapshot(),
+      }),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      key: "user-1",
+      userPrompt: "inspect the project",
+      summaryLabel: "2 tool calls",
+    });
+    expect(turns[0]?.rows).toEqual([
+      expect.objectContaining({
+        kind: "group",
+        title: "Explored",
+        rows: [
+          expect.objectContaining({
+            kind: "tool",
+            family: "read",
+            title: "Reading package.json",
+          }),
+          expect.objectContaining({
+            kind: "tool",
+            family: "search",
+            title: "Searching source",
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("preserves workflow thinking and deduplicates progress rows", () => {
@@ -287,5 +323,71 @@ function createActivityTurn(
     hasVisibleRows: true,
     rows: [],
     ...overrides,
+  };
+}
+
+function createCanonicalActivitySnapshot(): ActivityFeedSnapshot {
+  return {
+    runId: "run-1",
+    sessionId: "session-1",
+    status: "COMPLETED",
+    items: [
+      {
+        id: "user-event",
+        runId: "run-1",
+        sessionId: "session-1",
+        turnId: "user-1",
+        kind: "text",
+        role: "user",
+        content: "inspect the project",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        updatedAt: "2026-05-24T00:00:00.000Z",
+        source: "brain",
+      },
+      {
+        id: "read-tool",
+        runId: "run-1",
+        sessionId: "session-1",
+        turnId: "user-1",
+        kind: "tool",
+        toolId: "tool-read",
+        toolName: "read_file",
+        status: "completed",
+        input: { path: "package.json" },
+        metadata: {
+          family: "read",
+          displayText: "Reading package.json",
+          path: "package.json",
+          count: 1,
+          truncated: false,
+          loadedPaths: ["package.json"],
+        },
+        createdAt: "2026-05-24T00:00:01.000Z",
+        updatedAt: "2026-05-24T00:00:02.000Z",
+        source: "brain",
+      },
+      {
+        id: "search-tool",
+        runId: "run-1",
+        sessionId: "session-1",
+        turnId: "user-1",
+        kind: "tool",
+        toolId: "tool-search",
+        toolName: "search_code",
+        status: "completed",
+        input: { pattern: "README" },
+        metadata: {
+          family: "search",
+          displayText: "Searching source",
+          pattern: "README",
+          count: 2,
+          truncated: false,
+          loadedPaths: ["README.md"],
+        },
+        createdAt: "2026-05-24T00:00:03.000Z",
+        updatedAt: "2026-05-24T00:00:04.000Z",
+        source: "brain",
+      },
+    ],
   };
 }

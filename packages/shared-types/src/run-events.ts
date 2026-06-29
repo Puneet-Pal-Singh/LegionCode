@@ -3,6 +3,7 @@
  * Shared contract used across web, brain, and muscle layers
  */
 
+import type { ActivityFeedSnapshot } from "./activity-feed.js";
 import { RunStatus } from "./run-status.js";
 import type {
   ApprovalDecisionKind,
@@ -90,6 +91,7 @@ export interface TurnActivityTranscriptPart {
   version: 1;
   type: "turn_activity";
   events: TurnActivityEvent[];
+  activitySnapshot?: ActivityFeedSnapshot;
   compacted: boolean;
 }
 

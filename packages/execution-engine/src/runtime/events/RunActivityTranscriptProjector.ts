@@ -1,10 +1,13 @@
 import {
+  type ActivityFeedSnapshot,
   RUN_EVENT_TYPES,
   type RunEvent,
   type TurnActivityEvent,
   type TurnActivityEventStatus,
   type TurnActivityTranscriptPart,
 } from "@repo/shared-types";
+import type { RunStatus } from "../types.js";
+import { projectRunActivityFeed } from "./RunActivityFeedProjector.js";
 
 interface ProjectRunActivityTranscriptParams {
   runId: string;
@@ -47,7 +50,30 @@ export function projectRunActivityTranscript(
     version: 1,
     type: "turn_activity",
     events: selectCurrentTurnEvents(finalizedEvents, state.currentTurnId),
+    activitySnapshot: selectCurrentTurnSnapshot(
+      projectRunActivityFeed({
+        runId: params.runId,
+        run: {
+          id: params.runId,
+          sessionId: params.sessionId,
+          status: mapActivitySnapshotRunStatus(params.terminalStatus),
+          metadata: { prompt: "" },
+        },
+        events: orderedEvents,
+      }),
+      state.currentTurnId,
+    ),
     compacted: false,
+  };
+}
+
+function selectCurrentTurnSnapshot(
+  snapshot: ActivityFeedSnapshot,
+  currentTurnId: string,
+): ActivityFeedSnapshot {
+  return {
+    ...snapshot,
+    items: snapshot.items.filter((item) => item.turnId === currentTurnId),
   };
 }
 
@@ -344,4 +370,19 @@ function mapTerminalStatus(
     return "completed";
   }
   return "paused";
+}
+
+function mapActivitySnapshotRunStatus(
+  status: ProjectRunActivityTranscriptParams["terminalStatus"],
+): RunStatus {
+  switch (status) {
+    case "completed":
+      return "COMPLETED";
+    case "failed":
+      return "FAILED";
+    case "cancelled":
+      return "CANCELLED";
+    case "paused":
+      return "PAUSED";
+  }
 }
