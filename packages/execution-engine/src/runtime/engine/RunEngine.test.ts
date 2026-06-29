@@ -439,7 +439,7 @@ describe("RunEngine", () => {
       {},
     );
     expect(expectedErrorLog).toHaveBeenCalledWith(
-      expect.stringContaining('"errorName":"LLMTimeoutError"'),
+      expect.stringContaining("errorName=LLMTimeoutError"),
     );
     expectedErrorLog.mockRestore();
 
@@ -533,7 +533,7 @@ describe("RunEngine", () => {
       {},
     );
     expect(expectedErrorLog).toHaveBeenCalledWith(
-      expect.stringContaining('"errorName":"AI_RetryError"'),
+      expect.stringContaining("errorName=AI_RetryError"),
     );
     expectedErrorLog.mockRestore();
 
