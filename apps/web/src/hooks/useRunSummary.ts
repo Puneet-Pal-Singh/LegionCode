@@ -119,21 +119,50 @@ export function useRunSummary(
         inFlightRef.current = true;
         inFlightRunIdRef.current = currentRunId;
         lastFetchAtRef.current = now;
+        logClientEvent("run/summary", "fetch-started", {
+          runId: currentRunId,
+          force: Boolean(options?.force),
+          shouldPoll,
+          currentStatus: summaryStatusRef.current,
+        });
         const response = await fetch(
           `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(currentRunId)}`,
           { credentials: "include" },
         );
         if (activeRunIdRef.current !== currentRunId) {
+          logClientEvent("run/summary", "fetch-discarded", {
+            runId: currentRunId,
+            activeRunId: activeRunIdRef.current,
+            reason: "run-changed-after-response",
+            status: response.status,
+          });
           return;
         }
         if (!response.ok) {
+          logClientEvent("run/summary", "unavailable", {
+            runId: currentRunId,
+            status: response.status,
+            statusText: response.statusText,
+          });
           return;
         }
         const payload = (await response.json()) as RunSummary;
         if (activeRunIdRef.current !== currentRunId) {
+          logClientEvent("run/summary", "payload-discarded", {
+            runId: currentRunId,
+            activeRunId: activeRunIdRef.current,
+            reason: "run-changed-after-payload",
+            payloadRunId: payload.runId,
+            payloadStatus: payload.status,
+          });
           return;
         }
         if (payload.runId !== currentRunId) {
+          logClientEvent("run/summary", "payload-run-mismatch", {
+            runId: currentRunId,
+            payloadRunId: payload.runId,
+            payloadStatus: payload.status,
+          });
           return;
         }
         const summarySignature = `${payload.status}:${payload.eventCount ?? 0}:${payload.pendingApproval?.requestId ?? ""}`;
@@ -173,7 +202,7 @@ export function useRunSummary(
         }
       }
     },
-    [runId],
+    [runId, shouldPoll],
   );
 
   useEffect(() => {
@@ -222,6 +251,7 @@ export function useRunSummary(
   ]);
 
   useEffect(() => {
+    const isMissingCanonicalSummary = summary === null;
     const shouldSettleCanonicalStatus =
       Boolean(summary?.status) &&
       !isTerminalRunStatus(summary?.status) &&
@@ -229,7 +259,10 @@ export function useRunSummary(
     const isApprovalActive = isApprovalRequiredRunStatus(summary?.status);
     if (
       !runId ||
-      (!shouldPoll && !shouldSettleCanonicalStatus && !isApprovalActive)
+      (!shouldPoll &&
+        !isMissingCanonicalSummary &&
+        !shouldSettleCanonicalStatus &&
+        !isApprovalActive)
     ) {
       return;
     }
