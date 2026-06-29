@@ -26,6 +26,23 @@ describe("RunActivityTranscriptProjector", () => {
     expect(part.events).toEqual([
       expect.objectContaining({ turnId: "client-user-1", title: "Thinking" }),
     ]);
+    expect(part.activitySnapshot).toMatchObject({
+      runId: "run-1",
+      sessionId: "session-1",
+      status: "COMPLETED",
+      items: [
+        expect.objectContaining({
+          kind: "text",
+          role: "user",
+          turnId: "client-user-1",
+        }),
+        expect.objectContaining({
+          kind: "reasoning",
+          turnId: "client-user-1",
+          label: "Thinking",
+        }),
+      ],
+    });
   });
 
   it("does not reuse prior activity when the current turn has no workflow events", () => {
@@ -138,6 +155,48 @@ describe("RunActivityTranscriptProjector", () => {
           metadata: expect.objectContaining({
             code: "PROVIDER_UNAVAILABLE",
             statusCode: 500,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("persists canonical tool metadata for exact DB-backed replay", () => {
+    const part = projectRunActivityTranscript({
+      runId: "run-1",
+      sessionId: "session-1",
+      terminalStatus: "completed",
+      events: [
+        createEvent("event-1", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          role: "user",
+          content: "read package",
+          metadata: { clientMessageId: "user-1" },
+        }),
+        createEvent("event-2", RUN_EVENT_TYPES.TOOL_REQUESTED, {
+          toolId: "tool-1",
+          toolName: "read_file",
+          arguments: { path: "package.json" },
+          displayText: "Reading package.json",
+        }),
+        createEvent("event-3", RUN_EVENT_TYPES.TOOL_COMPLETED, {
+          toolId: "tool-1",
+          toolName: "read_file",
+          result: { content: "{ \"name\": \"shadowbox\" }" },
+          executionTimeMs: 25,
+        }),
+      ],
+    });
+
+    expect(part.activitySnapshot?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool",
+          toolName: "read_file",
+          status: "completed",
+          metadata: expect.objectContaining({
+            family: "read",
+            displayText: "Reading package.json",
+            path: "package.json",
           }),
         }),
       ]),
