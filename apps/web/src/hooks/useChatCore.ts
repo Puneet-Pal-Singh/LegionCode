@@ -803,21 +803,22 @@ function appendPendingUserMessage(
   messages: Message[],
   pending: Message | null,
 ): Message[] {
-  if (!pending || hasEquivalentUserMessage(messages, pending)) {
+  if (!pending || hasEquivalentLatestUserMessage(messages, pending)) {
     return messages;
   }
   return [...messages, pending];
 }
 
-function hasEquivalentUserMessage(
+function hasEquivalentLatestUserMessage(
   messages: Message[],
   pending: Message,
 ): boolean {
   const pendingContent = pending.content.trim();
-  return messages.some(
-    (message) =>
-      message.role === "user" &&
-      extractMessageText(message.content).trim() === pendingContent,
+  const latest = messages.at(-1);
+  return (
+    latest?.role === "user" &&
+    (latest.id === pending.id ||
+      extractMessageText(latest.content).trim() === pendingContent)
   );
 }
 

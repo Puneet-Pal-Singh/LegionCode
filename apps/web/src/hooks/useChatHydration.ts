@@ -224,5 +224,39 @@ function mergeHydratedAndLiveMessages(
   const liveById = new Map(live.map((message) => [message.id, message]));
   const merged = hydrated.map((message) => liveById.get(message.id) ?? message);
   const hydratedIds = new Set(hydrated.map((message) => message.id));
-  return [...merged, ...live.filter((message) => !hydratedIds.has(message.id))];
+  return collapseAdjacentDuplicateUserMessages([
+    ...merged,
+    ...live.filter((message) => !hydratedIds.has(message.id)),
+  ]);
+}
+
+function collapseAdjacentDuplicateUserMessages(messages: Message[]): Message[] {
+  const collapsed: Message[] = [];
+  for (const message of messages) {
+    const previous = collapsed.at(-1);
+    if (areDuplicateUserMessages(previous, message)) {
+      collapsed[collapsed.length - 1] = preferCanonicalUserMessage(
+        previous,
+        message,
+      );
+      continue;
+    }
+    collapsed.push(message);
+  }
+  return collapsed;
+}
+
+function areDuplicateUserMessages(
+  previous: Message | undefined,
+  next: Message,
+): previous is Message {
+  return (
+    previous?.role === "user" &&
+    next.role === "user" &&
+    readMessageText(previous) === readMessageText(next)
+  );
+}
+
+function preferCanonicalUserMessage(previous: Message, next: Message): Message {
+  return previous.id.startsWith("client_msg_") ? previous : next;
 }

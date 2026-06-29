@@ -107,6 +107,9 @@ describe("useChatCore", () => {
   });
 
   it("surfaces expired session auth as a clear login message", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const { result } = renderHook(() => useChatCore("session-1"));
 
     const options = mockUseChat.mock.calls[0]?.[0] as {
@@ -125,6 +128,10 @@ describe("useChatCore", () => {
     });
 
     expect(result.current.error).toBe(
+      "Your session is missing or expired. Log in again and retry.",
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "🧬 [LegionCode] Chat Stream Error:",
       "Your session is missing or expired. Log in again and retry.",
     );
   });
@@ -477,6 +484,54 @@ describe("useChatCore", () => {
 
     expect(result.current.isLoading).toBe(false);
     expect(result.current.messages).toEqual([]);
+  });
+
+  it("shows a repeated pending prompt after an assistant response", async () => {
+    let resolveAppend: (() => void) | null = null;
+    appendSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    agentStore.setMessages("run-repeated-prompt", [
+      { id: "user-1", role: "user", content: "try again" },
+      { id: "assistant-1", role: "assistant", content: "First answer" },
+    ]);
+    mockUseChat.mockReturnValue({
+      messages: agentStore.getMessages("run-repeated-prompt"),
+      input: "",
+      handleInputChange: vi.fn(),
+      isLoading: false,
+      stop: stopStreamSpy,
+      setMessages: setMessagesSpy,
+      append: appendSpy,
+    });
+    const { result } = renderHook(() =>
+      useChatCore("session-1", "run-repeated-prompt"),
+    );
+
+    act(() => {
+      void result.current.append({
+        role: "user",
+        content: "try again",
+      });
+    });
+
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "user-1", role: "user" }),
+      expect.objectContaining({ id: "assistant-1", role: "assistant" }),
+      expect.objectContaining({
+        id: expect.stringMatching(/^client_msg_/),
+        role: "user",
+        content: "try again",
+      }),
+    ]);
+
+    await act(async () => {
+      resolveAppend?.();
+      await Promise.resolve();
+    });
   });
 
   it("keeps stop active until the cancel request settles", async () => {

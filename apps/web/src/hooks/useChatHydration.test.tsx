@@ -279,6 +279,77 @@ describe("useChatHydration", () => {
 
     expect(setMessages).toHaveBeenCalledWith([liveUser]);
   });
+
+  it("collapses adjacent canonical and live user prompts with different ids", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const liveUser = createMessage(
+      "client_msg_live",
+      "user",
+      "Keep this prompt singular",
+    );
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration("session-live", "run-live", messages, setMessages),
+      { initialProps: { messages: [] as Message[] } },
+    );
+
+    rerender({ messages: [liveUser] });
+    await act(async () => {
+      resolveHistory?.(
+        createHistoryResponse([
+          {
+            id: "persisted-user-different-id",
+            role: "user",
+            content: "Keep this prompt singular",
+          },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([liveUser]);
+  });
+
+  it("keeps repeated user prompts when an assistant turn separates them", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const liveRepeat = createMessage("client_msg_repeat", "user", "try again");
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration("session-live", "run-live", messages, setMessages),
+      { initialProps: { messages: [] as Message[] } },
+    );
+
+    rerender({ messages: [liveRepeat] });
+    await act(async () => {
+      resolveHistory?.(
+        createHistoryResponse([
+          { id: "user-1", role: "user", content: "try again" },
+          { id: "assistant-1", role: "assistant", content: "First answer" },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "user-1", role: "user" }),
+      expect.objectContaining({ id: "assistant-1", role: "assistant" }),
+      liveRepeat,
+    ]);
+  });
 });
 
 function createMessage(
