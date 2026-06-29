@@ -241,7 +241,7 @@ describe("ProviderStore", () => {
       expect(store.setActiveRunId("run-1")).toBe(false);
     });
 
-  it("preserves workspace-global state across run switches", async () => {
+    it("preserves workspace-global state across run switches", async () => {
       store.setActiveRunId("run-1");
       await store.bootstrap();
       await store.loadProviderModels("openai");
@@ -258,26 +258,26 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4");
       expect(mockApiClient.getCatalog).toHaveBeenCalledTimes(1);
       expect(mockApiClient.getCredentials).toHaveBeenCalledTimes(1);
-    expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
-  });
-
-  it("carries forward the latest run selection when switching to a new run in-session", async () => {
-    store.setActiveRunId("run-1");
-    await store.bootstrap();
-
-    await store.applySessionSelection({
-      providerId: "openai",
-      credentialId: credential1Id,
-      modelId: "gpt-4-turbo",
+      expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
     });
 
-    expect(store.setActiveRunId("run-2")).toBe(false);
+    it("carries forward the latest run selection when switching to a new run in-session", async () => {
+      store.setActiveRunId("run-1");
+      await store.bootstrap();
 
-    const state = store.getState();
-    expect(state.selectedProviderId).toBe("openai");
-    expect(state.selectedCredentialId).toBe(credential1Id);
-    expect(state.selectedModelId).toBe("gpt-4-turbo");
-  });
+      await store.applySessionSelection({
+        providerId: "openai",
+        credentialId: credential1Id,
+        modelId: "gpt-4-turbo",
+      });
+
+      expect(store.setActiveRunId("run-2")).toBe(false);
+
+      const state = store.getState();
+      expect(state.selectedProviderId).toBe("openai");
+      expect(state.selectedCredentialId).toBe(credential1Id);
+      expect(state.selectedModelId).toBe("gpt-4-turbo");
+    });
 
     it("allows workspace-global model loads to complete after a run switch", async () => {
       const deferred = createDeferred<{
@@ -407,7 +407,10 @@ describe("ProviderStore", () => {
       const state = store.getState();
       expect(state.loadingModelsForProviderId).toBeNull();
       expect(
-        Object.prototype.hasOwnProperty.call(state.providerModels, "openrouter"),
+        Object.prototype.hasOwnProperty.call(
+          state.providerModels,
+          "openrouter",
+        ),
       ).toBe(true);
       expect(state.providerModels.openrouter).toEqual([]);
       expect(state.providerModelsPage.openrouter).toEqual({
@@ -455,6 +458,43 @@ describe("ProviderStore", () => {
         expect.objectContaining({ view: "all" }),
       );
       expect(store.getState().selectedModelView).toBe("all");
+    });
+
+    it("preserves a restored visible model when the picker page omits it", async () => {
+      vi.mocked(mockApiClient.getPreferences).mockResolvedValueOnce({
+        userId: "user-1",
+        workspaceId: "ws-1",
+        defaultProviderId: "openai",
+        defaultCredentialId: credential1Id,
+        defaultModelId: "gpt-4-turbo",
+        visibleModelIds: {
+          openai: ["gpt-4-turbo"],
+        },
+        updatedAt: new Date().toISOString(),
+      });
+
+      await store.bootstrap();
+      expect(store.getState().selectedModelId).toBe("gpt-4-turbo");
+
+      vi.mocked(mockApiClient.getProviderModels).mockResolvedValueOnce({
+        providerId: "openai",
+        view: "popular",
+        models: [{ id: "gpt-4", name: "GPT-4", provider: "openai" }],
+        page: {
+          limit: 50,
+          hasMore: true,
+          nextCursor: "page-2",
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: false,
+          source: "provider_api",
+        },
+      });
+
+      await store.loadProviderModels("openai");
+
+      expect(store.getState().selectedModelId).toBe("gpt-4-turbo");
     });
 
     it("loads additional pages and merges unique models", async () => {
@@ -920,7 +960,7 @@ describe("ProviderStore", () => {
 
           return {
             providerId,
-            view: surface === "manage" ? "all" as const : view,
+            view: surface === "manage" ? ("all" as const) : view,
             models:
               surface === "manage"
                 ? [
@@ -990,7 +1030,7 @@ describe("ProviderStore", () => {
 
           return {
             providerId,
-            view: surface === "manage" ? "all" as const : view,
+            view: surface === "manage" ? ("all" as const) : view,
             models:
               surface === "manage"
                 ? [
@@ -1022,10 +1062,9 @@ describe("ProviderStore", () => {
 
       await store.refreshProviderModels("openai");
 
-      expect(store.getState().providerModels.openai?.map((model) => model.id)).toEqual([
-        "gpt-4",
-        "gpt-4-turbo",
-      ]);
+      expect(
+        store.getState().providerModels.openai?.map((model) => model.id),
+      ).toEqual(["gpt-4", "gpt-4-turbo"]);
     });
   });
 

@@ -884,12 +884,12 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
     try {
-    const result = await this.apiClient.getProviderModels(providerId, {
-      view: options.view,
-      surface: options.surface,
-      limit: options.limit,
-      cursor: options.cursor,
-    });
+      const result = await this.apiClient.getProviderModels(providerId, {
+        view: options.view,
+        surface: options.surface,
+        limit: options.limit,
+        cursor: options.cursor,
+      });
       if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
         return result.models;
       }
@@ -1050,7 +1050,12 @@ export class ProviderStore {
       view: this.state.selectedModelView,
       append: false,
     });
-    if (Object.prototype.hasOwnProperty.call(this.state.manageProviderModels, providerId)) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        this.state.manageProviderModels,
+        providerId,
+      )
+    ) {
       await this.loadManageProviderModels(
         providerId,
         this.state.manageProviderModels[providerId]?.length || 150,
@@ -1631,6 +1636,9 @@ export class ProviderStore {
       models,
       this.state.visibleModelIds,
     );
+    if (currentModelId && visibleSet.has(currentModelId)) {
+      return currentModelId;
+    }
     if (selectableModels.length === 0) {
       return this.resolvePendingVisibleModelId(
         currentModelId,
@@ -1795,7 +1803,9 @@ export class ProviderStore {
     const visibleSet = this.state.visibleModelIds[providerId];
     if (!visibleSet) {
       return (
-        resolvedModelId || this.state.providerModels[providerId]?.[0]?.id || null
+        resolvedModelId ||
+        this.state.providerModels[providerId]?.[0]?.id ||
+        null
       );
     }
 
