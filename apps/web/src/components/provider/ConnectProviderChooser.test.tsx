@@ -331,7 +331,7 @@ describe("ConnectProviderChooser", () => {
     });
   });
 
-  it("requires gateway name for Cloudflare AI Gateway connections", async () => {
+  it("submits default gateway config for Cloudflare AI Gateway connections", async () => {
     render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
 
     fireEvent.click(screen.getByText("Cloudflare AI"));
@@ -342,11 +342,36 @@ describe("ConnectProviderChooser", () => {
     fireEvent.change(screen.getByLabelText(/cloudflare ai api key/i), {
       target: { value: "cf-test-token-12345" },
     });
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
 
-    expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
+    await waitFor(() => {
+      expect(mockHandlers.onConnect).toHaveBeenCalledWith(
+        "cloudflare-ai",
+        "cf-test-token-12345",
+        undefined,
+        {
+          providerId: "cloudflare-ai",
+          accountId: "account_123",
+          gatewayId: undefined,
+          routeMode: "ai-gateway",
+        },
+      );
+    });
+  });
 
+  it("submits explicit gateway name for Cloudflare AI Gateway connections", async () => {
+    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
+
+    fireEvent.click(screen.getByText("Cloudflare AI"));
+    fireEvent.click(await screen.findByRole("button", { name: /ai gateway/i }));
+    fireEvent.change(screen.getByLabelText(/cloudflare account id/i), {
+      target: { value: "account_123" },
+    });
     fireEvent.change(screen.getByLabelText(/ai gateway name/i), {
       target: { value: "my-gateway" },
+    });
+    fireEvent.change(screen.getByLabelText(/cloudflare ai api key/i), {
+      target: { value: "cf-test-token-12345" },
     });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
 

@@ -145,9 +145,7 @@ export function ConnectProviderChooser({
   const isCloudflareSelected = selectedProviderId === "cloudflare-ai";
   const isGatewayRoute = cloudflareRouteMode === "ai-gateway";
   const isCredentialFormComplete =
-    !isCloudflareSelected ||
-    (cloudflareAccountId.trim().length > 0 &&
-      (!isGatewayRoute || cloudflareGatewayId.trim().length > 0));
+    !isCloudflareSelected || cloudflareAccountId.trim().length > 0;
 
   const buildConnectionConfig = ():
     | CloudflareAIConnectionConfig
@@ -155,10 +153,11 @@ export function ConnectProviderChooser({
     if (!isCloudflareSelected) {
       return undefined;
     }
+    const gatewayId = cloudflareGatewayId.trim();
     return {
       providerId: "cloudflare-ai",
       accountId: cloudflareAccountId.trim(),
-      gatewayId: isGatewayRoute ? cloudflareGatewayId.trim() : undefined,
+      gatewayId: isGatewayRoute && gatewayId ? gatewayId : undefined,
       routeMode: cloudflareRouteMode,
     };
   };
@@ -391,7 +390,7 @@ export function ConnectProviderChooser({
                     htmlFor="cloudflare-gateway-id"
                     className="mb-2 block text-sm font-medium text-neutral-200"
                   >
-                    AI Gateway name
+                    AI Gateway name (optional)
                   </label>
                   <input
                     id="cloudflare-gateway-id"
@@ -404,7 +403,6 @@ export function ConnectProviderChooser({
                       }
                     }}
                     placeholder="my-gateway"
-                    required
                     disabled={isConnecting}
                     className="w-full rounded-lg border border-neutral-700 bg-neutral-800/80 px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
