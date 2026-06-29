@@ -1138,7 +1138,29 @@ export class ProviderStore {
       selection.selectedModelId ?? undefined,
     );
     this.persistRunScopedSelection(selection);
+    await this.persistSelectionAsWorkspaceDefault(selection);
     return this.resolveForChat();
+  }
+
+  private async persistSelectionAsWorkspaceDefault(
+    selection: ProviderSelectionSnapshot,
+  ): Promise<void> {
+    if (!selection.selectedProviderId || !selection.selectedModelId) {
+      return;
+    }
+
+    if (
+      this.state.preferences?.defaultProviderId ===
+        selection.selectedProviderId &&
+      this.state.preferences.defaultModelId === selection.selectedModelId
+    ) {
+      return;
+    }
+
+    await this.updatePreferences({
+      defaultProviderId: selection.selectedProviderId,
+      defaultModelId: selection.selectedModelId,
+    });
   }
 
   /**

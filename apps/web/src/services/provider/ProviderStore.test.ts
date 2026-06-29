@@ -91,7 +91,7 @@ describe("ProviderStore", () => {
       },
     ];
 
-    const preferences: BYOKPreference = {
+    let preferences: BYOKPreference = {
       userId: "user-1",
       workspaceId: "ws-1",
       defaultProviderId: "openai",
@@ -183,11 +183,14 @@ describe("ProviderStore", () => {
       ),
       updatePreferences: vi.fn(
         async (partial: BYOKPreferencesUpdateRequest) => {
-          void partial;
-          return {
+          preferences = {
             ...preferences,
-            defaultModelId: "gpt-4-turbo",
+            ...partial,
+            visibleModelIds:
+              partial.visibleModelIds ?? preferences.visibleModelIds,
+            updatedAt: new Date().toISOString(),
           };
+          return preferences;
         },
       ),
       resolveForChat: vi.fn(
@@ -732,11 +735,10 @@ describe("ProviderStore", () => {
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.lastResolvedConfig).toEqual(resolved);
-      expect(mockApiClient.updatePreferences).not.toHaveBeenCalledWith({
+      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
         defaultProviderId: "openai",
         defaultModelId: "gpt-4-turbo",
       });
-      expect(mockApiClient.updatePreferences).not.toHaveBeenCalled();
       expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({
         providerId: "openai",
         credentialId: credential1Id,
@@ -769,7 +771,7 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4-turbo");
     });
 
-    it("falls back to workspace defaults for a different run", async () => {
+    it("restores selected workspace model defaults for a different run", async () => {
       store.setActiveRunId("run-1");
       await store.bootstrap();
 
@@ -791,7 +793,7 @@ describe("ProviderStore", () => {
       const state = nextRunStore.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
-      expect(state.selectedModelId).toBe("gpt-4");
+      expect(state.selectedModelId).toBe("gpt-4-turbo");
     });
 
     it("clamps selected model to provider visible models on bootstrap and resolve", async () => {
