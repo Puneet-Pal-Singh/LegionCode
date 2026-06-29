@@ -419,6 +419,15 @@ function getTurnUserPrompt(items: ActivityPart[]): string | null {
 }
 
 function buildTurnSummary(rows: ActivityFeedRowViewModel[]): string {
+  const hasProviderInterruption = rows.some(
+    (row) =>
+      row.kind === "commentary" &&
+      row.metadata?.code === "PROVIDER_UNAVAILABLE",
+  );
+  if (hasProviderInterruption) {
+    return "Paused after provider interruption";
+  }
+
   const toolCount = rows.reduce((count, row) => {
     if (row.kind === "tool") {
       return count + 1;

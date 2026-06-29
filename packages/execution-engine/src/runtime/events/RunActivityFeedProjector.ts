@@ -264,7 +264,11 @@ function isRecoveryMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   const code = typeof metadata?.code === "string" ? metadata.code : undefined;
-  return code === "TASK_EXECUTION_TIMEOUT" || code === "TASK_MODEL_NO_ACTION";
+  return (
+    code === "PROVIDER_UNAVAILABLE" ||
+    code === "TASK_EXECUTION_TIMEOUT" ||
+    code === "TASK_MODEL_NO_ACTION"
+  );
 }
 
 function createRequestedToolPart(

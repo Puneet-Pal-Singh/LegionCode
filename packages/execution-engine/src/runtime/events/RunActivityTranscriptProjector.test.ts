@@ -23,9 +23,7 @@ describe("RunActivityTranscriptProjector", () => {
       ],
     });
 
-    expect(part.events).toEqual([
-      expect.objectContaining({ turnId: "client-user-1", title: "Thinking" }),
-    ]);
+    expect(part.events).toEqual([]);
     expect(part.activitySnapshot).toMatchObject({
       runId: "run-1",
       sessionId: "session-1",
@@ -45,7 +43,7 @@ describe("RunActivityTranscriptProjector", () => {
     });
   });
 
-  it("does not reuse prior activity when the current turn has no workflow events", () => {
+  it("does not reuse prior activity when the current turn has no workflow items", () => {
     const part = projectRunActivityTranscript({
       runId: "run-1",
       sessionId: "session-1",
@@ -71,8 +69,16 @@ describe("RunActivityTranscriptProjector", () => {
     });
 
     expect(part.events).toEqual([]);
+    expect(part.activitySnapshot.items).toEqual([
+      expect.objectContaining({
+        kind: "text",
+        role: "user",
+        turnId: "user-2",
+      }),
+    ]);
   });
-  it("persists provider interruption and finalizes unfinished tool activity", () => {
+
+  it("persists provider interruption in canonical snapshot state", () => {
     const part = projectRunActivityTranscript({
       runId: "run-1",
       sessionId: "session-1",
@@ -121,37 +127,24 @@ describe("RunActivityTranscriptProjector", () => {
       ],
     });
 
-    expect(part).toMatchObject({
-      version: 1,
-      type: "turn_activity",
-      compacted: false,
-    });
-    expect(part.events.map((event) => event.sequence)).toEqual([1, 2, 3, 4]);
-    expect(part.events).toEqual(
+    expect(part.events).toEqual([]);
+    expect(part.activitySnapshot.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "progress",
-          displayMode: "debug",
-          title: "Retrying model request",
+          kind: "reasoning",
+          label: "Checking CI",
+        }),
+        expect.objectContaining({
+          kind: "tool",
+          status: "requested",
+          toolName: "gh",
           metadata: expect.objectContaining({
-            code: "MODEL_UNUSABLE_RESPONSE",
-            retryCount: 1,
+            displayText: "Inspecting PR checks",
           }),
         }),
         expect.objectContaining({
-          kind: "progress",
-          status: "paused",
-          title: "Checking CI",
-        }),
-        expect.objectContaining({
-          kind: "tool_call",
-          status: "paused",
-          title: "Inspecting PR checks",
-        }),
-        expect.objectContaining({
-          kind: "provider_error",
-          status: "paused",
-          title: "Provider interruption",
+          kind: "commentary",
+          text: "The selected model stopped responding.",
           metadata: expect.objectContaining({
             code: "PROVIDER_UNAVAILABLE",
             statusCode: 500,
@@ -159,6 +152,7 @@ describe("RunActivityTranscriptProjector", () => {
         }),
       ]),
     );
+    expect(part.activitySnapshot.status).toBe("PAUSED");
   });
 
   it("persists canonical tool metadata for exact DB-backed replay", () => {
@@ -187,7 +181,8 @@ describe("RunActivityTranscriptProjector", () => {
       ],
     });
 
-    expect(part.activitySnapshot?.items).toEqual(
+    expect(part.events).toEqual([]);
+    expect(part.activitySnapshot.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: "tool",
