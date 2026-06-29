@@ -1265,10 +1265,10 @@ describe("RunEngine", () => {
       expect(text).toContain("What you can do next:");
       expect(toolWarningLog).toHaveBeenCalledTimes(1);
       expect(toolWarningLog).toHaveBeenCalledWith(
-        expect.stringContaining('"status":"permission_gated"'),
+        expect.stringContaining("status=permission_gated"),
       );
       expect(toolWarningLog).toHaveBeenCalledWith(
-        expect.stringContaining('"errorName":"PermissionGateError"'),
+        expect.stringContaining("errorName=PermissionGateError"),
       );
     } finally {
       toolWarningLog.mockRestore();
