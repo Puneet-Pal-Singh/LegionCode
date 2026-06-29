@@ -1,11 +1,4 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
-import {
-  ProductModeSchema,
-  RunModeSchema,
-  WorkflowEntrypointSchema,
-  WorkflowIntentSchema,
-} from "@repo/shared-types";
-import { z } from "zod";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
 import { ChatProviderSelectionSchema } from "../schemas/provider";
@@ -48,43 +41,10 @@ import {
   summarizeCoreMessages,
 } from "../services/chat/SubmittedClientMessagePolicy";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
-
-const SerializableToolDefinitionSchema = z.object({
-  description: z.string().optional(),
-  inputSchema: z.object({}).catchall(z.unknown()).optional(),
-  parameters: z.object({}).catchall(z.unknown()).optional(),
-});
-
-// Zod schema for request body validation
-const ChatRequestBodySchema = z.object({
-  messages: z.array(z.unknown()).optional(),
-  clientMessageId: z.string().trim().min(1).optional(),
-  tools: z.record(SerializableToolDefinitionSchema).optional(),
-  sessionId: z.string().optional(),
-  agentId: z.string().optional(),
-  runId: z.string().optional(),
-  mode: RunModeSchema.optional(),
-  providerId: z.string().optional(),
-  modelId: z.string().optional(),
-  harnessId: z.enum(["cloudflare-sandbox", "local-sandbox"]).optional(),
-  orchestratorBackend: z
-    .enum(["execution-engine-v1", "cloudflare_agents"])
-    .optional(),
-  executionBackend: z
-    .enum(["cloudflare_sandbox", "e2b", "daytona"])
-    .optional(),
-  harnessMode: z.enum(["platform_owned", "delegated"]).optional(),
-  authMode: z.enum(["api_key", "oauth"]).optional(),
-  productMode: ProductModeSchema.optional(),
-  workflowIntent: WorkflowIntentSchema.optional(),
-  workflowEntrypoint: WorkflowEntrypointSchema.optional(),
-  repositoryOwner: z.string().optional(),
-  repositoryName: z.string().optional(),
-  repositoryBranch: z.string().optional(),
-  repositoryBaseUrl: z.string().optional(),
-});
-
-type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;
+import {
+  ChatRequestBodySchema,
+  type ChatRequestBody,
+} from "./chat-request-schema";
 
 interface ChatRequest {
   body: ChatRequestBody;
