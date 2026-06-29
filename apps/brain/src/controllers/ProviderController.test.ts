@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ProviderController } from "./ProviderController";
 import type { Env } from "../types/ai";
-import type { ProviderId } from "@repo/shared-types";
+import type { ProviderConnectionConfig, ProviderId } from "@repo/shared-types";
 
 const TEST_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
@@ -19,6 +19,11 @@ function createMockEnv(options?: {
   sessionsGetError?: boolean;
   omitWorkspaceClaims?: boolean;
   environment?: "production" | "staging" | "development";
+  connectRequests?: Array<{
+    providerId: ProviderId;
+    apiKey?: string;
+    config?: ProviderConnectionConfig;
+  }>;
 }): Env {
   const axisConnected = options?.axisConnected ?? true;
   const environment = options?.environment ?? "development";
@@ -61,6 +66,12 @@ function createMockEnv(options?: {
     openai: [{ id: "gpt-4o", name: "GPT-4o" }],
     openrouter: [{ id: "openrouter/auto", name: "Auto" }],
     groq: [{ id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" }],
+    "cloudflare-ai": [
+      {
+        id: "@cf/meta/llama-3.1-8b-instruct",
+        name: "Llama 3.1 8B Instruct",
+      },
+    ],
   };
   for (const providerId of options?.emptyCatalogProviders ?? []) {
     catalog[providerId] = [];
@@ -94,7 +105,11 @@ function createMockEnv(options?: {
           url.pathname === "/providers/connect" &&
           request.method === "POST"
         ) {
-          const body = (await request.json()) as { providerId: ProviderId };
+          const body = (await request.json()) as {
+            providerId: ProviderId;
+            apiKey?: string;
+            config?: ProviderConnectionConfig;
+          };
           if (body.providerId === "axis") {
             return jsonError(
               'Provider "axis" is platform-managed and cannot be manually connected or disconnected.',
@@ -102,6 +117,7 @@ function createMockEnv(options?: {
               "INVALID_PROVIDER_SELECTION",
             );
           }
+          options?.connectRequests?.push(body);
           connectedProviders.add(body.providerId);
           return jsonOk({
             status: "connected",
@@ -139,7 +155,13 @@ function createMockEnv(options?: {
           }
           return jsonOk({
             providers: (
-              ["axis", "openrouter", "openai", "groq"] as ProviderId[]
+              [
+                "axis",
+                "openrouter",
+                "openai",
+                "groq",
+                "cloudflare-ai",
+              ] as ProviderId[]
             ).map((providerId) => ({
               providerId,
               displayName: providerId.toUpperCase(),
@@ -229,7 +251,13 @@ function createMockEnv(options?: {
           }
           return jsonOk({
             connections: (
-              ["axis", "openrouter", "openai", "groq"] as ProviderId[]
+              [
+                "axis",
+                "openrouter",
+                "openai",
+                "groq",
+                "cloudflare-ai",
+              ] as ProviderId[]
             ).map((providerId) => {
               const failedProviders = new Set(
                 options?.failedConnectionProviders ?? [],
@@ -1056,6 +1084,46 @@ describe("ProviderController", () => {
       expect(connectResponse.status).toBe(200);
       expect(connectData.providerId).toBe("openrouter");
       expect(connectData.label).toBe("OpenRouter");
+    });
+
+    it("forwards Cloudflare AI connection config to the runtime", async () => {
+      const connectRequests: Array<{
+        providerId: ProviderId;
+        apiKey?: string;
+        config?: ProviderConnectionConfig;
+      }> = [];
+      const env = createMockEnv({ connectRequests });
+      const config: ProviderConnectionConfig = {
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        gatewayId: "gateway-123",
+        routeMode: "ai-gateway",
+      };
+
+      const connectResponse = await ProviderController.byokConnectCredential(
+        new Request("http://localhost/api/byok/credentials", {
+          method: "POST",
+          headers: await withByokHeaders(env),
+          body: JSON.stringify({
+            providerId: "cloudflare-ai",
+            secret: "cf-test-token-1234567890",
+            label: "Cloudflare",
+            config,
+          }),
+        }),
+        env,
+      );
+      const connectData = await connectResponse.json();
+
+      expect(connectResponse.status).toBe(200);
+      expect(connectData.providerId).toBe("cloudflare-ai");
+      expect(connectRequests).toEqual([
+        {
+          providerId: "cloudflare-ai",
+          apiKey: "cf-test-token-1234567890",
+          config,
+        },
+      ]);
     });
 
     it("resolves axis platform defaults when no BYOK credential is selected in staging", async () => {

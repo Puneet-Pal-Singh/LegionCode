@@ -281,6 +281,7 @@ export class ProviderController {
           body: {
             providerId: request.providerId,
             apiKey: request.secret,
+            config: request.config,
           },
         },
         BYOKConnectResponseSchema,
@@ -1069,12 +1070,7 @@ async function proxyProviderOperation(
   );
   const materialized = await materializeRuntimeResponse(response);
 
-  return withEngineHeaders(
-    req,
-    env,
-    materialized,
-    operation.scope.runId,
-  );
+  return withEngineHeaders(req, env, materialized, operation.scope.runId);
 }
 
 async function fetchRuntimeProviderResponse(
@@ -1119,7 +1115,9 @@ async function fetchRuntimeProviderResponse(
   }
 }
 
-async function materializeRuntimeResponse(response: Response): Promise<Response> {
+async function materializeRuntimeResponse(
+  response: Response,
+): Promise<Response> {
   return new Response(await response.arrayBuffer(), {
     status: response.status,
     statusText: response.statusText,
