@@ -105,7 +105,7 @@ describe("useRunEvents", () => {
       expect.stringContaining("[run/events/dropped-mismatched-run]"),
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('"eventRunId":"run-other"'),
+      expect.stringContaining("eventRunId=run-other"),
     );
     expect(logSpy).toHaveBeenCalled();
   });
@@ -171,6 +171,46 @@ describe("useRunEvents", () => {
         type: RUN_SUMMARY_REFRESH_EVENT,
       }),
     );
+  });
+
+  it("reconnects when the stream endpoint is temporarily unavailable", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        const streamCalls = fetchSpy.mock.calls.filter(([callInput]) =>
+          String(callInput).includes("/stream?"),
+        ).length;
+        if (url.includes("/stream?")) {
+          return streamCalls === 1
+            ? new Response("Not ready", { status: 404 })
+            : createStreamResponse(
+                createMessageEvent("run-retry", "evt-retry", "Started"),
+              );
+        }
+
+        return createEventsResponse();
+      });
+
+    const { result, unmount } = renderHook(() =>
+      useRunEvents("run-retry", true),
+    );
+
+    await waitFor(() => {
+      expect(
+        fetchSpy.mock.calls.filter(([input]) =>
+          String(input).includes("/stream?"),
+        ),
+      ).toHaveLength(2);
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.events.some((event) => event.eventId === "evt-retry"),
+      ).toBe(true);
+    });
+
+    unmount();
   });
 
   it("does not reconnect after a normally closed terminal stream", async () => {

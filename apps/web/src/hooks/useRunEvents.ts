@@ -223,8 +223,13 @@ function connectRunEventStream(input: RunEventStreamConnection): () => void {
   const abortController = new AbortController();
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   logClientEvent("run/events", "connecting", { runId: input.runId });
-  const scheduleReconnect = () => {
+  const scheduleReconnect = (reason: "error" | "unavailable") => {
     if (abortController.signal.aborted || retryTimer) return;
+    logClientEvent("run/events", "reconnect-scheduled", {
+      runId: input.runId,
+      reason,
+      delayMs: RUN_EVENTS_STREAM_RETRY_DELAY_MS,
+    });
     retryTimer = setTimeout(() => {
       retryTimer = null;
       if (input.isActive()) input.onReconnect();
@@ -234,11 +239,18 @@ function connectRunEventStream(input: RunEventStreamConnection): () => void {
     input.runId,
     abortController.signal,
     input.onEvent,
-  ).catch((error) => {
-    if (abortController.signal.aborted) return;
-    input.onError(error);
-    scheduleReconnect();
-  });
+  )
+    .then((status) => {
+      if (abortController.signal.aborted) return;
+      if (status === "unavailable") {
+        scheduleReconnect("unavailable");
+      }
+    })
+    .catch((error) => {
+      if (abortController.signal.aborted) return;
+      input.onError(error);
+      scheduleReconnect("error");
+    });
   return () => {
     abortController.abort();
     if (retryTimer) clearTimeout(retryTimer);
@@ -249,7 +261,7 @@ async function consumeRunEventStream(
   runId: string,
   signal: AbortSignal,
   onEvent: (event: RunEvent) => void,
-): Promise<void> {
+): Promise<"closed" | "unavailable"> {
   const response = await fetch(runEventsStreamPath(runId), {
     signal,
     credentials: "include",
@@ -259,11 +271,12 @@ async function consumeRunEventStream(
       runId,
       status: response.status,
     });
-    return;
+    return "unavailable";
   }
   logClientEvent("run/events", "connected", { runId });
   await readRunEventStream(response.body.getReader(), runId, signal, onEvent);
   if (!signal.aborted) logClientEvent("run/events", "closed", { runId });
+  return "closed";
 }
 
 async function readRunEventStream(
