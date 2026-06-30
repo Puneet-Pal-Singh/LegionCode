@@ -15,6 +15,7 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import type {
   ExecutionOutputChunk,
   RuntimeExecutionService,
@@ -27,6 +28,64 @@ const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
 const INTERNAL_RUNTIME_FEATURE_FLAGS_KEY = "__runtimeFeatureFlags";
 
 export async function executeAgenticLoopTool(
+  executionService: RuntimeExecutionService,
+  input: {
+    taskId: string;
+    toolName: GoldenFlowToolName;
+    toolInput: TaskInput;
+    onOutputAppended?: (chunk: {
+      stdoutDelta?: string;
+      stderrDelta?: string;
+      truncated?: boolean;
+    }) => Promise<void> | void;
+  },
+): Promise<TaskResult> {
+  const startedAt = Date.now();
+  const route = getGoldenFlowToolRoute(input.toolName);
+  console.log(
+    formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "started", {
+      taskId: input.taskId,
+      toolName: input.toolName,
+      routePlugin: route?.plugin ?? "missing",
+      routeAction: route?.action ?? "missing",
+      argKeys: Object.keys(input.toolInput).sort(),
+    }),
+  );
+  try {
+    const result = await dispatchAgenticLoopTool(executionService, input);
+    console.log(
+      formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "finished", {
+        taskId: input.taskId,
+        toolName: input.toolName,
+        routePlugin: route?.plugin ?? "missing",
+        routeAction: route?.action ?? "missing",
+        status: result.status,
+        elapsedMs: Date.now() - startedAt,
+        outputChars: result.output?.content.length ?? 0,
+        errorCode: result.error?.code ?? null,
+        errorMessage: result.error?.message
+          ? boundLogText(result.error.message)
+          : null,
+      }),
+    );
+    return result;
+  } catch (error) {
+    console.error(
+      formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "threw", {
+        taskId: input.taskId,
+        toolName: input.toolName,
+        routePlugin: route?.plugin ?? "missing",
+        routeAction: route?.action ?? "missing",
+        elapsedMs: Date.now() - startedAt,
+        errorMessage:
+          error instanceof Error ? boundLogText(error.message) : String(error),
+      }),
+    );
+    throw error;
+  }
+}
+
+async function dispatchAgenticLoopTool(
   executionService: RuntimeExecutionService,
   input: {
     taskId: string;
@@ -1676,4 +1735,8 @@ function extractPathFromCatCommand(command: string): string | null {
   }
 
   return argument;
+}
+
+function boundLogText(value: string, maxLength = 500): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }
