@@ -1,9 +1,9 @@
 import {
-  isGoldenFlowToolName,
-  type GoldenFlowToolInputByName,
-  type GoldenFlowToolName,
-  validateGoldenFlowToolInput,
-} from "../contracts/CodingToolGateway.js";
+  isCodingToolId,
+  type CodingToolInputByName,
+  type CodingToolId,
+  validateCodingToolInput,
+} from "../tools/CodingToolRegistry.js";
 
 export interface ToolPresentation {
   description: string;
@@ -11,10 +11,10 @@ export interface ToolPresentation {
   summary: string;
 }
 
-type ToolPresentationToolName = GoldenFlowToolName | "search_code";
+type ToolPresentationToolName = CodingToolId | "search_code";
 
-type ToolPresentationInputByName = GoldenFlowToolInputByName & {
-  search_code: GoldenFlowToolInputByName["grep"];
+type ToolPresentationInputByName = CodingToolInputByName & {
+  search_code: CodingToolInputByName["grep"];
 };
 
 type ToolPresenter<T extends ToolPresentationToolName> = (
@@ -536,7 +536,7 @@ function readString(value: unknown): string | undefined {
 function isToolPresentationToolName(
   toolName: string,
 ): toolName is ToolPresentationToolName {
-  return toolName === "search_code" || isGoldenFlowToolName(toolName);
+  return toolName === "search_code" || isCodingToolId(toolName);
 }
 
 function validateToolPresentationInput<T extends ToolPresentationToolName>(
@@ -545,13 +545,13 @@ function validateToolPresentationInput<T extends ToolPresentationToolName>(
 ): ToolPresentationInputByName[T] {
   try {
     if (toolName === "search_code") {
-      return validateGoldenFlowToolInput(
+      return validateCodingToolInput(
         "grep",
         input,
       ) as ToolPresentationInputByName[T];
     }
 
-    return validateGoldenFlowToolInput(
+    return validateCodingToolInput(
       toolName,
       input,
     ) as ToolPresentationInputByName[T];

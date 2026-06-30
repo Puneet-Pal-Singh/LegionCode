@@ -9,7 +9,7 @@ import {
   type RiskyActionCategory,
   type WorkflowIntent,
 } from "@repo/shared-types";
-import type { GoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import type { CodingToolId } from "../tools/CodingToolRegistry.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import {
   requiresMutationForIntent,
@@ -58,7 +58,7 @@ export interface RiskyActionEvaluationInput {
   origin: "user" | "agent";
   productMode: ProductMode;
   workflowIntent: WorkflowIntent;
-  toolName: GoldenFlowToolName;
+  toolName: CodingToolId;
   toolArgs: Record<string, unknown>;
   currentTurnIntent?: CurrentTurnIntent;
   hasMutationEvidence: boolean;
@@ -148,7 +148,7 @@ export function mapPermissionGateToEvaluationResult(
 
 function requiresMutationEvidence(
   classified: ClassifiedRiskAction,
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   currentTurnIntent: CurrentTurnIntent | undefined,
 ): boolean {
   const mutationScopedTurn = currentTurnIntent
@@ -166,7 +166,7 @@ function requiresMutationEvidence(
 
 function getMutationEvidenceDenial(
   classified: ClassifiedRiskAction,
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   currentTurnIntent: CurrentTurnIntent | undefined,
   hasMutationEvidence: boolean,
   allowResumeGitPush: boolean,
@@ -219,7 +219,7 @@ async function hasPreapprovedAction(
 }
 
 function classifyRiskAction(
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   toolArgs: Record<string, unknown>,
 ): ClassifiedRiskAction {
   const affectedPaths = extractCandidatePaths(toolArgs);
@@ -576,7 +576,7 @@ function buildAvailableDecisions(
 
 function buildProposedPersistentRule(
   classified: ClassifiedRiskAction,
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
 ): ProposedPersistentRule | null {
   if (classified.category === RISKY_ACTION_CATEGORIES.SHELL_COMMAND) {
     if (!classified.command) {
@@ -749,7 +749,7 @@ function isOutsideWorkspacePath(path: string): boolean {
 }
 
 function toGitAction(
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
 ): "stage" | "commit" | "push" | "pull" | undefined {
   if (toolName === "git_stage") {
     return "stage";
@@ -766,7 +766,7 @@ function toGitAction(
   return undefined;
 }
 
-function describeGitMutationTitle(toolName: GoldenFlowToolName): string {
+function describeGitMutationTitle(toolName: CodingToolId): string {
   if (toolName === "git_stage") {
     return "LegionCode wants to stage repository changes";
   }

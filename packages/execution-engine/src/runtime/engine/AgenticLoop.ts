@@ -22,7 +22,7 @@ import {
 } from "../llm/index.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
-import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import { isMutatingCodingToolId } from "../tools/CodingToolRegistry.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { Task } from "../task/index.js";
 import type {
@@ -479,7 +479,7 @@ export class AgenticLoop {
           );
 
           if (result.status === "DONE") {
-            if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+            if (isMutatingCodingToolId(toolCall.toolName)) {
               this.completedMutatingToolCount++;
             } else {
               this.completedReadOnlyToolCount++;
@@ -777,7 +777,7 @@ export class AgenticLoop {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
       status,
-      mutating: isMutatingGoldenFlowToolName(toolCall.toolName),
+      mutating: isMutatingCodingToolId(toolCall.toolName),
       recordedAt: new Date().toISOString(),
       detail,
       metadata,
@@ -805,7 +805,7 @@ export class AgenticLoop {
   private getDuplicateReadOnlyToolCallMessage(
     toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
   ): string | null {
-    if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+    if (isMutatingCodingToolId(toolCall.toolName)) {
       return null;
     }
 
@@ -1029,7 +1029,7 @@ function isTerminalToolFailure(input: {
     }).terminal;
   }
 
-  return isMutatingGoldenFlowToolName(input.toolName);
+  return isMutatingCodingToolId(input.toolName);
 }
 
 function buildStructuredToolFailureError(input: {

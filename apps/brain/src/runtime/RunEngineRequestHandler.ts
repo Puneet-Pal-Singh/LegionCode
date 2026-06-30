@@ -13,6 +13,7 @@ import {
   RunEngine,
   RunEventRecorder,
   RunEventRepository,
+  executeRunEngineThroughRuntimeKernel,
   projectRunActivityFeed,
   projectRunSummaryFromEvents,
   tagRuntimeStateSemantics,
@@ -42,8 +43,8 @@ import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersist
 import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
+  getCodingCoreToolRegistry,
+  enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
 
 const CancelRunRequestSchema = z.object({
@@ -557,11 +558,22 @@ export class RunEngineRequestHandler {
           },
         );
 
-        const executionResponse = await runEngine.execute(
-          payload.input,
-          payload.messages as CoreMessage[],
-          toRuntimeCoreTools(payload.tools),
-        );
+        const runtimeTools = toRuntimeCoreTools(payload.tools);
+        const executionResponse = await executeRunEngineThroughRuntimeKernel({
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+          userId: payload.userId,
+          workspaceId: payload.workspaceId,
+          correlationId: payload.correlationId,
+          input: payload.input,
+          tools: runtimeTools,
+          executeLegacyRunEngine: () =>
+            runEngine.execute(
+              payload.input,
+              payload.messages as CoreMessage[],
+              runtimeTools,
+            ),
+        });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
             correlationId: payload.correlationId,
@@ -737,8 +749,8 @@ function toRuntimeCoreTools(
   }
 
   if (Object.keys(parsedTools).length === 0) {
-    return getGoldenFlowToolRegistry();
+    return getCodingCoreToolRegistry();
   }
 
-  return enforceGoldenFlowToolFloor(parsedTools);
+  return enforceCodingToolFloor(parsedTools);
 }

@@ -1,8 +1,8 @@
 import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import {
-  isGoldenFlowToolName,
-  type GoldenFlowToolName,
-} from "../contracts/CodingToolGateway.js";
+  type CodingToolId,
+  isCodingToolId,
+} from "../tools/CodingToolRegistry.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import {
   AgenticLoopCancelledError,
@@ -221,7 +221,7 @@ async function executeDirectToolCall(input: {
     input.toolCall.toolName,
     input.toolCall.args,
   );
-  if (!isGoldenFlowToolName(input.toolCall.toolName)) {
+  if (!isCodingToolId(input.toolCall.toolName)) {
     throw new Error(
       `Unsupported direct agentic tool: ${input.toolCall.toolName}`,
     );
@@ -370,7 +370,7 @@ async function executeDirectToolCall(input: {
   return result;
 }
 
-function isWorkspaceContentMutation(toolName: GoldenFlowToolName): boolean {
+function isWorkspaceContentMutation(toolName: CodingToolId): boolean {
   return (
     toolName === "write_file" ||
     toolName === "edit_file" ||
@@ -380,7 +380,7 @@ function isWorkspaceContentMutation(toolName: GoldenFlowToolName): boolean {
   );
 }
 
-function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {
+function needsGitMutationEvidenceProbe(toolName: CodingToolId): boolean {
   return (
     toolName === "git_stage" ||
     toolName === "git_commit" ||
@@ -443,7 +443,7 @@ async function detectWorkspaceMutationEvidence(
 }
 
 function resolveLocalDiffScopeDenial(input: {
-  toolName: GoldenFlowToolName;
+  toolName: CodingToolId;
   toolArgs: Record<string, unknown>;
   prompt: string;
   mutationScopedTurn: boolean;
@@ -478,7 +478,7 @@ function resolveLocalDiffScopeDenial(input: {
 }
 
 function extractRequestedFilesFromGitArgs(
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   toolArgs: Record<string, unknown>,
 ): string[] {
   if (toolName !== "git_stage") {
