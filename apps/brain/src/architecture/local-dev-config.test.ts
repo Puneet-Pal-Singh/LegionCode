@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -18,11 +18,20 @@ describe("local development configuration", () => {
   });
 
   it("keeps production-only deleted class migrations out of local dev", () => {
-    const localConfig = readText("wrangler.local.jsonc");
     const defaultConfig = readText("wrangler.jsonc");
 
     expect(defaultConfig).toContain("deleted_classes");
     expect(defaultConfig).toContain("SessionMemoryRuntime");
+    if (!existsSync(join(APP_ROOT, "wrangler.local.jsonc"))) {
+      const gitignore = readFileSync(
+        join(APP_ROOT, "..", "..", ".gitignore"),
+        "utf8",
+      );
+      expect(gitignore).toContain("apps/brain/wrangler.local.jsonc");
+      return;
+    }
+
+    const localConfig = readText("wrangler.local.jsonc");
     expect(localConfig).not.toContain("deleted_classes");
     expect(localConfig).not.toContain("SessionMemoryRuntime");
   });
