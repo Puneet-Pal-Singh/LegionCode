@@ -131,7 +131,7 @@ function resolveActivityFeedStatus(
     (!latestLifecycleEvent ||
       latestOpenActivityEvent.timestamp > latestLifecycleEvent.timestamp)
   ) {
-    if (!latestLifecycleEvent && isTerminalActivityStatus(fallbackActivityStatus)) {
+    if (!latestLifecycleEvent && isSettledActivityStatus(fallbackActivityStatus)) {
       return fallbackActivityStatus;
     }
     return "RUNNING";
@@ -148,7 +148,7 @@ function resolveActivityFeedStatus(
   if (latestLifecycleEvent?.type === RUN_EVENT_TYPES.RUN_STARTED) {
     return "RUNNING";
   }
-  if (isTerminalActivityStatus(fallbackActivityStatus)) {
+  if (isSettledActivityStatus(fallbackActivityStatus)) {
     return fallbackActivityStatus;
   }
   if (events.some(isOpenActivityEvent)) {
@@ -198,20 +198,21 @@ function mapCanonicalRunStatus(
     case "queued":
     case "running":
     case "waiting":
-    case "paused":
     case "CREATED":
     case "RUNNING":
-    case "PAUSED":
       return "RUNNING";
+    case "paused":
+    case "PAUSED":
+      return "PAUSED";
     default:
       return null;
   }
 }
 
-function isTerminalActivityStatus(
+function isSettledActivityStatus(
   status: ActivityFeedSnapshot["status"],
-): status is "COMPLETED" | "FAILED" {
-  return status === "COMPLETED" || status === "FAILED";
+): status is "COMPLETED" | "FAILED" | "PAUSED" {
+  return status === "COMPLETED" || status === "FAILED" || status === "PAUSED";
 }
 
 function updateTurnId(

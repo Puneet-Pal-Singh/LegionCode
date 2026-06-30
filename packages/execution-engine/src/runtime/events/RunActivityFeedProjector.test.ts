@@ -116,6 +116,33 @@ describe("RunActivityFeedProjector", () => {
     expect(snapshot.status).toBe("FAILED");
   });
 
+  it("preserves paused run rows over stale open activity", () => {
+    const snapshot = projectRunActivityFeed({
+      runId: "run-1",
+      run: {
+        id: "run-1",
+        sessionId: "session-1",
+        status: "PAUSED",
+        metadata: { prompt: "inspect repository" },
+      },
+      events: [
+        createEvent(RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+          content: "inspect repository",
+          role: "user",
+          metadata: { clientMessageId: "client-user-1" },
+        }),
+        createEvent(RUN_EVENT_TYPES.RUN_PROGRESS, {
+          phase: "execution",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        }),
+      ],
+    });
+
+    expect(snapshot.status).toBe("PAUSED");
+  });
+
   it("treats user-cancelled status events as terminal after stale thinking", () => {
     const snapshot = projectRunActivityFeed({
       runId: "run-1",
