@@ -66,22 +66,28 @@ describe("ChatHydrationService", () => {
       version: 1,
       type: "turn_activity",
       compacted: false,
-      events: [
-        {
-          id: "activity-1",
-          runId,
-          sessionId,
-          turnId: "client-msg-2",
-          sequence: 1,
-          kind: "progress",
-          status: "completed",
-          title: "Finding files",
-          detail: "Finding **/Footer.tsx",
-          displayMode: "visible",
-          createdAt: "2026-05-15T00:00:00.000Z",
-          updatedAt: "2026-05-15T00:00:00.000Z",
-        },
-      ],
+      events: [],
+      activitySnapshot: {
+        runId,
+        sessionId,
+        status: "COMPLETED",
+        items: [
+          {
+            id: "activity-1",
+            runId,
+            sessionId,
+            turnId: "client-msg-2",
+            kind: "reasoning",
+            phase: "execution",
+            status: "completed",
+            label: "Finding files",
+            summary: "Finding **/Footer.tsx",
+            source: "brain",
+            createdAt: "2026-05-15T00:00:00.000Z",
+            updatedAt: "2026-05-15T00:00:00.000Z",
+          },
+        ],
+      },
     };
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -117,13 +123,17 @@ describe("ChatHydrationService", () => {
         activityParts: [
           {
             type: "turn_activity",
-            events: [
-              {
-                turnId: "client-msg-2",
-                title: "Finding files",
-                detail: "Finding **/Footer.tsx",
-              },
-            ],
+            events: [],
+            activitySnapshot: {
+              status: "COMPLETED",
+              items: [
+                expect.objectContaining({
+                  turnId: "client-msg-2",
+                  label: "Finding files",
+                  summary: "Finding **/Footer.tsx",
+                }),
+              ],
+            },
           },
         ],
       },
