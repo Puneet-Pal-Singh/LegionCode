@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const REQUIRED_CAPABILITIES = [
   "session-reload",
+  "live-workflow-projection",
   "prompt-terminal-state",
   "multi-file-review",
   "approval-continuation",
@@ -24,6 +25,14 @@ const CAPABILITIES = [
         "does not replay a claimed pending query after switching scopes",
       ],
       [
+        "apps/brain/src/services/PersistenceService.test.ts",
+        "appends assistant turns for distinct user turns on the same run",
+      ],
+      [
+        "apps/brain/src/runtime/RunEngineResponsePersistence.test.ts",
+        "uses the latest user event as the assistant turn id when activity is empty",
+      ],
+      [
         "packages/platform-client-sdk/src/providers/cross-client-lifecycle-parity.test.ts",
         "keeps lifecycle outputs and request sequence aligned across web and cloud transports",
       ],
@@ -42,10 +51,54 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
+        "@shadowbox/brain",
+        "test",
+        "--",
+        "src/services/PersistenceService.test.ts",
+        "src/runtime/RunEngineResponsePersistence.test.ts",
+      ],
+      [
+        "pnpm",
+        "--filter",
         "@repo/platform-client-sdk",
         "test",
         "--",
         "src/providers/cross-client-lifecycle-parity.test.ts",
+      ],
+    ],
+  },
+  {
+    id: "live-workflow-projection",
+    owner: "@shadowbox/web",
+    requiredTests: [
+      [
+        "apps/web/src/components/chat/ChatInterface.test.tsx",
+        "keeps activity polling alive while the run controller is stoppable",
+      ],
+      [
+        "apps/web/src/components/chat/chat-interface/useActivityPresentation.test.tsx",
+        "projects active thinking and elapsed time from canonical event timestamps",
+      ],
+      [
+        "apps/web/src/services/activity/TranscriptActivityParts.test.ts",
+        "prefers active live canonical activity over settled transcript rows",
+      ],
+      [
+        "apps/web/src/hooks/useChatHydration.test.tsx",
+        "collapses adjacent canonical and live user prompts with different ids",
+      ],
+    ],
+    commands: [
+      [
+        "pnpm",
+        "--filter",
+        "@shadowbox/web",
+        "test",
+        "--",
+        "src/components/chat/ChatInterface.test.tsx",
+        "src/components/chat/chat-interface/useActivityPresentation.test.tsx",
+        "src/services/activity/TranscriptActivityParts.test.ts",
+        "src/hooks/useChatHydration.test.tsx",
       ],
     ],
   },
