@@ -185,6 +185,7 @@ describe("persistAssistantMessageFromRunResponse", () => {
       expect.objectContaining({
         sessionId: SESSION_ID,
         runId: RUN_ID,
+        turnId: "client-msg-2",
         text: "Done from canonical run output.",
       }),
     );
@@ -222,6 +223,64 @@ describe("persistAssistantMessageFromRunResponse", () => {
       expect.arrayContaining([
         expect.objectContaining({ title: "Old first-turn work" }),
       ]),
+    );
+  });
+
+  it("uses the latest user event as the assistant turn id when activity is empty", async () => {
+    const ctx = new MockDurableObjectState();
+    await seedRun(ctx, {
+      status: "COMPLETED",
+      outputContent: "No workflow rows, still persist this turn.",
+    });
+    await seedRunEvents(ctx, [
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "first prompt",
+          "user",
+          { clientMessageId: "client-msg-1" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        1,
+      ),
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "second prompt",
+          "user",
+          { clientMessageId: "client-msg-2" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        2,
+      ),
+    ]);
+    const persistAssistantTurn = vi
+      .spyOn(PersistenceService.prototype, "persistAssistantTurn")
+      .mockResolvedValue(createTranscriptMessageRecord("assistant-1"));
+    vi.spyOn(PersistenceService.prototype, "updateRunStatus").mockResolvedValue(
+      createRunRecord(),
+    );
+
+    await persistAssistantMessageFromRunResponse(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      SESSION_ID,
+      RUN_ID,
+      CORRELATION_ID,
+      createOkTextResponse("This response body is not the source of truth."),
+    );
+
+    expect(persistAssistantTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: "client-msg-2",
+        text: "No workflow rows, still persist this turn.",
+      }),
     );
   });
 

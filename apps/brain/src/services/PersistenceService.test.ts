@@ -3,6 +3,7 @@ import type {
   TranscriptMessageRecord,
   TranscriptRepository,
 } from "@repo/persistence";
+import { MemoryTranscriptRepository } from "@repo/persistence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/ai";
 import {
@@ -233,6 +234,88 @@ describe("PersistenceService", () => {
         ],
       }),
     );
+  });
+
+  it("appends assistant turns for distinct user turns on the same run", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "Build transcript",
+      status: "idle",
+    });
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-1",
+      text: "Done.",
+    });
+    await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-2",
+      text: "Done.",
+    });
+
+    const transcript = await repository.listTranscript({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+    });
+    expect(transcript.messages).toHaveLength(2);
+    expect(transcript.messages.map((message) => message.role)).toEqual([
+      "assistant",
+      "assistant",
+    ]);
+    expect(transcript.messages.map((message) => message.id)).toHaveLength(
+      new Set(transcript.messages.map((message) => message.id)).size,
+    );
+  });
+
+  it("dedupes assistant retries for the same user turn on the same run", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "Build transcript",
+      status: "idle",
+    });
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    const first = await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-1",
+      text: "Done.",
+    });
+    const retry = await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-1",
+      text: "Done.",
+    });
+
+    const transcript = await repository.listTranscript({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+    });
+    expect(retry.id).toBe(first.id);
+    expect(transcript.messages).toHaveLength(1);
   });
 
   it("persists image-bearing user messages as redacted text parts", async () => {

@@ -161,6 +161,13 @@ export class RunEngineRequestHandler {
     const runtimeState = this.createRuntimeState();
     const eventRepo = new RunEventRepository(runtimeState);
     const events = await eventRepo.getByRun(runId);
+    console.log(
+      formatDiagnosticLogLine("run/events", "snapshot-served", {
+        runId,
+        eventCount: events.length,
+        eventTypes: summarizeRunEventTypes(events),
+      }),
+    );
     return withRunEngineHeaders(
       request,
       this.env,
@@ -200,6 +207,11 @@ export class RunEngineRequestHandler {
         503,
       );
     }
+    console.log(
+      formatDiagnosticLogLine("run/events", "stream-opened", {
+        runId,
+      }),
+    );
     return withRunEngineHeaders(
       request,
       this.env,
@@ -243,12 +255,18 @@ export class RunEngineRequestHandler {
     const eventRepo = new RunEventRepository(runtimeState);
     const run = await runRepo.getById(runId);
     const events = await eventRepo.getByRun(runId);
-
-    return runEngineJsonResponse(
-      request,
-      this.env,
-      projectRunActivityFeed({ runId, run, events }),
+    const activity = projectRunActivityFeed({ runId, run, events });
+    console.log(
+      formatDiagnosticLogLine("run/activity", "snapshot-served", {
+        runId,
+        runStatus: run?.status ?? null,
+        activityStatus: activity.status,
+        eventCount: events.length,
+        itemCount: activity.items.length,
+      }),
     );
+
+    return runEngineJsonResponse(request, this.env, activity);
   }
 
   async handleCancelRequest(request: Request): Promise<Response> {
@@ -691,6 +709,16 @@ function readLatestUserMessageId(
     return message.id?.trim() || null;
   }
   return null;
+}
+
+function summarizeRunEventTypes(events: readonly RunEvent[]): string {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([eventType, count]) => `${eventType}:${count}`)
+    .join(",");
 }
 
 function toRuntimeCoreTools(
