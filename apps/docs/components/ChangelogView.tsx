@@ -50,7 +50,7 @@ const release: ChangelogRelease = {
         "Added bring-your-own-key provider connections for OpenRouter, OpenAI, Groq, Anthropic, Google Gemini, OpenCode, Together AI, and Cerebras.",
         "Added credential validation, connection status, and provider preferences.",
         "Added model selection per run so users can choose the provider and model for each task.",
-        "Added Cloudflare AI support for Workers AI and AI Gateway routes.",
+        "Marked Cloudflare AI as coming soon until it is available in the hosted workflow.",
       ],
     },
     {
@@ -138,14 +138,8 @@ function ReleaseArticle({ sections }: { sections: ChangelogSection[] }) {
 function ChangelogMonths() {
   return (
     <aside className="sticky top-24 hidden w-44 shrink-0 select-none lg:block">
-      <nav
-        aria-label="Changelog months"
-        className="border-l border-white/5 py-1 pl-4"
-      >
-        <a
-          href={`#${release.monthId}`}
-          className="-ml-[17px] block border-l border-white pl-3 text-xs font-semibold text-white"
-        >
+      <nav aria-label="Changelog months" className="border-l border-white/5 py-1 pl-4">
+        <a href={`#${release.monthId}`} className="-ml-[17px] block border-l border-white pl-3 text-xs font-semibold text-white">
           {release.monthLabel}
         </a>
       </nav>

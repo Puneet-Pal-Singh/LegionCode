@@ -17,7 +17,6 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import {
   BYOKCredential as ProviderCredential,
   BYOKPreference as ProviderPreference,
-  ProviderConnectionConfig,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
 import { type ProviderModelOption } from "../../services/api/providerClient.js";
@@ -74,7 +73,9 @@ export function ProviderDialog({
 
   const [activeTab, setActiveTab] = useState<
     "connected" | "available" | "preferences" | "session"
-  >(initialTab ?? (mode === "composer" ? "session" : "connected"));
+  >(
+    initialTab ?? (mode === "composer" ? "session" : "connected")
+  );
 
   const [validatingCredentialId, setValidatingCredentialId] = useState<
     string | null
@@ -85,7 +86,7 @@ export function ProviderDialog({
   const [isConnecting, setIsConnecting] = useState(false);
   const [showManageModels, setShowManageModels] = useState(false);
   const [manageOnlyView, setManageOnlyView] = useState<"manage" | "connect">(
-    "manage",
+    "manage"
   );
   const [connectOnlyView, setConnectOnlyView] = useState<"connect" | "manage">(
     "connect",
@@ -104,9 +105,7 @@ export function ProviderDialog({
 
   useEffect(() => {
     if (isOpen) {
-      setActiveTab(
-        initialTab ?? (mode === "composer" ? "session" : "connected"),
-      );
+      setActiveTab(initialTab ?? (mode === "composer" ? "session" : "connected"));
       if (initialView === "manage-models") {
         setShowManageModels(true);
       }
@@ -152,8 +151,7 @@ export function ProviderDialog({
   const doConnect = async (
     providerId: string,
     secret: string,
-    labelValue: string,
-    config?: ProviderConnectionConfig,
+    labelValue: string
   ): Promise<void> => {
     setConnectError(null);
     setConnectSuccess(null);
@@ -169,7 +167,6 @@ export function ProviderDialog({
         providerId,
         secret,
         label: labelValue || undefined,
-        config,
       });
 
       const providerName =
@@ -204,7 +201,7 @@ export function ProviderDialog({
       }
     } catch (err) {
       setConnectError(
-        err instanceof Error ? err.message : "Failed to connect credential",
+        err instanceof Error ? err.message : "Failed to connect credential"
       );
     } finally {
       setIsConnecting(false);
@@ -216,7 +213,7 @@ export function ProviderDialog({
    */
   const handleValidate = async (
     credentialId: string,
-    mode: "format" | "live",
+    mode: "format" | "live"
   ) => {
     setValidatingCredentialId(credentialId);
 
@@ -235,7 +232,7 @@ export function ProviderDialog({
   const handleSessionSelect = async (
     providerId: string,
     credentialId: string,
-    modelId?: string,
+    modelId?: string
   ) => {
     if (!credentialId) {
       return;
@@ -257,16 +254,14 @@ export function ProviderDialog({
   };
 
   const selectedProviderModelOptions = selectedProviderId
-    ? (providerModels[selectedProviderId] ?? [])
+    ? providerModels[selectedProviderId] ?? []
     : [];
   const isSelectedProviderModelLoading =
     loadingModelsForProviderId !== null &&
     loadingModelsForProviderId === selectedProviderId;
   const statusRecovery = getProviderRecoveryAdvice(error);
 
-  const renderConnectProviderDialog = (
-    handleClose: () => void,
-  ): React.ReactElement => (
+  const renderConnectProviderDialog = (handleClose: () => void): React.ReactElement => (
     <div
       data-testid="provider-dialog-overlay"
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
@@ -304,9 +299,7 @@ export function ProviderDialog({
           {status === "error" && error && (
             <div className="mb-4 bg-red-950/40 border border-red-800 px-4 py-3 text-red-200 text-sm space-y-1 rounded-lg">
               <p>{statusRecovery.message}</p>
-              <p className="text-xs text-red-300">
-                {statusRecovery.remediation}
-              </p>
+              <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
             </div>
           )}
           <ConnectProviderChooser
@@ -316,8 +309,8 @@ export function ProviderDialog({
             isConnecting={isConnecting}
             presentation="plain"
             showTitle={false}
-            onConnect={async (providerId, secret, label, config) => {
-              await doConnect(providerId, secret, label || "", config);
+            onConnect={async (providerId, secret, label) => {
+              await doConnect(providerId, secret, label || "");
             }}
             onErrorClear={() => setConnectError(null)}
           />
@@ -413,10 +406,7 @@ export function ProviderDialog({
       >
         {/* Header */}
         <div className="border-b border-neutral-700 px-6 py-4 flex items-center justify-between">
-          <h2
-            id="provider-settings-dialog-title"
-            className="text-lg font-semibold"
-          >
+          <h2 id="provider-settings-dialog-title" className="text-lg font-semibold">
             Provider & Model Settings
           </h2>
           <button
@@ -443,11 +433,7 @@ export function ProviderDialog({
               key={tab.id}
               onClick={() =>
                 setActiveTab(
-                  tab.id as
-                    | "connected"
-                    | "available"
-                    | "preferences"
-                    | "session",
+                  tab.id as "connected" | "available" | "preferences" | "session"
                 )
               }
               className={`px-4 py-3 border-b-2 transition ${
@@ -466,9 +452,7 @@ export function ProviderDialog({
           {status === "error" && error && (
             <div className="bg-red-950/40 border-b border-red-800 px-6 py-3 text-red-200 text-sm space-y-1">
               <p>{statusRecovery.message}</p>
-              <p className="text-xs text-red-300">
-                {statusRecovery.remediation}
-              </p>
+              <p className="text-xs text-red-300">{statusRecovery.remediation}</p>
             </div>
           )}
 
@@ -489,8 +473,8 @@ export function ProviderDialog({
                 error={connectError}
                 success={connectSuccess}
                 isConnecting={isConnecting}
-                onConnect={async (providerId, secret, label, config) => {
-                  await doConnect(providerId, secret, label || "", config);
+                onConnect={async (providerId, secret, label) => {
+                  await doConnect(providerId, secret, label || "");
                 }}
                 onErrorClear={() => setConnectError(null)}
               />
@@ -498,7 +482,9 @@ export function ProviderDialog({
           )}
 
           {activeTab === "preferences" && (
-            <PreferencesTab preferences={preferences} />
+            <PreferencesTab
+              preferences={preferences}
+            />
           )}
 
           {activeTab === "session" && (
@@ -643,7 +629,9 @@ function ConnectedTab({
     <div className="p-6">
       {credentials.length === 0 ? (
         <div className="text-center py-8 space-y-3">
-          <p className="text-neutral-400">No provider keys connected yet.</p>
+          <p className="text-neutral-400">
+            No provider keys connected yet.
+          </p>
           <button
             type="button"
             onClick={onOpenAvailableTab}
@@ -691,9 +679,7 @@ function ConnectedTab({
                     disabled={validatingId === cred.credentialId}
                     className="text-sm px-3 py-1 border border-neutral-600 rounded hover:bg-neutral-800 disabled:opacity-50 transition"
                   >
-                    {validatingId === cred.credentialId
-                      ? "Validating..."
-                      : "Test"}
+                    {validatingId === cred.credentialId ? "Validating..." : "Test"}
                   </button>
                   <button
                     onClick={() => onDisconnect(cred.credentialId)}
@@ -759,14 +745,10 @@ function SessionTab({
   modelOptions: ProviderModelOption[];
   isModelLoading: boolean;
   onLoadModels: (providerId: string) => Promise<ProviderModelOption[]>;
-  onSelect: (
-    providerId: string,
-    credentialId: string,
-    modelId?: string,
-  ) => void;
+  onSelect: (providerId: string, credentialId: string, modelId?: string) => void;
 }): React.ReactElement {
   const availableProviders = catalog.filter((p) =>
-    credentials.some((c) => c.providerId === p.providerId),
+    credentials.some((c) => c.providerId === p.providerId)
   );
 
   useEffect(() => {
@@ -808,21 +790,21 @@ function SessionTab({
             <select
               value={selectedCredentialId || ""}
               onChange={(e) => {
-                const credId = e.target.value;
-                const cred = credentials.find((c) => c.credentialId === credId);
-                if (cred) {
-                  onSelect(selectedProviderId, credId);
-                }
-              }}
-              className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
-            >
-              {credentials
-                .filter((c) => c.providerId === selectedProviderId)
-                .map((c) => (
-                  <option key={c.credentialId} value={c.credentialId}>
-                    {c.label || "Default"}
-                  </option>
-                ))}
+                 const credId = e.target.value;
+                 const cred = credentials.find((c) => c.credentialId === credId);
+                 if (cred) {
+                   onSelect(selectedProviderId, credId);
+                 }
+               }}
+               className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
+              >
+               {credentials
+                 .filter((c) => c.providerId === selectedProviderId)
+                 .map((c) => (
+                   <option key={c.credentialId} value={c.credentialId}>
+                     {c.label || "Default"}
+                   </option>
+                 ))}
             </select>
           </div>
 
@@ -835,7 +817,7 @@ function SessionTab({
                   onSelect(
                     selectedProviderId,
                     selectedCredentialId || "",
-                    e.target.value,
+                    e.target.value
                   )
                 }
                 className="w-full border border-neutral-700 bg-neutral-900 rounded px-3 py-2 text-sm"
@@ -855,7 +837,7 @@ function SessionTab({
                   onSelect(
                     selectedProviderId,
                     selectedCredentialId || "",
-                    e.target.value,
+                    e.target.value
                   )
                 }
                 placeholder="e.g., gpt-4, claude-3-opus"

@@ -137,14 +137,13 @@
     },
     {
       "providerId": "cloudflare-ai",
-      "supportsConnect": true,
-      "supportsCatalog": true,
+      "supportsConnect": false,
+      "supportsCatalog": false,
       "supportsValidate": false,
-      "supportsDisconnect": true,
+      "supportsDisconnect": false,
       "strictModelGuard": true,
       "notes": [
-        "requires account route metadata during connect",
-        "supports direct Workers AI and AI Gateway OpenAI-compatible chat completions"
+        "coming soon until account metadata, model discovery, and one runtime route are wired"
       ]
     }
   ],

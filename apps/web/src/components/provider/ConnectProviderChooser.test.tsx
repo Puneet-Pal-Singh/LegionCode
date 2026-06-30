@@ -147,7 +147,7 @@ describe("ConnectProviderChooser", () => {
       providerId: "cloudflare-ai",
       displayName: "Cloudflare AI",
       authModes: ["api_key"],
-      launchStage: "supported",
+      launchStage: "coming_soon",
       adapterFamily: "custom-http",
       capabilities: {
         streaming: true,
@@ -182,8 +182,8 @@ describe("ConnectProviderChooser", () => {
     expect(screen.getByText("Cerebras")).toBeInTheDocument();
     expect(screen.getByText("OpenCode Go")).toBeInTheDocument();
     expect(screen.getByText("OpenCode Zen")).toBeInTheDocument();
-    expect(screen.getByText("Cloudflare AI")).toBeInTheDocument();
     expect(screen.queryByText("Axis")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cloudflare AI")).not.toBeInTheDocument();
   });
 
   it("excludes Axis from connect list even if auth mode is misconfigured", () => {
@@ -298,94 +298,6 @@ describe("ConnectProviderChooser", () => {
       expect(mockHandlers.onConnect).toHaveBeenCalledWith(
         "openai",
         "sk-test-key",
-      );
-    });
-  });
-
-  it("submits Workers AI connection config for Cloudflare AI", async () => {
-    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
-
-    fireEvent.click(screen.getByText("Cloudflare AI"));
-
-    fireEvent.change(await screen.findByLabelText(/cloudflare account id/i), {
-      target: { value: "account_123" },
-    });
-    fireEvent.change(screen.getByLabelText(/cloudflare ai api key/i), {
-      target: { value: "cf-test-token-12345" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-
-    await waitFor(() => {
-      expect(mockHandlers.onConnect).toHaveBeenCalledWith(
-        "cloudflare-ai",
-        "cf-test-token-12345",
-        undefined,
-        {
-          providerId: "cloudflare-ai",
-          accountId: "account_123",
-          gatewayId: undefined,
-          routeMode: "workers-ai-direct",
-        },
-      );
-    });
-  });
-
-  it("submits default gateway config for Cloudflare AI Gateway connections", async () => {
-    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
-
-    fireEvent.click(screen.getByText("Cloudflare AI"));
-    fireEvent.click(await screen.findByRole("button", { name: /ai gateway/i }));
-    fireEvent.change(screen.getByLabelText(/cloudflare account id/i), {
-      target: { value: "account_123" },
-    });
-    fireEvent.change(screen.getByLabelText(/cloudflare ai api key/i), {
-      target: { value: "cf-test-token-12345" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-
-    await waitFor(() => {
-      expect(mockHandlers.onConnect).toHaveBeenCalledWith(
-        "cloudflare-ai",
-        "cf-test-token-12345",
-        undefined,
-        {
-          providerId: "cloudflare-ai",
-          accountId: "account_123",
-          gatewayId: undefined,
-          routeMode: "ai-gateway",
-        },
-      );
-    });
-  });
-
-  it("submits explicit gateway name for Cloudflare AI Gateway connections", async () => {
-    render(<ConnectProviderChooser catalog={mockCatalog} {...mockHandlers} />);
-
-    fireEvent.click(screen.getByText("Cloudflare AI"));
-    fireEvent.click(await screen.findByRole("button", { name: /ai gateway/i }));
-    fireEvent.change(screen.getByLabelText(/cloudflare account id/i), {
-      target: { value: "account_123" },
-    });
-    fireEvent.change(screen.getByLabelText(/ai gateway name/i), {
-      target: { value: "my-gateway" },
-    });
-    fireEvent.change(screen.getByLabelText(/cloudflare ai api key/i), {
-      target: { value: "cf-test-token-12345" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
-
-    await waitFor(() => {
-      expect(mockHandlers.onConnect).toHaveBeenCalledWith(
-        "cloudflare-ai",
-        "cf-test-token-12345",
-        undefined,
-        {
-          providerId: "cloudflare-ai",
-          accountId: "account_123",
-          gatewayId: "my-gateway",
-          routeMode: "ai-gateway",
-        },
       );
     });
   });

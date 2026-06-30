@@ -119,7 +119,7 @@ describe("Provider Capabilities", () => {
     expect(BUILTIN_PROVIDERS.cerebras?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS["opencode-go"]?.launchStage).toBe("supported");
     expect(BUILTIN_PROVIDERS["opencode-zen"]?.launchStage).toBe("supported");
-    expect(BUILTIN_PROVIDERS["cloudflare-ai"]?.launchStage).toBe("supported");
+    expect(BUILTIN_PROVIDERS["cloudflare-ai"]?.launchStage).toBe("coming_soon");
   });
 
   it("registers OpenCode and Cloudflare providers with truthful runtime families", () => {
@@ -170,7 +170,7 @@ describe("Provider launch visibility", () => {
     expect(supportedProviderIds).toContain("cerebras");
     expect(supportedProviderIds).toContain("opencode-go");
     expect(supportedProviderIds).toContain("opencode-zen");
-    expect(supportedProviderIds).toContain("cloudflare-ai");
+    expect(supportedProviderIds).not.toContain("cloudflare-ai");
     expect(supportedProviderIds).not.toContain("mistral");
     expect(supportedProviderIds).not.toContain("cohere");
   });

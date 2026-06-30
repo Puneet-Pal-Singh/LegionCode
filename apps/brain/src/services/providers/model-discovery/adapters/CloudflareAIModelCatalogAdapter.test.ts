@@ -60,42 +60,6 @@ describe("CloudflareAIModelCatalogAdapter", () => {
     ).rejects.toThrow("account connection config");
   });
 
-  it("normalizes AI Gateway models with compat routes", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          success: true,
-          result: [
-            {
-              id: "@cf/meta/llama-3.1-8b-instruct",
-              name: "Llama 3.1 8B Instruct",
-              task: "Text Generation",
-            },
-          ],
-        }),
-        { status: 200 },
-      ),
-    );
-
-    const adapter = new CloudflareAIModelCatalogAdapter();
-    const models = await adapter.fetchAll("cloudflare-ai", {
-      apiKey: "cf-token",
-      connectionConfig: {
-        providerId: "cloudflare-ai",
-        accountId: "account_123",
-        routeMode: "ai-gateway",
-      },
-    });
-
-    expect(models[0]?.runtimeRoute).toMatchObject({
-      providerId: "cloudflare-ai",
-      modelId: "workers-ai/@cf/meta/llama-3.1-8b-instruct",
-      transport: "openai-chat-completions",
-      endpoint:
-        "https://gateway.ai.cloudflare.com/v1/account_123/default/compat/chat/completions",
-    });
-  });
-
   it("wraps auth errors as non-retryable discovery errors", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

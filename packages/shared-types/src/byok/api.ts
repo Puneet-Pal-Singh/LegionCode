@@ -4,7 +4,6 @@ import {
   BYOKConnectResponseSchema,
   BYOKValidateRequestSchema,
   BYOKValidateResponseSchema,
-  ProviderConnectionConfigSchema,
   ModelDescriptorSchema,
 } from "../provider.js";
 import {
@@ -55,31 +54,11 @@ export type {
 /**
  * POST /api/byok/credentials
  */
-export const BYOKCredentialConnectRequestSchema = z
-  .object({
-    providerId: z.string().min(1).max(64),
-    secret: z.string().min(1).max(4096),
-    label: z.string().min(1).max(256).optional(),
-    config: ProviderConnectionConfigSchema.optional(),
-  })
-  .superRefine((value, ctx) => {
-    if (value.providerId === "cloudflare-ai" && !value.config) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Cloudflare AI requires connection config.",
-        path: ["config"],
-      });
-      return;
-    }
-
-    if (value.config && value.config.providerId !== value.providerId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Connection config providerId must match providerId.",
-        path: ["config", "providerId"],
-      });
-    }
-  });
+export const BYOKCredentialConnectRequestSchema = z.object({
+  providerId: z.string().min(1).max(64),
+  secret: z.string().min(1).max(4096),
+  label: z.string().min(1).max(256).optional(),
+});
 export type BYOKCredentialConnectRequest = z.infer<
   typeof BYOKCredentialConnectRequestSchema
 >;

@@ -3,7 +3,6 @@ import {
   canShowProviderInPrimaryUi,
   isLaunchSupportedProvider,
   type BYOKCredential,
-  type ProviderConnectionConfig,
   type ProviderRegistryEntry,
 } from "@repo/shared-types";
 import {
@@ -239,7 +238,6 @@ export function SettingsDialog({
       providerId: string,
       secret: string,
       label?: string,
-      config?: ProviderConnectionConfig,
     ): Promise<void> => {
       setConnectError(null);
       setConnectSuccess(null);
@@ -249,7 +247,6 @@ export function SettingsDialog({
           providerId,
           secret,
           label,
-          config,
         });
         setConnectSuccess("API key saved and provider connected.");
         setConnectView("overview");
