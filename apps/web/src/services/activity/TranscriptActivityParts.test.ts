@@ -185,6 +185,43 @@ describe("TranscriptActivityParts", () => {
 
     expect(merged).toEqual([transcriptTurn]);
   });
+
+  it("prefers active live canonical activity over settled transcript rows", () => {
+    const transcriptTurn = createActivityTurn("turn-1", {
+      rows: [
+        {
+          kind: "tool",
+          key: "tool-complete",
+          toolName: "read_file",
+          family: "read",
+          title: "Reading Footer.tsx",
+          summary: "Read complete",
+          status: "completed",
+          defaultCollapsed: false,
+          details: [],
+        },
+      ],
+    });
+    const liveTurn = createActivityTurn("turn-1", {
+      isActiveTurn: true,
+      rows: [
+        {
+          kind: "reasoning",
+          key: "thinking-live",
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        },
+      ],
+    });
+
+    const merged = mergeTranscriptAndLiveActivityTurns(
+      [transcriptTurn],
+      [liveTurn],
+    );
+
+    expect(merged).toEqual([liveTurn]);
+  });
 });
 
 function createMessage(role: Message["role"], content: string): Message {

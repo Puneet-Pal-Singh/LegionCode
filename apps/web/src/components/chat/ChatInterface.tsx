@@ -122,12 +122,14 @@ export function ChatInterface({
     summary?.status && isTerminalRunStatus(summary.status),
   );
   const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
+  const controllerRunActive = Boolean(canStop);
   const isCanonicalRunActive =
     normalizedSummaryStatus === "RUNNING" ||
     isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
     Boolean(summary?.pendingApproval);
   const activeRunLoading =
     isLoading ||
+    controllerRunActive ||
     (!isLifecycleTerminalSettled &&
       !isTerminalSummarySettled &&
       isCanonicalRunActive);
@@ -151,6 +153,7 @@ export function ChatInterface({
   useEffect(() => {
     logClientEvent("chat/workflow", "activity-polling-decision", {
       runId,
+      controllerRunActive,
       localLoading: isLoading,
       activeRunLoading,
       summaryStatus: summary?.status ?? null,
@@ -164,6 +167,7 @@ export function ChatInterface({
     });
   }, [
     activeRunLoading,
+    controllerRunActive,
     events.length,
     isCanonicalEventRunActive,
     isLifecycleTerminalSettled,

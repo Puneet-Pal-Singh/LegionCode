@@ -78,12 +78,15 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
     return {
       activeTurnKey,
       liveItemCount,
+      liveStatus: liveFeed?.status ?? null,
       persistedItemCount,
+      persistedStatus: scopedPersistedFeed?.status ?? null,
       rowCount,
+      sourceMode: resolveActivitySourceMode(scopedPersistedFeed, liveFeed),
       turnCount: viewModel.turns.length,
       turnKeys: viewModel.turns.map((turn) => turn.key).join(","),
     };
-  }, [liveFeed?.items.length, scopedPersistedFeed?.items.length, viewModel.turns]);
+  }, [liveFeed, scopedPersistedFeed, viewModel.turns]);
 
   useEffect(() => {
     logClientEvent("run/presentation", "updated", {
@@ -95,7 +98,10 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
       feedStatus: scopedFeed?.status ?? null,
       eventCount: input.events.length,
       liveItemCount: presentationLogSnapshot.liveItemCount,
+      liveStatus: presentationLogSnapshot.liveStatus,
       persistedItemCount: presentationLogSnapshot.persistedItemCount,
+      persistedStatus: presentationLogSnapshot.persistedStatus,
+      sourceMode: presentationLogSnapshot.sourceMode,
       activeTurnKey: presentationLogSnapshot.activeTurnKey,
       turnKeys: presentationLogSnapshot.turnKeys,
       turnCount: presentationLogSnapshot.turnCount,
@@ -130,4 +136,14 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
   );
 
   return { scopedFeed, viewModel, scrollSignal };
+}
+
+function resolveActivitySourceMode(
+  persisted: ActivityFeed | null,
+  live: ActivityFeed | null,
+): "none" | "persisted" | "live" | "merged" {
+  if (persisted && live) return "merged";
+  if (live) return "live";
+  if (persisted) return "persisted";
+  return "none";
 }

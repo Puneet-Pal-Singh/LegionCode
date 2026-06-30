@@ -121,6 +121,9 @@ function choosePreferredTurn(
   existing: ActivityTurnViewModel,
   candidate: ActivityTurnViewModel,
 ): ActivityTurnViewModel {
+  if (candidate.isActiveTurn && candidate.hasVisibleRows) {
+    return candidate;
+  }
   const existingScore = scoreActivityTurn(existing);
   const candidateScore = scoreActivityTurn(candidate);
   if (candidateScore > existingScore) {
