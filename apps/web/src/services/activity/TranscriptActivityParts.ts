@@ -1,10 +1,11 @@
 import type { Message } from "@ai-sdk/react";
 import {
   isTurnActivityTranscriptPart,
-  type TurnActivityEvent,
+  parseActivityFeedSnapshot,
   type TurnActivityTranscriptPart,
 } from "@repo/shared-types";
-import type {
+import {
+  buildActivityFeedViewModel,
   ActivityFeedRowViewModel,
   ActivityTurnViewModel,
 } from "./ActivityFeedViewModel.js";
@@ -13,13 +14,8 @@ export function buildTranscriptActivityTurns(
   messages: Message[],
 ): ActivityTurnViewModel[] {
   const turns: ActivityTurnViewModel[] = [];
-  let userPrompt: string | null = null;
 
   for (const message of messages) {
-    if (message.role === "user" && message.content.trim()) {
-      userPrompt = message.content;
-      continue;
-    }
     if (message.role !== "assistant") {
       continue;
     }
@@ -29,9 +25,7 @@ export function buildTranscriptActivityTurns(
       continue;
     }
 
-    turns.push(
-      ...activityParts.flatMap((part) => buildTurns(part, userPrompt)),
-    );
+    turns.push(...activityParts.flatMap(buildTurns));
   }
 
   return turns;
@@ -78,49 +72,19 @@ function isActivityData(value: unknown): value is { activityParts: unknown[] } {
 
 function buildTurns(
   part: TurnActivityTranscriptPart,
-  userPrompt: string | null,
 ): ActivityTurnViewModel[] {
-  const grouped = new Map<string, TurnActivityEvent[]>();
-  for (const event of part.events) {
-    const events = grouped.get(event.turnId) ?? [];
-    events.push(event);
-    grouped.set(event.turnId, events);
-  }
-
-  return [...grouped.entries()].flatMap(([turnId, events]) => {
-    const sortedEvents = [...events].sort(
-      (left, right) => left.sequence - right.sequence,
-    );
-    const rows = dedupeTranscriptRows(
-      sortedEvents.flatMap((event) => {
-        const row = eventToRow(event);
-        return row ? [row] : [];
-      }),
-    );
-    const hasProviderError = rows.some(
-      (row) =>
-        row.kind === "commentary" &&
-        row.metadata?.code === "PROVIDER_UNAVAILABLE",
-    );
-    return [
-      {
-        key: turnId,
-        userPrompt,
-        elapsedLabel: formatTurnElapsed(sortedEvents),
-        summaryLabel: buildSummaryLabel(rows),
-        defaultCollapsed: !hasProviderError,
-        isActiveTurn: false,
-        hasVisibleRows: true,
-        rows,
-      },
-    ];
-  });
+  return buildActivityFeedViewModel(
+    parseActivityFeedSnapshot(part.activitySnapshot),
+  ).turns;
 }
 
 function choosePreferredTurn(
   existing: ActivityTurnViewModel,
   candidate: ActivityTurnViewModel,
 ): ActivityTurnViewModel {
+  if (candidate.isActiveTurn && candidate.hasVisibleRows) {
+    return candidate;
+  }
   const existingScore = scoreActivityTurn(existing);
   const candidateScore = scoreActivityTurn(candidate);
   if (candidateScore > existingScore) {
@@ -149,128 +113,4 @@ function isProviderUnavailableRow(row: ActivityFeedRowViewModel): boolean {
   return (
     row.kind === "commentary" && row.metadata?.code === "PROVIDER_UNAVAILABLE"
   );
-}
-
-function eventToRow(event: TurnActivityEvent): ActivityFeedRowViewModel | null {
-  if (event.displayMode === "debug") {
-    return null;
-  }
-
-  if (event.kind === "provider_error") {
-    return {
-      kind: "commentary",
-      key: event.id,
-      phase: "commentary",
-      status: "completed",
-      text: event.detail ?? event.title,
-      metadata: event.metadata,
-    };
-  }
-
-  if (event.kind === "tool_call" || event.kind === "tool_result") {
-    return {
-      kind: "tool",
-      key: event.id,
-      toolName: readMetadataString(event.metadata, "toolName") ?? event.title,
-      family: "generic",
-      title: event.title,
-      summary: event.detail ?? event.title,
-      status: mapToolStatus(event.status),
-      defaultCollapsed: event.displayMode !== "visible",
-      details: event.detail ? [event.detail] : [],
-    };
-  }
-
-  return {
-    kind: "reasoning",
-    key: event.id,
-    label: event.title,
-    summary: normalizeRowSummary(event.title, event.detail),
-    status: event.status === "running" ? "active" : "completed",
-  };
-}
-
-function normalizeRowSummary(
-  title: string,
-  detail: string | undefined,
-): string {
-  const normalizedDetail = detail?.trim() ?? "";
-  return normalizedDetail === title.trim() ? "" : normalizedDetail;
-}
-
-function dedupeTranscriptRows(
-  rows: ActivityFeedRowViewModel[],
-): ActivityFeedRowViewModel[] {
-  return rows.filter((row, index) => {
-    const previous = rows[index - 1];
-    return !areEquivalentReasoningRows(previous, row);
-  });
-}
-
-function areEquivalentReasoningRows(
-  left: ActivityFeedRowViewModel | undefined,
-  right: ActivityFeedRowViewModel,
-): boolean {
-  return (
-    left?.kind === "reasoning" &&
-    right.kind === "reasoning" &&
-    left.label.trim() === right.label.trim() &&
-    left.summary.trim() === right.summary.trim()
-  );
-}
-
-function readMetadataString(
-  metadata: Record<string, unknown> | undefined,
-  key: string,
-): string | null {
-  const value = metadata?.[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function mapToolStatus(
-  status: TurnActivityEvent["status"],
-): Extract<ActivityFeedRowViewModel, { kind: "tool" }>["status"] {
-  if (status === "failed") {
-    return "failed";
-  }
-  if (status === "running") {
-    return "running";
-  }
-  if (status === "pending") {
-    return "requested";
-  }
-  return "completed";
-}
-
-function formatTurnElapsed(events: TurnActivityEvent[]): string {
-  const first = events[0]?.createdAt;
-  const last = events[events.length - 1]?.updatedAt;
-  if (!first || !last) {
-    return "Worked";
-  }
-  const elapsedMs = Math.max(0, Date.parse(last) - Date.parse(first));
-  if (elapsedMs < 1_000) {
-    return "Worked for 1s";
-  }
-  const totalSeconds = Math.max(1, Math.floor(elapsedMs / 1_000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes === 0
-    ? `Worked for ${seconds}s`
-    : `Worked for ${minutes}m ${seconds}s`;
-}
-
-function buildSummaryLabel(rows: ActivityFeedRowViewModel[]): string {
-  const providerErrors = rows.filter(
-    (row) =>
-      row.kind === "commentary" &&
-      row.metadata?.code === "PROVIDER_UNAVAILABLE",
-  );
-  if (providerErrors.length > 0) {
-    return "Paused after provider interruption";
-  }
-  if (rows.length === 0) {
-    return "Workflow captured";
-  }
-  return `${rows.length} activity ${rows.length === 1 ? "row" : "rows"}`;
 }

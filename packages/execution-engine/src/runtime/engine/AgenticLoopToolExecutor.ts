@@ -1,10 +1,12 @@
 import {
-  getGoldenFlowToolRoute,
   isConcreteCommandInput,
   isConcretePathInput,
-  validateGoldenFlowToolInput,
-  type GoldenFlowToolName,
 } from "../contracts/index.js";
+import {
+  getCodingToolRoute,
+  validateCodingToolInput,
+  type CodingToolId,
+} from "../tools/CodingToolRegistry.js";
 import {
   extractExecutionFailure,
   formatExecutionResult,
@@ -15,6 +17,7 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import type {
   ExecutionOutputChunk,
   RuntimeExecutionService,
@@ -30,7 +33,65 @@ export async function executeAgenticLoopTool(
   executionService: RuntimeExecutionService,
   input: {
     taskId: string;
-    toolName: GoldenFlowToolName;
+    toolName: CodingToolId;
+    toolInput: TaskInput;
+    onOutputAppended?: (chunk: {
+      stdoutDelta?: string;
+      stderrDelta?: string;
+      truncated?: boolean;
+    }) => Promise<void> | void;
+  },
+): Promise<TaskResult> {
+  const startedAt = Date.now();
+  const route = getCodingToolRoute(input.toolName);
+  console.log(
+    formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "started", {
+      taskId: input.taskId,
+      toolName: input.toolName,
+      routePlugin: route?.plugin ?? "missing",
+      routeAction: route?.action ?? "missing",
+      argKeys: Object.keys(input.toolInput).sort(),
+    }),
+  );
+  try {
+    const result = await dispatchAgenticLoopTool(executionService, input);
+    console.log(
+      formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "finished", {
+        taskId: input.taskId,
+        toolName: input.toolName,
+        routePlugin: route?.plugin ?? "missing",
+        routeAction: route?.action ?? "missing",
+        status: result.status,
+        elapsedMs: Date.now() - startedAt,
+        outputChars: result.output?.content.length ?? 0,
+        errorCode: result.error?.code ?? null,
+        errorMessage: result.error?.message
+          ? boundLogText(result.error.message)
+          : null,
+      }),
+    );
+    return result;
+  } catch (error) {
+    console.error(
+      formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "threw", {
+        taskId: input.taskId,
+        toolName: input.toolName,
+        routePlugin: route?.plugin ?? "missing",
+        routeAction: route?.action ?? "missing",
+        elapsedMs: Date.now() - startedAt,
+        errorMessage:
+          error instanceof Error ? boundLogText(error.message) : String(error),
+      }),
+    );
+    throw error;
+  }
+}
+
+async function dispatchAgenticLoopTool(
+  executionService: RuntimeExecutionService,
+  input: {
+    taskId: string;
+    toolName: CodingToolId;
     toolInput: TaskInput;
     onOutputAppended?: (chunk: {
       stdoutDelta?: string;
@@ -229,7 +290,7 @@ async function executeReadFileTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("read_file", taskInput);
+  const validatedInput = validateCodingToolInput("read_file", taskInput);
   const path = normalizeToolPath(validatedInput.path);
   validateToolPath(path);
   validateSafePath(path);
@@ -258,7 +319,7 @@ async function executeListFilesTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("list_files", taskInput);
+  const validatedInput = validateCodingToolInput("list_files", taskInput);
   const path = validatedInput.path
     ? normalizeToolPath(validatedInput.path)
     : ".";
@@ -281,7 +342,7 @@ async function executeWriteFileTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("write_file", taskInput);
+  const validatedInput = validateCodingToolInput("write_file", taskInput);
   const path = normalizeToolPath(validatedInput.path);
   validateToolPath(path);
   validateSafePath(path);
@@ -311,7 +372,7 @@ async function executeEditFileTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validated = validateGoldenFlowToolInput("edit_file", taskInput);
+  const validated = validateCodingToolInput("edit_file", taskInput);
   const path = normalizeAndValidateToolPath(validated.path);
   const result = await executeGatewayPlugin(executionService, "edit_file", {
     ...validated,
@@ -325,7 +386,7 @@ async function executeMultiEditTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validated = validateGoldenFlowToolInput("multi_edit", taskInput);
+  const validated = validateCodingToolInput("multi_edit", taskInput);
   const edits = validated.edits.map((edit) => ({
     ...edit,
     path: normalizeAndValidateToolPath(edit.path),
@@ -355,7 +416,7 @@ async function executeApplyPatchTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validated = validateGoldenFlowToolInput("apply_patch", taskInput);
+  const validated = validateCodingToolInput("apply_patch", taskInput);
   const result = await executeGatewayPlugin(executionService, "apply_patch", {
     patch: validated.patch,
     dryRun: validated.dryRun,
@@ -390,7 +451,7 @@ async function executePathTool(
   taskInput: TaskInput,
   toolName: "format_file" | "language_diagnostics",
 ): Promise<TaskResult> {
-  const validated = validateGoldenFlowToolInput(toolName, taskInput);
+  const validated = validateCodingToolInput(toolName, taskInput);
   const path = normalizeAndValidateToolPath(validated.path);
   const result = await executeGatewayPlugin(executionService, toolName, {
     path,
@@ -410,7 +471,7 @@ async function executeBashTool(
       }) => Promise<void> | void)
     | undefined,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("bash", taskInput);
+  const validatedInput = validateCodingToolInput("bash", taskInput);
   const normalizedInput = normalizeWorkspaceShellCommand({
     command: validatedInput.command,
     cwd: validatedInput.cwd
@@ -512,7 +573,7 @@ async function executeGitStatusTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  validateGoldenFlowToolInput("git_status", taskInput);
+  validateCodingToolInput("git_status", taskInput);
   const result = await executeGatewayPlugin(executionService, "git_status", {});
   const failure = extractExecutionFailure(result);
   if (failure) {
@@ -534,7 +595,7 @@ async function executeGitStageTool(
     );
   }
 
-  const validatedInput = validateGoldenFlowToolInput("git_stage", taskInput);
+  const validatedInput = validateCodingToolInput("git_stage", taskInput);
   const payload: Record<string, unknown> = {};
   if (validatedInput.files && validatedInput.files.length > 0) {
     payload.files = validatedInput.files.map((file) => {
@@ -568,7 +629,7 @@ async function executeGitCommitTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("git_commit", taskInput);
+  const validatedInput = validateCodingToolInput("git_commit", taskInput);
   const changeEvidence = await readGitChangeEvidence(executionService);
   if (changeEvidence === "no_changes") {
     return buildFailureResult(
@@ -673,7 +734,7 @@ async function executeGitPushTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("git_push", taskInput);
+  const validatedInput = validateCodingToolInput("git_push", taskInput);
   const payload: Record<string, unknown> = {};
   if (validatedInput.remote) {
     payload.remote = validatedInput.remote.trim();
@@ -709,7 +770,7 @@ async function executeGitPullTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("git_pull", taskInput);
+  const validatedInput = validateCodingToolInput("git_pull", taskInput);
   const payload: Record<string, unknown> = {};
   if (validatedInput.remote) {
     payload.remote = validatedInput.remote.trim();
@@ -745,7 +806,7 @@ async function executeGitCreatePullRequestTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "git_create_pull_request",
     taskInput,
   );
@@ -783,7 +844,7 @@ async function executeGitBranchCreateTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "git_branch_create",
     taskInput,
   );
@@ -811,7 +872,7 @@ async function executeGitBranchSwitchTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "git_branch_switch",
     taskInput,
   );
@@ -839,7 +900,7 @@ async function executeGitDiffTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("git_diff", taskInput);
+  const validatedInput = validateCodingToolInput("git_diff", taskInput);
   const payload: Record<string, unknown> = {};
 
   if (validatedInput.path) {
@@ -868,7 +929,7 @@ async function executeGitHubPullRequestGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_pr_get",
     taskInput,
   );
@@ -884,7 +945,7 @@ async function executeGitHubPullRequestListTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_pr_list",
     taskInput,
   );
@@ -901,7 +962,7 @@ async function executeGitHubPullRequestChecksGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_pr_checks_get",
     taskInput,
   );
@@ -922,7 +983,7 @@ async function executeGitHubReviewThreadsGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_review_threads_get",
     taskInput,
   );
@@ -943,7 +1004,7 @@ async function executeGitHubIssueGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_issue_get",
     taskInput,
   );
@@ -959,7 +1020,7 @@ async function executeGitHubActionsRunGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_actions_run_get",
     taskInput,
   );
@@ -980,7 +1041,7 @@ async function executeGitHubActionsJobLogsGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_actions_job_logs_get",
     taskInput,
   );
@@ -1003,7 +1064,7 @@ async function executeGitHubCliPullRequestChecksGetTool(
   taskInput: TaskInput,
 ): Promise<TaskResult> {
   const flags = readGitHubCliRuntimeFlags(taskInput);
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_cli_pr_checks_get",
     taskInput,
   );
@@ -1026,7 +1087,7 @@ async function executeGitHubCliActionsRunGetTool(
   taskInput: TaskInput,
 ): Promise<TaskResult> {
   const flags = readGitHubCliRuntimeFlags(taskInput);
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_cli_actions_run_get",
     taskInput,
   );
@@ -1049,7 +1110,7 @@ async function executeGitHubCliActionsJobLogsGetTool(
   taskInput: TaskInput,
 ): Promise<TaskResult> {
   const flags = readGitHubCliRuntimeFlags(taskInput);
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_cli_actions_job_logs_get",
     taskInput,
   );
@@ -1073,7 +1134,7 @@ async function executeGitHubCliPullRequestCommentTool(
   taskInput: TaskInput,
 ): Promise<TaskResult> {
   const flags = readGitHubCliRuntimeFlags(taskInput);
-  const validatedInput = validateGoldenFlowToolInput(
+  const validatedInput = validateCodingToolInput(
     "github_cli_pr_comment",
     taskInput,
   );
@@ -1203,7 +1264,7 @@ async function executeGlobTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("glob", taskInput);
+  const validatedInput = validateCodingToolInput("glob", taskInput);
   const startPath = validatedInput.path ?? ".";
   if (startPath !== ".") {
     validateSafePath(startPath);
@@ -1230,7 +1291,7 @@ async function executeGrepTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateGoldenFlowToolInput("grep", taskInput);
+  const validatedInput = validateCodingToolInput("grep", taskInput);
   const startPath = validatedInput.path ?? ".";
   if (startPath !== ".") {
     validateSafePath(startPath);
@@ -1333,13 +1394,13 @@ function toGitHubCliFlagPayload(flags: GitHubCliRuntimeFlags): {
 
 async function executeGatewayPlugin(
   executionService: RuntimeExecutionService,
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   payload: Record<string, unknown>,
   options?: {
     onOutput?: (chunk: ExecutionOutputChunk) => Promise<void> | void;
   },
 ): Promise<unknown> {
-  const route = getGoldenFlowToolRoute(toolName);
+  const route = getCodingToolRoute(toolName);
   if (!route || route.plugin === "internal") {
     throw new Error(`No executable gateway route registered for ${toolName}`);
   }
@@ -1676,4 +1737,8 @@ function extractPathFromCatCommand(command: string): string | null {
   }
 
   return argument;
+}
+
+function boundLogText(value: string, maxLength = 500): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...`;
 }

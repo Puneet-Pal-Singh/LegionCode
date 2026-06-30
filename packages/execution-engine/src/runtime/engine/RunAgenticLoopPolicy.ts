@@ -7,9 +7,9 @@ import type {
   AgenticLoopToolLifecycleEvent,
 } from "../types.js";
 import {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-} from "../contracts/CodingToolGateway.js";
+  enforceCodingToolFloor,
+  getCodingCoreToolRegistry,
+} from "../tools/CodingToolRegistry.js";
 
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
 export const TASK_MODEL_NO_ACTION_CODE = "TASK_MODEL_NO_ACTION";
@@ -38,8 +38,8 @@ export function resolveAgenticLoopTools(
     return null;
   }
 
-  return enforceGoldenFlowToolFloor(
-    { ...getGoldenFlowToolRegistry(), ...incomingTools },
+  return enforceCodingToolFloor(
+    { ...getCodingCoreToolRegistry(), ...incomingTools },
     metadata,
   );
 }

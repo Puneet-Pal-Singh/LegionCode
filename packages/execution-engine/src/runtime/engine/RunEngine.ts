@@ -22,9 +22,9 @@ import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-} from "../contracts/CodingToolGateway.js";
+  enforceCodingToolFloor,
+  getCodingCoreToolRegistry,
+} from "../tools/CodingToolRegistry.js";
 import type {
   RunInput,
   RunStatus,
@@ -470,8 +470,8 @@ export class RunEngine implements IRunEngine {
           run,
           effectiveInput,
           messages,
-          enforceGoldenFlowToolFloor(
-            { ...getGoldenFlowToolRegistry(), ...tools },
+          enforceCodingToolFloor(
+            { ...getCodingCoreToolRegistry(), ...tools },
             effectiveInput.metadata,
           ),
           finalSummaryContractEnabled,

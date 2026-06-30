@@ -411,6 +411,52 @@ export const CODING_TOOL_IDS = [
 
 export type CodingToolId = (typeof CODING_TOOL_IDS)[number];
 
+export type CodingToolInputByName = {
+  read_file: z.infer<typeof READ_FILE_TOOL_INPUT_SCHEMA>;
+  list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
+  write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
+  edit_file: z.infer<typeof EDIT_FILE_TOOL_INPUT_SCHEMA>;
+  multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
+  apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
+  format_file: z.infer<typeof FORMAT_FILE_TOOL_INPUT_SCHEMA>;
+  language_diagnostics: z.infer<typeof LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA>;
+  bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
+  git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
+  git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
+  git_push: z.infer<typeof GIT_PUSH_TOOL_INPUT_SCHEMA>;
+  git_pull: z.infer<typeof GIT_PULL_TOOL_INPUT_SCHEMA>;
+  git_create_pull_request: z.infer<
+    typeof GIT_CREATE_PULL_REQUEST_TOOL_INPUT_SCHEMA
+  >;
+  git_branch_create: z.infer<typeof GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA>;
+  git_branch_switch: z.infer<typeof GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA>;
+  git_status: z.infer<typeof GIT_STATUS_TOOL_INPUT_SCHEMA>;
+  git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
+  github_pr_list: z.infer<typeof GITHUB_PR_LIST_TOOL_INPUT_SCHEMA>;
+  github_pr_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_review_threads_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_issue_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_run_get: z.infer<
+    typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_actions_job_logs_get: z.infer<
+    typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_cli_actions_run_get: z.infer<
+    typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_actions_job_logs_get: z.infer<
+    typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_pr_comment: z.infer<
+    typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA
+  >;
+  glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
+  grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
+};
+
 const READ_TOKEN_POLICY: ToolTokenPolicy = {
   maxOutputBytes: 24_000,
   maxLineBytes: 500,
@@ -1154,12 +1200,138 @@ export function getCodingToolDefinitions(): ToolDefinition[] {
   return codingToolRegistry.listDefinitions();
 }
 
+export function getCodingToolIds(): CodingToolId[] {
+  return [...CODING_TOOL_IDS];
+}
+
 export function getCodingCoreToolRegistry(): Record<string, CoreTool> {
   return codingToolRegistry.toCoreToolRegistry();
 }
 
 export function isCodingToolId(value: string): value is CodingToolId {
   return CODING_TOOL_IDS.includes(value as CodingToolId);
+}
+
+export function isMutatingCodingToolId(toolName: string): boolean {
+  return getCodingToolDefinition(toolName)?.permission.mode ===
+    "approval_required";
+}
+
+export function getCodingToolRoute(toolName: string): ToolGatewayRoute | null {
+  const definition = getCodingToolDefinition(toolName);
+  return definition ? { ...definition.route } : null;
+}
+
+export function validateCodingToolInput<T extends CodingToolId>(
+  toolName: T,
+  input: unknown,
+): CodingToolInputByName[T] {
+  const definition = getCodingToolDefinition(toolName);
+  if (!definition) {
+    throw new Error(`Unknown tool: ${toolName}`);
+  }
+
+  const parsed = definition.inputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(`Invalid ${toolName} input. ${formatIssues(parsed.error)}`);
+  }
+  return parsed.data as CodingToolInputByName[T];
+}
+
+export function enforceCodingToolFloor(
+  incomingTools: Record<string, CoreTool>,
+  metadata?: Record<string, unknown>,
+): Record<string, CoreTool> {
+  const constrained: Record<string, CoreTool> = {};
+  const githubCliFlags = resolveGitHubCliFlags(metadata);
+  const modelCapabilities = resolveModelCapabilities(metadata);
+  for (const toolName of CODING_TOOL_IDS) {
+    if (
+      !isCodingToolEnabledByFlags(toolName, githubCliFlags) ||
+      !isToolEnabledByModelCapabilities(toolName, modelCapabilities)
+    ) {
+      continue;
+    }
+    const incoming = incomingTools[toolName];
+    if (incoming) {
+      constrained[toolName] = incoming;
+    }
+  }
+  return constrained;
+}
+
+interface GitHubCliLaneFlags {
+  laneEnabled: boolean;
+  ciEnabled: boolean;
+  prCommentEnabled: boolean;
+}
+
+function formatIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`)
+    .join("; ");
+}
+
+function resolveModelCapabilities(
+  metadata: Record<string, unknown> | undefined,
+): ReadonlySet<string> {
+  const value = metadata?.modelCapabilities;
+  if (Array.isArray(value)) {
+    return new Set(
+      value.filter((item): item is string => typeof item === "string"),
+    );
+  }
+  if (!value || typeof value !== "object") {
+    return new Set();
+  }
+  return new Set(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, enabled]) => enabled === true)
+      .map(([capability]) => capability),
+  );
+}
+
+function isToolEnabledByModelCapabilities(
+  toolName: CodingToolId,
+  capabilities: ReadonlySet<string>,
+): boolean {
+  const required =
+    getCodingToolDefinition(toolName)?.requiredModelCapabilities ?? [];
+  return required.every((capability) => capabilities.has(capability));
+}
+
+function resolveGitHubCliFlags(
+  metadata: Record<string, unknown> | undefined,
+): GitHubCliLaneFlags {
+  const featureFlags =
+    metadata?.featureFlags && typeof metadata.featureFlags === "object"
+      ? (metadata.featureFlags as Record<string, unknown>)
+      : undefined;
+
+  return {
+    laneEnabled: readBoolean(featureFlags?.ghCliLaneEnabled) ?? false,
+    ciEnabled: readBoolean(featureFlags?.ghCliCiEnabled) ?? false,
+    prCommentEnabled: readBoolean(featureFlags?.ghCliPrCommentEnabled) ?? false,
+  };
+}
+
+function isCodingToolEnabledByFlags(
+  toolName: CodingToolId,
+  flags: GitHubCliLaneFlags,
+): boolean {
+  if (toolName === "github_cli_pr_comment") {
+    return flags.laneEnabled && flags.prCommentEnabled;
+  }
+
+  if (
+    toolName === "github_cli_pr_checks_get" ||
+    toolName === "github_cli_actions_run_get" ||
+    toolName === "github_cli_actions_job_logs_get"
+  ) {
+    return flags.laneEnabled && flags.ciEnabled;
+  }
+
+  return true;
 }
 
 function createUniqueDefinitionMap(

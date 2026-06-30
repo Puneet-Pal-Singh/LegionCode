@@ -284,26 +284,32 @@ export class PersistenceService {
   async persistAssistantTurn(input: {
     sessionId: string;
     runId: string;
+    turnId?: string | null;
     text: string;
     metadata?: Record<string, unknown>;
     activity?: TurnActivityTranscriptPart | null;
   }): Promise<TranscriptMessageRecord> {
     try {
       const parts = buildAssistantTurnParts(input);
+      const turnId = input.turnId ?? readActivityTurnId(input.activity);
       console.log(
         formatDiagnosticLogLine("chat/persistence", "assistant-turn-entered", {
           runId: input.runId,
           sessionId: input.sessionId,
+          turnId,
           textChars: input.text.length,
           metadataKeys: Object.keys(input.metadata ?? {}).join(",") || "none",
           activityEventCount: input.activity?.events.length ?? 0,
+          activitySnapshotItemCount:
+            input.activity?.activitySnapshot.items.length ?? 0,
+          activitySnapshotStatus: input.activity?.activitySnapshot.status ?? null,
           partCount: parts.length,
         }),
       );
       const idempotencyKey = await this.generateIdempotencyKey(
         input.sessionId,
         input.runId,
-        "assistant_turn",
+        `assistant_turn:${turnId ?? "unknown_turn"}`,
         input.text,
       );
 
@@ -320,14 +326,23 @@ export class PersistenceService {
         },
       );
       console.log(
-        formatDiagnosticLogLine("chat/persistence", "assistant-turn-persisted", {
-          runId: input.runId,
-          sessionId: input.sessionId,
-          persistedMessageId: message.id,
-          dedupeKey: idempotencyKey,
-          activityEventCount: input.activity?.events.length ?? 0,
-          partCount: parts.length,
-        }),
+        formatDiagnosticLogLine(
+          "chat/persistence",
+          "assistant-turn-persisted",
+          {
+            runId: input.runId,
+            sessionId: input.sessionId,
+            turnId,
+            persistedMessageId: message.id,
+            dedupeKey: idempotencyKey,
+            activityEventCount: input.activity?.events.length ?? 0,
+            activitySnapshotItemCount:
+              input.activity?.activitySnapshot.items.length ?? 0,
+            activitySnapshotStatus:
+              input.activity?.activitySnapshot.status ?? null,
+            partCount: parts.length,
+          },
+        ),
       );
       return message;
     } catch (error) {
@@ -335,6 +350,7 @@ export class PersistenceService {
         formatDiagnosticLogLine("chat/persistence", "assistant-turn-failed", {
           runId: input.runId,
           sessionId: input.sessionId,
+          turnId: input.turnId ?? readActivityTurnId(input.activity),
           textChars: input.text.length,
           error,
         }),
@@ -517,11 +533,24 @@ function buildAssistantTurnParts(input: {
     { type: "text", content: textContent },
   ];
 
-  if (input.activity && input.activity.events.length > 0) {
+  if (hasPersistableActivity(input.activity)) {
     parts.push({ type: "activity", content: toJsonValue(input.activity) });
   }
 
   return parts;
+}
+
+function hasPersistableActivity(
+  activity: TurnActivityTranscriptPart | null | undefined,
+): activity is TurnActivityTranscriptPart {
+  if (!activity) {
+    return false;
+  }
+  return (
+    activity.events.length > 0 ||
+    activity.activitySnapshot.items.length > 0 ||
+    activity.activitySnapshot.status !== null
+  );
 }
 
 function toJsonValue(value: unknown): JsonValue {
@@ -564,4 +593,18 @@ function buildPersistenceDedupeContent(message: CoreMessage): string {
 function readClientMessageId(message: CoreMessage): string | null {
   const candidate = message as { id?: unknown };
   return typeof candidate.id === "string" ? candidate.id : null;
+}
+
+function readActivityTurnId(
+  activity: TurnActivityTranscriptPart | null | undefined,
+): string | null {
+  const turnId = activity?.events.find((event) => event.turnId.trim())?.turnId;
+  if (turnId?.trim()) {
+    return turnId.trim();
+  }
+
+  const snapshotTurnId = activity?.activitySnapshot.items.find((item) =>
+    item.turnId?.trim(),
+  )?.turnId;
+  return snapshotTurnId?.trim() || null;
 }

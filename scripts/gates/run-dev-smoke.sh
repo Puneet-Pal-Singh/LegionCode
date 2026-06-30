@@ -12,14 +12,20 @@ run() {
 
 run corepack pnpm --filter @shadowbox/brain test -- \
   src/architecture/layering.boundary.test.ts \
-  src/architecture/no-legacy-imports.test.ts
+  src/architecture/local-dev-config.test.ts \
+  src/architecture/no-legacy-imports.test.ts \
+  src/runtime/RunEngineResponsePersistence.test.ts \
+  src/services/PersistenceService.test.ts
 
 run corepack pnpm --filter @shadowbox/secure-agent-api exec vitest run --dir src/conformance
 
 run corepack pnpm --filter @shadowbox/web test -- \
+  src/components/chat/ChatInterface.test.tsx \
+  src/components/chat/chat-interface/useActivityPresentation.test.tsx \
   src/lib/run-status.test.ts \
   src/lib/run-summary-status-snapshot.test.ts \
   src/services/lifecycle/LifecycleTerminalViewModel.test.ts \
+  src/services/activity/TranscriptActivityParts.test.ts \
   src/hooks/useRunSummary.test.tsx \
   src/hooks/useRunEvents.test.tsx \
   src/hooks/useChatHydration.test.tsx \

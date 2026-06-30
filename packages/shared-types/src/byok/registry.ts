@@ -420,7 +420,10 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
     providerId: "cloudflare-ai",
     displayName: "Cloudflare AI",
     authModes: ["api_key"],
-    launchStage: "coming_soon",
+    launchStage: "supported",
+    keyFormat: {
+      description: "Cloudflare API token with Workers AI access",
+    },
     capabilities: {
       streaming: true,
       tools: true,

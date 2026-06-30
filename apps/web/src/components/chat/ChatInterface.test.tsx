@@ -471,6 +471,47 @@ describe("ChatInterface", () => {
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
+  it("keeps activity polling alive while the run controller is stoppable", () => {
+    vi.mocked(useRunSummary).mockReturnValue({ summary: null });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "Update Footer.tsx",
+            },
+          ],
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          canStop: true,
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(useRunActivityFeed).toHaveBeenLastCalledWith("run-active", true);
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: true,
+        isLoading: true,
+      }),
+    );
+  });
+
   it("does not render a completed terminal fallback when an assistant message is visible", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
@@ -750,29 +791,46 @@ describe("ChatInterface", () => {
                     version: 1,
                     type: "turn_activity",
                     compacted: false,
-                    events: [
-                      {
-                        id: "activity-provider",
-                        runId: "run-1",
-                        sessionId: "session-1",
-                        turnId: "run-1:turn-1",
-                        sequence: 1,
-                        kind: "provider_error",
-                        status: "paused",
-                        title: "Provider interruption",
-                        detail:
-                          "The selected model stopped responding after retrying.",
-                        displayMode: "visible",
-                        metadata: {
-                          code: "PROVIDER_UNAVAILABLE",
-                          providerId: "google",
-                          modelId: "gemma-4-31b-it",
-                          statusCode: 500,
+                    events: [],
+                    activitySnapshot: {
+                      runId: "run-1",
+                      sessionId: "session-1",
+                      status: "PAUSED",
+                      items: [
+                        {
+                          id: "activity-user",
+                          runId: "run-1",
+                          sessionId: "session-1",
+                          turnId: "turn-1",
+                          kind: "text",
+                          role: "user",
+                          content: "check CI",
+                          createdAt: "2026-05-24T00:00:00.000Z",
+                          updatedAt: "2026-05-24T00:00:00.000Z",
+                          source: "brain",
                         },
-                        createdAt: "2026-05-24T00:00:00.000Z",
-                        updatedAt: "2026-05-24T00:00:00.000Z",
-                      },
-                    ],
+                        {
+                          id: "activity-provider",
+                          runId: "run-1",
+                          sessionId: "session-1",
+                          turnId: "turn-1",
+                          kind: "commentary",
+                          phase: "commentary",
+                          status: "completed",
+                          text:
+                            "The selected model stopped responding.",
+                          metadata: {
+                            code: "PROVIDER_UNAVAILABLE",
+                            providerId: "google",
+                            modelId: "gemma-4-31b-it",
+                            statusCode: 500,
+                          },
+                          createdAt: "2026-05-24T00:00:01.000Z",
+                          updatedAt: "2026-05-24T00:00:01.000Z",
+                          source: "brain",
+                        },
+                      ],
+                    },
                   },
                 ],
               },

@@ -3,6 +3,7 @@ import type {
   TranscriptMessageRecord,
   TranscriptRepository,
 } from "@repo/persistence";
+import { MemoryTranscriptRepository } from "@repo/persistence";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../types/ai";
 import {
@@ -185,21 +186,32 @@ describe("PersistenceService", () => {
         version: 1,
         type: "turn_activity",
         compacted: false,
-        events: [
-          {
-            id: "activity-1",
-            runId: "123e4567-e89b-42d3-a456-426614174000",
-            sessionId: "123e4567-e89b-42d3-a456-426614174001",
-            turnId: "turn-1",
-            sequence: 1,
-            kind: "provider_error",
-            status: "paused",
-            title: "Provider interruption",
-            displayMode: "visible",
-            createdAt: "2026-05-24T00:00:00.000Z",
-            updatedAt: "2026-05-24T00:00:00.000Z",
-          },
-        ],
+        events: [],
+        activitySnapshot: {
+          runId: "123e4567-e89b-42d3-a456-426614174000",
+          sessionId: "123e4567-e89b-42d3-a456-426614174001",
+          status: "PAUSED",
+          items: [
+            {
+              id: "activity-1",
+              runId: "123e4567-e89b-42d3-a456-426614174000",
+              sessionId: "123e4567-e89b-42d3-a456-426614174001",
+              turnId: "turn-1",
+              kind: "commentary",
+              phase: "commentary",
+              status: "completed",
+              text: "The selected model stopped responding.",
+              source: "brain",
+              metadata: {
+                code: "PROVIDER_UNAVAILABLE",
+                retryable: true,
+                providerId: "google",
+              },
+              createdAt: "2026-05-24T00:00:00.000Z",
+              updatedAt: "2026-05-24T00:00:00.000Z",
+            },
+          ],
+        },
       },
     });
 
@@ -222,17 +234,104 @@ describe("PersistenceService", () => {
             type: "activity",
             content: expect.objectContaining({
               type: "turn_activity",
-              events: [
-                expect.objectContaining({
-                  kind: "provider_error",
-                  status: "paused",
-                }),
-              ],
+              events: [],
+              activitySnapshot: expect.objectContaining({
+                status: "PAUSED",
+                items: [
+                  expect.objectContaining({
+                    kind: "commentary",
+                    text: "The selected model stopped responding.",
+                    turnId: "turn-1",
+                  }),
+                ],
+              }),
             }),
           }),
         ],
       }),
     );
+  });
+
+  it("appends assistant turns for distinct user turns on the same run", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "Build transcript",
+      status: "idle",
+    });
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-1",
+      text: "Done.",
+    });
+    await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-2",
+      text: "Done.",
+    });
+
+    const transcript = await repository.listTranscript({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+    });
+    expect(transcript.messages).toHaveLength(2);
+    expect(transcript.messages.map((message) => message.role)).toEqual([
+      "assistant",
+      "assistant",
+    ]);
+    expect(transcript.messages.map((message) => message.id)).toHaveLength(
+      new Set(transcript.messages.map((message) => message.id)).size,
+    );
+  });
+
+  it("dedupes assistant retries for the same user turn on the same run", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.ensureSession({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      taskId: "123e4567-e89b-42d3-a456-426614174001",
+      title: "Build transcript",
+      status: "idle",
+    });
+    withTranscriptRepositoryMock.mockImplementation(
+      async (
+        _env: Env,
+        callback: (repository: TranscriptRepository) => Promise<unknown>,
+      ) => callback(repository),
+    );
+
+    const service = new PersistenceService(createEnv());
+    const first = await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-1",
+      text: "Done.",
+    });
+    const retry = await service.persistAssistantTurn({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      turnId: "client-msg-1",
+      text: "Done.",
+    });
+
+    const transcript = await repository.listTranscript({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+    });
+    expect(retry.id).toBe(first.id);
+    expect(transcript.messages).toHaveLength(1);
   });
 
   it("persists image-bearing user messages as redacted text parts", async () => {

@@ -16,10 +16,14 @@ export {
 
 export { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 export {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-  getGoldenFlowToolRoute,
-  isGoldenFlowToolName,
-  type GoldenFlowToolName,
+  executeRunEngineThroughRuntimeKernel,
+  type RunEngineKernelAdapterInput,
+} from "./RunEngineKernelAdapter.js";
+export {
+  getCodingCoreToolRegistry,
+  getCodingToolRoute,
+  isCodingToolId,
+  enforceCodingToolFloor,
+  type CodingToolId,
   type ToolGatewayRoute,
-} from "../contracts/CodingToolGateway.js";
+} from "../tools/CodingToolRegistry.js";

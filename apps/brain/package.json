@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @shadowbox/execution-engine build && wrangler dev --port 8788 --inspector-port 9230",
+    "dev": "pnpm --filter @shadowbox/execution-engine build && wrangler dev --config wrangler.local.jsonc --port 8788 --inspector-port 9230",
     "deploy": "wrangler deploy",
     "check-types": "tsc --noEmit",
     "lint": "eslint .",

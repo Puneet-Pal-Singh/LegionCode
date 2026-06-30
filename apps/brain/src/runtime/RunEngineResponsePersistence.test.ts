@@ -185,43 +185,107 @@ describe("persistAssistantMessageFromRunResponse", () => {
       expect.objectContaining({
         sessionId: SESSION_ID,
         runId: RUN_ID,
+        turnId: "client-msg-2",
         text: "Done from canonical run output.",
       }),
     );
-    expect(persistedTurn?.activity?.events).toEqual([
+    expect(persistedTurn?.activity?.events).toEqual([]);
+    expect(persistedTurn?.activity?.activitySnapshot).toMatchObject({
+      runId: RUN_ID,
+      sessionId: SESSION_ID,
+      status: "COMPLETED",
+    });
+    expect(persistedTurn?.activity?.activitySnapshot.items).toEqual([
       expect.objectContaining({
-        kind: "progress",
-        title: "Finding files",
-        detail: "Finding **/Footer.tsx",
+        kind: "text",
+        role: "user",
+        content: "second prompt",
         turnId: "client-msg-2",
-        sequence: 1,
       }),
       expect.objectContaining({
-        kind: "thinking",
-        title: "Thinking",
-        detail: "Reading src/components/layout/Footer.tsx",
+        kind: "reasoning",
+        label: "Finding files",
+        summary: "Finding **/Footer.tsx",
         turnId: "client-msg-2",
-        sequence: 2,
       }),
       expect.objectContaining({
-        kind: "tool_call",
-        title: "Reading src/components/layout/Footer.tsx",
+        kind: "commentary",
+        text: "Reading src/components/layout/Footer.tsx",
+        turnId: "client-msg-2",
+      }),
+      expect.objectContaining({
+        kind: "tool",
+        toolName: "read_file",
         status: "completed",
         turnId: "client-msg-2",
-        sequence: 3,
-      }),
-      expect.objectContaining({
-        kind: "tool_result",
-        title: "read_file completed",
-        status: "completed",
-        turnId: "client-msg-2",
-        sequence: 4,
+        metadata: expect.objectContaining({
+          displayText: "Reading src/components/layout/Footer.tsx",
+          path: "src/components/layout/Footer.tsx",
+        }),
       }),
     ]);
-    expect(persistedTurn?.activity?.events).not.toEqual(
+    expect(persistedTurn?.activity?.activitySnapshot.items).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ title: "Old first-turn work" }),
+        expect.objectContaining({ label: "Old first-turn work" }),
       ]),
+    );
+  });
+
+  it("uses the latest user event as the assistant turn id when activity is empty", async () => {
+    const ctx = new MockDurableObjectState();
+    await seedRun(ctx, {
+      status: "COMPLETED",
+      outputContent: "No workflow rows, still persist this turn.",
+    });
+    await seedRunEvents(ctx, [
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "first prompt",
+          "user",
+          { clientMessageId: "client-msg-1" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        1,
+      ),
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "second prompt",
+          "user",
+          { clientMessageId: "client-msg-2" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        2,
+      ),
+    ]);
+    const persistAssistantTurn = vi
+      .spyOn(PersistenceService.prototype, "persistAssistantTurn")
+      .mockResolvedValue(createTranscriptMessageRecord("assistant-1"));
+    vi.spyOn(PersistenceService.prototype, "updateRunStatus").mockResolvedValue(
+      createRunRecord(),
+    );
+
+    await persistAssistantMessageFromRunResponse(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      SESSION_ID,
+      RUN_ID,
+      CORRELATION_ID,
+      createOkTextResponse("This response body is not the source of truth."),
+    );
+
+    expect(persistAssistantTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: "client-msg-2",
+        text: "No workflow rows, still persist this turn.",
+      }),
     );
   });
 
