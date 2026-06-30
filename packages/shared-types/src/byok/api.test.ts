@@ -114,6 +114,31 @@ describe("BYOK API Contracts", () => {
     expect(result.success).toBe(true);
   });
 
+  it("validates Cloudflare AI credential connect config for /api/byok/credentials", () => {
+    const request = {
+      providerId: "cloudflare-ai",
+      secret: "cf-test-token",
+      config: {
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        routeMode: "workers-ai-direct" as const,
+      },
+    };
+
+    const result = BYOKCredentialConnectRequestSchema.safeParse(request);
+    expect(result.success).toBe(true);
+  });
+
+  it("requires Cloudflare AI credential connect config for /api/byok/credentials", () => {
+    const request = {
+      providerId: "cloudflare-ai",
+      secret: "cf-test-token",
+    };
+
+    const result = BYOKCredentialConnectRequestSchema.safeParse(request);
+    expect(result.success).toBe(false);
+  });
+
   it("validates credential validation request/response shape", () => {
     const request = { mode: "live" as const };
     const response = {
