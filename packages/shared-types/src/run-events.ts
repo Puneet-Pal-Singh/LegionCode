@@ -3,6 +3,7 @@
  * Shared contract used across web, brain, and muscle layers
  */
 
+import { isActivityPart, type ActivityFeedSnapshot } from "./activity-feed.js";
 import { RunStatus } from "./run-status.js";
 import type {
   ApprovalDecisionKind,
@@ -90,6 +91,7 @@ export interface TurnActivityTranscriptPart {
   version: 1;
   type: "turn_activity";
   events: TurnActivityEvent[];
+  activitySnapshot: ActivityFeedSnapshot;
   compacted: boolean;
 }
 
@@ -103,12 +105,27 @@ export function isTurnActivityTranscriptPart(
   return (
     value.version === 1 &&
     value.type === "turn_activity" &&
-    Array.isArray(value.events)
+    Array.isArray(value.events) &&
+    isActivitySnapshot(value.activitySnapshot)
   );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
+}
+
+function isActivitySnapshot(value: unknown): value is ActivityFeedSnapshot {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.runId === "string" &&
+    (value.sessionId === undefined || typeof value.sessionId === "string") &&
+    (value.status === null || typeof value.status === "string") &&
+    Array.isArray(value.items) &&
+    value.items.every(isActivityPart)
+  );
 }
 
 export const MESSAGE_TRANSCRIPT_PHASES = {

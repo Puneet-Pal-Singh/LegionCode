@@ -93,9 +93,26 @@ describe("Turn activity transcript part guard", () => {
         version: 1,
         type: "turn_activity",
         events: [],
+        activitySnapshot: {
+          runId: "run-1",
+          sessionId: "session-1",
+          status: "COMPLETED",
+          items: [],
+        },
         compacted: false,
       }),
     ).toBe(true);
+  });
+
+  it("rejects legacy event-only turn activity transcript parts", () => {
+    expect(
+      isTurnActivityTranscriptPart({
+        version: 1,
+        type: "turn_activity",
+        events: [],
+        compacted: false,
+      }),
+    ).toBe(false);
   });
 
   it("rejects non-transcript parts", () => {

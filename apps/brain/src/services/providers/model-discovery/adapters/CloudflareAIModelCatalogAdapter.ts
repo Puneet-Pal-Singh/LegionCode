@@ -13,7 +13,10 @@ import {
   ProviderModelDiscoveryApiError,
   ProviderModelNormalizationError,
 } from "../errors";
-import { buildCloudflareAIRoute } from "../../cloudflare/CloudflareAIRouteBuilder";
+import {
+  buildCloudflareAIRoute,
+  resolveCloudflareRuntimeModelId,
+} from "../../cloudflare/CloudflareAIRouteBuilder";
 
 const CLOUDFLARE_AI_PROVIDER_ID = "cloudflare-ai";
 const CLOUDFLARE_AI_FETCH_TIMEOUT_MS = 15_000;
@@ -166,7 +169,7 @@ function normalizeCloudflareModel(
     },
     runtimeRoute: {
       providerId: CLOUDFLARE_AI_PROVIDER_ID,
-      modelId: model.id,
+      modelId: resolveCloudflareRuntimeModelId(config, model.id),
       transport: "openai-chat-completions",
       endpoint,
     },

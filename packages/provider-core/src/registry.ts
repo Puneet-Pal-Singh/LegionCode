@@ -86,7 +86,7 @@ const REASONING_PROVIDERS = new Set([
   "opencode-zen",
 ]);
 const REASONING_SUMMARY_PROVIDERS = new Set(["openai", "openrouter"]);
-const DIRECT_BYOK_PROVIDERS = new Set(["openrouter", "groq"]);
+const DIRECT_BYOK_PROVIDERS = new Set(["openrouter", "groq", "cloudflare-ai"]);
 
 export class ProviderRegistry {
   private readonly providersById: ReadonlyMap<string, ProviderDefinition>;
