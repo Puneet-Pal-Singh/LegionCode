@@ -189,39 +189,44 @@ describe("persistAssistantMessageFromRunResponse", () => {
         text: "Done from canonical run output.",
       }),
     );
-    expect(persistedTurn?.activity?.events).toEqual([
+    expect(persistedTurn?.activity?.events).toEqual([]);
+    expect(persistedTurn?.activity?.activitySnapshot).toMatchObject({
+      runId: RUN_ID,
+      sessionId: SESSION_ID,
+      status: "COMPLETED",
+    });
+    expect(persistedTurn?.activity?.activitySnapshot.items).toEqual([
       expect.objectContaining({
-        kind: "progress",
-        title: "Finding files",
-        detail: "Finding **/Footer.tsx",
+        kind: "text",
+        role: "user",
+        content: "second prompt",
         turnId: "client-msg-2",
-        sequence: 1,
       }),
       expect.objectContaining({
-        kind: "thinking",
-        title: "Thinking",
-        detail: "Reading src/components/layout/Footer.tsx",
+        kind: "reasoning",
+        label: "Finding files",
+        summary: "Finding **/Footer.tsx",
         turnId: "client-msg-2",
-        sequence: 2,
       }),
       expect.objectContaining({
-        kind: "tool_call",
-        title: "Reading src/components/layout/Footer.tsx",
+        kind: "commentary",
+        text: "Reading src/components/layout/Footer.tsx",
+        turnId: "client-msg-2",
+      }),
+      expect.objectContaining({
+        kind: "tool",
+        toolName: "read_file",
         status: "completed",
         turnId: "client-msg-2",
-        sequence: 3,
-      }),
-      expect.objectContaining({
-        kind: "tool_result",
-        title: "read_file completed",
-        status: "completed",
-        turnId: "client-msg-2",
-        sequence: 4,
+        metadata: expect.objectContaining({
+          displayText: "Reading src/components/layout/Footer.tsx",
+          path: "src/components/layout/Footer.tsx",
+        }),
       }),
     ]);
-    expect(persistedTurn?.activity?.events).not.toEqual(
+    expect(persistedTurn?.activity?.activitySnapshot.items).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ title: "Old first-turn work" }),
+        expect.objectContaining({ label: "Old first-turn work" }),
       ]),
     );
   });

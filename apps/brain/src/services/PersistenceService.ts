@@ -300,6 +300,9 @@ export class PersistenceService {
           textChars: input.text.length,
           metadataKeys: Object.keys(input.metadata ?? {}).join(",") || "none",
           activityEventCount: input.activity?.events.length ?? 0,
+          activitySnapshotItemCount:
+            input.activity?.activitySnapshot.items.length ?? 0,
+          activitySnapshotStatus: input.activity?.activitySnapshot.status ?? null,
           partCount: parts.length,
         }),
       );
@@ -333,6 +336,10 @@ export class PersistenceService {
             persistedMessageId: message.id,
             dedupeKey: idempotencyKey,
             activityEventCount: input.activity?.events.length ?? 0,
+            activitySnapshotItemCount:
+              input.activity?.activitySnapshot.items.length ?? 0,
+            activitySnapshotStatus:
+              input.activity?.activitySnapshot.status ?? null,
             partCount: parts.length,
           },
         ),
@@ -526,11 +533,24 @@ function buildAssistantTurnParts(input: {
     { type: "text", content: textContent },
   ];
 
-  if (input.activity && input.activity.events.length > 0) {
+  if (hasPersistableActivity(input.activity)) {
     parts.push({ type: "activity", content: toJsonValue(input.activity) });
   }
 
   return parts;
+}
+
+function hasPersistableActivity(
+  activity: TurnActivityTranscriptPart | null | undefined,
+): activity is TurnActivityTranscriptPart {
+  if (!activity) {
+    return false;
+  }
+  return (
+    activity.events.length > 0 ||
+    activity.activitySnapshot.items.length > 0 ||
+    activity.activitySnapshot.status !== null
+  );
 }
 
 function toJsonValue(value: unknown): JsonValue {
@@ -579,5 +599,12 @@ function readActivityTurnId(
   activity: TurnActivityTranscriptPart | null | undefined,
 ): string | null {
   const turnId = activity?.events.find((event) => event.turnId.trim())?.turnId;
-  return turnId?.trim() || null;
+  if (turnId?.trim()) {
+    return turnId.trim();
+  }
+
+  const snapshotTurnId = activity?.activitySnapshot.items.find((item) =>
+    item.turnId?.trim(),
+  )?.turnId;
+  return snapshotTurnId?.trim() || null;
 }

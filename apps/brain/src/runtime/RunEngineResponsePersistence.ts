@@ -172,6 +172,8 @@ async function persistAssistantMessageFromRunOutput(
         sessionId,
         eventCount: events.length,
         activityEventCount: activity.events.length,
+        activitySnapshotItemCount: activity.activitySnapshot.items.length,
+        activitySnapshotStatus: activity.activitySnapshot.status,
         turnId: readCurrentTurnId(activity, events),
         terminalStatus: mapRuntimeActivityTerminalStatus(run?.status),
       }),
@@ -212,6 +214,13 @@ function readCurrentTurnId(
   )?.turnId;
   if (activityTurnId?.trim()) {
     return activityTurnId.trim();
+  }
+
+  const snapshotTurnId = activity.activitySnapshot.items.find((item) =>
+    item.turnId?.trim(),
+  )?.turnId;
+  if (snapshotTurnId?.trim()) {
+    return snapshotTurnId.trim();
   }
 
   const latestUserMessage = events.filter(isUserMessageEvent).at(-1);

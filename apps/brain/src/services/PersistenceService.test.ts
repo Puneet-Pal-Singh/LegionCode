@@ -186,21 +186,32 @@ describe("PersistenceService", () => {
         version: 1,
         type: "turn_activity",
         compacted: false,
-        events: [
-          {
-            id: "activity-1",
-            runId: "123e4567-e89b-42d3-a456-426614174000",
-            sessionId: "123e4567-e89b-42d3-a456-426614174001",
-            turnId: "turn-1",
-            sequence: 1,
-            kind: "provider_error",
-            status: "paused",
-            title: "Provider interruption",
-            displayMode: "visible",
-            createdAt: "2026-05-24T00:00:00.000Z",
-            updatedAt: "2026-05-24T00:00:00.000Z",
-          },
-        ],
+        events: [],
+        activitySnapshot: {
+          runId: "123e4567-e89b-42d3-a456-426614174000",
+          sessionId: "123e4567-e89b-42d3-a456-426614174001",
+          status: "PAUSED",
+          items: [
+            {
+              id: "activity-1",
+              runId: "123e4567-e89b-42d3-a456-426614174000",
+              sessionId: "123e4567-e89b-42d3-a456-426614174001",
+              turnId: "turn-1",
+              kind: "commentary",
+              phase: "commentary",
+              status: "completed",
+              text: "The selected model stopped responding.",
+              source: "brain",
+              metadata: {
+                code: "PROVIDER_UNAVAILABLE",
+                retryable: true,
+                providerId: "google",
+              },
+              createdAt: "2026-05-24T00:00:00.000Z",
+              updatedAt: "2026-05-24T00:00:00.000Z",
+            },
+          ],
+        },
       },
     });
 
@@ -223,12 +234,17 @@ describe("PersistenceService", () => {
             type: "activity",
             content: expect.objectContaining({
               type: "turn_activity",
-              events: [
-                expect.objectContaining({
-                  kind: "provider_error",
-                  status: "paused",
-                }),
-              ],
+              events: [],
+              activitySnapshot: expect.objectContaining({
+                status: "PAUSED",
+                items: [
+                  expect.objectContaining({
+                    kind: "commentary",
+                    text: "The selected model stopped responding.",
+                    turnId: "turn-1",
+                  }),
+                ],
+              }),
             }),
           }),
         ],
