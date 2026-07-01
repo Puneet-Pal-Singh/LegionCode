@@ -3,9 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = fileURLToPath(
-  new URL("../../../../../", import.meta.url),
-);
+const REPO_ROOT = fileURLToPath(new URL("../../../../../", import.meta.url));
 const BRAIN_RUN_HANDLER = join(
   REPO_ROOT,
   "apps/brain/src/runtime/RunEngineRequestHandler.ts",
@@ -50,5 +48,18 @@ describe("RuntimeKernel live path boundary", () => {
     expect(source).toContain("recordRunStatusChanged");
     expect(source).toContain("runWithNativeCancellationPolling");
     expect(source).toContain("NativeRunCancelledError");
+  });
+
+  it("keeps native model steps visible and classified by current turn intent", () => {
+    const source = readFileSync(NATIVE_RUNNER, "utf8");
+
+    expect(source).toContain("classifyCurrentTurnIntent");
+    expect(source).toContain("requiresMutationForIntent");
+    expect(source).toContain("recordModelStepStarted");
+    expect(source).toContain("recordModelStepCompleted");
+    expect(source).toContain(
+      'recordRunProgress(\n      RUN_WORKFLOW_STEPS.EXECUTION,\n      "Thinking"',
+    );
+    expect(source).not.toContain("requiresMutation: true,");
   });
 });

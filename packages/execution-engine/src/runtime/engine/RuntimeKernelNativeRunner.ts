@@ -119,6 +119,10 @@ import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
+import {
+  classifyCurrentTurnIntent,
+  requiresMutationForIntent,
+} from "./RunCurrentTurnIntent.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -528,6 +532,10 @@ class KernelAgenticProvider implements ProviderPort {
   private completedReadOnlyToolCount = 0;
   private stopReason: StopReason = "llm_stop";
   private readonly toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
+  private readonly currentTurnIntent: ReturnType<
+    typeof classifyCurrentTurnIntent
+  >;
+  private readonly requiresMutation: boolean;
 
   constructor(
     private readonly options: {
@@ -543,6 +551,8 @@ class KernelAgenticProvider implements ProviderPort {
     },
   ) {
     this.messages = [...options.messages];
+    this.currentTurnIntent = classifyCurrentTurnIntent(options.input.prompt);
+    this.requiresMutation = requiresMutationForIntent(this.currentTurnIntent);
   }
 
   async generateNext(input: ProviderCallInput): Promise<ProviderStep> {
@@ -561,6 +571,7 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
+    await this.recordModelStepStarted(input);
     const response = await runWithNativeCancellationPolling(
       this.options.llmGateway.generateText({
         context: {
@@ -580,7 +591,7 @@ class KernelAgenticProvider implements ProviderPort {
             gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
           }),
           finalSynthesisOnly: false,
-          requiresMutation: true,
+          requiresMutation: this.requiresMutation,
           completedMutatingToolCount: this.completedMutatingToolCount,
           completedReadOnlyToolCount: this.completedReadOnlyToolCount,
           explicitCiLogRequest: false,
@@ -599,6 +610,7 @@ class KernelAgenticProvider implements ProviderPort {
     );
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     this.stepsExecuted += 1;
+    await this.recordModelStepCompleted(input);
     const toolCalls = response.toolCalls ?? [];
     this.messages.push(buildAssistantMessage(response.text ?? "", toolCalls));
     if (toolCalls.length === 0) {
@@ -698,11 +710,58 @@ class KernelAgenticProvider implements ProviderPort {
       toolExecutionCount: this.toolExecutionCount,
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
-      requiresMutation: true,
+      requiresMutation: this.requiresMutation,
+      currentTurnIntent: this.currentTurnIntent,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       toolLifecycle: [...this.toolLifecycle],
     };
+  }
+
+  private async recordModelStepStarted(
+    input: ProviderCallInput,
+  ): Promise<void> {
+    await this.options.runEventRecorder.recordRunProgress(
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "Thinking",
+      "",
+      "active",
+      {
+        displayMode: "visible",
+        metadata: {
+          owner: "runtime-kernel-native",
+          step: this.stepsExecuted + 1,
+          turnId: input.turn.id,
+          currentTurnIntent: this.currentTurnIntent,
+          requiresMutation: this.requiresMutation,
+        },
+      },
+    );
+    console.log(
+      `[runtime-kernel/native] model_step_started runId=${this.options.run.id} sessionId=${this.options.run.sessionId} step=${this.stepsExecuted + 1} intent=${this.currentTurnIntent} requiresMutation=${this.requiresMutation}`,
+    );
+  }
+
+  private async recordModelStepCompleted(
+    input: ProviderCallInput,
+  ): Promise<void> {
+    await this.options.runEventRecorder.recordRunProgress(
+      RUN_WORKFLOW_STEPS.EXECUTION,
+      "Thinking",
+      "",
+      "completed",
+      {
+        displayMode: "debug",
+        metadata: {
+          owner: "runtime-kernel-native",
+          step: this.stepsExecuted,
+          turnId: input.turn.id,
+        },
+      },
+    );
+    console.log(
+      `[runtime-kernel/native] model_step_completed runId=${this.options.run.id} sessionId=${this.options.run.sessionId} step=${this.stepsExecuted}`,
+    );
   }
 
   private async collectNewToolResults(
