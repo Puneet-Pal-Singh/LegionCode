@@ -228,11 +228,10 @@ export function useRunSummary(
         return;
       }
 
-      const shouldSkipTerminalSummary =
-        !shouldPoll &&
-        isTerminalRunStatus(summaryStatus) &&
-        !isApprovalRequiredRunStatus(summaryStatus) &&
-        !pendingApprovalRequestId;
+      const shouldSkipTerminalSummary = isTerminalWithoutPendingApproval(
+        summaryStatus,
+        pendingApprovalRequestId,
+      );
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
@@ -252,19 +251,7 @@ export function useRunSummary(
   ]);
 
   useEffect(() => {
-    const isMissingCanonicalSummary = summary === null;
-    const shouldSettleCanonicalStatus =
-      Boolean(summaryStatus) &&
-      !isTerminalRunStatus(summaryStatus) &&
-      !isApprovalRequiredRunStatus(summaryStatus);
-    const isApprovalActive = isApprovalRequiredRunStatus(summaryStatus);
-    if (
-      !runId ||
-      (!shouldPoll &&
-        !isMissingCanonicalSummary &&
-        !shouldSettleCanonicalStatus &&
-        !isApprovalActive)
-    ) {
+    if (!runId || !shouldKeepRunSummaryPolling(summary, shouldPoll)) {
       return;
     }
 
@@ -277,8 +264,10 @@ export function useRunSummary(
       }
       const currentStatus = summaryStatusRef.current;
       if (
-        isTerminalRunStatus(currentStatus) &&
-        !isApprovalRequiredRunStatus(currentStatus)
+        isTerminalWithoutPendingApproval(
+          currentStatus,
+          summary?.pendingApproval?.requestId ?? null,
+        )
       ) {
         return;
       }
@@ -291,4 +280,40 @@ export function useRunSummary(
   }, [fetchSummary, runId, shouldPoll, summary, summaryStatus]);
 
   return { summary };
+}
+
+function shouldKeepRunSummaryPolling(
+  summary: RunSummary | null,
+  shouldPoll: boolean,
+): boolean {
+  if (summary === null) {
+    return true;
+  }
+  const status = summary.status ?? null;
+  if (
+    isTerminalWithoutPendingApproval(
+      status,
+      summary.pendingApproval?.requestId ?? null,
+    )
+  ) {
+    return false;
+  }
+  if (summary.pendingApproval || isApprovalRequiredRunStatus(status)) {
+    return true;
+  }
+  if (!isTerminalRunStatus(status)) {
+    return true;
+  }
+  return shouldPoll;
+}
+
+function isTerminalWithoutPendingApproval(
+  status: string | null,
+  pendingApprovalRequestId: string | null,
+): boolean {
+  return (
+    isTerminalRunStatus(status) &&
+    !isApprovalRequiredRunStatus(status) &&
+    !pendingApprovalRequestId
+  );
 }

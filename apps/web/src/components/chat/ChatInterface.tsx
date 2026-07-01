@@ -200,6 +200,7 @@ export function ChatInterface({
   } = useApprovalController({
     runId,
     lifecycleProjection,
+    summaryPendingApproval: summary?.pendingApproval ?? null,
     onPendingApprovalChange,
   });
   const conversationTurns = useMemo(
