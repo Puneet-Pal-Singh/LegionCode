@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,6 +42,23 @@ describe("runtime tool authority boundary", () => {
       );
 
     expect(violations).toEqual([]);
+  });
+
+  it("quarantines GoldenFlow compatibility behind the named legacy adapter", () => {
+    const removedGatewayPath = join(
+      REPO_ROOT,
+      "packages/execution-engine/src/runtime/contracts/CodingToolGateway.ts",
+    );
+    const adapterPath = join(
+      REPO_ROOT,
+      "packages/execution-engine/src/runtime/contracts/LegacyGoldenFlowToolRegistryAdapter.ts",
+    );
+    const adapter = readFileSync(adapterPath, "utf8");
+
+    expect(existsSync(removedGatewayPath)).toBe(false);
+    expect(adapter).toContain("Quarantined legacy adapter");
+    expect(adapter).toContain("Deletion criteria:");
+    expect(adapter).toContain("Canonical path:");
   });
 });
 

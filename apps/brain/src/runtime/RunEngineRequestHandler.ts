@@ -4,21 +4,21 @@ import { z } from "zod";
 import {
   ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,
+  RUN_TERMINAL_STATES,
   RUN_WORKFLOW_STEPS,
   type RunEvent,
 } from "@repo/shared-types";
 import { RunIdSchema } from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
-  RunEngine,
   RunEventRecorder,
   RunEventRepository,
-  executeRunEngineThroughRuntimeKernel,
   projectRunActivityFeed,
   projectRunSummaryFromEvents,
   tagRuntimeStateSemantics,
   RunRepository,
   TaskRepository,
+  RuntimeKernelNativeRunner,
 } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
@@ -42,6 +42,7 @@ import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditAr
 import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersistence";
 import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
+import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
@@ -162,13 +163,6 @@ export class RunEngineRequestHandler {
     const runtimeState = this.createRuntimeState();
     const eventRepo = new RunEventRepository(runtimeState);
     const events = await eventRepo.getByRun(runId);
-    console.log(
-      formatDiagnosticLogLine("run/events", "snapshot-served", {
-        runId,
-        eventCount: events.length,
-        eventTypes: summarizeRunEventTypes(events),
-      }),
-    );
     return withRunEngineHeaders(
       request,
       this.env,
@@ -257,15 +251,6 @@ export class RunEngineRequestHandler {
     const run = await runRepo.getById(runId);
     const events = await eventRepo.getByRun(runId);
     const activity = projectRunActivityFeed({ runId, run, events });
-    console.log(
-      formatDiagnosticLogLine("run/activity", "snapshot-served", {
-        runId,
-        runStatus: run?.status ?? null,
-        activityStatus: activity.status,
-        eventCount: events.length,
-        itemCount: activity.items.length,
-      }),
-    );
 
     return runEngineJsonResponse(request, this.env, activity);
   }
@@ -331,6 +316,12 @@ export class RunEngineRequestHandler {
       run.status,
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
+    );
+    await runEventRecorder.recordMessageEmitted(
+      "assistant",
+      "The run was cancelled before execution could finish.",
+      { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
+      { phase: "final_answer", status: "completed" },
     );
 
     let cancelledTasks = 0;
@@ -535,7 +526,7 @@ export class RunEngineRequestHandler {
         });
         const canonicalEventSink = this.createCanonicalEventSink();
 
-        const runEngine = new RunEngine(
+        const runtimeRunner = new RuntimeKernelNativeRunner(
           runtimeState,
           {
             env: this.env,
@@ -546,10 +537,8 @@ export class RunEngineRequestHandler {
             requestOrigin: payload.requestOrigin,
           },
           agent,
-          undefined,
           {
             ...runEngineDeps,
-            prepareMutationCapture: () => editArtifactCoordinator.prepare(),
             runEventListener: async (event) => {
               await canonicalEventSink.persist(event, payload.correlationId);
               this.emitLiveEvent(event);
@@ -559,20 +548,19 @@ export class RunEngineRequestHandler {
         );
 
         const runtimeTools = toRuntimeCoreTools(payload.tools);
-        const executionResponse = await executeRunEngineThroughRuntimeKernel({
+        const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
           runId: payload.runId,
           sessionId: payload.sessionId,
-          userId: payload.userId,
-          workspaceId: payload.workspaceId,
           correlationId: payload.correlationId,
+          sink: canonicalEventSink,
+          onRunEvent: (event) => this.emitLiveEvent(event),
+        });
+        await editArtifactCoordinator.prepare();
+        const executionResponse = await runtimeRunner.execute({
           input: payload.input,
+          messages: payload.messages as CoreMessage[],
           tools: runtimeTools,
-          executeLegacyRunEngine: () =>
-            runEngine.execute(
-              payload.input,
-              payload.messages as CoreMessage[],
-              runtimeTools,
-            ),
+          lifecycleEvents: kernelLifecycleEvents,
         });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
@@ -721,16 +709,6 @@ function readLatestUserMessageId(
     return message.id?.trim() || null;
   }
   return null;
-}
-
-function summarizeRunEventTypes(events: readonly RunEvent[]): string {
-  const counts = new Map<string, number>();
-  for (const event of events) {
-    counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([eventType, count]) => `${eventType}:${count}`)
-    .join(",");
 }
 
 function toRuntimeCoreTools(

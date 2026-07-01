@@ -7,7 +7,6 @@ import {
   type RunAttemptId,
   type Turn,
 } from "@repo/platform-protocol";
-import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import {
   RuntimeKernel,
   type RuntimeGitSnapshotPort,
@@ -38,14 +37,24 @@ export interface RunEngineKernelAdapterInput {
   input: RunInput;
   tools: Record<string, CoreTool>;
   executeLegacyRunEngine: () => Promise<Response>;
-  lifecycleEvents?: RuntimeLifecycleEventStore;
+  lifecycleEvents: RuntimeLifecycleEventStore;
   now?: () => string;
 }
 
+/**
+ * Quarantined legacy executor adapter.
+ *
+ * Owner: Runtime platform.
+ * Why it exists: direct-file legacy characterization tests still cover the old
+ * adapter contract while the native RuntimeKernel runner soaks.
+ * Canonical path: RuntimeKernel startTurn with native provider, worker,
+ * tool authorization, approval, manifest, and artifact ports.
+ * Deletion criteria: remove this adapter when no direct references remain and
+ * native RuntimeKernel runner parity has soaked.
+ */
 export async function executeRunEngineThroughRuntimeKernel(
   input: RunEngineKernelAdapterInput,
 ): Promise<Response> {
-  const lifecycleEvents = input.lifecycleEvents ?? new LocalLifecycleEventStore();
   const now = input.now ?? (() => new Date().toISOString());
   const protocol = buildProtocolEnvelope(input, now());
   let response: Response | null = null;
@@ -55,7 +64,7 @@ export async function executeRunEngineThroughRuntimeKernel(
   );
   const result: { response?: Response } = {};
   const kernel = new RuntimeKernel({
-    lifecycleEvents,
+    lifecycleEvents: input.lifecycleEvents,
     workspaceManifests: createWorkspaceManifestRepository(protocol.manifest),
     gitSnapshots: createSnapshotPort(protocol.manifest),
     turnArtifacts: createTurnArtifactPort(),
@@ -85,7 +94,7 @@ export async function executeRunEngineThroughRuntimeKernel(
         status: "rejected",
         code: "tool_not_registered",
         reason:
-          "Live tool authorization remains owned by RunEngine until the kernel tool coordinator cutover.",
+          "RuntimeKernel rejected an unexpected adapter tool call; live execution is delegated through the LegacyRunEngineExecutorAdapter provider boundary.",
       }),
     },
     approvals: {
@@ -93,7 +102,7 @@ export async function executeRunEngineThroughRuntimeKernel(
         decision: "denied",
         decidedBy: null,
         reason:
-          "Live approval waits remain owned by RunEngine until the kernel approval coordinator cutover.",
+          "RuntimeKernel rejected an unexpected adapter approval wait; live execution is delegated through the LegacyRunEngineExecutorAdapter provider boundary.",
       }),
     },
     producerId: "legacy-run-engine-adapter",
@@ -115,37 +124,6 @@ export async function executeRunEngineThroughRuntimeKernel(
     `[runtime-kernel/live-adapter] completed runId=${input.runId} turnId=${protocol.turn.id} correlationId=${input.correlationId} responseStatus=${response.status}`,
   );
   return response;
-}
-
-class LocalLifecycleEventStore implements RuntimeLifecycleEventStore {
-  private readonly events: LifecycleEvent[] = [];
-
-  async append(event: LifecycleEvent): Promise<LifecycleEvent> {
-    return (await this.appendBatch([event]))[0] as LifecycleEvent;
-  }
-
-  async appendBatch(
-    events: readonly LifecycleEvent[],
-  ): Promise<readonly LifecycleEvent[]> {
-    this.events.push(...events);
-    return events;
-  }
-
-  async replay(input: {
-    turnId: LifecycleEvent["turnId"];
-    afterSequence: number | null;
-    limit: number;
-  }): Promise<{
-    events: readonly LifecycleEvent[];
-    nextSequence: number | null;
-  }> {
-    const afterSequence = input.afterSequence ?? 0;
-    const events = this.events
-      .filter((event) => event.turnId === input.turnId)
-      .filter((event) => event.sequence > afterSequence)
-      .slice(0, input.limit);
-    return { events, nextSequence: events.at(-1)?.sequence ?? null };
-  }
 }
 
 function buildProtocolEnvelope(
@@ -256,7 +234,7 @@ function createKernelAdapterWorkerFailure(): WorkerToolResult {
     failure: {
       code: "validation_failed",
       message:
-        "Live tool execution remains owned by RunEngine until the kernel tool coordinator cutover.",
+        "RuntimeKernel rejected an unexpected adapter worker call; live execution is delegated through the LegacyRunEngineExecutorAdapter provider boundary.",
       details: null,
       retryable: false,
       correlationId: null,

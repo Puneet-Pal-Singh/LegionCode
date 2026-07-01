@@ -2,9 +2,7 @@
 // Phase 3.2: Engine module barrel exports
 
 export {
-  RunEngine,
   RunEngineError,
-  type IRunEngine,
   type RunEngineDependencies,
   type RunEngineEnv,
   type RunEngineOptions,
@@ -16,9 +14,9 @@ export {
 
 export { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 export {
-  executeRunEngineThroughRuntimeKernel,
-  type RunEngineKernelAdapterInput,
-} from "./RunEngineKernelAdapter.js";
+  RuntimeKernelNativeRunner,
+  type RuntimeKernelNativeRunnerInput,
+} from "./RuntimeKernelNativeRunner.js";
 export {
   getCodingCoreToolRegistry,
   getCodingToolRoute,
