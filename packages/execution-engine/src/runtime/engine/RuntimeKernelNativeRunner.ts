@@ -886,24 +886,30 @@ class KernelToolWorker implements WorkerProtocolPort {
       return failed("validation_failed", `Unsupported tool: ${toolName}`);
     }
     this.options.tracker.recordToolStarted(input.toolCall);
+    console.log(
+      `[runtime-kernel/native] tool_started runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName}`,
+    );
     await this.options.runEventRecorder.recordToolStarted({
       id: input.toolCall.toolCallId,
       type: toolName,
     });
-    const result = await executeAgenticLoopTool(this.options.executionService, {
-      taskId: input.toolCall.toolCallId,
-      toolName,
-      toolInput: {
-        description: `Execute ${toolName}`,
-        ...input.toolCall.input,
-      },
-      onOutputAppended: async (chunk) => {
-        await this.options.runEventRecorder.recordToolOutputAppended(
-          { id: input.toolCall.toolCallId, type: toolName },
-          chunk,
-        );
-      },
-    });
+    const result = await runWithNativeCancellationPolling(
+      executeAgenticLoopTool(this.options.executionService, {
+        taskId: input.toolCall.toolCallId,
+        toolName,
+        toolInput: {
+          description: `Execute ${toolName}`,
+          ...input.toolCall.input,
+        },
+        onOutputAppended: async (chunk) => {
+          await this.options.runEventRecorder.recordToolOutputAppended(
+            { id: input.toolCall.toolCallId, type: toolName },
+            chunk,
+          );
+        },
+      }),
+      this.options.isRunCancelled,
+    );
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (result.status === "DONE") {
       this.options.tracker.recordToolCompleted(input.toolCall, result);
@@ -911,6 +917,9 @@ class KernelToolWorker implements WorkerProtocolPort {
         { id: input.toolCall.toolCallId, type: toolName },
         result.output ?? null,
         0,
+      );
+      console.log(
+        `[runtime-kernel/native] tool_completed runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName}`,
       );
       return {
         kind: "completed",
@@ -926,6 +935,9 @@ class KernelToolWorker implements WorkerProtocolPort {
       { id: input.toolCall.toolCallId, type: toolName },
       message,
       0,
+    );
+    console.warn(
+      `[runtime-kernel/native] tool_failed runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName} error=${message}`,
     );
     return failed("command_failed", message);
   }
