@@ -33,14 +33,22 @@ export function logClientWarning(
   operation: string,
   context: ClientLogContext = {},
 ): void {
-  if (!shouldWriteClientLogs()) return;
+  if (!shouldWriteClientWarnings()) return;
   const line = formatClientLogLine(domain, operation, context);
   console.warn(line);
   forwardClientLogLine(line);
 }
 
 function shouldWriteClientLogs(): boolean {
-  return import.meta.env.MODE === "development";
+  return import.meta.env.VITE_ENABLE_CLIENT_DEBUG_LOGS === "true";
+}
+
+function shouldWriteClientWarnings(): boolean {
+  return (
+    import.meta.env.MODE === "development" ||
+    import.meta.env.VITE_ENABLE_CLIENT_DEBUG_LOGS === "true" ||
+    import.meta.env.VITE_ENABLE_CLIENT_WARN_LOGS === "true"
+  );
 }
 
 function compactContext(context: ClientLogContext): ClientLogContext {

@@ -552,6 +552,9 @@ function isSuppressedReasoning(
 ): boolean {
   const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
   const authoredLabel = item.label.trim();
+  if (authoredLabel === "RuntimeKernel lifecycle") {
+    return true;
+  }
   const genericPhaseLabel = item.phase
     ? GENERIC_REASONING_LABELS_BY_PHASE[item.phase]
     : undefined;

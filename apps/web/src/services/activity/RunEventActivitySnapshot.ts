@@ -17,7 +17,6 @@ export function projectRunEventsToActivitySnapshot(input: {
   runId: string;
   events: RunEvent[];
   isActive: boolean;
-  fallbackSessionId?: string;
 }): ActivityFeedSnapshot | null {
   const events = input.events
     .filter((event) => event.runId === input.runId)
@@ -32,7 +31,7 @@ export function projectRunEventsToActivitySnapshot(input: {
 
   return {
     runId: input.runId,
-    sessionId: resolveSessionId(events, input.fallbackSessionId),
+    sessionId: resolveSessionId(events),
     status: resolveActivityStatus(events, input.isActive),
     items: state.items.sort((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
@@ -153,6 +152,9 @@ function projectEvent(state: ProjectionState, event: RunEvent): void {
       projectMessageEvent(state, event);
       return;
     case RUN_EVENT_TYPES.RUN_PROGRESS:
+      if (event.payload.displayMode === "debug") {
+        return;
+      }
       pushReasoningEvent(state, event);
       return;
     case RUN_EVENT_TYPES.TOOL_REQUESTED:
@@ -401,8 +403,7 @@ function isOpenRunStatus(status: string): boolean {
   return (
     status === "queued" ||
     status === "running" ||
-    status === "waiting" ||
-    status === "paused"
+    status === "waiting"
   );
 }
 
@@ -411,7 +412,10 @@ function isOpenActivityEvent(event: RunEvent): boolean {
     case RUN_EVENT_TYPES.MESSAGE_EMITTED:
       return event.payload.role === "user";
     case RUN_EVENT_TYPES.RUN_PROGRESS:
-      return event.payload.status === "active";
+      return (
+        event.payload.displayMode !== "debug" &&
+        event.payload.status === "active"
+      );
     case RUN_EVENT_TYPES.APPROVAL_REQUESTED:
     case RUN_EVENT_TYPES.TOOL_REQUESTED:
     case RUN_EVENT_TYPES.TOOL_STARTED:
@@ -424,9 +428,8 @@ function isOpenActivityEvent(event: RunEvent): boolean {
 
 function resolveSessionId(
   events: RunEvent[],
-  fallbackSessionId: string | undefined,
 ): string | undefined {
-  return events.find((event) => event.sessionId)?.sessionId ?? fallbackSessionId;
+  return events.find((event) => event.sessionId)?.sessionId;
 }
 
 function readClientMessageId(

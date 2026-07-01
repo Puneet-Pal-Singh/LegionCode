@@ -86,9 +86,6 @@ export class RunController {
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      console.log(
-        `[run/summary] requestId=${requestId} runId=${runId} status=success runStatus=${summary.status ?? "null"} eventCount=${summary.eventCount ?? 0} lastEventType=${summary.lastEventType ?? "none"} terminalState=${summary.terminalState ?? "none"} elapsedMs=${Date.now() - startedAt}`,
-      );
       return jsonResponse(req, env, summary);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -229,9 +226,6 @@ export class RunController {
         return errorResponse(req, env, "Run not found", 404);
       }
       const events = mapRunEventRecordsToCanonicalEvents(result);
-      console.log(
-        `[run/events] requestId=${requestId} runId=${runId} status=success eventCount=${events.length} eventTypes=${summarizeCanonicalEventTypes(events)} elapsedMs=${Date.now() - startedAt}`,
-      );
       return jsonResponse(req, env, events);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -351,9 +345,6 @@ export class RunController {
         },
         events: persisted.events,
       });
-      console.log(
-        `[run/activity] requestId=${requestId} runId=${runId} status=success source=postgres-events feedStatus=${payload.status} eventCount=${persisted.events.length} itemCount=${payload.items.length} elapsedMs=${Date.now() - startedAt}`,
-      );
       return jsonResponse(req, env, payload);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -399,18 +390,6 @@ function countStepsByStatus(
   status: RunStepRecord["status"],
 ): number {
   return steps.filter((step) => step.status === status).length;
-}
-
-function summarizeCanonicalEventTypes(
-  events: readonly { type: string }[],
-): string {
-  const counts = new Map<string, number>();
-  for (const event of events) {
-    counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([type, count]) => `${type}:${count}`)
-    .join(",");
 }
 
 function mapPersistedStatusToRuntimeStatus(

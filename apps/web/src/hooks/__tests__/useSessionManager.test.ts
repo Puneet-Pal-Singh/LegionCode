@@ -212,26 +212,6 @@ describe("useSessionManager", () => {
       expect(loaded).toEqual(context);
     });
 
-    it("should preserve session pending query on archive", () => {
-      const { result } = renderHook(() => useSessionManager());
-
-      let sessionId = "";
-      act(() => {
-        sessionId = result.current.createSession("Task", "repo");
-      });
-
-      // Save pending query
-      SessionStateService.saveSessionPendingQuery(sessionId, "test query");
-
-      // Remove session
-      act(() => {
-        result.current.removeSession(sessionId);
-      });
-
-      const loaded = SessionStateService.loadSessionPendingQuery(sessionId);
-      expect(loaded).toBe("test query");
-    });
-
     it("keeps local-only sessions archived when the server archive returns not found", async () => {
       vi.mocked(SessionStateService.archiveSession).mockRejectedValueOnce(
         new Error("Session archive failed: 404"),

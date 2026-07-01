@@ -465,7 +465,7 @@ describe("Workspace", () => {
     });
   });
 
-  it("marks paused canonical runs as waiting for approval", async () => {
+  it("marks paused canonical runs as paused unless approval is pending", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -477,6 +477,24 @@ describe("Workspace", () => {
     );
 
     mockRunSummaryState.summary = { runId: "run-123", status: "PAUSED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith("paused");
+    });
+
+    mockRunSummaryState.summary = {
+      runId: "run-123",
+      status: "PAUSED",
+      pendingApproval: { requestId: "approval-1" },
+    };
     rerender(
       <Workspace
         sessionId="session-123"

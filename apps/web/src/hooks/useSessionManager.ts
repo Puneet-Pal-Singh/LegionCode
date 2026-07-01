@@ -496,10 +496,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
    */
   const clearAllSessions = useCallback(() => {
     // Clear per-session scoped storage before clearing main session store
-    // Prevents orphaned keys: shadowbox:session-context:{id}, shadowbox:pending-query:{id}
+    // Prevents orphaned session-scoped GitHub context keys.
     sessions.forEach((session) => {
       SessionStateService.clearSessionGitHubContext(session.id);
-      SessionStateService.clearSessionPendingQuery(session.id);
       // Clear all message runs for this session
       for (const runId of session.runIds) {
         agentStore.clearMessages(runId);

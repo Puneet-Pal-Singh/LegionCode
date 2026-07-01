@@ -1,5 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 import {
+  type ActivityFeedSnapshot,
   isTurnActivityTranscriptPart,
   parseActivityFeedSnapshot,
   type TurnActivityTranscriptPart,
@@ -70,12 +71,20 @@ function isActivityData(value: unknown): value is { activityParts: unknown[] } {
   );
 }
 
-function buildTurns(
-  part: TurnActivityTranscriptPart,
-): ActivityTurnViewModel[] {
+function buildTurns(part: TurnActivityTranscriptPart): ActivityTurnViewModel[] {
   return buildActivityFeedViewModel(
-    parseActivityFeedSnapshot(part.activitySnapshot),
+    settleTranscriptActivitySnapshot(
+      parseActivityFeedSnapshot(part.activitySnapshot),
+    ),
   ).turns;
+}
+
+function settleTranscriptActivitySnapshot(
+  snapshot: ActivityFeedSnapshot,
+): ActivityFeedSnapshot {
+  return snapshot.status === "RUNNING"
+    ? { ...snapshot, status: "COMPLETED" }
+    : snapshot;
 }
 
 function choosePreferredTurn(

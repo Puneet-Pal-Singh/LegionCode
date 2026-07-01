@@ -1536,7 +1536,7 @@ describe("ChatInterface", () => {
     expect(screen.getByText("Thinking")).toBeInTheDocument();
   });
 
-  it("renders active run-event approvals while canonical projection is unavailable", () => {
+  it("does not render active run-event approvals without canonical projection", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const pendingApprovalEvent: RunEvent = {
       version: 1,
@@ -1598,11 +1598,11 @@ describe("ChatInterface", () => {
       );
 
       expect(
-        screen.getByText("LegionCode wants to run a shell command"),
-      ).toBeInTheDocument();
+        screen.queryByText("LegionCode wants to run a shell command"),
+      ).not.toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "Allow once" }),
-      ).toBeInTheDocument();
+        screen.queryByRole("button", { name: "Allow once" }),
+      ).not.toBeInTheDocument();
       expect(warnSpy).toHaveBeenCalledWith(
         "[activity/feed] Skipping activity turn without canonical turnId.",
         expect.objectContaining({ runId: "run-active-no-summary-pending" }),

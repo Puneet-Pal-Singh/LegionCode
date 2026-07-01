@@ -83,7 +83,6 @@ describe("useRunEvents", () => {
       ...navigator,
       sendBeacon: sendBeaconSpy,
     });
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const warnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
@@ -107,7 +106,6 @@ describe("useRunEvents", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("eventRunId=run-other"),
     );
-    expect(logSpy).toHaveBeenCalled();
   });
 
   it("catches up hidden-tab refreshes when the document becomes visible again", async () => {

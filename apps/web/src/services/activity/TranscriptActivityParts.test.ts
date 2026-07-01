@@ -75,6 +75,26 @@ describe("TranscriptActivityParts", () => {
     expect(turns).toEqual([]);
   });
 
+  it("settles hydrated running snapshots and suppresses kernel debug rows", () => {
+    const turns = buildTranscriptActivityTurns([
+      createMessage("user", "read package.json"),
+      createAssistantMessageWithActivity(
+        createActivityPart(createRunningSnapshotWithKernelDebugRows()),
+      ),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.isActiveTurn).toBe(false);
+    expect(turns[0]?.elapsedLabel).toBe("Worked for 4s");
+    expect(turns[0]?.rows).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        title: "Reading package.json",
+        status: "completed",
+      }),
+    ]);
+  });
+
   it("preserves provider interruption rows from canonical snapshots", () => {
     const turns = buildTranscriptActivityTurns([
       createMessage("user", "check CI"),
@@ -335,6 +355,64 @@ function createProviderInterruptionSnapshot(): ActivityFeedSnapshot {
         },
         createdAt: "2026-05-24T00:00:01.000Z",
         updatedAt: "2026-05-24T00:00:01.000Z",
+        source: "brain",
+      },
+    ],
+  };
+}
+
+function createRunningSnapshotWithKernelDebugRows(): ActivityFeedSnapshot {
+  return {
+    runId: "run-1",
+    sessionId: "session-1",
+    status: "RUNNING",
+    items: [
+      {
+        id: "user-event",
+        runId: "run-1",
+        sessionId: "session-1",
+        turnId: "user-1",
+        kind: "text",
+        role: "user",
+        content: "read package.json",
+        createdAt: "2026-05-24T00:00:00.000Z",
+        updatedAt: "2026-05-24T00:00:00.000Z",
+        source: "brain",
+      },
+      {
+        id: "kernel-debug",
+        runId: "run-1",
+        sessionId: "session-1",
+        turnId: "user-1",
+        kind: "reasoning",
+        phase: "execution",
+        label: "RuntimeKernel lifecycle",
+        summary: "turn.started",
+        status: "completed",
+        createdAt: "2026-05-24T00:00:01.000Z",
+        updatedAt: "2026-05-24T00:00:01.000Z",
+        source: "brain",
+      },
+      {
+        id: "read-tool",
+        runId: "run-1",
+        sessionId: "session-1",
+        turnId: "user-1",
+        kind: "tool",
+        toolId: "tool-read",
+        toolName: "read_file",
+        status: "completed",
+        input: { path: "package.json" },
+        metadata: {
+          family: "read",
+          displayText: "Reading package.json",
+          path: "package.json",
+          count: 1,
+          truncated: false,
+          loadedPaths: ["package.json"],
+        },
+        createdAt: "2026-05-24T00:00:02.000Z",
+        updatedAt: "2026-05-24T00:00:04.000Z",
         source: "brain",
       },
     ],

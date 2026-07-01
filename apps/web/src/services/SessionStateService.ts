@@ -8,7 +8,6 @@
  * - shadowbox:sessions:v3 — Main session store
  * - shadowbox:active-session-id:v3 — Active session selector
  * - shadowbox:session-context:{sessionId} — GitHub context per session
- * - shadowbox:pending-query:{sessionId} — Pending user input per session
  * - shadowbox:run:{runId}:messages — Messages per run
  *
  * @module services/SessionStateService
@@ -72,10 +71,6 @@ interface ServerSessionResponse {
 
 function getSessionContextKey(sessionId: string): string {
   return `shadowbox:session-context:${sessionId}`;
-}
-
-function getSessionPendingQueryKey(sessionId: string): string {
-  return `shadowbox:pending-query:${sessionId}`;
 }
 
 /**
@@ -457,55 +452,6 @@ export class SessionStateService {
     } catch (e) {
       console.error(
         "[SessionStateService] Failed to clear GitHub context for session:",
-        sessionId,
-        e,
-      );
-    }
-  }
-
-  /**
-   * Load pending query for a specific session
-   */
-  static loadSessionPendingQuery(sessionId: string): string | null {
-    try {
-      const key = getSessionPendingQueryKey(sessionId);
-      return localStorage.getItem(key);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to load pending query for session:",
-        sessionId,
-        e,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Save pending query for a specific session
-   */
-  static saveSessionPendingQuery(sessionId: string, query: string): void {
-    try {
-      const key = getSessionPendingQueryKey(sessionId);
-      localStorage.setItem(key, query);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to save pending query for session:",
-        sessionId,
-        e,
-      );
-    }
-  }
-
-  /**
-   * Clear pending query for a specific session
-   */
-  static clearSessionPendingQuery(sessionId: string): void {
-    try {
-      const key = getSessionPendingQueryKey(sessionId);
-      localStorage.removeItem(key);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to clear pending query for session:",
         sessionId,
         e,
       );

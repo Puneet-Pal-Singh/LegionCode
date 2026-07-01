@@ -8,14 +8,6 @@ import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 
-interface ServerToolCall {
-  id?: string;
-  function?: {
-    name?: string;
-    arguments?: string;
-  };
-}
-
 interface CorePart {
   type: "text" | "tool-call";
   text?: string;
@@ -40,7 +32,6 @@ interface ServerMessage {
   id?: string;
   role: "system" | "user" | "assistant" | "tool";
   content: string | ServerMessagePart[];
-  tool_calls?: ServerToolCall[];
   createdAt?: string | Date;
   data?: {
     activityParts?: unknown[];
@@ -239,12 +230,6 @@ export class ChatHydrationService {
           createdAt: msg.createdAt ? new Date(msg.createdAt) : new Date(),
         };
 
-        // Handle legacy tool_calls format
-        if (msg.role === "assistant" && msg.tool_calls) {
-          const legacyTools = this.convertToolCalls(msg.tool_calls, runId);
-          toolInvocations = [...toolInvocations, ...legacyTools];
-        }
-
         if (toolInvocations.length > 0) {
           converted.toolInvocations = toolInvocations;
         }
@@ -259,29 +244,6 @@ export class ChatHydrationService {
       });
   }
 
-  private convertToolCalls(
-    toolCalls: ServerToolCall[],
-    runId: string,
-  ): ToolInvocation[] {
-    return toolCalls.map((tc, tcIndex) => ({
-      state: "result" as const,
-      toolCallId: tc.id || `${runId}-tool-${tcIndex}`,
-      toolName: tc.function?.name || "unknown",
-      args: this.parseToolArguments(tc.function?.arguments),
-      result: null,
-    }));
-  }
-
-  private parseToolArguments(
-    args: string | undefined,
-  ): Record<string, unknown> {
-    if (!args) return {};
-    try {
-      return JSON.parse(args) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
-  }
 }
 
 function summarizeServerMessages(messages: ServerMessage[]): string {

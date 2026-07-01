@@ -135,6 +135,61 @@ describe("projectRunEventsToActivitySnapshot", () => {
     ).toBe("RUNNING");
   });
 
+  it("does not project debug RuntimeKernel progress into user activity", () => {
+    const events = [
+      createEvent("event-user", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+        role: "user",
+        content: "Read package.json",
+        metadata: { clientMessageId: "user-message-1" },
+      }),
+      createEvent("event-kernel", RUN_EVENT_TYPES.RUN_PROGRESS, {
+        phase: RUN_WORKFLOW_STEPS.EXECUTION,
+        label: "RuntimeKernel lifecycle",
+        summary: "turn.started",
+        status: "active",
+        displayMode: "debug",
+      }),
+    ];
+
+    expect(isRunEventActivityOpen({ runId: "run_live", events })).toBe(true);
+    expect(
+      projectRunEventsToActivitySnapshot({
+        runId: "run_live",
+        isActive: false,
+        events,
+      })?.items.map((item) => item.id),
+    ).toEqual(["event-user"]);
+  });
+
+  it("does not keep paused run status open after settlement", () => {
+    const events = [
+      createEvent("event-user", RUN_EVENT_TYPES.MESSAGE_EMITTED, {
+        role: "user",
+        content: "Stop this run",
+        metadata: { clientMessageId: "user-message-1" },
+      }),
+      createEvent(
+        "event-paused",
+        RUN_EVENT_TYPES.RUN_STATUS_CHANGED,
+        {
+          previousStatus: "running",
+          newStatus: "paused",
+          workflowStep: RUN_WORKFLOW_STEPS.EXECUTION,
+        },
+        "2026-06-27T09:00:10.000Z",
+      ),
+    ];
+
+    expect(isRunEventActivityOpen({ runId: "run_live", events })).toBe(false);
+    expect(
+      projectRunEventsToActivitySnapshot({
+        runId: "run_live",
+        isActive: false,
+        events,
+      })?.status,
+    ).toBeNull();
+  });
+
   it("lets terminal canonical events settle activity even if local loading is stale", () => {
     const events = [
       createEvent("event-user", RUN_EVENT_TYPES.MESSAGE_EMITTED, {

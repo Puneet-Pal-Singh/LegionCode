@@ -29,7 +29,6 @@ type ApprovalNotice = { kind: "resolved"; requestId: string } | null;
 interface ApprovalControllerInput {
   runId: string;
   lifecycleProjection: LifecycleProjection | null;
-  fallbackApproval?: ApprovalRequest | null;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   lifecycleClient?: LifecycleClient;
 }
@@ -46,11 +45,8 @@ export function useApprovalController(input: ApprovalControllerInput) {
   const [notice, setNotice] = useState<ApprovalNotice>(null);
   const submittingRef = useRef(false);
   const pendingApproval = useMemo(
-    () =>
-      buildLifecycleApprovalRequest(input.lifecycleProjection) ??
-      input.fallbackApproval ??
-      null,
-    [input.fallbackApproval, input.lifecycleProjection],
+    () => buildLifecycleApprovalRequest(input.lifecycleProjection),
+    [input.lifecycleProjection],
   );
 
   useApprovalLifecycle(
