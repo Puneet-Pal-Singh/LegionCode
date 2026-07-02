@@ -20,6 +20,11 @@ import type {
   RunRecord,
   RunStepRecord,
 } from "@repo/persistence";
+import {
+  RUN_EVENT_TYPES,
+  type ApprovalRequest,
+  type RunEvent,
+} from "@repo/shared-types";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
@@ -367,6 +372,9 @@ function buildPostgresRunSummary(
   steps: RunStepRecord[],
 ): RunSummaryResponse {
   const terminalState = resolvePostgresTerminalState(run.status, steps);
+  const approvalEvents = mapRunEventRecordsToCanonicalEvents(
+    events.filter(isApprovalEventRecord),
+  );
   return {
     runId: run.id,
     status: run.status,
@@ -382,7 +390,32 @@ function buildPostgresRunSummary(
     terminalMessage: terminalState
       ? buildPostgresTerminalMessage(terminalState, steps)
       : null,
+    pendingApproval: resolvePendingApproval(approvalEvents),
   };
+}
+
+function isApprovalEventRecord(event: RunEventRecord): boolean {
+  return (
+    event.eventType === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
+    event.eventType === RUN_EVENT_TYPES.APPROVAL_RESOLVED
+  );
+}
+
+function resolvePendingApproval(
+  events: readonly RunEvent[],
+): ApprovalRequest | null {
+  const pending = new Map<string, ApprovalRequest>();
+  for (const event of events) {
+    if (event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED) {
+      pending.set(event.payload.request.requestId, event.payload.request);
+      continue;
+    }
+    if (event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED) {
+      pending.delete(event.payload.requestId);
+    }
+  }
+
+  return [...pending.values()].at(-1) ?? null;
 }
 
 function countStepsByStatus(

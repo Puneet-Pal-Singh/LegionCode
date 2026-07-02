@@ -171,6 +171,34 @@ describe("useRunEvents", () => {
     );
   });
 
+  it("does not fetch an event snapshot for its own streamed event refresh", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("/stream?")) {
+          return createStreamResponse(
+            createMessageEvent("run-live-loop", "evt-2", "Tool finished"),
+          );
+        }
+
+        return createEventsResponse(
+          createMessageEvent("run-live-loop", "evt-1", "Started"),
+        );
+      });
+
+    const { result } = renderHook(() => useRunEvents("run-live-loop", true));
+
+    await waitFor(() => {
+      expect(result.current.events).toHaveLength(2);
+    });
+
+    const snapshotCalls = fetchSpy.mock.calls.filter(
+      ([input]) => !String(input).includes("/stream?"),
+    );
+    expect(snapshotCalls).toHaveLength(1);
+  });
+
   it("reconnects when the stream endpoint is temporarily unavailable", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")

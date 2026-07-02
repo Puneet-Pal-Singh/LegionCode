@@ -151,9 +151,9 @@ describe("useRunSummary", () => {
     expect(result.current.summary).toBeNull();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    now += 5_000;
+    now += 6_000;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(6_000);
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -185,9 +185,9 @@ describe("useRunSummary", () => {
     });
     expect(result.current.summary?.status).toBe("running");
 
-    now += 5_000;
+    now += 6_000;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(6_000);
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);

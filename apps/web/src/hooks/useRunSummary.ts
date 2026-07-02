@@ -68,8 +68,8 @@ interface UseRunSummaryResult {
 }
 
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
-const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
-const RUN_SUMMARY_POLL_INTERVAL_MS = 5_000;
+const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 2_000;
+const RUN_SUMMARY_POLL_INTERVAL_MS = 6_000;
 
 export function useRunSummary(
   runId: string,
@@ -235,7 +235,10 @@ export function useRunSummary(
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
-      void fetchSummary({ force: true });
+      const approvalIsVisible =
+        isApprovalRequiredRunStatus(summaryStatus) ||
+        Boolean(pendingApprovalRequestId);
+      void fetchSummary({ force: approvalIsVisible });
     };
 
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
