@@ -9,10 +9,10 @@ import {
   getGoldenFlowToolRoute,
   isMutatingGoldenFlowToolName,
   validateGoldenFlowToolInput,
-} from "./CodingToolGateway.js";
+} from "./LegacyGoldenFlowToolRegistryAdapter.js";
 import { ToolDefinitionSchema } from "../tools/CodingToolRegistry.js";
 
-describe("CodingToolGateway", () => {
+describe("LegacyGoldenFlowToolRegistryAdapter", () => {
   it("exposes the canonical golden-flow tool floor", () => {
     const names = getGoldenFlowToolNames();
     expect(names).toEqual([

@@ -22,7 +22,7 @@ const CAPABILITIES = [
       ],
       [
         "apps/web/src/hooks/useChatPersistence.test.tsx",
-        "does not replay a claimed pending query after switching scopes",
+        "does not read browser storage while mirroring messages",
       ],
       [
         "apps/brain/src/services/PersistenceService.test.ts",

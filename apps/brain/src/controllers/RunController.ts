@@ -20,6 +20,11 @@ import type {
   RunRecord,
   RunStepRecord,
 } from "@repo/persistence";
+import {
+  RUN_EVENT_TYPES,
+  type ApprovalRequest,
+  type RunEvent,
+} from "@repo/shared-types";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
@@ -86,9 +91,6 @@ export class RunController {
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      console.log(
-        `[run/summary] requestId=${requestId} runId=${runId} status=success runStatus=${summary.status ?? "null"} eventCount=${summary.eventCount ?? 0} lastEventType=${summary.lastEventType ?? "none"} terminalState=${summary.terminalState ?? "none"} elapsedMs=${Date.now() - startedAt}`,
-      );
       return jsonResponse(req, env, summary);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -229,9 +231,6 @@ export class RunController {
         return errorResponse(req, env, "Run not found", 404);
       }
       const events = mapRunEventRecordsToCanonicalEvents(result);
-      console.log(
-        `[run/events] requestId=${requestId} runId=${runId} status=success eventCount=${events.length} eventTypes=${summarizeCanonicalEventTypes(events)} elapsedMs=${Date.now() - startedAt}`,
-      );
       return jsonResponse(req, env, events);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -351,9 +350,6 @@ export class RunController {
         },
         events: persisted.events,
       });
-      console.log(
-        `[run/activity] requestId=${requestId} runId=${runId} status=success source=postgres-events feedStatus=${payload.status} eventCount=${persisted.events.length} itemCount=${payload.items.length} elapsedMs=${Date.now() - startedAt}`,
-      );
       return jsonResponse(req, env, payload);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -376,6 +372,9 @@ function buildPostgresRunSummary(
   steps: RunStepRecord[],
 ): RunSummaryResponse {
   const terminalState = resolvePostgresTerminalState(run.status, steps);
+  const approvalEvents = mapRunEventRecordsToCanonicalEvents(
+    events.filter(isApprovalEventRecord),
+  );
   return {
     runId: run.id,
     status: run.status,
@@ -391,7 +390,32 @@ function buildPostgresRunSummary(
     terminalMessage: terminalState
       ? buildPostgresTerminalMessage(terminalState, steps)
       : null,
+    pendingApproval: resolvePendingApproval(approvalEvents),
   };
+}
+
+function isApprovalEventRecord(event: RunEventRecord): boolean {
+  return (
+    event.eventType === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
+    event.eventType === RUN_EVENT_TYPES.APPROVAL_RESOLVED
+  );
+}
+
+function resolvePendingApproval(
+  events: readonly RunEvent[],
+): ApprovalRequest | null {
+  const pending = new Map<string, ApprovalRequest>();
+  for (const event of events) {
+    if (event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED) {
+      pending.set(event.payload.request.requestId, event.payload.request);
+      continue;
+    }
+    if (event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED) {
+      pending.delete(event.payload.requestId);
+    }
+  }
+
+  return [...pending.values()].at(-1) ?? null;
 }
 
 function countStepsByStatus(
@@ -399,18 +423,6 @@ function countStepsByStatus(
   status: RunStepRecord["status"],
 ): number {
   return steps.filter((step) => step.status === status).length;
-}
-
-function summarizeCanonicalEventTypes(
-  events: readonly { type: string }[],
-): string {
-  const counts = new Map<string, number>();
-  for (const event of events) {
-    counts.set(event.type, (counts.get(event.type) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([type, count]) => `${type}:${count}`)
-    .join(",");
 }
 
 function mapPersistedStatusToRuntimeStatus(

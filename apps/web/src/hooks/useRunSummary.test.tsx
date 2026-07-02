@@ -22,7 +22,7 @@ describe("useRunSummary", () => {
     vi.useRealTimers();
   });
 
-  it("continues refresh fetches while polling after a terminal summary", async () => {
+  it("stops refresh fetches after a terminal summary without pending approval", async () => {
     let now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi.mocked(globalThis.fetch);
@@ -43,9 +43,11 @@ describe("useRunSummary", () => {
       );
     });
 
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await Promise.resolve();
     });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes non-polling terminal summaries while approval is pending", async () => {
@@ -149,9 +151,9 @@ describe("useRunSummary", () => {
     expect(result.current.summary).toBeNull();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    now += 5_000;
+    now += 6_000;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(6_000);
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -183,9 +185,9 @@ describe("useRunSummary", () => {
     });
     expect(result.current.summary?.status).toBe("running");
 
-    now += 5_000;
+    now += 6_000;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(6_000);
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);

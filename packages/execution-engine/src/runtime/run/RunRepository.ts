@@ -48,9 +48,6 @@ export class RunRepository implements IRunRepository {
       }
     });
 
-    console.log(
-      `[run/repo] Created run ${run.id} for session ${run.sessionId}`,
-    );
   }
 
   async getById(runId: string): Promise<Run | null> {
@@ -89,7 +86,6 @@ export class RunRepository implements IRunRepository {
       await this.ctx.storage.put(runKey, run.toJSON());
     });
 
-    console.log(`[run/repo] Updated run ${run.id} to status ${run.status}`);
   }
 
   async updateUnlessStatus(
@@ -108,9 +104,6 @@ export class RunRepository implements IRunRepository {
       didUpdate = true;
     });
 
-    if (didUpdate) {
-      console.log(`[run/repo] Updated run ${run.id} to status ${run.status}`);
-    }
     return didUpdate;
   }
 

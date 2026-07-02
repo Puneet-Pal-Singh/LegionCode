@@ -658,6 +658,11 @@ function AppContent() {
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
+  const [initialPromptSubmission, setInitialPromptSubmission] = useState<{
+    id: string;
+    sessionId: string;
+    prompt: string;
+  } | null>(null);
 
   const scopedApprovalStatesBySessionId = useMemo(() => {
     const validSessionIds = new Set(sessions.map((session) => session.id));
@@ -758,19 +763,12 @@ function AppContent() {
     localStorage.setItem("shadowbox_active_tab", activeTab);
   }, [activeTab]);
 
-  // Check if current session has a pending query or messages
-  const hasPendingQuery = activeSessionId
-    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
-    : false;
-
   // A session is considered to have "started" if:
-  // 1. It has a pending query in session-scoped storage
-  // 2. OR its name has been changed from "New Task"
-  // 3. OR its status is not "idle"
+  // 1. Its name has been changed from "New Task"
+  // 2. OR its status is not "idle"
   const isSessionStarted =
     !!activeSession &&
-    (hasPendingQuery ||
-      (activeSession.name !== "New Task" && activeSession.name !== "") ||
+    ((activeSession.name !== "New Task" && activeSession.name !== "") ||
       (activeSession.status && activeSession.status !== "idle"));
 
   // Robust visibility flags
@@ -953,9 +951,6 @@ function AppContent() {
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
 
-      // Clear pending query for new task
-      SessionStateService.clearSessionPendingQuery(sessionId);
-
       // Sync GitHub context with new session
       // Use SessionStateService for session-scoped storage
       const otherSessionWithRepo = sessions.find(
@@ -1133,6 +1128,7 @@ function AppContent() {
                   runId: activeSession.activeRunId,
                   repo,
                   branch,
+                  enabled: activeSession.status !== "running",
                   onBranchChange: switchBranch,
                   onOpenChanges: () =>
                     setSummaryActionRequest({
@@ -1204,13 +1200,11 @@ function AppContent() {
                           error,
                         );
                       });
-                      // Store pending query in session-scoped storage
-                      SessionStateService.saveSessionPendingQuery(
-                        activeSessionId,
-                        config.task,
-                      );
-                      // State updates above (updateSession + saveSessionPendingQuery)
-                      // will naturally trigger re-renders; no manual trigger needed
+                      setInitialPromptSubmission({
+                        id: crypto.randomUUID(),
+                        sessionId: activeSessionId,
+                        prompt: config.task,
+                      });
                     }}
                   />
                 </RunContextProvider>
@@ -1257,17 +1251,22 @@ function AppContent() {
                   mode={activeSession?.mode}
                   isSessionRunning={activeSession?.status === "running"}
                   hasStartedSession={isSessionStarted}
-                  allowPendingQueryRestore={
-                    activeSession?.status !== "completed" &&
-                    activeSession?.status !== "paused" &&
-                    activeSession?.status !== "failed"
-                  }
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }
                   onSessionStatusChange={(status) =>
                     updateSession(activeSessionId, { status })
                   }
+                  initialPromptSubmission={
+                    initialPromptSubmission?.sessionId === activeSessionId
+                      ? initialPromptSubmission
+                      : null
+                  }
+                  onInitialPromptHandled={(id) => {
+                    setInitialPromptSubmission((current) =>
+                      current?.id === id ? null : current,
+                    );
+                  }}
                   onPromptSubmitted={(prompt) => {
                     if (activeSession?.name !== "New Task") {
                       return;

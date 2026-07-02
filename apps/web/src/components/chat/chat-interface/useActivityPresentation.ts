@@ -41,14 +41,8 @@ export function useActivityPresentation(input: ActivityPresentationInput) {
         runId: input.runId,
         events: input.events,
         isActive: resolvedActivityOpen,
-        fallbackSessionId: scopedPersistedFeed?.sessionId,
       }),
-    [
-      resolvedActivityOpen,
-      input.events,
-      input.runId,
-      scopedPersistedFeed?.sessionId,
-    ],
+    [resolvedActivityOpen, input.events, input.runId],
   );
   const scopedFeed = useMemo(
     () => mergeActivitySnapshots(scopedPersistedFeed, liveFeed),

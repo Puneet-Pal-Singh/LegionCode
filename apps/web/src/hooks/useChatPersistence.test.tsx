@@ -12,66 +12,18 @@ describe("useChatPersistence", () => {
     vi.useRealTimers();
   });
 
-  it("replays a pending query immediately for a new empty session", async () => {
-    localStorage.setItem("shadowbox:pending-query:session-1", "hi");
-    const append = vi.fn<[{ role: "user"; content: string }], Promise<void>>(
-      async () => undefined,
-    );
+  it("does not read browser storage while mirroring messages", async () => {
+    const getItemSpy = vi.spyOn(Storage.prototype, "getItem");
 
     renderHook(() =>
       useChatPersistence({
-        sessionId: "session-1",
         runId: "run-1",
         messages: [],
-        messagesLength: 0,
-        isLoading: false,
-        isModelConfigReady: true,
-        allowPendingQueryRestore: true,
-        append,
       }),
     );
 
-    await waitFor(() => {
-      expect(append).toHaveBeenCalledWith({ role: "user", content: "hi" });
-    });
-  });
-
-  it("retries a pending query restore after retryable append failure", async () => {
-    const errorSpy = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    localStorage.setItem("shadowbox:pending-query:session-1", "retry me");
-    const append = vi
-      .fn<[{ role: "user"; content: string }], Promise<void>>()
-      .mockRejectedValueOnce(new Error("HTTP 503"))
-      .mockResolvedValueOnce(undefined);
-
-    renderHook(() =>
-      useChatPersistence({
-        sessionId: "session-1",
-        runId: "run-1",
-        messages: [],
-        messagesLength: 0,
-        isLoading: false,
-        isModelConfigReady: true,
-        allowPendingQueryRestore: true,
-        append,
-      }),
-    );
-
-    await waitFor(() => {
-      expect(append).toHaveBeenCalledTimes(1);
-    });
-    expect(localStorage.getItem("shadowbox:pending-query:session-1")).toBeNull();
-
-    await waitFor(() => {
-      expect(append).toHaveBeenCalledTimes(2);
-    }, { timeout: 1500 });
-    expect(localStorage.getItem("shadowbox:pending-query:session-1")).toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[useChatPersistence] Failed to restore pending query",
-      expect.objectContaining({ message: "HTTP 503" }),
-    );
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(getItemSpy).not.toHaveBeenCalled();
   });
 
   it("syncs empty message arrays to clear stale agent store entries", async () => {
@@ -84,14 +36,8 @@ describe("useChatPersistence", () => {
 
     renderHook(() =>
       useChatPersistence({
-        sessionId: "session-1",
         runId: "run-1",
         messages: [],
-        messagesLength: 0,
-        isLoading: false,
-        isModelConfigReady: true,
-        allowPendingQueryRestore: true,
-        append: vi.fn(),
       }),
     );
 
@@ -100,51 +46,8 @@ describe("useChatPersistence", () => {
     });
   });
 
-  it("does not replay a claimed pending query after switching scopes", async () => {
-    localStorage.setItem("shadowbox:pending-query:session-1", "hi");
-    let resolveAppend: (() => void) | undefined;
-    const append = vi.fn<[{ role: "user"; content: string }], Promise<void>>(
-      () =>
-        new Promise((resolve) => {
-          resolveAppend = resolve;
-        }),
-    );
-
-    const { rerender } = renderHook(
-      ({ sessionId, runId }) =>
-        useChatPersistence({
-          sessionId,
-          runId,
-          messages: [],
-          messagesLength: 0,
-          isLoading: false,
-          isModelConfigReady: true,
-          allowPendingQueryRestore: true,
-          append,
-        }),
-      { initialProps: { sessionId: "session-1", runId: "run-1" } },
-    );
-
-    await waitFor(() => {
-      expect(append).toHaveBeenCalledTimes(1);
-    });
-    expect(localStorage.getItem("shadowbox:pending-query:session-1")).toBeNull();
-
-    rerender({ sessionId: "session-2", runId: "run-2" });
-    resolveAppend?.();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-
-    rerender({ sessionId: "session-1", runId: "run-1" });
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-
-    expect(append).toHaveBeenCalledTimes(1);
-  });
-
-  it("clears stale pending queries when hydrated messages already exist", async () => {
-    localStorage.setItem("shadowbox:pending-query:session-1", "hi");
-    const append = vi.fn<[{ role: "user"; content: string }], Promise<void>>(
-      async () => undefined,
-    );
+  it("does not write browser storage when hydrated messages exist", async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
     const messages = [
       {
         id: "message-1",
@@ -155,45 +58,12 @@ describe("useChatPersistence", () => {
 
     renderHook(() =>
       useChatPersistence({
-        sessionId: "session-1",
         runId: "run-1",
         messages,
-        messagesLength: messages.length,
-        isLoading: false,
-        isModelConfigReady: true,
-        allowPendingQueryRestore: true,
-        append,
       }),
     );
 
-    await waitFor(() => {
-      expect(localStorage.getItem("shadowbox:pending-query:session-1")).toBeNull();
-    });
-    expect(append).not.toHaveBeenCalled();
-  });
-
-  it("drops pending queries for non-running sessions", async () => {
-    localStorage.setItem("shadowbox:pending-query:session-1", "old prompt");
-    const append = vi.fn<[{ role: "user"; content: string }], Promise<void>>(
-      async () => undefined,
-    );
-
-    renderHook(() =>
-      useChatPersistence({
-        sessionId: "session-1",
-        runId: "run-1",
-        messages: [],
-        messagesLength: 0,
-        isLoading: false,
-        isModelConfigReady: true,
-        allowPendingQueryRestore: false,
-        append,
-      }),
-    );
-
-    await waitFor(() => {
-      expect(localStorage.getItem("shadowbox:pending-query:session-1")).toBeNull();
-    });
-    expect(append).not.toHaveBeenCalled();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(setItemSpy).not.toHaveBeenCalled();
   });
 });

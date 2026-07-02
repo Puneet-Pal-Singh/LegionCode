@@ -29,6 +29,7 @@ interface TopNavBarProps {
     runId: string;
     repo: Repository | null;
     branch: string;
+    enabled?: boolean;
     onBranchChange: (branch: string) => void;
     onOpenChanges: () => void;
     onOpenCommit: () => void;

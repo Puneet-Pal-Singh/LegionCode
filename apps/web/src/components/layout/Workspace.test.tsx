@@ -465,7 +465,7 @@ describe("Workspace", () => {
     });
   });
 
-  it("marks paused canonical runs as waiting for approval", async () => {
+  it("marks paused canonical runs as paused unless approval is pending", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -477,6 +477,24 @@ describe("Workspace", () => {
     );
 
     mockRunSummaryState.summary = { runId: "run-123", status: "PAUSED" };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith("paused");
+    });
+
+    mockRunSummaryState.summary = {
+      runId: "run-123",
+      status: "PAUSED",
+      pendingApproval: { requestId: "approval-1" },
+    };
     rerender(
       <Workspace
         sessionId="session-123"
@@ -907,7 +925,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("clears local running status when the user stops a stuck session", () => {
+  it("keeps local running status while a stop request is settling", () => {
     const onSessionStatusChange = vi.fn();
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
@@ -934,7 +952,8 @@ describe("Workspace", () => {
     });
 
     expect(mockChatState.stop).toHaveBeenCalled();
-    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+    expect(onSessionStatusChange).toHaveBeenCalledWith("running");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
   });
 
   it("opens the right sidebar when review focus is requested", () => {

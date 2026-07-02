@@ -29,10 +29,22 @@ type ApprovalNotice = { kind: "resolved"; requestId: string } | null;
 interface ApprovalControllerInput {
   runId: string;
   lifecycleProjection: LifecycleProjection | null;
-  fallbackApproval?: ApprovalRequest | null;
+  summaryPendingApproval?: ApprovalRequest | null;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   lifecycleClient?: LifecycleClient;
 }
+
+type PendingApprovalState =
+  | {
+      source: "run-summary";
+      request: ApprovalRequest;
+    }
+  | {
+      source: "lifecycle";
+      request: ApprovalRequest;
+      approval: LifecycleProjectionApproval;
+      turnId: LifecycleProjection["turnId"];
+    };
 
 export function useApprovalController(input: ApprovalControllerInput) {
   const lifecycleClient = useMemo(
@@ -45,13 +57,15 @@ export function useApprovalController(input: ApprovalControllerInput) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<ApprovalNotice>(null);
   const submittingRef = useRef(false);
-  const pendingApproval = useMemo(
+  const pendingApprovalState = useMemo(
     () =>
-      buildLifecycleApprovalRequest(input.lifecycleProjection) ??
-      input.fallbackApproval ??
-      null,
-    [input.fallbackApproval, input.lifecycleProjection],
+      buildPendingApprovalState({
+        lifecycleProjection: input.lifecycleProjection,
+        summaryPendingApproval: input.summaryPendingApproval ?? null,
+      }),
+    [input.lifecycleProjection, input.summaryPendingApproval],
   );
+  const pendingApproval = pendingApprovalState?.request ?? null;
 
   useApprovalLifecycle(
     pendingApproval,
@@ -67,14 +81,13 @@ export function useApprovalController(input: ApprovalControllerInput) {
         decision,
         runId: input.runId,
         lifecycleClient,
-        projection: input.lifecycleProjection,
-        pendingApproval,
+        pendingApprovalState,
         submittingRef,
         setBusyDecision,
         setError,
         setNotice,
       }),
-    [input.lifecycleProjection, input.runId, lifecycleClient, pendingApproval],
+    [input.runId, lifecycleClient, pendingApprovalState],
   );
 
   return {
@@ -90,25 +103,44 @@ export function useApprovalController(input: ApprovalControllerInput) {
   };
 }
 
-function buildLifecycleApprovalRequest(
+function buildPendingApprovalState(input: {
+  lifecycleProjection: LifecycleProjection | null;
+  summaryPendingApproval: ApprovalRequest | null;
+}): PendingApprovalState | null {
+  if (input.summaryPendingApproval) {
+    return {
+      source: "run-summary",
+      request: input.summaryPendingApproval,
+    };
+  }
+  const lifecycle = buildLifecycleApprovalState(input.lifecycleProjection);
+  return lifecycle;
+}
+
+function buildLifecycleApprovalState(
   projection: LifecycleProjection | null,
-): ApprovalRequest | null {
+): PendingApprovalState | null {
   const approval = projection?.pendingApproval;
   if (!projection || !approval || approval.decision) {
     return null;
   }
   return {
-    requestId: approval.approvalId,
-    runId: projection.turnId,
+    source: "lifecycle",
+    approval,
     turnId: projection.turnId,
-    itemId: approval.itemId,
-    origin: "agent",
-    category: "shell_command",
-    title: approval.question,
-    reason: approval.question,
-    actionFingerprint: `${projection.turnId}:${approval.approvalId}`,
-    availableDecisions: getCanonicalApprovalDecisions(approval),
-    createdAt: approval.requestedAt,
+    request: {
+      requestId: approval.approvalId,
+      runId: projection.turnId,
+      turnId: projection.turnId,
+      itemId: approval.itemId,
+      origin: "agent",
+      category: "shell_command",
+      title: approval.question,
+      reason: approval.question,
+      actionFingerprint: `${projection.turnId}:${approval.approvalId}`,
+      availableDecisions: getCanonicalApprovalDecisions(approval),
+      createdAt: approval.requestedAt,
+    },
   };
 }
 
@@ -156,8 +188,7 @@ interface ResolveDecisionInput {
   readonly decision: ApprovalDecisionKind;
   readonly runId: string;
   readonly lifecycleClient: LifecycleClient;
-  readonly projection: LifecycleProjection | null;
-  readonly pendingApproval: ApprovalRequest | null;
+  readonly pendingApprovalState: PendingApprovalState | null;
   readonly submittingRef: MutableRefObject<boolean>;
   readonly setBusyDecision: Dispatch<
     SetStateAction<ApprovalDecisionKind | null>
@@ -167,27 +198,27 @@ interface ResolveDecisionInput {
 }
 
 async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
-  const canonicalApproval = input.projection?.pendingApproval;
-  if (input.submittingRef.current || !input.pendingApproval) {
+  if (input.submittingRef.current || !input.pendingApprovalState) {
     return;
   }
+  const pendingApproval = input.pendingApprovalState.request;
   input.submittingRef.current = true;
   input.setBusyDecision(input.decision);
   input.setError(null);
   input.setNotice(null);
   try {
-    if (input.projection && canonicalApproval) {
+    if (input.pendingApprovalState.source === "lifecycle") {
       await input.lifecycleClient.submitApproval({
-        turnId: input.projection.turnId,
-        approvalId: canonicalApproval.approvalId,
+        turnId: input.pendingApprovalState.turnId,
+        approvalId: input.pendingApprovalState.approval.approvalId,
         decision: mapApprovalDecision(input.decision),
         decidedBy: null,
         reason: null,
       });
     } else {
       const response = await submitApprovalDecision({
-        runId: input.pendingApproval.runId || input.runId,
-        requestId: input.pendingApproval.requestId,
+        runId: pendingApproval.runId || input.runId,
+        requestId: pendingApproval.requestId,
         decision: input.decision,
       });
       if (!response.ok) {
@@ -196,7 +227,7 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
     }
     input.setNotice({
       kind: "resolved",
-      requestId: input.pendingApproval.requestId,
+      requestId: pendingApproval.requestId,
     });
   } catch (error) {
     input.setNotice(null);

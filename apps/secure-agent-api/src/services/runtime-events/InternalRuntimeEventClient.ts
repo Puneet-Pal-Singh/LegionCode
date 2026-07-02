@@ -38,9 +38,6 @@ export class InternalRuntimeEventClient implements RuntimeEventPublisher {
       rawBody,
     );
     const startedAt = Date.now();
-    console.log(
-      `[runtime-event/client] eventType=${formatLogValue(event.eventType)} idempotencyKey=${formatLogValue(event.idempotencyKey)} runId=${formatLogValue(readPayloadString(event.payload, "runId") ?? "missing")} sessionId=${formatLogValue(readPayloadString(event.payload, "sessionId") ?? "missing")} status=dispatching bodyBytes=${rawBody.length}`,
-    );
     const response = await this.config.brain.fetch(BRAIN_RUNTIME_EVENT_URL, {
       method: "POST",
       headers: {
@@ -59,9 +56,6 @@ export class InternalRuntimeEventClient implements RuntimeEventPublisher {
         `Brain runtime event ingestion returned ${response.status}`,
       );
     }
-    console.log(
-      `[runtime-event/client] eventType=${formatLogValue(event.eventType)} idempotencyKey=${formatLogValue(event.idempotencyKey)} runId=${formatLogValue(readPayloadString(event.payload, "runId") ?? "missing")} sessionId=${formatLogValue(readPayloadString(event.payload, "sessionId") ?? "missing")} status=accepted httpStatus=${response.status} elapsedMs=${Date.now() - startedAt}`,
-    );
   }
 }
 

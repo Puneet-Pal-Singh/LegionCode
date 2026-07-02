@@ -28,9 +28,15 @@ export {
 } from "../tools/CodingToolRegistry.js";
 
 /**
- * @deprecated Compatibility facade for package consumers that have not yet
- * migrated to CodingToolRegistry. The live Brain/runtime path must import the
- * registry directly; runtime-conformance gates enforce that boundary.
+ * @deprecated Quarantined legacy adapter for pre-cutover GoldenFlow package
+ * consumers only. Runtime, Brain, and tool execution paths must import
+ * CodingToolRegistry directly; runtime-conformance gates enforce that boundary.
+ *
+ * Owner: Runtime platform.
+ * Why it exists: package-level consumers still import the old GoldenFlow names.
+ * Canonical path: packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts.
+ * Deletion criteria: remove this adapter when no exported package consumer imports
+ * GoldenFlow-prefixed names and the public SDK compatibility window closes.
  */
 export type GoldenFlowToolName = CodingToolId;
 export type GoldenFlowToolInputByName = CodingToolInputByName;

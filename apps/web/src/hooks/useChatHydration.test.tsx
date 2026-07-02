@@ -126,7 +126,7 @@ describe("useChatHydration", () => {
     });
   });
 
-  it("retries failed hydration before allowing pending query replay", async () => {
+  it("retries failed hydration before settling transcript hydration", async () => {
     const setMessages = vi.fn<[Message[]], void>();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")

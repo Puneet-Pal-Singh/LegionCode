@@ -68,8 +68,8 @@ interface UseRunSummaryResult {
 }
 
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
-const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
-const RUN_SUMMARY_POLL_INTERVAL_MS = 5_000;
+const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 2_000;
+const RUN_SUMMARY_POLL_INTERVAL_MS = 6_000;
 
 export function useRunSummary(
   runId: string,
@@ -228,15 +228,17 @@ export function useRunSummary(
         return;
       }
 
-      const shouldSkipTerminalSummary =
-        !shouldPoll &&
-        isTerminalRunStatus(summaryStatus) &&
-        !isApprovalRequiredRunStatus(summaryStatus) &&
-        !pendingApprovalRequestId;
+      const shouldSkipTerminalSummary = isTerminalWithoutPendingApproval(
+        summaryStatus,
+        pendingApprovalRequestId,
+      );
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
-      void fetchSummary({ force: true });
+      const approvalIsVisible =
+        isApprovalRequiredRunStatus(summaryStatus) ||
+        Boolean(pendingApprovalRequestId);
+      void fetchSummary({ force: approvalIsVisible });
     };
 
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
@@ -252,19 +254,7 @@ export function useRunSummary(
   ]);
 
   useEffect(() => {
-    const isMissingCanonicalSummary = summary === null;
-    const shouldSettleCanonicalStatus =
-      Boolean(summaryStatus) &&
-      !isTerminalRunStatus(summaryStatus) &&
-      !isApprovalRequiredRunStatus(summaryStatus);
-    const isApprovalActive = isApprovalRequiredRunStatus(summaryStatus);
-    if (
-      !runId ||
-      (!shouldPoll &&
-        !isMissingCanonicalSummary &&
-        !shouldSettleCanonicalStatus &&
-        !isApprovalActive)
-    ) {
+    if (!runId || !shouldKeepRunSummaryPolling(summary, shouldPoll)) {
       return;
     }
 
@@ -277,8 +267,10 @@ export function useRunSummary(
       }
       const currentStatus = summaryStatusRef.current;
       if (
-        isTerminalRunStatus(currentStatus) &&
-        !isApprovalRequiredRunStatus(currentStatus)
+        isTerminalWithoutPendingApproval(
+          currentStatus,
+          summary?.pendingApproval?.requestId ?? null,
+        )
       ) {
         return;
       }
@@ -291,4 +283,40 @@ export function useRunSummary(
   }, [fetchSummary, runId, shouldPoll, summary, summaryStatus]);
 
   return { summary };
+}
+
+function shouldKeepRunSummaryPolling(
+  summary: RunSummary | null,
+  shouldPoll: boolean,
+): boolean {
+  if (summary === null) {
+    return true;
+  }
+  const status = summary.status ?? null;
+  if (
+    isTerminalWithoutPendingApproval(
+      status,
+      summary.pendingApproval?.requestId ?? null,
+    )
+  ) {
+    return false;
+  }
+  if (summary.pendingApproval || isApprovalRequiredRunStatus(status)) {
+    return true;
+  }
+  if (!isTerminalRunStatus(status)) {
+    return true;
+  }
+  return shouldPoll;
+}
+
+function isTerminalWithoutPendingApproval(
+  status: string | null,
+  pendingApprovalRequestId: string | null,
+): boolean {
+  return (
+    isTerminalRunStatus(status) &&
+    !isApprovalRequiredRunStatus(status) &&
+    !pendingApprovalRequestId
+  );
 }

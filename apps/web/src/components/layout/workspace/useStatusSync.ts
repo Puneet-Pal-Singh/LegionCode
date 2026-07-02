@@ -99,7 +99,7 @@ export function useStatusSync({
   const handleStopRun = useCallback(() => {
     setLocallyStoppedRunId(activeRunId);
     stop();
-    onSessionStatusChange?.("completed");
+    onSessionStatusChange?.("running");
   }, [activeRunId, onSessionStatusChange, setLocallyStoppedRunId, stop]);
 
   useEffect(() => {

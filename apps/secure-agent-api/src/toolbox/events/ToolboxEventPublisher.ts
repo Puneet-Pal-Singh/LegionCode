@@ -6,8 +6,12 @@ export interface ToolboxEventPublisher {
 
 export class ConsoleToolboxEventPublisher implements ToolboxEventPublisher {
   publish(event: ToolboxEvent): void {
-    console.log(
-      `[toolbox/event] sessionId=${formatLogValue(event.sessionId)} runId=${formatLogValue(event.runId)} toolName=${formatLogValue(event.toolName)} callId=${formatLogValue(event.callId)} status=${event.status} timestamp=${event.timestamp}`,
+    if (event.status !== "completed" && event.status !== "failed") {
+      return;
+    }
+    const level = event.status === "failed" ? console.warn : console.log;
+    level(
+      `[toolbox/tool] runId=${formatLogValue(event.runId)} toolName=${formatLogValue(event.toolName)} callId=${formatLogValue(event.callId)} status=${event.status}`,
     );
   }
 }

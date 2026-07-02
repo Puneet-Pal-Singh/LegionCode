@@ -41,7 +41,6 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
-  allowPendingQueryRestore = true,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -70,14 +69,8 @@ export function useChat(
 
   // Handle message persistence
   useChatPersistence({
-    sessionId,
     runId: activeRunId,
     messages,
-    messagesLength: messages.length,
-    isLoading,
-    append,
-    isModelConfigReady,
-    allowPendingQueryRestore,
   });
 
   // Handle artifact state

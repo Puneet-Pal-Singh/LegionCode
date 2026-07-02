@@ -817,8 +817,7 @@ describe("ChatInterface", () => {
                           kind: "commentary",
                           phase: "commentary",
                           status: "completed",
-                          text:
-                            "The selected model stopped responding.",
+                          text: "The selected model stopped responding.",
                           metadata: {
                             code: "PROVIDER_UNAVAILABLE",
                             providerId: "google",
@@ -1335,6 +1334,76 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
+  it("resolves run-summary approvals through the live run approval endpoint", async () => {
+    const fetchSpy = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    mockTurnLifecycleProjection.projection = null;
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run_summaryapproval001",
+        status: "approval_required",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: {
+          requestId: "appr_runtime001",
+          runId: "run_summaryapproval001",
+          origin: "agent",
+          category: "shell_command",
+          title: "Approve bash",
+          reason: "Allow command action for cat package.json?",
+          actionFingerprint: "kernel:bash:cat-package",
+          command: "cat package.json",
+          availableDecisions: ["allow_once", "deny", "abort"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run_summaryapproval001",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(screen.getByText("Approve bash")).toBeInTheDocument();
+    expect(screen.getByText("cat package.json")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/api/run/approval"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_summaryapproval001",
+            requestId: "appr_runtime001",
+            decision: "allow_once",
+          }),
+        }),
+      );
+    });
+    expect(mockSubmitLifecycleApproval).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Approval recorded. Continuing..."),
+    ).toBeInTheDocument();
+  });
+
   it("maps canonical cancel options to the abort approval action", () => {
     mockTurnLifecycleProjection.projection = buildApprovalProjection({
       turnId: "trn_labels001",
@@ -1536,7 +1605,7 @@ describe("ChatInterface", () => {
     expect(screen.getByText("Thinking")).toBeInTheDocument();
   });
 
-  it("renders active run-event approvals while canonical projection is unavailable", () => {
+  it("does not render active run-event approvals without canonical projection", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const pendingApprovalEvent: RunEvent = {
       version: 1,
@@ -1598,11 +1667,11 @@ describe("ChatInterface", () => {
       );
 
       expect(
-        screen.getByText("LegionCode wants to run a shell command"),
-      ).toBeInTheDocument();
+        screen.queryByText("LegionCode wants to run a shell command"),
+      ).not.toBeInTheDocument();
       expect(
-        screen.getByRole("button", { name: "Allow once" }),
-      ).toBeInTheDocument();
+        screen.queryByRole("button", { name: "Allow once" }),
+      ).not.toBeInTheDocument();
       expect(warnSpy).toHaveBeenCalledWith(
         "[activity/feed] Skipping activity turn without canonical turnId.",
         expect.objectContaining({ runId: "run-active-no-summary-pending" }),

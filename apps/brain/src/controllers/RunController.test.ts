@@ -167,6 +167,75 @@ describe("RunController", () => {
     });
   });
 
+  it("projects unresolved persisted approval requests into the run summary", async () => {
+    const env = {} as Env;
+    const run = {
+      id: "123e4567-e89b-42d3-a456-426614174100",
+      status: "paused",
+    };
+    const canonicalApprovalEvent = {
+      version: 1,
+      eventId: "evt-approval-requested",
+      runId: run.id,
+      sessionId: "123e4567-e89b-42d3-a456-426614174200",
+      timestamp: "2026-03-24T12:00:00.000Z",
+      source: "brain",
+      type: "approval.requested",
+      payload: {
+        request: {
+          requestId: "approval-1",
+          runId: run.id,
+          sessionId: "123e4567-e89b-42d3-a456-426614174200",
+          origin: "agent",
+          category: "shell_command",
+          title: "Approve bash",
+          reason: "Allow command action for cat package.json?",
+          command: "cat package.json",
+          actionFingerprint: "kernel:bash:cat-package",
+          availableDecisions: ["allow_once", "deny", "abort"],
+          createdAt: "2026-03-24T12:00:00.000Z",
+        },
+      },
+    };
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(run),
+        listRunEvents: vi.fn().mockResolvedValue([
+          {
+            id: canonicalApprovalEvent.eventId,
+            runId: run.id,
+            sessionId: canonicalApprovalEvent.sessionId,
+            eventType: canonicalApprovalEvent.type,
+            payload: canonicalApprovalEvent,
+            sequence: 1,
+            idempotencyKey: "approval-key-1",
+            createdAt: canonicalApprovalEvent.timestamp,
+          },
+        ]),
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
+    );
+
+    const response = await RunController.getSummary(
+      new Request(
+        "https://brain.local/api/run/summary?runId=123e4567-e89b-42d3-a456-426614174100",
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      runId: run.id,
+      status: "paused",
+      pendingApproval: {
+        requestId: "approval-1",
+        title: "Approve bash",
+        command: "cat package.json",
+        availableDecisions: ["allow_once", "deny", "abort"],
+      },
+    });
+  });
+
   it("does not overlay persisted run summary with live runtime terminal status", async () => {
     const env = {} as Env;
     const run = {

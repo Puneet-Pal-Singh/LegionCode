@@ -59,13 +59,13 @@ export interface AgenticLoopConfig {
   executionNonce?: string;
 }
 
-interface AgenticLoopToolCall {
+export interface AgenticLoopToolCall {
   id: string;
   toolName: string;
   args: Record<string, unknown>;
 }
 
-interface AgenticLoopToolResult {
+export interface AgenticLoopToolResult {
   toolId: string;
   toolName: string;
   result: unknown;
@@ -107,7 +107,7 @@ export interface AgenticLoopResult {
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }
 
-interface AgenticLoopHooks {
+export interface AgenticLoopHooks {
   workspaceContext?: string;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
@@ -818,7 +818,7 @@ export class AgenticLoop {
   }
 }
 
-function buildAgenticLoopSystemPrompt(input: {
+export function buildAgenticLoopSystemPrompt(input: {
   workspaceContext?: string;
   finalSynthesisOnly: boolean;
   requiresMutation: boolean;
@@ -1051,7 +1051,7 @@ function isValidationFailure(message: string, toolName: string): boolean {
   return message.startsWith(`Invalid ${toolName} input.`);
 }
 
-function buildAssistantMessage(
+export function buildAssistantMessage(
   text: string,
   toolCalls: AgenticLoopToolCall[] | undefined,
 ): CoreMessage {
@@ -1095,7 +1095,7 @@ function buildAssistantMessage(
   };
 }
 
-function buildToolResultMessage(
+export function buildToolResultMessage(
   toolResults: AgenticLoopToolResult[],
 ): CoreMessage {
   return {

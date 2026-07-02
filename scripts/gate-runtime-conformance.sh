@@ -58,12 +58,13 @@ echo -e "${YELLOW}[runtime-conformance-gate] Starting checks...${NC}"
 run_checked "Type checking workspace" pnpm check-types
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Type checks passed${NC}"
 
-run_checked "Brain boundary + fallback policy checks" pnpm --filter @shadowbox/brain test -- src/architecture/portability-guards.test.ts src/runtime/contracts/portability-boundary.test.ts src/architecture/no-silent-fallbacks.test.ts
+run_checked "Brain boundary + fallback policy checks" pnpm --filter @shadowbox/brain test -- src/architecture/portability-guards.test.ts src/runtime/contracts/portability-boundary.test.ts src/runtime/RunEngineKernelLifecycleEventStore.test.ts src/architecture/no-silent-fallbacks.test.ts
+run_checked "Canonical lifecycle authority rules" node --test scripts/gates/check-lifecycle-authority-boundaries.test.mjs
 run_checked "Execution-engine boundary checks" pnpm --filter @shadowbox/execution-engine test -- tests/unit/runtime-adapter-boundary.test.ts tests/unit/runtime-core-decomposition.test.ts
 run_checked "UI-kit provider transport boundary checks" pnpm --filter @repo/ui-kit test -- src/architecture/provider-transport-boundary.test.ts
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Boundary + fallback policy checks passed${NC}"
 
-run_checked "Determinism + provider parity checks" pnpm --filter @shadowbox/execution-engine test -- src/runtime/lib/RoutingDetector.test.ts src/runtime/engine/RunManifestPolicy.test.ts src/runtime/contracts/CodingToolGateway.test.ts src/runtime/engine/AgenticLoopToolExecutor.test.ts src/runtime/engine/RunEngineKernelAdapter.test.ts src/runtime/engine/RuntimeKernelLivePathBoundary.test.ts src/runtime/engine/RuntimeToolAuthorityBoundary.test.ts src/runtime/llm/LLMGateway.provider-matrix.test.ts src/runtime/engine/RunEngine.test.ts
+run_checked "Determinism + provider parity checks" pnpm --filter @shadowbox/execution-engine test -- src/runtime/lib/RoutingDetector.test.ts src/runtime/engine/RunManifestPolicy.test.ts src/runtime/contracts/LegacyGoldenFlowToolRegistryAdapter.test.ts src/runtime/engine/AgenticLoopToolExecutor.test.ts src/runtime/engine/RunEngineKernelAdapter.test.ts src/runtime/engine/RuntimeKernelLivePathBoundary.test.ts src/runtime/engine/RuntimeToolAuthorityBoundary.test.ts src/runtime/llm/LLMGateway.provider-matrix.test.ts src/runtime/engine/RunEngine.test.ts
 echo -e "${GREEN}[runtime-conformance-gate] ✓ Determinism + provider parity checks passed${NC}"
 
 run_checked "Brain observability + parity smoke checks" pnpm --filter @shadowbox/brain test -- src/core/observability/ByokObservability.test.ts src/runtime/parity-smoke.test.ts

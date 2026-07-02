@@ -12,6 +12,7 @@ import {
 import {
   dispatchRunSummaryRefresh,
   RUN_SUMMARY_REFRESH_EVENT,
+  type RunSummaryRefreshDetail,
 } from "../lib/run-summary-events.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
@@ -153,7 +154,7 @@ export function useRunEvents(
           });
           return merged;
         });
-        dispatchRunSummaryRefresh(currentRunId);
+        dispatchRunSummaryRefresh(currentRunId, { source: "run-event-stream" });
       },
       onError: (error) =>
         logRunEventsWarning(currentRunId, error, lastErrorLogRef),
@@ -170,8 +171,11 @@ export function useRunEvents(
     }
 
     const handleRefreshEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<{ runId?: string }>;
+      const customEvent = event as CustomEvent<Partial<RunSummaryRefreshDetail>>;
       if (customEvent.detail?.runId !== runId) {
+        return;
+      }
+      if (customEvent.detail?.source === "run-event-stream") {
         return;
       }
       if (document.visibilityState !== "visible") {
@@ -235,11 +239,7 @@ function connectRunEventStream(input: RunEventStreamConnection): () => void {
       if (input.isActive()) input.onReconnect();
     }, RUN_EVENTS_STREAM_RETRY_DELAY_MS);
   };
-  void consumeRunEventStream(
-    input.runId,
-    abortController.signal,
-    input.onEvent,
-  )
+  void consumeRunEventStream(input.runId, abortController.signal, input.onEvent)
     .then((status) => {
       if (abortController.signal.aborted) return;
       if (status === "unavailable") {

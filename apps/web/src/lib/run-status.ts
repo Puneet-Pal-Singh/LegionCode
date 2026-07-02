@@ -8,7 +8,6 @@ const TERMINAL_RUN_STATUSES = new Set([
 const APPROVAL_REQUIRED_RUN_STATUSES = new Set([
   "APPROVAL_REQUIRED",
   "WAITING_FOR_APPROVAL",
-  "PAUSED",
 ]);
 
 interface MapRunStatusToSessionStatusOptions {

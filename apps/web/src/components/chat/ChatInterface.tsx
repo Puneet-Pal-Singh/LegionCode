@@ -25,7 +25,6 @@ import {
   isTerminalRunStatus,
   normalizeRunStatus,
 } from "../../lib/run-status.js";
-import { logClientEvent } from "../../lib/client-logger.js";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";
@@ -39,9 +38,7 @@ import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { useActivityPresentation } from "./chat-interface/useActivityPresentation";
 import { usePlanModeController } from "./chat-interface/usePlanModeController";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
-import { derivePendingApprovalFromEvents } from "./chat-interface/approvals";
 
-// Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
 interface ChatInterfaceProps {
   chatProps: {
@@ -150,35 +147,6 @@ export function ChatInterface({
   );
   const shouldPollActivityFeed = activeRunLoading || isCanonicalEventRunActive;
   const { feed } = useRunActivityFeed(runId, shouldPollActivityFeed);
-  useEffect(() => {
-    logClientEvent("chat/workflow", "activity-polling-decision", {
-      runId,
-      controllerRunActive,
-      localLoading: isLoading,
-      activeRunLoading,
-      summaryStatus: summary?.status ?? null,
-      lifecycleTerminal: isLifecycleTerminalSettled,
-      summaryTerminal: isTerminalSummarySettled,
-      eventActivityOpen: isCanonicalEventRunActive,
-      eventCount: events.length,
-      feedStatus: feed?.status ?? null,
-      feedItemCount: feed?.items.length ?? 0,
-      shouldPollActivityFeed,
-    });
-  }, [
-    activeRunLoading,
-    controllerRunActive,
-    events.length,
-    isCanonicalEventRunActive,
-    isLifecycleTerminalSettled,
-    isLoading,
-    isTerminalSummarySettled,
-    runId,
-    shouldPollActivityFeed,
-    feed?.status,
-    feed?.items.length,
-    summary?.status,
-  ]);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const { providerModels } = useProviderStore(runId);
@@ -221,15 +189,6 @@ export function ChatInterface({
     events,
     isLoading: isLoading || activeRunLoading,
   });
-  const fallbackApproval = useMemo(() => {
-    if (summary?.pendingApproval) {
-      return summary.pendingApproval;
-    }
-    if (!isCanonicalRunActive && !activeRunLoading) {
-      return null;
-    }
-    return derivePendingApprovalFromEvents(events);
-  }, [activeRunLoading, events, isCanonicalRunActive, summary]);
   const {
     pendingApproval,
     decisions: displayedApprovalDecisions,
@@ -241,7 +200,7 @@ export function ChatInterface({
   } = useApprovalController({
     runId,
     lifecycleProjection,
-    fallbackApproval,
+    summaryPendingApproval: summary?.pendingApproval ?? null,
     onPendingApprovalChange,
   });
   const conversationTurns = useMemo(

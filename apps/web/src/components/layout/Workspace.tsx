@@ -47,9 +47,10 @@ interface WorkspaceProps {
   onModeChange?: (mode: RunMode) => void;
   isSessionRunning?: boolean;
   hasStartedSession?: boolean;
-  allowPendingQueryRestore?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
+  initialPromptSubmission?: { id: string; prompt: string } | null;
+  onInitialPromptHandled?: (id: string) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
@@ -70,9 +71,10 @@ export function Workspace({
   onModeChange,
   isSessionRunning = false,
   hasStartedSession = false,
-  allowPendingQueryRestore = true,
   onSessionStatusChange,
   onPromptSubmitted,
+  initialPromptSubmission = null,
+  onInitialPromptHandled,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
@@ -168,7 +170,6 @@ export function Workspace({
     },
     mode,
     productMode,
-    allowPendingQueryRestore,
   );
   const { summary: runSummary } = useRunSummary(activeRunId, true);
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
@@ -204,6 +205,39 @@ export function Workspace({
       lastMessage,
     ],
   );
+  const handledInitialPromptIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!initialPromptSubmission) {
+      return;
+    }
+    if (handledInitialPromptIdRef.current === initialPromptSubmission.id) {
+      return;
+    }
+
+    const prompt = initialPromptSubmission.prompt.trim();
+    if (!prompt) {
+      onInitialPromptHandled?.(initialPromptSubmission.id);
+      return;
+    }
+
+    handledInitialPromptIdRef.current = initialPromptSubmission.id;
+    append({ role: "user", content: prompt })
+      .then(() => {
+        onInitialPromptHandled?.(initialPromptSubmission.id);
+      })
+      .catch((error) => {
+        handledInitialPromptIdRef.current = null;
+        console.error("[Workspace] Failed to submit setup prompt:", error);
+        onSessionStatusChange?.("failed");
+        onInitialPromptHandled?.(initialPromptSubmission.id);
+      });
+  }, [
+    append,
+    initialPromptSubmission,
+    onInitialPromptHandled,
+    onSessionStatusChange,
+  ]);
   const {
     isApprovalWaitingRun,
     isStaleCanonicalActiveRun,
