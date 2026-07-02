@@ -196,7 +196,7 @@ export class ChatHydrationService {
       .filter((msg) => msg.role !== "tool")
       .map((msg, index) => {
         let content = "";
-        let toolInvocations: ToolInvocation[] = [];
+        const toolInvocations: ToolInvocation[] = [];
         const activityParts: TurnActivityTranscriptPart[] = readActivityData(
           msg.data,
         );

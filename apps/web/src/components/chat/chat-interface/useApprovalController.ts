@@ -87,12 +87,7 @@ export function useApprovalController(input: ApprovalControllerInput) {
         setError,
         setNotice,
       }),
-    [
-      input.lifecycleProjection,
-      input.runId,
-      lifecycleClient,
-      pendingApprovalState,
-    ],
+    [input.runId, lifecycleClient, pendingApprovalState],
   );
 
   return {
