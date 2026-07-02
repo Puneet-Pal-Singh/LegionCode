@@ -853,6 +853,8 @@ export function buildAgenticLoopSystemPrompt(input: {
     "- For PR-targeted edits, resolve the PR head branch and switch to that branch before any write_file mutation.",
     "- If git_branch_switch reports checkout-overwrite conflicts, do not stop. Decide the next bounded recovery step (for example commit or stash on the current branch, then retry switching).",
     "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
+    "- read_file returns line-numbered windows. If it reports truncated=true or nextOffset, continue with read_file using that exact nextOffset/limit instead of retrying the same window.",
+    "- If repeated read_file windows do not find the target section, use grep or glob to narrow the file/path before trying another read window.",
     "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
     "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
     "- If a file-edit mutation tool fails, stop and explain what failed.",

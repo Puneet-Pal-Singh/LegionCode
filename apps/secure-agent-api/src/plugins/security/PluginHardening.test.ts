@@ -309,12 +309,19 @@ describe("secure-agent-api plugin hardening", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.output).toBe("line two\nline three\n");
+    expect(result.output).toContain(
+      "[read_file] path=a.txt offset=1 limit=2 returnedLines=2 totalLines=4 truncated=true nextOffset=3",
+    );
+    expect(result.output).toContain("2: line two\n3: line three");
+    expect(result.output).toContain(
+      '[read_file] Continue with {"path":"a.txt","offset":3,"limit":2}',
+    );
     expect(result.metadata).toMatchObject({
       offset: 1,
       limit: 2,
       returnedLines: 2,
       totalLines: 4,
+      nextOffset: 3,
     });
     expect(sandbox.execCalls.some((command) => command.includes("'stat'"))).toBe(
       false,
@@ -350,10 +357,13 @@ describe("secure-agent-api plugin hardening", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.output).toBe("");
+    expect(result.output).toBe(
+      "[read_file] path=a.txt offset=10 limit=2 returnedLines=0 totalLines=3 truncated=false\n",
+    );
     expect(result.metadata).toMatchObject({
       returnedLines: 0,
       totalLines: 3,
+      nextOffset: null,
     });
   });
 
