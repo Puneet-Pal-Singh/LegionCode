@@ -14,10 +14,12 @@ import type { AgentSession } from "../../types/session";
 describe("SessionStateService", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -249,10 +251,25 @@ describe("SessionStateService", () => {
       const session = SessionStateService.createSession("Test", "repo");
       const sessions = { [session.id]: session };
 
+      SessionStateService.saveSessions(sessions, session.id);
       SessionStateService.saveActiveSessionId(session.id, sessions);
       const loaded = SessionStateService.loadActiveSessionId();
 
       expect(loaded).toBe(session.id);
+    });
+
+    it("keeps active session selection scoped to the current tab", () => {
+      const tabSession = SessionStateService.createSession("Tab", "repo");
+      const otherTabSession = SessionStateService.createSession("Other", "repo");
+      const sessions = {
+        [tabSession.id]: tabSession,
+        [otherTabSession.id]: otherTabSession,
+      };
+
+      SessionStateService.saveSessions(sessions, otherTabSession.id);
+      SessionStateService.saveActiveSessionId(tabSession.id, sessions);
+
+      expect(SessionStateService.loadActiveSessionId()).toBe(tabSession.id);
     });
 
     it("should not save non-existent session as active", () => {
@@ -317,7 +334,10 @@ describe("SessionStateService", () => {
       SessionStateService.saveActiveSessionId(session.id, {
         [session.id]: session,
       });
-      localStorage.setItem("shadowbox:active-session-id:v3", "missing-session");
+      sessionStorage.setItem(
+        "shadowbox:active-session-id:v4",
+        "missing-session",
+      );
       SessionStateService.saveSetupSession(setupSession);
 
       const runId = SessionStateService.loadActiveSessionRunId();

@@ -6,7 +6,7 @@
  *
  * Storage Keys:
  * - shadowbox:sessions:v3 — Main session store
- * - shadowbox:active-session-id:v3 — Active session selector
+ * - shadowbox:active-session-id:v4 — Per-tab active session selector
  * - shadowbox:session-context:{sessionId} — GitHub context per session
  * - shadowbox:run:{runId}:messages — Messages per run
  *
@@ -34,7 +34,7 @@ import type {
 import { createRunId, isCanonicalRunId } from "../lib/run-id";
 
 const SESSIONS_KEY = "shadowbox:sessions:v3";
-const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v3";
+const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v4";
 const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 
 type StoredSessionStatus = AgentSession["status"] | "error";
@@ -265,8 +265,13 @@ export class SessionStateService {
    */
   static loadActiveSessionId(): string | null {
     try {
-      const stored = localStorage.getItem(ACTIVE_SESSION_ID_KEY);
-      return stored || null;
+      const stored = sessionStorage.getItem(ACTIVE_SESSION_ID_KEY);
+      if (!stored) {
+        return null;
+      }
+
+      const sessions = this.loadSessions();
+      return sessions[stored] ? stored : null;
     } catch (e) {
       console.error(
         "[SessionStateService] Failed to load active session ID:",
@@ -370,9 +375,9 @@ export class SessionStateService {
 
     try {
       if (sessionId) {
-        localStorage.setItem(ACTIVE_SESSION_ID_KEY, sessionId);
+        sessionStorage.setItem(ACTIVE_SESSION_ID_KEY, sessionId);
       } else {
-        localStorage.removeItem(ACTIVE_SESSION_ID_KEY);
+        sessionStorage.removeItem(ACTIVE_SESSION_ID_KEY);
       }
     } catch (e) {
       console.error(

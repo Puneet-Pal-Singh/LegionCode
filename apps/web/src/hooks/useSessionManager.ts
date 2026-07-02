@@ -77,6 +77,20 @@ function replaceSessionById(
   );
 }
 
+function mergeHydratedSessions(
+  serverSessions: AgentSession[],
+  currentSessions: AgentSession[],
+): AgentSession[] {
+  const merged = new Map<string, AgentSession>();
+  serverSessions.forEach((session) => merged.set(session.id, session));
+  currentSessions.forEach((session) => {
+    if (!merged.has(session.id)) {
+      merged.set(session.id, session);
+    }
+  });
+  return sortSessions(Array.from(merged.values()));
+}
+
 function findNextVisibleSession(
   sessions: AgentSession[],
   archivedSessionId: string,
@@ -110,6 +124,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     );
   const sessionsRef = useRef<AgentSession[]>(sessions);
   const activeSessionIdRef = useRef<string | null>(null);
+  const localMutationVersionRef = useRef(0);
 
   // Persist activeSessionId to survive refreshes
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
@@ -123,13 +138,28 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
 
   // Persist sessions and active ID to localStorage with v2 schema
   useEffect(() => {
-    sessionsRef.current = sessions;
-    activeSessionIdRef.current = activeSessionId;
     const sessionsMap = createSessionsMap(sessions);
+    const refActiveSessionId = activeSessionIdRef.current;
+    const effectiveActiveSessionId =
+      refActiveSessionId && sessionsMap[refActiveSessionId]
+        ? refActiveSessionId
+        : activeSessionId;
+
+    sessionsRef.current = sessions;
+    activeSessionIdRef.current = effectiveActiveSessionId;
     // Pass activeSessionId to avoid race condition between load and save
-    SessionStateService.saveSessions(sessionsMap, activeSessionId);
-    SessionStateService.saveActiveSessionId(activeSessionId, sessionsMap);
+    SessionStateService.saveSessions(sessionsMap, effectiveActiveSessionId);
+    SessionStateService.saveActiveSessionId(
+      effectiveActiveSessionId,
+      sessionsMap,
+    );
   }, [activeSessionId, sessions]);
+
+  const selectActiveSession = useCallback((sessionId: string | null): void => {
+    activeSessionIdRef.current = sessionId;
+    localMutationVersionRef.current += 1;
+    setActiveSessionId(sessionId);
+  }, []);
 
   const [repositories, setRepositories] = useState<string[]>(() => {
     try {
@@ -160,28 +190,34 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       }
 
       setSessionHydrationStatus("loading");
+      const hydrationVersion = localMutationVersionRef.current;
       try {
         const serverSessions =
           await SessionStateService.hydrateSessionsFromServer();
-        const serverSessionList = sortSessions(Object.values(serverSessions));
         if (cancelled) {
           return;
         }
+        const serverSessionList = sortSessions(Object.values(serverSessions));
+        const hasLocalMutation =
+          localMutationVersionRef.current !== hydrationVersion;
+        const nextSessions = hasLocalMutation
+          ? mergeHydratedSessions(serverSessionList, sessionsRef.current)
+          : serverSessionList;
 
         const nextActiveSessionId = resolveActiveSessionId(
           activeSessionIdRef.current,
-          serverSessionList,
+          nextSessions,
         );
-        sessionsRef.current = serverSessionList;
+        sessionsRef.current = nextSessions;
         activeSessionIdRef.current = nextActiveSessionId;
-        setSessions(serverSessionList);
+        setSessions(nextSessions);
         setActiveSessionId(nextActiveSessionId);
 
-        if (serverSessionList.length > 0) {
+        if (nextSessions.length > 0) {
           setRepositories((current) =>
             mergeRepositories(
               current,
-              serverSessionList.map((session) => session.repository),
+              nextSessions.map((session) => session.repository),
             ),
           );
         }
@@ -239,6 +275,8 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       });
 
       sessionsRef.current = nextSessions;
+      activeSessionIdRef.current = newSession.id;
+      localMutationVersionRef.current += 1;
       setSessions(nextSessions);
       setActiveSessionId(newSession.id);
       return newSession.id;
@@ -523,7 +561,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     activeSessionId,
     sessionHydrationStatus,
     repositories,
-    setActiveSessionId,
+    setActiveSessionId: selectActiveSession,
     createSession,
     removeSession,
     renameSession,

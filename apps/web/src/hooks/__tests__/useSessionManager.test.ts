@@ -16,6 +16,7 @@ import { SessionStateService } from "../../services/SessionStateService";
 describe("useSessionManager", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.spyOn(
       SessionStateService,
       "hydrateSessionsFromServer",
@@ -32,6 +33,7 @@ describe("useSessionManager", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   describe("Session Creation", () => {
@@ -135,7 +137,7 @@ describe("useSessionManager", () => {
       expect(result.current.activeSessionId).toBe(sessionId1);
     });
 
-    it("should persist active session to localStorage", () => {
+    it("should persist active session to tab storage", () => {
       const { result } = renderHook(() => useSessionManager());
 
       let sessionId = "";
@@ -469,6 +471,34 @@ describe("useSessionManager", () => {
       });
     });
 
+    it("preserves a locally-created active session when stale hydration resolves later", async () => {
+      const hydration = createDeferred<Record<string, AgentSession>>();
+      vi.mocked(
+        SessionStateService.hydrateSessionsFromServer,
+      ).mockReturnValueOnce(hydration.promise);
+
+      const { result } = renderHook(() => useSessionManager());
+
+      let sessionId = "";
+      act(() => {
+        sessionId = result.current.createSession("Fresh task", "repo");
+      });
+
+      await act(async () => {
+        hydration.resolve({});
+        await hydration.promise;
+      });
+
+      await waitFor(() => {
+        expect(result.current.sessionHydrationStatus).toBe("ready");
+      });
+      expect(result.current.sessions.map((session) => session.id)).toContain(
+        sessionId,
+      );
+      expect(result.current.activeSessionId).toBe(sessionId);
+      expect(SessionStateService.loadActiveSessionId()).toBe(sessionId);
+    });
+
     it("clears stale local sessions when the server snapshot is empty", async () => {
       const staleSession = SessionStateService.createSession("Stale", "repo");
       SessionStateService.saveSessions(
@@ -605,4 +635,15 @@ function createArchivedServerSession(
     createdAt: "2026-05-14T00:00:00.000Z",
     updatedAt: archivedAt,
   };
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolvePromise: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return { promise, resolve: resolvePromise };
 }
