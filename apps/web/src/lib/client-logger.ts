@@ -51,6 +51,10 @@ function shouldWriteClientWarnings(): boolean {
   );
 }
 
+function shouldForwardClientLogs(): boolean {
+  return import.meta.env.VITE_FORWARD_CLIENT_LOGS === "true";
+}
+
 function compactContext(context: ClientLogContext): ClientLogContext {
   return Object.fromEntries(
     Object.entries(context).filter(([, value]) => value !== undefined),
@@ -182,7 +186,7 @@ function stringifyClientLogObject(value: object): string {
 }
 
 function forwardClientLogLine(line: string): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !shouldForwardClientLogs()) return;
 
   const body = boundLogLine(line);
   try {

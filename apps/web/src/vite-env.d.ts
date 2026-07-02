@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_CHAT_DEBUG_PANEL?: string;
   readonly VITE_ENABLE_CLIENT_DEBUG_LOGS?: string;
   readonly VITE_ENABLE_CLIENT_WARN_LOGS?: string;
+  readonly VITE_FORWARD_CLIENT_LOGS?: string;
   readonly VITE_PRODUCT_ENV?: string;
   readonly MODE: "development" | "production" | "test";
 }

@@ -31,7 +31,7 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      clientLogTerminalPlugin(),
+      ...clientLogTerminalPlugins(env),
     ],
     server: {
       port: 5174,
@@ -44,6 +44,14 @@ export default defineConfig(({ command, mode }) => {
     },
   }
 })
+
+function clientLogTerminalPlugins(env: Record<string, string>): Plugin[] {
+  if (env.VITE_FORWARD_CLIENT_LOGS !== 'true') {
+    return []
+  }
+
+  return [clientLogTerminalPlugin()]
+}
 
 function clientLogTerminalPlugin(): Plugin {
   return {
