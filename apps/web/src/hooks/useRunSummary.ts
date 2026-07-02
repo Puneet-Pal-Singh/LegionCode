@@ -69,7 +69,40 @@ interface UseRunSummaryResult {
 
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
 const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 2_000;
+const RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS = 1_000;
 const RUN_SUMMARY_POLL_INTERVAL_MS = 6_000;
+
+interface RunSummaryRequestState {
+  inFlight: Promise<RunSummaryFetchResult> | null;
+  lastFetchAt: number;
+  cachedSummary: RunSummary | null;
+  hasCachedSummary: boolean;
+}
+
+type RunSummaryFetchResult =
+  | {
+      kind: "summary";
+      summary: RunSummary;
+      status: number;
+      fromCache: boolean;
+    }
+  | {
+      kind: "unavailable";
+      status: number;
+      statusText: string;
+      fromCache: false;
+    }
+  | {
+      kind: "throttled";
+      summary: RunSummary | null;
+      fromCache: true;
+    };
+
+const runSummaryRequestsByRunId = new Map<string, RunSummaryRequestState>();
+
+export function __resetRunSummaryRequestCacheForTests(): void {
+  runSummaryRequestsByRunId.clear();
+}
 
 export function useRunSummary(
   runId: string,
@@ -78,8 +111,6 @@ export function useRunSummary(
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
-  const inFlightRunIdRef = useRef<string | null>(null);
-  const lastFetchAtRef = useRef(0);
   const lastSummaryErrorLogRef = useRef<{
     timestamp: number;
     message: string;
@@ -92,8 +123,6 @@ export function useRunSummary(
   useEffect(() => {
     activeRunIdRef.current = runId;
     inFlightRef.current = false;
-    inFlightRunIdRef.current = null;
-    lastFetchAtRef.current = 0;
     lastLoggedSummaryRef.current = "";
     setSummary(null);
   }, [runId]);
@@ -108,46 +137,39 @@ export function useRunSummary(
       if (inFlightRef.current) {
         return;
       }
-      const now = Date.now();
-      if (
-        !options?.force &&
-        now - lastFetchAtRef.current < RUN_SUMMARY_MIN_FETCH_INTERVAL_MS
-      ) {
-        return;
-      }
 
       try {
         inFlightRef.current = true;
-        inFlightRunIdRef.current = currentRunId;
-        lastFetchAtRef.current = now;
         logClientEvent("run/summary", "fetch-started", {
           runId: currentRunId,
           force: Boolean(options?.force),
           shouldPoll,
           currentStatus: summaryStatusRef.current,
         });
-        const response = await fetch(
-          `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(currentRunId)}`,
-          { credentials: "include" },
-        );
+        const result = await requestRunSummary(currentRunId, {
+          force: Boolean(options?.force),
+        });
         if (activeRunIdRef.current !== currentRunId) {
           logClientEvent("run/summary", "fetch-discarded", {
             runId: currentRunId,
             activeRunId: activeRunIdRef.current,
             reason: "run-changed-after-response",
-            status: response.status,
+            status: result.kind === "unavailable" ? result.status : 200,
           });
           return;
         }
-        if (!response.ok) {
+        if (result.kind === "unavailable") {
           logClientEvent("run/summary", "unavailable", {
             runId: currentRunId,
-            status: response.status,
-            statusText: response.statusText,
+            status: result.status,
+            statusText: result.statusText,
           });
           return;
         }
-        const payload = (await response.json()) as RunSummary;
+        const payload = result.summary;
+        if (!payload) {
+          return;
+        }
         if (activeRunIdRef.current !== currentRunId) {
           logClientEvent("run/summary", "payload-discarded", {
             runId: currentRunId,
@@ -197,9 +219,8 @@ export function useRunSummary(
           };
         }
       } finally {
-        if (inFlightRunIdRef.current === currentRunId) {
+        if (activeRunIdRef.current === currentRunId) {
           inFlightRef.current = false;
-          inFlightRunIdRef.current = null;
         }
       }
     },
@@ -283,6 +304,78 @@ export function useRunSummary(
   }, [fetchSummary, runId, shouldPoll, summary, summaryStatus]);
 
   return { summary };
+}
+
+async function requestRunSummary(
+  runId: string,
+  options: { force: boolean },
+): Promise<RunSummaryFetchResult> {
+  const state = getRunSummaryRequestState(runId);
+  if (state.inFlight) {
+    return state.inFlight;
+  }
+
+  const now = Date.now();
+  const minInterval = options.force
+    ? RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS
+    : RUN_SUMMARY_MIN_FETCH_INTERVAL_MS;
+  if (state.hasCachedSummary && now - state.lastFetchAt < minInterval) {
+    return {
+      kind: "throttled",
+      summary: state.cachedSummary,
+      fromCache: true,
+    };
+  }
+
+  state.lastFetchAt = now;
+  const request = fetchRunSummary(runId).finally(() => {
+    const latest = runSummaryRequestsByRunId.get(runId);
+    if (latest) {
+      latest.inFlight = null;
+    }
+  });
+  state.inFlight = request;
+  return request;
+}
+
+function getRunSummaryRequestState(runId: string): RunSummaryRequestState {
+  const existing = runSummaryRequestsByRunId.get(runId);
+  if (existing) {
+    return existing;
+  }
+  const created: RunSummaryRequestState = {
+    inFlight: null,
+    lastFetchAt: 0,
+    cachedSummary: null,
+    hasCachedSummary: false,
+  };
+  runSummaryRequestsByRunId.set(runId, created);
+  return created;
+}
+
+async function fetchRunSummary(runId: string): Promise<RunSummaryFetchResult> {
+  const response = await fetch(
+    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    return {
+      kind: "unavailable",
+      status: response.status,
+      statusText: response.statusText,
+      fromCache: false,
+    };
+  }
+  const summary = (await response.json()) as RunSummary;
+  const state = getRunSummaryRequestState(runId);
+  state.cachedSummary = summary;
+  state.hasCachedSummary = true;
+  return {
+    kind: "summary",
+    summary,
+    status: response.status,
+    fromCache: false,
+  };
 }
 
 function shouldKeepRunSummaryPolling(
