@@ -12,6 +12,7 @@ import {
 import {
   dispatchRunSummaryRefresh,
   RUN_SUMMARY_REFRESH_EVENT,
+  type RunSummaryRefreshDetail,
 } from "../lib/run-summary-events.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
@@ -170,7 +171,7 @@ export function useRunEvents(
     }
 
     const handleRefreshEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<{ runId?: string }>;
+      const customEvent = event as CustomEvent<Partial<RunSummaryRefreshDetail>>;
       if (customEvent.detail?.runId !== runId) {
         return;
       }

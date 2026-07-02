@@ -1,6 +1,6 @@
 export const RUN_SUMMARY_REFRESH_EVENT = "shadowbox:run-summary-refresh";
 
-interface RunSummaryRefreshDetail {
+export interface RunSummaryRefreshDetail {
   runId: string;
   source?: "chat" | "run-event-stream" | "manual";
 }
