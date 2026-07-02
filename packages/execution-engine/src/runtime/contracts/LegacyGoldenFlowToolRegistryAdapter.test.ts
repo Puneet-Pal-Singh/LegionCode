@@ -262,7 +262,11 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
     expect(snapshot.tools).toEqual([
       expect.objectContaining({
         name: "read_file",
-        preferredFor: ["file inspection", "line range reads"],
+        preferredFor: [
+          "file inspection",
+          "line-numbered range reads",
+          "continuing with nextOffset after truncation",
+        ],
       }),
       expect.objectContaining({
         name: "grep",

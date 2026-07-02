@@ -637,8 +637,12 @@ function describeToolUsage(input: {
 } {
   if (input.id === "read_file") {
     return {
-      preferredFor: ["file inspection", "line range reads"],
-      alternatives: ["bash"],
+      preferredFor: [
+        "file inspection",
+        "line-numbered range reads",
+        "continuing with nextOffset after truncation",
+      ],
+      alternatives: ["glob", "grep", "list_files"],
     };
   }
   if (input.id === "glob" || input.id === "list_files") {
@@ -800,7 +804,8 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   createRoutedToolDefinition({
     id: "read_file",
     title: "Read File",
-    description: "Read a capped text window from a workspace file.",
+    description:
+      "Read a capped, line-numbered text window from a workspace file. If truncated, call read_file again with the reported nextOffset and a larger limit, or use grep/glob to narrow.",
     inputSchema: READ_FILE_TOOL_INPUT_SCHEMA,
     permission: WORKSPACE_READ_PERMISSION,
     sandboxClass: "read",
