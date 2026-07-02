@@ -1128,6 +1128,7 @@ function AppContent() {
                   runId: activeSession.activeRunId,
                   repo,
                   branch,
+                  enabled: activeSession.status !== "running",
                   onBranchChange: switchBranch,
                   onOpenChanges: () =>
                     setSummaryActionRequest({

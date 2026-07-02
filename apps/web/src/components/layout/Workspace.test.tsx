@@ -925,7 +925,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("clears local running status when the user stops a stuck session", () => {
+  it("keeps local running status while a stop request is settling", () => {
     const onSessionStatusChange = vi.fn();
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
@@ -952,7 +952,8 @@ describe("Workspace", () => {
     });
 
     expect(mockChatState.stop).toHaveBeenCalled();
-    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+    expect(onSessionStatusChange).toHaveBeenCalledWith("running");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
   });
 
   it("opens the right sidebar when review focus is requested", () => {
