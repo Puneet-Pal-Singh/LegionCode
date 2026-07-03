@@ -14,8 +14,14 @@ export type {
   TaskResult,
 } from "./ExecutionRuntimePort";
 export type { RunOrchestratorPort } from "@shadowbox/orchestrator-core";
-export type { ProviderAuthPort, ModelProviderPort, ProviderResolutionPort, ModelMetadata } from "./ProviderResolutionPort";
+export type {
+  ProviderAuthPort,
+  ModelProviderPort,
+  ProviderResolutionPort,
+  ModelMetadata,
+} from "./ProviderResolutionPort";
 export type { StreamEvent, RealtimeEventPort } from "./EventStreamPort";
+export type { LifecycleEventStreamPort } from "./LifecycleEventStreamPort";
 export type {
   HarnessId,
   HarnessCapabilities,

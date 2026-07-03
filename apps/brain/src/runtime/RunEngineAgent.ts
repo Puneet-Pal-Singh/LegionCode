@@ -1,7 +1,10 @@
 import { CloudflareAgent } from "@shadowbox/orchestrator-adapters-cloudflare-agents";
 import type { Env } from "../types/ai";
 import { errorResponse } from "../http/response";
-import { createCloudflareEventStreamPort } from "./factories/PortalityAdapterFactory";
+import {
+  createCloudflareEventStreamPort,
+  createCloudflareLifecycleEventStreamPort,
+} from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
@@ -9,6 +12,8 @@ import { RunExecutionLock } from "./RunExecutionLock";
 export class RunEngineAgent extends CloudflareAgent<Env> {
   private readonly executionLock = new RunExecutionLock();
   private readonly eventStreamPort = createCloudflareEventStreamPort();
+  private readonly lifecycleEventStreamPort =
+    createCloudflareLifecycleEventStreamPort();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -21,6 +26,7 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       this.env,
       this.withExecutionLock.bind(this),
       this.eventStreamPort,
+      { lifecycleEventStream: this.lifecycleEventStreamPort },
     );
 
     if (url.pathname === "/execute" && request.method === "POST") {
@@ -48,6 +54,21 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       return handler.handleEventsStreamRequest(request);
     }
 
+    if (url.pathname === "/lifecycle-events" && request.method === "GET") {
+      return handler.handleLifecycleEventsRequest(request);
+    }
+
+    if (
+      url.pathname === "/lifecycle-events/stream" &&
+      request.method === "GET"
+    ) {
+      return handler.handleLifecycleEventsStreamRequest(request);
+    }
+
+    if (url.pathname === "/turn-diff" && request.method === "GET") {
+      return handler.handleTurnDiffRequest(request);
+    }
+
     if (url.pathname === "/activity" && request.method === "GET") {
       return handler.handleActivityRequest(request);
     }
@@ -58,6 +79,10 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
 
     if (url.pathname === "/approval" && request.method === "POST") {
       return handler.handleApprovalRequest(request);
+    }
+
+    if (url.pathname === "/lifecycle-approval" && request.method === "POST") {
+      return handler.handleLifecycleApprovalRequest(request);
     }
 
     if (url.pathname === "/debug/runtime" && request.method === "GET") {

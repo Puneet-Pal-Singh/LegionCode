@@ -3,50 +3,48 @@ import {
   LifecycleEventSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
+import { MemoryLifecycleEventStore } from "@repo/event-store";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
-import type { CanonicalRunEventSink } from "./RunEngineRequestHandler";
+import type { LifecycleEventStreamPort } from "./ports";
 
 describe("RunEngineKernelLifecycleEventStore", () => {
-  it("keeps RuntimeKernel lifecycle events out of the user activity sink", async () => {
-    const persistedEvents: Parameters<CanonicalRunEventSink["persist"]>[0][] =
-      [];
-    const liveEvents: Parameters<CanonicalRunEventSink["persist"]>[0][] = [];
+  it("persists and emits lifecycle events from the same append path", async () => {
+    const backingStore = new MemoryLifecycleEventStore();
+    const stream = new CapturingLifecycleStream();
     const store = new RunEngineKernelLifecycleEventStore({
       runId: "run_123e4567e89b42d3a456426614174999",
       sessionId: "session-kernel",
       correlationId: "corr-kernel",
-      sink: {
-        async persist(event) {
-          persistedEvents.push(event);
-        },
-      },
-      onRunEvent(event) {
-        liveEvents.push(event);
-      },
+      store: backingStore,
+      stream,
     });
 
-    await store.append(createLifecycleEvent("turn.completed", 9));
+    await store.append(createLifecycleEvent("turn.completed", 1));
 
-    expect(persistedEvents).toHaveLength(0);
-    expect(liveEvents).toHaveLength(0);
+    expect(stream.events).toMatchObject([
+      { type: "turn.completed", sequence: 1 },
+    ]);
+    expect(stream.completedTurns).toEqual(["trn_kernelturn1"]);
     await expect(
-      store.replay({
+      backingStore.replay({
         turnId: "trn_kernelturn1",
         afterSequence: null,
         limit: 10,
       }),
     ).resolves.toMatchObject({
-      nextSequence: 9,
-      events: [{ type: "turn.completed", sequence: 9 }],
+      nextSequence: 1,
+      events: [{ type: "turn.completed", sequence: 1 }],
     });
   });
 
   it("replays only canonical lifecycle events for the requested turn", async () => {
+    const backingStore = new MemoryLifecycleEventStore();
     const store = new RunEngineKernelLifecycleEventStore({
       runId: "run_123e4567e89b42d3a456426614174999",
       sessionId: "session-kernel",
       correlationId: "corr-kernel",
-      sink: { async persist() {} },
+      store: backingStore,
+      stream: new CapturingLifecycleStream(),
     });
 
     await store.appendBatch([
@@ -71,13 +69,32 @@ describe("RunEngineKernelLifecycleEventStore", () => {
   });
 });
 
+class CapturingLifecycleStream implements LifecycleEventStreamPort {
+  readonly events: LifecycleEvent[] = [];
+  readonly completedTurns: string[] = [];
+
+  start(): void {}
+
+  emit(event: LifecycleEvent): void {
+    this.events.push(event);
+  }
+
+  complete(turnId: string): void {
+    this.completedTurns.push(turnId);
+  }
+
+  getStream(): ReadableStream<Uint8Array> {
+    return new ReadableStream();
+  }
+}
+
 function createLifecycleEvent(
   type: LifecycleEvent["type"],
   sequence: number,
   turnId: LifecycleEvent["turnId"] = "trn_kernelturn1",
 ): LifecycleEvent {
   return LifecycleEventSchema.parse({
-    eventId: `evt_kernelturn1_${sequence}`,
+    eventId: `evt_${turnId.slice(4)}_${sequence}`,
     threadId: "thr_kernel1",
     turnId,
     runAttemptId: "attempt_kernel1",
@@ -88,8 +105,6 @@ function createLifecycleEvent(
     createdAt: "2026-07-01T10:00:00.000Z",
     type,
     payload:
-      type === "turn.completed"
-        ? { outcome: { status: "completed" } }
-        : {},
+      type === "turn.completed" ? { outcome: { status: "completed" } } : {},
   });
 }

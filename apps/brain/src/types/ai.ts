@@ -16,6 +16,7 @@ import type {
   TranscriptRepository,
   WorkspaceRepository,
 } from "@repo/persistence";
+import type { LifecycleEventStore } from "@repo/event-store";
 
 export interface HyperdriveBinding {
   connectionString: string;
@@ -53,6 +54,7 @@ export interface Env {
   AUTH_CONTEXT_REPOSITORY?: ContextRepository;
   AUTH_PERMISSION_REPOSITORY?: PermissionRepository;
   AUTH_ARTIFACT_REPOSITORY?: ArtifactRepository;
+  AUTH_LIFECYCLE_EVENT_STORE?: LifecycleEventStore;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK
