@@ -1,4 +1,9 @@
 import { MemoryLifecycleEventStore } from "@repo/event-store/lifecycle";
+import type {
+  LifecycleEventStore,
+  ReplayLifecycleEventsInput,
+  ReplayLifecycleEventsResult,
+} from "@repo/event-store";
 import {
   DefaultGitService,
   type GitCommandExecutionInput,
@@ -29,7 +34,10 @@ import {
   type ToolCallItemContent,
   type UserId,
 } from "@repo/platform-protocol";
-import { RuntimeKernel, type RuntimeTurnArtifactPort } from "@repo/runtime-kernel";
+import {
+  RuntimeKernel,
+  type RuntimeTurnArtifactPort,
+} from "@repo/runtime-kernel";
 import type {
   ApprovalResolution,
   ApprovalWaitPort,
@@ -111,6 +119,9 @@ describe("golden repo-to-PR conformance", () => {
     });
     await client.createRun(createRunRequest(thread));
     const start = await client.startTurn(createStartTurnRequest(thread));
+    const followedPromise = readUntilTerminal(
+      client.followTurnLifecycle({ turnId: start.turn.id, replayLimit: 4 }),
+    );
 
     await fixture.waitForApprovalRequest();
     await client.submitLifecycleApproval({
@@ -157,9 +168,7 @@ describe("golden repo-to-PR conformance", () => {
       turnId: start.turn.id,
       limit: 100,
     });
-    const followed = await readAll(
-      client.followTurnLifecycle({ turnId: start.turn.id, replayLimit: 4 }),
-    );
+    const followed = await followedPromise;
     const reloadedManifest = await client.getWorkspaceManifest(start.run.id);
 
     expect(status.entries.map((entry) => entry.path)).toEqual([
@@ -196,7 +205,7 @@ describe("golden repo-to-PR conformance", () => {
 
 function createGoldenFixture(): GoldenFixture {
   const workspaceManifests = new MemoryWorkspaceManifestRepository();
-  const lifecycleEvents = new MemoryLifecycleEventStore();
+  const lifecycleEvents = new GoldenLifecycleEventStore();
   const workspace = createWorkspaceManifest();
   const gitExecutor = new GoldenGitExecutor();
   const git = new DefaultGitService(gitExecutor);
@@ -411,11 +420,15 @@ class GoldenPlatformTransport implements PlatformClientTransport {
 
   async *attachRunStream(): AsyncIterable<never> {}
 
-  async *attachLifecycleStream(request: {
+  attachLifecycleStream(request: {
+    readonly turnId?: Turn["id"];
     readonly afterSequence?: EventSequence | null;
   }): AsyncIterable<LifecycleEvent> {
-    const replay = await this.replayLifecycleEvents(request);
-    for (const event of replay.events) yield event;
+    const turn = requireValue(this.turn, "turn was not started");
+    return this.deps.lifecycleEvents.stream({
+      turnId: request.turnId ?? turn.id,
+      afterSequence: request.afterSequence ?? null,
+    });
   }
 
   async replayRunEvents() {
@@ -502,7 +515,8 @@ class GoldenProvider implements ProviderPort {
           toolName: "file.write",
           input: {
             path: "src/feature.ts",
-            content: "export const enabled = false;\nexport const governed = true;\n",
+            content:
+              "export const enabled = false;\nexport const governed = true;\n",
           },
         },
       };
@@ -524,7 +538,8 @@ class GoldenToolAuthorization implements ToolAuthorizationPort {
         toolName: "file.write",
         input: {
           path: "src/feature.ts",
-          content: "export const enabled = false;\nexport const governed = true;\n",
+          content:
+            "export const enabled = false;\nexport const governed = true;\n",
         },
       },
       request: {
@@ -551,7 +566,8 @@ class GoldenToolAuthorization implements ToolAuthorizationPort {
 
 class GoldenApprovalWaitPort implements ApprovalWaitPort {
   private requested: Deferred<void> = createDeferred<void>();
-  private decision: Deferred<ApprovalResolution> = createDeferred<ApprovalResolution>();
+  private decision: Deferred<ApprovalResolution> =
+    createDeferred<ApprovalResolution>();
 
   async waitForDecision(): Promise<ApprovalResolution> {
     this.requested.resolve();
@@ -589,7 +605,9 @@ class GoldenApprovalWaitPort implements ApprovalWaitPort {
 class GoldenWorker implements WorkerProtocolPort {
   constructor(private readonly gitExecutor: GoldenGitExecutor) {}
 
-  async executeTool(input: Parameters<WorkerProtocolPort["executeTool"]>[0]): Promise<WorkerToolResult> {
+  async executeTool(
+    input: Parameters<WorkerProtocolPort["executeTool"]>[0],
+  ): Promise<WorkerToolResult> {
     if (!input.approval || input.approval.decision !== "approved") {
       return {
         kind: "failed",
@@ -627,7 +645,9 @@ class GoldenArtifactStore implements RuntimeTurnArtifactPort {
   readonly artifacts: ArtifactMetadata[] = [];
   turnDiff: TurnDiffPayload | null = null;
 
-  async putSnapshot(input: Parameters<RuntimeTurnArtifactPort["putSnapshot"]>[0]) {
+  async putSnapshot(
+    input: Parameters<RuntimeTurnArtifactPort["putSnapshot"]>[0],
+  ) {
     const artifact = createArtifact({
       artifactId: IDS.snapshotArtifactId,
       itemId: null,
@@ -640,7 +660,9 @@ class GoldenArtifactStore implements RuntimeTurnArtifactPort {
     return artifact;
   }
 
-  async putTurnDiff(input: Parameters<RuntimeTurnArtifactPort["putTurnDiff"]>[0]) {
+  async putTurnDiff(
+    input: Parameters<RuntimeTurnArtifactPort["putTurnDiff"]>[0],
+  ) {
     this.turnDiff = input.diff;
     const artifact = createArtifact({
       artifactId: IDS.diffArtifactId,
@@ -670,7 +692,9 @@ class GoldenGitExecutor implements GitCommandExecutor {
   private committed = false;
   private pushed = false;
 
-  async execute(input: GitCommandExecutionInput): Promise<GitCommandExecutionResult> {
+  async execute(
+    input: GitCommandExecutionInput,
+  ): Promise<GitCommandExecutionResult> {
     this.calls.push(input);
     const command = findGitCommand(input.args);
     if (isStatusCommand(input.args)) return ok(this.statusOutput());
@@ -683,12 +707,17 @@ class GoldenGitExecutor implements GitCommandExecutor {
     if (command === "rev-parse") return ok(this.revParse(input.args));
     if (command === "read-tree") return ok("");
     if (command === "add") return this.add(input.args);
-    if (command === "write-tree") return ok(`${this.edited ? SHA_EDITED : SHA_BASE}\n`);
+    if (command === "write-tree")
+      return ok(`${this.edited ? SHA_EDITED : SHA_BASE}\n`);
     if (command === "config") return ok("");
     if (command === "commit") return this.commit();
     if (command === "branch") return ok("feat/golden-repo-to-pr\n");
     if (command === "push") return this.push(input.args);
-    return { exitCode: 1, stdout: "", stderr: `unexpected git command: ${input.args.join(" ")}` };
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `unexpected git command: ${input.args.join(" ")}`,
+    };
   }
 
   applyEdit(): void {
@@ -701,7 +730,8 @@ class GoldenGitExecutor implements GitCommandExecutor {
   }
 
   private statusOutput(): string {
-    if (!this.edited || this.committed) return "# branch.head feat/golden-repo-to-pr\0";
+    if (!this.edited || this.committed)
+      return "# branch.head feat/golden-repo-to-pr\0";
     const code = this.staged ? "M." : ".M";
     return [
       "# branch.head feat/golden-repo-to-pr\0",
@@ -752,7 +782,11 @@ class GoldenGitExecutor implements GitCommandExecutor {
 class GoldenPullRequestGateway {
   constructor(private readonly gitExecutor: GoldenGitExecutor) {}
 
-  open(input: { readonly runId: Run["id"]; readonly branchName: string; readonly commitSha: string }) {
+  open(input: {
+    readonly runId: Run["id"];
+    readonly branchName: string;
+    readonly commitSha: string;
+  }) {
     this.gitExecutor.ensurePushed();
     expect(input.runId).toBe(IDS.runId);
     expect(input.branchName).toBe("feat/golden-repo-to-pr");
@@ -833,16 +867,27 @@ function assertLifecycleTruth(replay: ReplayLifecycleEventsResponse): void {
   expect(eventTypes).toContain("approval.decided");
   expect(eventTypes).toContain("artifact.created");
   expect(eventTypes.at(-1)).toBe("turn.completed");
-  expect(replay.events.filter((event) => event.type === "turn.completed")).toHaveLength(1);
-  expect(replay.events.every((event) => event.producer.kind === "runtime_kernel")).toBe(true);
+  expect(
+    replay.events.filter((event) => event.type === "turn.completed"),
+  ).toHaveLength(1);
+  expect(
+    replay.events.every((event) => event.producer.kind === "runtime_kernel"),
+  ).toBe(true);
   expect(replay.events.map((event) => event.sequence)).toEqual(
     replay.events.map((_, index) => index + 1),
   );
 }
 
-async function readAll<T>(input: AsyncIterable<T>): Promise<T[]> {
-  const values: T[] = [];
-  for await (const value of input) values.push(value);
+async function readUntilTerminal(
+  input: AsyncIterable<LifecycleEvent>,
+): Promise<LifecycleEvent[]> {
+  const values: LifecycleEvent[] = [];
+  for await (const value of input) {
+    values.push(value);
+    if (isTerminalLifecycleEvent(value)) {
+      break;
+    }
+  }
   return values;
 }
 
@@ -896,6 +941,183 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
+class GoldenLifecycleEventStore implements LifecycleEventStore {
+  private readonly delegate = new MemoryLifecycleEventStore();
+  private readonly streams = new LifecycleLiveStreams();
+
+  async append(event: LifecycleEvent): Promise<LifecycleEvent> {
+    return (await this.appendBatch([event]))[0] as LifecycleEvent;
+  }
+
+  async appendBatch(
+    events: readonly LifecycleEvent[],
+  ): Promise<readonly LifecycleEvent[]> {
+    const appended = await this.delegate.appendBatch(events);
+    this.streams.emit(appended);
+    return appended;
+  }
+
+  replay(
+    input: ReplayLifecycleEventsInput,
+  ): Promise<ReplayLifecycleEventsResult> {
+    return this.delegate.replay(input);
+  }
+
+  stream(input: {
+    readonly turnId: Turn["id"];
+    readonly afterSequence: EventSequence | null;
+  }): AsyncIterable<LifecycleEvent> {
+    return this.streams.follow({
+      replay: (afterSequence) =>
+        this.delegate.replay({
+          turnId: input.turnId,
+          afterSequence,
+          limit: 100,
+        }),
+      turnId: input.turnId,
+      afterSequence: input.afterSequence,
+    });
+  }
+}
+
+class LifecycleLiveStreams {
+  private readonly subscribersByTurn = new Map<
+    string,
+    Set<LifecycleSubscriber>
+  >();
+  private readonly terminalTurns = new Set<string>();
+
+  emit(events: readonly LifecycleEvent[]): void {
+    for (const event of events) {
+      this.emitOne(event);
+    }
+  }
+
+  async *follow(input: {
+    readonly turnId: Turn["id"];
+    readonly afterSequence: EventSequence | null;
+    readonly replay: (
+      afterSequence: number | null,
+    ) => Promise<ReplayLifecycleEventsResult>;
+  }): AsyncIterable<LifecycleEvent> {
+    const replay = await input.replay(input.afterSequence);
+    for (const event of replay.events) {
+      yield event;
+    }
+    if (isTerminalLifecycleEvent(replay.events.at(-1))) {
+      return;
+    }
+
+    const subscriber = new LifecycleSubscriber(
+      replay.nextSequence ?? input.afterSequence ?? 0,
+    );
+    this.addSubscriber(input.turnId, subscriber);
+    if (this.terminalTurns.has(input.turnId)) {
+      subscriber.close();
+    }
+
+    try {
+      yield* subscriber;
+    } finally {
+      this.removeSubscriber(input.turnId, subscriber);
+    }
+  }
+
+  private emitOne(event: LifecycleEvent): void {
+    for (const subscriber of this.subscribersByTurn.get(event.turnId) ?? []) {
+      subscriber.push(event);
+    }
+    if (!isTerminalLifecycleEvent(event)) {
+      return;
+    }
+
+    this.terminalTurns.add(event.turnId);
+    for (const subscriber of this.subscribersByTurn.get(event.turnId) ?? []) {
+      subscriber.close();
+    }
+    this.subscribersByTurn.delete(event.turnId);
+  }
+
+  private addSubscriber(
+    turnId: Turn["id"],
+    subscriber: LifecycleSubscriber,
+  ): void {
+    const subscribers = this.subscribersByTurn.get(turnId) ?? new Set();
+    subscribers.add(subscriber);
+    this.subscribersByTurn.set(turnId, subscribers);
+  }
+
+  private removeSubscriber(
+    turnId: Turn["id"],
+    subscriber: LifecycleSubscriber,
+  ): void {
+    const subscribers = this.subscribersByTurn.get(turnId);
+    if (!subscribers) {
+      return;
+    }
+    subscribers.delete(subscriber);
+    if (subscribers.size === 0) {
+      this.subscribersByTurn.delete(turnId);
+    }
+  }
+}
+
+class LifecycleSubscriber implements AsyncIterable<LifecycleEvent> {
+  private readonly events: LifecycleEvent[] = [];
+  private pendingResolve: (() => void) | null = null;
+  private closed = false;
+
+  constructor(private lastSequence: number) {}
+
+  push(event: LifecycleEvent): void {
+    if (event.sequence <= this.lastSequence) {
+      return;
+    }
+    this.events.push(event);
+    this.resolvePendingRead();
+  }
+
+  close(): void {
+    this.closed = true;
+    this.resolvePendingRead();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<LifecycleEvent> {
+    while (!this.closed || this.events.length > 0) {
+      const event = this.events.shift();
+      if (event) {
+        this.lastSequence = event.sequence;
+        yield event;
+        continue;
+      }
+      await this.waitForNextEvent();
+    }
+  }
+
+  private waitForNextEvent(): Promise<void> {
+    if (this.closed || this.events.length > 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.pendingResolve = resolve;
+    });
+  }
+
+  private resolvePendingRead(): void {
+    const resolve = this.pendingResolve;
+    this.pendingResolve = null;
+    resolve?.();
+  }
+}
+
+function isTerminalLifecycleEvent(event: LifecycleEvent | undefined): boolean {
+  return (
+    event?.type === "turn.completed" ||
+    event?.type === "turn.failed" ||
+    event?.type === "turn.interrupted"
+  );
+}
+
 interface Deferred<T> {
   readonly promise: Promise<T>;
   readonly resolve: (value: T) => void;
@@ -918,7 +1140,7 @@ interface GoldenFixture {
 
 interface GoldenPlatformDependencies {
   readonly kernel: RuntimeKernel;
-  readonly lifecycleEvents: MemoryLifecycleEventStore;
+  readonly lifecycleEvents: GoldenLifecycleEventStore;
   readonly workspaceManifests: MemoryWorkspaceManifestRepository;
   readonly approvals: GoldenApprovalWaitPort;
   readonly turnArtifacts: GoldenArtifactStore;
