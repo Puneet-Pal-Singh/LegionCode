@@ -326,6 +326,7 @@ export class RuntimeKernel {
         snapshot: settlement.terminalSnapshot,
         artifact: settlement.terminalSnapshotArtifact,
       });
+      await lifecycle.updateTurnDiff(settlement.turnDiff);
       await lifecycle.createTurnArtifact(settlement.turnDiffArtifact);
       return settlement;
     } catch (error) {

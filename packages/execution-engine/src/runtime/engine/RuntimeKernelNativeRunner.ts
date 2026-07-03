@@ -123,6 +123,7 @@ import {
   classifyCurrentTurnIntent,
   requiresMutationForIntent,
 } from "./RunCurrentTurnIntent.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -139,6 +140,7 @@ export interface RuntimeKernelNativeRunnerInput {
   messages: CoreMessage[];
   tools: Record<string, CoreTool>;
   lifecycleEvents: RuntimeLifecycleEventStore;
+  turnId: Turn["id"];
   now?: () => string;
 }
 
@@ -237,6 +239,7 @@ export class RuntimeKernelNativeRunner {
       sessionId: this.options.sessionId,
       userId: this.options.userId,
       input: input.input,
+      turnId: input.turnId,
       timestamp: now(),
     });
     const provider = new KernelAgenticProvider({
@@ -738,7 +741,17 @@ class KernelAgenticProvider implements ProviderPort {
       },
     );
     console.log(
-      `[runtime-kernel/native] model_step_started runId=${this.options.run.id} sessionId=${this.options.run.sessionId} step=${this.stepsExecuted + 1} intent=${this.currentTurnIntent} requiresMutation=${this.requiresMutation}`,
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "model-step-started",
+        {
+          runId: this.options.run.id,
+          sessionId: this.options.run.sessionId,
+          step: this.stepsExecuted + 1,
+          intent: this.currentTurnIntent,
+          requiresMutation: this.requiresMutation,
+        },
+      ),
     );
   }
 
@@ -760,7 +773,15 @@ class KernelAgenticProvider implements ProviderPort {
       },
     );
     console.log(
-      `[runtime-kernel/native] model_step_completed runId=${this.options.run.id} sessionId=${this.options.run.sessionId} step=${this.stepsExecuted}`,
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "model-step-completed",
+        {
+          runId: this.options.run.id,
+          sessionId: this.options.run.sessionId,
+          step: this.stepsExecuted,
+        },
+      ),
     );
   }
 
@@ -887,7 +908,11 @@ class KernelToolWorker implements WorkerProtocolPort {
     }
     this.options.tracker.recordToolStarted(input.toolCall);
     console.log(
-      `[runtime-kernel/native] tool_started runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName}`,
+      formatRuntimeDiagnosticLogLine("runtime-kernel/native", "tool-started", {
+        runId: input.runId,
+        toolCallId: input.toolCall.toolCallId,
+        toolName,
+      }),
     );
     await this.options.runEventRecorder.recordToolStarted({
       id: input.toolCall.toolCallId,
@@ -919,7 +944,15 @@ class KernelToolWorker implements WorkerProtocolPort {
         0,
       );
       console.log(
-        `[runtime-kernel/native] tool_completed runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName}`,
+        formatRuntimeDiagnosticLogLine(
+          "runtime-kernel/native",
+          "tool-completed",
+          {
+            runId: input.runId,
+            toolCallId: input.toolCall.toolCallId,
+            toolName,
+          },
+        ),
       );
       return {
         kind: "completed",
@@ -937,7 +970,12 @@ class KernelToolWorker implements WorkerProtocolPort {
       0,
     );
     console.warn(
-      `[runtime-kernel/native] tool_failed runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName} error=${message}`,
+      formatRuntimeDiagnosticLogLine("runtime-kernel/native", "tool-failed", {
+        runId: input.runId,
+        toolCallId: input.toolCall.toolCallId,
+        toolName,
+        errorMessage: message,
+      }),
     );
     return failed("command_failed", message);
   }
@@ -1088,6 +1126,7 @@ function buildProtocolEnvelope(input: {
   sessionId: string;
   userId?: string;
   input: RunInput;
+  turnId: Turn["id"];
   timestamp: string;
 }): {
   run: ProtocolRun;
@@ -1146,7 +1185,7 @@ function buildProtocolEnvelope(input: {
   return {
     run,
     turn: TurnSchema.parse({
-      id: toProtocolId("trn", `${input.runId}-${input.timestamp}`),
+      id: input.turnId,
       threadId,
       runId: input.runId,
       parentTurnId: null,

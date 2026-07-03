@@ -71,6 +71,24 @@ describe("FinalAssistantMessageService", () => {
     ).toBe("Done. The update is complete.");
   });
 
+  it("removes leaked provider reasoning before a final-output cue", () => {
+    expect(
+      normalizeFinalAssistantText(
+        'Looking at the previous turn, the user asked "Hey say ok?" and I responded with internal text.\n\nThe user is likely testing responsiveness.\n\nI will simply respond "ok" again, but this time without the internal monologue in the final output.ok',
+      ),
+    ).toBe("ok");
+  });
+
+  it("removes no-tool reasoning while preserving the user-visible answer", () => {
+    expect(
+      normalizeFinalAssistantText(
+        "I don't need to use any tools for this.I'm doing well, thank you for asking! I'm ready to help you with your project.",
+      ),
+    ).toBe(
+      "I'm doing well, thank you for asking! I'm ready to help you with your project.",
+    );
+  });
+
   it("keeps substantive JSON instead of guessing intent", () => {
     const text = '{ "changedFiles": ["src/App.tsx"] }';
 

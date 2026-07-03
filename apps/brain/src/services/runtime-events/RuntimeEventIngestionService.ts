@@ -41,29 +41,7 @@ export class RuntimeEventIngestionService {
     });
 
     const event = parseRuntimeEvent(input.rawBody);
-    console.log(
-      formatDiagnosticLogLine("runtime-event/ingestion", "verified", {
-        eventType: event.eventType,
-        idempotencyKey: event.idempotencyKey,
-        source: event.source,
-        runId: readPayloadString(event.payload, "runId") ?? "missing",
-        sessionId: readPayloadString(event.payload, "sessionId") ?? "missing",
-        bodyBytes: input.rawBody.length,
-      }),
-    );
     const result = await this.repository.accept(event);
-    console.log(
-      formatDiagnosticLogLine("runtime-event/ingestion", "accepted", {
-        eventType: event.eventType,
-        idempotencyKey: event.idempotencyKey,
-        source: event.source,
-        runId: readPayloadString(event.payload, "runId") ?? "missing",
-        sessionId: readPayloadString(event.payload, "sessionId") ?? "missing",
-        inboxEntryId: result.entry.id,
-        inboxStatus: result.entry.status,
-        inserted: result.inserted,
-      }),
-    );
 
     if (result.inserted || result.entry.status !== "processed") {
       try {
@@ -71,16 +49,6 @@ export class RuntimeEventIngestionService {
         const processedEntry = await this.repository.markProcessed(
           result.entry.id,
           new Date().toISOString(),
-        );
-        console.log(
-          formatDiagnosticLogLine("runtime-event/ingestion", "processed", {
-            eventType: event.eventType,
-            idempotencyKey: event.idempotencyKey,
-            runId: readPayloadString(event.payload, "runId") ?? "missing",
-            sessionId:
-              readPayloadString(event.payload, "sessionId") ?? "missing",
-            inboxEntryId: processedEntry.id,
-          }),
         );
         return { ...result, entry: processedEntry };
       } catch (error) {

@@ -1,6 +1,5 @@
 import {
   isConcreteCommandInput,
-  isConcretePathInput,
 } from "../contracts/index.js";
 import {
   getCodingToolRoute,
@@ -13,6 +12,17 @@ import {
 } from "../agents/ResultFormatter.js";
 import type { GitCommitIdentitySource } from "@repo/shared-types";
 import { validateSafePath } from "../agents/validation.js";
+import {
+  executeGlobTool,
+  executeGrepTool,
+  executeListFilesTool,
+  executeReadFileTool,
+} from "./AgenticFilesystemReadTools.js";
+import {
+  normalizeToolPath,
+  normalizeWorkspacePath,
+  validateToolPath,
+} from "./ToolPathNormalization.js";
 import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
@@ -283,58 +293,6 @@ async function dispatchAgenticLoopTool(
     default:
       return buildFailureResult(input.taskId, "Unsupported tool");
   }
-}
-
-async function executeReadFileTool(
-  executionService: RuntimeExecutionService,
-  taskId: string,
-  taskInput: TaskInput,
-): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput("read_file", taskInput);
-  const path = normalizeToolPath(validatedInput.path);
-  validateToolPath(path);
-  validateSafePath(path);
-  const payload: Record<string, unknown> = { path };
-  if (validatedInput.offset !== undefined) {
-    payload.offset = validatedInput.offset;
-  }
-  if (validatedInput.limit !== undefined) {
-    payload.limit = validatedInput.limit;
-  }
-
-  const result = await executeGatewayPlugin(
-    executionService,
-    "read_file",
-    payload,
-  );
-  const failure = extractExecutionFailure(result);
-  if (failure) {
-    return buildFailureResult(taskId, failure);
-  }
-  return buildSuccessResult(taskId, formatExecutionResult(result));
-}
-
-async function executeListFilesTool(
-  executionService: RuntimeExecutionService,
-  taskId: string,
-  taskInput: TaskInput,
-): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput("list_files", taskInput);
-  const path = validatedInput.path
-    ? normalizeToolPath(validatedInput.path)
-    : ".";
-  if (path !== ".") {
-    validateSafePath(path);
-  }
-
-  const result = await executeGatewayPlugin(executionService, "list_files", {
-    path,
-  });
-  const failure = extractExecutionFailure(result);
-  if (failure) {
-    return buildFailureResult(taskId, failure);
-  }
-  return buildSuccessResult(taskId, formatExecutionResult(result));
 }
 
 async function executeWriteFileTool(
@@ -1259,66 +1217,6 @@ async function executeGitHubCliMutationTool(
   });
 }
 
-async function executeGlobTool(
-  executionService: RuntimeExecutionService,
-  taskId: string,
-  taskInput: TaskInput,
-): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput("glob", taskInput);
-  const startPath = validatedInput.path ?? ".";
-  if (startPath !== ".") {
-    validateSafePath(startPath);
-  }
-
-  const payload: Record<string, unknown> = {
-    pattern: validatedInput.pattern,
-    path: startPath,
-  };
-  if (validatedInput.maxResults !== undefined) {
-    payload.maxResults = validatedInput.maxResults;
-  }
-
-  const result = await executeGatewayPlugin(executionService, "glob", payload);
-  const failure = extractExecutionFailure(result);
-  if (failure) {
-    return buildFailureResult(taskId, failure);
-  }
-  return buildSuccessResult(taskId, formatExecutionResult(result));
-}
-
-async function executeGrepTool(
-  executionService: RuntimeExecutionService,
-  taskId: string,
-  taskInput: TaskInput,
-): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput("grep", taskInput);
-  const startPath = validatedInput.path ?? ".";
-  if (startPath !== ".") {
-    validateSafePath(startPath);
-  }
-
-  const payload: Record<string, unknown> = {
-    pattern: validatedInput.pattern,
-    path: startPath,
-  };
-  if (validatedInput.glob) {
-    payload.glob = validatedInput.glob;
-  }
-  if (validatedInput.caseSensitive !== undefined) {
-    payload.caseSensitive = validatedInput.caseSensitive;
-  }
-  if (validatedInput.maxResults !== undefined) {
-    payload.maxResults = validatedInput.maxResults;
-  }
-
-  const result = await executeGatewayPlugin(executionService, "grep", payload);
-  const failure = extractExecutionFailure(result);
-  if (failure) {
-    return buildFailureResult(taskId, failure);
-  }
-  return buildSuccessResult(taskId, formatExecutionResult(result));
-}
-
 interface GitHubCliRuntimeFlags {
   laneEnabled: boolean;
   ciEnabled: boolean;
@@ -1681,32 +1579,7 @@ function splitLines(value: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-function normalizeToolPath(input: string): string {
-  const trimmed = input.trim().replace(/^['"`]+|['"`]+$/g, "");
-  const withoutMention = trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-  const cleaned = withoutMention.replace(/[?!,;:]+$/g, "");
-  const aliases: Record<string, string> = {
-    readme: "README.md",
-    "readme.md": "README.md",
-  };
-  return aliases[cleaned.toLowerCase()] ?? cleaned;
-}
-
-export function normalizeWorkspacePath(input: string): string {
-  const trimmed = input.trim().replace(/^['"`]+/, "");
-  const cleaned = trimmed.replace(/['"`?!,;:]+$/g, "");
-  const aliases: Record<string, string> = {
-    readme: "README.md",
-    "readme.md": "README.md",
-  };
-  return aliases[cleaned.toLowerCase()] ?? cleaned;
-}
-
-function validateToolPath(path: string): void {
-  if (!isConcretePathInput(path)) {
-    throw new Error("Task path must be a concrete non-empty file path");
-  }
-}
+export { normalizeWorkspacePath } from "./ToolPathNormalization.js";
 
 function extractDirectoryFromLsCommand(command: string): string {
   const segments = command.split(/\s+/).slice(1);
