@@ -60,8 +60,6 @@ function buildOnboardingSeenKey(userId: string | null): string {
   return `shadowbox:startup-onboarding:seen:${userId}`;
 }
 
-const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
-
 async function fetchRunSummaryStatus(
   runId: string,
 ): Promise<RunSummaryStatusSnapshot | null> {
@@ -737,13 +735,9 @@ function AppContent() {
     };
 
     void reconcile();
-    const intervalId = window.setInterval(() => {
-      void reconcile();
-    }, RUN_STATUS_RECONCILE_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
   }, [
     handlePendingApprovalStateChange,

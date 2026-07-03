@@ -4,8 +4,10 @@ import {
   isApprovalRequiredRunStatus,
   isTerminalRunStatus,
 } from "../lib/run-status.js";
-import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
-import { logClientEvent } from "../lib/client-logger.js";
+import {
+  RUN_SUMMARY_REFRESH_EVENT,
+  type RunSummaryRefreshDetail,
+} from "../lib/run-summary-events.js";
 import type {
   ApprovalRequest,
   PermissionRuntimeLabel,
@@ -68,9 +70,8 @@ interface UseRunSummaryResult {
 }
 
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
-const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 2_000;
-const RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS = 1_000;
-const RUN_SUMMARY_POLL_INTERVAL_MS = 6_000;
+const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 10_000;
+const RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS = 3_000;
 
 interface RunSummaryRequestState {
   inFlight: Promise<RunSummaryFetchResult> | null;
@@ -116,14 +117,12 @@ export function useRunSummary(
     message: string;
   } | null>(null);
   const summaryStatusRef = useRef<string | null>(null);
-  const lastLoggedSummaryRef = useRef("");
   const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
   const summaryStatus = summary?.status ?? null;
 
   useEffect(() => {
     activeRunIdRef.current = runId;
     inFlightRef.current = false;
-    lastLoggedSummaryRef.current = "";
     setSummary(null);
   }, [runId]);
 
@@ -140,30 +139,13 @@ export function useRunSummary(
 
       try {
         inFlightRef.current = true;
-        logClientEvent("run/summary", "fetch-started", {
-          runId: currentRunId,
-          force: Boolean(options?.force),
-          shouldPoll,
-          currentStatus: summaryStatusRef.current,
-        });
         const result = await requestRunSummary(currentRunId, {
           force: Boolean(options?.force),
         });
         if (activeRunIdRef.current !== currentRunId) {
-          logClientEvent("run/summary", "fetch-discarded", {
-            runId: currentRunId,
-            activeRunId: activeRunIdRef.current,
-            reason: "run-changed-after-response",
-            status: result.kind === "unavailable" ? result.status : 200,
-          });
           return;
         }
         if (result.kind === "unavailable") {
-          logClientEvent("run/summary", "unavailable", {
-            runId: currentRunId,
-            status: result.status,
-            statusText: result.statusText,
-          });
           return;
         }
         const payload = result.summary;
@@ -171,32 +153,10 @@ export function useRunSummary(
           return;
         }
         if (activeRunIdRef.current !== currentRunId) {
-          logClientEvent("run/summary", "payload-discarded", {
-            runId: currentRunId,
-            activeRunId: activeRunIdRef.current,
-            reason: "run-changed-after-payload",
-            payloadRunId: payload.runId,
-            payloadStatus: payload.status,
-          });
           return;
         }
         if (payload.runId !== currentRunId) {
-          logClientEvent("run/summary", "payload-run-mismatch", {
-            runId: currentRunId,
-            payloadRunId: payload.runId,
-            payloadStatus: payload.status,
-          });
           return;
-        }
-        const summarySignature = `${payload.status}:${payload.eventCount ?? 0}:${payload.pendingApproval?.requestId ?? ""}`;
-        if (lastLoggedSummaryRef.current !== summarySignature) {
-          lastLoggedSummaryRef.current = summarySignature;
-          logClientEvent("run/summary", "updated", {
-            runId: currentRunId,
-            status: payload.status,
-            eventCount: payload.eventCount,
-            hasPendingApproval: Boolean(payload.pendingApproval),
-          });
         }
         setSummary(payload);
       } catch (error) {
@@ -224,7 +184,7 @@ export function useRunSummary(
         }
       }
     },
-    [runId, shouldPoll],
+    [runId],
   );
 
   useEffect(() => {
@@ -232,20 +192,25 @@ export function useRunSummary(
   }, [summaryStatus]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !shouldPoll) {
       return;
     }
     void fetchSummary();
-  }, [fetchSummary, runId]);
+  }, [fetchSummary, runId, shouldPoll]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !shouldPoll) {
       return;
     }
 
     const handleRefreshEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<{ runId?: string }>;
+      const customEvent = event as CustomEvent<
+        Partial<RunSummaryRefreshDetail>
+      >;
       if (customEvent.detail?.runId !== runId) {
+        return;
+      }
+      if (customEvent.detail?.source === "run-event-stream") {
         return;
       }
 
@@ -274,35 +239,6 @@ export function useRunSummary(
     summaryStatus,
   ]);
 
-  useEffect(() => {
-    if (!runId || !shouldKeepRunSummaryPolling(summary, shouldPoll)) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      if (inFlightRef.current) {
-        return;
-      }
-      const currentStatus = summaryStatusRef.current;
-      if (
-        isTerminalWithoutPendingApproval(
-          currentStatus,
-          summary?.pendingApproval?.requestId ?? null,
-        )
-      ) {
-        return;
-      }
-      void fetchSummary();
-    }, RUN_SUMMARY_POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [fetchSummary, runId, shouldPoll, summary, summaryStatus]);
-
   return { summary };
 }
 
@@ -319,7 +255,7 @@ async function requestRunSummary(
   const minInterval = options.force
     ? RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS
     : RUN_SUMMARY_MIN_FETCH_INTERVAL_MS;
-  if (state.hasCachedSummary && now - state.lastFetchAt < minInterval) {
+  if (state.lastFetchAt > 0 && now - state.lastFetchAt < minInterval) {
     return {
       kind: "throttled",
       summary: state.cachedSummary,
@@ -376,31 +312,6 @@ async function fetchRunSummary(runId: string): Promise<RunSummaryFetchResult> {
     status: response.status,
     fromCache: false,
   };
-}
-
-function shouldKeepRunSummaryPolling(
-  summary: RunSummary | null,
-  shouldPoll: boolean,
-): boolean {
-  if (summary === null) {
-    return true;
-  }
-  const status = summary.status ?? null;
-  if (
-    isTerminalWithoutPendingApproval(
-      status,
-      summary.pendingApproval?.requestId ?? null,
-    )
-  ) {
-    return false;
-  }
-  if (summary.pendingApproval || isApprovalRequiredRunStatus(status)) {
-    return true;
-  }
-  if (!isTerminalRunStatus(status)) {
-    return true;
-  }
-  return shouldPoll;
 }
 
 function isTerminalWithoutPendingApproval(
