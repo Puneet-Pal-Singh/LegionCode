@@ -15,7 +15,7 @@ const ACTION_HEURISTIC_PATTERNS = [
   /\b(edit|write|update|modify|rename|delete|remove|create|add)\b.*\b(file|files|repo|repository|directory|folder|path)\b/i,
   /\b(run|execute|test|build|lint|typecheck)\b/i,
   /\b(git status|git diff|git log|git show|git grep|pnpm\b|npm\b|yarn\b|bun\b|node\b|rg\b|grep\b|find\b|ls\b|cat\b|sed\b)\b/i,
-  /(?:^|[\s`'"])(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|py|rs|go|sh)(?:[\s`'"]|$)/i,
+  /(?:^|[\s`'"@])(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|yml|yaml|toml|py|rs|go|sh)(?:[\s`'"]|$)/i,
 ] as const;
 
 export type TurnMode = z.infer<typeof TURN_MODE_SCHEMA>["mode"];
@@ -86,6 +86,10 @@ export async function determineTurnMode({
     rationale: result.object.rationale,
     confidence,
   };
+}
+
+export function isHeuristicActionTurn(prompt: string): boolean {
+  return detectHeuristicActionTurn(prompt) !== null;
 }
 
 function detectHeuristicActionTurn(prompt: string): TurnModeDecision | null {

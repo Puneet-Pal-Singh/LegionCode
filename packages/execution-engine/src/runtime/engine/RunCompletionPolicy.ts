@@ -15,13 +15,17 @@ import {
 import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
 import {
   transitionRunToCompleted,
+  transitionRunToFailed,
   transitionRunToPaused,
 } from "./RunStatusPolicy.js";
 import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
 type RecoveredRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
-type FinalizedRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
+type FinalizedRunTerminalStatus = Extract<
+  RunStatus,
+  "COMPLETED" | "PAUSED" | "FAILED"
+>;
 
 type PlannerRecoveryErrorCode =
   | "PLANNER_TIMEOUT"
@@ -94,7 +98,7 @@ export async function completeRunWithAssistantMessage(
   return persistFinalAssistantRun({
     ...params,
     terminalState,
-    terminalStatus: "COMPLETED",
+    terminalStatus: resolveFinalizedRunStatus(terminalState),
   });
 }
 
@@ -162,7 +166,12 @@ async function persistFinalAssistantRun(
     run.status,
     RUN_WORKFLOW_STEPS.SYNTHESIS,
   );
-  await persistSynthesisArtifacts({ run, sanitizedText, deps });
+  await persistSynthesisArtifacts({
+    run,
+    sanitizedText,
+    checkpointStatus: params.terminalStatus,
+    deps,
+  });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
     sanitizedText,
@@ -172,6 +181,12 @@ async function persistFinalAssistantRun(
     await deps.runEventRecorder.recordRunCompleted(
       getRunDurationMs(run),
       run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+    );
+  }
+  if (params.terminalStatus === "FAILED") {
+    await deps.runEventRecorder.recordRunFailed(
+      sanitizedText,
+      getRunDurationMs(run),
     );
   }
   console.log(
@@ -426,6 +441,11 @@ function transitionFinalAssistantRun(
     return;
   }
 
+  if (terminalStatus === "FAILED") {
+    transitionRunToFailed(run, run.id);
+    return;
+  }
+
   transitionRunToCompleted(run, run.id);
 }
 
@@ -442,6 +462,20 @@ function assertApprovalTerminalState(terminalState: RunTerminalState): void {
     throw new Error(
       "pauseRunForApprovalWithAssistantMessage requires approval terminal state",
     );
+  }
+}
+
+function resolveFinalizedRunStatus(
+  terminalState: RunTerminalState,
+): FinalizedRunTerminalStatus {
+  switch (terminalState) {
+    case RUN_TERMINAL_STATES.FAILED_TOOL:
+    case RUN_TERMINAL_STATES.FAILED_RUNTIME:
+    case RUN_TERMINAL_STATES.FAILED_VALIDATION:
+    case RUN_TERMINAL_STATES.FAILED_POLICY:
+      return "FAILED";
+    default:
+      return "COMPLETED";
   }
 }
 
@@ -490,7 +524,7 @@ export function getRunDurationMs(run: Run): number {
 async function persistSynthesisArtifacts(params: {
   run: Run;
   sanitizedText: string;
-  checkpointStatus?: RecoveredRunTerminalStatus;
+  checkpointStatus?: FinalizedRunTerminalStatus;
   deps: RunCompletionDependencies;
 }): Promise<void> {
   const { run, sanitizedText, checkpointStatus = "COMPLETED", deps } = params;

@@ -96,6 +96,7 @@ import {
   recordLifecycleStep,
   recordOrchestrationActivation,
   recordPhaseSelectionSnapshot,
+  recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
@@ -118,6 +119,10 @@ import type {
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
+import {
+  executeNativeConversationalTurn,
+  shouldUseNativeConversationalTurn,
+} from "./RunNativeConversationalTurnPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import {
   classifyCurrentTurnIntent,
@@ -226,6 +231,24 @@ export class RuntimeKernelNativeRunner {
     await this.prepareRun(run, input);
     if (run.metadata.manifest?.mode !== "build") {
       return await this.executePlanMode(run, input.input);
+    }
+    if (shouldUseNativeConversationalTurn(input.input)) {
+      await this.activateBuildRun(run);
+      recordTurnModeDecision(run, {
+        mode: "chat",
+        source: "heuristic",
+        rationale: "No repository/file/command action heuristic matched.",
+        confidence: 1,
+      });
+      recordPhaseSelectionSnapshot(run, "execution");
+      await this.runRepo.update(run);
+      return await executeNativeConversationalTurn({
+        run,
+        runInput: input.input,
+        messages: input.messages,
+        llmGateway: this.llmGateway,
+        deps: this.getRunCompletionDependencies(),
+      });
     }
     await this.activateBuildRun(run);
     const executionService = this.getDirectExecutionService();
@@ -350,12 +373,8 @@ export class RuntimeKernelNativeRunner {
       }
       provider.recordTerminalError(error);
       recordAgenticLoopMetadata(run, provider.buildResult());
-      const message =
-        error instanceof Error ? error.message : "Runtime execution failed.";
-      const terminalState =
-        error instanceof RuntimeKernelError && error.code === "approval_denied"
-          ? RUN_TERMINAL_STATES.APPROVAL_DENIED
-          : RUN_TERMINAL_STATES.FAILED_TOOL;
+      const terminalState = resolveNativeKernelTerminalState(error);
+      const message = buildNativeKernelTerminalMessage(error, terminalState);
       return await finalizeRunWithAssistantMessage({
         run,
         text: message,
@@ -520,6 +539,47 @@ export class RuntimeKernelNativeRunner {
       });
     }
   }
+}
+
+function resolveNativeKernelTerminalState(error: unknown) {
+  if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
+    return RUN_TERMINAL_STATES.APPROVAL_DENIED;
+  }
+
+  if (isModelOrProviderFailure(error)) {
+    return RUN_TERMINAL_STATES.FAILED_RUNTIME;
+  }
+
+  return RUN_TERMINAL_STATES.FAILED_TOOL;
+}
+
+function buildNativeKernelTerminalMessage(
+  error: unknown,
+  terminalState: (typeof RUN_TERMINAL_STATES)[keyof typeof RUN_TERMINAL_STATES],
+): string {
+  if (terminalState === RUN_TERMINAL_STATES.FAILED_RUNTIME) {
+    return [
+      "The selected model/provider failed while deciding the next action.",
+      "No sandbox tool failure was reported. Retry the task or switch to a faster, tool-capable model.",
+    ].join("\n");
+  }
+
+  return error instanceof Error ? error.message : "Runtime execution failed.";
+}
+
+function isModelOrProviderFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.name === "LLMTimeoutError" ||
+    error.name === "LLMUnusableResponseError" ||
+    /\b(llm|model|provider|gateway)\b/i.test(error.name) ||
+    /\b(text call timed out|provider request failed|internal error encountered|failed after \d+ attempts?)\b/i.test(
+      error.message,
+    )
+  );
 }
 
 class KernelAgenticProvider implements ProviderPort {
