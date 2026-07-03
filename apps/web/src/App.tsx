@@ -30,7 +30,6 @@ import {
   isSessionContextPending,
   resolveShellStartupState,
 } from "./lib/startup-shell-state";
-import { getBrainHttpBase } from "./lib/platform-endpoints";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
@@ -43,34 +42,12 @@ import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
-import {
-  isApprovalRequiredRunStatus,
-  isTerminalRunStatus,
-  mapRunStatusToSessionStatus,
-} from "./lib/run-status";
-import {
-  parseRunSummaryStatusSnapshot,
-  type RunSummaryStatusSnapshot,
-} from "./lib/run-summary-status-snapshot";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
     return "shadowbox:startup-onboarding:seen:anonymous";
   }
   return `shadowbox:startup-onboarding:seen:${userId}`;
-}
-
-async function fetchRunSummaryStatus(
-  runId: string,
-): Promise<RunSummaryStatusSnapshot | null> {
-  const response = await fetch(
-    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
-    { credentials: "include" },
-  );
-  if (!response.ok) {
-    return null;
-  }
-  return parseRunSummaryStatusSnapshot(await response.json());
 }
 
 function buildRepositoryFromWorkspace(
@@ -669,82 +646,6 @@ function AppContent() {
     );
     return Object.fromEntries(nextEntries);
   }, [approvalStatesBySessionId, sessions]);
-  const reconcilableSessions = useMemo(
-    () =>
-      sessions.filter((session) =>
-        ["running", "waiting_for_approval", "paused"].includes(session.status),
-      ),
-    [sessions],
-  );
-
-  useEffect(() => {
-    if (!isAuthenticated || reconcilableSessions.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const reconcile = async (): Promise<void> => {
-      const updates = await Promise.all(
-        reconcilableSessions.map(async (session) => {
-          try {
-            const snapshot = await fetchRunSummaryStatus(session.activeRunId);
-            if (!snapshot) {
-              return null;
-            }
-            if (
-              !snapshot.hasPendingApproval &&
-              !isApprovalRequiredRunStatus(snapshot.status) &&
-              !isTerminalRunStatus(snapshot.status)
-            ) {
-              return null;
-            }
-
-            return {
-              sessionId: session.id,
-              status: mapRunStatusToSessionStatus(snapshot.status, {
-                hasPendingApproval: snapshot.hasPendingApproval,
-              }),
-              hasPendingApproval: snapshot.hasPendingApproval,
-            };
-          } catch (error) {
-            console.warn(
-              `[App] Failed to reconcile run status for session ${session.id}`,
-              error,
-            );
-            return null;
-          }
-        }),
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      updates.forEach((update) => {
-        if (!update) {
-          return;
-        }
-        if (update.status) {
-          updateSession(update.sessionId, { status: update.status });
-        }
-        handlePendingApprovalStateChange(
-          update.sessionId,
-          update.hasPendingApproval,
-        );
-      });
-    };
-
-    void reconcile();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    handlePendingApprovalStateChange,
-    isAuthenticated,
-    reconcilableSessions,
-    updateSession,
-  ]);
 
   useEffect(() => {
     localStorage.setItem(
