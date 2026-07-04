@@ -1,5 +1,4 @@
 const TURN_ID_RUN_DELIMITER = "__turn__";
-const TURN_ID_PREFIX_LENGTH = "trn_".length;
 const RUN_ID_PREFIX_LENGTH = "run_".length;
 const MAX_TURN_SUFFIX_LENGTH = 128;
 const MIN_TURN_SEED_LENGTH = 6;
