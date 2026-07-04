@@ -15,8 +15,8 @@ import type {
   RunRepository,
   TranscriptRepository,
   WorkspaceRepository,
+  LifecycleEventStore,
 } from "@repo/persistence";
-import type { LifecycleEventStore } from "@repo/event-store";
 
 export interface HyperdriveBinding {
   connectionString: string;

@@ -1,11 +1,12 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
-import { type ProductMode, type RunMode } from "@repo/shared-types";
 import {
+  type ProductMode,
+  type RunMode,
   turnIdFromRunId,
   turnSeedFromLatestUserMessage,
-} from "@repo/platform-protocol/lifecycle-turn-routing";
+} from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
@@ -434,7 +435,10 @@ export function ChatInterface({
   );
 }
 
-function deriveLifecycleTurnId(runId: string, messages: Message[]): string | null {
+function deriveLifecycleTurnId(
+  runId: string,
+  messages: Message[],
+): string | null {
   try {
     return turnIdFromRunId(runId, turnSeedFromLatestUserMessage(messages));
   } catch {

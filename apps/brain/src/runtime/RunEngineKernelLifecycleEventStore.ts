@@ -2,7 +2,7 @@ import type {
   LifecycleEventStore,
   ReplayLifecycleEventsInput,
   ReplayLifecycleEventsResult,
-} from "@repo/event-store";
+} from "@repo/persistence";
 import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
 import type { LifecycleEventStreamPort } from "./ports";
 

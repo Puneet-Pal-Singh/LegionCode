@@ -27,6 +27,10 @@ export {
   type TurnDiffPayload,
   type TurnId,
 } from "@repo/platform-protocol";
+export {
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "@repo/platform-protocol/lifecycle-turn-routing";
 export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
 export {
   LifecycleContinuationError,

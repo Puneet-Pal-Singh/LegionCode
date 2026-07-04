@@ -1,7 +1,7 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
-import type { LifecycleEventStore } from "@repo/event-store";
+import type { LifecycleEventStore } from "@repo/persistence";
 import {
   ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,

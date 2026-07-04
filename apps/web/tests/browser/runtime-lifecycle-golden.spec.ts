@@ -103,7 +103,7 @@ const LIFECYCLE_EVENTS = [
 test("SDK replay/live lifecycle projection survives browser refresh", async ({
   page,
 }) => {
-  let releaseLiveStream: (() => void) | null = null;
+  let releaseLiveStream: () => void = () => {};
   let replayMode: "initial" | "refresh" = "initial";
   const releaseGate = new Promise<void>((resolve) => {
     releaseLiveStream = resolve;
@@ -133,7 +133,7 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
     "Approve deterministic edit",
   );
 
-  releaseLiveStream?.();
+  releaseLiveStream();
   await expect(page.getByTestId("terminal")).toHaveText(
     "completed:Turn completed.",
   );

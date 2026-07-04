@@ -3,7 +3,7 @@ import {
   LifecycleEventSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol/lifecycle";
-import { MemoryLifecycleEventStore } from "@repo/event-store";
+import { MemoryLifecycleEventStore } from "@repo/persistence";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import type { LifecycleEventStreamPort } from "./ports";
 

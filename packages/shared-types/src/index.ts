@@ -172,6 +172,10 @@ export {
   RunTerminalStateSchema,
   type RunTerminalState,
 } from "./run-terminal-state.js";
+export {
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "./lifecycle-turn-routing.js";
 
 // Explicit build/plan mode contract
 export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
