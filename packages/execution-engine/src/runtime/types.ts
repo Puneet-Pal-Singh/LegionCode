@@ -235,7 +235,7 @@ export interface RunMetadata {
   manifest?: RunManifest;
   turnMode?: {
     mode: "chat" | "action";
-    source: "heuristic" | "llm" | "recovered";
+    source: "heuristic" | "llm" | "recovered" | "runtime-kernel";
     rationale?: string;
     confidence?: number;
     recordedAt: string;

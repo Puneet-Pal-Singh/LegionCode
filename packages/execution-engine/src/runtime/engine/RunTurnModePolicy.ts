@@ -25,7 +25,7 @@ const ACTION_HEURISTIC_PATTERNS = [
 export type TurnMode = z.infer<typeof TURN_MODE_SCHEMA>["mode"];
 export interface TurnModeDecision {
   mode: TurnMode;
-  source: "heuristic" | "llm" | "recovered";
+  source: "heuristic" | "llm" | "recovered" | "runtime-kernel";
   rationale?: string;
   confidence?: number;
 }

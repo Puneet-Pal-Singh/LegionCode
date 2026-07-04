@@ -50,11 +50,21 @@ describe("RuntimeKernel live path boundary", () => {
     expect(source).toContain("NativeRunCancelledError");
   });
 
+  it("hard-cuts build turns to the native runtime kernel path", () => {
+    const source = readFileSync(NATIVE_RUNNER, "utf8");
+
+    expect(source).not.toContain("shouldUseNativeConversationalTurn");
+    expect(source).not.toContain("executeNativeConversationalTurn");
+    expect(source).toContain("new RuntimeKernel");
+    expect(source).toContain("build-path-selected");
+    expect(source).toContain(
+      'rationale: "Build turns use the canonical runtime kernel path."',
+    );
+  });
+
   it("keeps native model steps visible and classified by current turn intent", () => {
     const source = readFileSync(NATIVE_RUNNER, "utf8");
 
-    expect(source).toContain("shouldUseNativeConversationalTurn");
-    expect(source).toContain("executeNativeConversationalTurn");
     expect(source).toContain("classifyCurrentTurnIntent");
     expect(source).toContain("requiresMutationForIntent");
     expect(source).toContain("recordModelStepStarted");

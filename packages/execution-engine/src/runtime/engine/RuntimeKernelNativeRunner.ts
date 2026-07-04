@@ -119,10 +119,6 @@ import type {
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
-import {
-  executeNativeConversationalTurn,
-  shouldUseNativeConversationalTurn,
-} from "./RunNativeConversationalTurnPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import {
   classifyCurrentTurnIntent,
@@ -232,30 +228,33 @@ export class RuntimeKernelNativeRunner {
     if (run.metadata.manifest?.mode !== "build") {
       return await this.executePlanMode(run, input.input);
     }
-    if (shouldUseNativeConversationalTurn(input.input)) {
-      await this.activateBuildRun(run);
-      recordTurnModeDecision(run, {
-        mode: "chat",
-        source: "heuristic",
-        rationale: "No repository/file/command action heuristic matched.",
-        confidence: 1,
-      });
-      recordPhaseSelectionSnapshot(run, "execution");
-      await this.runRepo.update(run);
-      return await executeNativeConversationalTurn({
-        run,
-        runInput: input.input,
-        messages: input.messages,
-        llmGateway: this.llmGateway,
-        deps: this.getRunCompletionDependencies(),
-      });
-    }
     await this.activateBuildRun(run);
     const executionService = this.getDirectExecutionService();
     const runtimeTools = enforceCodingToolFloor(
       { ...getCodingCoreToolRegistry(), ...input.tools },
       input.input.metadata,
     );
+    recordTurnModeDecision(run, {
+      mode: "action",
+      source: "runtime-kernel",
+      rationale: "Build turns use the canonical runtime kernel path.",
+      confidence: 1,
+    });
+    recordPhaseSelectionSnapshot(run, "execution");
+    console.log(
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "build-path-selected",
+        {
+          runId: this.options.runId,
+          sessionId: this.options.sessionId,
+          promptChars: input.input.prompt.length,
+          inputToolCount: Object.keys(input.tools).length,
+          runtimeToolCount: Object.keys(runtimeTools).length,
+        },
+      ),
+    );
+    await this.runRepo.update(run);
     const now = input.now ?? (() => new Date().toISOString());
     const protocol = buildProtocolEnvelope({
       runId: this.options.runId,
@@ -364,9 +363,31 @@ export class RuntimeKernelNativeRunner {
     provider: KernelAgenticProvider,
   ) {
     try {
+      console.log(
+        formatRuntimeDiagnosticLogLine(
+          "runtime-kernel/native",
+          "turn-started",
+          {
+            runId: run.id,
+            sessionId: run.sessionId,
+            turnId: protocol.turn.id,
+          },
+        ),
+      );
       return await kernel.startTurn(protocol);
     } catch (error) {
       if (error instanceof NativeRunCancelledError) {
+        console.log(
+          formatRuntimeDiagnosticLogLine(
+            "runtime-kernel/native",
+            "turn-cancelled",
+            {
+              runId: run.id,
+              sessionId: run.sessionId,
+              turnId: protocol.turn.id,
+            },
+          ),
+        );
         provider.recordCancelled();
         recordAgenticLoopMetadata(run, provider.buildResult());
         return createStreamResponse("");
@@ -375,6 +396,15 @@ export class RuntimeKernelNativeRunner {
       recordAgenticLoopMetadata(run, provider.buildResult());
       const terminalState = resolveNativeKernelTerminalState(error);
       const message = buildNativeKernelTerminalMessage(error, terminalState);
+      console.error(
+        formatRuntimeDiagnosticLogLine("runtime-kernel/native", "turn-failed", {
+          runId: run.id,
+          sessionId: run.sessionId,
+          turnId: protocol.turn.id,
+          terminalState,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
       return await finalizeRunWithAssistantMessage({
         run,
         text: message,
