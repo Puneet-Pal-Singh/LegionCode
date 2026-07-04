@@ -28,6 +28,11 @@ import {
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
+import {
+  buildFailureResult,
+  buildMutationResult,
+  buildSuccessResult,
+} from "./AgenticLoopToolResult.js";
 import type {
   ExecutionOutputChunk,
   RuntimeExecutionService,
@@ -360,13 +365,6 @@ function normalizeAndValidateToolPath(input: string): string {
   validateToolPath(path);
   validateSafePath(path);
   return path;
-}
-
-function buildMutationResult(taskId: string, result: unknown): TaskResult {
-  const failure = extractExecutionFailure(result);
-  return failure
-    ? buildFailureResult(taskId, failure)
-    : buildSuccessResult(taskId, formatExecutionResult(result));
 }
 
 async function executeApplyPatchTool(
@@ -1317,41 +1315,6 @@ async function readExistingFileContent(
     return "";
   }
   return formatExecutionResult(result);
-}
-
-function buildSuccessResult(
-  taskId: string,
-  content: string,
-  metadata?: Record<string, unknown>,
-): TaskResult {
-  return {
-    taskId,
-    status: "DONE",
-    output: {
-      content,
-      metadata,
-    },
-    completedAt: new Date(),
-  };
-}
-
-function buildFailureResult(
-  taskId: string,
-  message: string,
-  metadata?: Record<string, unknown>,
-): TaskResult {
-  return {
-    taskId,
-    status: "FAILED",
-    error: { message },
-    output: metadata
-      ? {
-          content: message,
-          metadata,
-        }
-      : undefined,
-    completedAt: new Date(),
-  };
 }
 
 function isGitCommitIdentityConfigShellCommand(command: string): boolean {

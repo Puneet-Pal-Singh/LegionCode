@@ -18,6 +18,7 @@ import type { DiffContent, DiffLine, FileStatus } from "@repo/shared-types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArtifactPreview } from "./ArtifactPreview";
+import { getVisibleMessageContent } from "./AssistantMessageParts";
 import { cn } from "../../lib/utils";
 import type { ChatMessageMetadata } from "./messageMetadata";
 
@@ -77,36 +78,10 @@ export function ChatMessage({
   const isUser = message.role === "user";
 
   const content = useMemo(() => {
-    const rawContent: unknown = message.content;
-    let extractedText = "";
-
-    if (typeof rawContent === "string") {
-      extractedText = rawContent;
-    } else if (Array.isArray(rawContent)) {
-      for (const part of rawContent) {
-        if (!part || typeof part !== "object") {
-          continue;
-        }
-        const record = part as Record<string, unknown>;
-        const type = typeof record.type === "string" ? record.type : "";
-        const text = typeof record.text === "string" ? record.text : "";
-
-        if (type === "reasoning" || type === "thinking") {
-          continue;
-        }
-
-        if (text) {
-          extractedText += text;
-        }
-      }
-    }
-
-    if (message.role !== "assistant") {
-      return extractedText.trim();
-    }
-
-    const parsedText = parseThinkingTags(extractedText);
-    return sanitizeAssistantVisibleContent(parsedText.visibleContent);
+    return getVisibleMessageContent({
+      role: message.role,
+      content: message.content,
+    });
   }, [message.content, message.role]);
   const displayContent = useMemo(() => {
     if (isUser || !changedFilesSummary || !content) {
@@ -315,62 +290,6 @@ function ChangedFilesCard({
       )}
     </div>
   );
-}
-
-function sanitizeAssistantVisibleContent(value: string): string {
-  return stripInternalSelfTalkPrefix(value).trim();
-}
-
-function stripInternalSelfTalkPrefix(value: string): string {
-  let remaining = value.trimStart();
-  let removedAny = false;
-
-  while (remaining) {
-    remaining = stripOrphanPunctuationBeforeInternalSelfTalk(remaining);
-    const sentence = readLeadingAssistantSentence(remaining);
-    if (!sentence || !isInternalSelfTalkSentence(sentence.value)) {
-      break;
-    }
-    removedAny = true;
-    remaining = sentence.rest.trimStart();
-  }
-
-  return removedAny ? remaining : value;
-}
-
-function stripOrphanPunctuationBeforeInternalSelfTalk(value: string): string {
-  const withoutPunctuation = value.replace(/^[.!?;:,\s]+/, "");
-  if (
-    withoutPunctuation !== value &&
-    isInternalSelfTalkSentence(withoutPunctuation)
-  ) {
-    return withoutPunctuation;
-  }
-  return value;
-}
-
-function readLeadingAssistantSentence(
-  value: string,
-): { value: string; rest: string } | null {
-  const match = value.match(
-    /^([\s\S]*?[.!?](?:["'`)\]]+[.!?]?)?)(?:\s+|(?=[A-Z0-9]))([\s\S]*)$/,
-  );
-  if (!match) {
-    return value.trim() ? { value: value.trim(), rest: "" } : null;
-  }
-  return {
-    value: (match[1] ?? "").trim(),
-    rest: match[2] ?? "",
-  };
-}
-
-function isInternalSelfTalkSentence(value: string): boolean {
-  return [
-    /^the user (?:is asking|asked|wants|requested|is greeting)\b/i,
-    /^this is (?:a|an)\b/i,
-    /^i should (?:check|inspect|review|find|get|start|respond|ask|run|switch|use|continue|determine|verify|summarize|fix|implement)\b/i,
-    /^i need to (?:check|inspect|review|find|get|start|respond|ask|run|switch|use|continue|determine|verify|summarize|fix|implement)\b/i,
-  ].some((pattern) => pattern.test(value.trim()));
 }
 
 function useChangedFileDiffStates(
@@ -1026,30 +945,4 @@ function shortenTextMentions(content: string): string {
 
 function unescapeMentionToken(token: string): string {
   return token.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-}
-
-function parseThinkingTags(content: string): {
-  visibleContent: string;
-  thinkingBlocks: string[];
-} {
-  if (!content) {
-    return { visibleContent: "", thinkingBlocks: [] };
-  }
-
-  const thinkingBlocks: string[] = [];
-  const visibleContent = content.replace(
-    /<(thinking|think)>([\s\S]*?)<\/\1>/gi,
-    (_match: string, _tag: string, block: string) => {
-      const trimmedBlock = block.trim();
-      if (trimmedBlock) {
-        thinkingBlocks.push(trimmedBlock);
-      }
-      return "";
-    },
-  );
-
-  return {
-    visibleContent: visibleContent.replace(/\n{3,}/g, "\n\n"),
-    thinkingBlocks,
-  };
 }

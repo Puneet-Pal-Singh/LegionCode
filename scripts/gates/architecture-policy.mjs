@@ -197,18 +197,13 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
         pattern:
           /\b(?:LEAKED_INTERNAL_PREFACE_PATTERNS|stripLeakedInternalPreface|stripOrphanPunctuationBeforeInternalPreface|readLeadingSentence|isLeakedInternalPrefaceSentence)\b/,
       },
-    ],
-    quarantinedFiles: [
       {
-        path: "packages/execution-engine/src/runtime/engine/AgenticLoop.ts",
-        owner: "runtime-harness-stabilization",
-        reason:
-          "Prompt-only instruction suppresses planning labels but is not a correctness boundary.",
-        deletionTrigger:
-          "Replace in slice 035.2 with provider-normalized typed model parts and non-visible reasoning channels.",
-        gate: "scripts/gates/check-architecture-boundaries.mjs",
+        name: "assistant self-talk string repair",
+        pattern:
+          /\b(?:sanitizeAssistantVisibleContent|stripInternalSelfTalkPrefix|stripOrphanPunctuationBeforeInternalSelfTalk|readLeadingAssistantSentence|isInternalSelfTalkSentence)\b/,
       },
     ],
+    quarantinedFiles: [],
   },
   duplicateToolRegistries: {
     canonicalFiles: [
