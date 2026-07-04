@@ -23,7 +23,7 @@ describe("runtime core decomposition guard", () => {
     expect(taskSchedulerLineCount).toBeLessThanOrEqual(TASK_SCHEDULER_MAX_LINES);
 
     expect(runEngineSource).toContain('from "./RunAgenticLoopPolicy.js"');
-    expect(runEngineSource).toContain('from "./RunOutputSanitizer.js"');
+    expect(runEngineSource).toContain('from "./RunOutputRedactor.js"');
     expect(runEngineSource).toContain('from "./RunStatusPolicy.js"');
     expect(runEngineSource).not.toContain('from "./ConversationPolicy.js"');
 

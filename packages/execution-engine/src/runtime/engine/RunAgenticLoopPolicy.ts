@@ -14,16 +14,6 @@ import {
 const AGENTIC_LOOP_DEFAULT_MAX_STEPS = 25;
 export const TASK_MODEL_NO_ACTION_CODE = "TASK_MODEL_NO_ACTION";
 const TOOL_EXECUTION_FAILED_CODE = "TOOL_EXECUTION_FAILED";
-const LEAKED_INTERNAL_PREFACE_PATTERNS = [
-  /^the user (said|asked|requested|wants)\b/i,
-  /^this is (?:a|an)\b/i,
-  /^i should (?:check|inspect|review|find|get|start|respond|ask|run|switch|use|continue|determine|verify|summarize|fix|implement)\b/i,
-  /^i need to (?:check|inspect|review|find|get|start|respond|ask|run|switch|use|continue|determine|verify|summarize|fix|implement)\b/i,
-  /^first,?\s+i(?:'ll| will| need to)\b/i,
-  /^(?:the )?current branch is\b/i,
-  /^usually,\s*prs?\b/i,
-  /^wait[,!\s]/i,
-];
 
 export interface AssistantTurnOutput {
   text: string;
@@ -367,7 +357,7 @@ function getLastAssistantText(messages: CoreMessage[]): string | null {
 
 function extractTextContent(content: CoreMessage["content"]): string | null {
   if (typeof content === "string") {
-    const normalized = sanitizeAssistantSummaryText(content).trim();
+    const normalized = normalizeAssistantSummaryText(content).trim();
     return normalized ? normalized : null;
   }
 
@@ -387,7 +377,7 @@ function extractTextContent(content: CoreMessage["content"]): string | null {
     .map((part) => normalizeStandaloneToolCallMarkup(part.text).trim())
     .filter(Boolean)
     .join("\n");
-  const normalized = sanitizeAssistantSummaryText(text).trim();
+  const normalized = normalizeAssistantSummaryText(text).trim();
   return normalized || null;
 }
 
@@ -400,65 +390,13 @@ function normalizeStandaloneToolCallMarkup(text: string): string {
   return text;
 }
 
-function sanitizeAssistantSummaryText(text: string): string {
+function normalizeAssistantSummaryText(text: string): string {
   const normalized = normalizeStandaloneToolCallMarkup(text);
   if (!normalized.trim()) {
     return "";
   }
 
-  return stripLeakedInternalPreface(normalized);
-}
-
-function stripLeakedInternalPreface(text: string): string {
-  let remaining = text.trim();
-  let removedAny = false;
-
-  while (remaining.length > 0) {
-    const sentence = readLeadingSentence(remaining);
-    if (!sentence) {
-      break;
-    }
-    if (!isLeakedInternalPrefaceSentence(sentence.value)) {
-      break;
-    }
-
-    removedAny = true;
-    remaining = sentence.rest.trimStart();
-  }
-
-  return removedAny ? remaining : text;
-}
-
-function readLeadingSentence(
-  text: string,
-): { value: string; rest: string } | null {
-  const trimmed = text.trimStart();
-  if (!trimmed) {
-    return null;
-  }
-
-  const match = trimmed.match(
-    /^([\s\S]*?[.!?])(?:[\s"'`)\]]+|(?=[A-Z0-9]))([\s\S]*)$/,
-  );
-  if (!match) {
-    return { value: trimmed, rest: "" };
-  }
-
-  return {
-    value: (match[1] ?? "").trim(),
-    rest: match[2] ?? "",
-  };
-}
-
-function isLeakedInternalPrefaceSentence(sentence: string): boolean {
-  const normalized = sentence.trim();
-  if (!normalized) {
-    return false;
-  }
-
-  return LEAKED_INTERNAL_PREFACE_PATTERNS.some((pattern) =>
-    pattern.test(normalized),
-  );
+  return normalized;
 }
 
 function describeLoopStopReason(

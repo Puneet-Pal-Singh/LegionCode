@@ -6,7 +6,7 @@ import {
   WORKFLOW_INTENTS,
 } from "@repo/shared-types";
 import { RunEngine, type RunEngineDependencies } from "./RunEngine.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import type {
   RuntimeDurableObjectState,
   RuntimeExecutionService,
@@ -4101,30 +4101,27 @@ describe("RunEngine", () => {
     expect(toolNames).not.toContain("web_search");
   });
 
-  it("sanitizes internal runtime paths in user-facing output", () => {
+  it("redacts internal runtime paths in user-facing output", () => {
     const leaked =
       "cat: /home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/README.md: No such file or directory\nSee https://internal/debug";
-    const sanitized = sanitizeUserFacingOutput(leaked);
+    const redacted = redactUserFacingOutput(leaked);
 
-    expect(sanitized).not.toContain(
+    expect(redacted).not.toContain(
       "/home/sandbox/runs/5212f17b-eb1f-463f-a41f-2c4c6b9d4ba6/",
     );
-    expect(sanitized).toContain(
+    expect(redacted).toContain(
       "The requested file was not found in the current workspace.",
     );
-    expect(sanitized).toContain("[internal-url]");
+    expect(redacted).toContain("[internal-url]");
   });
 
-  it("strips leaked internal-style reasoning preface from user-facing output", () => {
+  it("does not repair final-answer prose with regex sanitizers", () => {
     const leaked =
       "The user asked me to check PR #58. I need to inspect branch state first. First, I'll check git status. The current branch is main. Wait, I should switch branches. I found the issue in Footer.tsx.";
 
-    const sanitized = sanitizeUserFacingOutput(leaked);
+    const redacted = redactUserFacingOutput(leaked);
 
-    expect(sanitized).toBe("I found the issue in Footer.tsx.");
-    expect(sanitized).not.toContain("The user asked");
-    expect(sanitized).not.toContain("I need to inspect");
-    expect(sanitized).not.toContain("Wait, I should");
+    expect(redacted).toBe(leaked);
   });
 
   it("marks CREATED runs as FAILED when execution error handling runs", async () => {

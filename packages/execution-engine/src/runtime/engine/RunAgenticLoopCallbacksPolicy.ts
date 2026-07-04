@@ -23,7 +23,7 @@ import {
 } from "./RunApprovalWaitPolicy.js";
 import type { RunEngineEnv } from "./RunEngineTypes.js";
 import { recordLifecycleStep } from "./RunMetadataPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 
 interface AgenticLoopToolCall {
   id: string;
@@ -143,13 +143,13 @@ export function buildAgenticLoopCallbacks(input: {
       );
     },
     onAssistantMessage: async (content) => {
-      const sanitizedContent = sanitizeUserFacingOutput(content).trim();
-      if (!sanitizedContent) {
+      const redactedContent = redactUserFacingOutput(content).trim();
+      if (!redactedContent) {
         return;
       }
       await input.runEventRecorder.recordMessageEmitted(
         "assistant",
-        sanitizedContent,
+        redactedContent,
         undefined,
         {
           phase: "commentary",

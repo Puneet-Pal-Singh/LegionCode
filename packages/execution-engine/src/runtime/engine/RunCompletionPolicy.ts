@@ -12,7 +12,7 @@ import {
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import {
   transitionRunToCompleted,
   transitionRunToFailed,
@@ -66,7 +66,7 @@ interface PersistFinalAssistantRunParams extends RunAssistantFinalizationParams 
 }
 
 export function createStreamResponse(content: string): Response {
-  const safeContent = sanitizeUserFacingOutput(content);
+  const safeContent = redactUserFacingOutput(content);
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
@@ -153,17 +153,17 @@ async function persistFinalAssistantRun(
     metadata: finalMetadata,
     terminalState,
   });
-  const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
+  const redactedText = redactUserFacingOutput(finalMessage.content);
   console.log(
-    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${terminalStatus} terminalState=${terminalState} textLength=${sanitizedText.length}`,
+    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${terminalStatus} terminalState=${terminalState} textLength=${redactedText.length}`,
   );
   recordLifecycleStep(run, "SYNTHESIS");
   transitionFinalAssistantRun(run, terminalStatus);
   recordLifecycleStep(run, "TERMINAL", `status=${terminalStatus}`);
   recordOrchestrationTerminal(run);
   run.output = {
-    content: sanitizedText,
-    finalSummary: sanitizedText,
+    content: redactedText,
+    finalSummary: redactedText,
   };
   run.metadata.terminalState = terminalState;
   run.metadata.terminalMessage = finalMessage.metadata;
@@ -186,13 +186,13 @@ async function persistFinalAssistantRun(
   );
   await persistSynthesisArtifacts({
     run,
-    sanitizedText,
+    sanitizedText: redactedText,
     checkpointStatus: terminalStatus,
     deps,
   });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
-    sanitizedText,
+    redactedText,
     finalMessage.metadata,
   );
   if (terminalStatus === "COMPLETED") {
@@ -203,7 +203,7 @@ async function persistFinalAssistantRun(
   }
   if (terminalStatus === "FAILED") {
     await deps.runEventRecorder.recordRunFailed(
-      sanitizedText,
+      redactedText,
       getRunDurationMs(run),
     );
   }
@@ -211,7 +211,7 @@ async function persistFinalAssistantRun(
     `[run/completion/finalization-finished] runId=${run.id} status=${run.status} terminalStatus=${terminalStatus} terminalState=${terminalState}`,
   );
 
-  return createStreamResponse(sanitizedText);
+  return createStreamResponse(redactedText);
 }
 
 export async function completeRunWithRecoveredAssistantMessage(params: {
@@ -252,7 +252,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     metadata: finalMetadata,
     terminalState,
   });
-  const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
+  const redactedText = redactUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
   transitionRecoveredRun(run, terminalStatus);
   if (plannerError !== undefined) {
@@ -267,8 +267,8 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   );
   recordOrchestrationTerminal(run);
   run.output = {
-    content: sanitizedText,
-    finalSummary: sanitizedText,
+    content: redactedText,
+    finalSummary: redactedText,
   };
   run.metadata.terminalState = terminalState;
   run.metadata.terminalMessage = finalMessage.metadata;
@@ -286,13 +286,13 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   );
   await persistSynthesisArtifacts({
     run,
-    sanitizedText,
+    sanitizedText: redactedText,
     checkpointStatus: terminalStatus,
     deps,
   });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
-    sanitizedText,
+    redactedText,
     finalMessage.metadata,
   );
   if (terminalStatus === "COMPLETED") {
@@ -300,7 +300,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
-  return createStreamResponse(sanitizedText);
+  return createStreamResponse(redactedText);
 }
 
 function buildFinalAssistantMessage(input: {

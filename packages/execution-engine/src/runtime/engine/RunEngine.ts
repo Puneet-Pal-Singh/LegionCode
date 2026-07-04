@@ -60,7 +60,7 @@ import {
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import {
   transitionRunToCompleted,
   transitionRunToFailed,
@@ -660,7 +660,7 @@ export class RunEngine implements IRunEngine {
         : await applyReviewerPassIfEnabled({
             run,
             originalPrompt: input.prompt,
-            synthesisOutput: sanitizeUserFacingOutput(finalMessage.text),
+            synthesisOutput: redactUserFacingOutput(finalMessage.text),
             llmGateway: this.llmGateway,
           });
       const mergedMetadata: Record<string, unknown> = {
