@@ -107,14 +107,17 @@ function buildPendingApprovalState(input: {
   lifecycleProjection: LifecycleProjection | null;
   summaryPendingApproval: ApprovalRequest | null;
 }): PendingApprovalState | null {
+  const lifecycle = buildLifecycleApprovalState(input.lifecycleProjection);
+  if (lifecycle) {
+    return lifecycle;
+  }
   if (input.summaryPendingApproval) {
     return {
       source: "run-summary",
       request: input.summaryPendingApproval,
     };
   }
-  const lifecycle = buildLifecycleApprovalState(input.lifecycleProjection);
-  return lifecycle;
+  return null;
 }
 
 function buildLifecycleApprovalState(

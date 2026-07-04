@@ -166,8 +166,13 @@ export class ExecutionService {
         );
       } else {
         console.error(
-          `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} plugin=${plugin} action=${executionAction} status=threw`,
-          sanitizeUnknownError(error),
+          formatDiagnosticLogLine("execution/tool", "threw", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            plugin,
+            action: executionAction,
+            error: sanitizeUnknownError(error),
+          }),
         );
       }
       throw error;
@@ -211,7 +216,13 @@ export class ExecutionService {
     try {
       const session = await getUserSessionByUserId(this.env, userId);
       if (!session) {
-        console.log(`[ExecutionService] No session found for user ${userId}`);
+        console.log(
+          formatDiagnosticLogLine("execution/github-auth", "session-missing", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            userId,
+          }),
+        );
         return null;
       }
 
@@ -222,7 +233,12 @@ export class ExecutionService {
       const persistedScopes = parseGitHubScopeList(session.githubScopes);
 
       console.log(
-        `[ExecutionService] Successfully retrieved GitHub token for user ${userId}`,
+        formatDiagnosticLogLine("execution/github-auth", "token-ready", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          userId,
+          scopeCount: persistedScopes?.length ?? 0,
+        }),
       );
       return {
         token,
@@ -230,8 +246,12 @@ export class ExecutionService {
       };
     } catch (error) {
       console.error(
-        `[ExecutionService] Failed to get GitHub token:`,
-        sanitizeUnknownError(error),
+        formatDiagnosticLogLine("execution/github-auth", "token-failed", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          userId,
+          error: sanitizeUnknownError(error),
+        }),
       );
       return null;
     }
@@ -252,7 +272,14 @@ export class ExecutionService {
     const authState = await this.getGitHubAuthState(this.userId);
     if (authState?.token) {
       nextPayload.token = authState.token;
-      console.log(`[ExecutionService] Injected GitHub token for ${action}`);
+      console.log(
+        formatDiagnosticLogLine("execution/github-auth", "token-injected", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          plugin,
+          action,
+        }),
+      );
     }
 
     const scopeBoundary = resolveGitHubScopeBoundary({
@@ -282,7 +309,14 @@ export class ExecutionService {
 
     nextPayload.authorName = commitIdentity.authorName;
     nextPayload.authorEmail = commitIdentity.authorEmail;
-    console.log("[ExecutionService] Resolved git commit identity for runtime");
+    console.log(
+      formatDiagnosticLogLine("execution/git", "commit-identity-resolved", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        plugin,
+        action,
+      }),
+    );
     return nextPayload;
   }
 
@@ -307,7 +341,15 @@ export class ExecutionService {
     const taskId = createExecutionTaskId(plugin, action);
     const startedAt = Date.now();
     console.log(
-      `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=dispatching timeoutMs=${timeoutMs}`,
+      formatDiagnosticLogLine("execution/tool", "dispatching", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        secureSessionId: executionSession.sessionId,
+        taskId,
+        plugin,
+        action,
+        timeoutMs,
+      }),
     );
     const logForwardingPromise = options?.onOutput
       ? this.forwardExecutionLogs({
@@ -345,7 +387,16 @@ export class ExecutionService {
       if (!res.ok) {
         await logForwardingPromise;
         console.error(
-          `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=http-failed httpStatus=${res.status} elapsedMs=${Date.now() - startedAt}`,
+          formatDiagnosticLogLine("execution/tool", "http-failed", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            secureSessionId: executionSession.sessionId,
+            taskId,
+            plugin,
+            action,
+            httpStatus: res.status,
+            elapsedMs: Date.now() - startedAt,
+          }),
         );
         throw new Error(
           (await res.text()) || `Failed to execute ${plugin}:${action}`,
@@ -356,15 +407,34 @@ export class ExecutionService {
         await parseJsonResponse<SecureExecutionTaskResponse>(res);
       await logForwardingPromise;
       console.log(
-        `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=completed secureStatus=${executionResult.status} errorCode=${executionResult.error?.code ?? "none"} durationMs=${executionResult.metrics?.duration ?? "unknown"} elapsedMs=${Date.now() - startedAt}`,
+        formatDiagnosticLogLine("execution/tool", "completed", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          secureSessionId: executionSession.sessionId,
+          taskId,
+          plugin,
+          action,
+          secureStatus: executionResult.status,
+          errorCode: executionResult.error?.code,
+          durationMs: executionResult.metrics?.duration,
+          elapsedMs: Date.now() - startedAt,
+        }),
       );
       return executionResult;
     } catch (error) {
       setFinished(true);
       await logForwardingPromise;
       console.error(
-        `[execution/tool] runId=${this.runId} sessionId=${this.sessionId} secureSessionId=${executionSession.sessionId} taskId=${taskId} plugin=${plugin} action=${action} status=failed elapsedMs=${Date.now() - startedAt}`,
-        sanitizeUnknownError(error),
+        formatDiagnosticLogLine("execution/tool", "failed", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          secureSessionId: executionSession.sessionId,
+          taskId,
+          plugin,
+          action,
+          elapsedMs: Date.now() - startedAt,
+          error: sanitizeUnknownError(error),
+        }),
       );
       throw error;
     }
@@ -625,8 +695,9 @@ function parseExecutionLogStream(body: string): SecureExecutionLogEntry[] {
       );
     } catch (error) {
       console.warn(
-        "[ExecutionService] Failed to parse execution log entry:",
-        sanitizeUnknownError(error),
+        formatDiagnosticLogLine("execution/logs", "parse-failed", {
+          error: sanitizeUnknownError(error),
+        }),
       );
     }
   }

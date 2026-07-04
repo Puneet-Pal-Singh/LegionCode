@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { Workspace } from "./Workspace";
+import { clearInitialPromptSubmissionClaimsForTests } from "./workspace/initialPromptSubmissionGuard";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
 const mockUseGitStatusInputs = vi.hoisted(
@@ -23,6 +24,7 @@ const mockChatState = vi.hoisted(() => ({
   isHydrating: false,
   hasHydrated: true,
   runId: "run-123",
+  isModelConfigReady: true,
   error: null as string | null,
   debugEvents: [],
 }));
@@ -237,10 +239,13 @@ vi.mock("../../lib/git-workspace-bootstrap", () => ({
 
 describe("Workspace", () => {
   beforeEach(() => {
+    clearInitialPromptSubmissionClaimsForTests();
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockUseGitStatusInputs.length = 0;
     mockChatState.stop.mockClear();
+    mockChatState.append.mockClear();
+    mockChatState.append.mockResolvedValue(undefined);
     Object.values(mockWorkspaceStateSetters).forEach((setter) =>
       setter.mockClear(),
     );
@@ -249,6 +254,7 @@ describe("Workspace", () => {
     mockChatState.isLoading = false;
     mockChatState.messages = [];
     mockChatState.runId = "run-123";
+    mockChatState.isModelConfigReady = true;
     mockChatState.error = null;
     mockRunSummaryState.summary = null;
     mockGitStatusState.status = {
@@ -286,6 +292,84 @@ describe("Workspace", () => {
     expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
       "changes",
     );
+  });
+
+  it("submits an initial setup prompt once across workspace remounts", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockResolvedValue(undefined);
+    const onInitialPromptHandled = vi.fn();
+    const initialPromptSubmission = {
+      id: "setup-prompt-1",
+      prompt: "Hey, read my readme and tell what do you think of this project??",
+    };
+    const firstRender = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+        onInitialPromptHandled={onInitialPromptHandled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    });
+    firstRender.unmount();
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+        onInitialPromptHandled={onInitialPromptHandled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-prompt-1");
+    });
+    expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    expect(mockChatState.append).toHaveBeenCalledWith({
+      role: "user",
+      content:
+        "Hey, read my readme and tell what do you think of this project??",
+    });
+  });
+
+  it("waits for model configuration before submitting an initial setup prompt", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockClear();
+    mockChatState.isModelConfigReady = false;
+    const initialPromptSubmission = {
+      id: "setup-prompt-2",
+      prompt: "Read README",
+    };
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+      />,
+    );
+
+    expect(mockChatState.append).not.toHaveBeenCalled();
+
+    mockChatState.isModelConfigReady = true;
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("refreshes git status when local chat loading settles", async () => {

@@ -37,7 +37,10 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
-import { createCloudflareEventStreamPort } from "./factories/PortalityAdapterFactory";
+import {
+  createCloudflareEventStreamPort,
+  createCloudflareLifecycleEventStreamPort,
+} from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
@@ -58,6 +61,8 @@ const CredentialLabelMutationRequestSchema = z.object({
 export class RunEngineRuntime extends DurableObject {
   private readonly executionLock = new RunExecutionLock();
   private readonly eventStreamPort = createCloudflareEventStreamPort();
+  private readonly lifecycleEventStreamPort =
+    createCloudflareLifecycleEventStreamPort();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -93,6 +98,21 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleEventsStreamRequest(request);
     }
 
+    if (url.pathname === "/lifecycle-events" && request.method === "GET") {
+      return requestHandler.handleLifecycleEventsRequest(request);
+    }
+
+    if (
+      url.pathname === "/lifecycle-events/stream" &&
+      request.method === "GET"
+    ) {
+      return requestHandler.handleLifecycleEventsStreamRequest(request);
+    }
+
+    if (url.pathname === "/turn-diff" && request.method === "GET") {
+      return requestHandler.handleTurnDiffRequest(request);
+    }
+
     if (url.pathname === "/activity" && request.method === "GET") {
       return requestHandler.handleActivityRequest(request);
     }
@@ -103,6 +123,10 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/approval" && request.method === "POST") {
       return requestHandler.handleApprovalRequest(request);
+    }
+
+    if (url.pathname === "/lifecycle-approval" && request.method === "POST") {
+      return requestHandler.handleLifecycleApprovalRequest(request);
     }
 
     if (url.pathname === "/debug/runtime" && request.method === "GET") {
@@ -463,6 +487,7 @@ export class RunEngineRuntime extends DurableObject {
       this.env as Env,
       this.withExecutionLock.bind(this),
       this.eventStreamPort,
+      { lifecycleEventStream: this.lifecycleEventStreamPort },
     );
   }
 }

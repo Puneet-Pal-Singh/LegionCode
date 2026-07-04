@@ -863,6 +863,7 @@ export function buildAgenticLoopSystemPrompt(input: {
     "- After gathering enough evidence, answer the user directly in plain English.",
     "- Summarize tool results instead of echoing raw JSON or raw telemetry.",
     "- Reference the files or git facts you actually observed.",
+    "- Never include planning labels such as User says, Intent, Context, Current state, Direct answer, Helpful details, Tone, Draft, Step, or Self-Correction in the visible answer.",
     "- Do not narrate internal self-talk, speculation loops, or hidden deliberation.",
   ];
 

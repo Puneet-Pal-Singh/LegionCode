@@ -1,6 +1,7 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
+import type { LifecycleEventStore } from "@repo/persistence";
 import {
   ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,
@@ -8,7 +9,15 @@ import {
   RUN_WORKFLOW_STEPS,
   type RunEvent,
 } from "@repo/shared-types";
-import { RunIdSchema } from "@repo/platform-protocol";
+import {
+  ApprovalDecisionSchema,
+  ApprovalIdSchema,
+  EventSequenceSchema,
+  type LifecycleEvent,
+  RunIdSchema,
+  TurnDiffPayloadSchema,
+  TurnIdSchema,
+} from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
   RunEventRecorder,
@@ -43,6 +52,14 @@ import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersist
 import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
+import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
+import {
+  runIdFromTurnId,
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "./LifecycleTurnRouting";
+import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
+import type { LifecycleEventStreamPort } from "./ports";
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
@@ -55,6 +72,22 @@ const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
   requestId: z.string().min(1),
   decision: ApprovalDecisionKindSchema,
+});
+const LifecycleApprovalDecisionRequestSchema = z.object({
+  turnId: TurnIdSchema,
+  approvalId: ApprovalIdSchema,
+  decision: ApprovalDecisionSchema,
+  decidedBy: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+});
+const LifecycleEventsQuerySchema = z.object({
+  turnId: TurnIdSchema,
+  afterSequence: EventSequenceSchema.nullable(),
+  limit: z.number().int().min(1).max(1_000),
+});
+const LifecycleEventsStreamQuerySchema = z.object({
+  turnId: TurnIdSchema,
+  afterSequence: EventSequenceSchema.nullable(),
 });
 
 export interface RunEngineRequestLock {
@@ -77,9 +110,14 @@ export interface CanonicalRunEventSink {
 
 export interface RunEngineRequestHandlerDependencies {
   canonicalEventSink?: CanonicalRunEventSink;
+  lifecycleEventStore?: LifecycleEventStore;
+  lifecycleEventStream?: LifecycleEventStreamPort;
 }
 
 export class RunEngineRequestHandler {
+  private readonly fallbackLifecycleEventStream =
+    new CloudflareLifecycleEventStreamAdapter();
+
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
@@ -87,6 +125,58 @@ export class RunEngineRequestHandler {
     private readonly eventStream?: RealtimeEventPort,
     private readonly dependencies: RunEngineRequestHandlerDependencies = {},
   ) {}
+
+  async handleLifecycleEventsRequest(request: Request): Promise<Response> {
+    const input = parseLifecycleEventsQuery(request);
+    if (!input.ok) {
+      return runEngineErrorResponse(request, this.env, input.message, 400);
+    }
+
+    const replay = await this.createLifecycleEventStore().replay(input.value);
+    return runEngineJsonResponse(request, this.env, replay);
+  }
+
+  async handleLifecycleEventsStreamRequest(
+    request: Request,
+  ): Promise<Response> {
+    const input = parseLifecycleEventsStreamQuery(request);
+    if (!input.ok) {
+      return runEngineErrorResponse(request, this.env, input.message, 400);
+    }
+
+    return withRunEngineHeaders(
+      request,
+      this.env,
+      new Response(
+        this.createLifecycleEventStream().getStream(
+          input.value.turnId,
+          input.value.afterSequence,
+        ),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            "X-Turn-Id": input.value.turnId,
+          },
+        },
+      ),
+    );
+  }
+
+  async handleTurnDiffRequest(request: Request): Promise<Response> {
+    const input = parseLifecycleEventsStreamQuery(request);
+    if (!input.ok) {
+      return runEngineErrorResponse(request, this.env, input.message, 400);
+    }
+
+    return runEngineJsonResponse(request, this.env, {
+      diff: await readLatestTurnDiff(
+        this.createLifecycleEventStore(),
+        input.value.turnId,
+      ),
+    });
+  }
 
   async handleSummaryRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -334,7 +424,7 @@ export class RunEngineRequestHandler {
       }
     }
 
-    this.eventStream?.complete(runId);
+    this.completeRunStreamAfterCancel(run);
 
     return runEngineJsonResponse(request, this.env, {
       runId,
@@ -446,6 +536,68 @@ export class RunEngineRequestHandler {
     });
   }
 
+  async handleLifecycleApprovalRequest(request: Request): Promise<Response> {
+    let payload: z.infer<typeof LifecycleApprovalDecisionRequestSchema>;
+    try {
+      const body = await parseRequestBody(request, "lifecycle-approval");
+      payload = validateWithSchema(
+        body,
+        LifecycleApprovalDecisionRequestSchema,
+        "lifecycle-approval",
+      );
+    } catch {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Invalid lifecycle approval payload",
+        400,
+      );
+    }
+
+    const runId = runIdFromTurnId(payload.turnId);
+    const runtimeState = this.createRuntimeState();
+    const runRepo = new RunRepository(runtimeState);
+    const run = await runRepo.getById(runId);
+    if (!run) {
+      return runEngineErrorResponse(request, this.env, "Run not found", 404);
+    }
+
+    const approvalStore = new PermissionApprovalStore(runtimeState, runId);
+    try {
+      await approvalStore.resolveDecision(
+        {
+          kind: mapLifecycleApprovalDecision(payload.decision),
+          requestId: payload.approvalId,
+        },
+        run.metadata.actorUserId,
+      );
+    } catch (error) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        error instanceof Error
+          ? error.message
+          : "Unable to resolve lifecycle approval decision",
+        mapApprovalResolutionErrorStatus(error),
+      );
+    }
+
+    const decidedEvent = await waitForLifecycleApprovalDecisionEvent({
+      store: this.createLifecycleEventStore(),
+      turnId: payload.turnId,
+      approvalId: payload.approvalId,
+    });
+    if (!decidedEvent) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Approval decision was recorded but the lifecycle decision event was not observed.",
+        504,
+      );
+    }
+    return runEngineJsonResponse(request, this.env, decidedEvent);
+  }
+
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
     return runEngineJsonResponse(
       request,
@@ -495,6 +647,9 @@ export class RunEngineRequestHandler {
       );
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
+        const turnSeed = turnSeedFromLatestUserMessage(payload.messages);
+        const turnId = turnIdFromRunId(payload.runId, turnSeed);
+        this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
           this.ctx,
@@ -552,8 +707,8 @@ export class RunEngineRequestHandler {
           runId: payload.runId,
           sessionId: payload.sessionId,
           correlationId: payload.correlationId,
-          sink: canonicalEventSink,
-          onRunEvent: (event) => this.emitLiveEvent(event),
+          store: this.createLifecycleEventStore(),
+          stream: this.createLifecycleEventStream(),
         });
         await editArtifactCoordinator.prepare();
         const executionResponse = await runtimeRunner.execute({
@@ -561,6 +716,7 @@ export class RunEngineRequestHandler {
           messages: payload.messages as CoreMessage[],
           tools: runtimeTools,
           lifecycleEvents: kernelLifecycleEvents,
+          turnId,
         });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
@@ -646,17 +802,68 @@ export class RunEngineRequestHandler {
       return;
     }
 
-    this.eventStream.emit(event);
-    console.log(
-      `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
-    );
+    this.emitLiveEventSafely(event);
     if (
       event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
       event.type === RUN_EVENT_TYPES.RUN_FAILED
     ) {
-      this.eventStream.complete(event.runId);
+      this.completeLiveEventStreamSafely(event);
+    }
+  }
+
+  private emitLiveEventSafely(event: RunEvent): boolean {
+    try {
+      this.eventStream?.emit(event);
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
+      );
+      return true;
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "emit-failed", {
+          runId: event.runId,
+          sessionId: event.sessionId ?? null,
+          eventId: event.eventId,
+          type: event.type,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+      return false;
+    }
+  }
+
+  private completeLiveEventStreamSafely(event: RunEvent): void {
+    try {
+      this.eventStream?.complete(event.runId);
       console.log(
         `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=completed-stream`,
+      );
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "complete-failed", {
+          runId: event.runId,
+          sessionId: event.sessionId ?? null,
+          eventId: event.eventId,
+          type: event.type,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+    }
+  }
+
+  private completeRunStreamAfterCancel(run: {
+    id: string;
+    sessionId: string;
+  }): void {
+    try {
+      this.eventStream?.complete(run.id);
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "cancel-complete-failed", {
+          runId: run.id,
+          sessionId: run.sessionId,
+          error: sanitizeUnknownError(error),
+        }),
       );
     }
   }
@@ -672,6 +879,20 @@ export class RunEngineRequestHandler {
     return (
       this.dependencies.canonicalEventSink ??
       new RunEngineCanonicalEventSink(this.env)
+    );
+  }
+
+  private createLifecycleEventStore(): LifecycleEventStore {
+    return (
+      this.dependencies.lifecycleEventStore ??
+      new BrainLifecycleEventStore(this.env)
+    );
+  }
+
+  private createLifecycleEventStream(): LifecycleEventStreamPort {
+    return (
+      this.dependencies.lifecycleEventStream ??
+      this.fallbackLifecycleEventStream
     );
   }
 
@@ -731,4 +952,177 @@ function toRuntimeCoreTools(
   }
 
   return enforceCodingToolFloor(parsedTools);
+}
+
+type ParsedLifecycleQuery<T> =
+  | { ok: true; value: T }
+  | { ok: false; message: string };
+
+function parseLifecycleEventsQuery(
+  request: Request,
+): ParsedLifecycleQuery<z.infer<typeof LifecycleEventsQuerySchema>> {
+  const url = new URL(request.url);
+  return parseLifecycleQuery(
+    {
+      turnId: readTurnId(url),
+      afterSequence: readOptionalSequence(url.searchParams),
+      limit: readOptionalLimit(url.searchParams),
+    },
+    LifecycleEventsQuerySchema,
+  );
+}
+
+function parseLifecycleEventsStreamQuery(
+  request: Request,
+): ParsedLifecycleQuery<z.infer<typeof LifecycleEventsStreamQuerySchema>> {
+  const url = new URL(request.url);
+  return parseLifecycleQuery(
+    {
+      turnId: readTurnId(url),
+      afterSequence: readOptionalSequence(url.searchParams),
+    },
+    LifecycleEventsStreamQuerySchema,
+  );
+}
+
+function parseLifecycleQuery<TSchema extends z.ZodTypeAny>(
+  input: unknown,
+  schema: TSchema,
+): ParsedLifecycleQuery<z.infer<TSchema>> {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) {
+    return { ok: true, value: parsed.data };
+  }
+  return {
+    ok: false,
+    message: parsed.error.issues[0]?.message ?? "Invalid lifecycle query",
+  };
+}
+
+function readTurnId(url: URL): string | null {
+  return readTurnIdFromPath(url.pathname) ?? url.searchParams.get("turnId");
+}
+
+function readTurnIdFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/turns\/([^/]+)\/lifecycle-events(?:\/stream)?$/,
+  );
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readOptionalSequence(params: URLSearchParams): number | null {
+  const value = params.get("afterSequence");
+  return value === null || value.trim() === "" ? null : Number(value);
+}
+
+function readOptionalLimit(params: URLSearchParams): number {
+  const value = params.get("limit");
+  return value === null || value.trim() === "" ? 100 : Number(value);
+}
+
+async function readLatestTurnDiff(store: LifecycleEventStore, turnId: string) {
+  let afterSequence: number | null = null;
+  let latestDiff: unknown = null;
+
+  while (true) {
+    const replay = await store.replay({
+      turnId: TurnIdSchema.parse(turnId),
+      afterSequence,
+      limit: 1_000,
+    });
+    for (const event of replay.events) {
+      if (event.type === "turn.diff_updated") {
+        latestDiff = event.payload.diff;
+      }
+    }
+    if (replay.events.length < 1_000 || replay.nextSequence === null) {
+      break;
+    }
+    afterSequence = replay.nextSequence;
+  }
+
+  return latestDiff === null ? null : TurnDiffPayloadSchema.parse(latestDiff);
+}
+
+function mapLifecycleApprovalDecision(
+  decision: "approved" | "denied" | "cancelled",
+): z.infer<typeof ApprovalDecisionKindSchema> {
+  switch (decision) {
+    case "approved":
+      return "allow_once";
+    case "cancelled":
+      return "abort";
+    case "denied":
+      return "deny";
+  }
+}
+
+function mapApprovalResolutionErrorStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    message.includes("No pending approval request") ||
+    message.includes("does not match pending request")
+  ) {
+    return 409;
+  }
+  if (
+    message.includes("not allowed for this request") ||
+    message.includes("rejected because it is too broad") ||
+    message.includes("authenticated user id")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
+async function waitForLifecycleApprovalDecisionEvent(input: {
+  store: LifecycleEventStore;
+  turnId: string;
+  approvalId: string;
+}): Promise<LifecycleEvent | null> {
+  const deadline = Date.now() + 2_000;
+  let afterSequence: number | null = null;
+  while (Date.now() <= deadline) {
+    const found = await findLifecycleApprovalDecisionEvent(
+      input,
+      afterSequence,
+    );
+    if (found.event) {
+      return found.event;
+    }
+    afterSequence = found.nextSequence;
+    await waitForLifecycleApprovalReplayCycle();
+  }
+  return null;
+}
+
+async function findLifecycleApprovalDecisionEvent(
+  input: {
+    store: LifecycleEventStore;
+    turnId: string;
+    approvalId: string;
+  },
+  afterSequence: number | null,
+): Promise<{ event: LifecycleEvent | null; nextSequence: number | null }> {
+  const replay = await input.store.replay({
+    turnId: TurnIdSchema.parse(input.turnId),
+    afterSequence,
+    limit: 1_000,
+  });
+  const event =
+    replay.events.find(
+      (candidate) =>
+        candidate.type === "approval.decided" &&
+        candidate.approvalId === input.approvalId,
+    ) ?? null;
+  return {
+    event,
+    nextSequence: replay.nextSequence,
+  };
+}
+
+function waitForLifecycleApprovalReplayCycle(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 50);
+  });
 }

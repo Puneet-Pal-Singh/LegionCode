@@ -1,5 +1,5 @@
 {
-  "extends": "@repo/typescript-config/react-library.json", 
+  "extends": "@repo/typescript-config/react-library.json",
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,
@@ -22,6 +22,11 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "vitest.setup.ts"],
+  "include": [
+    "src",
+    "tests/browser",
+    "playwright.config.ts",
+    "vitest.setup.ts"
+  ],
   "references": []
 }

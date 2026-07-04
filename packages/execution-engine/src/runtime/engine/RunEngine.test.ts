@@ -990,7 +990,6 @@ describe("RunEngine", () => {
       "filesystem",
       "read_file",
       { path: "README.md" },
-      undefined,
     );
   });
 
@@ -2275,7 +2274,6 @@ describe("RunEngine", () => {
       {
         path: ".",
       },
-      undefined,
     );
     expect(executeSpy).toHaveBeenCalledWith(
       "filesystem",
@@ -2283,7 +2281,6 @@ describe("RunEngine", () => {
       {
         path: "README.md",
       },
-      undefined,
     );
     expect(executeSpy).toHaveBeenCalledWith(
       "filesystem",
@@ -2291,6 +2288,7 @@ describe("RunEngine", () => {
       {
         path: "README.md",
         content: "# Updated README\n",
+        expectedSha256: undefined,
       },
       undefined,
     );

@@ -121,8 +121,9 @@ export function AgentSetup({
         catalog,
         credentials,
         providerModels,
+        selectedProviderId,
       }),
-    [status, catalog, credentials, providerModels],
+    [status, catalog, credentials, providerModels, selectedProviderId],
   );
   const { isSelectedProviderModelHydrationPending } =
     useSelectedProviderModelHydration({

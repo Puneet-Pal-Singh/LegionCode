@@ -38,6 +38,7 @@ import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
+import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -162,6 +163,7 @@ export function Workspace({
     runId: activeRunId,
     error: chatError,
     debugEvents,
+    isModelConfigReady,
   } = useChat(
     sessionId,
     initialRunId,
@@ -211,7 +213,14 @@ export function Workspace({
     if (!initialPromptSubmission) {
       return;
     }
+    if (!isModelConfigReady) {
+      return;
+    }
     if (handledInitialPromptIdRef.current === initialPromptSubmission.id) {
+      return;
+    }
+    if (!claimInitialPromptSubmission(initialPromptSubmission.id)) {
+      onInitialPromptHandled?.(initialPromptSubmission.id);
       return;
     }
 
@@ -222,19 +231,16 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
+    onInitialPromptHandled?.(initialPromptSubmission.id);
     append({ role: "user", content: prompt })
-      .then(() => {
-        onInitialPromptHandled?.(initialPromptSubmission.id);
-      })
       .catch((error) => {
-        handledInitialPromptIdRef.current = null;
         console.error("[Workspace] Failed to submit setup prompt:", error);
         onSessionStatusChange?.("failed");
-        onInitialPromptHandled?.(initialPromptSubmission.id);
       });
   }, [
     append,
     initialPromptSubmission,
+    isModelConfigReady,
     onInitialPromptHandled,
     onSessionStatusChange,
   ]);

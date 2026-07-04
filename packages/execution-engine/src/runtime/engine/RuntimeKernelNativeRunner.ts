@@ -96,6 +96,7 @@ import {
   recordLifecycleStep,
   recordOrchestrationActivation,
   recordPhaseSelectionSnapshot,
+  recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
@@ -123,6 +124,7 @@ import {
   classifyCurrentTurnIntent,
   requiresMutationForIntent,
 } from "./RunCurrentTurnIntent.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -139,6 +141,7 @@ export interface RuntimeKernelNativeRunnerInput {
   messages: CoreMessage[];
   tools: Record<string, CoreTool>;
   lifecycleEvents: RuntimeLifecycleEventStore;
+  turnId: Turn["id"];
   now?: () => string;
 }
 
@@ -231,12 +234,34 @@ export class RuntimeKernelNativeRunner {
       { ...getCodingCoreToolRegistry(), ...input.tools },
       input.input.metadata,
     );
+    recordTurnModeDecision(run, {
+      mode: "action",
+      source: "runtime-kernel",
+      rationale: "Build turns use the canonical runtime kernel path.",
+      confidence: 1,
+    });
+    recordPhaseSelectionSnapshot(run, "execution");
+    console.log(
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "build-path-selected",
+        {
+          runId: this.options.runId,
+          sessionId: this.options.sessionId,
+          promptChars: input.input.prompt.length,
+          inputToolCount: Object.keys(input.tools).length,
+          runtimeToolCount: Object.keys(runtimeTools).length,
+        },
+      ),
+    );
+    await this.runRepo.update(run);
     const now = input.now ?? (() => new Date().toISOString());
     const protocol = buildProtocolEnvelope({
       runId: this.options.runId,
       sessionId: this.options.sessionId,
       userId: this.options.userId,
       input: input.input,
+      turnId: input.turnId,
       timestamp: now(),
     });
     const provider = new KernelAgenticProvider({
@@ -338,21 +363,48 @@ export class RuntimeKernelNativeRunner {
     provider: KernelAgenticProvider,
   ) {
     try {
+      console.log(
+        formatRuntimeDiagnosticLogLine(
+          "runtime-kernel/native",
+          "turn-started",
+          {
+            runId: run.id,
+            sessionId: run.sessionId,
+            turnId: protocol.turn.id,
+          },
+        ),
+      );
       return await kernel.startTurn(protocol);
     } catch (error) {
       if (error instanceof NativeRunCancelledError) {
+        console.log(
+          formatRuntimeDiagnosticLogLine(
+            "runtime-kernel/native",
+            "turn-cancelled",
+            {
+              runId: run.id,
+              sessionId: run.sessionId,
+              turnId: protocol.turn.id,
+            },
+          ),
+        );
         provider.recordCancelled();
         recordAgenticLoopMetadata(run, provider.buildResult());
         return createStreamResponse("");
       }
       provider.recordTerminalError(error);
       recordAgenticLoopMetadata(run, provider.buildResult());
-      const message =
-        error instanceof Error ? error.message : "Runtime execution failed.";
-      const terminalState =
-        error instanceof RuntimeKernelError && error.code === "approval_denied"
-          ? RUN_TERMINAL_STATES.APPROVAL_DENIED
-          : RUN_TERMINAL_STATES.FAILED_TOOL;
+      const terminalState = resolveNativeKernelTerminalState(error);
+      const message = buildNativeKernelTerminalMessage(error, terminalState);
+      console.error(
+        formatRuntimeDiagnosticLogLine("runtime-kernel/native", "turn-failed", {
+          runId: run.id,
+          sessionId: run.sessionId,
+          turnId: protocol.turn.id,
+          terminalState,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
       return await finalizeRunWithAssistantMessage({
         run,
         text: message,
@@ -517,6 +569,47 @@ export class RuntimeKernelNativeRunner {
       });
     }
   }
+}
+
+function resolveNativeKernelTerminalState(error: unknown) {
+  if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
+    return RUN_TERMINAL_STATES.APPROVAL_DENIED;
+  }
+
+  if (isModelOrProviderFailure(error)) {
+    return RUN_TERMINAL_STATES.FAILED_RUNTIME;
+  }
+
+  return RUN_TERMINAL_STATES.FAILED_TOOL;
+}
+
+function buildNativeKernelTerminalMessage(
+  error: unknown,
+  terminalState: (typeof RUN_TERMINAL_STATES)[keyof typeof RUN_TERMINAL_STATES],
+): string {
+  if (terminalState === RUN_TERMINAL_STATES.FAILED_RUNTIME) {
+    return [
+      "The selected model/provider failed while deciding the next action.",
+      "No sandbox tool failure was reported. Retry the task or switch to a faster, tool-capable model.",
+    ].join("\n");
+  }
+
+  return error instanceof Error ? error.message : "Runtime execution failed.";
+}
+
+function isModelOrProviderFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.name === "LLMTimeoutError" ||
+    error.name === "LLMUnusableResponseError" ||
+    /\b(llm|model|provider|gateway)\b/i.test(error.name) ||
+    /\b(text call timed out|provider request failed|internal error encountered|failed after \d+ attempts?)\b/i.test(
+      error.message,
+    )
+  );
 }
 
 class KernelAgenticProvider implements ProviderPort {
@@ -738,7 +831,17 @@ class KernelAgenticProvider implements ProviderPort {
       },
     );
     console.log(
-      `[runtime-kernel/native] model_step_started runId=${this.options.run.id} sessionId=${this.options.run.sessionId} step=${this.stepsExecuted + 1} intent=${this.currentTurnIntent} requiresMutation=${this.requiresMutation}`,
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "model-step-started",
+        {
+          runId: this.options.run.id,
+          sessionId: this.options.run.sessionId,
+          step: this.stepsExecuted + 1,
+          intent: this.currentTurnIntent,
+          requiresMutation: this.requiresMutation,
+        },
+      ),
     );
   }
 
@@ -760,7 +863,15 @@ class KernelAgenticProvider implements ProviderPort {
       },
     );
     console.log(
-      `[runtime-kernel/native] model_step_completed runId=${this.options.run.id} sessionId=${this.options.run.sessionId} step=${this.stepsExecuted}`,
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "model-step-completed",
+        {
+          runId: this.options.run.id,
+          sessionId: this.options.run.sessionId,
+          step: this.stepsExecuted,
+        },
+      ),
     );
   }
 
@@ -887,7 +998,11 @@ class KernelToolWorker implements WorkerProtocolPort {
     }
     this.options.tracker.recordToolStarted(input.toolCall);
     console.log(
-      `[runtime-kernel/native] tool_started runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName}`,
+      formatRuntimeDiagnosticLogLine("runtime-kernel/native", "tool-started", {
+        runId: input.runId,
+        toolCallId: input.toolCall.toolCallId,
+        toolName,
+      }),
     );
     await this.options.runEventRecorder.recordToolStarted({
       id: input.toolCall.toolCallId,
@@ -919,7 +1034,15 @@ class KernelToolWorker implements WorkerProtocolPort {
         0,
       );
       console.log(
-        `[runtime-kernel/native] tool_completed runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName}`,
+        formatRuntimeDiagnosticLogLine(
+          "runtime-kernel/native",
+          "tool-completed",
+          {
+            runId: input.runId,
+            toolCallId: input.toolCall.toolCallId,
+            toolName,
+          },
+        ),
       );
       return {
         kind: "completed",
@@ -937,7 +1060,12 @@ class KernelToolWorker implements WorkerProtocolPort {
       0,
     );
     console.warn(
-      `[runtime-kernel/native] tool_failed runId=${input.runId} toolCallId=${input.toolCall.toolCallId} toolName=${toolName} error=${message}`,
+      formatRuntimeDiagnosticLogLine("runtime-kernel/native", "tool-failed", {
+        runId: input.runId,
+        toolCallId: input.toolCall.toolCallId,
+        toolName,
+        errorMessage: message,
+      }),
     );
     return failed("command_failed", message);
   }
@@ -1088,6 +1216,7 @@ function buildProtocolEnvelope(input: {
   sessionId: string;
   userId?: string;
   input: RunInput;
+  turnId: Turn["id"];
   timestamp: string;
 }): {
   run: ProtocolRun;
@@ -1146,7 +1275,7 @@ function buildProtocolEnvelope(input: {
   return {
     run,
     turn: TurnSchema.parse({
-      id: toProtocolId("trn", `${input.runId}-${input.timestamp}`),
+      id: input.turnId,
       threadId,
       runId: input.runId,
       parentTurnId: null,

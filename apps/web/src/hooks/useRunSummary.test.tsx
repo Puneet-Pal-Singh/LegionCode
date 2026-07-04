@@ -54,37 +54,18 @@ describe("useRunSummary", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes non-polling terminal summaries while approval is pending", async () => {
+  it("does not fetch summaries when canonical lifecycle replay owns the run", async () => {
     let now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi.mocked(globalThis.fetch);
-    fetchSpy.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          runId: "run-approval",
-          status: "completed",
-          pendingApproval: {
-            requestId: "approval-1",
-            runId: "run-approval",
-            origin: "agent",
-            category: "shell_command",
-            title: "Run command",
-            reason: "Needs approval",
-            actionFingerprint: "shell_command:test",
-            availableDecisions: ["allow_once", "deny"],
-            createdAt: "2026-06-02T00:00:00.000Z",
-          },
-        }),
-        { status: 200 },
-      ),
-    );
 
     const { result } = renderHook(() => useRunSummary("run-approval", false));
 
-    await waitFor(() => {
-      expect(result.current.summary?.pendingApproval).toBeTruthy();
+    await act(async () => {
+      await Promise.resolve();
     });
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.summary).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(0);
 
     now += 2_000;
     act(() => {
@@ -95,12 +76,13 @@ describe("useRunSummary", () => {
       );
     });
 
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await Promise.resolve();
     });
+    expect(fetchSpy).toHaveBeenCalledTimes(0);
   });
 
-  it("retries after Brain reports the run missing before it is created", async () => {
+  it("throttles missing summary refreshes until a manual retry window opens", async () => {
     let now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi
@@ -129,11 +111,51 @@ describe("useRunSummary", () => {
     });
 
     await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    now += 10_000;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "missing-run" },
+        }),
+      );
+    });
+
+    await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
   });
 
-  it("polls missing canonical summaries until the run record appears", async () => {
+  it("does not fetch summaries for run event stream refreshes", async () => {
+    let now = 2_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fetchSpy = vi.mocked(globalThis.fetch);
+
+    renderHook(() => useRunSummary("run-1", true));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    now += 20_000;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-1", source: "run-event-stream" },
+        }),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not poll missing legacy summaries", async () => {
     vi.useFakeTimers();
     let now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -146,7 +168,7 @@ describe("useRunSummary", () => {
         }),
       );
 
-    const { result } = renderHook(() => useRunSummary("late-run", false));
+    const { result } = renderHook(() => useRunSummary("late-run", true));
 
     await act(async () => {
       await Promise.resolve();
@@ -155,17 +177,16 @@ describe("useRunSummary", () => {
     expect(result.current.summary).toBeNull();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    now += 6_000;
+    now += 30_000;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6_000);
+      await vi.advanceTimersByTimeAsync(30_000);
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.current.summary?.status).toBe("RUNNING");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.summary).toBeNull();
   });
 
-  it("settles a running canonical summary after stream polling stops", async () => {
-    vi.useFakeTimers();
+  it("settles a running legacy summary from an explicit refresh event", async () => {
     let now = 2_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const fetchSpy = vi
@@ -181,7 +202,7 @@ describe("useRunSummary", () => {
         }),
       );
 
-    const { result } = renderHook(() => useRunSummary("run-1", false));
+    const { result } = renderHook(() => useRunSummary("run-1", true));
 
     await act(async () => {
       await Promise.resolve();
@@ -189,13 +210,19 @@ describe("useRunSummary", () => {
     });
     expect(result.current.summary?.status).toBe("running");
 
-    now += 6_000;
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(6_000);
+    now += 30_000;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RUN_SUMMARY_REFRESH_EVENT, {
+          detail: { runId: "run-1", source: "manual" },
+        }),
+      );
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(result.current.summary?.status).toBe("completed");
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(result.current.summary?.status).toBe("completed");
+    });
   });
 
   it("coalesces duplicate fetches across multiple summary consumers", async () => {

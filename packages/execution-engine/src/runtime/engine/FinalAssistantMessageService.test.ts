@@ -71,6 +71,67 @@ describe("FinalAssistantMessageService", () => {
     ).toBe("Done. The update is complete.");
   });
 
+  it("removes leaked provider reasoning before a final-output cue", () => {
+    expect(
+      normalizeFinalAssistantText(
+        'Looking at the previous turn, the user asked "Hey say ok?" and I responded with internal text.\n\nThe user is likely testing responsiveness.\n\nI will simply respond "ok" again, but this time without the internal monologue in the final output.ok',
+      ),
+    ).toBe("ok");
+  });
+
+  it("removes no-tool reasoning while preserving the user-visible answer", () => {
+    expect(
+      normalizeFinalAssistantText(
+        "I don't need to use any tools for this.I'm doing well, thank you for asking! I'm ready to help you with your project.",
+      ),
+    ).toBe(
+      "I'm doing well, thank you for asking! I'm ready to help you with your project.",
+    );
+  });
+
+  it("extracts a direct-answer line from leaked reasoning lists", () => {
+    expect(
+      normalizeFinalAssistantText(
+        [
+          "• User wants me to read their README file and give an opinion on the project.",
+          "• Constraint: I cannot claim to have analyzed files unless I actually have the tools/access to do so.",
+          "• Direct answer: I'd love to take a look, but I haven't read your README yet!",
+          "• Helpful details: Tell them I can access the files if they give me the go-ahead.",
+          "• Draft 1 (Too robotic): I cannot read your readme because you have not provided it.",
+        ].join("\n"),
+      ),
+    ).toBe("I'd love to take a look, but I haven't read your README yet!");
+  });
+
+  it("extracts direct answers from screenshot-style review planning leaks", () => {
+    expect(
+      normalizeFinalAssistantText(
+        [
+          '• User says: "hey, check my hero and comment"',
+          '  • Context: The user is asking for feedback on a "hero" section.',
+          "  • Current state: I don't have any files, links, or images to check.",
+          "• Direct answer: I'd love to, but you haven't shared it with me yet!",
+          "  • Helpful details: Tell the user how to share it.",
+          "  • Tone: Friendly and conversational.",
+        ].join("\n"),
+      ),
+    ).toBe("I'd love to, but you haven't shared it with me yet!");
+  });
+
+  it("drops pure leaked tool-planning text instead of exposing it", () => {
+    expect(
+      normalizeFinalAssistantText(
+        [
+          "• I need to find the README file.",
+          "• I should list the files in the root directory to locate the README.",
+          "• Step 1: Call list_files to find the README.",
+          "Self-Correction during thought process: I cannot fabricate tool execution.",
+          "*Wait*, I am the LLM. I need to generate the tool calls now.",
+        ].join("\n"),
+      ),
+    ).toBe("");
+  });
+
   it("keeps substantive JSON instead of guessing intent", () => {
     const text = '{ "changedFiles": ["src/App.tsx"] }';
 

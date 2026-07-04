@@ -10,6 +10,7 @@ import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
 import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
+import { LifecycleController } from "./controllers/LifecycleController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -165,6 +166,22 @@ function createRouter(): Router {
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
   router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
+  router.add(
+    /^\/turns\/[^/]+\/lifecycle-events$/,
+    LifecycleController.getEvents,
+    "GET",
+  );
+  router.add(
+    /^\/turns\/[^/]+\/lifecycle-events\/stream$/,
+    LifecycleController.getEventsStream,
+    "GET",
+  );
+  router.add(/^\/turns\/[^/]+\/diff$/, LifecycleController.getTurnDiff, "GET");
+  router.add(
+    /^\/turns\/[^/]+\/approvals\/[^/]+$/,
+    LifecycleController.submitApproval,
+    "POST",
+  );
   router.add(
     /^\/api\/edit-artifacts\/latest$/,
     EditArtifactController.getLatest,

@@ -1,34 +1,21 @@
+import type {
+  LifecycleEventStore,
+  ReplayLifecycleEventsInput,
+  ReplayLifecycleEventsResult,
+} from "@repo/persistence";
 import type { LifecycleEvent } from "@repo/platform-protocol/lifecycle";
-import type { RunEvent } from "@repo/shared-types";
-import type { CanonicalRunEventSink } from "./RunEngineRequestHandler";
-
-interface RuntimeLifecycleEventStore {
-  append(event: LifecycleEvent): Promise<LifecycleEvent>;
-  appendBatch(
-    events: readonly LifecycleEvent[],
-  ): Promise<readonly LifecycleEvent[]>;
-  replay(input: {
-    turnId: LifecycleEvent["turnId"];
-    afterSequence: number | null;
-    limit: number;
-  }): Promise<{
-    events: readonly LifecycleEvent[];
-    nextSequence: number | null;
-  }>;
-}
+import type { LifecycleEventStreamPort } from "./ports";
 
 interface LifecycleBridgeInput {
   readonly runId: string;
   readonly sessionId: string;
   readonly correlationId: string;
-  readonly sink: CanonicalRunEventSink;
-  readonly onRunEvent?: (event: RunEvent) => void;
+  readonly store: LifecycleEventStore;
+  readonly stream: LifecycleEventStreamPort;
 }
 
-export class RunEngineKernelLifecycleEventStore implements RuntimeLifecycleEventStore {
-  private readonly lifecycleEvents: LifecycleEvent[] = [];
-
-  constructor(_input: LifecycleBridgeInput) {}
+export class RunEngineKernelLifecycleEventStore implements LifecycleEventStore {
+  constructor(private readonly input: LifecycleBridgeInput) {}
 
   async append(event: LifecycleEvent): Promise<LifecycleEvent> {
     return (await this.appendBatch([event]))[0] as LifecycleEvent;
@@ -37,23 +24,47 @@ export class RunEngineKernelLifecycleEventStore implements RuntimeLifecycleEvent
   async appendBatch(
     events: readonly LifecycleEvent[],
   ): Promise<readonly LifecycleEvent[]> {
-    this.lifecycleEvents.push(...events);
-    return events;
+    const appended = await this.input.store.appendBatch(events);
+    for (const event of appended) {
+      this.emitLifecycleEvent(event);
+      if (isTerminalLifecycleEvent(event)) {
+        this.completeLifecycleStream(event);
+      }
+    }
+    return appended;
   }
 
-  async replay(input: {
-    turnId: LifecycleEvent["turnId"];
-    afterSequence: number | null;
-    limit: number;
-  }): Promise<{
-    events: readonly LifecycleEvent[];
-    nextSequence: number | null;
-  }> {
-    const afterSequence = input.afterSequence ?? 0;
-    const events = this.lifecycleEvents
-      .filter((event) => event.turnId === input.turnId)
-      .filter((event) => event.sequence > afterSequence)
-      .slice(0, input.limit);
-    return { events, nextSequence: events.at(-1)?.sequence ?? null };
+  async replay(
+    input: ReplayLifecycleEventsInput,
+  ): Promise<ReplayLifecycleEventsResult> {
+    return await this.input.store.replay(input);
   }
+
+  private emitLifecycleEvent(event: LifecycleEvent): void {
+    try {
+      this.input.stream.emit(event);
+    } catch (error) {
+      console.warn(
+        `[runtime/lifecycle-live] emit failed runId=${this.input.runId} turnId=${event.turnId} sequence=${event.sequence} type=${event.type} correlationId=${this.input.correlationId} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private completeLifecycleStream(event: LifecycleEvent): void {
+    try {
+      this.input.stream.complete(event.turnId);
+    } catch (error) {
+      console.warn(
+        `[runtime/lifecycle-live] complete failed runId=${this.input.runId} turnId=${event.turnId} sequence=${event.sequence} type=${event.type} correlationId=${this.input.correlationId} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+}
+
+function isTerminalLifecycleEvent(event: LifecycleEvent): boolean {
+  return (
+    event.type === "turn.completed" ||
+    event.type === "turn.failed" ||
+    event.type === "turn.interrupted"
+  );
 }

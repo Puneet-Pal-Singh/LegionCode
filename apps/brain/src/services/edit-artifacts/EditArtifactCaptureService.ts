@@ -567,6 +567,13 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
     if (this.changedFiles.size === 0) {
       return;
     }
+    if (!this.baselineTree) {
+      console.warn("[edit-artifacts/capture] skipped without baseline", {
+        runId: this.context.runId,
+        changedFileCount: this.changedFiles.size,
+      });
+      return;
+    }
     this.captureSequence += 1;
     await this.service.captureAfterRunMutation({
       ...this.context,

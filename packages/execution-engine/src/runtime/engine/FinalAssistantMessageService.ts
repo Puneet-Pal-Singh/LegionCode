@@ -3,6 +3,7 @@ import {
   type RunTerminalState,
 } from "@repo/shared-types";
 import { buildFinalSummaryFrame } from "./FinalSummaryBuilder.js";
+import { sanitizeAssistantFinalContent } from "./AssistantFinalContentSanitizer.js";
 
 export type FinalAssistantMessageSource = "model" | "runtime";
 
@@ -50,10 +51,7 @@ export function normalizeFinalAssistantText(value: string | undefined): string {
     return "";
   }
 
-  const normalized = stripHiddenAssistantMarkup(value)
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const normalized = sanitizeAssistantFinalContent(value);
   if (!normalized || isUnusableFinalAssistantText(normalized)) {
     return "";
   }
@@ -171,13 +169,6 @@ function normalizeRuntimeSentence(value: string): string {
     return "";
   }
   return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
-}
-
-function stripHiddenAssistantMarkup(value: string): string {
-  return value.replace(
-    /<(analysis|thinking|reasoning|internal|tool_call|tool_result)\b[^>]*>[\s\S]*?<\/\1>/gi,
-    "",
-  );
 }
 
 function parseJsonObject(value: string): Record<string, unknown> | null {

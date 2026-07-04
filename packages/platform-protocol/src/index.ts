@@ -51,6 +51,11 @@ export {
   type ProtocolTimestamp,
 } from "./common.js";
 export {
+  runIdFromTurnId,
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "./lifecycle-turn-routing.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,

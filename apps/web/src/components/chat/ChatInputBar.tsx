@@ -209,8 +209,9 @@ export function ChatInputBar({
         catalog,
         credentials,
         providerModels,
+        selectedProviderId,
       }),
-    [status, catalog, credentials, providerModels],
+    [status, catalog, credentials, providerModels, selectedProviderId],
   );
   const isSelectedProviderModelHydrationPending = useMemo(
     () =>
@@ -943,6 +944,12 @@ export function ChatInputBar({
                 }}
                 onSelectModelView={setModelView}
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+                onEnsureSelectedProviderModels={(providerId) =>
+                  loadProviderModels(providerId, {
+                    view: selectedModelView,
+                    append: false,
+                  })
+                }
                 onRefreshSelectedProviderModels={refreshProviderModels}
                 onConnectProvider={() => {
                   setProviderDialogInitialTab("available");

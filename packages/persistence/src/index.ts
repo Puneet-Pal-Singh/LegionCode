@@ -64,6 +64,12 @@ export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
+export { MemoryLifecycleEventStore } from "@repo/event-store";
+export type {
+  LifecycleEventStore,
+  ReplayLifecycleEventsInput,
+  ReplayLifecycleEventsResult,
+} from "@repo/event-store";
 export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/PostgresLifecycleProjectionRepository.js";
 export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
 export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";

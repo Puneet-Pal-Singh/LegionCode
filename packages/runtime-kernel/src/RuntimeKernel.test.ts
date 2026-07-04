@@ -46,6 +46,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "run_attempt.started",
       "workspace.snapshot_captured",
       "workspace.snapshot_captured",
+      "turn.diff_updated",
       "artifact.created",
       "item.started",
       "assistant_message.delta",
@@ -72,10 +73,11 @@ describe("RuntimeKernel canonical lifecycle", () => {
       code: "worker_failed",
     });
 
-    expect(eventTypes(sink).slice(-6)).toEqual([
+    expect(eventTypes(sink).slice(-7)).toEqual([
       "tool_call.failed",
       "item.failed",
       "workspace.snapshot_captured",
+      "turn.diff_updated",
       "artifact.created",
       "run_attempt.failed",
       "turn.failed",
@@ -132,10 +134,11 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
 
     expect(ports.worker.executeTool).not.toHaveBeenCalled();
-    expect(eventTypes(sink).slice(-6)).toEqual([
+    expect(eventTypes(sink).slice(-7)).toEqual([
       "tool_call.failed",
       "item.failed",
       "workspace.snapshot_captured",
+      "turn.diff_updated",
       "artifact.created",
       "run_attempt.failed",
       "turn.failed",
@@ -232,7 +235,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
 
     expect(terminalEvents(sink)).toHaveLength(1);
-    expect(sink.events).toHaveLength(11);
+    expect(sink.events).toHaveLength(12);
   });
 
   it("settles provider disconnect as failure rather than completion", async () => {

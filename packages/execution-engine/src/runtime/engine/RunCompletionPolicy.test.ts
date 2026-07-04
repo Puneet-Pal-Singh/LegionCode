@@ -265,6 +265,14 @@ describe("RunCompletionPolicy", () => {
         failedStep: "npm_test",
       }),
     );
+    expect(run.status).toBe("FAILED");
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      "Tests failed after the edit.",
+      expect.any(Number),
+    );
+    expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ runStatus: "FAILED" }),
+    );
   });
 
   it("fails terminal settlement when final assistant transcript persistence fails", async () => {
@@ -322,6 +330,7 @@ function createDeps(
     recordRunStatusChanged: vi.fn(),
     recordMessageEmitted: vi.fn(),
     recordRunCompleted: vi.fn(),
+    recordRunFailed: vi.fn(),
   } as unknown as RunEventRecorder;
   const memoryCoordinator = {
     extractAndPersist: vi.fn(),
