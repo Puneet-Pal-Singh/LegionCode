@@ -26,9 +26,9 @@ export class RunEngineKernelLifecycleEventStore implements LifecycleEventStore {
   ): Promise<readonly LifecycleEvent[]> {
     const appended = await this.input.store.appendBatch(events);
     for (const event of appended) {
-      this.input.stream.emit(event);
+      this.emitLifecycleEvent(event);
       if (isTerminalLifecycleEvent(event)) {
-        this.input.stream.complete(event.turnId);
+        this.completeLifecycleStream(event);
       }
     }
     return appended;
@@ -38,6 +38,26 @@ export class RunEngineKernelLifecycleEventStore implements LifecycleEventStore {
     input: ReplayLifecycleEventsInput,
   ): Promise<ReplayLifecycleEventsResult> {
     return await this.input.store.replay(input);
+  }
+
+  private emitLifecycleEvent(event: LifecycleEvent): void {
+    try {
+      this.input.stream.emit(event);
+    } catch (error) {
+      console.warn(
+        `[runtime/lifecycle-live] emit failed runId=${this.input.runId} turnId=${event.turnId} sequence=${event.sequence} type=${event.type} correlationId=${this.input.correlationId} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private completeLifecycleStream(event: LifecycleEvent): void {
+    try {
+      this.input.stream.complete(event.turnId);
+    } catch (error) {
+      console.warn(
+        `[runtime/lifecycle-live] complete failed runId=${this.input.runId} turnId=${event.turnId} sequence=${event.sequence} type=${event.type} correlationId=${this.input.correlationId} error=${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }
 

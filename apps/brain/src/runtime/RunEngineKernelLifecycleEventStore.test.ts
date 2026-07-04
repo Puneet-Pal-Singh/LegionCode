@@ -67,6 +67,29 @@ describe("RunEngineKernelLifecycleEventStore", () => {
       ],
     });
   });
+
+  it("keeps canonical lifecycle persistence when live stream delivery fails", async () => {
+    const backingStore = new MemoryLifecycleEventStore();
+    const store = new RunEngineKernelLifecycleEventStore({
+      runId: "run_123e4567e89b42d3a456426614174999",
+      sessionId: "session-kernel",
+      correlationId: "corr-kernel",
+      store: backingStore,
+      stream: new ThrowingLifecycleStream(),
+    });
+
+    await store.append(createLifecycleEvent("turn.completed", 1));
+
+    await expect(
+      backingStore.replay({
+        turnId: "trn_kernelturn1",
+        afterSequence: null,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [{ type: "turn.completed", sequence: 1 }],
+    });
+  });
 });
 
 class CapturingLifecycleStream implements LifecycleEventStreamPort {
@@ -81,6 +104,22 @@ class CapturingLifecycleStream implements LifecycleEventStreamPort {
 
   complete(turnId: string): void {
     this.completedTurns.push(turnId);
+  }
+
+  getStream(): ReadableStream<Uint8Array> {
+    return new ReadableStream();
+  }
+}
+
+class ThrowingLifecycleStream implements LifecycleEventStreamPort {
+  start(): void {}
+
+  emit(): void {
+    throw new Error("stream emit unavailable");
+  }
+
+  complete(): void {
+    throw new Error("stream complete unavailable");
   }
 
   getStream(): ReadableStream<Uint8Array> {

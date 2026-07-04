@@ -424,7 +424,7 @@ export class RunEngineRequestHandler {
       }
     }
 
-    this.eventStream?.complete(runId);
+    this.completeRunStreamAfterCancel(run);
 
     return runEngineJsonResponse(request, this.env, {
       runId,
@@ -802,17 +802,68 @@ export class RunEngineRequestHandler {
       return;
     }
 
-    this.eventStream.emit(event);
-    console.log(
-      `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
-    );
+    this.emitLiveEventSafely(event);
     if (
       event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
       event.type === RUN_EVENT_TYPES.RUN_FAILED
     ) {
-      this.eventStream.complete(event.runId);
+      this.completeLiveEventStreamSafely(event);
+    }
+  }
+
+  private emitLiveEventSafely(event: RunEvent): boolean {
+    try {
+      this.eventStream?.emit(event);
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
+      );
+      return true;
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "emit-failed", {
+          runId: event.runId,
+          sessionId: event.sessionId ?? null,
+          eventId: event.eventId,
+          type: event.type,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+      return false;
+    }
+  }
+
+  private completeLiveEventStreamSafely(event: RunEvent): void {
+    try {
+      this.eventStream?.complete(event.runId);
       console.log(
         `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=completed-stream`,
+      );
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "complete-failed", {
+          runId: event.runId,
+          sessionId: event.sessionId ?? null,
+          eventId: event.eventId,
+          type: event.type,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+    }
+  }
+
+  private completeRunStreamAfterCancel(run: {
+    id: string;
+    sessionId: string;
+  }): void {
+    try {
+      this.eventStream?.complete(run.id);
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "cancel-complete-failed", {
+          runId: run.id,
+          sessionId: run.sessionId,
+          error: sanitizeUnknownError(error),
+        }),
       );
     }
   }
@@ -1032,7 +1083,10 @@ async function waitForLifecycleApprovalDecisionEvent(input: {
   const deadline = Date.now() + 2_000;
   let afterSequence: number | null = null;
   while (Date.now() <= deadline) {
-    const found = await findLifecycleApprovalDecisionEvent(input, afterSequence);
+    const found = await findLifecycleApprovalDecisionEvent(
+      input,
+      afterSequence,
+    );
     if (found.event) {
       return found.event;
     }
