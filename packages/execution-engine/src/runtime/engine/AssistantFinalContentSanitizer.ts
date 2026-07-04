@@ -8,12 +8,17 @@ const DIRECT_ANSWER_LINE_PATTERN =
 
 const LEAKED_REASONING_LINE_PATTERNS = [
   /^looking at the previous turn\b/i,
+  /^user says\b/i,
+  /^intent\b/i,
+  /^context\b/i,
+  /^current state\b/i,
   /^the user (?:is|asked|likely|wants|wrote|requested)\b/i,
   /^i (?:will|should|need to|don't need to) (?:simply |now |use |see |look |respond|avoid|make|check|inspect)/i,
   /^i (?:need to|should|cannot|can't|haven't|will first)\b/i,
   /^first,\s+i need\b/i,
   /^perhaps they\b/i,
   /^constraint\b/i,
+  /^call to action\b/i,
   /^helpful details\b/i,
   /^tone\b/i,
   /^draft \d+\b/i,

@@ -103,6 +103,21 @@ describe("FinalAssistantMessageService", () => {
     ).toBe("I'd love to take a look, but I haven't read your README yet!");
   });
 
+  it("extracts direct answers from screenshot-style review planning leaks", () => {
+    expect(
+      normalizeFinalAssistantText(
+        [
+          '• User says: "hey, check my hero and comment"',
+          '  • Context: The user is asking for feedback on a "hero" section.',
+          "  • Current state: I don't have any files, links, or images to check.",
+          "• Direct answer: I'd love to, but you haven't shared it with me yet!",
+          "  • Helpful details: Tell the user how to share it.",
+          "  • Tone: Friendly and conversational.",
+        ].join("\n"),
+      ),
+    ).toBe("I'd love to, but you haven't shared it with me yet!");
+  });
+
   it("drops pure leaked tool-planning text instead of exposing it", () => {
     expect(
       normalizeFinalAssistantText(

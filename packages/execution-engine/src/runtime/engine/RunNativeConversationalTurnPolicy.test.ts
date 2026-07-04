@@ -35,5 +35,19 @@ describe("RunNativeConversationalTurnPolicy", () => {
         sessionId: "session-1",
       }),
     ).toBe(false);
+    expect(
+      shouldUseNativeConversationalTurn({
+        agentType: "coding",
+        prompt: "hey, check my hero and comment",
+        sessionId: "session-1",
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseNativeConversationalTurn({
+        agentType: "coding",
+        prompt: "hey, check my landing and comment ???",
+        sessionId: "session-1",
+      }),
+    ).toBe(false);
   });
 });

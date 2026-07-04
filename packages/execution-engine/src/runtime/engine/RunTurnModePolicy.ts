@@ -13,6 +13,8 @@ const ACTION_CONFIDENCE_THRESHOLD = 0.8;
 const ACTION_HEURISTIC_PATTERNS = [
   /\b(read|open|show|inspect|diff|grep|search|find|list|ls|tree)\b.*\b(file|files|repo|repository|directory|folder|path)\b/i,
   /\b(read|open|show|inspect|review|analyze|check)\b.*\b(readme|project|codebase)\b/i,
+  /\b(check|review|inspect|analyze|comment|critique|feedback)\b.*\b(hero|landing|page|component|section|ui|design)\b/i,
+  /\b(hero|landing|page|component|section|ui|design)\b.*\b(check|review|inspect|analyze|comment|critique|feedback)\b/i,
   /\b(readme|package\.json|tsconfig|vite\.config|next\.config)\b/i,
   /\b(edit|write|update|modify|rename|delete|remove|create|add)\b.*\b(file|files|repo|repository|directory|folder|path)\b/i,
   /\b(run|execute|test|build|lint|typecheck)\b/i,
