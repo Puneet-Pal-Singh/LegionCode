@@ -27,5 +27,13 @@ describe("RunNativeConversationalTurnPolicy", () => {
         sessionId: "session-1",
       }),
     ).toBe(false);
+    expect(
+      shouldUseNativeConversationalTurn({
+        agentType: "coding",
+        prompt:
+          "Hey, read my readme and tell what do you think of this project??",
+        sessionId: "session-1",
+      }),
+    ).toBe(false);
   });
 });

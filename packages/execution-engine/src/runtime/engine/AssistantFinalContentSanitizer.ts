@@ -3,13 +3,27 @@ const INTERNAL_TAG_PATTERN =
 
 const FINAL_OUTPUT_CUE_PATTERN =
   /\b(?:final output|final answer|visible final response)\b\s*[:.-]?\s*/gi;
+const DIRECT_ANSWER_LINE_PATTERN =
+  /^\s*(?:[-*•]\s*)?direct answer\s*[:.-]\s*(.+)$/gim;
 
 const LEAKED_REASONING_LINE_PATTERNS = [
   /^looking at the previous turn\b/i,
   /^the user (?:is|asked|likely|wants|wrote|requested)\b/i,
   /^i (?:will|should|need to|don't need to) (?:simply |now |use |see |look |respond|avoid|make|check|inspect)/i,
+  /^i (?:need to|should|cannot|can't|haven't|will first)\b/i,
   /^first,\s+i need\b/i,
   /^perhaps they\b/i,
+  /^constraint\b/i,
+  /^helpful details\b/i,
+  /^tone\b/i,
+  /^draft \d+\b/i,
+  /^step \d+\b/i,
+  /^self-correction\b/i,
+  /^\*?wait\*?,?\s+i am the llm\b/i,
+  /^answer directly\b/i,
+  /^brief helpful details\b/i,
+  /^natural\/friendly\b/i,
+  /^no (?:robotic|fabrication)\b/i,
 ];
 
 export function sanitizeAssistantFinalContent(value: string): string {
@@ -24,9 +38,19 @@ function stripHiddenAssistantMarkup(value: string): string {
 }
 
 function removeReasoningLeadIn(value: string): string {
+  const directAnswer = extractDirectAnswerLine(value);
+  if (directAnswer) {
+    return directAnswer;
+  }
+
   const afterFinalCue = extractAfterFinalCue(value);
   if (afterFinalCue) {
     return afterFinalCue;
+  }
+
+  const withoutInlineLeadIn = stripKnownInlineLeadIn(value);
+  if (withoutInlineLeadIn !== value) {
+    return withoutInlineLeadIn;
   }
 
   const paragraphs = splitParagraphs(value);
@@ -36,8 +60,21 @@ function removeReasoningLeadIn(value: string): string {
   if (visibleParagraphs.length > 0 && visibleParagraphs.length < paragraphs.length) {
     return visibleParagraphs.join("\n\n");
   }
+  if (paragraphs.length > 0 && visibleParagraphs.length === 0) {
+    return "";
+  }
 
-  return stripKnownInlineLeadIn(value);
+  return value;
+}
+
+function extractDirectAnswerLine(value: string): string | null {
+  const matches = [...value.matchAll(DIRECT_ANSWER_LINE_PATTERN)];
+  const lastMatch = matches.at(-1);
+  const candidate = lastMatch?.[1]?.trim();
+  if (!candidate) {
+    return null;
+  }
+  return stripWrappingQuotes(candidate);
 }
 
 function extractAfterFinalCue(value: string): string | null {
@@ -59,14 +96,33 @@ function splitParagraphs(value: string): string[] {
 }
 
 function isLeakedReasoningParagraph(paragraph: string): boolean {
-  const firstLine = paragraph.split("\n")[0]?.trim() ?? "";
-  return LEAKED_REASONING_LINE_PATTERNS.some((pattern) =>
-    pattern.test(firstLine),
-  );
+  const lines = paragraph
+    .split("\n")
+    .map((line) => stripLeadingListMarker(line.trim()))
+    .filter((line) => line.length > 0);
+  const firstLine = lines[0] ?? "";
+  if (matchesLeakedReasoningLine(firstLine)) {
+    return true;
+  }
+
+  const leakedLineCount = lines.filter(matchesLeakedReasoningLine).length;
+  return leakedLineCount > 0 && leakedLineCount >= Math.ceil(lines.length / 2);
 }
 
 function stripKnownInlineLeadIn(value: string): string {
   return value
     .replace(/^I don't need to use any tools for this\.\s*/i, "")
     .replace(/^I do not need to use any tools for this\.\s*/i, "");
+}
+
+function matchesLeakedReasoningLine(line: string): boolean {
+  return LEAKED_REASONING_LINE_PATTERNS.some((pattern) => pattern.test(line));
+}
+
+function stripLeadingListMarker(value: string): string {
+  return value.replace(/^[-*•]\s+/, "");
+}
+
+function stripWrappingQuotes(value: string): string {
+  return value.replace(/^["']|["']$/g, "");
 }

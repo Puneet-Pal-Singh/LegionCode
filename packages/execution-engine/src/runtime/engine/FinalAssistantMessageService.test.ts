@@ -89,6 +89,34 @@ describe("FinalAssistantMessageService", () => {
     );
   });
 
+  it("extracts a direct-answer line from leaked reasoning lists", () => {
+    expect(
+      normalizeFinalAssistantText(
+        [
+          "• User wants me to read their README file and give an opinion on the project.",
+          "• Constraint: I cannot claim to have analyzed files unless I actually have the tools/access to do so.",
+          "• Direct answer: I'd love to take a look, but I haven't read your README yet!",
+          "• Helpful details: Tell them I can access the files if they give me the go-ahead.",
+          "• Draft 1 (Too robotic): I cannot read your readme because you have not provided it.",
+        ].join("\n"),
+      ),
+    ).toBe("I'd love to take a look, but I haven't read your README yet!");
+  });
+
+  it("drops pure leaked tool-planning text instead of exposing it", () => {
+    expect(
+      normalizeFinalAssistantText(
+        [
+          "• I need to find the README file.",
+          "• I should list the files in the root directory to locate the README.",
+          "• Step 1: Call list_files to find the README.",
+          "Self-Correction during thought process: I cannot fabricate tool execution.",
+          "*Wait*, I am the LLM. I need to generate the tool calls now.",
+        ].join("\n"),
+      ),
+    ).toBe("");
+  });
+
   it("keeps substantive JSON instead of guessing intent", () => {
     const text = '{ "changedFiles": ["src/App.tsx"] }';
 

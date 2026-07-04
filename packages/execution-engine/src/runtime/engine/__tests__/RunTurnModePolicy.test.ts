@@ -81,6 +81,39 @@ describe("RunTurnModePolicy", () => {
     expect(generateStructured).not.toHaveBeenCalled();
   });
 
+  it("routes bare README project-review prompts through the heuristic path", async () => {
+    const generateStructured = vi.fn(async () => ({
+      object: {
+        mode: "chat" as const,
+        rationale: "unused",
+        confidence: 0.1,
+      },
+      usage: {
+        provider: "mock",
+        model: "mock-model",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+    }));
+    const prompt =
+      "Hey, read my readme and tell what do you think of this project??";
+    const mode = await determineTurnMode({
+      llmGateway: createGateway(generateStructured),
+      run: createRun(),
+      prompt,
+      messages: createMessages(prompt),
+    });
+
+    expect(mode).toEqual(
+      expect.objectContaining({
+        mode: "action",
+        source: "heuristic",
+      }),
+    );
+    expect(generateStructured).not.toHaveBeenCalled();
+  });
+
   it("downgrades low-confidence action classification to chat", async () => {
     const generateStructured = vi.fn(async () => ({
       object: {
