@@ -11,10 +11,6 @@ import {
 } from "@repo/shared-types";
 import type { CodingToolId } from "../tools/CodingToolRegistry.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
-import {
-  requiresMutationForIntent,
-  type CurrentTurnIntent,
-} from "./RunCurrentTurnIntent.js";
 
 const SHELL_NETWORK_PATTERN =
   /\b(curl|wget|npm\s+install|pnpm\s+add|yarn\s+add|pip\s+install)\b/i;
@@ -60,7 +56,6 @@ export interface RiskyActionEvaluationInput {
   workflowIntent: WorkflowIntent;
   toolName: CodingToolId;
   toolArgs: Record<string, unknown>;
-  currentTurnIntent?: CurrentTurnIntent;
   hasMutationEvidence: boolean;
   allowResumeGitPush?: boolean;
   ownerUserId?: string;
@@ -109,7 +104,6 @@ export async function evaluateToolPermission(
   const mutationEvidenceDenial = getMutationEvidenceDenial(
     classified,
     input.toolName,
-    input.currentTurnIntent,
     input.hasMutationEvidence,
     Boolean(input.allowResumeGitPush),
   );
@@ -149,15 +143,7 @@ export function mapPermissionGateToEvaluationResult(
 function requiresMutationEvidence(
   classified: ClassifiedRiskAction,
   toolName: CodingToolId,
-  currentTurnIntent: CurrentTurnIntent | undefined,
 ): boolean {
-  const mutationScopedTurn = currentTurnIntent
-    ? requiresMutationForIntent(currentTurnIntent)
-    : true;
-  if (!mutationScopedTurn) {
-    return false;
-  }
-
   return (
     classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION &&
     toolName === "git_push"
@@ -167,7 +153,6 @@ function requiresMutationEvidence(
 function getMutationEvidenceDenial(
   classified: ClassifiedRiskAction,
   toolName: CodingToolId,
-  currentTurnIntent: CurrentTurnIntent | undefined,
   hasMutationEvidence: boolean,
   allowResumeGitPush: boolean,
 ): PermissionDenyResult | null {
@@ -176,7 +161,7 @@ function getMutationEvidenceDenial(
   }
 
   if (
-    requiresMutationEvidence(classified, toolName, currentTurnIntent) &&
+    requiresMutationEvidence(classified, toolName) &&
     !hasMutationEvidence
   ) {
     return {

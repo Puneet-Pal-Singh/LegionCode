@@ -19,6 +19,12 @@ import {
   transitionRunToPaused,
 } from "./RunStatusPolicy.js";
 import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
+import {
+  buildEvidenceLedger,
+  evaluateFinalizationContract,
+  readFinalizationEvidenceRequirements,
+  type FinalizationContract,
+} from "./EvidenceLedger.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
 type RecoveredRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
@@ -126,39 +132,51 @@ async function persistFinalAssistantRun(
     );
     return createStreamResponse("");
   }
+  const finalization = settleFinalizationContract({ run, metadata });
+  const terminalState = finalization.contract.settled
+    ? params.terminalState
+    : RUN_TERMINAL_STATES.FAILED_VALIDATION;
+  const terminalStatus = finalization.contract.settled
+    ? params.terminalStatus
+    : "FAILED";
+  const finalText = finalization.contract.settled
+    ? text
+    : buildMissingEvidenceFinalText(finalization.contract);
   const finalMetadata = buildTerminalFinalMetadata({
     run,
-    metadata,
-    terminalState: params.terminalState,
+    metadata: finalization.metadata,
+    terminalState,
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text,
+    text: finalText,
     metadata: finalMetadata,
-    terminalState: params.terminalState,
+    terminalState,
   });
   const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
   console.log(
-    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${params.terminalStatus} terminalState=${params.terminalState} textLength=${sanitizedText.length}`,
+    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${terminalStatus} terminalState=${terminalState} textLength=${sanitizedText.length}`,
   );
   recordLifecycleStep(run, "SYNTHESIS");
-  transitionFinalAssistantRun(run, params.terminalStatus);
-  recordLifecycleStep(run, "TERMINAL", `status=${params.terminalStatus}`);
+  transitionFinalAssistantRun(run, terminalStatus);
+  recordLifecycleStep(run, "TERMINAL", `status=${terminalStatus}`);
   recordOrchestrationTerminal(run);
   run.output = {
     content: sanitizedText,
     finalSummary: sanitizedText,
   };
-  run.metadata.terminalState = params.terminalState;
+  run.metadata.terminalState = terminalState;
   run.metadata.terminalMessage = finalMessage.metadata;
-  if (!(await updateFinalizedRunIfActive(run, deps, params.terminalStatus))) {
+  run.metadata.evidenceLedger = finalization.ledger;
+  run.metadata.finalizationContract = finalization.contract;
+  if (!(await updateFinalizedRunIfActive(run, deps, terminalStatus))) {
     console.log(
-      `[run/completion/finalization-skipped] runId=${run.id} reason=terminal-or-blocked terminalStatus=${params.terminalStatus}`,
+      `[run/completion/finalization-skipped] runId=${run.id} reason=terminal-or-blocked terminalStatus=${terminalStatus}`,
     );
     return createStreamResponse("");
   }
   console.log(
-    `[run/completion/run-persisted] runId=${run.id} status=${run.status} terminalState=${params.terminalState}`,
+    `[run/completion/run-persisted] runId=${run.id} status=${run.status} terminalState=${terminalState}`,
   );
   recordPhaseSelectionSnapshot(run, "synthesis");
   await deps.runEventRecorder.recordRunStatusChanged(
@@ -169,7 +187,7 @@ async function persistFinalAssistantRun(
   await persistSynthesisArtifacts({
     run,
     sanitizedText,
-    checkpointStatus: params.terminalStatus,
+    checkpointStatus: terminalStatus,
     deps,
   });
   await deps.runEventRecorder.recordMessageEmitted(
@@ -177,20 +195,20 @@ async function persistFinalAssistantRun(
     sanitizedText,
     finalMessage.metadata,
   );
-  if (params.terminalStatus === "COMPLETED") {
+  if (terminalStatus === "COMPLETED") {
     await deps.runEventRecorder.recordRunCompleted(
       getRunDurationMs(run),
       run.metadata.agenticLoop?.toolExecutionCount ?? 0,
     );
   }
-  if (params.terminalStatus === "FAILED") {
+  if (terminalStatus === "FAILED") {
     await deps.runEventRecorder.recordRunFailed(
       sanitizedText,
       getRunDurationMs(run),
     );
   }
   console.log(
-    `[run/completion/finalization-finished] runId=${run.id} status=${run.status} terminalStatus=${params.terminalStatus} terminalState=${params.terminalState}`,
+    `[run/completion/finalization-finished] runId=${run.id} status=${run.status} terminalStatus=${terminalStatus} terminalState=${terminalState}`,
   );
 
   return createStreamResponse(sanitizedText);
@@ -329,6 +347,47 @@ function buildTerminalFinalMetadata(input: {
     failedStep,
     nextAction,
   };
+}
+
+function settleFinalizationContract(input: {
+  run: Run;
+  metadata?: Record<string, unknown>;
+}): {
+  ledger: ReturnType<typeof buildEvidenceLedger>;
+  contract: FinalizationContract;
+  metadata: Record<string, unknown>;
+} {
+  const ledger = buildEvidenceLedger(
+    input.run.metadata.agenticLoop?.toolLifecycle ?? [],
+  );
+  const requiredEvidence = readFinalizationEvidenceRequirements(
+    input.metadata?.requiredEvidence,
+  );
+  const contract = evaluateFinalizationContract({
+    ledger,
+    requiredEvidence,
+  });
+  const metadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
+
+  if (ledger.length > 0 || requiredEvidence.length > 0) {
+    metadata.evidenceLedger = ledger;
+    metadata.finalizationContract = contract;
+  }
+
+  if (!contract.settled) {
+    metadata.code = "FINALIZATION_MISSING_EVIDENCE";
+  }
+
+  return { ledger, contract, metadata };
+}
+
+function buildMissingEvidenceFinalText(
+  contract: FinalizationContract,
+): string {
+  return [
+    "I cannot finalize that answer yet because this run did not record the required evidence.",
+    `Missing evidence: ${contract.missingEvidence.join(", ")}`,
+  ].join("\n");
 }
 
 function countChangedFiles(

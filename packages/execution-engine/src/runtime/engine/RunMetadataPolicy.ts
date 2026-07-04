@@ -4,7 +4,13 @@ import type {
   RunOrchestrationTelemetry,
 } from "../types.js";
 import type { Run } from "../run/index.js";
-import type { TurnModeDecision } from "./RunTurnModePolicy.js";
+
+interface TurnModeDecision {
+  mode: "chat" | "action";
+  source: "heuristic" | "llm" | "recovered" | "runtime-kernel";
+  rationale?: string;
+  confidence?: number;
+}
 
 export class MissingManifestError extends Error {
   constructor(message: string) {

@@ -62,11 +62,11 @@ describe("RuntimeKernel live path boundary", () => {
     );
   });
 
-  it("keeps native model steps visible and classified by current turn intent", () => {
+  it("keeps native model steps visible without prompt intent classification", () => {
     const source = readFileSync(NATIVE_RUNNER, "utf8");
 
-    expect(source).toContain("classifyCurrentTurnIntent");
-    expect(source).toContain("requiresMutationForIntent");
+    expect(source).not.toContain("classifyCurrentTurnIntent");
+    expect(source).not.toContain("requiresMutationForIntent");
     expect(source).toContain("recordModelStepStarted");
     expect(source).toContain("recordModelStepCompleted");
     expect(source).toContain(

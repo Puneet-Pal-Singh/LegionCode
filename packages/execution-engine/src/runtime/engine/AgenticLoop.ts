@@ -20,6 +20,10 @@ import {
   type ILLMGateway,
   type LLMTextResponse,
 } from "../llm/index.js";
+import {
+  getVisibleModelText,
+  normalizeModelOutputParts,
+} from "../llm/ModelOutputParts.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingCodingToolId } from "../tools/CodingToolRegistry.js";
@@ -44,11 +48,6 @@ import {
   type RunCapabilityManifest,
   type StructuredToolError,
 } from "../capabilities/index.js";
-import {
-  classifyCurrentTurnIntentFromMessages,
-  requiresMutationForIntent,
-  type CurrentTurnIntent,
-} from "./RunCurrentTurnIntent.js";
 import { PermissionGateError } from "./PermissionGateError.js";
 
 export interface AgenticLoopConfig {
@@ -99,7 +98,6 @@ export interface AgenticLoopResult {
   failedToolCount: number;
   stepsExecuted: number;
   requiresMutation: boolean;
-  currentTurnIntent?: CurrentTurnIntent;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
   llmRetryCount?: number;
@@ -194,9 +192,7 @@ export class AgenticLoop {
   ): Promise<AgenticLoopResult> {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
-    const currentTurnIntent =
-      classifyCurrentTurnIntentFromMessages(initialMessages);
-    const requiresMutation = requiresMutationForIntent(currentTurnIntent);
+    const requiresMutation = false;
     const latestTurnExplicitCiLogRequest =
       latestTurnRequestsCiLogs(initialMessages);
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
@@ -332,8 +328,15 @@ export class AgenticLoop {
         break;
       }
 
-      const responseText =
-        typeof response.text === "string" ? response.text : "";
+      const responseParts =
+        response.parts ??
+        normalizeModelOutputParts({
+          text: response.text,
+          toolCalls: response.toolCalls,
+          usage: response.usage,
+          finishReason: response.finishReason,
+        });
+      const responseText = getVisibleModelText(responseParts);
       console.log(
         formatRuntimeDiagnosticLogLine("agentic-loop/model", "completed", {
           runId: this.config.runId,
@@ -644,7 +647,6 @@ export class AgenticLoop {
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
       requiresMutation,
-      currentTurnIntent,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       llmRetryCount: this.llmRetryCount,

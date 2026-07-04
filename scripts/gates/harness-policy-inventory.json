@@ -276,15 +276,6 @@
       "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
     },
     {
-      "path": "packages/execution-engine/src/runtime/engine/RunTurnModePolicy.ts",
-      "owner": "runtime-harness-stabilization",
-      "category": "mode-intent",
-      "disposition": "delete-from-product-path",
-      "purpose": "Forbidden prompt/LLM chat-action classifier retained only until product-path imports are gone.",
-      "deletionTrigger": "Delete in slice 035.4 after capability manifest plus evidence settlement drives all requests.",
-      "gate": "scripts/gates/check-architecture-boundaries.mjs"
-    },
-    {
       "path": "packages/execution-engine/src/runtime/engine/RunWorkspaceBootstrapSummaryPolicy.ts",
       "owner": "runtime-workspace-bootstrap",
       "category": "workspace-bootstrap",

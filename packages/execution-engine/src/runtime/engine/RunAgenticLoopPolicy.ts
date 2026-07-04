@@ -76,7 +76,6 @@ export function recordAgenticLoopMetadata(
     toolExecutionCount: result.toolExecutionCount,
     failedToolCount: result.failedToolCount,
     requiresMutation: result.requiresMutation,
-    currentTurnIntent: result.currentTurnIntent,
     completedMutatingToolCount: result.completedMutatingToolCount,
     completedReadOnlyToolCount: result.completedReadOnlyToolCount,
     recoveryCode: deriveAgenticLoopRecoveryCode(result),
@@ -95,7 +94,6 @@ export function recordRecoveredAgenticLoopMetadata(
     toolExecutionCount: number;
     failedToolCount: number;
     requiresMutation: boolean;
-    currentTurnIntent?: AgenticLoopResult["currentTurnIntent"];
     completedMutatingToolCount: number;
     completedReadOnlyToolCount: number;
     llmRetryCount: number;
@@ -111,7 +109,6 @@ export function recordRecoveredAgenticLoopMetadata(
     toolExecutionCount: input.toolExecutionCount,
     failedToolCount: input.failedToolCount,
     requiresMutation: input.requiresMutation,
-    currentTurnIntent: input.currentTurnIntent,
     completedMutatingToolCount: input.completedMutatingToolCount,
     completedReadOnlyToolCount: input.completedReadOnlyToolCount,
     recoveryCode: input.recoveryCode,
@@ -518,10 +515,6 @@ function deriveAgenticLoopRecoveryCode(
 }
 
 function isMutationScopedTurn(result: AgenticLoopResult): boolean {
-  if (result.currentTurnIntent) {
-    return result.currentTurnIntent !== "read_only";
-  }
-
   return result.requiresMutation;
 }
 

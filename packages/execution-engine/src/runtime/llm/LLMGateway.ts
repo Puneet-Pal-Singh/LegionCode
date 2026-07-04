@@ -16,6 +16,7 @@ import type {
   ProviderCapabilityFlags,
   ProviderCapabilityResolver,
 } from "./types.js";
+import { normalizeModelOutputParts } from "./ModelOutputParts.js";
 
 const TOKEN_CHAR_RATIO = 4;
 // Conservative cross-provider placeholder for image/file parts when exact
@@ -209,6 +210,12 @@ export class LLMGateway implements ILLMGateway {
 
     return {
       text: result.text,
+      parts: normalizeModelOutputParts({
+        text: result.text,
+        toolCalls,
+        usage,
+        finishReason: result.finishReason,
+      }),
       usage,
       finishReason: result.finishReason,
       toolCalls,

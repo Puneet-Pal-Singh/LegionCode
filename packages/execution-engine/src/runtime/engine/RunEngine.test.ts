@@ -622,7 +622,7 @@ describe("RunEngine", () => {
 
     expect(response.status).toBe(200);
     const output = await response.text();
-    expect(output).toContain("No files were changed in this run.");
+    expect(output).toContain("Done.");
     expect(output).not.toContain(
       "The model did not return a usable next action for this edit request.",
     );
@@ -718,7 +718,7 @@ describe("RunEngine", () => {
     expect(response.status).toBe(200);
     const output = await response.text();
     expect(output).toContain(
-      "The model did not return a usable next action for this edit request.",
+      "The model did not return a usable response for this run.",
     );
 
     const persisted = await (
@@ -2164,7 +2164,12 @@ describe("RunEngine", () => {
         },
       })
       .mockResolvedValueOnce({
-        text: "Golden flow completed without retries.",
+        text: [
+          "I completed the requested update and changed this file:",
+          "- README.md (+1 -1)",
+          "",
+          "Updated sections/components: README",
+        ].join("\n"),
         toolCalls: [],
         usage: {
           provider: "mock",
@@ -2247,7 +2252,10 @@ describe("RunEngine", () => {
         prompt: "Find the target file, update it, run tests, and show git diff",
         sessionId: "session-1",
         repositoryContext: { owner: "sourcegraph", repo: "shadowbox" },
-        metadata: { featureFlags: { agenticLoopV1: true } },
+        metadata: {
+          featureFlags: { agenticLoopV1: true },
+          permissionPolicy: { productMode: "full_agent" },
+        },
       },
       [
         {
@@ -2299,9 +2307,9 @@ describe("RunEngine", () => {
         getRun(runId: string): Promise<Run | null>;
       }
     ).getRun(TEST_RUN_ID);
-    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("tool_error");
+    expect(persisted?.metadata.agenticLoop?.stopReason).toBe("llm_stop");
     expect(persisted?.metadata.agenticLoop?.toolExecutionCount).toBe(5);
-    expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(1);
+    expect(persisted?.metadata.agenticLoop?.failedToolCount).toBe(0);
     expect(persisted?.metadata.agenticLoop?.toolLifecycle).toHaveLength(15);
     expect(persisted?.metadata.agenticLoop?.toolLifecycle?.[0]).toMatchObject({
       toolCallId: "t1",

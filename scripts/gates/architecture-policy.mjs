@@ -176,8 +176,13 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
   turnModePolicy: {
     forbiddenImportPattern:
       /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunTurnModePolicy(?:\.js)?["']/,
+    allowedFiles: [],
+  },
+  promptIntentPolicy: {
+    forbiddenImportPattern:
+      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunCurrentTurnIntent(?:\.js)?["']/,
     allowedFiles: [
-      "packages/execution-engine/src/runtime/engine/RunTurnModePolicy.ts",
+      "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
     ],
   },
   finalAnswerRegexRepair: {

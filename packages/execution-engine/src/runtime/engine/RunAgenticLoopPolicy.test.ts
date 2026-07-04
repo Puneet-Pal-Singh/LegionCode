@@ -206,7 +206,7 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("I'll update the file now.");
   });
 
-  it("does not emit incomplete-mutation copy for read-only current turn intent", () => {
+  it("does not emit incomplete-mutation copy when mutation is not required by protocol state", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -219,8 +219,7 @@ describe("RunAgenticLoopPolicy", () => {
       toolExecutionCount: 0,
       failedToolCount: 0,
       stepsExecuted: 1,
-      requiresMutation: true,
-      currentTurnIntent: "read_only",
+      requiresMutation: false,
       completedMutatingToolCount: 0,
       completedReadOnlyToolCount: 0,
       toolLifecycle: [],

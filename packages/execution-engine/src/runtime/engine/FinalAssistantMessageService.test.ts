@@ -63,7 +63,7 @@ describe("FinalAssistantMessageService", () => {
     ).toBe("");
   });
 
-  it("strips hidden internal markup around visible final text", () => {
+  it("projects visible text around typed internal markup", () => {
     expect(
       normalizeFinalAssistantText(
         "<analysis>private note</analysis>\nDone. The update is complete.",
@@ -71,25 +71,27 @@ describe("FinalAssistantMessageService", () => {
     ).toBe("Done. The update is complete.");
   });
 
-  it("removes leaked provider reasoning before a final-output cue", () => {
+  it("does not extract final copy from leaked provider reasoning", () => {
     expect(
       normalizeFinalAssistantText(
         'Looking at the previous turn, the user asked "Hey say ok?" and I responded with internal text.\n\nThe user is likely testing responsiveness.\n\nI will simply respond "ok" again, but this time without the internal monologue in the final output.ok',
       ),
-    ).toBe("ok");
+    ).toBe(
+      'Looking at the previous turn, the user asked "Hey say ok?" and I responded with internal text.\n\nThe user is likely testing responsiveness.\n\nI will simply respond "ok" again, but this time without the internal monologue in the final output.ok',
+    );
   });
 
-  it("removes no-tool reasoning while preserving the user-visible answer", () => {
+  it("keeps legacy plain text instead of guessing hidden intent", () => {
     expect(
       normalizeFinalAssistantText(
         "I don't need to use any tools for this.I'm doing well, thank you for asking! I'm ready to help you with your project.",
       ),
     ).toBe(
-      "I'm doing well, thank you for asking! I'm ready to help you with your project.",
+      "I don't need to use any tools for this.I'm doing well, thank you for asking! I'm ready to help you with your project.",
     );
   });
 
-  it("extracts a direct-answer line from leaked reasoning lists", () => {
+  it("rejects dense labeled planning outlines instead of extracting direct-answer lines", () => {
     expect(
       normalizeFinalAssistantText(
         [
@@ -100,10 +102,10 @@ describe("FinalAssistantMessageService", () => {
           "• Draft 1 (Too robotic): I cannot read your readme because you have not provided it.",
         ].join("\n"),
       ),
-    ).toBe("I'd love to take a look, but I haven't read your README yet!");
+    ).toBe("");
   });
 
-  it("extracts direct answers from screenshot-style review planning leaks", () => {
+  it("rejects screenshot-style review planning leaks as non-visible model parts", () => {
     expect(
       normalizeFinalAssistantText(
         [
@@ -115,21 +117,35 @@ describe("FinalAssistantMessageService", () => {
           "  • Tone: Friendly and conversational.",
         ].join("\n"),
       ),
-    ).toBe("I'd love to, but you haven't shared it with me yet!");
+    ).toBe("");
   });
 
-  it("drops pure leaked tool-planning text instead of exposing it", () => {
+  it("drops typed pure leaked tool-planning text instead of exposing it", () => {
     expect(
       normalizeFinalAssistantText(
+        undefined,
         [
-          "• I need to find the README file.",
-          "• I should list the files in the root directory to locate the README.",
-          "• Step 1: Call list_files to find the README.",
-          "Self-Correction during thought process: I cannot fabricate tool execution.",
-          "*Wait*, I am the LLM. I need to generate the tool calls now.",
-        ].join("\n"),
+          {
+            type: "reasoning",
+            visibility: "audit_only",
+            text: [
+              "I need to find the README file.",
+              "I should list the files in the root directory to locate the README.",
+              "I need to generate the tool calls now.",
+            ].join("\n"),
+          },
+        ],
       ),
     ).toBe("");
+  });
+
+  it("renders explicit typed final parts", () => {
+    expect(
+      normalizeFinalAssistantText(undefined, [
+        { type: "reasoning", visibility: "audit_only", text: "private plan" },
+        { type: "final", text: "Done. I checked the requested file." },
+      ]),
+    ).toBe("Done. I checked the requested file.");
   });
 
   it("keeps substantive JSON instead of guessing intent", () => {

@@ -165,15 +165,18 @@ test("rejects production imports of RunTurnModePolicy", async (context) => {
   );
 });
 
-test("allows type-only RunTurnModePolicy telemetry imports", async (context) => {
+test("rejects production imports of RunCurrentTurnIntent", async (context) => {
   const root = await createFixture(context);
   await writeSource(
     root,
-    "packages/execution-engine/src/runtime/engine/TurnModeTelemetry.ts",
-    'import type { TurnModeDecision } from "./RunTurnModePolicy.js";\n',
+    "packages/execution-engine/src/runtime/engine/RunEngine.ts",
+    'import { classifyCurrentTurnIntent } from "./RunCurrentTurnIntent.js";\n',
   );
 
-  assert.deepEqual(await validateArchitecture(root), []);
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /must not import RunCurrentTurnIntent for prompt intent routing/,
+  );
 });
 
 test("rejects final-answer regex repair patterns", async (context) => {
@@ -328,8 +331,13 @@ async function createFixture(context) {
   );
   await writeSource(
     fixtureRoot,
-    "packages/execution-engine/src/runtime/engine/RunTurnModePolicy.ts",
-    "export interface TurnModeDecision { mode: string }\n",
+    "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
+    "export function classifyCurrentTurnIntent() { return 'read_only'; }\n",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",
+    "export function completeRunWithAssistantMessage() { return null; }\n",
   );
   await writeSource(
     fixtureRoot,
@@ -384,10 +392,10 @@ async function createFixture(context) {
   await writeManifest(fixtureRoot, "apps", "web", "@shadowbox/web", {});
   await writePolicyInventory(fixtureRoot, [
     {
-      path: "packages/execution-engine/src/runtime/engine/RunTurnModePolicy.ts",
-      owner: "runtime-harness-stabilization",
-      category: "mode-intent",
-      disposition: "delete-from-product-path",
+      path: "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",
+      owner: "runtime-finalization",
+      category: "finalization",
+      disposition: "convert-typed-protocol-projector",
       purpose: "Fixture policy inventory entry.",
       deletionTrigger: "Fixture deletion trigger.",
       gate: "scripts/gates/check-architecture-boundaries.mjs",

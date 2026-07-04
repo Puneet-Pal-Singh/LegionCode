@@ -120,10 +120,6 @@ import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
-import {
-  classifyCurrentTurnIntent,
-  requiresMutationForIntent,
-} from "./RunCurrentTurnIntent.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 
 const DEFAULT_SHA = "0".repeat(40);
@@ -625,9 +621,6 @@ class KernelAgenticProvider implements ProviderPort {
   private completedReadOnlyToolCount = 0;
   private stopReason: StopReason = "llm_stop";
   private readonly toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
-  private readonly currentTurnIntent: ReturnType<
-    typeof classifyCurrentTurnIntent
-  >;
   private readonly requiresMutation: boolean;
 
   constructor(
@@ -644,8 +637,7 @@ class KernelAgenticProvider implements ProviderPort {
     },
   ) {
     this.messages = [...options.messages];
-    this.currentTurnIntent = classifyCurrentTurnIntent(options.input.prompt);
-    this.requiresMutation = requiresMutationForIntent(this.currentTurnIntent);
+    this.requiresMutation = false;
   }
 
   async generateNext(input: ProviderCallInput): Promise<ProviderStep> {
@@ -804,7 +796,6 @@ class KernelAgenticProvider implements ProviderPort {
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
       requiresMutation: this.requiresMutation,
-      currentTurnIntent: this.currentTurnIntent,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       toolLifecycle: [...this.toolLifecycle],
@@ -825,7 +816,6 @@ class KernelAgenticProvider implements ProviderPort {
           owner: "runtime-kernel-native",
           step: this.stepsExecuted + 1,
           turnId: input.turn.id,
-          currentTurnIntent: this.currentTurnIntent,
           requiresMutation: this.requiresMutation,
         },
       },
@@ -838,7 +828,6 @@ class KernelAgenticProvider implements ProviderPort {
           runId: this.options.run.id,
           sessionId: this.options.run.sessionId,
           step: this.stepsExecuted + 1,
-          intent: this.currentTurnIntent,
           requiresMutation: this.requiresMutation,
         },
       ),
