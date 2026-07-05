@@ -54,6 +54,7 @@ export async function* streamGenerationHelper(
         yield {
           type: "tool-call",
           toolCall: {
+            toolCallId: readToolCallId(chunk),
             toolName: chunk.toolName,
             args: chunk.args,
           },
@@ -92,6 +93,7 @@ export async function* streamGenerationHelper(
     finishReason: finishReason ?? finalFinishReason,
     toolCalls: finalToolCalls?.map(
       (tc: { toolName: string; args: unknown }) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       }),
@@ -144,6 +146,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       usage,
       finishReason: result.finishReason,
       toolCalls: result.toolCalls?.map((tc) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       })),
@@ -186,6 +189,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
           yield {
             type: "tool-call",
             toolCall: {
+              toolCallId: readToolCallId(chunk),
               toolName: chunk.toolName,
               args: chunk.args,
             },
@@ -224,6 +228,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       finishReason: finishReason ?? finalFinishReason,
       toolCalls: finalToolCalls?.map(
         (tc: { toolName: string; args: unknown }) => ({
+          toolCallId: readToolCallId(tc),
           toolName: tc.toolName,
           args: tc.args,
         }),
@@ -235,4 +240,18 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
     usage: { promptTokens: number; completionTokens: number },
     model: string,
   ): LLMUsage;
+}
+
+function readToolCallId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as { toolCallId?: unknown; id?: unknown };
+  if (typeof record.toolCallId === "string" && record.toolCallId.trim()) {
+    return record.toolCallId.trim();
+  }
+  if (typeof record.id === "string" && record.id.trim()) {
+    return record.id.trim();
+  }
+  return undefined;
 }

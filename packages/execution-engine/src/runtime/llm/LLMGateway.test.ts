@@ -99,6 +99,46 @@ describe("LLMGateway provider capabilities", () => {
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves provider tool call ids when the adapter supplies them", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateText.mockResolvedValueOnce({
+      text: "",
+      usage: {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_readme",
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+      ],
+    });
+    const gateway = new LLMGateway(deps);
+
+    const response = await gateway.generateText(baseRequest);
+
+    expect(response.toolCalls).toEqual([
+      {
+        id: "call_readme",
+        toolName: "read_file",
+        args: { path: "README.md" },
+      },
+    ]);
+  });
+
   it("uses explicit providerId when estimating usage for preflight", async () => {
     const deps = createDependencies({
       getCapabilities: () => ({

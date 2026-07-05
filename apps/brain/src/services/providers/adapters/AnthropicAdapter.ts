@@ -64,6 +64,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       usage,
       finishReason: result.finishReason,
       toolCalls: result.toolCalls?.map((tc) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       })),
@@ -101,6 +102,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           yield {
             type: "tool-call",
             toolCall: {
+              toolCallId: readToolCallId(chunk),
               toolName: chunk.toolName,
               args: chunk.args,
             },
@@ -141,6 +143,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       finishReason: finishReason ?? finalFinishReason,
       toolCalls: finalToolCalls?.map(
         (tc: { toolName: string; args: unknown }) => ({
+          toolCallId: readToolCallId(tc),
           toolName: tc.toolName,
           args: tc.args,
         }),
@@ -165,4 +168,18 @@ export class AnthropicAdapter implements ProviderAdapter {
       raw: usage,
     };
   }
+}
+
+function readToolCallId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as { toolCallId?: unknown; id?: unknown };
+  if (typeof record.toolCallId === "string" && record.toolCallId.trim()) {
+    return record.toolCallId.trim();
+  }
+  if (typeof record.id === "string" && record.id.trim()) {
+    return record.id.trim();
+  }
+  return undefined;
 }

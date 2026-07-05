@@ -190,7 +190,8 @@ export class LLMGateway implements ILLMGateway {
     await this.persistCostEvent(requestWithIdempotency, usage);
 
     const toolCalls = result.toolCalls?.map((toolCall) => ({
-      id: crypto.randomUUID(),
+      id:
+        normalizeProviderToolCallId(toolCall.toolCallId) ?? crypto.randomUUID(),
       toolName: toolCall.toolName,
       args: normalizeToolArgs(toolCall.args),
     }));
@@ -708,6 +709,13 @@ export class LLMGateway implements ILLMGateway {
         return STANDARD_TASK_TEXT_TIMEOUT_MS;
     }
   }
+}
+
+function normalizeProviderToolCallId(
+  value: string | undefined,
+): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
 function summarizeCoreMessageRoles(messages: readonly CoreMessage[]): string {

@@ -119,6 +119,7 @@ export interface LLMRuntimeAIService {
     usage: LLMUsage;
     finishReason?: string;
     toolCalls?: Array<{
+      toolCallId?: string;
       toolName: string;
       args: unknown;
     }>;
