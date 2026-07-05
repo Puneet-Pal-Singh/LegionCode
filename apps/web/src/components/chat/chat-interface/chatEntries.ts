@@ -37,10 +37,11 @@ export function buildChatEntries(
       }
     }
 
-    if (conversationTurn.assistantMessage) {
+    const assistantMessage = conversationTurn.assistantMessage;
+    if (shouldIncludeAssistantMessage(assistantMessage)) {
       entries.push({
         kind: "message",
-        message: conversationTurn.assistantMessage,
+        message: assistantMessage,
       });
     }
   }
@@ -113,6 +114,32 @@ function correlateActivityTurnsToMessages(
   }
 
   return assignments;
+}
+
+function shouldIncludeAssistantMessage(
+  message: Message | undefined,
+): message is Message {
+  if (!message || message.role !== "assistant") {
+    return false;
+  }
+
+  const terminalState = readTerminalState(message);
+  return terminalState == null || terminalState === "completed";
+}
+
+function readTerminalState(message: Message): string | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const metadata = (data as Record<string, unknown>).metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const terminalState = (metadata as Record<string, unknown>).terminalState;
+  return typeof terminalState === "string" ? terminalState : null;
 }
 
 function resolveActivityTurnMessageId(

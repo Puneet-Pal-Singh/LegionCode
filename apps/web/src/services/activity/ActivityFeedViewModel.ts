@@ -909,7 +909,13 @@ function getToolSummary(item: ToolActivityPart): string {
       return `+${item.metadata.additions} / -${item.metadata.deletions}`;
     case TOOL_ACTIVITY_FAMILIES.READ:
     case TOOL_ACTIVITY_FAMILIES.SEARCH:
-      return "";
+      return item.status === "failed"
+        ? "Failed"
+        : item.status === "running"
+          ? "Running"
+          : item.status === "requested"
+            ? "Queued"
+            : "";
     case TOOL_ACTIVITY_FAMILIES.GIT:
       return getGitSummary(item);
     default:

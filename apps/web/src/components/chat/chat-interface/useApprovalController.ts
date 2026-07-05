@@ -65,7 +65,10 @@ export function useApprovalController(input: ApprovalControllerInput) {
       }),
     [input.lifecycleProjection, input.summaryPendingApproval],
   );
-  const pendingApproval = pendingApprovalState?.request ?? null;
+  const pendingApproval =
+    notice?.kind === "resolved"
+      ? null
+      : (pendingApprovalState?.request ?? null);
 
   useApprovalLifecycle(
     pendingApproval,

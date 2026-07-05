@@ -354,7 +354,7 @@ export function ChatInterface({
       onRemoveReviewComment={handleRemoveReviewComment}
       reviewCommentError={reviewCommentError}
       onStop={stop}
-      canStop={activeRunLoading && (canStop ?? true)}
+      canStop={activeRunLoading}
       isLoading={activeRunLoading || isTranscriptHydrating}
       sessionId={sessionId}
       runId={runId}
