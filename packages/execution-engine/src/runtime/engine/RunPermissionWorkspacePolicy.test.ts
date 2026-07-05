@@ -62,6 +62,7 @@ describe("RunPermissionWorkspacePolicy", () => {
     );
   });
 
+
   it("returns friendly guidance when bootstrap fails due to transient local dev session proxy misses", async () => {
     const workspaceBootstrapper: WorkspaceBootstrapper = {
       bootstrap: async () => ({

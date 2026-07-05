@@ -45,6 +45,7 @@ import {
   isCodingToolId,
   isMutatingCodingToolId,
 } from "../tools/CodingToolRegistry.js";
+import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import type {
   AgenticLoopToolLifecycleEvent,
   IAgent,
@@ -104,6 +105,7 @@ import {
   persistPlanArtifact,
 } from "./RunPlanModePolicy.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
   ensureApprovalResolvedEventRecorded,
   waitForApprovalDecision,
@@ -112,6 +114,7 @@ import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
 } from "./RunEngineConfigPolicy.js";
+import { evaluateWorkspaceBootstrap } from "./RunPermissionWorkspacePolicy.js";
 import type {
   RunEngineDependencies,
   RunEngineOptions,
@@ -124,6 +127,7 @@ import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
+const RECOVERABLE_TOOL_FAILURE_KEY = "__legionRecoverableToolFailure";
 type KernelWorkspaceManifest = NonNullable<
   Awaited<
     ReturnType<
@@ -153,6 +157,7 @@ export class RuntimeKernelNativeRunner {
   private readonly llmGateway: ILLMGateway;
   private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
+  private readonly workspaceBootstrapper;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -209,6 +214,7 @@ export class RuntimeKernelNativeRunner {
         pricingResolver,
       });
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
+    this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
     this.memoryCoordinator =
       dependencies.memoryCoordinator ??
       new MemoryCoordinator({
@@ -223,6 +229,10 @@ export class RuntimeKernelNativeRunner {
     await this.prepareRun(run, input);
     if (run.metadata.manifest?.mode !== "build") {
       return await this.executePlanMode(run, input.input);
+    }
+    const bootstrapResponse = await this.prepareBuildWorkspace(run, input.input);
+    if (bootstrapResponse) {
+      return bootstrapResponse;
     }
     await this.activateBuildRun(run);
     const executionService = this.getDirectExecutionService();
@@ -441,6 +451,67 @@ export class RuntimeKernelNativeRunner {
     await this.runRepo.update(run);
   }
 
+  private async prepareBuildWorkspace(
+    run: Run,
+    input: RunInput,
+  ): Promise<Response | null> {
+    const bootstrapEvaluation = await evaluateWorkspaceBootstrap(
+      run.id,
+      input.prompt,
+      input.repositoryContext,
+      this.workspaceBootstrapper,
+      { force: true },
+    );
+    console.log(
+      formatRuntimeDiagnosticLogLine(
+        "runtime-kernel/native",
+        "workspace-bootstrap-evaluated",
+        {
+          runId: this.options.runId,
+          sessionId: this.options.sessionId,
+          status: bootstrapEvaluation.status,
+          blocked: bootstrapEvaluation.blocked,
+          expectedMiss: bootstrapEvaluation.expectedMiss,
+          mode: bootstrapEvaluation.mode ?? "none",
+          clonedDuringBootstrap:
+            bootstrapEvaluation.clonedDuringBootstrap ?? false,
+        },
+      ),
+    );
+    run.metadata.workspaceBootstrap = {
+      requested: bootstrapEvaluation.status !== "skipped",
+      ready: !bootstrapEvaluation.blocked,
+      status: bootstrapEvaluation.status,
+      mode: bootstrapEvaluation.mode,
+      blocked: bootstrapEvaluation.blocked,
+      message: bootstrapEvaluation.message ?? undefined,
+      expectedMiss: bootstrapEvaluation.expectedMiss,
+      clonedDuringBootstrap:
+        bootstrapEvaluation.clonedDuringBootstrap ?? false,
+      recordedAt: new Date().toISOString(),
+    };
+    await this.runRepo.update(run);
+
+    if (bootstrapEvaluation.blocked) {
+      await this.runEventRecorder.recordRunProgress(
+        RUN_WORKFLOW_STEPS.PLANNING,
+        "Workspace bootstrap",
+        describeWorkspaceBootstrapSummary(bootstrapEvaluation),
+        "completed",
+      );
+    }
+
+    if (!bootstrapEvaluation.message) {
+      return null;
+    }
+
+    return await finalizeRunWithAssistantMessage({
+      run,
+      text: bootstrapEvaluation.message,
+      deps: this.getRunCompletionDependencies(),
+    });
+  }
+
   private async getOrCreateRun(input: RunInput): Promise<Run> {
     const existing = await this.runRepo.getById(this.options.runId);
     if (existing) {
@@ -613,6 +684,10 @@ class KernelAgenticProvider implements ProviderPort {
   private readonly pendingToolCalls: AgenticLoopToolCall[] = [];
   private readonly currentBatchResults: AgenticLoopToolResult[] = [];
   private readonly toolNamesByCallId = new Map<string, string>();
+  private readonly lastToolArgsByName = new Map<
+    string,
+    Record<string, unknown>
+  >();
   private consumedToolResults = 0;
   private stepsExecuted = 0;
   private toolExecutionCount = 0;
@@ -696,7 +771,7 @@ class KernelAgenticProvider implements ProviderPort {
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     this.stepsExecuted += 1;
     await this.recordModelStepCompleted(input);
-    const toolCalls = response.toolCalls ?? [];
+    const toolCalls = this.repairToolCalls(response.toolCalls ?? []);
     this.messages.push(buildAssistantMessage(response.text ?? "", toolCalls));
     if (toolCalls.length === 0) {
       this.stopReason = "llm_stop";
@@ -719,6 +794,7 @@ class KernelAgenticProvider implements ProviderPort {
     for (const toolCall of toolCalls) {
       const protocolToolCallId = toProtocolId("toolcall", toolCall.id);
       this.toolNamesByCallId.set(protocolToolCallId, toolCall.toolName);
+      this.lastToolArgsByName.set(toolCall.toolName, { ...toolCall.args });
       await this.options.runEventRecorder.recordToolRequested({
         id: protocolToolCallId,
         type: toolCall.toolName,
@@ -756,9 +832,15 @@ class KernelAgenticProvider implements ProviderPort {
     });
   }
 
-  recordToolFailed(toolCall: ToolCallItemContent, error: string): void {
+  recordToolFailed(
+    toolCall: ToolCallItemContent,
+    error: string,
+    terminal: boolean,
+  ): void {
     this.failedToolCount += 1;
-    this.stopReason = "tool_error";
+    if (terminal) {
+      this.stopReason = "tool_error";
+    }
     this.toolLifecycle.push({
       toolCallId: toolCall.toolCallId,
       toolName: toolCall.toolName,
@@ -870,10 +952,13 @@ class KernelAgenticProvider implements ProviderPort {
     const nextResults = results.slice(this.consumedToolResults);
     this.consumedToolResults = results.length;
     for (const result of nextResults) {
+      const recoverableFailure = readRecoverableToolFailure(result.output);
       this.currentBatchResults.push({
         toolId: result.toolCallId,
         toolName: this.findToolName(result.toolCallId),
-        result: result.output,
+        result: recoverableFailure ? null : result.output,
+        error: recoverableFailure?.message,
+        terminalError: false,
       });
     }
     if (this.pendingToolCalls.length === 0 && this.currentBatchResults.length) {
@@ -909,6 +994,82 @@ class KernelAgenticProvider implements ProviderPort {
   private findToolName(toolCallId: string): string {
     return this.toolNamesByCallId.get(toolCallId) ?? "unknown_tool";
   }
+
+  private repairToolCalls(
+    toolCalls: readonly AgenticLoopToolCall[],
+  ): AgenticLoopToolCall[] {
+    return toolCalls.map((toolCall) => ({
+      ...toolCall,
+      args: repairToolCallArgs(toolCall, this.lastToolArgsByName),
+    }));
+  }
+}
+
+function repairToolCallArgs(
+  toolCall: AgenticLoopToolCall,
+  lastToolArgsByName: ReadonlyMap<string, Record<string, unknown>>,
+): Record<string, unknown> {
+  const args = isToolArgRecord(toolCall.args) ? { ...toolCall.args } : {};
+
+  switch (toolCall.toolName) {
+    case "read_file":
+      return repairReadFileArgs(args, lastToolArgsByName.get("read_file"));
+    case "list_files":
+    case "glob":
+    case "grep":
+      return repairDirectoryToolArgs(args);
+    default:
+      return args;
+  }
+}
+
+function repairReadFileArgs(
+  args: Record<string, unknown>,
+  previousArgs: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const repaired = { ...args };
+  const aliasedPath =
+    readStringToolArg(repaired.path) ??
+    readStringToolArg(repaired.filePath) ??
+    readStringToolArg(repaired.file) ??
+    readStringToolArg(repaired.filename);
+  if (aliasedPath) {
+    repaired.path = aliasedPath;
+    return repaired;
+  }
+
+  const previousPath = previousArgs
+    ? readStringToolArg(previousArgs.path)
+    : null;
+  const hasWindowContinuation =
+    typeof repaired.offset === "number" || typeof repaired.limit === "number";
+  if (previousPath && hasWindowContinuation) {
+    repaired.path = previousPath;
+  }
+  return repaired;
+}
+
+function repairDirectoryToolArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (readStringToolArg(args.path)) {
+    return args;
+  }
+
+  return {
+    ...args,
+    path: ".",
+  };
+}
+
+function readStringToolArg(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function isToolArgRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 class NativeRunCancelledError extends Error {
@@ -997,23 +1158,51 @@ class KernelToolWorker implements WorkerProtocolPort {
       id: input.toolCall.toolCallId,
       type: toolName,
     });
-    const result = await runWithNativeCancellationPolling(
-      executeAgenticLoopTool(this.options.executionService, {
-        taskId: input.toolCall.toolCallId,
+    let result: TaskResult;
+    try {
+      result = await runWithNativeCancellationPolling(
+        executeAgenticLoopTool(this.options.executionService, {
+          taskId: input.toolCall.toolCallId,
+          toolName,
+          toolInput: {
+            description: `Execute ${toolName}`,
+            ...input.toolCall.input,
+          },
+          onOutputAppended: async (chunk) => {
+            await this.options.runEventRecorder.recordToolOutputAppended(
+              { id: input.toolCall.toolCallId, type: toolName },
+              chunk,
+            );
+          },
+        }),
+        this.options.isRunCancelled,
+      );
+    } catch (error) {
+      await assertNativeRunNotCancelled(this.options.isRunCancelled);
+      const message = normalizeToolExecutionErrorMessage(toolName, error);
+      const terminal = isTerminalToolFailure({
         toolName,
-        toolInput: {
-          description: `Execute ${toolName}`,
-          ...input.toolCall.input,
-        },
-        onOutputAppended: async (chunk) => {
-          await this.options.runEventRecorder.recordToolOutputAppended(
-            { id: input.toolCall.toolCallId, type: toolName },
-            chunk,
-          );
-        },
-      }),
-      this.options.isRunCancelled,
-    );
+        error: message,
+      });
+      this.options.tracker.recordToolFailed(input.toolCall, message, terminal);
+      await this.options.runEventRecorder.recordToolFailed(
+        { id: input.toolCall.toolCallId, type: toolName },
+        message,
+        0,
+      );
+      console.warn(
+        formatRuntimeDiagnosticLogLine("runtime-kernel/native", "tool-failed", {
+          runId: input.runId,
+          toolCallId: input.toolCall.toolCallId,
+          toolName,
+          errorMessage: message,
+        }),
+      );
+      if (!terminal) {
+        return completedRecoverableFailure(message);
+      }
+      return failed("command_failed", message);
+    }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (result.status === "DONE") {
       this.options.tracker.recordToolCompleted(input.toolCall, result);
@@ -1042,7 +1231,12 @@ class KernelToolWorker implements WorkerProtocolPort {
       };
     }
     const message = result.error?.message ?? "Tool execution failed";
-    this.options.tracker.recordToolFailed(input.toolCall, message);
+    const terminal = isTerminalToolFailure({
+      toolName,
+      error: message,
+      metadata: result.output?.metadata,
+    });
+    this.options.tracker.recordToolFailed(input.toolCall, message, terminal);
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
       message,
@@ -1056,8 +1250,32 @@ class KernelToolWorker implements WorkerProtocolPort {
         errorMessage: message,
       }),
     );
+    if (!terminal) {
+      return completedRecoverableFailure(message);
+    }
     return failed("command_failed", message);
   }
+}
+
+function normalizeToolExecutionErrorMessage(
+  toolName: string,
+  error: unknown,
+): string {
+  const message =
+    error instanceof Error ? error.message : "Tool execution failed";
+  if (!message.startsWith("Invalid")) {
+    return message;
+  }
+
+  if (toolName === "read_file") {
+    return "read_file failed because the model omitted the required file path. Retry with the same path and the next offset, or choose a concrete file path first.";
+  }
+
+  if (toolName === "list_files" || toolName === "glob" || toolName === "grep") {
+    return `${toolName} failed because the model sent malformed tool arguments. Retry the search with a concrete path or pattern.`;
+  }
+
+  return message;
 }
 
 class NativeApprovalWaitPort implements ApprovalWaitPort {
@@ -1356,6 +1574,28 @@ function failed(
       correlationId: null,
     },
   };
+}
+
+function completedRecoverableFailure(message: string): WorkerToolResult {
+  return {
+    kind: "completed",
+    output: JsonRecordSchema.parse({
+      [RECOVERABLE_TOOL_FAILURE_KEY]: {
+        message,
+      },
+    }),
+  };
+}
+
+function readRecoverableToolFailure(
+  value: ToolResult["output"],
+): { message: string } | null {
+  const candidate = value[RECOVERABLE_TOOL_FAILURE_KEY];
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+  const message = readString((candidate as Record<string, unknown>).message);
+  return message ? { message } : null;
 }
 
 function normalizeModelId(value: string | undefined): string {

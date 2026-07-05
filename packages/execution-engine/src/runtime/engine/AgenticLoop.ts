@@ -7,10 +7,7 @@
 
 import type { CoreMessage, CoreTool } from "ai";
 import type { ProviderModelTransport } from "@repo/shared-types";
-import {
-  safeParseToolActivityMetadata,
-  type ToolActivityMetadata,
-} from "@repo/shared-types";
+import { safeParseToolActivityMetadata, type ToolActivityMetadata } from "@repo/shared-types";
 import {
   BudgetExceededError,
   SessionBudgetExceededError,
@@ -34,10 +31,7 @@ import type {
   AgenticLoopToolLifecycleEvent,
   TaskResult,
 } from "../types.js";
-import {
-  GitToolFailureClassifier,
-  shouldClassifyAsGitOrShellFailure,
-} from "./GitToolFailureClassifier.js";
+import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildCorrectionHintText,
   buildInvalidToolInputError,
@@ -140,8 +134,6 @@ export class AgenticLoopCancelledError extends Error {
     this.name = "AgenticLoopCancelledError";
   }
 }
-
-const gitToolFailureClassifier = new GitToolFailureClassifier();
 
 /**
  * AgenticLoop executes a bounded loop of LLM calls and tool execution
@@ -907,22 +899,6 @@ function stableSerialize(value: unknown): string {
   }
 
   return JSON.stringify(value);
-}
-
-function isTerminalToolFailure(input: {
-  toolName: string;
-  error: string;
-  metadata?: ToolActivityMetadata;
-}): boolean {
-  if (shouldClassifyAsGitOrShellFailure(input)) {
-    return gitToolFailureClassifier.classify({
-      toolName: input.toolName,
-      message: input.error,
-      metadata: input.metadata,
-    }).terminal;
-  }
-
-  return isMutatingCodingToolId(input.toolName);
 }
 
 function buildStructuredToolFailureError(input: {
