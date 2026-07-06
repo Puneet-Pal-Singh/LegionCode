@@ -135,7 +135,7 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
 
   releaseLiveStream();
   await expect(page.getByTestId("terminal")).toHaveText(
-    "completed:Turn completed.",
+    "completed:Completed.",
   );
   await assertDiffParity(page);
   const firstTerminal = await page.getByTestId("terminal").textContent();

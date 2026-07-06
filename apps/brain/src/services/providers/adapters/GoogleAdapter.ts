@@ -63,6 +63,7 @@ export class GoogleAdapter implements ProviderAdapter {
         usage: this.standardizeUsage(result.usage, model),
         finishReason: result.finishReason,
         toolCalls: result.toolCalls?.map((toolCall) => ({
+          toolCallId: readToolCallId(toolCall),
           toolName: toolCall.toolName,
           args: toolCall.args,
         })),
@@ -163,6 +164,7 @@ export class GoogleAdapter implements ProviderAdapter {
           yieldedChunk: {
             type: "tool-call",
             toolCall: {
+              toolCallId: readToolCallId(chunk),
               toolName: chunk.toolName ?? "",
               args: chunk.args,
             },
@@ -216,6 +218,7 @@ export class GoogleAdapter implements ProviderAdapter {
       usage: finalUsage,
       finishReason: existingFinishReason ?? finalFinishReason,
       toolCalls: finalToolCalls?.map((tc) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       })),
@@ -483,4 +486,18 @@ function getFetchUrl(input: Parameters<typeof fetch>[0]): string {
   }
 
   return input.url;
+}
+
+function readToolCallId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as { toolCallId?: unknown; id?: unknown };
+  if (typeof record.toolCallId === "string" && record.toolCallId.trim()) {
+    return record.toolCallId.trim();
+  }
+  if (typeof record.id === "string" && record.id.trim()) {
+    return record.id.trim();
+  }
+  return undefined;
 }

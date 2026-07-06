@@ -52,10 +52,62 @@ function deriveToolPresentation(
 
   const presenter = TOOL_PRESENTERS[toolName];
   if (presenter) {
-    return presenter(input);
+    try {
+      return presenter(input);
+    } catch {
+      return deriveFallbackToolPresentation(toolName, input);
+    }
   }
 
   return presentDefaultTool(toolName);
+}
+
+function deriveFallbackToolPresentation(
+  toolName: ToolPresentationToolName,
+  input: Record<string, unknown> | undefined,
+): ToolPresentation {
+  const path =
+    readString(input?.path) ??
+    readString(input?.filePath) ??
+    readString(input?.file) ??
+    readString(input?.filename);
+
+  switch (toolName) {
+    case "read_file":
+      return {
+        description: path ? `Read ${path}` : "Read file",
+        displayText: path ? `Reading ${path}` : "Reading file",
+        summary: path
+          ? `Reading file contents from ${path}.`
+          : "Reading file contents from the workspace.",
+      };
+    case "list_files":
+      return {
+        description:
+          path && path !== "." ? `List ${path}` : "List project files",
+        displayText:
+          path && path !== "." ? `Listing ${path}` : "Listing project files",
+        summary:
+          path && path !== "."
+            ? `Listing files in ${path}.`
+            : "Listing files in the current workspace.",
+      };
+    case "glob":
+      return {
+        description: "Find files",
+        displayText: "Finding files",
+        summary: "Finding matching files in the workspace.",
+      };
+    case "grep":
+    case "search_code":
+      return {
+        description: "Search project",
+        displayText: "Searching project",
+        summary: "Searching the workspace for matching content.",
+      };
+    default:
+      return presentDefaultTool(toolName);
+  }
 }
 
 const TOOL_PRESENTERS: Record<

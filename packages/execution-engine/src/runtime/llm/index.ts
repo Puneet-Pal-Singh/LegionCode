@@ -22,3 +22,8 @@ export type {
   ProviderExecutionLaneSupport,
   ProviderCapabilityResolver,
 } from "./types.js";
+export {
+  getVisibleModelText,
+  normalizeModelOutputParts,
+} from "./ModelOutputParts.js";
+export type { NormalizedModelPart } from "./ModelOutputParts.js";

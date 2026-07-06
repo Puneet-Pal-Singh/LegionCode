@@ -207,6 +207,7 @@ describe("ActivityFeedViewModel", () => {
     ]);
   });
 
+
   it("turns generic execution progress into a compact thinking row and suppresses generic synthesis rows", () => {
     const snapshot = createFeedSnapshot();
     const viewModel = buildActivityFeedViewModel({

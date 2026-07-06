@@ -16,6 +16,7 @@ import type {
   ProviderCapabilityFlags,
   ProviderCapabilityResolver,
 } from "./types.js";
+import { normalizeModelOutputParts } from "./ModelOutputParts.js";
 
 const TOKEN_CHAR_RATIO = 4;
 // Conservative cross-provider placeholder for image/file parts when exact
@@ -189,7 +190,8 @@ export class LLMGateway implements ILLMGateway {
     await this.persistCostEvent(requestWithIdempotency, usage);
 
     const toolCalls = result.toolCalls?.map((toolCall) => ({
-      id: crypto.randomUUID(),
+      id:
+        normalizeProviderToolCallId(toolCall.toolCallId) ?? crypto.randomUUID(),
       toolName: toolCall.toolName,
       args: normalizeToolArgs(toolCall.args),
     }));
@@ -209,6 +211,12 @@ export class LLMGateway implements ILLMGateway {
 
     return {
       text: result.text,
+      parts: normalizeModelOutputParts({
+        text: result.text,
+        toolCalls,
+        usage,
+        finishReason: result.finishReason,
+      }),
       usage,
       finishReason: result.finishReason,
       toolCalls,
@@ -701,6 +709,13 @@ export class LLMGateway implements ILLMGateway {
         return STANDARD_TASK_TEXT_TIMEOUT_MS;
     }
   }
+}
+
+function normalizeProviderToolCallId(
+  value: string | undefined,
+): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
 function summarizeCoreMessageRoles(messages: readonly CoreMessage[]): string {

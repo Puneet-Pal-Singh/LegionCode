@@ -38,6 +38,10 @@ import type {
   RunStatus,
   WorkflowStep,
 } from "@shadowbox/orchestrator-core";
+import type {
+  EvidenceRecord,
+  FinalizationContract,
+} from "./engine/EvidenceLedger.js";
 
 export type RunPhase = WorkflowStep;
 
@@ -284,6 +288,8 @@ export interface RunMetadata {
   startedAt?: string;
   terminalState?: RunTerminalState;
   terminalMessage?: Record<string, unknown>;
+  evidenceLedger?: EvidenceRecord[];
+  finalizationContract?: FinalizationContract;
 }
 
 export interface RunOrchestrationTelemetry {

@@ -121,6 +121,60 @@ describe("ExecutionService", () => {
     });
   });
 
+  it("retries secure session creation while the local shadowbox-api worker is still registering", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          { status: 503, headers: { "Content-Type": "text/plain" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-retry",
+            token: "tok-retry",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-retry",
+            status: "success",
+            output: "file contents",
+            metrics: { duration: 7 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+      } as unknown as Env,
+      "session-retry",
+      "run-retry",
+    );
+
+    const result = await service.execute("filesystem", "read_file", {
+      path: "README.md",
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      output: "file contents",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("maps task failures back into the legacy execution shape", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi.fn<
@@ -648,8 +702,9 @@ describe("ExecutionService", () => {
     ).rejects.toThrow("Missing GitHub OAuth scope");
     expect(fetchMock).toHaveBeenCalledTimes(0);
     expect(errorSpy).toHaveBeenCalledWith(
-      "[execution/tool] runId=run-github-cli-scope sessionId=session-github-cli-scope plugin=github_cli action=actions_job_logs_get status=threw",
-      expect.stringContaining("Missing GitHub OAuth scope"),
+      expect.stringContaining(
+        '[execution/tool/threw] runId=run-github-cli-scope sessionId=session-github-cli-scope plugin=github_cli action=actions_job_logs_get error="Missing GitHub OAuth scope',
+      ),
     );
     errorSpy.mockRestore();
   });
@@ -934,11 +989,12 @@ describe("ExecutionService", () => {
       ReturnType<Env["SECURE_API"]["fetch"]>
     >();
 
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
-        { status: 503, headers: { "Content-Type": "text/plain" } },
-      ),
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          { status: 503, headers: { "Content-Type": "text/plain" } },
+        ),
     );
 
     const service = new ExecutionService(

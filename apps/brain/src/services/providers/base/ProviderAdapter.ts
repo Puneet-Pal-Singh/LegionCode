@@ -23,6 +23,7 @@ export interface GenerationResult {
   usage: LLMUsage;
   finishReason?: string;
   toolCalls?: Array<{
+    toolCallId?: string;
     toolName: string;
     args: unknown;
   }>;
@@ -35,6 +36,7 @@ export interface StreamChunk {
   type: "text" | "tool-call" | "finish";
   content?: string;
   toolCall?: {
+    toolCallId?: string;
     toolName: string;
     args: unknown;
   };

@@ -25,6 +25,8 @@ import { getUserSessionByUserId } from "./AuthService";
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
 const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
+const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
+const LOCAL_DEV_SESSION_RETRY_DELAY_MS = 500;
 
 type SecureExecutionStatus = "success" | "failure" | "timeout" | "cancelled";
 
@@ -532,33 +534,57 @@ export class ExecutionService {
   }
 
   private async createExecutionSession(): Promise<SecureExecutionSession> {
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          runId: this.runId,
-          taskId: createSessionTaskId(this.sessionId),
-          repoPath: EXECUTION_SESSION_REPO_PATH,
-        }),
-      },
-      DEFAULT_EXECUTION_TIMEOUT_MS,
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        (await response.text()) || "Failed to create secure execution session",
+    for (
+      let attempt = 1;
+      attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
+      attempt += 1
+    ) {
+      const response = await fetchWithTimeout(
+        this.env.SECURE_API,
+        `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runId: this.runId,
+            taskId: createSessionTaskId(this.sessionId),
+            repoPath: EXECUTION_SESSION_REPO_PATH,
+          }),
+        },
+        DEFAULT_EXECUTION_TIMEOUT_MS,
       );
+
+      if (response.ok) {
+        const session =
+          await parseJsonResponse<SecureExecutionSessionResponse>(response);
+        return {
+          sessionId: session.sessionId,
+          token: session.token,
+        };
+      }
+
+      const message =
+        (await response.text()) || "Failed to create secure execution session";
+      if (
+        attempt < LOCAL_DEV_SESSION_RETRY_ATTEMPTS &&
+        isLocalDevSessionProxyMiss(message)
+      ) {
+        console.log(
+          formatDiagnosticLogLine("execution/tool", "session-retry", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            attempt,
+            maxAttempts: LOCAL_DEV_SESSION_RETRY_ATTEMPTS,
+          }),
+        );
+        await sleep(LOCAL_DEV_SESSION_RETRY_DELAY_MS);
+        continue;
+      }
+
+      throw new Error(message);
     }
 
-    const session =
-      await parseJsonResponse<SecureExecutionSessionResponse>(response);
-    return {
-      sessionId: session.sessionId,
-      token: session.token,
-    };
+    throw new Error("Failed to create secure execution session");
   }
 
   private async forwardExecutionLogs(input: {
@@ -847,6 +873,13 @@ function isExpectedGitStatusMessage(message: string): boolean {
     /timed out/i.test(message) ||
     /econnrefused/i.test(message) ||
     /upstream connect error/i.test(message) ||
+    /couldn't find a local dev session/i.test(message) ||
+    /entrypoint of service .* to proxy to/i.test(message)
+  );
+}
+
+function isLocalDevSessionProxyMiss(message: string): boolean {
+  return (
     /couldn't find a local dev session/i.test(message) ||
     /entrypoint of service .* to proxy to/i.test(message)
   );

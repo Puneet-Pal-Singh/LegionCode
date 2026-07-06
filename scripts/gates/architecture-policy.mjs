@@ -141,3 +141,85 @@ export const DIRECT_GIT_COMMAND_POLICY = [
     ],
   },
 ];
+
+export const POLICY_INVENTORY_PATH =
+  "scripts/gates/harness-policy-inventory.json";
+
+export const POLICY_INVENTORY_ALLOWED_CATEGORIES = [
+  "approval",
+  "auth-access",
+  "config",
+  "conversation",
+  "execution-preparation",
+  "finalization",
+  "lifecycle",
+  "memory",
+  "metadata",
+  "mode-intent",
+  "permission",
+  "provider",
+  "recovery",
+  "retry",
+  "synthesis",
+  "workspace-bootstrap",
+];
+
+export const POLICY_INVENTORY_ALLOWED_DISPOSITIONS = [
+  "keep-pure-policy",
+  "convert-data-config-policy",
+  "convert-typed-protocol-projector",
+  "delete-from-product-path",
+  "quarantine-temporarily",
+];
+
+export const HARNESS_PRODUCT_PATH_GUARDS = {
+  turnModePolicy: {
+    forbiddenImportPattern:
+      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunTurnModePolicy(?:\.js)?["']/,
+    allowedFiles: [],
+  },
+  promptIntentPolicy: {
+    forbiddenImportPattern:
+      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunCurrentTurnIntent(?:\.js)?["']/,
+    allowedFiles: [
+      "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
+    ],
+  },
+  finalAnswerRegexRepair: {
+    patterns: [
+      {
+        name: "final-answer scaffold literal repair",
+        pattern:
+          /\b(?:User says|Direct Answer|Helpful Details)\b|["'`/]Intent\s*:/,
+      },
+      {
+        name: "leaked internal preface stripping",
+        pattern:
+          /\b(?:LEAKED_INTERNAL_PREFACE_PATTERNS|stripLeakedInternalPreface|stripOrphanPunctuationBeforeInternalPreface|readLeadingSentence|isLeakedInternalPrefaceSentence)\b/,
+      },
+      {
+        name: "assistant self-talk string repair",
+        pattern:
+          /\b(?:sanitizeAssistantVisibleContent|stripInternalSelfTalkPrefix|stripOrphanPunctuationBeforeInternalSelfTalk|readLeadingAssistantSentence|isInternalSelfTalkSentence)\b/,
+      },
+    ],
+    quarantinedFiles: [],
+  },
+  duplicateToolRegistries: {
+    canonicalFiles: [
+      "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
+    ],
+    quarantinedFiles: [
+      {
+        path: "packages/execution-engine/src/tools/ToolRegistry.ts",
+        owner: "runtime-harness-stabilization",
+        reason:
+          "Legacy generic registry predates the runtime capability manifest/tool metadata registry and is not the product authority.",
+        deletionTrigger:
+          "Delete or convert in slice 036.4 when tool execution is behind the canonical registry/gateway boundary.",
+        gate: "scripts/gates/check-architecture-boundaries.mjs",
+      },
+    ],
+    declarationPattern: /\bclass\s+(?:Coding)?ToolRegistry\s*\{/,
+  },
+};

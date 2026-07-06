@@ -5,20 +5,30 @@ import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { Run, RunRepository } from "../run/index.js";
 import type { RunEventRecorder } from "../events/index.js";
-import type { AgenticLoopToolLifecycleEvent, RunStatus } from "../types.js";
+import type { RunStatus } from "../types.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import {
   recordLifecycleStep,
   recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
+import {
+  buildFinalAssistantMessage,
+  buildTerminalFinalMetadata,
+} from "./FinalMessageProjector.js";
+import { createStreamResponse } from "./CompletionResponseWriter.js";
+import { persistSynthesisArtifacts } from "./CompletionSynthesisArtifacts.js";
+import {
+  buildMissingEvidenceFinalText,
+  settleFinalizationContract,
+} from "./TurnSettlementContract.js";
 import {
   transitionRunToCompleted,
   transitionRunToFailed,
   transitionRunToPaused,
 } from "./RunStatusPolicy.js";
-import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
+export { createStreamResponse } from "./CompletionResponseWriter.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
 type RecoveredRunTerminalStatus = Extract<RunStatus, "COMPLETED" | "PAUSED">;
@@ -57,24 +67,6 @@ interface RunAssistantFinalizationParams {
 interface PersistFinalAssistantRunParams extends RunAssistantFinalizationParams {
   terminalState: RunTerminalState;
   terminalStatus: FinalizedRunTerminalStatus;
-}
-
-export function createStreamResponse(content: string): Response {
-  const safeContent = sanitizeUserFacingOutput(content);
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(encoder.encode(safeContent));
-      controller.close();
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-    },
-  });
 }
 
 export async function finalizeRunWithAssistantMessage(
@@ -126,39 +118,51 @@ async function persistFinalAssistantRun(
     );
     return createStreamResponse("");
   }
+  const finalization = settleFinalizationContract({ run, metadata });
+  const terminalState = finalization.contract.settled
+    ? params.terminalState
+    : RUN_TERMINAL_STATES.FAILED_VALIDATION;
+  const terminalStatus = finalization.contract.settled
+    ? params.terminalStatus
+    : "FAILED";
+  const finalText = finalization.contract.settled
+    ? text
+    : buildMissingEvidenceFinalText(finalization.contract);
   const finalMetadata = buildTerminalFinalMetadata({
     run,
-    metadata,
-    terminalState: params.terminalState,
+    metadata: finalization.metadata,
+    terminalState,
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text,
+    text: finalText,
     metadata: finalMetadata,
-    terminalState: params.terminalState,
+    terminalState,
   });
-  const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
+  const redactedText = redactUserFacingOutput(finalMessage.content);
   console.log(
-    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${params.terminalStatus} terminalState=${params.terminalState} textLength=${sanitizedText.length}`,
+    `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${terminalStatus} terminalState=${terminalState} textLength=${redactedText.length}`,
   );
   recordLifecycleStep(run, "SYNTHESIS");
-  transitionFinalAssistantRun(run, params.terminalStatus);
-  recordLifecycleStep(run, "TERMINAL", `status=${params.terminalStatus}`);
+  transitionFinalAssistantRun(run, terminalStatus);
+  recordLifecycleStep(run, "TERMINAL", `status=${terminalStatus}`);
   recordOrchestrationTerminal(run);
   run.output = {
-    content: sanitizedText,
-    finalSummary: sanitizedText,
+    content: redactedText,
+    finalSummary: redactedText,
   };
-  run.metadata.terminalState = params.terminalState;
+  run.metadata.terminalState = terminalState;
   run.metadata.terminalMessage = finalMessage.metadata;
-  if (!(await updateFinalizedRunIfActive(run, deps, params.terminalStatus))) {
+  run.metadata.evidenceLedger = finalization.ledger;
+  run.metadata.finalizationContract = finalization.contract;
+  if (!(await updateFinalizedRunIfActive(run, deps, terminalStatus))) {
     console.log(
-      `[run/completion/finalization-skipped] runId=${run.id} reason=terminal-or-blocked terminalStatus=${params.terminalStatus}`,
+      `[run/completion/finalization-skipped] runId=${run.id} reason=terminal-or-blocked terminalStatus=${terminalStatus}`,
     );
     return createStreamResponse("");
   }
   console.log(
-    `[run/completion/run-persisted] runId=${run.id} status=${run.status} terminalState=${params.terminalState}`,
+    `[run/completion/run-persisted] runId=${run.id} status=${run.status} terminalState=${terminalState}`,
   );
   recordPhaseSelectionSnapshot(run, "synthesis");
   await deps.runEventRecorder.recordRunStatusChanged(
@@ -168,32 +172,32 @@ async function persistFinalAssistantRun(
   );
   await persistSynthesisArtifacts({
     run,
-    sanitizedText,
-    checkpointStatus: params.terminalStatus,
+    finalText: redactedText,
+    checkpointStatus: terminalStatus,
     deps,
   });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
-    sanitizedText,
+    redactedText,
     finalMessage.metadata,
   );
-  if (params.terminalStatus === "COMPLETED") {
+  if (terminalStatus === "COMPLETED") {
     await deps.runEventRecorder.recordRunCompleted(
       getRunDurationMs(run),
       run.metadata.agenticLoop?.toolExecutionCount ?? 0,
     );
   }
-  if (params.terminalStatus === "FAILED") {
+  if (terminalStatus === "FAILED") {
     await deps.runEventRecorder.recordRunFailed(
-      sanitizedText,
+      redactedText,
       getRunDurationMs(run),
     );
   }
   console.log(
-    `[run/completion/finalization-finished] runId=${run.id} status=${run.status} terminalStatus=${params.terminalStatus} terminalState=${params.terminalState}`,
+    `[run/completion/finalization-finished] runId=${run.id} status=${run.status} terminalStatus=${terminalStatus} terminalState=${terminalState}`,
   );
 
-  return createStreamResponse(sanitizedText);
+  return createStreamResponse(redactedText);
 }
 
 export async function completeRunWithRecoveredAssistantMessage(params: {
@@ -234,7 +238,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     metadata: finalMetadata,
     terminalState,
   });
-  const sanitizedText = sanitizeUserFacingOutput(finalMessage.content);
+  const redactedText = redactUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
   transitionRecoveredRun(run, terminalStatus);
   if (plannerError !== undefined) {
@@ -249,8 +253,8 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   );
   recordOrchestrationTerminal(run);
   run.output = {
-    content: sanitizedText,
-    finalSummary: sanitizedText,
+    content: redactedText,
+    finalSummary: redactedText,
   };
   run.metadata.terminalState = terminalState;
   run.metadata.terminalMessage = finalMessage.metadata;
@@ -268,13 +272,13 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   );
   await persistSynthesisArtifacts({
     run,
-    sanitizedText,
+    finalText: redactedText,
     checkpointStatus: terminalStatus,
     deps,
   });
   await deps.runEventRecorder.recordMessageEmitted(
     "assistant",
-    sanitizedText,
+    redactedText,
     finalMessage.metadata,
   );
   if (terminalStatus === "COMPLETED") {
@@ -282,109 +286,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
-  return createStreamResponse(sanitizedText);
-}
-
-function buildFinalAssistantMessage(input: {
-  run: Run;
-  text: string;
-  metadata?: Record<string, unknown>;
-  terminalState: RunTerminalState;
-}) {
-  return new FinalAssistantMessageService().build({
-    runId: input.run.id,
-    sessionId: input.run.sessionId,
-    terminalState: input.terminalState,
-    modelText: input.text,
-    metadata: input.metadata,
-  });
-}
-
-function buildTerminalFinalMetadata(input: {
-  run: Run;
-  metadata?: Record<string, unknown>;
-  terminalState: RunTerminalState;
-}): Record<string, unknown> {
-  const lifecycle = input.run.metadata.agenticLoop?.toolLifecycle ?? [];
-  const changedFileCount =
-    readNonNegativeInteger(input.metadata?.changedFileCount) ??
-    countChangedFiles(lifecycle);
-  const lastSuccessfulStep =
-    readNonEmptyString(input.metadata?.lastSuccessfulStep) ??
-    getLatestToolName(lifecycle, "completed");
-  const failedStep =
-    readNonEmptyString(input.metadata?.failedStep) ??
-    getLatestToolName(lifecycle, "failed");
-  const nextAction =
-    readNonEmptyString(input.metadata?.nextAction) ??
-    readNonEmptyString(input.metadata?.resumeHint) ??
-    resolveDefaultTerminalNextAction(input.terminalState);
-
-  return {
-    ...(input.metadata ?? {}),
-    terminalState: input.terminalState,
-    changedFileCount,
-    artifactId: input.metadata?.artifactId ?? null,
-    lastSuccessfulStep,
-    failedStep,
-    nextAction,
-  };
-}
-
-function countChangedFiles(
-  lifecycle: AgenticLoopToolLifecycleEvent[],
-): number {
-  const filePaths = new Set<string>();
-  for (const event of lifecycle) {
-    if (
-      event.status === "completed" &&
-      event.metadata?.family === "edit" &&
-      event.metadata.filePath
-    ) {
-      filePaths.add(event.metadata.filePath);
-    }
-  }
-  return filePaths.size;
-}
-
-function getLatestToolName(
-  lifecycle: AgenticLoopToolLifecycleEvent[],
-  status: AgenticLoopToolLifecycleEvent["status"],
-): string | null {
-  for (let index = lifecycle.length - 1; index >= 0; index -= 1) {
-    const event = lifecycle[index];
-    if (event?.status === status) {
-      return event.toolName;
-    }
-  }
-  return null;
-}
-
-function resolveDefaultTerminalNextAction(
-  terminalState: RunTerminalState,
-): string {
-  switch (terminalState) {
-    case RUN_TERMINAL_STATES.COMPLETED:
-      return "Send the next task when you want me to continue.";
-    case RUN_TERMINAL_STATES.APPROVAL_REQUIRED:
-      return "Choose an approval action to continue, or deny to stop this path.";
-    case RUN_TERMINAL_STATES.APPROVAL_DENIED:
-      return "Send a revised instruction or approve a safer action to continue.";
-    case RUN_TERMINAL_STATES.INTERRUPTED:
-      return "Resubmit the request when you want me to continue.";
-    default:
-      return "Review the completed work and retry the failed step.";
-  }
-}
-
-function readNonNegativeInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0
-    ? value
-    : null;
-}
-
-function readNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  return createStreamResponse(redactedText);
 }
 
 async function isRunCancelledInStore(
@@ -519,44 +421,6 @@ export function getRunDurationMs(run: Run): number {
     return 0;
   }
   return Math.max(0, Date.now() - startedAtMs);
-}
-
-async function persistSynthesisArtifacts(params: {
-  run: Run;
-  sanitizedText: string;
-  checkpointStatus?: FinalizedRunTerminalStatus;
-  deps: RunCompletionDependencies;
-}): Promise<void> {
-  const { run, sanitizedText, checkpointStatus = "COMPLETED", deps } = params;
-
-  await deps.safeMemoryOperation(() =>
-    deps.memoryCoordinator.extractAndPersist({
-      runId: run.id,
-      sessionId: run.sessionId,
-      source: "synthesis",
-      content: sanitizedText,
-      phase: "synthesis",
-    }),
-  );
-
-  await deps.safeMemoryOperation(() =>
-    deps.persistConversationMessages(
-      run.id,
-      run.sessionId,
-      [{ role: "assistant", content: sanitizedText }],
-      "assistant",
-    ),
-  );
-
-  await deps.safeMemoryOperation(() =>
-    deps.memoryCoordinator.createCheckpoint({
-      runId: run.id,
-      sequence: 1,
-      phase: "synthesis",
-      runStatus: checkpointStatus,
-      taskStatuses: {},
-    }),
-  );
 }
 
 function buildPlannerRecoveryMetadata(error: unknown): string {

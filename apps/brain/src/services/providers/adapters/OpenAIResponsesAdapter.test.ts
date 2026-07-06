@@ -61,6 +61,7 @@ describe("OpenAIResponsesAdapter", () => {
           output: [
             {
               type: "function_call",
+              call_id: "call_readme",
               name: "read_file",
               arguments: '{"path":"README.md"}',
             },
@@ -87,8 +88,79 @@ describe("OpenAIResponsesAdapter", () => {
 
     expect(result.toolCalls).toEqual([
       {
+        toolCallId: "call_readme",
         toolName: "read_file",
         args: { path: "README.md" },
+      },
+    ]);
+  });
+
+  it("preserves structured assistant/tool history when building responses input", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output_text: "Done",
+          status: "completed",
+          usage: {
+            input_tokens: 5,
+            output_tokens: 2,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "oc-test",
+      endpoint: "https://opencode.ai/zen/v1/responses",
+      providerId: "opencode-zen",
+    });
+
+    await adapter.generate({
+      messages: [
+        { role: "user", content: "read the readme" },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call_readme",
+              toolName: "read_file",
+              args: { path: "README.md" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call_readme",
+              toolName: "read_file",
+              result: { content: "hello" },
+            },
+          ],
+        },
+      ],
+      model: "gpt-5.5",
+    });
+
+    const init = fetchSpy.mock.calls[0]?.[1];
+    const body = JSON.parse(String(init?.body)) as {
+      input: Array<Record<string, unknown>>;
+    };
+    expect(body.input).toEqual([
+      { role: "user", content: "read the readme" },
+      {
+        type: "function_call",
+        call_id: "call_readme",
+        name: "read_file",
+        arguments: '{"path":"README.md"}',
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_readme",
+        output: '{"content":"hello"}',
       },
     ]);
   });
