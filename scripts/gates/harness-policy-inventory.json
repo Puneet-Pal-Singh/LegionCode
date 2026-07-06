@@ -268,6 +268,14 @@
       "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
     },
     {
+      "path": "packages/execution-engine/src/runtime/engine/ToolFailureTerminalPolicy.ts",
+      "owner": "runtime-recovery",
+      "category": "recovery",
+      "disposition": "keep-pure-policy",
+      "purpose": "Classify whether a tool failure is terminal or recoverable using tool metadata and git/shell failure classifiers.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
       "path": "packages/execution-engine/src/runtime/engine/RunTerminalStatePolicy.ts",
       "owner": "runtime-lifecycle",
       "category": "lifecycle",
