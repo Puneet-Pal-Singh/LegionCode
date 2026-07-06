@@ -424,7 +424,6 @@ export class RunEngine implements IRunEngine {
           effectiveInput.prompt,
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
-          { force: true },
         );
         console.log(
           `[run/engine/workspace-bootstrap-evaluated] runId=${runId} status=${bootstrapEvaluation.status} blocked=${bootstrapEvaluation.blocked} hasMessage=${Boolean(bootstrapEvaluation.message)} expectedMiss=${bootstrapEvaluation.expectedMiss} mode=${bootstrapEvaluation.mode ?? "none"} clonedDuringBootstrap=${bootstrapEvaluation.clonedDuringBootstrap}`,

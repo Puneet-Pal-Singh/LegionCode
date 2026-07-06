@@ -73,7 +73,7 @@ describe("RuntimeKernel live path boundary", () => {
       'recordRunProgress(\n      RUN_WORKFLOW_STEPS.EXECUTION,\n      "Thinking"',
     );
     expect(source).toContain(
-      "runWithNativeCancellationPolling(\n      executeAgenticLoopTool",
+      "runWithNativeCancellationPolling(\n        executeAgenticLoopTool",
     );
     expect(source).not.toContain("requiresMutation: true,");
   });
