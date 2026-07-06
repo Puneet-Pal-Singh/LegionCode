@@ -70,27 +70,28 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           isResolutionPending={props.approval.isResolutionPending}
           onResolve={props.approval.onResolve}
         />
-      ) : null}
-      <ChatInputBar
-        input={props.input}
-        onChange={props.onInputChange}
-        onSubmit={props.onSubmit}
-        reviewComments={props.reviewComments}
-        onRemoveReviewComment={props.onRemoveReviewComment}
-        reviewCommentError={props.reviewCommentError}
-        onStop={props.onStop}
-        canStop={props.canStop}
-        isLoading={props.isLoading}
-        sessionId={props.sessionId}
-        runId={props.runId}
-        mode={props.mode}
-        onModeChange={props.onModeChange}
-        hasMessages={props.hasMessages}
-        onModelSelect={props.onModelSelect}
-        repoTree={props.repoTree}
-        isLoadingRepoTree={props.isLoadingRepoTree}
-        layout={props.layout}
-      />
+      ) : (
+        <ChatInputBar
+          input={props.input}
+          onChange={props.onInputChange}
+          onSubmit={props.onSubmit}
+          reviewComments={props.reviewComments}
+          onRemoveReviewComment={props.onRemoveReviewComment}
+          reviewCommentError={props.reviewCommentError}
+          onStop={props.onStop}
+          canStop={props.canStop}
+          isLoading={props.isLoading}
+          sessionId={props.sessionId}
+          runId={props.runId}
+          mode={props.mode}
+          onModeChange={props.onModeChange}
+          hasMessages={props.hasMessages}
+          onModelSelect={props.onModelSelect}
+          repoTree={props.repoTree}
+          isLoadingRepoTree={props.isLoadingRepoTree}
+          layout={props.layout}
+        />
+      )}
       <div
         className={
           props.layout === "hero"
