@@ -4,8 +4,6 @@ import type { Message } from "@ai-sdk/react";
 import {
   type ProductMode,
   type RunMode,
-  turnIdFromRunId,
-  turnSeedFromLatestUserMessage,
 } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
@@ -117,8 +115,8 @@ export function ChatInterface({
   >({});
 
   const lifecycleTurnId = useMemo(
-    () => serverTurnId ?? deriveLifecycleTurnId(runId, messages),
-    [messages, runId, serverTurnId],
+    () => serverTurnId ?? null,
+    [serverTurnId],
   );
   const { projection: lifecycleProjection } = useTurnLifecycleProjection(
     lifecycleTurnId,
@@ -435,23 +433,4 @@ export function ChatInterface({
       }
     />
   );
-}
-
-/**
- * @quarantine Migration helper - delete when all callers consume server-provided
- * turnId from the chat response X-Turn-Id header.
- *
- * Deletion trigger: `serverTurnId` is always provided by the chat response
- * before `useTurnLifecycleProjection` subscribes, AND no active product
- * component calls `turnIdFromRunId` or `turnSeedFromLatestUserMessage`.
- */
-function deriveLifecycleTurnId(
-  runId: string,
-  messages: Message[],
-): string | null {
-  try {
-    return turnIdFromRunId(runId, turnSeedFromLatestUserMessage(messages));
-  } catch {
-    return null;
-  }
 }

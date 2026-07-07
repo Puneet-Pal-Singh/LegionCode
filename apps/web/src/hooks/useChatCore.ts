@@ -473,6 +473,7 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      setServerTurnId(null);
       setPendingUserMessage({
         scopeKey: requestScopeKey,
         message: buildPendingUserMessage(submittedMessage),
