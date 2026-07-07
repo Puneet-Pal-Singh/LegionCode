@@ -49,7 +49,6 @@ interface ChatInterfaceProps {
     ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
-    canStop?: boolean;
     isLoading: boolean;
     hasHydrated?: boolean;
     error?: string | null;

@@ -607,7 +607,6 @@ describe("ChatInterface", () => {
           handleSubmit: vi.fn(),
           append: vi.fn(),
           stop: vi.fn(),
-          canStop: true,
           isLoading: true,
           hasHydrated: true,
           error: null,
@@ -830,6 +829,98 @@ describe("ChatInterface", () => {
     const lifecycleCalls = vi.mocked(useTurnLifecycleProjection).mock.calls;
     expect(lifecycleCalls.length).toBeGreaterThan(0);
     expect(lifecycleCalls[0]?.[0]).toBeNull();
+  });
+
+  it("shows active loading when lifecycle projection reports non-terminal active state", () => {
+    mockTurnLifecycleProjection.projection = {
+      turnId: "trn_active_lifecycle_001",
+      lastSequence: 5,
+      terminal: null,
+      activeThinking: true,
+      pendingApproval: null,
+      items: [],
+      turnDiff: null,
+      assistantText: "",
+    } as unknown as LifecycleProjection;
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [{ id: "user-1", role: "user", content: "hi" }],
+          runId: "run-lifecycle-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: "trn_active_lifecycle_001",
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: true,
+        isLoading: true,
+      }),
+    );
+  });
+
+  it("shows terminal state when lifecycle projection is settled, ignoring run-summary RUNNING status", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-lifecycle-terminal",
+        status: "RUNNING",
+        totalTasks: 3,
+        completedTasks: 1,
+        failedTasks: 0,
+      },
+    });
+    mockTurnLifecycleProjection.projection = {
+      turnId: "trn_terminal_lifecycle_001",
+      lastSequence: 12,
+      terminal: { status: "completed" },
+      activeThinking: false,
+      pendingApproval: null,
+      items: [],
+      turnDiff: null,
+      assistantText: "Done!",
+    } as unknown as LifecycleProjection;
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "done" },
+            { id: "assistant-1", role: "assistant", content: "Done!" },
+          ],
+          runId: "run-lifecycle-terminal",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: "trn_terminal_lifecycle_001",
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: false,
+        isLoading: false,
+      }),
+    );
   });
 
   it("replays provider interruption rows from hydrated transcript activity", () => {

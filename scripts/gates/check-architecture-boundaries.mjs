@@ -36,6 +36,7 @@ export async function validateArchitecture(root) {
   await validatePolicyInventory(root, violations);
   await validateHarnessProductPathGuards(root, violations);
   await validateClientSideTurnIdDerivation(root, violations);
+  await validateActiveStateRunSummaryAuthority(root, violations);
   return violations;
 }
 
@@ -320,6 +321,25 @@ async function validateClientSideTurnIdDerivation(root, violations) {
     if (guard.forbiddenImportPattern.test(source)) {
       violations.push(
         `${path}: Web product code must not derive turn identity client-side with turnIdFromRunId or turnSeedFromLatestUserMessage; use canonical server-provided turnId from the X-Turn-Id response header.`,
+      );
+    }
+  }
+}
+
+async function validateActiveStateRunSummaryAuthority(root, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.activeStateRunSummaryAuthority;
+  const webRoot = join(root, "apps", "web", "src");
+  const sourceFiles = await listSourceFiles(webRoot);
+
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || guard.allowedFiles.includes(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.forbiddenImportPattern.test(source)) {
+      violations.push(
+        `${path}: active Web chat components must not import run-summary status helpers for active-turn state; use canonical lifecycle projection for active workflow/thinking/approval/terminal state.`,
       );
     }
   }
