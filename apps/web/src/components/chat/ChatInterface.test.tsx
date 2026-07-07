@@ -802,7 +802,7 @@ describe("ChatInterface", () => {
     expect(lifecycleCalls[0]?.[0]).toBe("trn_serverpreferred0001");
   });
 
-  it("falls back to client derivation for lifecycle projection when serverTurnId is absent", () => {
+  it("does not start lifecycle projection until serverTurnId is provided", () => {
     vi.mocked(useTurnLifecycleProjection).mockClear();
     const messages: Message[] = [
       { id: "user-1", role: "user", content: "anything" },
@@ -830,10 +830,7 @@ describe("ChatInterface", () => {
 
     const lifecycleCalls = vi.mocked(useTurnLifecycleProjection).mock.calls;
     expect(lifecycleCalls.length).toBeGreaterThan(0);
-    const lifecycleTurnId = lifecycleCalls[0]?.[0] as string | null;
-    expect(lifecycleTurnId).not.toBe("trn_serverpreferred0001");
-    expect(typeof lifecycleTurnId).toBe("string");
-    expect(lifecycleTurnId).toMatch(/^trn_/);
+    expect(lifecycleCalls[0]?.[0]).toBeNull();
   });
 
   it("replays provider interruption rows from hydrated transcript activity", () => {
