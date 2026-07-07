@@ -1015,7 +1015,7 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps changed files on the final assistant message after git status becomes clean", async () => {
+  it("does not keep completed-turn changed files when only live git remains", async () => {
     const changedStatus: GitStatusResponse = {
       files: [
         {
@@ -1092,14 +1092,11 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("index.tsx")).toBeInTheDocument();
-      expect(screen.getByText("+5")).toBeInTheDocument();
-      expect(screen.getByText("-1")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
     });
   });
 
-  it("attaches changed files that arrive after the assistant message settles", async () => {
+  it("does not attach completed-turn changed files that arrive only from live git after settlement", async () => {
     const changedStatus: GitStatusResponse = {
       files: [
         {
@@ -1171,14 +1168,11 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("index.tsx")).toBeInTheDocument();
-      expect(screen.getByText("+13")).toBeInTheDocument();
-      expect(screen.getByText("-18")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
     });
   });
 
-  it("prefers grounded activity edit stats over live zero-count git status", async () => {
+  it("does not treat completed activity previews as canonical changed-file review", async () => {
     mockGitReviewState.status = {
       files: [
         {
@@ -1265,25 +1259,14 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("+84")).toBeInTheDocument();
-      expect(screen.getByText("-74")).toBeInTheDocument();
-    });
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /expand changes for src\/components\/landing\/hero\/index\.tsx/i,
-      }),
-    );
-
-    await waitFor(() => {
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
       expect(
-        screen.getByText("+ const heroTitle = 'Career Crew';"),
-      ).toBeInTheDocument();
+        screen.queryByText("+ const heroTitle = 'Career Crew';"),
+      ).not.toBeInTheDocument();
     });
   });
 
-  it("shows only files changed during the current assistant turn", async () => {
+  it("does not infer completed-turn changed files from live git deltas alone", async () => {
     const footerStatus: GitStatusResponse = {
       files: [
         {
@@ -1381,8 +1364,8 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("index.tsx")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("index.tsx")).not.toBeInTheDocument();
       expect(screen.queryByText("Footer.tsx")).not.toBeInTheDocument();
     });
   });
@@ -2610,10 +2593,10 @@ describe("ChatInterface", () => {
       (container.textContent ?? "").indexOf("lets upgrade our footer"),
     );
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("Footer.tsx")).toBeInTheDocument();
-      expect(screen.getByText("+126")).toBeInTheDocument();
-      expect(screen.getByText("-102")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("Footer.tsx")).not.toBeInTheDocument();
+      expect(screen.queryByText("+126")).not.toBeInTheDocument();
+      expect(screen.queryByText("-102")).not.toBeInTheDocument();
     });
   });
 
