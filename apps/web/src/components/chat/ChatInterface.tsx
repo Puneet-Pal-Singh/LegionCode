@@ -211,6 +211,7 @@ export function ChatInterface({
     conversationTurns,
     activityTurns: activityViewModel.turns,
     hasScopedFeed: Boolean(scopedFeed),
+    turnDiff: lifecycleProjection?.turnDiff ?? null,
   });
   useEffect(() => {
     // Reset expansion preferences when the active run changes.

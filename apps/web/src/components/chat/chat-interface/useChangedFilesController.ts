@@ -28,6 +28,8 @@ import {
   logClientEvent,
   logClientWarning,
 } from "../../../lib/client-logger.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 
 interface ChangedFilesControllerInput {
   messages: Message[];
@@ -39,6 +41,7 @@ interface ChangedFilesControllerInput {
   conversationTurns: ReturnType<typeof buildConversationTurns>;
   activityTurns: ActivityTurnViewModel[];
   hasScopedFeed: boolean;
+  turnDiff: TurnDiffPayload | null;
 }
 
 type ArtifactLookupInput = Pick<
@@ -79,6 +82,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     input.sessionId,
     artifacts,
     refs.diffCache,
+    input.turnDiff,
   );
   const loadArtifactChangedFileDiff = useArtifactDiffLoader(refs.diffCache);
   const artifactLookupInput = useMemo<ArtifactLookupInput>(
@@ -156,9 +160,22 @@ function useChangedFileDiffLoader(
   sessionId: string,
   artifacts: Record<string, PromptArtifactReviewSource>,
   diffCache: ChangedFilesRefs["diffCache"],
+  turnDiff: TurnDiffPayload | null,
 ) {
   return useCallback(
     async (messageId: string, file: FileStatus): Promise<DiffContent> => {
+      if (turnDiff) {
+        const diff = buildDiffContentFromTurnDiff(turnDiff, file.path);
+        if (diff) {
+          logClientEvent("artifact/diff", "source-selected", {
+            source: "canonical-turn-diff",
+            messageId,
+            path: file.path,
+          });
+          return diff;
+        }
+      }
+
       const source = artifacts[messageId];
       if (source) {
         logClientEvent("artifact/diff", "source-selected", {
@@ -484,6 +501,24 @@ function useChangedFileSnapshots(
   >,
 ) {
   useEffect(() => {
+    if (!input.isLoading && input.turnDiff && latestAssistantMessageId) {
+      const files = input.turnDiff.files.map(mapTurnDiffFileToStatus);
+      if (files.length === 0) return;
+      logClientEvent("artifact/snapshot", "assigned", {
+        runId: input.runId,
+        assistantMessageId: latestAssistantMessageId,
+        fileCount: files.length,
+        source: "canonical-turn-diff",
+      });
+      setSnapshots((current) => {
+        const next = cloneFileStatuses(files);
+        return areFileStatusListsEqual(current[latestAssistantMessageId], next)
+          ? current
+          : { ...current, [latestAssistantMessageId]: next };
+      });
+      return;
+    }
+
     if (!input.isLoading)
       refs.settled.current = cloneFileStatuses(input.gitFiles);
     if (input.gitFiles.length > 0)
@@ -491,9 +526,18 @@ function useChangedFileSnapshots(
         input.gitFiles,
         refs.baseline.current,
       );
-  }, [input.gitFiles, input.isLoading, refs]);
+  }, [
+    input.gitFiles,
+    input.isLoading,
+    input.runId,
+    input.turnDiff,
+    latestAssistantMessageId,
+    refs,
+    setSnapshots,
+  ]);
   useEffect(() => {
     if (input.isLoading || !latestAssistantMessageId) return;
+    if (input.turnDiff) return;
     const changed =
       refs.pending.current.length > 0
         ? refs.pending.current
@@ -518,10 +562,23 @@ function useChangedFileSnapshots(
     input.gitFiles,
     input.isLoading,
     input.runId,
+    input.turnDiff,
     latestAssistantMessageId,
     refs,
     setSnapshots,
   ]);
+}
+
+function mapTurnDiffFileToStatus(
+  file: TurnDiffPayload["files"][number],
+): FileStatus {
+  return {
+    path: file.path,
+    status: (file.status ?? "modified") as FileStatus["status"],
+    additions: file.additions ?? 0,
+    deletions: file.deletions ?? 0,
+    isStaged: false,
+  };
 }
 
 function findLatestAssistantMessageId(messages: Message[]): string | null {
