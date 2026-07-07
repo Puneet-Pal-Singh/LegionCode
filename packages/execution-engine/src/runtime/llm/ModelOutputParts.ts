@@ -63,6 +63,12 @@ const TOOL_RESULT_TAG_PATTERN =
  * extraction path handles all observed planning scaffold patterns. Retire
  * when no production model emits dense labeled outlines without native XML
  * tag wrapping.
+ *
+ * Risk: If deleted before providers are ready, models that emit untagged
+ * labeled outlines (e.g., "User says:", "Intent:", "Direct Answer:") will
+ * leak planning scaffolds into the visible final transcript. The tagged
+ * extraction path (<analysis>/<thinking>/<internal>) is the primary
+ * boundary; this pattern is a secondary safety net.
  */
 const LABELED_OUTLINE_LINE_PATTERN =
   /^\s*(?:[-*•]\s*)?[A-Z][A-Za-z /-]{1,36}\s*[:.-]\s+\S/;
