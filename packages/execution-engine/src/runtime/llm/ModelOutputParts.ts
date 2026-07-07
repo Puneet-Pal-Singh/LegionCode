@@ -52,6 +52,18 @@ const INTERNAL_TAG_PATTERN =
   /<(analysis|thinking|reasoning|internal)\b[^>]*>([\s\S]*?)<\/\1>/gi;
 const TOOL_RESULT_TAG_PATTERN =
   /<tool_result\b[^>]*>([\s\S]*?)<\/tool_result>/gi;
+/**
+ * @quarantine Hardcoded output-shape classifier. Detects dense labeled
+ * planning outlines (User says, Intent, Context, Direct Answer, etc.) and
+ * classifies them as audit-only reasoning to prevent leakage into visible
+ * final transcript.
+ *
+ * Deletion trigger: When all supported providers reliably use structured
+ * output (XML tags like <thinking>/<analysis>/<internal>) and the tagged
+ * extraction path handles all observed planning scaffold patterns. Retire
+ * when no production model emits dense labeled outlines without native XML
+ * tag wrapping.
+ */
 const LABELED_OUTLINE_LINE_PATTERN =
   /^\s*(?:[-*•]\s*)?[A-Z][A-Za-z /-]{1,36}\s*[:.-]\s+\S/;
 
@@ -174,6 +186,9 @@ function findTaggedMatches(
   }));
 }
 
+/**
+ * @quarantine Deletion trigger: same as LABELED_OUTLINE_LINE_PATTERN above.
+ */
 function looksLikePlanningOutline(text: string): boolean {
   const lines = text
     .split("\n")
