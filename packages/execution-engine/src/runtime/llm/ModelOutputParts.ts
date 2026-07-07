@@ -52,26 +52,6 @@ const INTERNAL_TAG_PATTERN =
   /<(analysis|thinking|reasoning|internal)\b[^>]*>([\s\S]*?)<\/\1>/gi;
 const TOOL_RESULT_TAG_PATTERN =
   /<tool_result\b[^>]*>([\s\S]*?)<\/tool_result>/gi;
-/**
- * @quarantine Hardcoded output-shape classifier. Detects dense labeled
- * planning outlines (User says, Intent, Context, Direct Answer, etc.) and
- * classifies them as audit-only reasoning to prevent leakage into visible
- * final transcript.
- *
- * Deletion trigger: When all supported providers reliably use structured
- * output (XML tags like <thinking>/<analysis>/<internal>) and the tagged
- * extraction path handles all observed planning scaffold patterns. Retire
- * when no production model emits dense labeled outlines without native XML
- * tag wrapping.
- *
- * Risk: If deleted before providers are ready, models that emit untagged
- * labeled outlines (e.g., "User says:", "Intent:", "Direct Answer:") will
- * leak planning scaffolds into the visible final transcript. The tagged
- * extraction path (<analysis>/<thinking>/<internal>) is the primary
- * boundary; this pattern is a secondary safety net.
- */
-const LABELED_OUTLINE_LINE_PATTERN =
-  /^\s*(?:[-*•]\s*)?[A-Z][A-Za-z /-]{1,36}\s*[:.-]\s+\S/;
 
 export function normalizeModelOutputParts(
   input: NormalizeModelOutputPartsInput,
@@ -120,17 +100,6 @@ function normalizeTextParts(text: string): NormalizedModelPart[] {
   const taggedParts = extractTaggedParts(normalized);
   if (taggedParts.length > 0) {
     return taggedParts;
-  }
-
-  if (looksLikePlanningOutline(normalized)) {
-    return [
-      {
-        type: "reasoning",
-        text: normalized,
-        visibility: "audit_only",
-        reason: "dense_labeled_outline",
-      },
-    ];
   }
 
   return [{ type: "visible_text", text: collapseExcessBlankLines(normalized) }];
@@ -190,24 +159,6 @@ function findTaggedMatches(
     text: match[2] ?? match[1] ?? "",
     kind,
   }));
-}
-
-/**
- * @quarantine Deletion trigger: same as LABELED_OUTLINE_LINE_PATTERN above.
- */
-function looksLikePlanningOutline(text: string): boolean {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length < 3) {
-    return false;
-  }
-
-  const labeledLineCount = lines.filter((line) =>
-    LABELED_OUTLINE_LINE_PATTERN.test(line),
-  ).length;
-  return labeledLineCount >= 3 && labeledLineCount >= Math.ceil(lines.length / 2);
 }
 
 function collapseExcessBlankLines(text: string): string {

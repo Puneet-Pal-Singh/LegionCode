@@ -203,17 +203,7 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
           /\b(?:sanitizeAssistantVisibleContent|stripInternalSelfTalkPrefix|stripOrphanPunctuationBeforeInternalSelfTalk|readLeadingAssistantSentence|isInternalSelfTalkSentence)\b/,
       },
     ],
-    quarantinedFiles: [
-      {
-        path: "packages/execution-engine/src/runtime/llm/ModelOutputParts.ts",
-        owner: "runtime-harness-stabilization",
-        reason:
-          "Contains LABELED_OUTLINE_LINE_PATTERN and looksLikePlanningOutline — a hardcoded output-shape classifier quarantined with deletion trigger until all providers emit structured XML tags (<thinking>/<analysis>/<internal>) for planning scaffolds.",
-        deletionTrigger:
-          "Delete when no production model emits dense labeled outlines (User says/Intent/Direct Answer) without native XML tag wrapping.",
-        gate: "scripts/gates/check-architecture-boundaries.mjs",
-      },
-    ],
+    quarantinedFiles: [],
   },
   duplicateToolRegistries: {
     canonicalFiles: [

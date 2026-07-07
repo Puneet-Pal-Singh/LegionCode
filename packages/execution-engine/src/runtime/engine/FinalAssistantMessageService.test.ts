@@ -91,33 +91,31 @@ describe("FinalAssistantMessageService", () => {
     );
   });
 
-  it("rejects dense labeled planning outlines instead of extracting direct-answer lines", () => {
-    expect(
-      normalizeFinalAssistantText(
-        [
-          "• User wants me to read their README file and give an opinion on the project.",
-          "• Constraint: I cannot claim to have analyzed files unless I actually have the tools/access to do so.",
-          "• Direct answer: I'd love to take a look, but I haven't read your README yet!",
-          "• Helpful details: Tell them I can access the files if they give me the go-ahead.",
-          "• Draft 1 (Too robotic): I cannot read your readme because you have not provided it.",
-        ].join("\n"),
-      ),
-    ).toBe("");
+  it("passes untagged labeled text through as visible final text", () => {
+    const text = [
+      "• User wants me to read their README file and give an opinion on the project.",
+      "• Constraint: I cannot claim to have analyzed files unless I actually have the tools/access to do so.",
+      "• Direct answer: I'd love to take a look, but I haven't read your README yet!",
+      "• Helpful details: Tell them I can access the files if they give me the go-ahead.",
+      "• Draft 1 (Too robotic): I cannot read your readme because you have not provided it.",
+    ].join("\n");
+    const result = normalizeFinalAssistantText(text);
+    expect(result).toContain("Direct answer");
+    expect(result).toContain("Helpful details");
   });
 
-  it("rejects screenshot-style review planning leaks as non-visible model parts", () => {
-    expect(
-      normalizeFinalAssistantText(
-        [
-          '• User says: "hey, check my hero and comment"',
-          '  • Context: The user is asking for feedback on a "hero" section.',
-          "  • Current state: I don't have any files, links, or images to check.",
-          "• Direct answer: I'd love to, but you haven't shared it with me yet!",
-          "  • Helpful details: Tell the user how to share it.",
-          "  • Tone: Friendly and conversational.",
-        ].join("\n"),
-      ),
-    ).toBe("");
+  it("passes untagged screenshot-style review text through as visible final text", () => {
+    const text = [
+      '• User says: "hey, check my hero and comment"',
+      '  • Context: The user is asking for feedback on a "hero" section.',
+      "  • Current state: I don't have any files, links, or images to check.",
+      "• Direct answer: I'd love to, but you haven't shared it with me yet!",
+      "  • Helpful details: Tell the user how to share it.",
+      "  • Tone: Friendly and conversational.",
+    ].join("\n");
+    const result = normalizeFinalAssistantText(text);
+    expect(result).toContain("check my hero");
+    expect(result).toContain("Direct answer");
   });
 
   it("drops typed pure leaked tool-planning text instead of exposing it", () => {
