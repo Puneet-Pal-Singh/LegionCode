@@ -12,6 +12,8 @@ import {
 import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
+  createRunAttemptId,
+  createThreadId,
   createTurnId,
   EventSequenceSchema,
   type LifecycleEvent,
@@ -115,6 +117,10 @@ export class RunEngineRequestHandler {
     new CloudflareLifecycleEventStreamAdapter();
 
   private readonly turnToRunMap = new Map<string, string>();
+  private turnToRunMapLoaded = false;
+
+  private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
+  private static readonly MAX_TURN_MAP_AGE_MS = 24 * 60 * 60 * 1000;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -552,6 +558,8 @@ export class RunEngineRequestHandler {
       );
     }
 
+    await this.ensureTurnToRunMapLoaded();
+
     const runId = this.turnToRunMap.get(payload.turnId);
     if (!runId) {
       return runEngineErrorResponse(
@@ -654,7 +662,9 @@ export class RunEngineRequestHandler {
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
         const turnId = createTurnId();
-        this.turnToRunMap.set(turnId, payload.runId);
+        const runAttemptId = createRunAttemptId();
+        const threadId = this.resolveThreadId();
+        this.mapTurnToRun(turnId, payload.runId);
         this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
@@ -723,6 +733,8 @@ export class RunEngineRequestHandler {
           tools: runtimeTools,
           lifecycleEvents: kernelLifecycleEvents,
           turnId,
+          runAttemptId,
+          threadId,
         });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
@@ -764,7 +776,9 @@ export class RunEngineRequestHandler {
         );
 
         return withRunEngineHeaders(request, this.env, executionResponse, {
+          "X-Thread-Id": threadId,
           "X-Turn-Id": turnId,
+          "X-Run-Attempt-Id": runAttemptId,
         });
       });
     } catch (error: unknown) {
@@ -902,6 +916,68 @@ export class RunEngineRequestHandler {
       this.dependencies.lifecycleEventStream ??
       this.fallbackLifecycleEventStream
     );
+  }
+
+  private async ensureTurnToRunMapLoaded(): Promise<void> {
+    if (this.turnToRunMapLoaded) {
+      this.pruneStaleTurnMappings();
+      return;
+    }
+
+    try {
+      const raw = await this.ctx.storage.get<Record<string, string>>(
+        RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+      );
+      if (raw && typeof raw === "object") {
+        for (const [turnId, runId] of Object.entries(raw)) {
+          this.turnToRunMap.set(turnId, runId);
+        }
+      }
+    } catch {
+      // storage unavailable; in-memory map is sufficient for this DO lifetime
+    }
+
+    this.turnToRunMapLoaded = true;
+  }
+
+  private async persistTurnToRunMap(): Promise<void> {
+    const entries: Record<string, string> = {};
+    for (const [turnId, runId] of this.turnToRunMap) {
+      entries[turnId] = runId;
+    }
+    try {
+      await this.ctx.storage.put(
+        RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+        entries,
+      );
+    } catch {
+      // storage unavailable; skip persistence
+    }
+  }
+
+  private mapTurnToRun(turnId: string, runId: string): void {
+    this.turnToRunMap.set(turnId, runId);
+    void this.persistTurnToRunMap();
+  }
+
+  private pruneStaleTurnMappings(): void {
+    const maxCount = 10_000;
+    if (this.turnToRunMap.size <= maxCount) {
+      return;
+    }
+    const keys = [...this.turnToRunMap.keys()];
+    const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
+    for (const key of toDelete) {
+      this.turnToRunMap.delete(key);
+    }
+  }
+
+  private resolveThreadId(): string {
+    try {
+      return createThreadId();
+    } catch {
+      return createTurnId().replace(/^trn_/, "thr_");
+    }
   }
 
   private buildEventsResponse(events: unknown[], runId: string): Response {
