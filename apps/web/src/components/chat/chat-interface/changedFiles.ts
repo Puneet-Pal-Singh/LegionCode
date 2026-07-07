@@ -88,6 +88,21 @@ export function buildArtifactChangedFileDiffCacheKey(
   return `artifact:${artifactId}:${file.path}`;
 }
 
+export function shouldRenderLiveChangedFileSnapshots(input: {
+  isLoading: boolean;
+  turnDiff: TurnDiffPayload | null;
+}): boolean {
+  return input.isLoading && !input.turnDiff;
+}
+
+export function shouldAllowFallbackChangedFileDiff(input: {
+  isLoading: boolean;
+  turnDiff: TurnDiffPayload | null;
+  hasArtifact: boolean;
+}): boolean {
+  return input.isLoading && !input.turnDiff && !input.hasArtifact;
+}
+
 export function resolveTerminalChangedFilesSummary(input: {
   terminalViewModel: LifecycleTerminalViewModel;
   files: FileStatus[];

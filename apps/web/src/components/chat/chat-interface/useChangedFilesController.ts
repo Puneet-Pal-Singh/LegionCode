@@ -20,8 +20,9 @@ import {
   buildChangedFileDiffCacheKey,
   buildDiffFromActivityPreview,
   cloneFileStatuses,
-  collectChangedFilesSinceBaseline,
   mergeChangedFileSnapshots,
+  shouldAllowFallbackChangedFileDiff,
+  shouldRenderLiveChangedFileSnapshots,
 } from "./changedFiles";
 import { deriveActivityChangedFilesByAssistantMessageId } from "./chatEntries";
 import {
@@ -70,8 +71,14 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     [input.activityTurns, input.conversationTurns, input.hasScopedFeed],
   );
   const mergedSnapshots = useMemo(
-    () => mergeChangedFileSnapshots(snapshots, activitySnapshots),
-    [activitySnapshots, snapshots],
+    () =>
+      shouldRenderLiveChangedFileSnapshots({
+        isLoading: input.isLoading,
+        turnDiff: input.turnDiff,
+      })
+        ? mergeChangedFileSnapshots(snapshots, activitySnapshots)
+        : snapshots,
+    [activitySnapshots, input.isLoading, input.turnDiff, snapshots],
   );
   const latestAssistantMessageId = useMemo(
     () => findLatestAssistantMessageId(input.messages),
@@ -83,6 +90,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     artifacts,
     refs.diffCache,
     input.turnDiff,
+    input.isLoading,
   );
   const loadArtifactChangedFileDiff = useArtifactDiffLoader(refs.diffCache);
   const artifactLookupInput = useMemo<ArtifactLookupInput>(
@@ -104,13 +112,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     [refs],
   );
 
-  useResetChangedFiles(
-    input.runId,
-    input.isLoading,
-    refs,
-    setSnapshots,
-    setArtifacts,
-  );
+  useResetChangedFiles(input.runId, refs, setSnapshots, setArtifacts);
   useArtifactSources(
     artifactLookupInput,
     artifacts,
@@ -119,7 +121,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     setArtifacts,
     setArtifactRetryVersion,
   );
-  useChangedFileSnapshots(input, latestAssistantMessageId, refs, setSnapshots);
+  useChangedFileSnapshots(input, latestAssistantMessageId, setSnapshots);
 
   return {
     snapshots: mergedSnapshots,
@@ -129,21 +131,13 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
   };
 }
 
-function useChangedFilesRefs(isLoading: boolean) {
-  const pending = useRef<FileStatus[]>([]);
-  const baseline = useRef<FileStatus[]>([]);
-  const settled = useRef<FileStatus[]>([]);
-  const previousLoading = useRef(isLoading);
+function useChangedFilesRefs(_isLoading: boolean) {
   const diffCache = useRef<Record<string, DiffContent>>({});
   const inflightArtifacts = useRef<Set<string>>(new Set());
   const artifactAttempts = useRef<Map<string, number>>(new Map());
   const artifactRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   return useMemo(
     () => ({
-      pending,
-      baseline,
-      settled,
-      previousLoading,
       diffCache,
       inflightArtifacts,
       artifactAttempts,
@@ -161,6 +155,7 @@ function useChangedFileDiffLoader(
   artifacts: Record<string, PromptArtifactReviewSource>,
   diffCache: ChangedFilesRefs["diffCache"],
   turnDiff: TurnDiffPayload | null,
+  isLoading: boolean,
 ) {
   return useCallback(
     async (messageId: string, file: FileStatus): Promise<DiffContent> => {
@@ -186,6 +181,19 @@ function useChangedFileDiffLoader(
         });
         return loadCachedArtifactDiff(source.artifactId, file, diffCache);
       }
+
+      if (
+        !shouldAllowFallbackChangedFileDiff({
+          isLoading,
+          turnDiff,
+          hasArtifact: Boolean(source),
+        })
+      ) {
+        throw new Error(
+          `Completed-turn diff for ${file.path} requires canonical turn diff or a saved artifact.`,
+        );
+      }
+
       const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
       const cached = diffCache.current[cacheKey];
       if (cached) {
@@ -220,7 +228,7 @@ function useChangedFileDiffLoader(
       diffCache.current[cacheKey] = diff;
       return diff;
     },
-    [artifacts, diffCache, runId, sessionId],
+    [artifacts, diffCache, isLoading, runId, sessionId, turnDiff],
   );
 }
 
@@ -262,7 +270,6 @@ async function loadCachedArtifactDiff(
 
 function useResetChangedFiles(
   runId: string,
-  isLoading: boolean,
   refs: ChangedFilesRefs,
   setSnapshots: React.Dispatch<
     React.SetStateAction<Record<string, FileStatus[]>>
@@ -272,9 +279,6 @@ function useResetChangedFiles(
   >,
 ) {
   useEffect(() => {
-    refs.pending.current = [];
-    refs.baseline.current = [];
-    refs.settled.current = [];
     refs.diffCache.current = {};
     refs.inflightArtifacts.current = new Set();
     refs.artifactAttempts.current = new Map();
@@ -282,19 +286,10 @@ function useResetChangedFiles(
       clearTimeout(refs.artifactRetryTimer.current);
       refs.artifactRetryTimer.current = null;
     }
-    refs.previousLoading.current = false;
     setSnapshots({});
     setArtifacts({});
     logClientEvent("artifact/state", "scope-reset", { runId });
   }, [refs, runId, setArtifacts, setSnapshots]);
-  useEffect(() => {
-    if (!refs.previousLoading.current && isLoading) {
-      refs.baseline.current = cloneFileStatuses(refs.settled.current);
-      refs.pending.current = [];
-      refs.diffCache.current = {};
-    }
-    refs.previousLoading.current = isLoading;
-  }, [isLoading, refs]);
 }
 
 function useArtifactSources(
@@ -495,7 +490,6 @@ function collectArtifactResult(
 function useChangedFileSnapshots(
   input: ChangedFilesControllerInput,
   latestAssistantMessageId: string | null,
-  refs: ChangedFilesRefs,
   setSnapshots: React.Dispatch<
     React.SetStateAction<Record<string, FileStatus[]>>
   >,
@@ -518,53 +512,11 @@ function useChangedFileSnapshots(
       });
       return;
     }
-
-    if (!input.isLoading)
-      refs.settled.current = cloneFileStatuses(input.gitFiles);
-    if (input.gitFiles.length > 0)
-      refs.pending.current = collectChangedFilesSinceBaseline(
-        input.gitFiles,
-        refs.baseline.current,
-      );
   }, [
-    input.gitFiles,
     input.isLoading,
     input.runId,
     input.turnDiff,
     latestAssistantMessageId,
-    refs,
-    setSnapshots,
-  ]);
-  useEffect(() => {
-    if (input.isLoading || !latestAssistantMessageId) return;
-    if (input.turnDiff) return;
-    const changed =
-      refs.pending.current.length > 0
-        ? refs.pending.current
-        : collectChangedFilesSinceBaseline(
-            input.gitFiles,
-            refs.baseline.current,
-          );
-    if (changed.length === 0) return;
-    logClientEvent("artifact/snapshot", "assigned", {
-      runId: input.runId,
-      assistantMessageId: latestAssistantMessageId,
-      fileCount: changed.length,
-      source: refs.pending.current.length > 0 ? "pending-git" : "live-git",
-    });
-    setSnapshots((current) => {
-      const next = cloneFileStatuses(changed);
-      return areFileStatusListsEqual(current[latestAssistantMessageId], next)
-        ? current
-        : { ...current, [latestAssistantMessageId]: next };
-    });
-  }, [
-    input.gitFiles,
-    input.isLoading,
-    input.runId,
-    input.turnDiff,
-    latestAssistantMessageId,
-    refs,
     setSnapshots,
   ]);
 }
