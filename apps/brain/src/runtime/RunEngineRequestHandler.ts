@@ -12,6 +12,7 @@ import {
 import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
+  createTurnId,
   EventSequenceSchema,
   type LifecycleEvent,
   RunIdSchema,
@@ -53,11 +54,6 @@ import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
-import {
-  runIdFromTurnId,
-  turnIdFromRunId,
-  turnSeedFromLatestUserMessage,
-} from "./LifecycleTurnRouting";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
 import type { LifecycleEventStreamPort } from "./ports";
 import {
@@ -117,6 +113,8 @@ export interface RunEngineRequestHandlerDependencies {
 export class RunEngineRequestHandler {
   private readonly fallbackLifecycleEventStream =
     new CloudflareLifecycleEventStreamAdapter();
+
+  private readonly turnToRunMap = new Map<string, string>();
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -554,7 +552,15 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const runId = runIdFromTurnId(payload.turnId);
+    const runId = this.turnToRunMap.get(payload.turnId);
+    if (!runId) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Run not found for turnId",
+        404,
+      );
+    }
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
     const run = await runRepo.getById(runId);
@@ -647,8 +653,8 @@ export class RunEngineRequestHandler {
       );
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
-        const turnSeed = turnSeedFromLatestUserMessage(payload.messages);
-        const turnId = turnIdFromRunId(payload.runId, turnSeed);
+        const turnId = createTurnId();
+        this.turnToRunMap.set(turnId, payload.runId);
         this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
