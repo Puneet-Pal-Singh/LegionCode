@@ -35,6 +35,7 @@ export async function validateArchitecture(root) {
   await validateDirectGitCommands(root, violations);
   await validatePolicyInventory(root, violations);
   await validateHarnessProductPathGuards(root, violations);
+  await validateClientSideTurnIdDerivation(root, violations);
   return violations;
 }
 
@@ -300,6 +301,25 @@ async function validateDuplicateToolRegistries(root, sourceFiles, violations) {
     if (guard.declarationPattern.test(source)) {
       violations.push(
         `${path}: duplicate tool registries are forbidden; tool visibility must flow through the canonical runtime registry/capability manifest.`,
+      );
+    }
+  }
+}
+
+async function validateClientSideTurnIdDerivation(root, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.clientSideTurnIdDerivation;
+  const webRoot = join(root, "apps", "web", "src");
+  const sourceFiles = await listSourceFiles(webRoot);
+
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || guard.allowedFiles.includes(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.forbiddenImportPattern.test(source)) {
+      violations.push(
+        `${path}: Web product code must not derive turn identity client-side with turnIdFromRunId or turnSeedFromLatestUserMessage; use canonical server-provided turnId from the X-Turn-Id response header.`,
       );
     }
   }

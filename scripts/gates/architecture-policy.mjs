@@ -222,4 +222,17 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
     ],
     declarationPattern: /\bclass\s+(?:Coding)?ToolRegistry\s*\{/,
   },
+  clientSideTurnIdDerivation: {
+    // The companion validator (validateClientSideTurnIdDerivation in
+    // check-architecture-boundaries.mjs) only scans apps/web/src, so
+    // allowedFiles is intentionally restricted to the single quarantined
+    // product file that still derives turnId as a migration bridge. Packages
+    // declaring turnIdFromRunId/turnSeedFromLatestUserMessage are not in the
+    // scan tree and must not be listed here.
+    forbiddenImportPattern:
+      /\b(?:turnIdFromRunId|turnSeedFromLatestUserMessage)\b/,
+    allowedFiles: ["apps/web/src/components/chat/ChatInterface.tsx"],
+    description:
+      "Web product code must not derive turn identity client-side; use canonical server-provided turnId from the X-Turn-Id response header.",
+  },
 };
