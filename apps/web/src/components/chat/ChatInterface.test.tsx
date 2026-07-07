@@ -181,6 +181,7 @@ vi.mock("../../lib/run-summary-events.js", () => ({
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
+import { useTurnLifecycleProjection } from "../../hooks/useTurnLifecycleProjection.js";
 
 function buildTerminalProjection(turnId: string): LifecycleProjection {
   const typedTurnId = turnId as LifecycleProjection["turnId"];
@@ -336,7 +337,7 @@ describe("ChatInterface", () => {
             id: "text-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -348,7 +349,7 @@ describe("ChatInterface", () => {
             id: "reasoning-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -362,7 +363,7 @@ describe("ChatInterface", () => {
             id: "handoff-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "handoff",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -769,6 +770,72 @@ describe("ChatInterface", () => {
     expect(mockOpenPromptArtifactReview).not.toHaveBeenCalled();
   });
 
+  it("prefers server-provided turnId for lifecycle projection over client derivation", () => {
+    vi.mocked(useTurnLifecycleProjection).mockClear();
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "anything" },
+      { id: "assistant-1", role: "assistant", content: "reply" },
+    ];
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run_testclientvalue000000000001",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: "trn_serverpreferred0001",
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const lifecycleCalls = vi.mocked(useTurnLifecycleProjection).mock.calls;
+    expect(lifecycleCalls.length).toBeGreaterThan(0);
+    expect(lifecycleCalls[0]?.[0]).toBe("trn_serverpreferred0001");
+  });
+
+  it("falls back to client derivation for lifecycle projection when serverTurnId is absent", () => {
+    vi.mocked(useTurnLifecycleProjection).mockClear();
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "anything" },
+      { id: "assistant-1", role: "assistant", content: "reply" },
+    ];
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run_clientfallback000000000001",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const lifecycleCalls = vi.mocked(useTurnLifecycleProjection).mock.calls;
+    expect(lifecycleCalls.length).toBeGreaterThan(0);
+    const lifecycleTurnId = lifecycleCalls[0]?.[0] as string | null;
+    expect(lifecycleTurnId).not.toBe("trn_serverpreferred0001");
+    expect(typeof lifecycleTurnId).toBe("string");
+    expect(lifecycleTurnId).toMatch(/^trn_/);
+  });
+
   it("replays provider interruption rows from hydrated transcript activity", () => {
     vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
 
@@ -801,7 +868,7 @@ describe("ChatInterface", () => {
                           id: "activity-user",
                           runId: "run-1",
                           sessionId: "session-1",
-                          turnId: "turn-1",
+                          turnId: "user-1",
                           kind: "text",
                           role: "user",
                           content: "check CI",
@@ -813,7 +880,7 @@ describe("ChatInterface", () => {
                           id: "activity-provider",
                           runId: "run-1",
                           sessionId: "session-1",
-                          turnId: "turn-1",
+                          turnId: "user-1",
                           kind: "commentary",
                           phase: "commentary",
                           status: "completed",
@@ -1052,7 +1119,7 @@ describe("ChatInterface", () => {
             id: "user-activity",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -1064,7 +1131,7 @@ describe("ChatInterface", () => {
             id: "edit-activity",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:02.000Z",
@@ -2192,7 +2259,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2204,7 +2271,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2218,7 +2285,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:02.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2238,7 +2305,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2250,7 +2317,7 @@ describe("ChatInterface", () => {
             id: "turn-2-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "reasoning",
             createdAt: "2026-03-24T10:01:01.000Z",
             updatedAt: "2026-03-24T10:01:01.000Z",
@@ -2264,7 +2331,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:02.000Z",
             updatedAt: "2026-03-24T10:01:03.000Z",
@@ -2284,7 +2351,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-2",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:04.000Z",
             updatedAt: "2026-03-24T10:01:05.000Z",
@@ -2379,7 +2446,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2391,7 +2458,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:05.000Z",
@@ -2484,7 +2551,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2496,7 +2563,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2586,7 +2653,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2598,7 +2665,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2612,7 +2679,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:02.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2632,7 +2699,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2644,7 +2711,7 @@ describe("ChatInterface", () => {
             id: "turn-2-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "reasoning",
             createdAt: "2026-03-24T10:01:01.000Z",
             updatedAt: "2026-03-24T10:01:01.000Z",
@@ -2658,7 +2725,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:02.000Z",
             updatedAt: "2026-03-24T10:01:03.000Z",
@@ -2678,7 +2745,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-2",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:04.000Z",
             updatedAt: "2026-03-24T10:01:05.000Z",
@@ -2776,7 +2843,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2788,7 +2855,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2808,7 +2875,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2820,7 +2887,7 @@ describe("ChatInterface", () => {
             id: "turn-3-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-3",
+            turnId: "user-3",
             kind: "text",
             createdAt: "2026-03-24T10:02:00.000Z",
             updatedAt: "2026-03-24T10:02:00.000Z",
@@ -2832,7 +2899,7 @@ describe("ChatInterface", () => {
             id: "turn-3-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-3",
+            turnId: "user-3",
             kind: "tool",
             createdAt: "2026-03-24T10:02:01.000Z",
             updatedAt: "2026-03-24T10:02:05.000Z",
@@ -2981,7 +3048,7 @@ describe("ChatInterface", () => {
             id: "run-2-user",
             runId: "run-2",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:10:00.000Z",
             updatedAt: "2026-03-24T10:10:00.000Z",
@@ -2993,7 +3060,7 @@ describe("ChatInterface", () => {
             id: "run-2-tool-1",
             runId: "run-2",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:10:01.000Z",
             updatedAt: "2026-03-24T10:10:03.000Z",
