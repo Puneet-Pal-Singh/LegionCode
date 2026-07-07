@@ -62,6 +62,7 @@ interface ChatInterfaceProps {
     hasHydrated?: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
+    serverTurnId?: string | null;
   };
   sessionId: string;
   hasStartedSession?: boolean;
@@ -105,6 +106,7 @@ export function ChatInterface({
     hasHydrated = true,
     error,
     debugEvents = [],
+    serverTurnId,
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [expandedActivityTurns, setExpandedActivityTurns] = useState<
@@ -115,8 +117,8 @@ export function ChatInterface({
   >({});
 
   const lifecycleTurnId = useMemo(
-    () => deriveLifecycleTurnId(runId, messages),
-    [messages, runId],
+    () => serverTurnId ?? deriveLifecycleTurnId(runId, messages),
+    [messages, runId, serverTurnId],
   );
   const { projection: lifecycleProjection } = useTurnLifecycleProjection(
     lifecycleTurnId,
@@ -435,6 +437,14 @@ export function ChatInterface({
   );
 }
 
+/**
+ * @quarantine Migration helper - delete when all callers consume server-provided
+ * turnId from the chat response X-Turn-Id header.
+ *
+ * Deletion trigger: `serverTurnId` is always provided by the chat response
+ * before `useTurnLifecycleProjection` subscribes, AND no active product
+ * component calls `turnIdFromRunId` or `turnSeedFromLatestUserMessage`.
+ */
 function deriveLifecycleTurnId(
   runId: string,
   messages: Message[],

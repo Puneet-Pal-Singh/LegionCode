@@ -24,6 +24,7 @@ interface UseChatResult {
   stop: () => void;
   artifactState: ArtifactState;
   runId: string;
+  serverTurnId: string | null;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
@@ -53,6 +54,7 @@ export function useChat(
     stop,
     setMessages,
     runId: activeRunId,
+    serverTurnId,
     resetRun,
     isModelConfigReady,
     error,
@@ -91,6 +93,7 @@ export function useChat(
     stop,
     artifactState,
     runId: activeRunId,
+    serverTurnId,
     resetRun,
     isModelConfigReady,
     error,

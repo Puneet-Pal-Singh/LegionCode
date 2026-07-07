@@ -164,6 +164,7 @@ export function Workspace({
     error: chatError,
     debugEvents,
     isModelConfigReady,
+    serverTurnId,
   } = useChat(
     sessionId,
     initialRunId,
@@ -437,6 +438,7 @@ export function Workspace({
                 hasHydrated,
                 error: chatError,
                 debugEvents,
+                serverTurnId,
               }}
               sessionId={sessionId}
               hasStartedSession={hasStartedSession}
