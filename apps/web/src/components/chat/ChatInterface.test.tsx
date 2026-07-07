@@ -472,7 +472,7 @@ describe("ChatInterface", () => {
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
-  it("keeps activity polling alive while the run controller is stoppable", () => {
+  it("polls activity feed for historical backfill when no lifecycle projection is available", () => {
     vi.mocked(useRunSummary).mockReturnValue({ summary: null });
     vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
 
@@ -492,7 +492,6 @@ describe("ChatInterface", () => {
           handleSubmit: vi.fn(),
           append: vi.fn(),
           stop: vi.fn(),
-          canStop: true,
           isLoading: false,
           hasHydrated: true,
           error: null,
@@ -507,8 +506,8 @@ describe("ChatInterface", () => {
     expect(useRunActivityFeed).toHaveBeenLastCalledWith("run-active", true);
     expect(mockChatInputBar).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        canStop: true,
-        isLoading: true,
+        canStop: false,
+        isLoading: false,
       }),
     );
   });
