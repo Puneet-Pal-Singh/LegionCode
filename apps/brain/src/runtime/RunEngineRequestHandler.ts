@@ -757,7 +757,9 @@ export class RunEngineRequestHandler {
           }),
         );
 
-        return withRunEngineHeaders(request, this.env, executionResponse);
+        return withRunEngineHeaders(request, this.env, executionResponse, {
+          "X-Turn-Id": turnId,
+        });
       });
     } catch (error: unknown) {
       const domainError = mapRunExecutionErrorToDomain(
