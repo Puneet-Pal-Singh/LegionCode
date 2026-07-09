@@ -841,7 +841,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("keeps chat input in loading/stop mode when canonical run is still running", () => {
+  it("passes SDK loading state directly to chat interface", () => {
     mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     mockChatState.isLoading = false;
 
@@ -856,14 +856,13 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
-          isLoading: true,
+          isLoading: false,
         }),
       }),
     );
   });
 
-  it("maps pending approval summaries to a stoppable waiting session", async () => {
+  it("maps pending approval summaries to a waiting session", async () => {
     const onSessionStatusChange = vi.fn();
     mockRunSummaryState.summary = {
       runId: "run-123",
@@ -895,7 +894,6 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
           isLoading: false,
         }),
       }),
@@ -933,7 +931,7 @@ describe("Workspace", () => {
     expect(mockRefetchGitStatus).not.toHaveBeenCalled();
   });
 
-  it("clears loading when a stale active summary follows a finished assistant response", () => {
+  it("clears workspace loading when a finished assistant response follows an active summary", () => {
     const onSessionStatusChange = vi.fn();
     mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     mockChatState.isLoading = false;
@@ -955,7 +953,6 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: false,
           isLoading: false,
         }),
       }),
@@ -963,7 +960,7 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
   });
 
-  it("lets local loading state override a stale terminal summary", () => {
+  it("passes SDK loading state even when summary is terminal", () => {
     mockRunSummaryState.summary = { runId: "run-123", status: "completed" };
     mockChatState.isLoading = true;
 
@@ -979,14 +976,13 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
           isLoading: true,
         }),
       }),
     );
   });
 
-  it("shows loading controls when local session state is still running", () => {
+  it("passes SDK loading state when no summary exists", () => {
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
 
@@ -1002,8 +998,7 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
-          isLoading: true,
+          isLoading: false,
         }),
       }),
     );

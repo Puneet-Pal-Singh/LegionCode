@@ -5,6 +5,7 @@ import {
   PermissionProfileIdSchema,
   RunAttemptIdSchema,
   RunSchema,
+  ThreadIdSchema,
   ToolCallItemContentSchema,
   TurnSchema,
   WorkerIdSchema,
@@ -12,6 +13,7 @@ import {
   type ApprovalRequestedPayload,
   type Run as ProtocolRun,
   type RunAttemptId,
+  type ThreadId,
   type ToolCallItemContent,
   type Turn,
 } from "@repo/platform-protocol";
@@ -142,6 +144,8 @@ export interface RuntimeKernelNativeRunnerInput {
   tools: Record<string, CoreTool>;
   lifecycleEvents: RuntimeLifecycleEventStore;
   turnId: Turn["id"];
+  runAttemptId?: string;
+  threadId?: string;
   now?: () => string;
 }
 
@@ -269,6 +273,8 @@ export class RuntimeKernelNativeRunner {
       input: input.input,
       turnId: input.turnId,
       timestamp: now(),
+      canonicalRunAttemptId: input.runAttemptId,
+      canonicalThreadId: input.threadId,
     });
     const provider = new KernelAgenticProvider({
       run,
@@ -1425,6 +1431,8 @@ function buildProtocolEnvelope(input: {
   input: RunInput;
   turnId: Turn["id"];
   timestamp: string;
+  canonicalRunAttemptId?: string;
+  canonicalThreadId?: string;
 }): {
   run: ProtocolRun;
   turn: Turn;
@@ -1432,7 +1440,12 @@ function buildProtocolEnvelope(input: {
   manifest: KernelWorkspaceManifest;
 } {
   const workspaceId = toProtocolId("wrk", input.runId);
-  const threadId = toProtocolId("thr", input.sessionId);
+  const threadId = input.canonicalThreadId
+    ? ThreadIdSchema.parse(input.canonicalThreadId)
+    : toProtocolId("thr", input.sessionId);
+  const runAttemptId = input.canonicalRunAttemptId
+    ? RunAttemptIdSchema.parse(input.canonicalRunAttemptId)
+    : RunAttemptIdSchema.parse(toProtocolId("attempt", input.runId));
   const workerId = WorkerIdSchema.parse(toProtocolId("worker", input.runId));
   const permissionProfileId = PermissionProfileIdSchema.parse(
     toProtocolId("perm", input.runId),
@@ -1493,9 +1506,7 @@ function buildProtocolEnvelope(input: {
       updatedAt: input.timestamp,
       lastEventSequence: 0,
     }),
-    runAttemptId: RunAttemptIdSchema.parse(
-      toProtocolId("attempt", input.runId),
-    ),
+    runAttemptId,
     manifest,
   };
 }

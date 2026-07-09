@@ -52,11 +52,7 @@ function deriveToolPresentation(
 
   const presenter = TOOL_PRESENTERS[toolName];
   if (presenter) {
-    try {
-      return presenter(input);
-    } catch {
-      return deriveFallbackToolPresentation(toolName, input);
-    }
+    return presenter(input);
   }
 
   return presentDefaultTool(toolName);

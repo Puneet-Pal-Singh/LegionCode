@@ -52,8 +52,6 @@ const INTERNAL_TAG_PATTERN =
   /<(analysis|thinking|reasoning|internal)\b[^>]*>([\s\S]*?)<\/\1>/gi;
 const TOOL_RESULT_TAG_PATTERN =
   /<tool_result\b[^>]*>([\s\S]*?)<\/tool_result>/gi;
-const LABELED_OUTLINE_LINE_PATTERN =
-  /^\s*(?:[-*•]\s*)?[A-Z][A-Za-z /-]{1,36}\s*[:.-]\s+\S/;
 
 export function normalizeModelOutputParts(
   input: NormalizeModelOutputPartsInput,
@@ -102,17 +100,6 @@ function normalizeTextParts(text: string): NormalizedModelPart[] {
   const taggedParts = extractTaggedParts(normalized);
   if (taggedParts.length > 0) {
     return taggedParts;
-  }
-
-  if (looksLikePlanningOutline(normalized)) {
-    return [
-      {
-        type: "reasoning",
-        text: normalized,
-        visibility: "audit_only",
-        reason: "dense_labeled_outline",
-      },
-    ];
   }
 
   return [{ type: "visible_text", text: collapseExcessBlankLines(normalized) }];
@@ -172,21 +159,6 @@ function findTaggedMatches(
     text: match[2] ?? match[1] ?? "",
     kind,
   }));
-}
-
-function looksLikePlanningOutline(text: string): boolean {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length < 3) {
-    return false;
-  }
-
-  const labeledLineCount = lines.filter((line) =>
-    LABELED_OUTLINE_LINE_PATTERN.test(line),
-  ).length;
-  return labeledLineCount >= 3 && labeledLineCount >= Math.ceil(lines.length / 2);
 }
 
 function collapseExcessBlankLines(text: string): string {
