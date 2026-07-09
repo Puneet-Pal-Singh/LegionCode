@@ -29,30 +29,32 @@ describe("ModelOutputParts", () => {
     expect(getVisibleModelText(parts)).toBe("Done. The edit is complete.");
   });
 
-  it("rejects dense labeled planning outlines as audit-only reasoning", () => {
+  it("does not classify untagged labeled text as internal reasoning", () => {
+    const text = [
+      '• User says: "check my hero"',
+      "• Context: request is about a hero section.",
+      "• Direct answer: I need the file first.",
+      "• Helpful details: Ask for a screenshot.",
+    ].join("\n");
+    const parts = normalizeModelOutputParts({ text });
+    const visible = getVisibleModelText(parts);
+
+    expect(parts[0]?.type).toBe("visible_text");
+    expect(visible).toContain("check my hero");
+    expect(visible).toContain("Direct answer");
+  });
+
+  it("preserves ordinary final text even when it uses answer-style labels", () => {
     const parts = normalizeModelOutputParts({
-      text: [
-        '• User says: "check my hero"',
-        "• Context: request is about a hero section.",
-        "• Direct answer: I need the file first.",
-        "• Helpful details: Ask for a screenshot.",
-      ].join("\n"),
+      text: "Direct answer: updated the hero copy.",
     });
 
     expect(parts).toEqual([
-      {
-        type: "reasoning",
-        text: [
-          '• User says: "check my hero"',
-          "• Context: request is about a hero section.",
-          "• Direct answer: I need the file first.",
-          "• Helpful details: Ask for a screenshot.",
-        ].join("\n"),
-        visibility: "audit_only",
-        reason: "dense_labeled_outline",
-      },
+      { type: "visible_text", text: "Direct answer: updated the hero copy." },
     ]);
-    expect(getVisibleModelText(parts)).toBe("");
+    expect(getVisibleModelText(parts)).toBe(
+      "Direct answer: updated the hero copy.",
+    );
   });
 
   it("records tool calls and usage as typed non-text parts", () => {

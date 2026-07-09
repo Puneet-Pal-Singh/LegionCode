@@ -5,7 +5,7 @@ import { Task, TaskRepository } from "../task/index.js";
 import { MemoryCoordinator, MemoryRepository } from "../memory/index.js";
 import type { RuntimeDurableObjectState, RuntimeStorage } from "../types.js";
 
-const RUN_ID = "11111111-1111-4111-8111-111111111111";
+const RUN_ID = "run_11111111111141118111111111111111";
 const SESSION_ID = "session-recovery";
 
 describe("RunRecovery", () => {
@@ -64,16 +64,18 @@ describe("RunRecovery", () => {
     expect(persistedFailed?.status).toBe("FAILED");
     expect(persistedFailed?.metadata.error).toBe("1 task(s) failed");
 
-    const cancelledDeps = createRecoveryDeps("22222222-2222-4222-8222-222222222222");
+    const cancelledDeps = createRecoveryDeps(
+      "run_22222222222242228222222222222222",
+    );
     const cancelledRun = createRun(
       "RUNNING",
-      "22222222-2222-4222-8222-222222222222",
+      "run_22222222222242228222222222222222",
     );
     await cancelledDeps.runRepo.create(cancelledRun);
     await cancelledDeps.taskRepo.create(
       new Task(
         "task-cancelled",
-        "22222222-2222-4222-8222-222222222222",
+        "run_22222222222242228222222222222222",
         "shell",
         "CANCELLED",
         [],
@@ -82,7 +84,7 @@ describe("RunRecovery", () => {
     );
     await cancelledDeps.runRecovery.reconstructState(cancelledRun);
     const persistedCancelled = await cancelledDeps.runRepo.getById(
-      "22222222-2222-4222-8222-222222222222",
+      "run_22222222222242228222222222222222",
     );
     expect(persistedCancelled?.status).toBe("CANCELLED");
   });

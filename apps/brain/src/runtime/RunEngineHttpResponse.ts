@@ -52,8 +52,16 @@ export function withRunEngineHeaders(
   request: Request,
   env: Env,
   response: Response,
+  extraHeaders?: Record<string, string>,
 ): Response {
   const headers = new Headers(response.headers);
+
+  if (extraHeaders) {
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      headers.set(key, value);
+    }
+  }
+
   const runtimeHeaders = getRunEngineRuntimeHeaders(env);
   Object.entries(runtimeHeaders).forEach(([key, value]) => {
     headers.set(key, value);

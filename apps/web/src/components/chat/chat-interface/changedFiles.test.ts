@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
 import type { TurnDiffPayload, TurnId } from "../../../services/api/lifecycleClient";
-import { resolveTerminalChangedFilesSummary } from "./changedFiles";
+import {
+  resolveTerminalChangedFilesSummary,
+  shouldAllowFallbackChangedFileDiff,
+  shouldRenderLiveChangedFileSnapshots,
+} from "./changedFiles";
 
 const TURN_ID = "trn_changedfiles001" as TurnId;
 const FILE: FileStatus = {
@@ -13,6 +17,51 @@ const FILE: FileStatus = {
 };
 
 describe("changedFiles terminal review projection", () => {
+  it("only keeps live snapshot fallback while the turn is still active", () => {
+    expect(
+      shouldRenderLiveChangedFileSnapshots({
+        isLoading: true,
+        turnDiff: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderLiveChangedFileSnapshots({
+        isLoading: false,
+        turnDiff: null,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderLiveChangedFileSnapshots({
+        isLoading: true,
+        turnDiff: turnDiff(""),
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects completed-turn diff fallback when canonical sources are missing", () => {
+    expect(
+      shouldAllowFallbackChangedFileDiff({
+        isLoading: true,
+        turnDiff: null,
+        hasArtifact: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAllowFallbackChangedFileDiff({
+        isLoading: false,
+        turnDiff: null,
+        hasArtifact: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAllowFallbackChangedFileDiff({
+        isLoading: false,
+        turnDiff: null,
+        hasArtifact: true,
+      }),
+    ).toBe(false);
+  });
+
   it("loads terminal review diffs from the canonical turn diff source", async () => {
     const loadArtifactFileDiff = vi.fn(async (): Promise<DiffContent> => {
       throw new Error("artifact diff should not be used");

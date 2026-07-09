@@ -34,7 +34,6 @@ import type {
 import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildCorrectionHintText,
-  buildInvalidToolInputError,
   buildUnavailableToolError,
   createCloudSandboxRunCapabilityManifest,
   serializeStructuredToolError,
@@ -44,6 +43,12 @@ import {
 import { PermissionGateError } from "./PermissionGateError.js";
 import { buildAgenticLoopSystemPrompt } from "./AgenticLoopSystemPrompt.js";
 export { buildAgenticLoopSystemPrompt } from "./AgenticLoopSystemPrompt.js";
+import {
+  buildReadOnlyToolFingerprint,
+  buildStructuredToolFailureError,
+  isValidationFailure,
+  stableSerialize,
+} from "./AgenticLoopToolHelpers.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -873,51 +878,6 @@ async function isCancellationRequested(
   context: Pick<AgenticLoopHooks, "isRunCancelled">,
 ): Promise<boolean> {
   return (await context.isRunCancelled?.()) ?? false;
-}
-
-function buildReadOnlyToolFingerprint(
-  toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
-): string {
-  return `${toolCall.toolName}:${stableSerialize(toolCall.args)}`;
-}
-
-function stableSerialize(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
-  }
-
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(
-      ([left], [right]) => left.localeCompare(right),
-    );
-    return `{${entries
-      .map(
-        ([key, entryValue]) =>
-          `${JSON.stringify(key)}:${stableSerialize(entryValue)}`,
-      )
-      .join(",")}}`;
-  }
-
-  return JSON.stringify(value);
-}
-
-function buildStructuredToolFailureError(input: {
-  toolName: string;
-  errorMessage: string;
-  manifest: RunCapabilityManifest;
-}): StructuredToolError | null {
-  if (!isValidationFailure(input.errorMessage, input.toolName)) {
-    return null;
-  }
-  return buildInvalidToolInputError({
-    attemptedTool: input.toolName,
-    validationMessage: input.errorMessage,
-    manifest: input.manifest,
-  });
-}
-
-function isValidationFailure(message: string, toolName: string): boolean {
-  return message.startsWith(`Invalid ${toolName} input.`);
 }
 
 export function buildAssistantMessage(
