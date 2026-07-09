@@ -27,6 +27,7 @@
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",
     "@repo/event-store": "workspace:*",
+    "@repo/observability": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@shadowbox/context-pruner": "workspace:*",

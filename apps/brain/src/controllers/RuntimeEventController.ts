@@ -1,12 +1,10 @@
 import type { RuntimeEventInboxAcceptResult } from "@repo/persistence";
-import {
-  isDomainError,
-  mapDomainErrorToHttp,
-} from "../domain/errors";
+import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
 import { errorResponse, jsonResponse } from "../http/response";
 import { withPostgresRuntimeEventIngestionService } from "../services/runtime-events/PostgresRuntimeEventIngestionFactory";
 import type { RuntimeEventIngestionService } from "../services/runtime-events/RuntimeEventIngestionService";
 import type { Env } from "../types/ai";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
 export interface RuntimeEventControllerDependencies {
   withService<T>(
@@ -74,7 +72,11 @@ function toRuntimeEventErrorResponse(
     );
   }
 
-  console.error("[persistence/run] Runtime event ingestion failed:", error);
+  reportBrainError(env, {
+    request,
+    operation: "runtime.event.ingestion",
+    error,
+  });
   return errorResponse(
     request,
     env,
