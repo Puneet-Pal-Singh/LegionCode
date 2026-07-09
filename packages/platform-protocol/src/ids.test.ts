@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  createRunAttemptId,
+  createThreadId,
+  createTurnId,
   EventCursorSchema,
   ModelIdSchema,
   PlatformIdSchemas,
   ProviderIdSchema,
+  RunAttemptIdSchema,
   RunIdSchema,
   ThreadIdSchema,
+  TurnIdSchema,
 } from "./ids.js";
 
 describe("platform protocol IDs", () => {
@@ -38,6 +43,12 @@ describe("platform protocol IDs", () => {
     expect(ThreadIdSchema.parse("thr_abc123")).toBe("thr_abc123");
     expect(RunIdSchema.parse("run_abc123")).toBe("run_abc123");
     expect(EventCursorSchema.parse("cursor_abc123")).toBe("cursor_abc123");
+  });
+
+  it("allocates canonical opaque IDs with their protocol prefixes", () => {
+    expect(TurnIdSchema.parse(createTurnId())).toMatch(/^trn_/);
+    expect(ThreadIdSchema.parse(createThreadId())).toMatch(/^thr_/);
+    expect(RunAttemptIdSchema.parse(createRunAttemptId())).toMatch(/^attempt_/);
   });
 
   it("rejects missing, unprefixed, and wrong-prefixed run IDs", () => {

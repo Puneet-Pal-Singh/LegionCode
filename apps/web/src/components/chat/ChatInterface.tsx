@@ -132,7 +132,7 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, Boolean(runId), eventReconnectTrigger);
-  const shouldPollActivityFeed = !hasLifecycleReplay;
+  const shouldPollActivityFeed = !hasLifecycleReplay || lifecycleActive;
   const { feed } = useRunActivityFeed(runId, shouldPollActivityFeed);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";

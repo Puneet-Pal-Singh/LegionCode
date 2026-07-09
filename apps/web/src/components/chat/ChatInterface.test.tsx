@@ -831,7 +831,7 @@ describe("ChatInterface", () => {
     expect(lifecycleCalls[0]?.[0]).toBeNull();
   });
 
-  it("shows active loading when lifecycle projection reports non-terminal active state", () => {
+  it("keeps activity polling alive while the run controller is stoppable", () => {
     mockTurnLifecycleProjection.projection = {
       turnId: "trn_active_lifecycle_001",
       lastSequence: 5,
@@ -868,6 +868,10 @@ describe("ChatInterface", () => {
         canStop: true,
         isLoading: true,
       }),
+    );
+    expect(useRunActivityFeed).toHaveBeenLastCalledWith(
+      "run-lifecycle-active",
+      true,
     );
   });
 

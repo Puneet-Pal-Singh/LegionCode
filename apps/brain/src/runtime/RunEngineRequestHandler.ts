@@ -120,7 +120,6 @@ export class RunEngineRequestHandler {
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
-  private static readonly MAX_TURN_MAP_AGE_MS = 24 * 60 * 60 * 1000;
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -663,8 +662,9 @@ export class RunEngineRequestHandler {
         this.eventStream?.start(payload.runId);
         const turnId = createTurnId();
         const runAttemptId = createRunAttemptId();
-        const threadId = this.resolveThreadId();
-        this.mapTurnToRun(turnId, payload.runId);
+        const threadId = createThreadId();
+        await this.ensureTurnToRunMapLoaded();
+        await this.mapTurnToRun(turnId, payload.runId);
         this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
@@ -924,17 +924,13 @@ export class RunEngineRequestHandler {
       return;
     }
 
-    try {
-      const raw = await this.ctx.storage.get<Record<string, string>>(
-        RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
-      );
-      if (raw && typeof raw === "object") {
-        for (const [turnId, runId] of Object.entries(raw)) {
-          this.turnToRunMap.set(turnId, runId);
-        }
+    const raw = await this.ctx.storage.get<Record<string, string>>(
+      RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+    );
+    if (raw && typeof raw === "object") {
+      for (const [turnId, runId] of Object.entries(raw)) {
+        this.turnToRunMap.set(turnId, runId);
       }
-    } catch {
-      // storage unavailable; in-memory map is sufficient for this DO lifetime
     }
 
     this.turnToRunMapLoaded = true;
@@ -945,19 +941,16 @@ export class RunEngineRequestHandler {
     for (const [turnId, runId] of this.turnToRunMap) {
       entries[turnId] = runId;
     }
-    try {
-      await this.ctx.storage.put(
-        RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
-        entries,
-      );
-    } catch {
-      // storage unavailable; skip persistence
-    }
+    await this.ctx.storage.put(
+      RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+      entries,
+    );
   }
 
-  private mapTurnToRun(turnId: string, runId: string): void {
+  private async mapTurnToRun(turnId: string, runId: string): Promise<void> {
     this.turnToRunMap.set(turnId, runId);
-    void this.persistTurnToRunMap();
+    this.pruneStaleTurnMappings();
+    await this.persistTurnToRunMap();
   }
 
   private pruneStaleTurnMappings(): void {
@@ -969,14 +962,6 @@ export class RunEngineRequestHandler {
     const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
     for (const key of toDelete) {
       this.turnToRunMap.delete(key);
-    }
-  }
-
-  private resolveThreadId(): string {
-    try {
-      return createThreadId();
-    } catch {
-      return createTurnId().replace(/^trn_/, "thr_");
     }
   }
 

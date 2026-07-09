@@ -59,7 +59,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     Record<string, PromptArtifactReviewSource>
   >({});
   const [artifactRetryVersion, setArtifactRetryVersion] = useState(0);
-  const refs = useChangedFilesRefs(input.isLoading);
+  const refs = useChangedFilesRefs();
   const activitySnapshots = useMemo(
     () =>
       input.hasScopedFeed
@@ -131,7 +131,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
   };
 }
 
-function useChangedFilesRefs(_isLoading: boolean) {
+function useChangedFilesRefs() {
   const diffCache = useRef<Record<string, DiffContent>>({});
   const inflightArtifacts = useRef<Set<string>>(new Set());
   const artifactAttempts = useRef<Map<string, number>>(new Map());
