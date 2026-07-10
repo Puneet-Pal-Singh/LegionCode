@@ -20,6 +20,7 @@ import type { SerializableToolDefinition } from "../types/tools";
 import { parseOptionalScopeIdentifier } from "./chat-request-helpers";
 import { extractSessionToken } from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
+import { createTraceContext, formatTraceparent } from "@repo/observability";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -186,7 +187,10 @@ export async function executeViaRunEngineDurableObject(
     method: "POST",
     path: "/execute",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      traceparent: formatTraceparent(createTraceContext()),
+    },
   });
 }
 

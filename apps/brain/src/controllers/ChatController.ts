@@ -7,18 +7,9 @@ import {
   jsonResponse,
   withEngineHeaders,
 } from "../http/response";
-import {
-  parseRequestBody,
-  validateWithSchema,
-} from "../http/validation";
-import {
-  isDomainError,
-  mapDomainErrorToHttp,
-} from "../domain/errors";
-import {
-  extractIdentifiers,
-  mapAgentIdToType,
-} from "./chat-request-helpers";
+import { parseRequestBody, validateWithSchema } from "../http/validation";
+import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
+import { extractIdentifiers, mapAgentIdToType } from "./chat-request-helpers";
 import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
@@ -26,9 +17,6 @@ import {
   resolveRuntimeTarget,
   type ExecutionScope,
 } from "./chat-runtime-helpers";
-import { logErrorRateLimited } from "../lib/rate-limited-log";
-import { sanitizeUnknownError } from "../core/security/LogSanitizer";
-import { errorMessageKey } from "../lib/error-message-key";
 import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
@@ -41,6 +29,7 @@ import {
   summarizeCoreMessages,
 } from "../services/chat/SubmittedClientMessagePolicy";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 import {
   ChatRequestBodySchema,
   type ChatRequestBody,
@@ -62,7 +51,8 @@ interface ChatRequest {
  */
 export class ChatController {
   static async handle(req: Request, env: Env): Promise<Response> {
-    const correlationId = crypto.randomUUID();
+    const correlationId =
+      req.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
     const requestStartedAt = Date.now();
     console.log(`[chat/request] ${correlationId} received`);
 
@@ -142,18 +132,22 @@ export class ChatController {
         );
         return errorResponse(req, env, message, status, code, metadata);
       }
-      logErrorRateLimited(
-        `chat/error:${errorMessageKey(error)}`,
-        `[chat/error] ${correlationId}: ${sanitizeUnknownError(error)}`,
-        undefined,
-        30_000,
-      );
-      const errorMessage =
-        error instanceof Error ? error.message : "Internal Server Error";
+      reportBrainError(env, {
+        request: req,
+        operation: "chat.request.execute",
+        error,
+        context: { correlationId, elapsedMs: Date.now() - requestStartedAt },
+      });
       console.log(
         `[chat/timing] ${correlationId} totalMs=${Date.now() - requestStartedAt} status=500`,
       );
-      return errorResponse(req, env, errorMessage, 500);
+      return errorResponse(
+        req,
+        env,
+        "Internal Server Error",
+        500,
+        "CHAT_REQUEST_FAILED",
+      );
     }
   }
 
@@ -208,9 +202,9 @@ export class ChatController {
     const { body, correlationId, sessionId, runId, userId, workspaceId } =
       chatRequest;
     const admissionService = new RunAdmissionService(env);
-    let admissionGrant: Awaited<
-      ReturnType<RunAdmissionService["enforce"]>
-    > | undefined;
+    let admissionGrant:
+      | Awaited<ReturnType<RunAdmissionService["enforce"]>>
+      | undefined;
 
     const coreMessages = applySubmittedClientMessageId(
       chatRequest.imageInput.messages,
@@ -241,7 +235,10 @@ export class ChatController {
         hasImages: chatRequest.imageInput.hasImages,
         correlationId,
       });
-      admissionGrant = await admissionService.enforce(admissionInput, correlationId);
+      admissionGrant = await admissionService.enforce(
+        admissionInput,
+        correlationId,
+      );
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
@@ -335,9 +332,12 @@ export class ChatController {
       throw error;
     } finally {
       if (admissionGrant) {
-        await admissionService.release(admissionGrant, admissionInput, correlationId);
+        await admissionService.release(
+          admissionGrant,
+          admissionInput,
+          correlationId,
+        );
       }
     }
   }
-
 }

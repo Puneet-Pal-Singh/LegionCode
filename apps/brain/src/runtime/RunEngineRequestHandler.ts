@@ -12,6 +12,9 @@ import {
 import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
+  createRunAttemptId,
+  createThreadId,
+  createTurnId,
   EventSequenceSchema,
   type LifecycleEvent,
   RunIdSchema,
@@ -42,6 +45,8 @@ import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
+import { parseTraceparent } from "@repo/observability";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 import {
   runEngineErrorResponse,
   runEngineJsonResponse,
@@ -53,11 +58,6 @@ import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
-import {
-  runIdFromTurnId,
-  turnIdFromRunId,
-  turnSeedFromLatestUserMessage,
-} from "./LifecycleTurnRouting";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
 import type { LifecycleEventStreamPort } from "./ports";
 import {
@@ -117,6 +117,11 @@ export interface RunEngineRequestHandlerDependencies {
 export class RunEngineRequestHandler {
   private readonly fallbackLifecycleEventStream =
     new CloudflareLifecycleEventStreamAdapter();
+
+  private readonly turnToRunMap = new Map<string, string>();
+  private turnToRunMapLoaded = false;
+
+  private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -554,7 +559,17 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const runId = runIdFromTurnId(payload.turnId);
+    await this.ensureTurnToRunMapLoaded();
+
+    const runId = this.turnToRunMap.get(payload.turnId);
+    if (!runId) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Run not found for turnId",
+        404,
+      );
+    }
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
     const run = await runRepo.getById(runId);
@@ -633,6 +648,7 @@ export class RunEngineRequestHandler {
     }
 
     try {
+      const trace = parseTraceparent(request.headers.get("traceparent"));
       console.log(
         formatDiagnosticLogLine("run/runtime", "execute-request-accepted", {
           correlationId: payload.correlationId,
@@ -643,12 +659,17 @@ export class RunEngineRequestHandler {
           mode: payload.input.mode,
           messageCount: payload.messages.length,
           toolCount: payload.tools?.length ?? 0,
+          traceId: trace?.traceId,
+          spanId: trace?.spanId,
         }),
       );
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
-        const turnSeed = turnSeedFromLatestUserMessage(payload.messages);
-        const turnId = turnIdFromRunId(payload.runId, turnSeed);
+        const turnId = createTurnId();
+        const runAttemptId = createRunAttemptId();
+        const threadId = createThreadId();
+        await this.ensureTurnToRunMapLoaded();
+        await this.mapTurnToRun(turnId, payload.runId);
         this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
@@ -679,8 +700,6 @@ export class RunEngineRequestHandler {
           userMessageId: userMessageId ?? undefined,
           sourceTurnId: userMessageId ?? undefined,
         });
-        const canonicalEventSink = this.createCanonicalEventSink();
-
         const runtimeRunner = new RuntimeKernelNativeRunner(
           runtimeState,
           {
@@ -695,8 +714,9 @@ export class RunEngineRequestHandler {
           {
             ...runEngineDeps,
             runEventListener: async (event) => {
-              await canonicalEventSink.persist(event, payload.correlationId);
-              this.emitLiveEvent(event);
+              // Legacy RunEvent records remain a projection for internal
+              // activity/artifact capture only. Kernel lifecycle events are
+              // appended and streamed exclusively by the lifecycle store.
               editArtifactCoordinator.handleEvent(event);
             },
           },
@@ -717,6 +737,9 @@ export class RunEngineRequestHandler {
           tools: runtimeTools,
           lifecycleEvents: kernelLifecycleEvents,
           turnId,
+          runAttemptId,
+          threadId,
+          workspaceId: payload.workspaceId,
         });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
@@ -757,7 +780,11 @@ export class RunEngineRequestHandler {
           }),
         );
 
-        return withRunEngineHeaders(request, this.env, executionResponse);
+        return withRunEngineHeaders(request, this.env, executionResponse, {
+          "X-Thread-Id": threadId,
+          "X-Turn-Id": turnId,
+          "X-Run-Attempt-Id": runAttemptId,
+        });
       });
     } catch (error: unknown) {
       const domainError = mapRunExecutionErrorToDomain(
@@ -776,14 +803,23 @@ export class RunEngineRequestHandler {
           metadata,
         );
       }
-      console.error(
-        `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
+      reportBrainError(this.env, {
+        request,
+        operation: "run.engine.execute",
+        error,
+        context: {
+          correlationId: payload.correlationId,
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+        },
+      });
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "RunEngine DO execution failed",
+        500,
+        "RUN_ENGINE_EXECUTION_FAILED",
       );
-      const message =
-        error instanceof Error
-          ? error.message
-          : "RunEngine DO execution failed";
-      return runEngineErrorResponse(request, this.env, message, 500);
     }
   }
 
@@ -894,6 +930,53 @@ export class RunEngineRequestHandler {
       this.dependencies.lifecycleEventStream ??
       this.fallbackLifecycleEventStream
     );
+  }
+
+  private async ensureTurnToRunMapLoaded(): Promise<void> {
+    if (this.turnToRunMapLoaded) {
+      this.pruneStaleTurnMappings();
+      return;
+    }
+
+    const raw = await this.ctx.storage.get<Record<string, string>>(
+      RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+    );
+    if (raw && typeof raw === "object") {
+      for (const [turnId, runId] of Object.entries(raw)) {
+        this.turnToRunMap.set(turnId, runId);
+      }
+    }
+
+    this.turnToRunMapLoaded = true;
+  }
+
+  private async persistTurnToRunMap(): Promise<void> {
+    const entries: Record<string, string> = {};
+    for (const [turnId, runId] of this.turnToRunMap) {
+      entries[turnId] = runId;
+    }
+    await this.ctx.storage.put(
+      RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+      entries,
+    );
+  }
+
+  private async mapTurnToRun(turnId: string, runId: string): Promise<void> {
+    this.turnToRunMap.set(turnId, runId);
+    this.pruneStaleTurnMappings();
+    await this.persistTurnToRunMap();
+  }
+
+  private pruneStaleTurnMappings(): void {
+    const maxCount = 10_000;
+    if (this.turnToRunMap.size <= maxCount) {
+      return;
+    }
+    const keys = [...this.turnToRunMap.keys()];
+    const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
+    for (const key of toDelete) {
+      this.turnToRunMap.delete(key);
+    }
   }
 
   private buildEventsResponse(events: unknown[], runId: string): Response {

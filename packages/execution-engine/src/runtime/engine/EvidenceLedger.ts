@@ -10,7 +10,8 @@ export type EvidenceKind =
 
 export type FinalizationEvidenceRequirement =
   | "file_read_or_search"
-  | "file_edit_or_diff";
+  | "file_edit_or_diff"
+  | "command_run";
 
 export interface EvidenceRecord {
   kind: EvidenceKind;
@@ -76,6 +77,12 @@ export function hasEvidenceForRequirement(
         (record) =>
           record.status === "observed" &&
           (record.kind === "file_edit" || record.kind === "git_diff"),
+      );
+    case "command_run":
+      return ledger.some(
+        (record) =>
+          record.status === "observed" &&
+          record.kind === "command_run",
       );
   }
 }
@@ -205,7 +212,11 @@ function buildToolNameEvidenceRecords(
 function isFinalizationEvidenceRequirement(
   value: unknown,
 ): value is FinalizationEvidenceRequirement {
-  return value === "file_read_or_search" || value === "file_edit_or_diff";
+  return (
+    value === "file_read_or_search" ||
+    value === "file_edit_or_diff" ||
+    value === "command_run"
+  );
 }
 
 function isGitDiffCommand(command: string): boolean {

@@ -37,7 +37,7 @@ describe("FinalAssistantMessageService", () => {
 
   it("does not project absent typed parts", () => {
     expect(normalizeFinalAssistantText(undefined)).toBe("");
-  });
+   });
 
   it("drops typed pure leaked tool-planning text instead of exposing it", () => {
     expect(

@@ -79,6 +79,7 @@ interface UseChatCoreResult {
   stop: () => void;
   setMessages: (messages: Message[]) => void;
   runId: string;
+  serverTurnId: string | null;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
@@ -103,6 +104,7 @@ export function useChatCore(
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [serverTurnId, setServerTurnId] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<{
     scopeKey: string;
     message: Message;
@@ -128,6 +130,7 @@ export function useChatCore(
     setError(null);
     setIsSubmitting(false);
     setIsStopping(false);
+    setServerTurnId(null);
     setDebugEvents([]);
     setPendingUserMessage((current) =>
       current?.scopeKey === scopeKey ? current : null,
@@ -193,10 +196,15 @@ export function useChatCore(
       if (!isActiveScope(scopeKey)) {
         return;
       }
+      const turnId = response.headers.get("X-Turn-Id")?.trim() ?? null;
+      if (turnId) {
+        setServerTurnId(turnId);
+      }
       dispatchRunSummaryRefresh(runId);
       logClientEvent("chat/stream", "response", {
         runId,
         sessionId,
+        turnId,
         status: response.status,
       });
       pushDebugEvent({
@@ -465,6 +473,7 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      setServerTurnId(null);
       setPendingUserMessage({
         scopeKey: requestScopeKey,
         message: buildPendingUserMessage(submittedMessage),
@@ -737,6 +746,7 @@ export function useChatCore(
     stop,
     setMessages,
     runId,
+    serverTurnId,
     resetRun,
     isModelConfigReady,
     error,

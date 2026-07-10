@@ -32,6 +32,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
+    "@repo/observability",
     "@repo/persistence",
     "@repo/platform-protocol",
     "@repo/provider-core",
@@ -40,10 +41,15 @@ export const APP_IMPORT_POLICY = {
   ],
   "@shadowbox/secure-agent-api": [
     "@repo/git-service",
+    "@repo/observability",
     "@repo/shared-types",
     "@repo/worker-protocol",
   ],
-  "@shadowbox/web": ["@repo/platform-client-sdk", "@repo/shared-types"],
+  "@shadowbox/web": [
+    "@repo/observability",
+    "@repo/platform-client-sdk",
+    "@repo/shared-types",
+  ],
 };
 
 export const CANONICAL_AUTHORITIES = [
@@ -221,5 +227,31 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
       },
     ],
     declarationPattern: /\bclass\s+(?:Coding)?ToolRegistry\s*\{/,
+  },
+  clientSideTurnIdDerivation: {
+    // The companion validator (validateClientSideTurnIdDerivation in
+    // check-architecture-boundaries.mjs) only scans apps/web/src.
+    // No Web product code may derive turn identity client-side; the
+    // canonical turnId arrives via the X-Turn-Id response header.
+    forbiddenImportPattern:
+      /\b(?:turnIdFromRunId|turnSeedFromLatestUserMessage)\b/,
+    allowedFiles: [],
+    description:
+      "Web product code must not derive turn identity client-side; use canonical server-provided turnId from the X-Turn-Id response header.",
+  },
+  activeStateRunSummaryAuthority: {
+    forbiddenImportPattern:
+      /\b(?:isRunEventActivityOpen|isApprovalRequiredRunStatus|isTerminalRunStatus|normalizeRunStatus)\b/,
+    allowedFiles: [
+      "apps/web/src/hooks/useRunSummary.ts",
+      "apps/web/src/lib/run-status.ts",
+      "apps/web/src/services/activity/RunEventActivitySnapshot.ts",
+      "apps/web/src/components/chat/chat-interface/useActivityPresentation.ts",
+      "apps/web/src/components/chat/chat-interface/useChangedFilesController.ts",
+      "apps/web/src/components/layout/Workspace.tsx",
+      "apps/web/src/components/layout/workspace/runUiState.ts",
+    ],
+    description:
+      "Active Web chat components (especially ChatInterface.tsx) must not use run-summary status helpers as turn-state authority; active workflow/thinking/approval/terminal state must come from the canonical lifecycle projection only.",
   },
 };

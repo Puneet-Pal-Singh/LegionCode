@@ -44,6 +44,7 @@ import {
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
 const ScopeIdSchema = z
   .string()
@@ -349,11 +350,19 @@ export class RunEngineRuntime extends DurableObject {
         return errorResponse(request, env, message, status, code, metadata);
       }
 
-      console.error(
-        `[runtime/provider] ${correlationId}: Unexpected provider route error`,
+      reportBrainError(env, {
+        request,
+        operation: "runtime.provider.route",
         error,
+        context: { correlationId },
+      });
+      return errorResponse(
+        request,
+        env,
+        "Internal server error",
+        500,
+        "RUNTIME_PROVIDER_ROUTE_FAILED",
       );
-      return errorResponse(request, env, "Internal server error", 500);
     }
   }
 

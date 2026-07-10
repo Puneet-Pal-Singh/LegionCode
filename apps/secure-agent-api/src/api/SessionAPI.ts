@@ -34,6 +34,7 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
+  workspaceScope?: WorkspaceScope;
 }
 
 interface PublicSessionRecord {
@@ -42,6 +43,14 @@ interface PublicSessionRecord {
   repoPath: string;
   expiresAt: number;
   createdAt: number;
+  workspaceScope?: WorkspaceScope;
+}
+
+interface WorkspaceScope {
+  runId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
 }
 
 interface SessionLogEntry {
@@ -153,6 +162,7 @@ async function storeSession(
   taskId: string,
   repoPath: string,
   token: string,
+  workspaceScope?: WorkspaceScope,
 ): Promise<number> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
@@ -168,6 +178,7 @@ async function storeSession(
     expiresAt,
     token,
     createdAt: now,
+    workspaceScope,
   });
   return expiresAt;
 }
@@ -309,6 +320,38 @@ function toTaskExecutionInput(request: ExecuteTaskRequest): TaskExecutionInput {
   };
 }
 
+function hasMatchingWorkspaceScope(
+  session: SessionRecord,
+  params: Record<string, unknown>,
+): boolean {
+  const requestedRunId = params.runId;
+  if (requestedRunId !== undefined && requestedRunId !== session.runId) {
+    return false;
+  }
+  if (!session.workspaceScope) return true;
+  const candidate = params.workspaceScope;
+  if (!isWorkspaceScope(candidate)) {
+    return false;
+  }
+  return (
+    candidate.runId === session.workspaceScope.runId &&
+    candidate.runAttemptId === session.workspaceScope.runAttemptId &&
+    candidate.workspaceId === session.workspaceScope.workspaceId &&
+    candidate.root === session.workspaceScope.root
+  );
+}
+
+function isWorkspaceScope(value: unknown): value is WorkspaceScope {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.runId === "string" &&
+    typeof candidate.runAttemptId === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.root === "string"
+  );
+}
+
 function getExecutionLogLevel(
   result: ExecuteTaskResponse,
 ): SessionLogEntry["level"] {
@@ -368,7 +411,7 @@ export async function handleCreateSession(
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
 
-    const { runId, taskId, repoPath } = validation.data;
+    const { runId, taskId, repoPath, workspaceScope } = validation.data;
     const sessionId = generateSessionId();
     const token = generateToken();
     const expiresAt = await storeSession(
@@ -378,6 +421,7 @@ export async function handleCreateSession(
       taskId,
       repoPath,
       token,
+      workspaceScope,
     );
     const manifest = await fetchManifest(runtime);
 
@@ -432,6 +476,13 @@ export async function handleExecuteTask(
         `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
       );
       return auth.response;
+    }
+    if (!hasMatchingWorkspaceScope(auth.session, validation.data.params)) {
+      return errorResponse(
+        "Execution workspace scope does not match the session scope",
+        "WORKSPACE_SCOPE_MISMATCH",
+        409,
+      );
     }
 
     const executionPort = getRuntimeExecutionPort(runtime);

@@ -167,6 +167,49 @@ describe("useChatCore", () => {
     expect(result.current.debugEvents).toHaveLength(0);
   });
 
+  it("captures canonical server turnId from the X-Turn-Id response header", () => {
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    expect(result.current.serverTurnId).toBeNull();
+
+    const options = mockUseChat.mock.calls[0]?.[0] as {
+      onResponse?: (response: Response) => void;
+    };
+
+    act(() => {
+      options.onResponse?.(
+        new Response(null, {
+          status: 200,
+          headers: { "X-Turn-Id": "trn_serverallocated001" },
+        }),
+      );
+    });
+
+    expect(result.current.serverTurnId).toBe("trn_serverallocated001");
+  });
+
+  it("does not overwrite serverTurnId with empty X-Turn-Id header", () => {
+    const { result } = renderHook(() => useChatCore("session-1"));
+
+    const options = mockUseChat.mock.calls[0]?.[0] as {
+      onResponse?: (response: Response) => void;
+    };
+
+    act(() => {
+      options.onResponse?.(
+        new Response(null, {
+          status: 200,
+          headers: { "X-Turn-Id": "trn_firstresponse0001" },
+        }),
+      );
+    });
+    act(() => {
+      options.onResponse?.(new Response(null, { status: 200 }));
+    });
+
+    expect(result.current.serverTurnId).toBe("trn_firstresponse0001");
+  });
+
   it("clears local chat messages when switching run scope", () => {
     const { rerender } = renderHook(
       ({ sessionId, runId }) => useChatCore(sessionId, runId),

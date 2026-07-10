@@ -4,8 +4,6 @@ import type { Message } from "@ai-sdk/react";
 import {
   type ProductMode,
   type RunMode,
-  turnIdFromRunId,
-  turnSeedFromLatestUserMessage,
 } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
@@ -24,12 +22,6 @@ import {
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
-import { isRunEventActivityOpen } from "../../services/activity/RunEventActivitySnapshot.js";
-import {
-  isApprovalRequiredRunStatus,
-  isTerminalRunStatus,
-  normalizeRunStatus,
-} from "../../lib/run-status.js";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";
@@ -57,11 +49,11 @@ interface ChatInterfaceProps {
     ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
-    canStop?: boolean;
     isLoading: boolean;
     hasHydrated?: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
+    serverTurnId?: string | null;
   };
   sessionId: string;
   hasStartedSession?: boolean;
@@ -100,11 +92,11 @@ export function ChatInterface({
     handleSubmit,
     append,
     stop,
-    canStop,
     isLoading,
     hasHydrated = true,
     error,
     debugEvents = [],
+    serverTurnId,
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [expandedActivityTurns, setExpandedActivityTurns] = useState<
@@ -115,40 +107,21 @@ export function ChatInterface({
   >({});
 
   const lifecycleTurnId = useMemo(
-    () => deriveLifecycleTurnId(runId, messages),
-    [messages, runId],
+    () => serverTurnId ?? null,
+    [serverTurnId],
   );
   const { projection: lifecycleProjection } = useTurnLifecycleProjection(
     lifecycleTurnId,
     Boolean(lifecycleTurnId),
   );
   const hasLifecycleReplay = (lifecycleProjection?.lastSequence ?? 0) > 0;
-  const { summary } = useRunSummary(runId, isLoading && !hasLifecycleReplay);
-  const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
-  const isTerminalSummarySettled = Boolean(
-    summary?.status && isTerminalRunStatus(summary.status),
+  const lifecycleActive = Boolean(
+    hasLifecycleReplay && !lifecycleProjection?.terminal,
   );
-  const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
-  const controllerRunActive = Boolean(canStop);
-  const isLifecycleRunActive = Boolean(
-    hasLifecycleReplay &&
-    !lifecycleProjection?.terminal &&
-    (lifecycleProjection?.activeThinking ||
-      lifecycleProjection?.pendingApproval ||
-      lifecycleProjection?.items.some((item) => item.status === "active")),
-  );
-  const isCanonicalRunActive =
-    normalizedSummaryStatus === "RUNNING" ||
-    isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
-    Boolean(summary?.pendingApproval);
-  const activeRunLoading = hasLifecycleReplay
-    ? isLifecycleRunActive
-    : isLoading ||
-      controllerRunActive ||
-      (!isLifecycleTerminalSettled &&
-        !isTerminalSummarySettled &&
-        isCanonicalRunActive);
-  const eventReconnectTrigger = isLoading ? 1 : 0;
+  const isTransportLoading = isLoading && !hasLifecycleReplay;
+  const activeRunLoading = lifecycleActive || isTransportLoading;
+  const { summary } = useRunSummary(runId, !lifecycleActive);
+  const eventReconnectTrigger = 0;
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -159,12 +132,7 @@ export function ChatInterface({
     markReviewCommentsDispatchFailed,
   } = useGitReview();
   const { events } = useRunEvents(runId, Boolean(runId), eventReconnectTrigger);
-  const isCanonicalEventRunActive = useMemo(
-    () => isRunEventActivityOpen({ runId, events }),
-    [events, runId],
-  );
-  const shouldPollActivityFeed =
-    !hasLifecycleReplay && (activeRunLoading || isCanonicalEventRunActive);
+  const shouldPollActivityFeed = !hasLifecycleReplay || lifecycleActive;
   const { feed } = useRunActivityFeed(runId, shouldPollActivityFeed);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
@@ -206,7 +174,7 @@ export function ChatInterface({
     messages,
     feed,
     events,
-    isLoading: isLoading || activeRunLoading,
+    isLoading: activeRunLoading,
   });
   const {
     pendingApproval,
@@ -243,6 +211,7 @@ export function ChatInterface({
     conversationTurns,
     activityTurns: activityViewModel.turns,
     hasScopedFeed: Boolean(scopedFeed),
+    turnDiff: lifecycleProjection?.turnDiff ?? null,
   });
   useEffect(() => {
     // Reset expansion preferences when the active run changes.
@@ -297,7 +266,7 @@ export function ChatInterface({
     snapshots: changedFileSnapshotsByAssistantMessageId,
     artifacts: artifactSourcesByAssistantMessageId,
     hasHydrated,
-    isLoading: isLoading || activeRunLoading,
+    isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
     lifecycleProjection,
@@ -433,15 +402,4 @@ export function ChatInterface({
       }
     />
   );
-}
-
-function deriveLifecycleTurnId(
-  runId: string,
-  messages: Message[],
-): string | null {
-  try {
-    return turnIdFromRunId(runId, turnSeedFromLatestUserMessage(messages));
-  } catch {
-    return null;
-  }
 }

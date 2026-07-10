@@ -122,9 +122,16 @@ describe("PersistenceService", () => {
       retryable: true,
       status: 503,
     });
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("[chat/persistence/user-message-failed]"),
-    );
+    const record = JSON.parse(String(consoleError.mock.calls[0]?.[0]));
+    expect(record).toMatchObject({
+      level: "info",
+      event: "chat.persistence.user-message-failed",
+      attributes: {
+        runId: "123e4567-e89b-42d3-a456-426614174000",
+        sessionId: "123e4567-e89b-42d3-a456-426614174001",
+        error: { name: "Error", message: "database unavailable" },
+      },
+    });
   });
 
   it("does not replay prior conversation history under the current run", async () => {

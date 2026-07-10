@@ -164,6 +164,7 @@ export function Workspace({
     error: chatError,
     debugEvents,
     isModelConfigReady,
+    serverTurnId,
   } = useChat(
     sessionId,
     initialRunId,
@@ -432,11 +433,11 @@ export function Workspace({
                 handleSubmit: handleSubmitWithSessionMetadata,
                 append,
                 stop: handleStopRun,
-                canStop: canStopRun,
-                isLoading: isRunLoading,
+                isLoading,
                 hasHydrated,
                 error: chatError,
                 debugEvents,
+                serverTurnId,
               }}
               sessionId={sessionId}
               hasStartedSession={hasStartedSession}
