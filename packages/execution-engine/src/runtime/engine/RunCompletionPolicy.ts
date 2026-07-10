@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
-import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import type { RunEvent } from "@repo/shared-types";
+import { RUN_EVENT_TYPES, RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { RunTerminalStateSchema } from "@repo/shared-types";
 import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
@@ -51,6 +52,7 @@ export interface RunCompletionDependencies {
     role: "user" | "assistant",
   ) => Promise<void>;
   runEventRecorder: RunEventRecorder;
+  readCanonicalRunEvents: (runId: string) => Promise<RunEvent[]>;
   runRepo: Pick<RunRepository, "getById" | "updateUnlessStatus">;
   safeMemoryOperation: <T>(
     operation: () => Promise<T>,
@@ -118,8 +120,9 @@ async function persistFinalAssistantRun(
     );
     return createStreamResponse("");
   }
+  const canonicalEvents = await deps.readCanonicalRunEvents(run.id);
   const finalization = settleFinalizationContract({
-    lifecycle: run.metadata.agenticLoop?.toolLifecycle ?? [],
+    events: canonicalEvents,
     metadata,
   });
   const settlement = projectTerminalSettlement({
@@ -135,7 +138,10 @@ async function persistFinalAssistantRun(
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text,
+    finalParts:
+      finalization.contract.settled && text.trim()
+        ? [{ type: "final", text }]
+        : [],
     metadata: finalMetadata,
     settlement,
   });
@@ -180,13 +186,15 @@ async function persistFinalAssistantRun(
   if (terminalStatus === "COMPLETED") {
     await deps.runEventRecorder.recordRunCompleted(
       getRunDurationMs(run),
-      run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+      canonicalEvents.filter((event) => event.type === RUN_EVENT_TYPES.TOOL_COMPLETED).length,
+      settlement.outcomeCode,
     );
   }
   if (terminalStatus === "FAILED") {
     await deps.runEventRecorder.recordRunFailed(
       redactedText,
       getRunDurationMs(run),
+      settlement.outcomeCode,
     );
   }
   console.log(
@@ -234,7 +242,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text,
+    finalParts: text.trim() ? [{ type: "final", text }] : [],
     metadata: finalMetadata,
     settlement,
   });
@@ -282,7 +290,11 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     finalMessage.metadata,
   );
   if (terminalStatus === "COMPLETED") {
-    await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
+    await deps.runEventRecorder.recordRunCompleted(
+      getRunDurationMs(run),
+      0,
+      settlement.outcomeCode,
+    );
   }
 
   console.log(`[run/engine] Completed run ${run.id} with recoverable error`);

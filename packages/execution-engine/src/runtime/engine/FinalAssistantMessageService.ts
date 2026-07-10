@@ -78,6 +78,11 @@ const outcomeCopy: Record<
     detail: "The next action is waiting for an approval decision.",
     nextStep: "Choose an approval action or deny it to stop this path.",
   },
+  APPROVAL_RESOLVED: {
+    title: "Your approval decision was recorded.",
+    detail: "The approved action can continue from the recorded terminal state.",
+    nextStep: "Send the next task when you want me to continue.",
+  },
   APPROVAL_DENIED: {
     title: "I stopped because you denied the requested action.",
     detail: "The denied action was not run.",

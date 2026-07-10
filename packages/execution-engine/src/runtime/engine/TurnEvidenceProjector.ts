@@ -1,19 +1,19 @@
-import type { AgenticLoopToolLifecycleEvent } from "../types.js";
+import type { RunEvent } from "@repo/shared-types";
 import {
-  buildEvidenceLedger,
+  buildEvidenceLedgerFromEvents,
   type EvidenceRecord,
 } from "./EvidenceLedger.js";
 
 export interface TurnEvidenceProjection {
   evidence: EvidenceRecord[];
-  source: "canonical_tool_lifecycle";
+  source: "canonical_run_events";
 }
 
 export function projectTurnEvidence(
-  lifecycle: readonly AgenticLoopToolLifecycleEvent[],
+  events: readonly RunEvent[],
 ): TurnEvidenceProjection {
   return {
-    evidence: buildEvidenceLedger(lifecycle),
-    source: "canonical_tool_lifecycle",
+    evidence: buildEvidenceLedgerFromEvents(events),
+    source: "canonical_run_events",
   };
 }

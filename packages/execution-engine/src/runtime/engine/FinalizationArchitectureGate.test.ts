@@ -16,11 +16,13 @@ describe("finalization architecture gate", () => {
     const finalizer = source("FinalAssistantMessageService.ts");
     expect(finalizer).toContain("TerminalOutcomeCode");
     expect(finalizer).not.toMatch(/normalize|sanitize|parseJson|JSON\.parse/);
+    expect(source("FinalMessageProjector.ts")).not.toContain("input.text");
   });
 
   it("has one visible final-part owner", () => {
     const finalizer = source("FinalAssistantMessageService.ts");
     expect(finalizer).toContain("only owner allowed to project a user-visible terminal part");
     expect(source("FinalMessageProjector.ts")).not.toContain("FinalSummaryBuilder");
+    expect(source("RunCompletionPolicy.ts")).not.toContain("metadata.agenticLoop");
   });
 });

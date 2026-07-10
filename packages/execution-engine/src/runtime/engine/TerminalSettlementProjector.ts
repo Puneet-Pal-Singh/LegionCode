@@ -5,6 +5,7 @@ export type TerminalOutcomeCode =
   | "COMPLETED"
   | "COMPLETED_WITH_WARNINGS"
   | "APPROVAL_REQUIRED"
+  | "APPROVAL_RESOLVED"
   | "APPROVAL_DENIED"
   | "TOOL_EXECUTION_FAILED"
   | "VALIDATION_FAILED"
@@ -38,6 +39,8 @@ export function projectTerminalSettlement(input: {
     terminalStatus:
       input.terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED
         ? "PAUSED"
+        : input.terminalState === RUN_TERMINAL_STATES.APPROVAL_RESOLVED
+          ? "COMPLETED"
         : input.terminalState === RUN_TERMINAL_STATES.COMPLETED ||
             input.terminalState === RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS
           ? "COMPLETED"
@@ -55,6 +58,8 @@ function outcomeCodeForTerminalState(
       return "COMPLETED_WITH_WARNINGS";
     case RUN_TERMINAL_STATES.APPROVAL_REQUIRED:
       return "APPROVAL_REQUIRED";
+    case RUN_TERMINAL_STATES.APPROVAL_RESOLVED:
+      return "APPROVAL_RESOLVED";
     case RUN_TERMINAL_STATES.APPROVAL_DENIED:
       return "APPROVAL_DENIED";
     case RUN_TERMINAL_STATES.FAILED_TOOL:

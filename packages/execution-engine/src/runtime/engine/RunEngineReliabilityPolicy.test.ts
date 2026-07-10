@@ -53,6 +53,7 @@ describe("RunEngineReliabilityPolicy", () => {
     expect(runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
       "runtime exploded at https://internal/errors/123",
       25,
+      "RUNTIME_FAILED",
     );
     expect(consoleError).toHaveBeenCalledWith(
       "[run/engine] Run run_100000 failed:",

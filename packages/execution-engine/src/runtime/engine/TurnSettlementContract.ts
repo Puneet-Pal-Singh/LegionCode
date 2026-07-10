@@ -1,4 +1,4 @@
-import type { AgenticLoopToolLifecycleEvent } from "../types.js";
+import type { RunEvent } from "@repo/shared-types";
 import {
   evaluateFinalizationContract,
   readFinalizationEvidenceRequirements,
@@ -8,14 +8,14 @@ import {
 import { projectTurnEvidence } from "./TurnEvidenceProjector.js";
 
 export function settleFinalizationContract(input: {
-  lifecycle: readonly AgenticLoopToolLifecycleEvent[];
+  events: readonly RunEvent[];
   metadata?: Record<string, unknown>;
 }): {
   ledger: EvidenceRecord[];
   contract: FinalizationContract;
   metadata: Record<string, unknown>;
 } {
-  const ledger = projectTurnEvidence(input.lifecycle).evidence;
+  const ledger = projectTurnEvidence(input.events).evidence;
   const contract = evaluateFinalizationContract({
     ledger,
     requiredEvidence: readFinalizationEvidenceRequirements(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { RUN_TERMINAL_STATES } from "@repo/shared-types";
+import { RUN_EVENT_TYPES, RUN_TERMINAL_STATES, type RunEvent } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import { Run } from "../run/index.js";
@@ -265,6 +265,7 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
       "Tests failed after the edit.",
       expect.any(Number),
+      "TOOL_EXECUTION_FAILED",
     );
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
       expect.objectContaining({ runStatus: "FAILED" }),
@@ -299,6 +300,7 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
       expect.stringContaining("required evidence"),
       expect.any(Number),
+      "FINALIZATION_MISSING_EVIDENCE",
     );
   });
 
@@ -497,10 +499,64 @@ function createDeps(
     memoryCoordinator,
     persistConversationMessages: vi.fn(),
     runEventRecorder,
+    readCanonicalRunEvents: vi.fn(async () => canonicalEventsFromRun(currentRun)),
     runRepo: {
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
     },
     safeMemoryOperation: vi.fn(async (operation) => await operation()),
   };
+}
+
+function canonicalEventsFromRun(run: Run): RunEvent[] {
+  return (run.metadata.agenticLoop?.toolLifecycle ?? []).map((event, index) => {
+    const base = {
+      version: 1 as const,
+      eventId: `event-${index}`,
+      runId: run.id,
+      sessionId: run.sessionId,
+      timestamp: event.recordedAt,
+      source: "muscle" as const,
+    };
+    if (event.status === "failed") {
+      return {
+        ...base,
+        type: RUN_EVENT_TYPES.TOOL_FAILED,
+        payload: {
+          toolId: event.toolCallId,
+          toolName: event.toolName,
+          error: event.detail ?? "failed",
+          executionTimeMs: 0,
+        },
+      } satisfies RunEvent;
+    }
+    return {
+      ...base,
+      type: RUN_EVENT_TYPES.TOOL_COMPLETED,
+      payload: {
+        toolId: event.toolCallId,
+        toolName: event.toolName,
+        result: { metadata: canonicalActivityMetadata(event.metadata) },
+        executionTimeMs: 0,
+      },
+    } satisfies RunEvent;
+  });
+}
+
+function canonicalActivityMetadata(
+  metadata: NonNullable<NonNullable<Run["metadata"]["agenticLoop"]>["toolLifecycle"]>[number]["metadata"],
+) {
+  if (!metadata) return undefined;
+  switch (metadata.family) {
+    case "read":
+      return { count: 0, truncated: false, loadedPaths: [], ...metadata };
+    case "search":
+      return { count: 0, truncated: false, loadedPaths: [], ...metadata };
+    case "edit":
+      return { additions: 0, deletions: 0, ...metadata };
+    case "shell":
+      return { origin: "agent_tool" as const, truncated: false, ...metadata };
+    default:
+      return metadata;
+  }
 }

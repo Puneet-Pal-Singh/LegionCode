@@ -153,6 +153,7 @@ export class RuntimeKernelNativeRunner {
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
   private readonly runEventRecorder: RunEventRecorder;
+  private readonly eventRepo: RunEventRepository;
   private readonly memoryCoordinator: MemoryCoordinator;
   private readonly pricingRegistry: IPricingRegistry;
   private readonly costLedger: ICostLedger;
@@ -176,6 +177,7 @@ export class RuntimeKernelNativeRunner {
       options.runId,
     );
     const eventRepo = new RunEventRepository(ctx);
+    this.eventRepo = eventRepo;
     this.runEventRecorder = new RunEventRecorder(
       eventRepo,
       options.runId,
@@ -606,6 +608,7 @@ export class RuntimeKernelNativeRunner {
       persistConversationMessages:
         this.persistConversationMessagesForRun.bind(this),
       runEventRecorder: this.runEventRecorder,
+      readCanonicalRunEvents: this.eventRepo.getByRun.bind(this.eventRepo),
       runRepo: this.runRepo,
       safeMemoryOperation: async (operation) => await operation(),
     };

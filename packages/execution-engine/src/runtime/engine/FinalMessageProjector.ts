@@ -5,21 +5,14 @@ import type { TerminalSettlement } from "./TerminalSettlementProjector.js";
 
 export function buildFinalAssistantMessage(input: {
   run: Run;
-  text?: string;
-  finalParts?: readonly FinalVisiblePart[];
+  finalParts: readonly FinalVisiblePart[];
   metadata?: Record<string, unknown>;
   settlement: TerminalSettlement;
 }) {
-  const finalParts = input.settlement.outcomeCode === "FINALIZATION_MISSING_EVIDENCE"
-    ? undefined
-    : input.finalParts ??
-      (input.text?.trim()
-        ? ([{ type: "final", text: input.text }] as const)
-        : undefined);
   return new FinalAssistantMessageService().build({
     terminalState: input.settlement.terminalState,
     outcomeCode: input.settlement.outcomeCode,
-    finalParts,
+    finalParts: input.finalParts,
     metadata: input.metadata,
   });
 }

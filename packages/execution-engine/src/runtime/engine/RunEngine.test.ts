@@ -1503,7 +1503,7 @@ describe("RunEngine", () => {
         event.payload.role === "assistant",
     );
     expect(assistantSummary?.payload.content).toContain(
-      "Outcome: The run was interrupted before it completed.",
+      "The run was interrupted before it completed.",
     );
     expect(assistantSummary?.payload.metadata).toMatchObject({
       terminalState: "interrupted",

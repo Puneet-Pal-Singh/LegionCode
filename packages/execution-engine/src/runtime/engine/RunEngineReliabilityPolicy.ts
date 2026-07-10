@@ -44,6 +44,7 @@ export async function handleExecutionErrorPolicy(input: {
         await input.runEventRecorder.recordRunFailed(
           errorMessage,
           input.getRunDurationMs(run),
+          "RUNTIME_FAILED",
         );
       }
     }

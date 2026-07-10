@@ -1,5 +1,10 @@
 import type { ToolEvidenceKind } from "../tools/CodingToolRegistry.js";
 import { getCodingToolDefinition } from "../tools/CodingToolRegistry.js";
+import {
+  RUN_EVENT_TYPES,
+  safeParseToolActivityMetadata,
+  type RunEvent,
+} from "@repo/shared-types";
 import type { AgenticLoopToolLifecycleEvent } from "../types.js";
 
 export type EvidenceKind = ToolEvidenceKind;
@@ -50,6 +55,42 @@ export function buildEvidenceLedger(
       path: readPath(event.metadata),
       command: readCommand(event.metadata),
       detail: event.detail,
+    }));
+  });
+}
+
+export function buildEvidenceLedgerFromEvents(
+  events: readonly RunEvent[],
+): EvidenceRecord[] {
+  return events.flatMap((event) => {
+    if (
+      event.type !== RUN_EVENT_TYPES.TOOL_COMPLETED &&
+      event.type !== RUN_EVENT_TYPES.TOOL_FAILED
+    ) {
+      return [];
+    }
+    const toolName = event.payload.toolName;
+    const definition = getCodingToolDefinition(toolName);
+    const status =
+      event.type === RUN_EVENT_TYPES.TOOL_COMPLETED ? "observed" : "failed";
+    const metadata =
+      event.type === RUN_EVENT_TYPES.TOOL_COMPLETED
+        ? readActivityMetadata(event.payload.result)
+        : undefined;
+    return (definition?.evidenceKinds ?? []).map((kind) => ({
+      id: `${event.eventId}:${kind}`,
+      sourceEventId: event.eventId,
+      kind,
+      status,
+      recordedAt: event.timestamp,
+      toolCallId: event.payload.toolId,
+      toolName,
+      path: readPath(metadata),
+      command: readCommand(metadata),
+      detail:
+        event.type === RUN_EVENT_TYPES.TOOL_FAILED
+          ? event.payload.error
+          : undefined,
     }));
   });
 }
@@ -112,4 +153,11 @@ function readPath(metadata: AgenticLoopToolLifecycleEvent["metadata"]): string |
 
 function readCommand(metadata: AgenticLoopToolLifecycleEvent["metadata"]): string | undefined {
   return metadata?.family === "shell" ? metadata.command : undefined;
+}
+
+function readActivityMetadata(value: unknown): AgenticLoopToolLifecycleEvent["metadata"] {
+  if (!value || typeof value !== "object") return undefined;
+  const metadata = (value as { metadata?: unknown }).metadata;
+  const parsed = safeParseToolActivityMetadata(metadata);
+  return parsed.success ? parsed.data : undefined;
 }
