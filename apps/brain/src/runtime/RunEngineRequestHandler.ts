@@ -748,10 +748,7 @@ export class RunEngineRequestHandler {
         });
         await editArtifactCoordinator.prepare();
         this.activeInterrupts.set(turnId, async (requestedTurnId, reason) => {
-          await runtimeRunner.interrupt(
-            TurnIdSchema.parse(requestedTurnId),
-            reason,
-          );
+          await runtimeRunner.interrupt(TurnIdSchema.parse(requestedTurnId), reason);
         });
         let executionResponse: Response;
         try {
