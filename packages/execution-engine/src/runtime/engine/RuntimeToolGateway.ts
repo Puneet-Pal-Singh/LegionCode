@@ -161,7 +161,24 @@ export class RuntimeToolGateway {
     const capability = this.input.manifest.availableTools.find(
       (candidate) => candidate.id === definition.id,
     );
-    return capability !== undefined && capability.availability !== "disabled";
+    if (!capability || capability.availability === "disabled") {
+      return false;
+    }
+    return (
+      capability.logicalName === definition.id &&
+      capability.sandboxClass === definition.sandboxClass &&
+      capability.permissionMetadata.domain ===
+        definition.permissionMetadata.domain &&
+      capability.permissionMetadata.subject ===
+        definition.permissionMetadata.subject &&
+      capability.permissionMetadata.action ===
+        definition.permissionMetadata.action &&
+      capability.permissionMetadata.riskLevel ===
+        definition.permissionMetadata.riskLevel &&
+      definition.requiredBackendCapabilities.every((required) =>
+        capability.requiredBackendCapabilities.includes(required),
+      )
+    );
   }
 
   private failure(

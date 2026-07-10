@@ -41,21 +41,23 @@ describe("RuntimeToolGateway", () => {
       "bash",
     ]);
 
-    const escaped = await first.execute({
-      taskId: "task_escape",
-      toolName: "read_file",
-      toolInput: { description: "read", path: "../two/secret.ts" },
-    });
-    const firstResult = await first.execute({
-      taskId: "task_first",
-      toolName: "read_file",
-      toolInput: { description: "read", path: "/runs/one/src/a.ts" },
-    });
-    const secondResult = await second.execute({
-      taskId: "task_second",
-      toolName: "bash",
-      toolInput: { description: "pwd", command: "pwd", cwd: "src" },
-    });
+    const [escaped, firstResult, secondResult] = await Promise.all([
+      first.execute({
+        taskId: "task_escape",
+        toolName: "read_file",
+        toolInput: { description: "read", path: "../two/secret.ts" },
+      }),
+      first.execute({
+        taskId: "task_first",
+        toolName: "read_file",
+        toolInput: { description: "read", path: "/runs/one/src/a.ts" },
+      }),
+      second.execute({
+        taskId: "task_second",
+        toolName: "bash",
+        toolInput: { description: "pwd", command: "pwd", cwd: "src" },
+      }),
+    ]);
 
     expect(escaped).toMatchObject({
       kind: "failed",
@@ -71,6 +73,52 @@ describe("RuntimeToolGateway", () => {
       payload: { command: "pwd", cwd: "src" },
       options: { scope: { root: "/runs/two", runId: "run_two" } },
     });
+  });
+
+  it("denies traversal for search, edit, and shell inputs", async () => {
+    const calls: unknown[] = [];
+    const gateway = createGateway(
+      "/runs/one",
+      calls as Array<Record<string, unknown>>,
+      ["grep", "edit_file", "bash"],
+    );
+
+    const [search, edit, shell] = await Promise.all([
+      gateway.execute({
+        taskId: "task_search_escape",
+        toolName: "grep",
+        toolInput: { description: "search", pattern: "secret", path: "../two" },
+      }),
+      gateway.execute({
+        taskId: "task_edit_escape",
+        toolName: "edit_file",
+        toolInput: {
+          description: "edit",
+          path: "../two/secret.ts",
+          oldText: "old",
+          newText: "new",
+        },
+      }),
+      gateway.execute({
+        taskId: "task_shell_escape",
+        toolName: "bash",
+        toolInput: { description: "shell", command: "pwd", cwd: "../two" },
+      }),
+    ]);
+
+    expect(search).toMatchObject({
+      kind: "failed",
+      code: "workspace_escape_denied",
+    });
+    expect(edit).toMatchObject({
+      kind: "failed",
+      code: "workspace_escape_denied",
+    });
+    expect(shell).toMatchObject({
+      kind: "failed",
+      code: "workspace_escape_denied",
+    });
+    expect(calls).toEqual([]);
   });
 
   it("returns typed executor failure and cancellation results", async () => {
