@@ -146,6 +146,7 @@ export interface RuntimeKernelNativeRunnerInput {
   turnId: Turn["id"];
   runAttemptId?: string;
   threadId?: string;
+  workspaceId?: string;
   now?: () => string;
 }
 
@@ -278,6 +279,7 @@ export class RuntimeKernelNativeRunner {
       timestamp: now(),
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
+      canonicalWorkspaceId: input.workspaceId,
     });
     const provider = new KernelAgenticProvider({
       run,
@@ -1447,13 +1449,17 @@ function buildProtocolEnvelope(input: {
   timestamp: string;
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
+  canonicalWorkspaceId?: string;
 }): {
   run: ProtocolRun;
   turn: Turn;
   runAttemptId: RunAttemptId;
   manifest: KernelWorkspaceManifest;
 } {
-  const workspaceId = toProtocolId("wrk", input.runId);
+  const workspaceId = toProtocolId(
+    "wrk",
+    input.canonicalWorkspaceId ?? input.runId,
+  );
   const threadId = input.canonicalThreadId
     ? ThreadIdSchema.parse(input.canonicalThreadId)
     : toProtocolId("thr", input.sessionId);

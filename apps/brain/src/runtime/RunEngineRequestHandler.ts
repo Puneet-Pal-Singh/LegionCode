@@ -739,6 +739,7 @@ export class RunEngineRequestHandler {
           turnId,
           runAttemptId,
           threadId,
+          workspaceId: payload.workspaceId,
         });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
