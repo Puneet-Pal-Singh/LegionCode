@@ -7,6 +7,7 @@ import type {
   LLMRuntimeAIService,
   ProviderCapabilityFlags,
 } from "./types.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 
 interface ProviderMatrixCase {
   providerId: string;
@@ -88,7 +89,7 @@ describe("LLMGateway provider behavior matrix", () => {
 
       report.push({
         providerId: matrixCase.providerId,
-        textPath: textResult.text,
+        textPath: projectVisibleTranscriptText(textResult.parts),
         structuredPath: JSON.stringify(structuredResult.object),
         streamPath: streamText,
       });

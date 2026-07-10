@@ -1,4 +1,5 @@
 import type { CoreMessage } from "ai";
+import type { TranscriptPart } from "@repo/platform-protocol";
 import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import { RunTerminalStateSchema } from "@repo/shared-types";
 import type { RunTerminalState } from "@repo/shared-types";
@@ -60,6 +61,7 @@ export interface RunCompletionDependencies {
 interface RunAssistantFinalizationParams {
   run: Run;
   text: string;
+  modelParts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
   deps: RunCompletionDependencies;
 }
@@ -136,6 +138,7 @@ async function persistFinalAssistantRun(
   const finalMessage = buildFinalAssistantMessage({
     run,
     text: finalText,
+    modelParts: params.modelParts,
     metadata: finalMetadata,
     terminalState,
   });

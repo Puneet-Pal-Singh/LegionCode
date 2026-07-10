@@ -16,6 +16,7 @@ import {
   type ThreadId,
   type ToolCallItemContent,
   type Turn,
+  projectVisibleTranscriptText,
 } from "@repo/platform-protocol";
 import type {
   ApprovalResolution,
@@ -799,7 +800,8 @@ class KernelAgenticProvider implements ProviderPort {
     this.stepsExecuted += 1;
     await this.recordModelStepCompleted(input);
     const toolCalls = this.repairToolCalls(response.toolCalls ?? []);
-    this.messages.push(buildAssistantMessage(response.text ?? "", toolCalls));
+    const visibleText = projectVisibleTranscriptText(response.parts ?? []);
+    this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
       this.stopReason = "llm_stop";
       return {
@@ -807,13 +809,13 @@ class KernelAgenticProvider implements ProviderPort {
         itemId: ItemIdSchema.parse(
           toProtocolId("itm", `${input.run.id}-final`),
         ),
-        output: response.text ?? "",
+        output: visibleText,
       };
     }
-    if (response.text?.trim()) {
+    if (visibleText.trim()) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
-        response.text.trim(),
+        visibleText.trim(),
         undefined,
         { phase: "commentary", status: "completed" },
       );

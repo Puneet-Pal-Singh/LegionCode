@@ -4,10 +4,9 @@ import {
 } from "@repo/shared-types";
 import { buildFinalSummaryFrame } from "./FinalSummaryBuilder.js";
 import {
-  getVisibleModelText,
-  normalizeModelOutputParts,
-  type NormalizedModelPart,
-} from "../llm/ModelOutputParts.js";
+  projectVisibleTranscriptText,
+  type TranscriptPart,
+} from "@repo/platform-protocol";
 
 export type FinalAssistantMessageSource = "model" | "runtime";
 
@@ -15,8 +14,8 @@ export interface FinalAssistantMessageInput {
   runId: string;
   sessionId: string;
   terminalState: RunTerminalState;
-  modelText?: string;
-  modelParts?: NormalizedModelPart[];
+  runtimeText?: string;
+  modelParts?: TranscriptPart[];
   detail?: string;
   nextStep?: string;
   metadata?: Record<string, unknown>;
@@ -31,14 +30,14 @@ export interface FinalAssistantMessageResult {
 
 export class FinalAssistantMessageService {
   build(input: FinalAssistantMessageInput): FinalAssistantMessageResult {
-    const isRuntimeAuthored = isRuntimeAuthoredFinalText(input.metadata);
-    const normalizedModelText = isRuntimeAuthored
-      ? normalizeRuntimeAuthoredFinalText(input.modelText)
-      : normalizeFinalAssistantText(input.modelText, input.modelParts);
+    const isModelAuthored = Boolean(input.modelParts?.length);
+    const normalizedModelText = isModelAuthored
+      ? normalizeFinalAssistantText(input.modelParts)
+      : normalizeRuntimeAuthoredFinalText(input.runtimeText);
     const source = normalizedModelText
-      ? isRuntimeAuthored
-        ? "runtime"
-        : "model"
+      ? isModelAuthored
+        ? "model"
+        : "runtime"
       : "runtime";
     const content = normalizedModelText || buildRuntimeFinalText(input);
 
@@ -50,48 +49,19 @@ export class FinalAssistantMessageService {
   }
 }
 
-function isRuntimeAuthoredFinalText(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return typeof metadata?.code === "string";
-}
-
 function normalizeRuntimeAuthoredFinalText(value: string | undefined): string {
   if (!value) {
     return "";
   }
   const normalized = value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  return normalized && !isUnusableFinalAssistantText(normalized) ? normalized : "";
-}
-
-export function normalizeFinalAssistantText(
-  value: string | undefined,
-  modelParts?: NormalizedModelPart[],
-): string {
-  const parts = modelParts ?? normalizeModelOutputParts({ text: value ?? "" });
-  const normalized = getVisibleModelText(parts);
-  if (!normalized) {
-    return "";
-  }
-  if (!normalized || isUnusableFinalAssistantText(normalized)) {
-    return "";
-  }
-
   return normalized;
 }
 
-export function isUnusableFinalAssistantText(value: string): boolean {
-  const parsed = parseJsonObject(value);
-  if (!parsed) {
-    return false;
-  }
-
-  const keys = Object.keys(parsed);
-  if (keys.length === 0) {
-    return true;
-  }
-
-  return keys.every((key) => isIgnorableEmptyJsonField(key, parsed[key]));
+export function normalizeFinalAssistantText(
+  modelParts: TranscriptPart[] | undefined,
+): string {
+  const normalized = projectVisibleTranscriptText(modelParts ?? []);
+  return normalized;
 }
 
 function buildRuntimeFinalText(input: FinalAssistantMessageInput): string {
@@ -190,50 +160,4 @@ function normalizeRuntimeSentence(value: string): string {
     return "";
   }
   return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
-}
-
-function parseJsonObject(value: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-const DESCRIPTOR_KEYS = new Set([
-  "tool",
-  "type",
-  "name",
-  "arguments",
-]);
-
-function isIgnorableEmptyJsonField(key: string, value: unknown): boolean {
-  const normalizedKey = key.trim().toLowerCase();
-  if (DESCRIPTOR_KEYS.has(normalizedKey)) {
-    if (value === null) return true;
-    if (typeof value === "string") return true;
-    if (typeof value === "object") {
-      if (Array.isArray(value)) return value.length === 0;
-      return Object.keys(value as Record<string, unknown>).length === 0;
-    }
-    return true;
-  }
-  if (normalizedKey === "success" && value === true) {
-    return true;
-  }
-  if (
-    (normalizedKey === "output" ||
-      normalizedKey === "stdout" ||
-      normalizedKey === "stderr" ||
-      normalizedKey === "message") &&
-    typeof value === "string" &&
-    value.trim() === ""
-  ) {
-    return true;
-  }
-  return value === null;
 }
