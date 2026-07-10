@@ -512,14 +512,21 @@ describe("RunController", () => {
     });
   });
 
-  it("rejects cancel without an authenticated session", async () => {
+  it("rejects interrupt without an authenticated session", async () => {
     authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
     const env = {} as Env;
 
-    const response = await RunController.cancel(
-      new Request("https://brain.local/api/run/cancel", {
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
         method: "POST",
-        body: JSON.stringify({ runId: "123e4567-e89b-42d3-a456-426614174100" }),
+        body: JSON.stringify({
+          runId: "run_123456",
+          workspaceId: "wrk_123456",
+          sessionId: "session-123456",
+          threadId: "thr_123456",
+          turnId: "trn_123456",
+          runAttemptId: "attempt_123456",
+        }),
       }),
       env,
     );
@@ -528,7 +535,7 @@ describe("RunController", () => {
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
   });
 
-  it("rejects cancel when the run is not owned by the user", async () => {
+  it("rejects interrupt when the run is not owned by the user", async () => {
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({
         getRun: vi.fn().mockResolvedValue(null),
@@ -538,10 +545,17 @@ describe("RunController", () => {
     );
     const env = {} as Env;
 
-    const response = await RunController.cancel(
-      new Request("https://brain.local/api/run/cancel", {
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
         method: "POST",
-        body: JSON.stringify({ runId: "victim-run-id" }),
+        body: JSON.stringify({
+          runId: "victim-run-id",
+          workspaceId: "wrk_123456",
+          sessionId: "session-123456",
+          threadId: "thr_123456",
+          turnId: "trn_123456",
+          runAttemptId: "attempt_123456",
+        }),
       }),
       env,
     );

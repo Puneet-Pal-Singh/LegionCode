@@ -118,8 +118,8 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleActivityRequest(request);
     }
 
-    if (url.pathname === "/cancel" && request.method === "POST") {
-      return requestHandler.handleCancelRequest(request);
+    if (url.pathname === "/interrupt" && request.method === "POST") {
+      return requestHandler.handleInterruptRequest(request);
     }
 
     if (url.pathname === "/approval" && request.method === "POST") {

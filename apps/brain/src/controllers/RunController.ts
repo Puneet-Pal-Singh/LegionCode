@@ -3,6 +3,12 @@ import {
   ApprovalDecisionKindSchema,
   type ApprovalDecisionKind,
 } from "@repo/shared-types";
+import {
+  RunAttemptIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+  WorkspaceIdSchema,
+} from "@repo/platform-protocol";
 import { projectRunActivityFeed } from "@shadowbox/execution-engine/runtime";
 import type { RunStatus as RuntimeRunStatus } from "@shadowbox/orchestrator-core";
 import { z } from "zod";
@@ -31,6 +37,15 @@ const RuntimeOrchestratorBackendSchema = z.enum([
   "execution-engine-v1",
   "cloudflare_agents",
 ]);
+const InterruptRunRequestSchema = z.object({
+  runId: z.string().trim().min(1),
+  workspaceId: WorkspaceIdSchema,
+  sessionId: z.string().trim().min(1),
+  threadId: ThreadIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+  orchestratorBackend: RuntimeOrchestratorBackendSchema.optional(),
+});
 const ApproveRunRequestSchema = z.object({
   runId: z.string().trim().min(1),
   requestId: z.string().trim().min(1),
@@ -106,32 +121,31 @@ export class RunController {
     }
   }
 
-  static async cancel(req: Request, env: Env): Promise<Response> {
+  static async interrupt(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json().catch(() => null)) as {
-        runId?: string;
-        orchestratorBackend?: RuntimeOrchestratorBackend;
-      } | null;
-      const runId = body?.runId?.trim();
-      const requestedBackend =
-        body?.orchestratorBackend ?? "execution-engine-v1";
-      if (!runId) {
-        return errorResponse(req, env, "runId is required", 400);
+      const parsed = InterruptRunRequestSchema.safeParse(
+        await req.json().catch(() => null),
+      );
+      if (!parsed.success) {
+        return errorResponse(req, env, "Invalid interrupt payload", 400);
       }
+      const payload = parsed.data;
+      const requestedBackend =
+        payload.orchestratorBackend ?? "execution-engine-v1";
 
       const auth = await getAuthenticatedUserSession(req, env);
       if (!auth) {
         return errorResponse(req, env, "Unauthorized", 401);
       }
 
-      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
+      const ownsRun = await verifyRunIdentity(env, payload, auth.userId);
       if (!ownsRun) {
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      const response = await fetchRunCancelFromRuntime(
+      const response = await fetchRunInterruptFromRuntime(
         env,
-        runId,
+        payload,
         requestedBackend,
       );
       if (!response.ok) {
@@ -140,22 +154,22 @@ export class RunController {
         return errorResponse(
           req,
           env,
-          `Failed to cancel run${suffix}`,
+          `Failed to interrupt run${suffix}`,
           response.status,
         );
       }
 
-      const payload = (await response.json()) as unknown;
-      return jsonResponse(req, env, payload);
+      const responsePayload = (await response.json()) as unknown;
+      return jsonResponse(req, env, responsePayload);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
         return errorResponse(req, env, error.message, 503);
       }
-      console.error("[RunController:cancel] Error:", error);
+      console.error("[RunController:interrupt] Error:", error);
       return errorResponse(
         req,
         env,
-        error instanceof Error ? error.message : "Failed to cancel run",
+        error instanceof Error ? error.message : "Failed to interrupt run",
         500,
       );
     }
@@ -551,15 +565,30 @@ async function verifyRunOwnership(
   });
 }
 
-async function fetchRunCancelFromRuntime(
+async function verifyRunIdentity(
   env: Env,
-  runId: string,
+  payload: z.infer<typeof InterruptRunRequestSchema>,
+  userId: string,
+): Promise<boolean> {
+  return await withRunRepository(env, async (repo) => {
+    const run = await repo.getRun(payload.runId, userId);
+    return Boolean(
+      run &&
+        run.sessionId === payload.sessionId &&
+        run.workspaceId === payload.workspaceId,
+    );
+  });
+}
+
+async function fetchRunInterruptFromRuntime(
+  env: Env,
+  payload: z.infer<typeof InterruptRunRequestSchema>,
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<Response> {
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+  return fetchRunRuntimeRoute(env, payload.runId, requestedBackend, {
     method: "POST",
-    path: "/cancel",
-    body: JSON.stringify({ runId }),
+    path: "/interrupt",
+    body: JSON.stringify(payload),
     headers: {
       "Content-Type": "application/json",
     },

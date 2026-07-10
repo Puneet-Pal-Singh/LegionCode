@@ -152,6 +152,8 @@ export interface RuntimeKernelNativeRunnerInput {
 }
 
 export class RuntimeKernelNativeRunner {
+  private activeKernel: { turnId: Turn["id"]; kernel: RuntimeKernel } | null = null;
+  private readonly interruptedTurns = new Set<Turn["id"]>();
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
   private readonly runEventRecorder: RunEventRecorder;
@@ -341,7 +343,12 @@ export class RuntimeKernelNativeRunner {
       maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
       clock: { now },
     });
+    this.activeKernel = { turnId: protocol.turn.id, kernel };
     const result = await this.startKernelTurn(kernel, protocol, run, provider);
+    this.activeKernel = null;
+    if (this.interruptedTurns.delete(protocol.turn.id)) {
+      return createStreamResponse("");
+    }
     if (result instanceof Response) {
       return result;
     }
@@ -362,6 +369,17 @@ export class RuntimeKernelNativeRunner {
       deps: this.getRunCompletionDependencies(),
     });
     return response;
+  }
+
+  async interrupt(turnId: Turn["id"], reason: string): Promise<void> {
+    if (!this.activeKernel || this.activeKernel.turnId !== turnId) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime runner`,
+      );
+    }
+    this.interruptedTurns.add(turnId);
+    await this.activeKernel.kernel.interruptTurn(turnId, reason);
   }
 
   private async executePlanMode(run: Run, input: RunInput): Promise<Response> {
@@ -412,6 +430,9 @@ export class RuntimeKernelNativeRunner {
       );
       return await kernel.startTurn(protocol);
     } catch (error) {
+      if (this.interruptedTurns.has(protocol.turn.id)) {
+        return createStreamResponse("");
+      }
       if (error instanceof NativeRunCancelledError) {
         console.log(
           formatRuntimeDiagnosticLogLine(

@@ -355,7 +355,7 @@ describe("RunEngineRequestHandler", () => {
     await expect(response.text()).resolves.toContain('"toolName":"read_file"');
   });
 
-  it("streams the canonical cancellation event to connected clients", async () => {
+  it("rejects an interrupt whose canonical identity is not active", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
@@ -368,35 +368,35 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
 
-    const eventStream = new CloudflareEventStreamAdapter();
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
-      eventStream,
+      undefined,
       { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
-    const streamResponse = await handler.handleEventsStreamRequest(
-      new Request(`https://brain.local/events/stream?runId=${runId}`),
-    );
-    const cancelResponse = await handler.handleCancelRequest(
-      new Request("https://brain.local/cancel", {
+    const interruptResponse = await handler.handleInterruptRequest(
+      new Request("https://brain.local/interrupt", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ runId }),
+        body: JSON.stringify({
+          runId,
+          workspaceId: "wrk_123456",
+          sessionId: "session-123456",
+          threadId: "thr_123456",
+          turnId: "trn_123456",
+          runAttemptId: "attempt_123456",
+        }),
       }),
     );
 
-    expect(cancelResponse.status).toBe(200);
-    await expect(streamResponse.text()).resolves.toContain(
-      `"type":"${RUN_EVENT_TYPES.RUN_STATUS_CHANGED}"`,
-    );
+    expect(interruptResponse.status).toBe(409);
   });
 
-  it("does not queue cancel behind the execution lock", async () => {
+  it("does not queue interrupt behind the execution lock", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
@@ -418,17 +418,24 @@ describe("RunEngineRequestHandler", () => {
       { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
-    const cancelResponse = await handler.handleCancelRequest(
-      new Request("https://brain.local/cancel", {
+    const interruptResponse = await handler.handleInterruptRequest(
+      new Request("https://brain.local/interrupt", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ runId }),
+        body: JSON.stringify({
+          runId,
+          workspaceId: "wrk_123456",
+          sessionId: "session-123456",
+          threadId: "thr_123456",
+          turnId: "trn_123456",
+          runAttemptId: "attempt_123456",
+        }),
       }),
     );
 
-    expect(cancelResponse.status).toBe(200);
+    expect(interruptResponse.status).toBe(409);
     expect(withExecutionLock).not.toHaveBeenCalled();
   });
 

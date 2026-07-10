@@ -16,6 +16,9 @@ import {
   createThreadId,
   createTurnId,
   EventSequenceSchema,
+  RunAttemptIdSchema,
+  ThreadIdSchema,
+  WorkspaceIdSchema,
   type LifecycleEvent,
   RunIdSchema,
   TurnDiffPayloadSchema,
@@ -65,8 +68,13 @@ import {
   enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
 
-const CancelRunRequestSchema = z.object({
+const InterruptRunRequestSchema = z.object({
   runId: RunIdSchema,
+  workspaceId: WorkspaceIdSchema,
+  sessionId: z.string().trim().min(1),
+  threadId: ThreadIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
 });
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
@@ -114,14 +122,27 @@ export interface RunEngineRequestHandlerDependencies {
   lifecycleEventStream?: LifecycleEventStreamPort;
 }
 
+type TurnRuntimeIdentity = z.infer<typeof InterruptRunRequestSchema> & {
+  sessionId: string;
+};
+
 export class RunEngineRequestHandler {
   private readonly fallbackLifecycleEventStream =
     new CloudflareLifecycleEventStreamAdapter();
 
   private readonly turnToRunMap = new Map<string, string>();
+  private readonly turnRuntimeIdentities = new Map<
+    string,
+    TurnRuntimeIdentity
+  >();
+  private readonly activeInterrupts = new Map<
+    string,
+    (turnId: string, reason: string) => Promise<void>
+  >();
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
+  private static readonly TURN_IDENTITY_STORAGE_KEY = "turnRuntimeIdentities";
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -350,92 +371,78 @@ export class RunEngineRequestHandler {
     return runEngineJsonResponse(request, this.env, activity);
   }
 
-  async handleCancelRequest(request: Request): Promise<Response> {
-    let runId: string;
+  async handleInterruptRequest(request: Request): Promise<Response> {
+    let payload: TurnRuntimeIdentity;
     try {
-      const payload = await parseRequestBody(request, "run-cancel");
-      const validated = validateWithSchema<{ runId: string }>(
-        payload,
-        CancelRunRequestSchema,
-        "run-cancel",
-      );
-      runId = validated.runId;
+      const body = await parseRequestBody(request, "run-interrupt");
+      const validated = validateWithSchema<
+        z.infer<typeof InterruptRunRequestSchema>
+      >(body, InterruptRunRequestSchema, "run-interrupt");
+      payload = validated;
     } catch {
       return runEngineErrorResponse(
         request,
         this.env,
-        "Invalid cancel payload",
+        "Invalid interrupt payload",
         400,
       );
     }
 
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
-    const taskRepo = new TaskRepository(runtimeState);
-
-    const run = await runRepo.getById(runId);
+    const run = await runRepo.getById(payload.runId);
     if (!run) {
       return runEngineJsonResponse(request, this.env, {
-        runId,
-        cancelled: false,
+        runId: payload.runId,
+        accepted: false,
         status: null,
       });
     }
-    const runEventRecorder = new RunEventRecorder(
-      new RunEventRepository(runtimeState),
-      runId,
-      run.sessionId,
-      async (event) => {
-        await this.persistCanonicalRunEvent(event, "run-cancel");
-        this.emitLiveEvent(event);
-      },
-    );
 
-    const isTerminal =
-      run.status === "COMPLETED" ||
-      run.status === "FAILED" ||
-      run.status === "CANCELLED";
-    if (isTerminal) {
+    const identity = this.turnRuntimeIdentities.get(payload.turnId);
+    if (
+      !identity ||
+      run.sessionId !== payload.sessionId ||
+      !sameTurnRuntimeIdentity(identity, payload)
+    ) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Interrupt identity does not match the active run",
+        409,
+      );
+    }
+
+    const replay = await this.createLifecycleEventStore().replay({
+      turnId: payload.turnId,
+      afterSequence: null,
+      limit: 1_000,
+    });
+    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
+    if (terminalEvent) {
       return runEngineJsonResponse(request, this.env, {
-        runId,
-        cancelled: false,
-        status: run.status,
+        runId: payload.runId,
+        accepted: false,
+        status: "settled",
+        terminalEvent,
       });
     }
 
-    const previousStatus = run.status;
-    run.transition("CANCELLED");
-    await runRepo.update(run);
-    await runEventRecorder.recordRunStatusChanged(
-      previousStatus,
-      run.status,
-      RUN_WORKFLOW_STEPS.EXECUTION,
-      "user_cancelled",
-    );
-    await runEventRecorder.recordMessageEmitted(
-      "assistant",
-      "The run was cancelled before execution could finish.",
-      { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
-      { phase: "final_answer", status: "completed" },
-    );
-
-    let cancelledTasks = 0;
-    const tasks = await taskRepo.getByRun(runId);
-    for (const task of tasks) {
-      if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
-        task.transition("CANCELLED");
-        await taskRepo.update(task);
-        cancelledTasks += 1;
-      }
+    const interrupt = this.activeInterrupts.get(payload.turnId);
+    if (!interrupt) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Turn is no longer interruptible",
+        409,
+      );
     }
-
-    this.completeRunStreamAfterCancel(run);
+    await interrupt(payload.turnId, "User interrupted the turn.");
 
     return runEngineJsonResponse(request, this.env, {
-      runId,
-      cancelled: true,
-      status: "CANCELLED",
-      cancelledTasks,
+      runId: payload.runId,
+      accepted: true,
+      status: "interrupt_requested",
     });
   }
 
@@ -669,7 +676,16 @@ export class RunEngineRequestHandler {
         const runAttemptId = createRunAttemptId();
         const threadId = createThreadId();
         await this.ensureTurnToRunMapLoaded();
-        await this.mapTurnToRun(turnId, payload.runId);
+        await this.mapTurnToRun(turnId, payload.runId, {
+          runId: payload.runId,
+          workspaceId: WorkspaceIdSchema.parse(
+            payload.workspaceId ?? payload.runId,
+          ),
+          threadId: threadId,
+          turnId,
+          runAttemptId,
+          sessionId: payload.sessionId,
+        });
         this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
@@ -731,16 +747,24 @@ export class RunEngineRequestHandler {
           stream: this.createLifecycleEventStream(),
         });
         await editArtifactCoordinator.prepare();
-        const executionResponse = await runtimeRunner.execute({
-          input: payload.input,
-          messages: payload.messages as CoreMessage[],
-          tools: runtimeTools,
-          lifecycleEvents: kernelLifecycleEvents,
-          turnId,
-          runAttemptId,
-          threadId,
-          workspaceId: payload.workspaceId,
+        this.activeInterrupts.set(turnId, async (requestedTurnId, reason) => {
+          await runtimeRunner.interrupt(TurnIdSchema.parse(requestedTurnId), reason);
         });
+        let executionResponse: Response;
+        try {
+          executionResponse = await runtimeRunner.execute({
+            input: payload.input,
+            messages: payload.messages as CoreMessage[],
+            tools: runtimeTools,
+            lifecycleEvents: kernelLifecycleEvents,
+            turnId,
+            runAttemptId,
+            threadId,
+            workspaceId: payload.workspaceId,
+          });
+        } finally {
+          this.activeInterrupts.delete(turnId);
+        }
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
             correlationId: payload.correlationId,
@@ -887,23 +911,6 @@ export class RunEngineRequestHandler {
     }
   }
 
-  private completeRunStreamAfterCancel(run: {
-    id: string;
-    sessionId: string;
-  }): void {
-    try {
-      this.eventStream?.complete(run.id);
-    } catch (error) {
-      console.warn(
-        formatDiagnosticLogLine("run/events-live", "cancel-complete-failed", {
-          runId: run.id,
-          sessionId: run.sessionId,
-          error: sanitizeUnknownError(error),
-        }),
-      );
-    }
-  }
-
   private async persistCanonicalRunEvent(
     event: RunEvent,
     correlationId: string,
@@ -946,6 +953,14 @@ export class RunEngineRequestHandler {
         this.turnToRunMap.set(turnId, runId);
       }
     }
+    const identities = await this.ctx.storage.get<
+      Record<string, TurnRuntimeIdentity>
+    >(RunEngineRequestHandler.TURN_IDENTITY_STORAGE_KEY);
+    if (identities && typeof identities === "object") {
+      for (const [turnId, identity] of Object.entries(identities)) {
+        this.turnRuntimeIdentities.set(turnId, identity);
+      }
+    }
 
     this.turnToRunMapLoaded = true;
   }
@@ -959,10 +974,19 @@ export class RunEngineRequestHandler {
       RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
       entries,
     );
+    await this.ctx.storage.put(
+      RunEngineRequestHandler.TURN_IDENTITY_STORAGE_KEY,
+      Object.fromEntries(this.turnRuntimeIdentities),
+    );
   }
 
-  private async mapTurnToRun(turnId: string, runId: string): Promise<void> {
+  private async mapTurnToRun(
+    turnId: string,
+    runId: string,
+    identity: TurnRuntimeIdentity,
+  ): Promise<void> {
     this.turnToRunMap.set(turnId, runId);
+    this.turnRuntimeIdentities.set(turnId, identity);
     this.pruneStaleTurnMappings();
     await this.persistTurnToRunMap();
   }
@@ -976,6 +1000,7 @@ export class RunEngineRequestHandler {
     const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
     for (const key of toDelete) {
       this.turnToRunMap.delete(key);
+      this.turnRuntimeIdentities.delete(key);
     }
   }
 
@@ -1000,6 +1025,33 @@ export class RunEngineRequestHandler {
       },
     });
   }
+}
+
+function sameTurnRuntimeIdentity(
+  expected: TurnRuntimeIdentity,
+  received: TurnRuntimeIdentity,
+): boolean {
+  return (
+    expected.runId === received.runId &&
+    expected.workspaceId === received.workspaceId &&
+    expected.threadId === received.threadId &&
+    expected.turnId === received.turnId &&
+    expected.runAttemptId === received.runAttemptId &&
+    expected.sessionId === received.sessionId
+  );
+}
+
+function isTerminalLifecycleEvent(
+  event: LifecycleEvent,
+): event is Extract<
+  LifecycleEvent,
+  { type: "turn.completed" | "turn.failed" | "turn.interrupted" }
+> {
+  return (
+    event.type === "turn.completed" ||
+    event.type === "turn.failed" ||
+    event.type === "turn.interrupted"
+  );
 }
 
 function readLatestUserMessageId(
