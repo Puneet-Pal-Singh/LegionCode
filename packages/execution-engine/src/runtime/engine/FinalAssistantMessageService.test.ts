@@ -36,4 +36,13 @@ describe("FinalAssistantMessageService", () => {
     expect(result.metadata.outcomeCode).toBe("FINALIZATION_MISSING_EVIDENCE");
     expect(result.parts).toHaveLength(1);
   });
+
+  it("persists the same single final part used for replay", () => {
+    const result = new FinalAssistantMessageService().build({
+      ...completed,
+      finalParts: [{ type: "final", text: "Replay me." }],
+    });
+
+    expect(result.metadata.finalParts).toEqual(result.parts);
+  });
 });

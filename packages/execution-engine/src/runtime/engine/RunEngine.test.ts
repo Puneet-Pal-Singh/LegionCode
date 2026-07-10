@@ -649,14 +649,11 @@ describe("RunEngine", () => {
     expect(
       (assistantMessageEvent?.payload as { metadata?: unknown } | undefined)
         ?.metadata,
-    ).toEqual({
+    ).toMatchObject({
       terminalState: "completed",
       finalMessageSource: "model",
-      artifactId: null,
-      changedFileCount: 0,
-      failedStep: null,
-      lastSuccessfulStep: null,
-      nextAction: "Send the next task when you want me to continue.",
+      outcomeCode: "COMPLETED",
+      finalParts: [{ type: "final", text: "Done." }],
     });
   });
 

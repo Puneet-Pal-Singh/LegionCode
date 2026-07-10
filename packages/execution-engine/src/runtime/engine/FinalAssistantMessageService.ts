@@ -33,17 +33,19 @@ export class FinalAssistantMessageService {
       .trim();
     const source = modelText ? "model" : "runtime";
     const text = modelText || buildRuntimeFinalText(input);
+    const finalPart = { type: "final" as const, text };
     const metadata = {
       ...(input.metadata ?? {}),
       terminalState: input.terminalState,
       outcomeCode: input.outcomeCode,
-      code: input.outcomeCode,
+      code: input.metadata?.code ?? input.outcomeCode,
       finalMessageSource: source,
+      finalParts: [finalPart],
     };
 
     return {
       content: text,
-      parts: [{ type: "final", text }],
+      parts: [finalPart],
       source,
       metadata,
     };
