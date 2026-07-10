@@ -315,3 +315,17 @@ export {
   type PermissionPolicyDecision,
   type PermissionRiskLevel,
 } from "./permissions.js";
+export {
+  TRANSCRIPT_PART_SCHEMA_VERSION,
+  TranscriptPartSchema,
+  TranscriptPartDeltaSchema,
+  TranscriptPartEventSchema,
+  TranscriptPartIdSchema,
+  isVisibleTranscriptPart,
+  projectVisibleTranscriptText,
+  replayTranscriptPartEvents,
+  type TranscriptPart,
+  type TranscriptPartDelta,
+  type TranscriptPartEvent,
+  type TranscriptPartId,
+} from "./transcript-parts.js";

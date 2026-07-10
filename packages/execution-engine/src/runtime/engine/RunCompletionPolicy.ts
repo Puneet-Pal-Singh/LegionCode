@@ -5,6 +5,7 @@ import {
   RUN_TERMINAL_STATES,
   RUN_WORKFLOW_STEPS,
 } from "@repo/shared-types";
+import type { TranscriptPart } from "@repo/platform-protocol";
 import { RunTerminalStateSchema } from "@repo/shared-types";
 import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
@@ -57,6 +58,7 @@ export interface RunCompletionDependencies {
 interface RunAssistantFinalizationParams {
   run: Run;
   text: string;
+  modelParts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
   deps: RunCompletionDependencies;
 }
@@ -135,9 +137,10 @@ async function persistFinalAssistantRun(
   const finalMessage = buildFinalAssistantMessage({
     run,
     finalParts:
-      finalization.contract.settled && text.trim()
+      finalization.contract.settled && !params.modelParts?.length && text.trim()
         ? [{ type: "final", text }]
         : [],
+    modelParts: params.modelParts,
     metadata: finalMetadata,
     settlement,
   });

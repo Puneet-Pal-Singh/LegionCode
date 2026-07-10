@@ -173,23 +173,25 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      text: '{ "success": true, "output": "" }',
+      text: "",
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
 
     await expect(response.text()).resolves.toContain(
-      '{ "success": true, "output": "" }',
+      "The run completed without a model-written final response.",
     );
     expect(run.output?.finalSummary).toContain(
-      '{ "success": true, "output": "" }',
+      "The run completed without a model-written final response.",
     );
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
-      '{ "success": true, "output": "" }',
+      expect.stringContaining(
+        "The run completed without a model-written final response.",
+      ),
       expect.objectContaining({
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
-        finalMessageSource: "model",
+        finalMessageSource: "runtime",
       }),
     );
   });
@@ -201,6 +203,19 @@ describe("RunCompletionPolicy", () => {
     await completeRunWithAssistantMessage({
       run,
       text: "Done. I changed the requested files.",
+      modelParts: [
+        {
+          id: "model-final-part",
+          schemaVersion: 1,
+          runId: run.id,
+          turnId: run.id,
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "final",
+          visibility: "visible",
+          text: "Done. I changed the requested files.",
+        },
+      ],
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });

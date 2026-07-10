@@ -672,6 +672,7 @@ export class RunEngine implements IRunEngine {
         run,
         finalOutput,
         mergedMetadata,
+        finalOutput === finalMessage.text ? finalMessage.parts : undefined,
       );
     } catch (error) {
       if (error instanceof PermissionGateError) {
@@ -946,10 +947,12 @@ export class RunEngine implements IRunEngine {
     run: Run,
     text: string,
     metadata?: Record<string, unknown>,
+    modelParts?: import("@repo/platform-protocol").TranscriptPart[],
   ): Promise<Response> {
     return finalizeRunWithAssistantMessagePolicy({
       run,
       text,
+      modelParts,
       metadata,
       deps: this.getRunCompletionDependencies(),
     });

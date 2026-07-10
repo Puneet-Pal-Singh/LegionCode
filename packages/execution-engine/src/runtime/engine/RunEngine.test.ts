@@ -961,9 +961,9 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         runId: TEST_RUN_ID,
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway, planner },
+      { llmGateway: adaptLegacyTestGateway(llmGateway), planner },
     );
 
     const response = await runEngine.execute(
@@ -1056,9 +1056,9 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         runId: TEST_RUN_ID,
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
     const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
     let resolvedRequestId: string | null = null;
@@ -1232,9 +1232,9 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         runId: TEST_RUN_ID,
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const toolWarningLog = vi
@@ -1325,9 +1325,9 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         runId: TEST_RUN_ID,
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const response = await runEngine.execute(
@@ -1421,9 +1421,9 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         runId: TEST_RUN_ID,
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
     const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
 
@@ -1886,7 +1886,7 @@ describe("RunEngine", () => {
         sessionId: "session-1",
         runId: TEST_RUN_ID,
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
       { llmGateway, planner },
     );
@@ -2238,9 +2238,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-golden-flow",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const response = await runEngine.execute(
@@ -2370,9 +2370,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-tool-failure",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const response = await runEngine.execute(
@@ -2586,9 +2586,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-continue-git-recovery",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const firstResponse = await runEngine.execute(
@@ -2885,9 +2885,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-pr-recovery",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const firstResponse = await runEngine.execute(
@@ -3125,9 +3125,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-push-recovery",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const firstResponse = await runEngine.execute(
@@ -3314,9 +3314,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-untrusted-commit-resume-push",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
     const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
 
@@ -3491,9 +3491,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-git-stage-workspace-evidence",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
     const approvalStore = new PermissionApprovalStore(state, TEST_RUN_ID);
 
@@ -3625,9 +3625,9 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-git-stage-scope-mismatch",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
-      { llmGateway },
+      { llmGateway: adaptLegacyTestGateway(llmGateway) },
     );
 
     const response = await runEngine.execute(
@@ -3774,7 +3774,7 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-branch-bootstrap",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
       { llmGateway, workspaceBootstrapper },
     );
@@ -3978,7 +3978,7 @@ describe("RunEngine", () => {
         runId: TEST_RUN_ID,
         correlationId: "corr-restore-edits",
       },
-      new CodingAgent(llmGateway, executionService),
+      new CodingAgent(adaptLegacyTestGateway(llmGateway), executionService),
       undefined,
       { llmGateway, workspaceBootstrapper },
     );
@@ -5028,7 +5028,9 @@ function createRunEngineForRun({
   sessionId?: string;
   dependencies?: Partial<RunEngineDependencies>;
 } = {}): RunEngine {
-  const llmGateway = dependencies.llmGateway ?? createMockLLMGateway();
+  const llmGateway = adaptLegacyTestGateway(
+    dependencies.llmGateway ?? createMockLLMGateway(),
+  );
   return new RunEngine(
     state,
     {
@@ -5040,6 +5042,39 @@ function createRunEngineForRun({
     undefined,
     { ...dependencies, llmGateway },
   );
+}
+
+function adaptLegacyTestGateway(gateway: ILLMGateway): ILLMGateway {
+  return {
+    ...gateway,
+    generateText: async (request) => {
+      const result = await gateway.generateText(request);
+      if (Array.isArray(result.parts)) {
+        return result;
+      }
+      const legacyText = (result as unknown as { text?: unknown }).text;
+      return {
+        ...result,
+        parts:
+          typeof legacyText === "string" && legacyText.length > 0
+            ? [
+                {
+                  id: `test-part-${request.context.runId}-${request.context.phase}`,
+                  schemaVersion: 1 as const,
+                  runId: request.context.runId,
+                  turnId: request.context.turnId ?? request.context.runId,
+                  sequence: 0,
+                  createdAt: "2026-07-10T00:00:00.000Z",
+                  type: "visible_text" as const,
+                  visibility: "visible" as const,
+                  text: legacyText,
+                  finalized: false,
+                },
+              ]
+            : [],
+      };
+    },
+  };
 }
 
 function createMockLLMGateway(): ILLMGateway {

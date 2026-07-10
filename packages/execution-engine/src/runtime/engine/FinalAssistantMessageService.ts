@@ -1,16 +1,21 @@
+import {
+  projectVisibleTranscriptText,
+  type TranscriptPart,
+} from "@repo/platform-protocol";
 import type { RunTerminalState } from "@repo/shared-types";
-import type { NormalizedModelPart } from "../llm/ModelOutputParts.js";
 import type { TerminalOutcomeCode } from "./TerminalSettlementProjector.js";
 
-export type FinalVisiblePart = Extract<
-  NormalizedModelPart,
-  { type: "visible_text" | "final" }
->;
+export type FinalVisiblePart = {
+  type: "visible_text" | "final";
+  text: string;
+};
 
 export interface FinalAssistantMessageInput {
   terminalState: RunTerminalState;
   outcomeCode: TerminalOutcomeCode;
   finalParts?: readonly FinalVisiblePart[];
+  modelParts?: readonly TranscriptPart[];
+  runtimeText?: string;
   detail?: string;
   nextStep?: string;
   metadata?: Record<string, unknown>;
@@ -26,13 +31,16 @@ export interface FinalAssistantMessageResult {
 /** The only owner allowed to project a user-visible terminal part. */
 export class FinalAssistantMessageService {
   build(input: FinalAssistantMessageInput): FinalAssistantMessageResult {
-    const modelText = input.finalParts
-      ?.map((part) => part.text.trim())
-      .filter(Boolean)
-      .join("\n\n")
-      .trim();
+    const typedModelText = input.modelParts
+      ? projectVisibleTranscriptText(input.modelParts)
+      : input.finalParts
+          ?.map((part) => part.text)
+          .filter((text) => text.trim().length > 0)
+          .join("\n\n")
+          .trim();
+    const modelText = typedModelText || "";
     const source = modelText ? "model" : "runtime";
-    const text = modelText || buildRuntimeFinalText(input);
+    const text = modelText || input.runtimeText || buildRuntimeFinalText(input);
     const finalPart = { type: "final" as const, text };
     const metadata = {
       ...(input.metadata ?? {}),
@@ -43,12 +51,7 @@ export class FinalAssistantMessageService {
       finalParts: [finalPart],
     };
 
-    return {
-      content: text,
-      parts: [finalPart],
-      source,
-      metadata,
-    };
+    return { content: text, parts: [finalPart], source, metadata };
   }
 }
 
@@ -80,7 +83,8 @@ const outcomeCopy: Record<
   },
   APPROVAL_RESOLVED: {
     title: "Your approval decision was recorded.",
-    detail: "The approved action can continue from the recorded terminal state.",
+    detail:
+      "The approved action can continue from the recorded terminal state.",
     nextStep: "Send the next task when you want me to continue.",
   },
   APPROVAL_DENIED: {
@@ -114,7 +118,8 @@ const outcomeCopy: Record<
     nextStep: "Retry the request or send a narrower follow-up.",
   },
   FINALIZATION_MISSING_EVIDENCE: {
-    title: "I cannot finalize that answer yet because required evidence is missing.",
+    title:
+      "I cannot finalize that answer yet because required evidence is missing.",
     detail: "The requested result was not projected as successful.",
     nextStep: "Run the missing typed steps and try again.",
   },

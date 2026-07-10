@@ -10,6 +10,7 @@ import {
 import type { LLMGatewayDependencies } from "./LLMGateway.js";
 import type { ProviderCapabilityResolver } from "./types.js";
 import type { LLMUsage } from "../cost/index.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 
 const baseRequest = {
   context: {
@@ -95,7 +96,7 @@ describe("LLMGateway provider capabilities", () => {
 
     const response = await gateway.generateText(baseRequest);
 
-    expect(response.text).toBe("ok");
+    expect(projectVisibleTranscriptText(response.parts)).toBe("ok");
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
   });
 
