@@ -1,163 +1,126 @@
 import {
-  RUN_TERMINAL_STATES,
-  type RunTerminalState,
-} from "@repo/shared-types";
-import { buildFinalSummaryFrame } from "./FinalSummaryBuilder.js";
-import {
   projectVisibleTranscriptText,
   type TranscriptPart,
 } from "@repo/platform-protocol";
+import type { RunTerminalState } from "@repo/shared-types";
+import type { TerminalOutcomeCode } from "./TerminalSettlementProjector.js";
 
-export type FinalAssistantMessageSource = "model" | "runtime";
+export type FinalVisiblePart = {
+  type: "visible_text" | "final";
+  text: string;
+};
 
 export interface FinalAssistantMessageInput {
-  runId: string;
-  sessionId: string;
   terminalState: RunTerminalState;
+  outcomeCode: TerminalOutcomeCode;
+  finalParts?: readonly FinalVisiblePart[];
+  modelParts?: readonly TranscriptPart[];
   runtimeText?: string;
-  modelParts?: TranscriptPart[];
   detail?: string;
   nextStep?: string;
   metadata?: Record<string, unknown>;
-  useSummaryFrame?: boolean;
 }
 
 export interface FinalAssistantMessageResult {
   content: string;
-  source: FinalAssistantMessageSource;
+  parts: readonly [{ type: "final"; text: string }];
+  source: "model" | "runtime";
   metadata: Record<string, unknown>;
 }
 
+/** The only owner allowed to project a user-visible terminal part. */
 export class FinalAssistantMessageService {
   build(input: FinalAssistantMessageInput): FinalAssistantMessageResult {
-    const isModelAuthored = Boolean(input.modelParts?.length);
-    const normalizedModelText = isModelAuthored
-      ? normalizeFinalAssistantText(input.modelParts)
-      : normalizeRuntimeAuthoredFinalText(input.runtimeText);
-    const source = normalizedModelText
-      ? isModelAuthored
-        ? "model"
-        : "runtime"
-      : "runtime";
-    const content = normalizedModelText || buildRuntimeFinalText(input);
-
-    return {
-      content,
-      source,
-      metadata: mergeFinalMetadata(input.metadata, input.terminalState, source),
+    const typedModelText = input.modelParts
+      ? projectVisibleTranscriptText(input.modelParts)
+      : input.finalParts
+          ?.map((part) => part.text)
+          .filter((text) => text.trim().length > 0)
+          .join("\n\n")
+          .trim();
+    const modelText = typedModelText || "";
+    const source = modelText ? "model" : "runtime";
+    const text = modelText || input.runtimeText || buildRuntimeFinalText(input);
+    const finalPart = { type: "final" as const, text };
+    const metadata = {
+      ...(input.metadata ?? {}),
+      terminalState: input.terminalState,
+      outcomeCode: input.outcomeCode,
+      code: input.metadata?.code ?? input.outcomeCode,
+      finalMessageSource: source,
+      finalParts: [finalPart],
     };
-  }
-}
 
-function normalizeRuntimeAuthoredFinalText(value: string | undefined): string {
-  if (!value) {
-    return "";
+    return { content: text, parts: [finalPart], source, metadata };
   }
-  const normalized = value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-  return normalized;
-}
-
-export function normalizeFinalAssistantText(
-  modelParts: TranscriptPart[] | undefined,
-): string {
-  const normalized = projectVisibleTranscriptText(modelParts ?? []);
-  return normalized;
 }
 
 function buildRuntimeFinalText(input: FinalAssistantMessageInput): string {
-  if (input.useSummaryFrame) {
-    return buildFinalSummaryFrame({
-      terminalState: input.terminalState,
-      detail: input.detail ?? resolveDefaultDetail(input.terminalState),
-      nextStep: input.nextStep ?? resolveDefaultNextStep(input.terminalState),
-    });
-  }
-
-  const detail = normalizeRuntimeSentence(
-    input.detail ?? resolveDefaultDetail(input.terminalState),
-  );
-  const nextStep = normalizeRuntimeSentence(
-    input.nextStep ?? resolveDefaultNextStep(input.terminalState),
-  );
-  return `${resolveRuntimeOutcome(input.terminalState)}\n\n${detail} ${nextStep}`.trim();
+  const outcome = outcomeCopy[input.outcomeCode];
+  const detail = input.detail ?? outcome.detail;
+  const nextStep = input.nextStep ?? outcome.nextStep;
+  return `${outcome.title}\n\n${detail} ${nextStep}`.trim();
 }
 
-function mergeFinalMetadata(
-  metadata: Record<string, unknown> | undefined,
-  terminalState: RunTerminalState,
-  source: FinalAssistantMessageSource,
-): Record<string, unknown> {
-  return {
-    ...(metadata ?? {}),
-    terminalState,
-    finalMessageSource: source,
-  };
-}
-
-function resolveRuntimeOutcome(terminalState: RunTerminalState): string {
-  switch (terminalState) {
-    case RUN_TERMINAL_STATES.COMPLETED:
-      return "I finished the run, but the model did not produce a final response.";
-    case RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS:
-      return "I finished part of the run, but there were warnings and the model did not produce a final response.";
-    case RUN_TERMINAL_STATES.APPROVAL_DENIED:
-      return "I stopped because you denied the requested action.";
-    case RUN_TERMINAL_STATES.FAILED_TOOL:
-      return "I could not finish because a required tool step failed.";
-    case RUN_TERMINAL_STATES.FAILED_VALIDATION:
-      return "I could not continue because the request did not pass validation.";
-    case RUN_TERMINAL_STATES.FAILED_POLICY:
-      return "I could not continue because policy blocked this action.";
-    case RUN_TERMINAL_STATES.INTERRUPTED:
-      return "The run was interrupted before it completed.";
-    case RUN_TERMINAL_STATES.APPROVAL_REQUIRED:
-      return "I need your approval before I can continue.";
-    case RUN_TERMINAL_STATES.APPROVAL_RESOLVED:
-      return "Your approval decision was recorded.";
-    case RUN_TERMINAL_STATES.FAILED_RUNTIME:
-    default:
-      return "I could not finish because the runtime hit an internal error.";
-  }
-}
-
-function resolveDefaultDetail(terminalState: RunTerminalState): string {
-  switch (terminalState) {
-    case RUN_TERMINAL_STATES.APPROVAL_DENIED:
-      return "The requested action was not run, and I did not make further workspace changes after the denial.";
-    case RUN_TERMINAL_STATES.APPROVAL_REQUIRED:
-      return "The next action needs an approval decision before execution.";
-    case RUN_TERMINAL_STATES.COMPLETED:
-      return "The run reached a completed state without a visible model-written final response.";
-    case RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS:
-      return "The run reached a terminal state with warnings and without a visible model-written final response.";
-    case RUN_TERMINAL_STATES.INTERRUPTED:
-      return "The run stopped before the remaining work could finish.";
-    default:
-      return "The runtime ended without a visible model-written final response.";
-  }
-}
-
-function resolveDefaultNextStep(terminalState: RunTerminalState): string {
-  switch (terminalState) {
-    case RUN_TERMINAL_STATES.APPROVAL_DENIED:
-      return "Send a revised instruction or approve a safer action to continue.";
-    case RUN_TERMINAL_STATES.APPROVAL_REQUIRED:
-      return "Choose an approval action to continue, or deny to stop this path.";
-    case RUN_TERMINAL_STATES.COMPLETED:
-      return "Send the next task when you want me to continue.";
-    case RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS:
-      return "Review the warning details and tell me which part to continue.";
-    case RUN_TERMINAL_STATES.INTERRUPTED:
-      return "Resubmit the request when you want me to continue.";
-    default:
-      return "Retry the request or send a narrower follow-up.";
-  }
-}
-
-function normalizeRuntimeSentence(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return "";
-  }
-  return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
-}
+const outcomeCopy: Record<
+  TerminalOutcomeCode,
+  { title: string; detail: string; nextStep: string }
+> = {
+  COMPLETED: {
+    title: "The run completed without a model-written final response.",
+    detail: "The runtime reached a terminal state.",
+    nextStep: "Send the next task when you want me to continue.",
+  },
+  COMPLETED_WITH_WARNINGS: {
+    title: "The run completed with warnings.",
+    detail: "Review the warning details before continuing.",
+    nextStep: "Send a follow-up when you want me to continue.",
+  },
+  APPROVAL_REQUIRED: {
+    title: "I need your approval before I can continue.",
+    detail: "The next action is waiting for an approval decision.",
+    nextStep: "Choose an approval action or deny it to stop this path.",
+  },
+  APPROVAL_RESOLVED: {
+    title: "Your approval decision was recorded.",
+    detail:
+      "The approved action can continue from the recorded terminal state.",
+    nextStep: "Send the next task when you want me to continue.",
+  },
+  APPROVAL_DENIED: {
+    title: "I stopped because you denied the requested action.",
+    detail: "The denied action was not run.",
+    nextStep: "Send a revised instruction to continue.",
+  },
+  TOOL_EXECUTION_FAILED: {
+    title: "I could not finish because a required tool step failed.",
+    detail: "The terminal failure is recorded in the run evidence.",
+    nextStep: "Retry the failed step or send a narrower follow-up.",
+  },
+  VALIDATION_FAILED: {
+    title: "I could not continue because validation failed.",
+    detail: "The runtime rejected the requested terminal result.",
+    nextStep: "Retry with a narrower request.",
+  },
+  POLICY_BLOCKED: {
+    title: "I could not continue because policy blocked this action.",
+    detail: "No blocked action was reported as completed.",
+    nextStep: "Request a permitted alternative.",
+  },
+  INTERRUPTED: {
+    title: "The run was interrupted before it completed.",
+    detail: "The remaining work was not reported as complete.",
+    nextStep: "Resubmit the request when you want me to continue.",
+  },
+  RUNTIME_FAILED: {
+    title: "I could not finish because the runtime hit an internal error.",
+    detail: "The runtime recorded the terminal failure.",
+    nextStep: "Retry the request or send a narrower follow-up.",
+  },
+  FINALIZATION_MISSING_EVIDENCE: {
+    title:
+      "I cannot finalize that answer yet because required evidence is missing.",
+    detail: "The requested result was not projected as successful.",
+    nextStep: "Run the missing typed steps and try again.",
+  },
+};

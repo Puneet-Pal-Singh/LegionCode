@@ -268,12 +268,14 @@ export interface RunCompletedPayload {
   status: Extract<RunStatus, "complete">;
   totalDurationMs: number;
   toolsUsed: number;
+  outcomeCode?: string;
 }
 
 export interface RunFailedPayload {
   status: Extract<RunStatus, "failed">;
   error: string;
   totalDurationMs: number;
+  outcomeCode?: string;
 }
 
 // ============================================================================

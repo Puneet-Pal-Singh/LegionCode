@@ -113,6 +113,7 @@ import {
   resolveNextStepFromSummaryText,
   resolveSummaryReason,
 } from "./FinalSummaryBuilder.js";
+import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
 import {
   resolveLoopTerminalState,
   shouldUseDeterministicTerminalSummary,
@@ -751,6 +752,7 @@ export class RunEngine implements IRunEngine {
       memoryCoordinator: this.memoryCoordinator,
       persistConversationMessages: this.persistConversationMessages.bind(this),
       runEventRecorder: this.runEventRecorder,
+      readCanonicalRunEvents: this.runEventRepo.getByRun.bind(this.runEventRepo),
       runRepo: this.runRepo,
       safeMemoryOperation: this.safeMemoryOperation.bind(this),
     };
@@ -790,20 +792,19 @@ export class RunEngine implements IRunEngine {
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
     );
-    if (
-      isFinalSummaryContractEnabled(
-        run.input.metadata,
-        this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
-      )
-    ) {
+    if (isFinalSummaryContractEnabled(
+      run.input.metadata,
+      this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
+    )) {
+      const finalMessage = new FinalAssistantMessageService().build({
+        terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
+        outcomeCode: "INTERRUPTED",
+        finalParts: [],
+      });
       await this.runEventRecorder.recordMessageEmitted(
         "assistant",
-        buildFinalSummaryFrame({
-          terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
-          detail: "The run was cancelled before execution could finish.",
-          nextStep: "Resubmit the request when you want me to continue.",
-        }),
-        { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
+        redactUserFacingOutput(finalMessage.content),
+        finalMessage.metadata,
       );
     }
     const tasks = await this.taskRepo.getByRun(runId);
@@ -1050,7 +1051,6 @@ function readLatestUserMessageId(messages: CoreMessage[]): string | null {
   }
   return null;
 }
-
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);

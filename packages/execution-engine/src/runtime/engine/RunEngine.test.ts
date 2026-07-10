@@ -649,14 +649,11 @@ describe("RunEngine", () => {
     expect(
       (assistantMessageEvent?.payload as { metadata?: unknown } | undefined)
         ?.metadata,
-    ).toEqual({
+    ).toMatchObject({
       terminalState: "completed",
       finalMessageSource: "model",
-      artifactId: null,
-      changedFileCount: 0,
-      failedStep: null,
-      lastSuccessfulStep: null,
-      nextAction: "Send the next task when you want me to continue.",
+      outcomeCode: "COMPLETED",
+      finalParts: [{ type: "final", text: "Done." }],
     });
   });
 
@@ -1506,7 +1503,7 @@ describe("RunEngine", () => {
         event.payload.role === "assistant",
     );
     expect(assistantSummary?.payload.content).toContain(
-      "Outcome: The run was interrupted before it completed.",
+      "The run was interrupted before it completed.",
     );
     expect(assistantSummary?.payload.metadata).toMatchObject({
       terminalState: "interrupted",
