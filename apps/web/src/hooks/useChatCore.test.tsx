@@ -2,6 +2,13 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentStore } from "../store/agentStore";
 import { useChatCore } from "./useChatCore";
+import { createConversationScope } from "./conversationScope";
+
+const testScope = createConversationScope({
+  workspaceId: "workspace-1",
+  sessionId: "session-1",
+  runId: "run-2",
+});
 
 const { mockUseChat, mockResolveForChat } = vi.hoisted(() => ({
   mockUseChat: vi.fn(),
@@ -210,7 +217,7 @@ describe("useChatCore", () => {
     expect(result.current.serverTurnId).toBe("trn_firstresponse0001");
   });
 
-  it("clears local chat messages when switching run scope", () => {
+  it("does not hydrate transcript state from the global cache on scope changes", () => {
     const { rerender } = renderHook(
       ({ sessionId, runId }) => useChatCore(sessionId, runId),
       {
@@ -227,10 +234,10 @@ describe("useChatCore", () => {
       rerender({ sessionId: "session-1", runId: "run-2" });
     });
 
-    expect(setMessagesSpy).toHaveBeenCalledWith([]);
+    expect(setMessagesSpy).not.toHaveBeenCalled();
   });
 
-  it("does not expose previous-run messages during a scope switch", () => {
+  it("leaves transcript ownership with the remounted Vercel chat instance", () => {
     const staleMessages = [
       {
         id: "old-message",
@@ -254,7 +261,7 @@ describe("useChatCore", () => {
       setMessages: setMessagesSpy,
       append: appendSpy,
     });
-    agentStore.setMessages("run-2", currentMessages);
+    agentStore.setMessages(testScope, currentMessages);
 
     const { result, rerender } = renderHook(
       ({ sessionId, runId }) => useChatCore(sessionId, runId),
@@ -270,8 +277,8 @@ describe("useChatCore", () => {
       rerender({ sessionId: "session-2", runId: "run-2" });
     });
 
-    expect(result.current.messages).toEqual(currentMessages);
-    expect(result.current.messages).not.toEqual(staleMessages);
+    expect(result.current.messages).toEqual(staleMessages);
+    expect(agentStore.getMessages(testScope)).toEqual(currentMessages);
   });
 
   it("sends explicit plan mode in request overrides", async () => {
@@ -537,12 +544,25 @@ describe("useChatCore", () => {
           resolveAppend = resolve;
         }),
     );
-    agentStore.setMessages("run-repeated-prompt", [
+    agentStore.setMessages(
+      createConversationScope({
+        workspaceId: "session-1",
+        sessionId: "session-1",
+        runId: "run-repeated-prompt",
+      }),
+      [
       { id: "user-1", role: "user", content: "try again" },
       { id: "assistant-1", role: "assistant", content: "First answer" },
-    ]);
+      ],
+    );
     mockUseChat.mockReturnValue({
-      messages: agentStore.getMessages("run-repeated-prompt"),
+      messages: agentStore.getMessages(
+        createConversationScope({
+          workspaceId: "session-1",
+          sessionId: "session-1",
+          runId: "run-repeated-prompt",
+        }),
+      ),
       input: "",
       handleInputChange: vi.fn(),
       isLoading: false,

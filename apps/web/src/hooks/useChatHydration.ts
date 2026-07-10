@@ -3,6 +3,10 @@ import type { Message } from "@ai-sdk/react";
 import { ChatHydrationService } from "../services/ChatHydrationService";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import { useRetry } from "./useRetry";
+import {
+  conversationScopeKey,
+  type ConversationScope,
+} from "./conversationScope";
 
 interface UseChatHydrationResult {
   isHydrating: boolean;
@@ -18,17 +22,19 @@ const HYDRATION_RETRY_DELAY_MS = 300;
  * Single Responsibility: Only manage hydration lifecycle
  */
 export function useChatHydration(
-  sessionId: string,
-  runId: string,
+  scope: ConversationScope,
   messages: Message[],
   setMessages: (messages: Message[]) => void,
 ): UseChatHydrationResult {
+  const { sessionId, runId } = scope;
   const [isHydrating, setIsHydrating] = useState(false);
   const [hasHydrated, setHasHydrated] = useState(false);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
-  const scopeKey = `${sessionId}:${runId}`;
+  const scopeKey = conversationScopeKey(scope);
   const activeScopeKeyRef = useRef(scopeKey);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
   const messagesRef = useRef(messages);
 
   useEffect(() => {
@@ -70,11 +76,7 @@ export function useChatHydration(
     });
     const isCurrentScope = () =>
       !cancelled && activeScopeKeyRef.current === requestScopeKey;
-    const loadingTimer = window.setTimeout(() => {
-      if (isCurrentScope()) {
-        setIsHydrating(true);
-      }
-    }, 150);
+    setIsHydrating(true);
 
     const retryOnError = (error: unknown): void => {
       const message = error instanceof Error ? error.message : String(error);
@@ -94,8 +96,7 @@ export function useChatHydration(
     async function hydrate() {
       try {
         const result = await hydrationServiceRef.current.hydrateMessages(
-          sessionId,
-          runId,
+          scopeRef.current,
         );
 
         if (!isCurrentScope()) {
@@ -146,7 +147,6 @@ export function useChatHydration(
           retryOnError(error);
         }
       } finally {
-        window.clearTimeout(loadingTimer);
         if (isCurrentScope()) {
           setIsHydrating(false);
         }
@@ -157,7 +157,6 @@ export function useChatHydration(
 
     return () => {
       cancelled = true;
-      window.clearTimeout(loadingTimer);
     };
   }, [
     resetRetry,

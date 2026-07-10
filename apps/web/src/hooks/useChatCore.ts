@@ -7,7 +7,6 @@ import {
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,7 +16,6 @@ import {
 import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
-import { agentStore } from "../store/agentStore";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import {
@@ -42,6 +40,10 @@ import {
   type ChatImageAttachment,
 } from "../components/chat/chatImageAttachments";
 import { createRunId } from "../lib/run-id";
+import {
+  conversationScopeKey,
+  createConversationScope,
+} from "./conversationScope";
 
 type ChatUserContent =
   | string
@@ -97,6 +99,7 @@ export function useChatCore(
   externalRunId?: string,
   mode: RunMode = DEFAULT_RUN_MODE,
   productMode?: ProductMode,
+  workspaceId?: string,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
@@ -116,9 +119,21 @@ export function useChatCore(
   } | null>(null);
   const runId = externalRunId || internalRunId;
   const apiPath = chatStreamPath();
-  const scopeKey = `${sessionId}:${runId}`;
+  const conversationScope = useMemo(
+    () =>
+      createConversationScope({
+        // The current Web session API exposes its server-issued workspace
+        // boundary as the session identity. Keep it explicit at this client
+        // boundary so a future workspace id can be supplied without changing
+        // stream/cache ownership again.
+        workspaceId: workspaceId ?? sessionId,
+        sessionId,
+        runId,
+      }),
+    [runId, sessionId, workspaceId],
+  );
+  const scopeKey = conversationScopeKey(conversationScope);
   const activeScopeKeyRef = useRef(scopeKey);
-  const clearedScopeRef = useRef<string | null>(null);
   const isActiveScope = useCallback(
     (candidateScopeKey: string) =>
       activeScopeKeyRef.current === candidateScopeKey,
@@ -154,8 +169,9 @@ export function useChatCore(
     [],
   );
 
-  // Stable instance key - changes when runId changes
-  const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
+  // Vercel owns the stream instance. Its identity must include every
+  // transcript boundary, never only the run attempt.
+  const instanceKey = scopeKey;
   const {
     status,
     credentials,
@@ -267,17 +283,7 @@ export function useChatCore(
     credentials: "include",
     fetch: authenticatedChatFetch,
   });
-  const messagesReadyScopeKeyRef = useRef(scopeKey);
-  const pendingScopeMessagesRef = useRef<{
-    scopeKey: string;
-    messages: Message[];
-  } | null>(null);
-  const [, setMessagesScopeVersion] = useState(0);
-  const scopedMessagesBase =
-    messagesReadyScopeKeyRef.current === scopeKey
-      ? messages
-      : (pendingScopeMessagesRef.current?.messages ??
-        agentStore.getMessages(runId));
+  const scopedMessagesBase = messages;
   const scopedMessages = useMemo(
     () =>
       appendPendingUserMessage(
@@ -308,34 +314,6 @@ export function useChatCore(
     scopeKey,
     sessionId,
   ]);
-
-  useLayoutEffect(() => {
-    if (clearedScopeRef.current === scopeKey) return;
-    clearedScopeRef.current = scopeKey;
-    const scopedStoredMessages = agentStore.getMessages(runId);
-    messagesReadyScopeKeyRef.current = "";
-    pendingScopeMessagesRef.current = {
-      scopeKey,
-      messages: scopedStoredMessages,
-    };
-    setMessages(scopedStoredMessages);
-    setMessagesScopeVersion((version) => version + 1);
-  }, [runId, scopeKey, setMessages]);
-
-  useEffect(() => {
-    const pendingScope = pendingScopeMessagesRef.current;
-    if (
-      !pendingScope ||
-      pendingScope.scopeKey !== scopeKey ||
-      !haveSameMessageIds(messages, pendingScope.messages)
-    ) {
-      return;
-    }
-
-    pendingScopeMessagesRef.current = null;
-    messagesReadyScopeKeyRef.current = scopeKey;
-    setMessagesScopeVersion((version) => version + 1);
-  }, [messages, scopeKey]);
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {
@@ -904,13 +882,6 @@ function fetchWithSessionAuth(
     credentials: "include",
     headers,
   });
-}
-
-function haveSameMessageIds(left: Message[], right: Message[]): boolean {
-  return (
-    left.length === right.length &&
-    left.every((message, index) => message.id === right[index]?.id)
-  );
 }
 
 function summarizeMessageRoles(messages: Message[]): string {

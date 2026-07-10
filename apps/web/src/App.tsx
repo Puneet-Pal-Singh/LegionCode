@@ -1140,6 +1140,7 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <Workspace
+                  key={`${activeSessionId}:${activeSession?.activeRunId ?? ""}`}
                   sessionId={activeSessionId}
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}

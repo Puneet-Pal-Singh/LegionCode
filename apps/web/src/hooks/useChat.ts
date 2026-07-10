@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { useMemo, type FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
 import { useChatCore } from "./useChatCore";
@@ -8,6 +8,10 @@ import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
+import {
+  createConversationScope,
+  type ConversationScope,
+} from "./conversationScope";
 
 interface UseChatResult {
   messages: Message[];
@@ -42,6 +46,7 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
+  workspaceId?: string,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -59,19 +64,28 @@ export function useChat(
     isModelConfigReady,
     error,
     debugEvents,
-  } = useChatCore(sessionId, runId, mode, productMode);
+  } = useChatCore(sessionId, runId, mode, productMode, workspaceId);
+
+  const scope: ConversationScope = useMemo(
+    () =>
+      createConversationScope({
+        workspaceId: workspaceId ?? sessionId,
+        sessionId,
+        runId: activeRunId,
+      }),
+    [activeRunId, sessionId, workspaceId],
+  );
 
   // Handle message hydration
   const { isHydrating, hasHydrated } = useChatHydration(
-    sessionId,
-    activeRunId,
+    scope,
     messages,
     setMessages,
   );
 
   // Handle message persistence
   useChatPersistence({
-    runId: activeRunId,
+    scope,
     messages,
   });
 
