@@ -8,6 +8,27 @@ import type {
 
 export const THREAD_PROJECTION_VERSION = 1;
 
+export interface ThreadReadReceipt {
+  threadId: ThreadId;
+  viewerId: string;
+  lastAcknowledgedTerminalTurnId: string | null;
+  acknowledgedAt: string;
+}
+
+export interface AcknowledgeThreadInput {
+  threadId: ThreadId;
+  viewerId: string;
+  terminalTurnId: string;
+  acknowledgedAt: string;
+}
+
+export interface ApplyGeneratedTitleInput {
+  threadId: ThreadId;
+  title: string;
+  expectedTitleVersion: number;
+  terminalTurnId: string;
+}
+
 export interface ThreadProjectionEventInput {
   event: PlatformEvent;
   projectionSequence: number;
@@ -32,6 +53,12 @@ export interface ThreadProjectionRepository {
   getThreadProjection(
     threadId: ThreadId,
   ): Promise<ThreadProjectionSnapshot | null>;
+  getThreadReadReceipt(
+    threadId: ThreadId,
+    viewerId: string,
+  ): Promise<ThreadReadReceipt | null>;
+  acknowledgeThread(input: AcknowledgeThreadInput): Promise<ThreadReadReceipt>;
+  applyGeneratedTitle(input: ApplyGeneratedTitleInput): Promise<boolean>;
 }
 
 export class ThreadProjectionError extends Error {

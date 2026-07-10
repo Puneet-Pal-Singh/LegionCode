@@ -19,6 +19,7 @@ import {
   sessionArchivePath,
   sessionPinPath,
   sessionTitlePath,
+  sessionReadReceiptPath,
   sessionUnarchivePath,
   sessionUnpinPath,
   sessionsPath,
@@ -59,6 +60,10 @@ interface ServerSessionRecord {
   archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  titleVersion?: number;
+  titleStatus?: "pending" | "ready" | "failed";
+  lastTerminalTurnId?: string | null;
+  lastAcknowledgedTerminalTurnId?: string | null;
 }
 
 interface ServerSessionsResponse {
@@ -207,6 +212,7 @@ export class SessionStateService {
   static async updateGeneratedSessionTitle(
     sessionId: string,
     title: string,
+    metadata?: { expectedTitleVersion?: number; terminalTurnId?: string },
   ): Promise<AgentSession> {
     const response = await fetch(sessionTitlePath(sessionId), {
       method: "PATCH",
@@ -214,10 +220,27 @@ export class SessionStateService {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ title, titleSource: "generated" }),
+      body: JSON.stringify({
+        title,
+        titleSource: "generated",
+        ...metadata,
+      }),
     });
 
     return readMetadataMutationResponse(response, "Generated session title");
+  }
+
+  static async acknowledgeSession(
+    sessionId: string,
+    terminalTurnId: string,
+  ): Promise<AgentSession> {
+    const response = await fetch(sessionReadReceiptPath(sessionId), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminalTurnId }),
+    });
+    return readMetadataMutationResponse(response, "Session read receipt");
   }
 
   static async pinSession(sessionId: string): Promise<AgentSession> {
@@ -625,6 +648,11 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
     mode: session.mode ?? DEFAULT_RUN_MODE,
     status: normalizeStoredSessionStatus(session.status),
     titleSource: session.titleSource ?? "generated",
+    titleVersion: session.titleVersion ?? 1,
+    titleStatus: session.titleStatus ?? "ready",
+    lastTerminalTurnId: session.lastTerminalTurnId ?? null,
+    lastAcknowledgedTerminalTurnId:
+      session.lastAcknowledgedTerminalTurnId ?? null,
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
     createdAt: session.createdAt ?? session.updatedAt,

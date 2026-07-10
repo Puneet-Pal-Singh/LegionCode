@@ -37,6 +37,9 @@ export const ThreadTitleSourceSchema = z.enum([
 ]);
 export type ThreadTitleSource = z.infer<typeof ThreadTitleSourceSchema>;
 
+export const ThreadTitleStatusSchema = z.enum(["pending", "ready", "failed"]);
+export type ThreadTitleStatus = z.infer<typeof ThreadTitleStatusSchema>;
+
 export const RunStatusSchema = z.enum([
   "queued",
   "running",
@@ -119,6 +122,9 @@ export const ThreadSchema = z
     workspaceId: WorkspaceIdSchema,
     title: z.string().min(1).max(300),
     titleSource: ThreadTitleSourceSchema,
+    titleVersion: z.number().int().positive().default(1),
+    titleStatus: ThreadTitleStatusSchema.default("ready"),
+    lastTerminalTurnId: TurnIdSchema.nullable().default(null),
     status: ThreadStatusSchema,
     pinnedAt: ProtocolTimestampSchema.nullable(),
     archivedAt: ProtocolTimestampSchema.nullable(),

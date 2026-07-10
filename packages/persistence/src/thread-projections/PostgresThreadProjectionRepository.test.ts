@@ -20,6 +20,9 @@ interface ThreadProjectionRow extends SqlRow {
   workspace_id: string;
   title: string;
   title_source: string;
+  title_version: number;
+  title_status: string;
+  last_terminal_turn_id: string | null;
   status: string;
   pinned_at: string | null;
   archived_at: string | null;
@@ -267,19 +270,22 @@ function createThreadRow(params: readonly SqlValue[]): ThreadProjectionRow {
     workspace_id: readStringParam(params[2], "workspace_id"),
     title: readStringParam(params[3], "title"),
     title_source: readStringParam(params[4], "title_source"),
-    status: readStringParam(params[5], "status"),
-    pinned_at: readNullableStringParam(params[6], "pinned_at"),
-    archived_at: readNullableStringParam(params[7], "archived_at"),
-    active_run_id: readNullableStringParam(params[8], "active_run_id"),
+    title_version: readNumberParam(params[5], "title_version"),
+    title_status: readStringParam(params[6], "title_status"),
+    last_terminal_turn_id: readNullableStringParam(params[7], "last_terminal_turn_id"),
+    status: readStringParam(params[8], "status"),
+    pinned_at: readNullableStringParam(params[9], "pinned_at"),
+    archived_at: readNullableStringParam(params[10], "archived_at"),
+    active_run_id: readNullableStringParam(params[11], "active_run_id"),
     active_leaf_item_id: readNullableStringParam(
-      params[9],
+      params[12],
       "active_leaf_item_id",
     ),
-    created_at: readStringParam(params[10], "created_at"),
-    updated_at: readStringParam(params[11], "updated_at"),
-    last_event_sequence: readNumberParam(params[12], "last_event_sequence"),
-    last_cursor: readStringParam(params[13], "last_cursor"),
-    projection_version: readNumberParam(params[14], "projection_version"),
+    created_at: readStringParam(params[13], "created_at"),
+    updated_at: readStringParam(params[14], "updated_at"),
+    last_event_sequence: readNumberParam(params[15], "last_event_sequence"),
+    last_cursor: readStringParam(params[16], "last_cursor"),
+    projection_version: readNumberParam(params[17], "projection_version"),
   };
 }
 

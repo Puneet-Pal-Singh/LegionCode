@@ -18,6 +18,9 @@ import {
   type ThreadProjectionEventInput,
   type ThreadProjectionRepository,
   type ThreadProjectionSnapshot,
+  type AcknowledgeThreadInput,
+  type ThreadReadReceipt,
+  type ApplyGeneratedTitleInput,
 } from "./types.js";
 
 interface ThreadProjectionRow extends SqlRow {
@@ -26,6 +29,9 @@ interface ThreadProjectionRow extends SqlRow {
   workspace_id?: string;
   title?: string;
   title_source?: string;
+  title_version?: number | string;
+  title_status?: string;
+  last_terminal_turn_id?: string | null;
   status?: string;
   pinned_at?: string | Date | null;
   archived_at?: string | Date | null;
@@ -52,6 +58,13 @@ interface ThreadItemProjectionRow extends SqlRow {
   created_at?: string | Date;
   completed_at?: string | Date | null;
   event_sequence?: number | string;
+}
+
+interface ThreadReadReceiptRow extends SqlRow {
+  thread_id?: string;
+  viewer_id?: string;
+  last_acknowledged_terminal_turn_id?: string | null;
+  acknowledged_at?: string | Date;
 }
 
 interface ItemSource {
@@ -101,6 +114,38 @@ export class PostgresThreadProjectionRepository
       projectionVersion: THREAD_PROJECTION_VERSION,
     };
   }
+
+  async getThreadReadReceipt(
+    threadId: ThreadId,
+    viewerId: string,
+  ): Promise<ThreadReadReceipt | null> {
+    const result = await this.client.query<ThreadReadReceiptRow>(
+      SELECT_THREAD_READ_RECEIPT_SQL,
+      [threadId, viewerId],
+    );
+    const row = result.rows[0];
+    return row ? mapThreadReadReceiptRow(row) : null;
+  }
+
+  async acknowledgeThread(
+    input: AcknowledgeThreadInput,
+  ): Promise<ThreadReadReceipt> {
+    const result = await this.client.query<ThreadReadReceiptRow>(
+      UPSERT_THREAD_READ_RECEIPT_SQL,
+      [input.threadId, input.viewerId, input.terminalTurnId, input.acknowledgedAt],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error("Failed to persist thread read receipt");
+    return mapThreadReadReceiptRow(row);
+  }
+
+  async applyGeneratedTitle(input: ApplyGeneratedTitleInput): Promise<boolean> {
+    const result = await this.client.query(
+      APPLY_GENERATED_TITLE_SQL,
+      [input.title, input.expectedTitleVersion + 1, input.threadId, input.expectedTitleVersion, input.terminalTurnId],
+    );
+    return result.rowCount === 1;
+  }
 }
 
 function buildItemSources(
@@ -134,6 +179,9 @@ async function upsertThreadProjection(
     snapshot.thread.workspaceId,
     snapshot.thread.title,
     snapshot.thread.titleSource,
+    snapshot.thread.titleVersion,
+    snapshot.thread.titleStatus,
+    snapshot.thread.lastTerminalTurnId,
     snapshot.thread.status,
     snapshot.thread.pinnedAt,
     snapshot.thread.archivedAt,
@@ -223,6 +271,9 @@ function mapThreadProjectionRow(
       workspaceId: requireString(row.workspace_id, "workspace_id"),
       title: requireString(row.title, "title"),
       titleSource: requireString(row.title_source, "title_source"),
+      titleVersion: toNumber(row.title_version ?? 1, "title_version"),
+      titleStatus: row.title_status ?? "ready",
+      lastTerminalTurnId: row.last_terminal_turn_id ?? null,
       status: requireString(row.status, "status"),
       pinnedAt: toNullableIsoString(row.pinned_at, "pinned_at"),
       archivedAt: toNullableIsoString(row.archived_at, "archived_at"),
@@ -301,12 +352,24 @@ function toNumber(value: unknown, columnName: string): number {
   throw new Error(`Expected ${columnName} to be numeric`);
 }
 
+function mapThreadReadReceiptRow(row: ThreadReadReceiptRow): ThreadReadReceipt {
+  return {
+    threadId: requireString(row.thread_id, "thread_id") as ThreadId,
+    viewerId: requireString(row.viewer_id, "viewer_id"),
+    lastAcknowledgedTerminalTurnId: row.last_acknowledged_terminal_turn_id ?? null,
+    acknowledgedAt: toIsoString(row.acknowledged_at, "acknowledged_at"),
+  };
+}
+
 const THREAD_PROJECTION_COLUMNS = `
   thread_id,
   user_id,
   workspace_id,
   title,
   title_source,
+  title_version,
+  title_status,
+  last_terminal_turn_id,
   status,
   pinned_at,
   archived_at,
@@ -342,6 +405,9 @@ const UPSERT_THREAD_PROJECTION_SQL = `
     workspace_id,
     title,
     title_source,
+    title_version,
+    title_status,
+    last_terminal_turn_id,
     status,
     pinned_at,
     archived_at,
@@ -370,6 +436,9 @@ const UPSERT_THREAD_PROJECTION_SQL = `
     $13,
     $14,
     $15,
+    $16,
+    $17,
+    $18,
     now()
   )
   ON CONFLICT (thread_id)
@@ -378,6 +447,9 @@ const UPSERT_THREAD_PROJECTION_SQL = `
     workspace_id = EXCLUDED.workspace_id,
     title = EXCLUDED.title,
     title_source = EXCLUDED.title_source,
+    title_version = EXCLUDED.title_version,
+    title_status = EXCLUDED.title_status,
+    last_terminal_turn_id = EXCLUDED.last_terminal_turn_id,
     status = EXCLUDED.status,
     pinned_at = EXCLUDED.pinned_at,
     archived_at = EXCLUDED.archived_at,
@@ -448,4 +520,26 @@ const SELECT_THREAD_ITEMS_SQL = `
   FROM canonical_thread_item_projections
   WHERE thread_id = $1
   ORDER BY event_sequence ASC
+`;
+
+const SELECT_THREAD_READ_RECEIPT_SQL = `
+  SELECT thread_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at
+  FROM thread_read_receipts WHERE thread_id = $1 AND viewer_id = $2
+`;
+
+const UPSERT_THREAD_READ_RECEIPT_SQL = `
+  INSERT INTO thread_read_receipts
+    (thread_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at)
+  VALUES ($1, $2, $3, $4)
+  ON CONFLICT (thread_id, viewer_id) DO UPDATE SET
+    last_acknowledged_terminal_turn_id = EXCLUDED.last_acknowledged_terminal_turn_id,
+    acknowledged_at = EXCLUDED.acknowledged_at
+  RETURNING thread_id, viewer_id, last_acknowledged_terminal_turn_id, acknowledged_at
+`;
+
+const APPLY_GENERATED_TITLE_SQL = `
+  UPDATE canonical_thread_projections
+  SET title = $1, title_version = $2, title_status = 'ready', updated_at = now(), rebuilt_at = now()
+  WHERE thread_id = $3 AND title_source = 'generated'
+    AND title_version = $4 AND last_terminal_turn_id = $5
 `;
