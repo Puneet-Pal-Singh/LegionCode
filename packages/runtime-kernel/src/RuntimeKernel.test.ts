@@ -254,6 +254,24 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(eventTypes(sink)).not.toContain("turn.completed");
   });
 
+  it("settles typed cancellation as one interrupted terminal outcome", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new RuntimeKernelError("turn_cancelled", "Run cancelled by user");
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({
+      code: "turn_cancelled",
+    });
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+  });
+
   it("interrupts active tool work and rejects its later completion write", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();

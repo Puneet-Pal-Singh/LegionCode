@@ -700,8 +700,6 @@ export class RunEngineRequestHandler {
           userMessageId: userMessageId ?? undefined,
           sourceTurnId: userMessageId ?? undefined,
         });
-        const canonicalEventSink = this.createCanonicalEventSink();
-
         const runtimeRunner = new RuntimeKernelNativeRunner(
           runtimeState,
           {
@@ -716,8 +714,9 @@ export class RunEngineRequestHandler {
           {
             ...runEngineDeps,
             runEventListener: async (event) => {
-              await canonicalEventSink.persist(event, payload.correlationId);
-              this.emitLiveEvent(event);
+              // Legacy RunEvent records remain a projection for internal
+              // activity/artifact capture only. Kernel lifecycle events are
+              // appended and streamed exclusively by the lifecycle store.
               editArtifactCoordinator.handleEvent(event);
             },
           },
@@ -740,6 +739,7 @@ export class RunEngineRequestHandler {
           turnId,
           runAttemptId,
           threadId,
+          workspaceId: payload.workspaceId,
         });
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
