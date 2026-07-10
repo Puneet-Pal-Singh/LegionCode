@@ -1051,7 +1051,6 @@ function readLatestUserMessageId(messages: CoreMessage[]): string | null {
   }
   return null;
 }
-
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);
