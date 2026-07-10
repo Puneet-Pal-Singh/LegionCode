@@ -231,6 +231,9 @@ importers:
       '@repo/git-service':
         specifier: workspace:*
         version: link:../../packages/git-service
+      '@repo/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -268,6 +271,9 @@ importers:
       '@ai-sdk/react':
         specifier: 1.1.0
         version: 1.1.0(react@19.2.4)(zod@3.25.1)
+      '@repo/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@repo/platform-client-sdk':
         specifier: workspace:*
         version: link:../../packages/platform-client-sdk
