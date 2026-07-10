@@ -10,9 +10,10 @@ interface UseReviewDiffLoaderInput {
   diff: DiffContent | null;
   diffLoading: boolean;
   diffError: string | null;
-  reviewSourceKind: "live_git" | "prompt_artifact";
+  reviewSourceKind: "live_git" | "prompt_artifact" | "turn_diff";
   fetchLiveDiff: (path: string, staged: boolean) => Promise<void>;
   fetchArtifactDiff: (path: string) => Promise<void>;
+  fetchTurnDiff: (path: string) => Promise<void>;
 }
 
 export function useReviewDiffLoader({
@@ -26,6 +27,7 @@ export function useReviewDiffLoader({
   reviewSourceKind,
   fetchLiveDiff,
   fetchArtifactDiff,
+  fetchTurnDiff,
 }: UseReviewDiffLoaderInput): void {
   const autoFetchedDiffKeyRef = useRef<string | null>(null);
 
@@ -57,6 +59,11 @@ export function useReviewDiffLoader({
       return;
     }
 
+    if (reviewSourceKind === "turn_diff") {
+      void fetchTurnDiff(selectedPath);
+      return;
+    }
+
     void fetchLiveDiff(selectedPath, staged);
   }, [
     diff,
@@ -65,6 +72,7 @@ export function useReviewDiffLoader({
     enabled,
     fetchArtifactDiff,
     fetchLiveDiff,
+    fetchTurnDiff,
     reviewSourceKind,
     selectedPath,
     sourceKey,

@@ -9,12 +9,14 @@ import {
   resolveReviewSource,
   type OpenedReviewArtifact,
   type ReviewScope,
+  type CanonicalTurnReviewSource,
 } from "../services/review/ReviewSourceResolver";
 
 interface UseReviewSourceStateInput {
   runId?: string;
   sessionId?: string;
   liveGitFiles: FileStatus[];
+  canonicalTurnReview?: CanonicalTurnReviewSource | null;
   enabled?: boolean;
 }
 
@@ -22,6 +24,7 @@ export function useReviewSourceState({
   runId,
   sessionId,
   liveGitFiles,
+  canonicalTurnReview = null,
   enabled = true,
 }: UseReviewSourceStateInput) {
   const reviewTargetKey = `${runId ?? ""}:${sessionId ?? ""}`;
@@ -60,6 +63,7 @@ export function useReviewSourceState({
     enabled &&
     runId &&
     requestedScope !== "git-changes" &&
+    requestedScope !== "turn-diff" &&
     (requestedScope === "prompt-artifact" || openedArtifact),
   );
   const {
@@ -80,8 +84,9 @@ export function useReviewSourceState({
         openedArtifact,
         liveGitFiles,
         latestArtifactSource: promptArtifactSource,
+        canonicalTurnReview,
       }),
-    [liveGitFiles, openedArtifact, promptArtifactSource, requestedScope],
+    [canonicalTurnReview, liveGitFiles, openedArtifact, promptArtifactSource, requestedScope],
   );
   const selectedArtifactId =
     reviewSource.kind === "prompt_artifact"
@@ -166,7 +171,7 @@ function resolveOpenedArtifact(
   reviewSource: ReturnType<typeof resolveReviewSource>,
   promptArtifactSource: PromptArtifactReviewSource | null,
 ): OpenedReviewArtifact | null {
-  if (scope === "git-changes") {
+  if (scope === "git-changes" || scope === "turn-diff") {
     return null;
   }
 
@@ -185,6 +190,8 @@ function resolveOpenedArtifact(
     : null;
 }
 
-function sourceKindToScope(kind: "live_git" | "prompt_artifact"): ReviewScope {
-  return kind === "prompt_artifact" ? "prompt-artifact" : "git-changes";
+function sourceKindToScope(kind: "live_git" | "prompt_artifact" | "turn_diff"): ReviewScope {
+  if (kind === "prompt_artifact") return "prompt-artifact";
+  if (kind === "turn_diff") return "turn-diff";
+  return "git-changes";
 }

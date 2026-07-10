@@ -7,16 +7,11 @@ import type {
 import type { ActivityTurnViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 import {
   buildLifecycleTerminalViewModel,
-  collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import type { useRunEvents } from "../../../hooks/useRunEvents.js";
 import type { useRunSummary } from "../../../hooks/useRunSummary.js";
 import { buildConversationTurns } from "../messageMetadata";
-import {
-  hasArtifactChangedFileSnapshot,
-  hasChangedFileSnapshot,
-} from "./changedFiles";
 import { buildChatEntries } from "./chatEntries";
 
 interface ChatPresentationInput {
@@ -45,11 +40,6 @@ export function useChatPresentation(input: ChatPresentationInput) {
       ),
     [input.activityTurns, input.conversationTurns, input.runId],
   );
-  const lifecycleTerminalFiles = useMemo(
-    () => collectLifecycleTurnDiffFiles(input.lifecycleProjection ?? null),
-    [input.lifecycleProjection],
-  );
-  const terminalFiles = lifecycleTerminalFiles;
   const terminalViewModel = useMemo(
     () => {
       const terminal = buildLifecycleTerminalViewModel(
@@ -60,16 +50,8 @@ export function useChatPresentation(input: ChatPresentationInput) {
       }
       return terminal;
     },
-    [input.activityTurns, input.lifecycleProjection],
+    [input.lifecycleProjection],
   );
-  const hasFileSummary =
-    hasChangedFileSnapshot(input.snapshots) ||
-    hasArtifactChangedFileSnapshot(input.artifacts);
-  const terminalReviewFiles = terminalViewModel?.artifactId
-    ? terminalFiles
-    : hasFileSummary
-      ? []
-      : terminalFiles;
   const hasUserMessage = input.messages.some(
     (message) =>
       message.role === "user" &&
@@ -96,7 +78,6 @@ export function useChatPresentation(input: ChatPresentationInput) {
   return {
     chatEntries,
     terminalViewModel,
-    terminalReviewFiles,
     showHeroComposer,
     isTranscriptHydrating,
     showSessionPlaceholder,
