@@ -32,6 +32,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
+    "@repo/observability",
     "@repo/persistence",
     "@repo/platform-protocol",
     "@repo/provider-core",
@@ -40,10 +41,15 @@ export const APP_IMPORT_POLICY = {
   ],
   "@shadowbox/secure-agent-api": [
     "@repo/git-service",
+    "@repo/observability",
     "@repo/shared-types",
     "@repo/worker-protocol",
   ],
-  "@shadowbox/web": ["@repo/platform-client-sdk", "@repo/shared-types"],
+  "@shadowbox/web": [
+    "@repo/observability",
+    "@repo/platform-client-sdk",
+    "@repo/shared-types",
+  ],
 };
 
 export const CANONICAL_AUTHORITIES = [
@@ -233,7 +239,7 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
     description:
       "Web product code must not derive turn identity client-side; use canonical server-provided turnId from the X-Turn-Id response header.",
   },
-activeStateRunSummaryAuthority: {
+  activeStateRunSummaryAuthority: {
     forbiddenImportPattern:
       /\b(?:isRunEventActivityOpen|isApprovalRequiredRunStatus|isTerminalRunStatus|normalizeRunStatus)\b/,
     allowedFiles: [

@@ -45,6 +45,8 @@ import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
+import { parseTraceparent } from "@repo/observability";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 import {
   runEngineErrorResponse,
   runEngineJsonResponse,
@@ -646,6 +648,7 @@ export class RunEngineRequestHandler {
     }
 
     try {
+      const trace = parseTraceparent(request.headers.get("traceparent"));
       console.log(
         formatDiagnosticLogLine("run/runtime", "execute-request-accepted", {
           correlationId: payload.correlationId,
@@ -656,6 +659,8 @@ export class RunEngineRequestHandler {
           mode: payload.input.mode,
           messageCount: payload.messages.length,
           toolCount: payload.tools?.length ?? 0,
+          traceId: trace?.traceId,
+          spanId: trace?.spanId,
         }),
       );
       return await this.withExecutionLock(payload.runId, async () => {
@@ -798,14 +803,23 @@ export class RunEngineRequestHandler {
           metadata,
         );
       }
-      console.error(
-        `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
+      reportBrainError(this.env, {
+        request,
+        operation: "run.engine.execute",
+        error,
+        context: {
+          correlationId: payload.correlationId,
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+        },
+      });
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "RunEngine DO execution failed",
+        500,
+        "RUN_ENGINE_EXECUTION_FAILED",
       );
-      const message =
-        error instanceof Error
-          ? error.message
-          : "RunEngine DO execution failed";
-      return runEngineErrorResponse(request, this.env, message, 500);
     }
   }
 

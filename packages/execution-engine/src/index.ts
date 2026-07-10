@@ -67,8 +67,6 @@ export type {
 } from './events/index.js'
 
 // Observability
-export { ExecutionLogger, ExecutionTracer } from './observability/index.js'
-export type { ExecutionSpan, ExecutionTimeline } from './observability/index.js'
 
 // Artifacts
 export { InMemoryArtifactStore, FileArtifactStore } from './artifacts/index.js'

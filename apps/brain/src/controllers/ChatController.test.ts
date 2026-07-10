@@ -91,7 +91,8 @@ describe("ChatController DO runtime migration", () => {
 
     expect(response.status).toBe(500);
     const body = (await response.json()) as { error: string };
-    expect(body.error).toContain("RUN_ENGINE_RUNTIME binding is unavailable");
+    expect(body.error).toBe("Internal Server Error");
+    expect(body).toMatchObject({ code: "CHAT_REQUEST_FAILED" });
   });
 
   it("forwards provider/model override fields to runtime payload", async () => {
