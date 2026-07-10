@@ -41,6 +41,7 @@ export const APP_IMPORT_POLICY = {
   ],
   "@shadowbox/secure-agent-api": [
     "@repo/git-service",
+    "@repo/observability",
     "@repo/shared-types",
     "@repo/worker-protocol",
   ],
@@ -234,7 +235,7 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
     description:
       "Web product code must not derive turn identity client-side; use canonical server-provided turnId from the X-Turn-Id response header.",
   },
-activeStateRunSummaryAuthority: {
+  activeStateRunSummaryAuthority: {
     forbiddenImportPattern:
       /\b(?:isRunEventActivityOpen|isApprovalRequiredRunStatus|isTerminalRunStatus|normalizeRunStatus)\b/,
     allowedFiles: [

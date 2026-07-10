@@ -135,6 +135,11 @@ import {
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
 import { sanitizeUnknownError } from "./core/security/LogSanitizer";
 import {
+  createSecureRequestContext,
+  createSecureRequestLogger,
+  withSecureObservabilityHeaders,
+} from "./core/observability/SecureRequestObservability";
+import {
   buildSecureRuntimeDebugPayload,
   getSecureRuntimeHeaders,
 } from "./core/observability/runtime";
@@ -161,6 +166,7 @@ export interface Env {
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   RUNTIME_GIT_SHA?: string;
+  ENVIRONMENT?: string;
   LAUNCH_RATE_LIMITER?: DurableObjectNamespace;
   LAUNCH_EMERGENCY_SHUTOFF_MODE?:
     | "off"
@@ -209,6 +215,9 @@ async function handleChatAppend(
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const requestContext = createSecureRequestContext(request);
+    request = requestContext.request;
+    const logger = createSecureRequestLogger(env, request);
     const url = new URL(request.url);
 
     const preflightResponse = handleCorsPreflight(request, env);
@@ -372,12 +381,16 @@ export default {
       for (const [k, v] of Object.entries(runtimeHeaders)) {
         finalResponse.headers.set(k, v);
       }
-      return finalResponse;
+      logger.info("http.request.completed", { status: finalResponse.status });
+      return withSecureObservabilityHeaders(finalResponse, request);
     } catch (e: unknown) {
       const error = sanitizeUnknownError(e);
+      logger.captureException("http.request.failed", e);
       const headers = {
         ...getCorsHeaders(request, env),
         ...getSecureRuntimeHeaders(env),
+        "X-Correlation-Id": requestContext.correlationId,
+        traceparent: request.headers.get("traceparent")!,
       };
       return Response.json({ error }, { status: 500, headers });
     }

@@ -231,6 +231,9 @@ importers:
       '@repo/git-service':
         specifier: workspace:*
         version: link:../../packages/git-service
+      '@repo/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
       '@repo/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
