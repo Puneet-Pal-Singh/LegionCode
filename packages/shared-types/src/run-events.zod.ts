@@ -187,12 +187,14 @@ const RunCompletedPayloadSchema = z.object({
   status: z.literal("complete"),
   totalDurationMs: z.number().min(0),
   toolsUsed: z.number().min(0),
+  outcomeCode: z.string().min(1).optional(),
 });
 
 const RunFailedPayloadSchema = z.object({
   status: z.literal("failed"),
   error: z.string().min(1),
   totalDurationMs: z.number().min(0),
+  outcomeCode: z.string().min(1).optional(),
 });
 
 // ============================================================================

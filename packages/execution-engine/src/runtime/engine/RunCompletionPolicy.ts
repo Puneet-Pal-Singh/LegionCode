@@ -1,5 +1,11 @@
 import type { CoreMessage } from "ai";
-import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import type { RunEvent } from "@repo/shared-types";
+import {
+  RUN_EVENT_TYPES,
+  RUN_TERMINAL_STATES,
+  RUN_WORKFLOW_STEPS,
+} from "@repo/shared-types";
+import type { TranscriptPart } from "@repo/platform-protocol";
 import { RunTerminalStateSchema } from "@repo/shared-types";
 import type { RunTerminalState } from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
@@ -9,7 +15,6 @@ import type { RunStatus } from "../types.js";
 import { buildPlanningRecoveryMessage } from "./RunPlanningRecoveryPolicy.js";
 import {
   recordLifecycleStep,
-  recordOrchestrationTerminal,
   recordPhaseSelectionSnapshot,
 } from "./RunMetadataPolicy.js";
 import { redactUserFacingOutput } from "./RunOutputRedactor.js";
@@ -17,17 +22,11 @@ import {
   buildFinalAssistantMessage,
   buildTerminalFinalMetadata,
 } from "./FinalMessageProjector.js";
+import { projectTerminalSettlement } from "./TerminalSettlementProjector.js";
+import { settleTerminalRun } from "./TerminalFinalizationCoordinator.js";
 import { createStreamResponse } from "./CompletionResponseWriter.js";
 import { persistSynthesisArtifacts } from "./CompletionSynthesisArtifacts.js";
-import {
-  buildMissingEvidenceFinalText,
-  settleFinalizationContract,
-} from "./TurnSettlementContract.js";
-import {
-  transitionRunToCompleted,
-  transitionRunToFailed,
-  transitionRunToPaused,
-} from "./RunStatusPolicy.js";
+import { settleFinalizationContract } from "./TurnSettlementContract.js";
 export { createStreamResponse } from "./CompletionResponseWriter.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -51,15 +50,15 @@ export interface RunCompletionDependencies {
     role: "user" | "assistant",
   ) => Promise<void>;
   runEventRecorder: RunEventRecorder;
+  readCanonicalRunEvents: (runId: string) => Promise<RunEvent[]>;
   runRepo: Pick<RunRepository, "getById" | "updateUnlessStatus">;
-  safeMemoryOperation: <T>(
-    operation: () => Promise<T>,
-  ) => Promise<T>;
+  safeMemoryOperation: <T>(operation: () => Promise<T>) => Promise<T>;
 }
 
 interface RunAssistantFinalizationParams {
   run: Run;
   text: string;
+  modelParts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
   deps: RunCompletionDependencies;
 }
@@ -98,7 +97,8 @@ export async function pauseRunForApprovalWithAssistantMessage(
   params: RunAssistantFinalizationParams,
 ): Promise<Response> {
   const terminalState =
-    parseTerminalState(params.metadata) ?? RUN_TERMINAL_STATES.APPROVAL_REQUIRED;
+    parseTerminalState(params.metadata) ??
+    RUN_TERMINAL_STATES.APPROVAL_REQUIRED;
   assertApprovalTerminalState(terminalState);
   return persistFinalAssistantRun({
     ...params,
@@ -118,41 +118,42 @@ async function persistFinalAssistantRun(
     );
     return createStreamResponse("");
   }
-  const finalization = settleFinalizationContract({ run, metadata });
-  const terminalState = finalization.contract.settled
-    ? params.terminalState
-    : RUN_TERMINAL_STATES.FAILED_VALIDATION;
-  const terminalStatus = finalization.contract.settled
-    ? params.terminalStatus
-    : "FAILED";
-  const finalText = finalization.contract.settled
-    ? text
-    : buildMissingEvidenceFinalText(finalization.contract);
+  const canonicalEvents = await deps.readCanonicalRunEvents(run.id);
+  const finalization = settleFinalizationContract({
+    events: canonicalEvents,
+    metadata,
+  });
+  const settlement = projectTerminalSettlement({
+    terminalState: params.terminalState,
+    contract: finalization.contract,
+  });
+  const terminalState = settlement.terminalState;
+  const terminalStatus = settlement.terminalStatus;
   const finalMetadata = buildTerminalFinalMetadata({
-    run,
     metadata: finalization.metadata,
     terminalState,
+    outcomeCode: settlement.outcomeCode,
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text: finalText,
+    finalParts:
+      finalization.contract.settled && !params.modelParts?.length && text.trim()
+        ? [{ type: "final", text }]
+        : [],
+    modelParts: params.modelParts,
     metadata: finalMetadata,
-    terminalState,
+    settlement,
   });
   const redactedText = redactUserFacingOutput(finalMessage.content);
   console.log(
     `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${terminalStatus} terminalState=${terminalState} textLength=${redactedText.length}`,
   );
-  recordLifecycleStep(run, "SYNTHESIS");
-  transitionFinalAssistantRun(run, terminalStatus);
-  recordLifecycleStep(run, "TERMINAL", `status=${terminalStatus}`);
-  recordOrchestrationTerminal(run);
-  run.output = {
-    content: redactedText,
-    finalSummary: redactedText,
-  };
-  run.metadata.terminalState = terminalState;
-  run.metadata.terminalMessage = finalMessage.metadata;
+  settleTerminalRun({
+    run,
+    settlement,
+    finalMessage,
+    redactedContent: redactedText,
+  });
   run.metadata.evidenceLedger = finalization.ledger;
   run.metadata.finalizationContract = finalization.contract;
   if (!(await updateFinalizedRunIfActive(run, deps, terminalStatus))) {
@@ -181,16 +182,20 @@ async function persistFinalAssistantRun(
     redactedText,
     finalMessage.metadata,
   );
-  if (terminalStatus === "COMPLETED") {
+  if (settlement.terminalStatus === "COMPLETED") {
     await deps.runEventRecorder.recordRunCompleted(
       getRunDurationMs(run),
-      run.metadata.agenticLoop?.toolExecutionCount ?? 0,
+      canonicalEvents.filter(
+        (event) => event.type === RUN_EVENT_TYPES.TOOL_COMPLETED,
+      ).length,
+      settlement.outcomeCode,
     );
   }
-  if (terminalStatus === "FAILED") {
+  if (settlement.terminalStatus === "FAILED") {
     await deps.runEventRecorder.recordRunFailed(
       redactedText,
       getRunDurationMs(run),
+      settlement.outcomeCode,
     );
   }
   console.log(
@@ -226,21 +231,36 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     return createStreamResponse("");
   }
   const terminalState =
-    parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
-  const finalMetadata = buildTerminalFinalMetadata({
-    run,
+    parseTerminalState(metadata) ??
+    (terminalStatus === "PAUSED"
+      ? RUN_TERMINAL_STATES.APPROVAL_REQUIRED
+      : RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS);
+  const canonicalEvents = await deps.readCanonicalRunEvents(run.id);
+  const finalization = settleFinalizationContract({
+    events: canonicalEvents,
     metadata,
+  });
+  const settlement = projectTerminalSettlement({
     terminalState,
+    contract: finalization.contract,
+    terminalStatusHint: terminalStatus === "PAUSED" ? "PAUSED" : undefined,
+  });
+  const finalMetadata = buildTerminalFinalMetadata({
+    metadata: finalization.metadata,
+    terminalState,
+    outcomeCode: settlement.outcomeCode,
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text,
+    finalParts:
+      finalization.contract.settled && text.trim()
+        ? [{ type: "final", text }]
+        : [],
     metadata: finalMetadata,
-    terminalState,
+    settlement,
   });
   const redactedText = redactUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");
-  transitionRecoveredRun(run, terminalStatus);
   if (plannerError !== undefined) {
     run.metadata.error = buildPlannerRecoveryMetadata(plannerError);
   } else if (errorMetadata) {
@@ -248,16 +268,17 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
   recordLifecycleStep(
     run,
-    "TERMINAL",
+    "SYNTHESIS",
     buildRecoveredLifecycleDetail(terminalStatus),
   );
-  recordOrchestrationTerminal(run);
-  run.output = {
-    content: redactedText,
-    finalSummary: redactedText,
-  };
-  run.metadata.terminalState = terminalState;
-  run.metadata.terminalMessage = finalMessage.metadata;
+  settleTerminalRun({
+    run,
+    settlement,
+    finalMessage,
+    redactedContent: redactedText,
+  });
+  run.metadata.evidenceLedger = finalization.ledger;
+  run.metadata.finalizationContract = finalization.contract;
   if (!(await updateRecoveredRunIfActive(run, deps))) {
     console.log(
       `[run/engine] Skipping recovered completion for terminal run ${run.id}`,
@@ -273,7 +294,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   await persistSynthesisArtifacts({
     run,
     finalText: redactedText,
-    checkpointStatus: terminalStatus,
+    checkpointStatus: settlement.terminalStatus,
     deps,
   });
   await deps.runEventRecorder.recordMessageEmitted(
@@ -281,11 +302,24 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
     redactedText,
     finalMessage.metadata,
   );
-  if (terminalStatus === "COMPLETED") {
-    await deps.runEventRecorder.recordRunCompleted(getRunDurationMs(run), 0);
+  if (settlement.terminalStatus === "COMPLETED") {
+    await deps.runEventRecorder.recordRunCompleted(
+      getRunDurationMs(run),
+      0,
+      settlement.outcomeCode,
+    );
+  }
+  if (settlement.terminalStatus === "FAILED") {
+    await deps.runEventRecorder.recordRunFailed(
+      redactedText,
+      getRunDurationMs(run),
+      settlement.outcomeCode,
+    );
   }
 
-  console.log(`[run/engine] Completed run ${run.id} with recoverable error`);
+  console.log(
+    `[run/engine] Recovered run ${run.id} with terminal status ${settlement.terminalStatus}`,
+  );
   return createStreamResponse(redactedText);
 }
 
@@ -320,35 +354,6 @@ async function updateRecoveredRunIfActive(
     "FAILED",
     "CANCELLED",
   ]);
-}
-
-function transitionRecoveredRun(
-  run: Run,
-  terminalStatus: RecoveredRunTerminalStatus,
-): void {
-  if (terminalStatus === "PAUSED") {
-    transitionRunToPaused(run, run.id);
-    return;
-  }
-
-  transitionRunToCompleted(run, run.id);
-}
-
-function transitionFinalAssistantRun(
-  run: Run,
-  terminalStatus: FinalizedRunTerminalStatus,
-): void {
-  if (terminalStatus === "PAUSED") {
-    transitionRunToPaused(run, run.id);
-    return;
-  }
-
-  if (terminalStatus === "FAILED") {
-    transitionRunToFailed(run, run.id);
-    return;
-  }
-
-  transitionRunToCompleted(run, run.id);
 }
 
 function assertCompletionTerminalState(terminalState: RunTerminalState): void {

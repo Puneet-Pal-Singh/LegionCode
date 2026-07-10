@@ -12,22 +12,42 @@ import { z } from "zod";
  * Session Management Schemas
  */
 
-export const SessionCreateRequestSchema = z.object({
-  runId: z.string().min(1, "runId required"),
-  taskId: z.string().min(1, "taskId required"),
-  repoPath: z
-    .string()
-    .min(1, "repoPath required")
-    .refine(
-      (path) => !path.startsWith("/"),
-      "repoPath must be relative, not absolute",
-    )
-    .refine(
-      (path) => !path.includes(".."),
-      "repoPath must not contain path traversal",
-    ),
-  metadata: z.record(z.unknown()).optional(),
-});
+const WorkspaceScopeSchema = z
+  .object({
+    runId: z.string().min(1),
+    runAttemptId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    root: z.string().min(1),
+  })
+  .strict();
+
+export const SessionCreateRequestSchema = z
+  .object({
+    runId: z.string().min(1, "runId required"),
+    taskId: z.string().min(1, "taskId required"),
+    repoPath: z
+      .string()
+      .min(1, "repoPath required")
+      .refine(
+        (path) => !path.startsWith("/"),
+        "repoPath must be relative, not absolute",
+      )
+      .refine(
+        (path) => !path.includes(".."),
+        "repoPath must not contain path traversal",
+      ),
+    workspaceScope: WorkspaceScopeSchema.optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.workspaceScope && value.workspaceScope.runId !== value.runId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["workspaceScope", "runId"],
+        message: "workspaceScope.runId must match runId",
+      });
+    }
+  });
 
 export type SessionCreateRequest = z.infer<typeof SessionCreateRequestSchema>;
 

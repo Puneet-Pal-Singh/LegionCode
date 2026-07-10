@@ -438,6 +438,12 @@ export interface RuntimeExecutionService {
     payload: Record<string, unknown>,
     options?: {
       onOutput?: (chunk: ExecutionOutputChunk) => Promise<void> | void;
+      scope?: {
+        runId: string;
+        runAttemptId: string;
+        workspaceId: string;
+        root: string;
+      };
     },
   ): Promise<unknown>;
 }

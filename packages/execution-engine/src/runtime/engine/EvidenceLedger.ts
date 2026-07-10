@@ -1,12 +1,13 @@
+import type { ToolEvidenceKind } from "../tools/CodingToolRegistry.js";
+import { getCodingToolDefinition } from "../tools/CodingToolRegistry.js";
+import {
+  RUN_EVENT_TYPES,
+  safeParseToolActivityMetadata,
+  type RunEvent,
+} from "@repo/shared-types";
 import type { AgenticLoopToolLifecycleEvent } from "../types.js";
 
-export type EvidenceKind =
-  | "file_read"
-  | "file_search"
-  | "file_edit"
-  | "git_diff"
-  | "git_status"
-  | "command_run";
+export type EvidenceKind = ToolEvidenceKind;
 
 export type FinalizationEvidenceRequirement =
   | "file_read_or_search"
@@ -14,6 +15,8 @@ export type FinalizationEvidenceRequirement =
   | "command_run";
 
 export interface EvidenceRecord {
+  id: string;
+  sourceEventId: string;
   kind: EvidenceKind;
   status: "observed" | "failed";
   recordedAt: string;
@@ -33,16 +36,69 @@ export interface FinalizationContract {
 export function buildEvidenceLedger(
   lifecycle: readonly AgenticLoopToolLifecycleEvent[],
 ): EvidenceRecord[] {
-  return lifecycle.flatMap((event) => buildEvidenceRecordsForEvent(event));
+  return lifecycle.flatMap((event) => {
+    if (event.status !== "completed" && event.status !== "failed") {
+      return [];
+    }
+
+    const definition = getCodingToolDefinition(event.toolName);
+    const status = event.status === "completed" ? "observed" : "failed";
+    const sourceEventId = `${event.toolCallId}:${event.status}`;
+    return (definition?.evidenceKinds ?? []).map((kind) => ({
+      id: `${sourceEventId}:${kind}`,
+      sourceEventId,
+      kind,
+      status,
+      recordedAt: event.recordedAt,
+      toolCallId: event.toolCallId,
+      toolName: event.toolName,
+      path: readPath(event.metadata),
+      command: readCommand(event.metadata),
+      detail: event.detail,
+    }));
+  });
+}
+
+export function buildEvidenceLedgerFromEvents(
+  events: readonly RunEvent[],
+): EvidenceRecord[] {
+  return events.flatMap((event) => {
+    if (
+      event.type !== RUN_EVENT_TYPES.TOOL_COMPLETED &&
+      event.type !== RUN_EVENT_TYPES.TOOL_FAILED
+    ) {
+      return [];
+    }
+    const toolName = event.payload.toolName;
+    const definition = getCodingToolDefinition(toolName);
+    const status =
+      event.type === RUN_EVENT_TYPES.TOOL_COMPLETED ? "observed" : "failed";
+    const metadata =
+      event.type === RUN_EVENT_TYPES.TOOL_COMPLETED
+        ? readActivityMetadata(event.payload.result)
+        : undefined;
+    return (definition?.evidenceKinds ?? []).map((kind) => ({
+      id: `${event.eventId}:${kind}`,
+      sourceEventId: event.eventId,
+      kind,
+      status,
+      recordedAt: event.timestamp,
+      toolCallId: event.payload.toolId,
+      toolName,
+      path: readPath(metadata),
+      command: readCommand(metadata),
+      detail:
+        event.type === RUN_EVENT_TYPES.TOOL_FAILED
+          ? event.payload.error
+          : undefined,
+    }));
+  });
 }
 
 export function readFinalizationEvidenceRequirements(
   value: unknown,
 ): FinalizationEvidenceRequirement[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
+  if (!Array.isArray(value)) return [];
   return value.filter(isFinalizationEvidenceRequirement);
 }
 
@@ -53,7 +109,6 @@ export function evaluateFinalizationContract(input: {
   const missingEvidence = input.requiredEvidence.filter(
     (requirement) => !hasEvidenceForRequirement(input.ledger, requirement),
   );
-
   return {
     requiredEvidence: [...input.requiredEvidence],
     missingEvidence,
@@ -65,148 +120,16 @@ export function hasEvidenceForRequirement(
   ledger: readonly EvidenceRecord[],
   requirement: FinalizationEvidenceRequirement,
 ): boolean {
-  switch (requirement) {
-    case "file_read_or_search":
-      return ledger.some(
-        (record) =>
-          record.status === "observed" &&
-          (record.kind === "file_read" || record.kind === "file_search"),
-      );
-    case "file_edit_or_diff":
-      return ledger.some(
-        (record) =>
-          record.status === "observed" &&
-          (record.kind === "file_edit" || record.kind === "git_diff"),
-      );
-    case "command_run":
-      return ledger.some(
-        (record) =>
-          record.status === "observed" &&
-          record.kind === "command_run",
-      );
-  }
-}
-
-function buildEvidenceRecordsForEvent(
-  event: AgenticLoopToolLifecycleEvent,
-): EvidenceRecord[] {
-  if (event.status !== "completed" && event.status !== "failed") {
-    return [];
-  }
-
-  const status = event.status === "completed" ? "observed" : "failed";
-  const base = {
-    status,
-    recordedAt: event.recordedAt,
-    toolCallId: event.toolCallId,
-    toolName: event.toolName,
-    detail: event.detail,
-  } satisfies Omit<EvidenceRecord, "kind">;
-
-  const metadata = event.metadata;
-  if (metadata?.family === "read") {
-    return [
-      {
-        ...base,
-        kind: "file_read",
-        path: metadata.path,
-      },
-    ];
-  }
-
-  if (metadata?.family === "search") {
-    return [
-      {
-        ...base,
-        kind: "file_search",
-        path: metadata.path,
-      },
-    ];
-  }
-
-  if (metadata?.family === "edit") {
-    return [
-      {
-        ...base,
-        kind: "file_edit",
-        path: metadata.filePath,
-      },
-    ];
-  }
-
-  if (metadata?.family === "git") {
-    return buildGitEvidenceRecords(event, base, metadata.path);
-  }
-
-  if (metadata?.family === "shell") {
-    const records: EvidenceRecord[] = [
-      {
-        ...base,
-        kind: "command_run",
-        command: metadata.command,
-      },
-    ];
-    if (isGitDiffCommand(metadata.command)) {
-      records.push({
-        ...base,
-        kind: "git_diff",
-        command: metadata.command,
-      });
-    }
-    if (isGitStatusCommand(metadata.command)) {
-      records.push({
-        ...base,
-        kind: "git_status",
-        command: metadata.command,
-      });
-    }
-    return records;
-  }
-
-  return buildToolNameEvidenceRecords(event, base);
-}
-
-function buildGitEvidenceRecords(
-  event: AgenticLoopToolLifecycleEvent,
-  base: Omit<EvidenceRecord, "kind">,
-  path?: string,
-): EvidenceRecord[] {
-  if (event.toolName === "git_diff") {
-    return [{ ...base, kind: "git_diff", path }];
-  }
-
-  if (event.toolName === "git_status") {
-    return [{ ...base, kind: "git_status", path }];
-  }
-
-  return [];
-}
-
-function buildToolNameEvidenceRecords(
-  event: AgenticLoopToolLifecycleEvent,
-  base: Omit<EvidenceRecord, "kind">,
-): EvidenceRecord[] {
-  switch (event.toolName) {
-    case "read_file":
-      return [{ ...base, kind: "file_read" }];
-    case "grep":
-    case "glob":
-    case "list_files":
-      return [{ ...base, kind: "file_search" }];
-    case "write_file":
-    case "edit_file":
-    case "multi_edit":
-    case "apply_patch":
-      return [{ ...base, kind: "file_edit" }];
-    case "git_diff":
-      return [{ ...base, kind: "git_diff" }];
-    case "git_status":
-      return [{ ...base, kind: "git_status" }];
-    case "bash":
-      return [{ ...base, kind: "command_run" }];
-    default:
-      return [];
-  }
+  const kinds = {
+    file_read_or_search: ["file_read", "file_search"],
+    file_edit_or_diff: ["file_edit", "git_diff"],
+    command_run: ["command_run"],
+  } satisfies Record<FinalizationEvidenceRequirement, readonly EvidenceKind[]>;
+  return ledger.some(
+    (record) =>
+      record.status === "observed" &&
+      (kinds[requirement] as readonly EvidenceKind[]).includes(record.kind),
+  );
 }
 
 function isFinalizationEvidenceRequirement(
@@ -219,28 +142,22 @@ function isFinalizationEvidenceRequirement(
   );
 }
 
-function isGitDiffCommand(command: string): boolean {
-  return splitShellCommandSegments(command).some((segment) =>
-    /^git\s+diff(?:\s|$)/i.test(stripEnvAssignments(segment)),
-  );
+function readPath(metadata: AgenticLoopToolLifecycleEvent["metadata"]): string | undefined {
+  if (!metadata) return undefined;
+  return "path" in metadata && typeof metadata.path === "string"
+    ? metadata.path
+    : "filePath" in metadata && typeof metadata.filePath === "string"
+      ? metadata.filePath
+      : undefined;
 }
 
-function isGitStatusCommand(command: string): boolean {
-  return splitShellCommandSegments(command).some((segment) =>
-    /^git\s+status(?:\s|$)/i.test(stripEnvAssignments(segment)),
-  );
+function readCommand(metadata: AgenticLoopToolLifecycleEvent["metadata"]): string | undefined {
+  return metadata?.family === "shell" ? metadata.command : undefined;
 }
 
-function splitShellCommandSegments(command: string): string[] {
-  return command
-    .split(/&&|\|\||;|\|/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
-}
-
-function stripEnvAssignments(segment: string): string {
-  return segment.replace(
-    /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+)\s+)*/,
-    "",
-  );
+function readActivityMetadata(value: unknown): AgenticLoopToolLifecycleEvent["metadata"] {
+  if (!value || typeof value !== "object") return undefined;
+  const metadata = (value as { metadata?: unknown }).metadata;
+  const parsed = safeParseToolActivityMetadata(metadata);
+  return parsed.success ? parsed.data : undefined;
 }

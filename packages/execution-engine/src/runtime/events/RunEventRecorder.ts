@@ -236,15 +236,20 @@ export class RunEventRecorder {
   async recordRunCompleted(
     totalDurationMs: number,
     toolsUsed: number,
+    outcomeCode?: string,
   ): Promise<void> {
     await this.append(
-      createRunCompletedEvent(this.baseInput(), totalDurationMs, toolsUsed),
+      createRunCompletedEvent(this.baseInput(), totalDurationMs, toolsUsed, outcomeCode),
     );
   }
 
-  async recordRunFailed(error: string, totalDurationMs: number): Promise<void> {
+  async recordRunFailed(
+    error: string,
+    totalDurationMs: number,
+    outcomeCode?: string,
+  ): Promise<void> {
     await this.append(
-      createRunFailedEvent(this.baseInput(), error, totalDurationMs),
+      createRunFailedEvent(this.baseInput(), error, totalDurationMs, outcomeCode),
     );
   }
 

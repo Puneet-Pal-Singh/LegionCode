@@ -106,6 +106,20 @@ function createLLMGatewayMock(): ILLMGateway {
   return {
     generateText: vi.fn(async () => ({
       text: "reviewed",
+      parts: [
+        {
+          id: "test-review-part",
+          schemaVersion: 1 as const,
+          runId: "run-1",
+          turnId: "run-1",
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "visible_text" as const,
+          visibility: "visible" as const,
+          text: "reviewed",
+          finalized: false,
+        },
+      ],
       usage: {
         provider: "openai",
         model: "gpt-4o",

@@ -46,7 +46,8 @@ export function resolveAgent(
       plugin: string,
       action: string,
       payloadData: Record<string, unknown>,
-    ) => executionService.execute(plugin, action, payloadData),
+      options?: Parameters<ExecutionService["execute"]>[3],
+    ) => executionService.execute(plugin, action, payloadData, options),
   };
 
   const registry = buildAgentRegistry(llmGateway, runtimeExecutionService);
@@ -75,6 +76,7 @@ function buildAgentRegistry(
       plugin: string,
       action: string,
       payloadData: Record<string, unknown>,
+      options?: Parameters<ExecutionService["execute"]>[3],
     ) => Promise<unknown>;
   },
 ): AgentRegistry {
