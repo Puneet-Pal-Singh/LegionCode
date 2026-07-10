@@ -23,7 +23,11 @@ export type {
   ProviderCapabilityResolver,
 } from "./types.js";
 export {
-  getVisibleModelText,
-  normalizeModelOutputParts,
-} from "./ModelOutputParts.js";
-export type { NormalizedModelPart } from "./ModelOutputParts.js";
+  LegacyProviderTranscriptPartNormalizer,
+  visibleTextFromTranscriptParts,
+} from "./TranscriptPartNormalizer.js";
+export type {
+  ProviderTranscriptPart,
+  TranscriptPartNormalizer,
+  TranscriptPartNormalizerInput,
+} from "./TranscriptPartNormalizer.js";

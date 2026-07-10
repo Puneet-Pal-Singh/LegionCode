@@ -9,6 +9,21 @@ import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { AgenticLoop, type AgenticLoopConfig } from "./AgenticLoop.js";
 
+function visiblePart(text: string, sequence = 0) {
+  return {
+    id: `part-${sequence}`,
+    schemaVersion: 1 as const,
+    runId: "run-123",
+    turnId: "turn-123",
+    sequence,
+    createdAt: "2026-07-10T00:00:00.000Z",
+    type: "visible_text" as const,
+    visibility: "visible" as const,
+    text,
+    finalized: false,
+  };
+}
+
 describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
   let config: AgenticLoopConfig;
   let llmGateway: Partial<ILLMGateway>;
@@ -356,6 +371,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
     it("should add LLM response to message history", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "Response text",
+        parts: [visiblePart("Response text")],
         usage: { promptTokens: 10, completionTokens: 5 },
       });
 
@@ -379,6 +395,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
           text: "I found the footer file and will read it now.",
+          parts: [visiblePart("I found the footer file and will read it now.")],
           toolCalls: [
             {
               id: "tool-call-1",
@@ -390,6 +407,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         })
         .mockResolvedValueOnce({
           text: "Done.",
+          parts: [visiblePart("Done.", 1)],
           toolCalls: [],
           usage: { promptTokens: 12, completionTokens: 6 },
         });
@@ -424,6 +442,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
           text: "Calling tool",
+          parts: [visiblePart("Calling tool")],
           toolCalls: [
             {
               id: "tool-call-1",
@@ -435,6 +454,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         })
         .mockResolvedValueOnce({
           text: "Tool result processed",
+          parts: [visiblePart("Tool result processed", 1)],
           toolCalls: [],
           usage: { promptTokens: 12, completionTokens: 6 },
         });

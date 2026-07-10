@@ -18,6 +18,15 @@ export {
   type RuntimeKernelNativeRunnerInput,
 } from "./RuntimeKernelNativeRunner.js";
 export {
+  RuntimeToolGateway,
+  type RuntimeToolExecutionResult,
+} from "./RuntimeToolGateway.js";
+export {
+  RuntimeWorkspaceScope,
+  RuntimeWorkspaceScopeError,
+  type RuntimeWorkspaceExecutionScope,
+} from "./RuntimeWorkspaceScope.js";
+export {
   getCodingCoreToolRegistry,
   getCodingToolRoute,
   isCodingToolId,
