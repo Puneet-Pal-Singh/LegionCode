@@ -24,6 +24,13 @@ export function projectTerminalSettlement(input: {
   terminalState: RunTerminalState;
   contract: FinalizationContract;
 }): TerminalSettlement {
+  if (input.terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED) {
+    return {
+      terminalState: input.terminalState,
+      outcomeCode: "APPROVAL_REQUIRED",
+      terminalStatus: "PAUSED",
+    };
+  }
   if (!input.contract.settled) {
     return {
       terminalState: RUN_TERMINAL_STATES.FAILED_VALIDATION,
@@ -37,10 +44,8 @@ export function projectTerminalSettlement(input: {
     terminalState: input.terminalState,
     outcomeCode,
     terminalStatus:
-      input.terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED
-        ? "PAUSED"
-        : input.terminalState === RUN_TERMINAL_STATES.APPROVAL_RESOLVED
-          ? "COMPLETED"
+      input.terminalState === RUN_TERMINAL_STATES.APPROVAL_RESOLVED
+        ? "COMPLETED"
         : input.terminalState === RUN_TERMINAL_STATES.COMPLETED ||
             input.terminalState === RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS
           ? "COMPLETED"

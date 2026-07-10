@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { RUN_EVENT_TYPES, RUN_TERMINAL_STATES, type RunEvent } from "@repo/shared-types";
+import {
+  RUN_EVENT_TYPES,
+  RUN_TERMINAL_STATES,
+  type RunEvent,
+} from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import { Run } from "../run/index.js";
@@ -46,7 +50,7 @@ describe("RunCompletionPolicy", () => {
     expect(run.status).toBe("RUNNING");
   });
 
-  it("can persist a recovered assistant message as a paused run", async () => {
+  it("settles an interrupted recovered assistant message as a failed run", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
 
@@ -62,7 +66,7 @@ describe("RunCompletionPolicy", () => {
     });
 
     await expect(response.text()).resolves.toContain("paused this run");
-    expect(run.status).toBe("PAUSED");
+    expect(run.status).toBe("FAILED");
     expect(deps.runRepo.updateUnlessStatus).toHaveBeenCalledWith(run, [
       "PAUSED",
       "COMPLETED",
@@ -71,12 +75,17 @@ describe("RunCompletionPolicy", () => {
     ]);
     expect(deps.runEventRecorder.recordRunStatusChanged).toHaveBeenCalledWith(
       "RUNNING",
-      "PAUSED",
+      "FAILED",
       "synthesis",
+    );
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Number),
+      "INTERRUPTED",
     );
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({ runStatus: "PAUSED" }),
+      expect.objectContaining({ runStatus: "FAILED" }),
     );
   });
 
@@ -499,7 +508,9 @@ function createDeps(
     memoryCoordinator,
     persistConversationMessages: vi.fn(),
     runEventRecorder,
-    readCanonicalRunEvents: vi.fn(async () => canonicalEventsFromRun(currentRun)),
+    readCanonicalRunEvents: vi.fn(async () =>
+      canonicalEventsFromRun(currentRun),
+    ),
     runRepo: {
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
@@ -544,7 +555,9 @@ function canonicalEventsFromRun(run: Run): RunEvent[] {
 }
 
 function canonicalActivityMetadata(
-  metadata: NonNullable<NonNullable<Run["metadata"]["agenticLoop"]>["toolLifecycle"]>[number]["metadata"],
+  metadata: NonNullable<
+    NonNullable<Run["metadata"]["agenticLoop"]>["toolLifecycle"]
+  >[number]["metadata"],
 ) {
   if (!metadata) return undefined;
   switch (metadata.family) {
