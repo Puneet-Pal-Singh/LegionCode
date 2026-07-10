@@ -359,11 +359,6 @@ async function createFixture(context) {
   );
   await writeSource(
     fixtureRoot,
-    "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
-    "export function classifyCurrentTurnIntent() { return 'read_only'; }\n",
-  );
-  await writeSource(
-    fixtureRoot,
     "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",
     "export function completeRunWithAssistantMessage() { return null; }\n",
   );

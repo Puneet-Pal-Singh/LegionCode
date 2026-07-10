@@ -191,9 +191,7 @@ export const HARNESS_PRODUCT_PATH_GUARDS = {
       /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunCurrentTurnIntent(?:\.js)?["']/,
     forbiddenReferencePattern:
       /\b(?:RunCurrentTurnIntent|classifyCurrentTurnIntent)\b/,
-    allowedFiles: [
-      "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
-    ],
+    allowedFiles: [],
   },
   promptTextRouting: {
     forbiddenPattern:
