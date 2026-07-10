@@ -181,15 +181,23 @@ export const POLICY_INVENTORY_ALLOWED_DISPOSITIONS = [
 export const HARNESS_PRODUCT_PATH_GUARDS = {
   turnModePolicy: {
     forbiddenImportPattern:
-      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunTurnModePolicy(?:\.js)?["']/,
+      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*(?:RunDirectPlanPolicy|RunTurnModePolicy)(?:\.js)?["']/,
+    forbiddenReferencePattern:
+      /\b(?:buildDirectExecutionPlan|determineTurnMode)\b/,
     allowedFiles: [],
   },
   promptIntentPolicy: {
     forbiddenImportPattern:
       /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunCurrentTurnIntent(?:\.js)?["']/,
+    forbiddenReferencePattern:
+      /\b(?:RunCurrentTurnIntent|classifyCurrentTurnIntent)\b/,
     allowedFiles: [
       "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
     ],
+  },
+  promptTextRouting: {
+    forbiddenPattern:
+      /(?:\b(?:plan|build|auto_edit|chat|action|direct|intent|route|mode|workspace)\b[^;\n]*(?:\.test|\.exec|\.match)\([^)]*\b(?:prompt|userMessage|message)\b|(?:\.test|\.exec|\.match)\(\s*\b(?:prompt|userMessage|message)\b[^;\n]*\b(?:plan|build|auto_edit|chat|action|direct|intent|route|mode|workspace)\b)/,
   },
   finalAnswerRegexRepair: {
     patterns: [
