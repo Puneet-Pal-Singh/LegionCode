@@ -577,7 +577,7 @@ export class ExecutionService {
           body: JSON.stringify({
             runId: this.runId,
             taskId: createSessionTaskId(this.sessionId),
-            repoPath: scope?.root ?? EXECUTION_SESSION_REPO_PATH,
+            repoPath: EXECUTION_SESSION_REPO_PATH,
             ...(scope ? { workspaceScope: scope } : {}),
           }),
         },

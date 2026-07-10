@@ -159,7 +159,11 @@ export class RuntimeKernel {
         if (!isArtifactSettlementError(error)) {
           await this.settleArtifacts(turn.id, lifecycle, artifacts);
         }
-        await this.recoverFailedTurn(lifecycle, error);
+        if (isTurnCancelled(error)) {
+          await lifecycle.interrupt(error.message);
+        } else {
+          await this.recoverFailedTurn(lifecycle, error);
+        }
       }
       throw error;
     }
@@ -337,6 +341,10 @@ export class RuntimeKernel {
       );
     }
   }
+}
+
+function isTurnCancelled(error: unknown): error is RuntimeKernelError {
+  return error instanceof RuntimeKernelError && error.code === "turn_cancelled";
 }
 
 function isArtifactSettlementError(error: unknown): boolean {

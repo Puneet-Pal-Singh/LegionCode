@@ -38,6 +38,7 @@ export interface RuntimeToolGatewayInput {
     source?: "stdout" | "stderr";
     timestamp?: number;
   }) => Promise<void> | void;
+  readonly isCancelled?: () => boolean | Promise<boolean>;
 }
 
 /** Canonical registry/manifest/scope tool dispatch for kernel turns. */
@@ -53,6 +54,20 @@ export class RuntimeToolGateway {
   async execute(
     input: RuntimeToolGatewayInput,
   ): Promise<RuntimeToolExecutionResult> {
+    if (await input.isCancelled?.()) {
+      return {
+        kind: "cancelled",
+        result: {
+          taskId: input.taskId,
+          status: "CANCELLED",
+          error: {
+            code: "turn_cancelled",
+            message: "Tool execution was cancelled with its run.",
+          },
+          completedAt: new Date(),
+        },
+      };
+    }
     const definition = codingToolRegistry.getDefinition(input.toolName);
     if (!definition) {
       return this.failure(
@@ -101,6 +116,20 @@ export class RuntimeToolGateway {
             onOutput: input.onOutput,
           }),
       });
+      if (await input.isCancelled?.()) {
+        return {
+          kind: "cancelled",
+          result: {
+            taskId: input.taskId,
+            status: "CANCELLED",
+            error: {
+              code: "turn_cancelled",
+              message: "Tool execution was cancelled with its run.",
+            },
+            completedAt: new Date(),
+          },
+        };
+      }
       if (result.metadata.success === false) {
         return this.failure(
           input.taskId,

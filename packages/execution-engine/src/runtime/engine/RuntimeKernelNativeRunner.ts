@@ -47,7 +47,6 @@ import {
   isCodingToolId,
   isMutatingCodingToolId,
 } from "../tools/CodingToolRegistry.js";
-import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import type {
   AgenticLoopToolLifecycleEvent,
   IAgent,
@@ -131,7 +130,6 @@ import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
-const RECOVERABLE_TOOL_FAILURE_KEY = "__legionRecoverableToolFailure";
 type KernelWorkspaceManifest = NonNullable<
   Awaited<
     ReturnType<
@@ -979,12 +977,11 @@ class KernelAgenticProvider implements ProviderPort {
     const nextResults = results.slice(this.consumedToolResults);
     this.consumedToolResults = results.length;
     for (const result of nextResults) {
-      const recoverableFailure = readRecoverableToolFailure(result.output);
       this.currentBatchResults.push({
         toolId: result.toolCallId,
         toolName: this.findToolName(result.toolCallId),
-        result: recoverableFailure ? null : result.output,
-        error: recoverableFailure?.message,
+        result: result.output,
+        error: undefined,
         terminalError: false,
       });
     }
@@ -1099,9 +1096,9 @@ function isToolArgRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-class NativeRunCancelledError extends Error {
+class NativeRunCancelledError extends RuntimeKernelError {
   constructor() {
-    super("Run was cancelled");
+    super("turn_cancelled", "Run was cancelled");
     this.name = "NativeRunCancelledError";
   }
 }
@@ -1206,18 +1203,40 @@ class KernelToolWorker implements WorkerProtocolPort {
               },
             );
           },
+          isCancelled: this.options.isRunCancelled,
         }),
         this.options.isRunCancelled,
       );
+      if (gatewayResult.kind === "cancelled") {
+        return { kind: "cancelled", reason: "Run cancelled by user." };
+      }
+      if (gatewayResult.kind === "failed") {
+        const message =
+          gatewayResult.result.error?.message ?? "Tool execution failed";
+        this.options.tracker.recordToolFailed(input.toolCall, message, true);
+        await this.options.runEventRecorder.recordToolFailed(
+          { id: input.toolCall.toolCallId, type: toolName },
+          message,
+          0,
+        );
+        return failed(
+          gatewayResult.code === "executor_failed"
+            ? "command_failed"
+            : gatewayResult.code === "tool_unavailable"
+              ? "not_found"
+              : gatewayResult.code === "workspace_escape_denied"
+                ? "policy_denied"
+                : "validation_failed",
+          message,
+          gatewayResult.retryable,
+        );
+      }
       result = gatewayResult.result;
     } catch (error) {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
-      const message = normalizeToolExecutionErrorMessage(toolName, error);
-      const terminal = isTerminalToolFailure({
-        toolName,
-        error: message,
-      });
-      this.options.tracker.recordToolFailed(input.toolCall, message, terminal);
+      const message =
+        error instanceof Error ? error.message : "Tool execution failed";
+      this.options.tracker.recordToolFailed(input.toolCall, message, true);
       await this.options.runEventRecorder.recordToolFailed(
         { id: input.toolCall.toolCallId, type: toolName },
         message,
@@ -1231,9 +1250,6 @@ class KernelToolWorker implements WorkerProtocolPort {
           errorMessage: message,
         }),
       );
-      if (!terminal) {
-        return completedRecoverableFailure(message);
-      }
       return failed("command_failed", message);
     }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
@@ -1264,12 +1280,7 @@ class KernelToolWorker implements WorkerProtocolPort {
       };
     }
     const message = result.error?.message ?? "Tool execution failed";
-    const terminal = isTerminalToolFailure({
-      toolName,
-      error: message,
-      metadata: result.output?.metadata,
-    });
-    this.options.tracker.recordToolFailed(input.toolCall, message, terminal);
+    this.options.tracker.recordToolFailed(input.toolCall, message, true);
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
       message,
@@ -1283,32 +1294,8 @@ class KernelToolWorker implements WorkerProtocolPort {
         errorMessage: message,
       }),
     );
-    if (!terminal) {
-      return completedRecoverableFailure(message);
-    }
     return failed("command_failed", message);
   }
-}
-
-function normalizeToolExecutionErrorMessage(
-  toolName: string,
-  error: unknown,
-): string {
-  const message =
-    error instanceof Error ? error.message : "Tool execution failed";
-  if (!message.startsWith("Invalid")) {
-    return message;
-  }
-
-  if (toolName === "read_file") {
-    return "read_file failed because the model omitted the required file path. Retry with the same path and the next offset, or choose a concrete file path first.";
-  }
-
-  if (toolName === "list_files" || toolName === "glob" || toolName === "grep") {
-    return `${toolName} failed because the model sent malformed tool arguments. Retry the search with a concrete path or pattern.`;
-  }
-
-  return message;
 }
 
 class NativeApprovalWaitPort implements ApprovalWaitPort {
@@ -1599,8 +1586,9 @@ function readString(value: unknown): string | null {
 }
 
 function failed(
-  code: "validation_failed" | "command_failed",
+  code: "validation_failed" | "command_failed" | "not_found" | "policy_denied",
   message: string,
+  retryable = false,
 ): WorkerToolResult {
   return {
     kind: "failed",
@@ -1608,32 +1596,10 @@ function failed(
       code,
       message,
       details: null,
-      retryable: false,
+      retryable,
       correlationId: null,
     },
   };
-}
-
-function completedRecoverableFailure(message: string): WorkerToolResult {
-  return {
-    kind: "completed",
-    output: JsonRecordSchema.parse({
-      [RECOVERABLE_TOOL_FAILURE_KEY]: {
-        message,
-      },
-    }),
-  };
-}
-
-function readRecoverableToolFailure(
-  value: ToolResult["output"],
-): { message: string } | null {
-  const candidate = value[RECOVERABLE_TOOL_FAILURE_KEY];
-  if (!candidate || typeof candidate !== "object") {
-    return null;
-  }
-  const message = readString((candidate as Record<string, unknown>).message);
-  return message ? { message } : null;
 }
 
 function normalizeModelId(value: string | undefined): string {

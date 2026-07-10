@@ -72,6 +72,43 @@ describe("RuntimeToolGateway", () => {
       options: { scope: { root: "/runs/two", runId: "run_two" } },
     });
   });
+
+  it("returns typed executor failure and cancellation results", async () => {
+    let cancelled = false;
+    const executor: RuntimeExecutionService = {
+      execute: async () => ({ success: false, output: "executor rejected" }),
+    };
+    const gateway = new RuntimeToolGateway({
+      executor,
+      manifest: createCloudSandboxRunCapabilityManifest({
+        runId: "run_one",
+        workspaceRoot: "/runs/one",
+        availableToolIds: ["read_file"],
+      }),
+      scope: new RuntimeWorkspaceScope({
+        runId: "run_one",
+        runAttemptId: RunAttemptIdSchema.parse("attempt_run_one_000001"),
+        workspaceId: WorkspaceIdSchema.parse("wrk_run_one_000001"),
+        root: "/runs/one",
+      }),
+    });
+
+    const failed = await gateway.execute({
+      taskId: "task_failed",
+      toolName: "read_file",
+      toolInput: { description: "read", path: "src/a.ts" },
+    });
+    cancelled = true;
+    const cancelledResult = await gateway.execute({
+      taskId: "task_cancelled",
+      toolName: "read_file",
+      toolInput: { description: "read", path: "src/a.ts" },
+      isCancelled: () => cancelled,
+    });
+
+    expect(failed).toMatchObject({ kind: "failed", code: "executor_failed" });
+    expect(cancelledResult).toMatchObject({ kind: "cancelled" });
+  });
 });
 
 function createGateway(
