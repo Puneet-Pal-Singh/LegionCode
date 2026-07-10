@@ -9,7 +9,7 @@ const ALLOWED_DIRECT_EXEC_FILES = [
 describe("direct sandbox exec guard", () => {
   it("restricts direct sandbox.exec usage to approved adapter/bootstrap files", () => {
     const output = execSync(
-      "rg -l \"sandbox\\\\.exec\\\\(\" src -g '!**/*.test.ts'",
+      "cd apps/secure-agent-api && rg -l \"sandbox\\\\.exec\\\\(\" src -g '!**/*.test.ts'",
       { encoding: "utf8" },
     ).trim();
 
