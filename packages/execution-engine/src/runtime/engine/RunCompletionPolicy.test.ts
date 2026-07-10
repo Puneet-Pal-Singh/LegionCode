@@ -174,17 +174,17 @@ describe("RunCompletionPolicy", () => {
     });
 
     await expect(response.text()).resolves.toContain(
-      "I finished the run, but the model did not produce a final response.",
+      '{ "success": true, "output": "" }',
     );
     expect(run.output?.finalSummary).toContain(
-      "I finished the run, but the model did not produce a final response.",
+      '{ "success": true, "output": "" }',
     );
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
-      expect.stringContaining("I finished the run"),
+      '{ "success": true, "output": "" }',
       expect.objectContaining({
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
-        finalMessageSource: "runtime",
+        finalMessageSource: "model",
       }),
     );
   });
@@ -252,17 +252,13 @@ describe("RunCompletionPolicy", () => {
 
     expect(run.metadata.terminalMessage).toMatchObject({
       terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
-      changedFileCount: 1,
-      lastSuccessfulStep: "create_code_artifact",
-      failedStep: "npm_test",
-      nextAction: "Fix the failing test and retry.",
+      outcomeCode: "TOOL_EXECUTION_FAILED",
     });
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
       "Tests failed after the edit.",
       expect.objectContaining({
-        changedFileCount: 1,
-        failedStep: "npm_test",
+        outcomeCode: "TOOL_EXECUTION_FAILED",
       }),
     );
     expect(run.status).toBe("FAILED");
@@ -290,7 +286,7 @@ describe("RunCompletionPolicy", () => {
     });
 
     await expect(response.text()).resolves.toContain(
-      "did not record the required evidence",
+      "required evidence is missing",
     );
     expect(run.status).toBe("FAILED");
     expect(run.metadata.terminalState).toBe(

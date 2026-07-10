@@ -17,10 +17,10 @@ import {
   buildFinalAssistantMessage,
   buildTerminalFinalMetadata,
 } from "./FinalMessageProjector.js";
+import { projectTerminalSettlement } from "./TerminalSettlementProjector.js";
 import { createStreamResponse } from "./CompletionResponseWriter.js";
 import { persistSynthesisArtifacts } from "./CompletionSynthesisArtifacts.js";
 import {
-  buildMissingEvidenceFinalText,
   settleFinalizationContract,
 } from "./TurnSettlementContract.js";
 import {
@@ -118,26 +118,26 @@ async function persistFinalAssistantRun(
     );
     return createStreamResponse("");
   }
-  const finalization = settleFinalizationContract({ run, metadata });
-  const terminalState = finalization.contract.settled
-    ? params.terminalState
-    : RUN_TERMINAL_STATES.FAILED_VALIDATION;
-  const terminalStatus = finalization.contract.settled
-    ? params.terminalStatus
-    : "FAILED";
-  const finalText = finalization.contract.settled
-    ? text
-    : buildMissingEvidenceFinalText(finalization.contract);
+  const finalization = settleFinalizationContract({
+    lifecycle: run.metadata.agenticLoop?.toolLifecycle ?? [],
+    metadata,
+  });
+  const settlement = projectTerminalSettlement({
+    terminalState: params.terminalState,
+    contract: finalization.contract,
+  });
+  const terminalState = settlement.terminalState;
+  const terminalStatus = settlement.terminalStatus;
   const finalMetadata = buildTerminalFinalMetadata({
-    run,
     metadata: finalization.metadata,
     terminalState,
+    outcomeCode: settlement.outcomeCode,
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    text: finalText,
+    text,
     metadata: finalMetadata,
-    terminalState,
+    settlement,
   });
   const redactedText = redactUserFacingOutput(finalMessage.content);
   console.log(
@@ -227,16 +227,20 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   }
   const terminalState =
     parseTerminalState(metadata) ?? RUN_TERMINAL_STATES.COMPLETED_WITH_WARNINGS;
+  const settlement = projectTerminalSettlement({
+    terminalState,
+    contract: { requiredEvidence: [], missingEvidence: [], settled: true },
+  });
   const finalMetadata = buildTerminalFinalMetadata({
-    run,
     metadata,
     terminalState,
+    outcomeCode: settlement.outcomeCode,
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
     text,
     metadata: finalMetadata,
-    terminalState,
+    settlement,
   });
   const redactedText = redactUserFacingOutput(finalMessage.content);
   recordLifecycleStep(run, "SYNTHESIS", "planning_recovery");

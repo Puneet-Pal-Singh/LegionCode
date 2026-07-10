@@ -1,48 +1,34 @@
-import { buildEvidenceLedger } from "./EvidenceLedger.js";
+import type { AgenticLoopToolLifecycleEvent } from "../types.js";
 import {
   evaluateFinalizationContract,
   readFinalizationEvidenceRequirements,
   type FinalizationContract,
+  type EvidenceRecord,
 } from "./EvidenceLedger.js";
-import type { Run } from "../run/index.js";
+import { projectTurnEvidence } from "./TurnEvidenceProjector.js";
 
 export function settleFinalizationContract(input: {
-  run: Run;
+  lifecycle: readonly AgenticLoopToolLifecycleEvent[];
   metadata?: Record<string, unknown>;
 }): {
-  ledger: ReturnType<typeof buildEvidenceLedger>;
+  ledger: EvidenceRecord[];
   contract: FinalizationContract;
   metadata: Record<string, unknown>;
 } {
-  const ledger = buildEvidenceLedger(
-    input.run.metadata.agenticLoop?.toolLifecycle ?? [],
-  );
-  const requiredEvidence = readFinalizationEvidenceRequirements(
-    input.metadata?.requiredEvidence,
-  );
+  const ledger = projectTurnEvidence(input.lifecycle).evidence;
   const contract = evaluateFinalizationContract({
     ledger,
-    requiredEvidence,
+    requiredEvidence: readFinalizationEvidenceRequirements(
+      input.metadata?.requiredEvidence,
+    ),
   });
-  const metadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
-
-  if (ledger.length > 0 || requiredEvidence.length > 0) {
-    metadata.evidenceLedger = ledger;
-    metadata.finalizationContract = contract;
-  }
-
-  if (!contract.settled) {
-    metadata.code = "FINALIZATION_MISSING_EVIDENCE";
-  }
-
-  return { ledger, contract, metadata };
-}
-
-export function buildMissingEvidenceFinalText(
-  contract: FinalizationContract,
-): string {
-  return [
-    "I cannot finalize that answer yet because this run did not record the required evidence.",
-    `Missing evidence: ${contract.missingEvidence.join(", ")}`,
-  ].join("\n");
+  return {
+    ledger,
+    contract,
+    metadata: {
+      ...(input.metadata ?? {}),
+      evidenceLedger: ledger,
+      finalizationContract: contract,
+    },
+  };
 }
