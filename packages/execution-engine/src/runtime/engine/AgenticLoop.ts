@@ -17,7 +17,10 @@ import {
   type ILLMGateway,
   type LLMTextResponse,
 } from "../llm/index.js";
-import { projectVisibleTranscriptText } from "@repo/platform-protocol";
+import {
+  projectVisibleTranscriptText,
+  type TranscriptPart,
+} from "@repo/platform-protocol";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingCodingToolId } from "../tools/CodingToolRegistry.js";
@@ -95,6 +98,7 @@ export interface AgenticLoopResult {
   llmRetryCount?: number;
   terminalLlmIssue?: AgenticLoopTerminalLlmIssue;
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
+  finalTranscriptParts?: TranscriptPart[];
 }
 
 export interface AgenticLoopHooks {
@@ -195,6 +199,7 @@ export class AgenticLoop {
     let attemptedCiLogsCliFallback = false;
     let latestCorrectionHint: string | undefined;
     let stopReason: StopReason | null = null;
+    let finalTranscriptParts: TranscriptPart[] = [];
 
     for (let step = 0; step < this.config.maxSteps; step++) {
       this.stepsExecuted = step + 1;
@@ -318,9 +323,10 @@ export class AgenticLoop {
         break;
       }
 
-      // LLMGateway always supplies parts. An absent field is treated as an
-      // empty malformed provider result; raw response.text is never promoted.
+      // LLMGateway supplies the canonical part list. Missing parts are an
+      // empty malformed provider result and cannot become visible content.
       const responseParts = response.parts ?? [];
+      finalTranscriptParts = responseParts;
       const responseText = projectVisibleTranscriptText(responseParts);
       console.log(
         formatRuntimeDiagnosticLogLine("agentic-loop/model", "completed", {
@@ -637,6 +643,7 @@ export class AgenticLoop {
       llmRetryCount: this.llmRetryCount,
       terminalLlmIssue: this.terminalLlmIssue,
       toolLifecycle: [...this.toolLifecycle],
+      finalTranscriptParts,
     };
   }
 

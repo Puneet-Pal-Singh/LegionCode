@@ -1,4 +1,5 @@
 import type { CoreMessage, CoreTool } from "ai";
+import type { TranscriptPart } from "@repo/platform-protocol";
 import type { EditToolActivityMetadata } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { AgenticLoopResult } from "./AgenticLoop.js";
@@ -17,6 +18,7 @@ const TOOL_EXECUTION_FAILED_CODE = "TOOL_EXECUTION_FAILED";
 
 export interface AssistantTurnOutput {
   text: string;
+  parts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
 }
 
@@ -156,7 +158,7 @@ export function buildAgenticLoopFinalMessage(
   }
 
   if (assistantText) {
-    return { text: assistantText };
+    return { text: assistantText, parts: result.finalTranscriptParts ?? [] };
   }
 
   return {

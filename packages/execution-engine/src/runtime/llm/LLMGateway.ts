@@ -219,7 +219,6 @@ export class LLMGateway implements ILLMGateway {
     );
 
     return {
-      text: result.text,
       parts: this.transcriptPartNormalizer.normalize({
         runId: req.context.runId,
         turnId: req.context.turnId ?? req.context.runId,

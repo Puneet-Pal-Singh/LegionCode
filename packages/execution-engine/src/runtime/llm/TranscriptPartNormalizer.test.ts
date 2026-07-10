@@ -41,6 +41,16 @@ describe("TranscriptPartNormalizer", () => {
     expect(visibleTextFromTranscriptParts(parts)).toBe("");
   });
 
+  it("quarantines unstructured tool JSON as audit-only reasoning", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerText: '{"tool":"read_file","arguments":{"path":"README.md"}}',
+    });
+
+    expect(parts.some((part) => part.type === "reasoning")).toBe(true);
+    expect(visibleTextFromTranscriptParts(parts)).toBe("");
+  });
+
   it("uses structured provider parts and emits typed usage/error parts", () => {
     const parts = normalizer.normalize({
       ...input,
@@ -58,5 +68,17 @@ describe("TranscriptPartNormalizer", () => {
 
     expect(parts.map((part) => part.type)).toEqual(["final", "usage", "error"]);
     expect(visibleTextFromTranscriptParts(parts)).toBe("Finished.");
+  });
+
+  it("derives stable part IDs from the turn and provider correlation", () => {
+    const request = {
+      ...input,
+      providerText: "Done.",
+      toolCalls: [{ id: "call_1", toolName: "read_file", args: { path: "README.md" } }],
+    };
+    const first = normalizer.normalize(request).map((part) => part.id);
+    const second = normalizer.normalize(request).map((part) => part.id);
+
+    expect(second).toEqual(first);
   });
 });

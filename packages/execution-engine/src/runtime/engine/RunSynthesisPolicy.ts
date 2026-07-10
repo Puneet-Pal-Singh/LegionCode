@@ -3,6 +3,7 @@ import {
   SessionBudgetExceededError,
 } from "../cost/index.js";
 import type { ILLMGateway } from "../llm/index.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 import type { MemoryContext, MemoryCoordinator } from "../memory/index.js";
 import type { Run } from "../run/index.js";
 import type { TaskRepository } from "../task/index.js";
@@ -58,7 +59,7 @@ export async function synthesizeResultFromTasks({
       temperature: 0.7,
     });
 
-    return result.text;
+    return projectVisibleTranscriptText(result.parts ?? []);
   } catch (error) {
     if (
       error instanceof BudgetExceededError ||

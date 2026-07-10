@@ -315,10 +315,12 @@ export {
   TranscriptPartSchema,
   TranscriptPartDeltaSchema,
   TranscriptPartEventSchema,
+  TranscriptPartIdSchema,
   isVisibleTranscriptPart,
   projectVisibleTranscriptText,
   replayTranscriptPartEvents,
   type TranscriptPart,
   type TranscriptPartDelta,
   type TranscriptPartEvent,
+  type TranscriptPartId,
 } from "./transcript-parts.js";

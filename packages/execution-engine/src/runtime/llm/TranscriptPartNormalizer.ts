@@ -30,6 +30,8 @@ export interface TranscriptPartNormalizerInput {
   createdAt?: string;
 }
 
+type NormalizedTranscriptPartInput = TranscriptPartNormalizerInput;
+
 export interface TranscriptPartNormalizer {
   normalize(input: TranscriptPartNormalizerInput): TranscriptPart[];
 }
@@ -42,29 +44,30 @@ export interface TranscriptPartNormalizer {
  */
 export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNormalizer {
   normalize(input: TranscriptPartNormalizerInput): TranscriptPart[] {
+    const normalizedInput: NormalizedTranscriptPartInput = input;
     const createdAt = input.createdAt ?? new Date().toISOString();
     const parts: TranscriptPart[] = [];
     let sequence = 0;
 
     for (const providerPart of input.providerParts ?? []) {
-      const part = buildProviderPart(providerPart, input, sequence++, createdAt);
+      const part = buildProviderPart(providerPart, normalizedInput, sequence++, createdAt);
       if (part) parts.push(part);
     }
 
     if (!input.providerParts?.length && input.providerText?.trim()) {
       for (const parsed of parseLegacyProviderText(input.providerText)) {
-        parts.push(buildTextPart(parsed, input, sequence++, createdAt));
+        parts.push(buildTextPart(parsed, normalizedInput, sequence++, createdAt));
       }
       parts.push({
-        id: stablePartId(input.turnId, sequence, "raw-provider-material"),
+        id: stablePartId(normalizedInput.turnId, sequence, "raw-provider-material"),
         schemaVersion: 1,
-        runId: input.runId,
-        turnId: input.turnId,
+        runId: normalizedInput.runId,
+        turnId: normalizedInput.turnId,
         sequence: sequence++,
         createdAt,
         type: "raw_provider_material",
         visibility: "audit_only",
-        providerId: input.providerId,
+        providerId: normalizedInput.providerId,
         format: "legacy-provider-text",
         material: { text: input.providerText },
       });
@@ -72,10 +75,10 @@ export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNor
 
     for (const toolCall of input.toolCalls ?? []) {
       parts.push({
-        id: stablePartId(input.turnId, sequence, toolCall.id),
+        id: stablePartId(normalizedInput.turnId, sequence, toolCall.id),
         schemaVersion: 1,
-        runId: input.runId,
-        turnId: input.turnId,
+        runId: normalizedInput.runId,
+        turnId: normalizedInput.turnId,
         sequence: sequence++,
         createdAt,
         type: "tool_call",
@@ -88,10 +91,10 @@ export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNor
 
     if (input.usage) {
       parts.push({
-        id: stablePartId(input.turnId, sequence, "usage"),
+        id: stablePartId(normalizedInput.turnId, sequence, "usage"),
         schemaVersion: 1,
-        runId: input.runId,
-        turnId: input.turnId,
+        runId: normalizedInput.runId,
+        turnId: normalizedInput.turnId,
         sequence: sequence++,
         createdAt,
         type: "usage",
@@ -102,10 +105,10 @@ export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNor
 
     if (input.finishReason && input.finishReason !== "stop") {
       parts.push({
-        id: stablePartId(input.turnId, sequence, "finish"),
+        id: stablePartId(normalizedInput.turnId, sequence, "finish"),
         schemaVersion: 1,
-        runId: input.runId,
-        turnId: input.turnId,
+        runId: normalizedInput.runId,
+        turnId: normalizedInput.turnId,
         sequence: sequence++,
         createdAt,
         type: "error",
@@ -125,7 +128,7 @@ export function visibleTextFromTranscriptParts(parts: readonly TranscriptPart[])
 
 function buildProviderPart(
   providerPart: ProviderTranscriptPart,
-  input: TranscriptPartNormalizerInput,
+  input: NormalizedTranscriptPartInput,
   sequence: number,
   createdAt: string,
 ): TranscriptPart | null {
@@ -157,7 +160,7 @@ function buildProviderPart(
 
 function buildTextPart(
   parsed: { kind: "visible_text" | "reasoning"; text: string; reason?: string },
-  input: TranscriptPartNormalizerInput,
+  input: NormalizedTranscriptPartInput,
   sequence: number,
   createdAt: string,
 ): TranscriptPart {
@@ -177,6 +180,14 @@ function buildTextPart(
 function parseLegacyProviderText(text: string): Array<{ kind: "visible_text" | "reasoning"; text: string; reason?: string }> {
   const normalized = text.replaceAll("\r\n", "\n").trim();
   if (!normalized) return [];
+  const toolPayload = parseToolPayload(normalized);
+  if (toolPayload) {
+    return [{
+      kind: "reasoning",
+      text: normalized,
+      reason: "legacy_tool_payload_quarantine",
+    }];
+  }
   const tagged = parseTaggedSegments(normalized);
   if (tagged.length > 0) return tagged;
 
@@ -185,6 +196,19 @@ function parseLegacyProviderText(text: string): Array<{ kind: "visible_text" | "
   const labeled = lines.length >= 3 && lines.every((line) => labels.has(line.slice(0, line.indexOf(":" )).replace(/^[-*•]\s*/, "").trim().toLowerCase()));
   if (labeled) return [{ kind: "reasoning", text: normalized, reason: "legacy_labeled_outline_quarantine" }];
   return [{ kind: "visible_text", text: normalized }];
+}
+
+function parseToolPayload(text: string): Record<string, unknown> | null {
+  if (!text.startsWith("{") || !text.endsWith("}")) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const toolKeys = new Set(["tool", "toolCall", "tool_call", "arguments", "parameters"]);
+    return Object.keys(record).some((key) => toolKeys.has(key)) ? record : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseTaggedSegments(text: string): Array<{ kind: "visible_text" | "reasoning"; text: string; reason?: string }> {

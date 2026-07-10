@@ -4,11 +4,12 @@ import {
   projectVisibleTranscriptText,
   replayTranscriptPartEvents,
 } from "./transcript-parts.js";
+import { RunIdSchema, TurnIdSchema } from "./ids.js";
 
 const base = {
   schemaVersion: 1 as const,
-  runId: "run_1",
-  turnId: "turn_1",
+  runId: RunIdSchema.parse("run_123456"),
+  turnId: TurnIdSchema.parse("trn_123456"),
   createdAt: "2026-07-10T00:00:00.000Z",
 };
 
@@ -45,8 +46,7 @@ describe("typed transcript parts", () => {
       text: "Done",
       finalized: false,
     };
-    const completed = { ...created, text: "Done." };
-    const live = [completed];
+    const live = [{ ...created, text: "Done." }];
     const replayed = replayTranscriptPartEvents([
       { type: "transcript_part.created", schemaVersion: 1, part: created },
       {
@@ -60,11 +60,52 @@ describe("typed transcript parts", () => {
         target: "visible_text",
         delta: ".",
       },
-      { type: "transcript_part.completed", schemaVersion: 1, part: completed },
     ]);
 
     expect(replayed).toEqual(live);
     expect(projectVisibleTranscriptText(replayed)).toBe("Done.");
+  });
+
+  it("rejects deltas with the wrong correlation or target", () => {
+    const created = {
+      ...base,
+      id: "part_visible",
+      sequence: 0,
+      type: "visible_text" as const,
+      visibility: "visible" as const,
+      text: "Done",
+      finalized: false,
+    };
+
+    expect(() => replayTranscriptPartEvents([
+      { type: "transcript_part.created", schemaVersion: 1, part: created },
+      {
+        type: "transcript_part.delta",
+        schemaVersion: 1,
+        partId: created.id,
+        runId: created.runId,
+        turnId: TurnIdSchema.parse("trn_223456"),
+        sequence: 1,
+        createdAt: created.createdAt,
+        target: "visible_text",
+        delta: ".",
+      },
+    ])).toThrow("correlation");
+
+    expect(() => replayTranscriptPartEvents([
+      { type: "transcript_part.created", schemaVersion: 1, part: created },
+      {
+        type: "transcript_part.delta",
+        schemaVersion: 1,
+        partId: created.id,
+        runId: created.runId,
+        turnId: created.turnId,
+        sequence: 1,
+        createdAt: created.createdAt,
+        target: "reasoning",
+        delta: "hidden",
+      },
+    ])).toThrow("target");
   });
 
   it("cannot project reasoning, tools, usage, errors, or raw provider material", () => {

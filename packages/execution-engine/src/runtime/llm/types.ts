@@ -54,8 +54,6 @@ export interface LLMStructuredRequest<T> {
 }
 
 export interface LLMTextResponse {
-  /** Provider-returned text retained only at the adapter boundary for audit/diagnostics. */
-  text: string;
   parts: TranscriptPart[];
   usage: LLMUsage;
   providerRequestId?: string;

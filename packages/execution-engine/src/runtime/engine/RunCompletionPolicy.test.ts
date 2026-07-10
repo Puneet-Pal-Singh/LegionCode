@@ -168,7 +168,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      text: '{ "success": true, "output": "" }',
+      text: "",
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
@@ -196,6 +196,19 @@ describe("RunCompletionPolicy", () => {
     await completeRunWithAssistantMessage({
       run,
       text: "Done. I changed the requested files.",
+      modelParts: [
+        {
+          id: "model-final-part",
+          schemaVersion: 1,
+          runId: run.id,
+          turnId: run.id,
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "final",
+          visibility: "visible",
+          text: "Done. I changed the requested files.",
+        },
+      ],
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });

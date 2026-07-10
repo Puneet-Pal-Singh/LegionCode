@@ -3,7 +3,8 @@ import { JsonRecordSchema, JsonValueSchema, ProtocolTimestampSchema } from "./co
 
 export const TRANSCRIPT_PART_SCHEMA_VERSION = 1;
 
-const TranscriptPartIdSchema = z.string().min(1).max(200);
+export const TranscriptPartIdSchema = z.string().min(1).max(200);
+export type TranscriptPartId = z.infer<typeof TranscriptPartIdSchema>;
 const TranscriptCorrelationShape = {
   id: TranscriptPartIdSchema,
   schemaVersion: z.literal(TRANSCRIPT_PART_SCHEMA_VERSION),
@@ -183,6 +184,13 @@ export function replayTranscriptPartEvents(
   for (const event of events) {
     const parsed = TranscriptPartEventSchema.parse(event);
     if (parsed.type === "transcript_part.created" || parsed.type === "transcript_part.completed") {
+      const current = parts.get(parsed.part.id);
+      if (parsed.type === "transcript_part.created" && current) {
+        throw new Error(`Transcript part ${parsed.part.id} was created more than once`);
+      }
+      if (current && (current.runId !== parsed.part.runId || current.turnId !== parsed.part.turnId)) {
+        throw new Error(`Transcript part ${parsed.part.id} changed correlation during replay`);
+      }
       parts.set(parsed.part.id, parsed.part);
       continue;
     }
@@ -191,12 +199,13 @@ export function replayTranscriptPartEvents(
     if (!part) {
       throw new Error(`Transcript delta references unknown part ${parsed.partId}`);
     }
-    if (part.type === parsed.target) {
-      const textPart = part as Extract<TranscriptPart, { type: typeof parsed.target }>;
-      if ("text" in textPart) {
-        parts.set(parsed.partId, { ...textPart, text: `${textPart.text}${parsed.delta}` } as TranscriptPart);
-      }
+    if (part.runId !== parsed.runId || part.turnId !== parsed.turnId) {
+      throw new Error(`Transcript delta correlation does not match part ${parsed.partId}`);
     }
+    if (part.type !== parsed.target || !("text" in part)) {
+      throw new Error(`Transcript delta target ${parsed.target} does not match part ${parsed.partId}`);
+    }
+    parts.set(parsed.partId, { ...part, text: `${part.text}${parsed.delta}` } as TranscriptPart);
   }
   return [...parts.values()].sort((left, right) => left.sequence - right.sequence);
 }

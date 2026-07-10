@@ -2,11 +2,13 @@ import { RUN_TERMINAL_STATES } from "@repo/shared-types";
 import type { RunTerminalState } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
 import type { AgenticLoopToolLifecycleEvent } from "../types.js";
+import type { TranscriptPart } from "@repo/platform-protocol";
 import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
 
 export function buildFinalAssistantMessage(input: {
   run: Run;
   text: string;
+  modelParts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
   terminalState: RunTerminalState;
 }) {
@@ -14,7 +16,8 @@ export function buildFinalAssistantMessage(input: {
     runId: input.run.id,
     sessionId: input.run.sessionId,
     terminalState: input.terminalState,
-    modelText: input.text,
+    runtimeText: input.text,
+    modelParts: input.modelParts,
     metadata: input.metadata,
   });
 }
