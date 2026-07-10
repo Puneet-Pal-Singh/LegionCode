@@ -45,7 +45,11 @@ export const APP_IMPORT_POLICY = {
     "@repo/shared-types",
     "@repo/worker-protocol",
   ],
-  "@shadowbox/web": ["@repo/platform-client-sdk", "@repo/shared-types"],
+  "@shadowbox/web": [
+    "@repo/observability",
+    "@repo/platform-client-sdk",
+    "@repo/shared-types",
+  ],
 };
 
 export const CANONICAL_AUTHORITIES = [
