@@ -188,3 +188,19 @@ export const PlatformIdSchemas = {
 } as const;
 
 export type PlatformIdSchemaName = keyof typeof PlatformIdSchemas;
+
+function randomPlatformSuffix(): string {
+  return crypto.randomUUID().replaceAll("-", "");
+}
+
+export function createTurnId(): TurnId {
+  return TurnIdSchema.parse(`trn_${randomPlatformSuffix()}`);
+}
+
+export function createThreadId(): ThreadId {
+  return ThreadIdSchema.parse(`thr_${randomPlatformSuffix()}`);
+}
+
+export function createRunAttemptId(): RunAttemptId {
+  return RunAttemptIdSchema.parse(`attempt_${randomPlatformSuffix()}`);
+}

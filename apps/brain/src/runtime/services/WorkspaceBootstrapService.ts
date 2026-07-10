@@ -570,9 +570,26 @@ function toGitPluginResult(result: unknown): GitPluginResult {
 
   return {
     success: candidate.success,
-    error: typeof candidate.error === "string" ? candidate.error : undefined,
+    error: readGitPluginErrorMessage(candidate.error),
     output: candidate.output,
   };
+}
+
+function readGitPluginErrorMessage(error: unknown): string | undefined {
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const candidate = error as { message?: unknown; code?: unknown };
+  if (typeof candidate.message === "string" && candidate.message.length > 0) {
+    return candidate.message;
+  }
+  if (typeof candidate.code === "string" && candidate.code.length > 0) {
+    return candidate.code;
+  }
+  return undefined;
 }
 
 function parseWorkspaceGitStatus(

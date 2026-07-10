@@ -13,6 +13,14 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
+  workspaceScope?: WorkspaceScope;
+}
+
+interface WorkspaceScope {
+  runId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
 }
 
 interface SessionLogEntry {
@@ -119,6 +127,26 @@ function createSessionRequest(): Request {
   });
 }
 
+const scopedWorkspace: WorkspaceScope = {
+  runId: "run-scoped-1",
+  runAttemptId: "attempt_scoped_000001",
+  workspaceId: "wrk_scoped_000001",
+  root: "/runs/scoped-1",
+};
+
+function createScopedSessionRequest(): Request {
+  return new Request("http://localhost/api/v1/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: scopedWorkspace.runId,
+      taskId: "task-scoped-1",
+      repoPath: ".",
+      workspaceScope: scopedWorkspace,
+    }),
+  });
+}
+
 async function createSession(
   runtime: RuntimeStoreMock,
 ): Promise<{ sessionId: string; token: string }> {
@@ -167,6 +195,26 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
         command: "echo hello",
         runId: "run-auth-1",
       },
+    }),
+  });
+}
+
+function createScopedExecuteRequest(
+  sessionId: string,
+  token: string,
+  workspaceScope: WorkspaceScope,
+): Request {
+  return new Request("http://localhost/api/v1/execute", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      sessionId,
+      taskId: "task-scoped-execute",
+      action: "node.execute",
+      params: { workspaceScope },
     }),
   });
 }
@@ -236,6 +284,38 @@ describe("session auth hardening", () => {
     expect(body.taskId).toBe("task-execute-auth");
     expect(body.status).toBe("success");
     expect(body.output).toContain("node.execute");
+  });
+
+  it("persists the run workspace scope and rejects cross-run execution", async () => {
+    const runtime = createRuntimeStoreMock();
+    const sessionResponse = await handleCreateSession(
+      createScopedSessionRequest(),
+      runtime,
+    );
+    expect(sessionResponse.status).toBe(201);
+    const { sessionId, token } = (await sessionResponse.json()) as {
+      sessionId: string;
+      token: string;
+    };
+
+    const mismatchedScope = {
+      ...scopedWorkspace,
+      runId: "run-scoped-2",
+    };
+    const rejected = await handleExecuteTask(
+      createScopedExecuteRequest(sessionId, token, mismatchedScope),
+      runtime,
+    );
+    expect(rejected.status).toBe(409);
+    expect(((await rejected.json()) as ErrorBody).code).toBe(
+      "WORKSPACE_SCOPE_MISMATCH",
+    );
+
+    const accepted = await handleExecuteTask(
+      createScopedExecuteRequest(sessionId, token, scopedWorkspace),
+      runtime,
+    );
+    expect(accepted.status).toBe(200);
   });
 
   it("publishes signed runtime task events around execution", async () => {

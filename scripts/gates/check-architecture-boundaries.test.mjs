@@ -137,6 +137,80 @@ test("rejects direct secure git plugin command bypasses", async (context) => {
   );
 });
 
+test("rejects new policy files missing from inventory", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "packages/execution-engine/src/runtime/engine/NewHarnessPolicy.ts",
+    "export function decideHarnessPolicy() { return true; }\n",
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /NewHarnessPolicy\.ts: policy file is missing from scripts\/gates\/harness-policy-inventory\.json/,
+  );
+});
+
+test("rejects production imports of RunTurnModePolicy", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "packages/execution-engine/src/runtime/engine/RunEngine.ts",
+    'import { determineTurnMode } from "./RunTurnModePolicy.js";\n',
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /must not import RunTurnModePolicy for product routing/,
+  );
+});
+
+test("rejects production imports of RunCurrentTurnIntent", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "packages/execution-engine/src/runtime/engine/RunEngine.ts",
+    'import { classifyCurrentTurnIntent } from "./RunCurrentTurnIntent.js";\n',
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /must not import RunCurrentTurnIntent for prompt intent routing/,
+  );
+});
+
+test("rejects final-answer regex repair patterns", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "packages/execution-engine/src/runtime/engine/NewFinalSanitizer.ts",
+    [
+      "export function repairFinalAnswer(value) {",
+      "  return value.replace(/Direct Answer:/i, '');",
+      "}",
+    ].join("\n"),
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /forbidden final-answer regex repair/,
+  );
+});
+
+test("rejects duplicate tool registries outside canonical registry", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "apps/brain/src/runtime/ToolRegistry.ts",
+    "export class ToolRegistry {}\n",
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /duplicate tool registries are forbidden/,
+  );
+});
+
 test("rejects app deep imports into package source", async (context) => {
   const root = await createFixture(context);
   await writeFile(
@@ -257,6 +331,16 @@ async function createFixture(context) {
   );
   await writeSource(
     fixtureRoot,
+    "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
+    "export function classifyCurrentTurnIntent() { return 'read_only'; }\n",
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",
+    "export function completeRunWithAssistantMessage() { return null; }\n",
+  );
+  await writeSource(
+    fixtureRoot,
     "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
     [
       "export const tools = [",
@@ -272,6 +356,11 @@ async function createFixture(context) {
     "secure-agent-api",
     "@shadowbox/secure-agent-api",
     {},
+  );
+  await writeSource(
+    fixtureRoot,
+    "packages/execution-engine/src/tools/ToolRegistry.ts",
+    "export class ToolRegistry {}\n",
   );
   await writeSource(
     fixtureRoot,
@@ -301,6 +390,17 @@ async function createFixture(context) {
     ].join("\n"),
   );
   await writeManifest(fixtureRoot, "apps", "web", "@shadowbox/web", {});
+  await writePolicyInventory(fixtureRoot, [
+    {
+      path: "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",
+      owner: "runtime-finalization",
+      category: "finalization",
+      disposition: "convert-typed-protocol-projector",
+      purpose: "Fixture policy inventory entry.",
+      deletionTrigger: "Fixture deletion trigger.",
+      gate: "scripts/gates/check-architecture-boundaries.mjs",
+    },
+  ]);
   return fixtureRoot;
 }
 
@@ -318,4 +418,12 @@ async function writeSource(root, path, source) {
   const target = join(root, path);
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, source);
+}
+
+async function writePolicyInventory(root, entries) {
+  await writeSource(
+    root,
+    "scripts/gates/harness-policy-inventory.json",
+    JSON.stringify({ schemaVersion: 1, entries }, null, 2),
+  );
 }

@@ -17,6 +17,21 @@ describe("deriveWorkspaceRunUiState", () => {
     expect(state.canStopRun).toBe(true);
   });
 
+  it("settles paused runs without pending approval", () => {
+    const state = deriveWorkspaceRunUiState({
+      canonicalRunStatus: "PAUSED",
+      hasPendingApproval: false,
+      isChatLoading: false,
+      isSessionRunning: true,
+      isLocallyStoppedRun: false,
+      lastMessage: undefined,
+    });
+
+    expect(state.kind).toBe("terminal");
+    expect(state.isRunLoading).toBe(false);
+    expect(state.canStopRun).toBe(false);
+  });
+
   it("treats canonical running state as active without local completion", () => {
     const state = deriveWorkspaceRunUiState({
       canonicalRunStatus: "RUNNING",

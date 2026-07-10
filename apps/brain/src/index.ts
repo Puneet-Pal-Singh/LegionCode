@@ -10,6 +10,7 @@ import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
 import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
+import { LifecycleController } from "./controllers/LifecycleController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -17,6 +18,12 @@ import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArtifactRetentionService";
+import {
+  getOrCreateCorrelationId,
+  reportBrainError,
+  withCorrelationId,
+  withObservabilityHeaders,
+} from "./core/observability/BrainErrorReporter";
 
 export { RunEngineRuntime, RunEngineAgent, RunAdmissionLimiter };
 
@@ -166,6 +173,22 @@ function createRouter(): Router {
   router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
   router.add(
+    /^\/turns\/[^/]+\/lifecycle-events$/,
+    LifecycleController.getEvents,
+    "GET",
+  );
+  router.add(
+    /^\/turns\/[^/]+\/lifecycle-events\/stream$/,
+    LifecycleController.getEventsStream,
+    "GET",
+  );
+  router.add(/^\/turns\/[^/]+\/diff$/, LifecycleController.getTurnDiff, "GET");
+  router.add(
+    /^\/turns\/[^/]+\/approvals\/[^/]+$/,
+    LifecycleController.submitApproval,
+    "POST",
+  );
+  router.add(
     /^\/api\/edit-artifacts\/latest$/,
     EditArtifactController.getLatest,
     "GET",
@@ -248,45 +271,62 @@ function createRouter(): Router {
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const optionsResponse = handleOptions(request, env);
+    const correlationId = getOrCreateCorrelationId(request);
+    const correlatedRequest = withCorrelationId(request, correlationId);
+    const optionsResponse = handleOptions(correlatedRequest, env);
     if (optionsResponse) return optionsResponse;
 
     const router = createRouter();
 
     try {
-      const response = await router.match(request, env);
+      const response = await router.match(correlatedRequest, env);
 
       if (response) {
-        return response;
+        return withObservabilityHeaders(response, correlationId);
       }
 
-      return new Response(
-        JSON.stringify({
-          error: "Not Found",
-          path: new URL(request.url).pathname,
-        }),
-        {
-          status: 404,
-          headers: {
-            ...getCorsHeaders(request, env),
-            ...getBrainRuntimeHeaders(env),
-            "Content-Type": "application/json",
+      return withObservabilityHeaders(
+        new Response(
+          JSON.stringify({
+            error: "Not Found",
+            path: new URL(request.url).pathname,
+          }),
+          {
+            status: 404,
+            headers: {
+              ...getCorsHeaders(correlatedRequest, env),
+              ...getBrainRuntimeHeaders(env),
+              "Content-Type": "application/json",
+            },
           },
-        },
+        ),
+        correlationId,
       );
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Internal Server Error";
-      console.error("[Router] Error handling request:", error);
-
-      return new Response(JSON.stringify({ error: message }), {
-        status: 500,
-        headers: {
-          ...getCorsHeaders(request, env),
-          ...getBrainRuntimeHeaders(env),
-          "Content-Type": "application/json",
-        },
+      reportBrainError(env, {
+        request: correlatedRequest,
+        operation: "http.router.dispatch",
+        error,
       });
+
+      return withObservabilityHeaders(
+        new Response(
+          JSON.stringify({
+            error: "Internal Server Error",
+            code: "HTTP_REQUEST_FAILED",
+            correlationId,
+          }),
+          {
+            status: 500,
+            headers: {
+              ...getCorsHeaders(correlatedRequest, env),
+              ...getBrainRuntimeHeaders(env),
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+        correlationId,
+      );
     }
   },
 

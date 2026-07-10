@@ -15,7 +15,7 @@
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { Sandbox } from "@cloudflare/sandbox";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IPlugin, PluginResult, ToolDefinition } from "../interfaces/types";
 import { composeRuntime } from "../factories/RuntimeCompositionFactory";
 import { UnsupportedExecutionBackendError } from "../adapters/AgentRuntimeAdapterFactory";
@@ -340,6 +340,9 @@ describe("Portability Conformance", () => {
     });
 
     it("should enforce cross-session artifact access isolation", async () => {
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
       const metadata = await runtime.artifactPort.upload({
         sessionId: "session-a",
         contentType: "application/octet-stream",
@@ -348,6 +351,9 @@ describe("Portability Conformance", () => {
 
       const result = await runtime.artifactPort.download(metadata.id, "session-b");
       expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[ArtifactStore] Unauthorized download attempt:"),
+      );
     });
   });
 

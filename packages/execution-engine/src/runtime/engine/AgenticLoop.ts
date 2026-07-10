@@ -7,43 +7,48 @@
 
 import type { CoreMessage, CoreTool } from "ai";
 import type { ProviderModelTransport } from "@repo/shared-types";
-import {
-  safeParseToolActivityMetadata,
-  type ToolActivityMetadata,
-} from "@repo/shared-types";
+import { safeParseToolActivityMetadata, type ToolActivityMetadata } from "@repo/shared-types";
 import {
   BudgetExceededError,
   SessionBudgetExceededError,
 } from "../cost/index.js";
-import { LLMUnusableResponseError, type ILLMGateway } from "../llm/index.js";
+import {
+  LLMUnusableResponseError,
+  type ILLMGateway,
+  type LLMTextResponse,
+} from "../llm/index.js";
+import {
+  getVisibleModelText,
+  normalizeModelOutputParts,
+} from "../llm/ModelOutputParts.js";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
-import { isMutatingGoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import { isMutatingCodingToolId } from "../tools/CodingToolRegistry.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { Task } from "../task/index.js";
 import type {
   AgenticLoopTerminalLlmIssue,
   AgenticLoopToolLifecycleEvent,
   TaskResult,
 } from "../types.js";
-import {
-  GitToolFailureClassifier,
-  shouldClassifyAsGitOrShellFailure,
-} from "./GitToolFailureClassifier.js";
+import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildCorrectionHintText,
-  buildInvalidToolInputError,
-  buildRuntimeCapabilityPromptSection,
   buildUnavailableToolError,
   createCloudSandboxRunCapabilityManifest,
   serializeStructuredToolError,
   type RunCapabilityManifest,
   type StructuredToolError,
 } from "../capabilities/index.js";
+import { PermissionGateError } from "./PermissionGateError.js";
+import { buildAgenticLoopSystemPrompt } from "./AgenticLoopSystemPrompt.js";
+export { buildAgenticLoopSystemPrompt } from "./AgenticLoopSystemPrompt.js";
 import {
-  classifyCurrentTurnIntentFromMessages,
-  requiresMutationForIntent,
-  type CurrentTurnIntent,
-} from "./RunCurrentTurnIntent.js";
+  buildReadOnlyToolFingerprint,
+  buildStructuredToolFailureError,
+  isValidationFailure,
+  stableSerialize,
+} from "./AgenticLoopToolHelpers.js";
 
 export interface AgenticLoopConfig {
   maxSteps: number;
@@ -53,13 +58,13 @@ export interface AgenticLoopConfig {
   executionNonce?: string;
 }
 
-interface AgenticLoopToolCall {
+export interface AgenticLoopToolCall {
   id: string;
   toolName: string;
   args: Record<string, unknown>;
 }
 
-interface AgenticLoopToolResult {
+export interface AgenticLoopToolResult {
   toolId: string;
   toolName: string;
   result: unknown;
@@ -93,7 +98,6 @@ export interface AgenticLoopResult {
   failedToolCount: number;
   stepsExecuted: number;
   requiresMutation: boolean;
-  currentTurnIntent?: CurrentTurnIntent;
   completedMutatingToolCount: number;
   completedReadOnlyToolCount: number;
   llmRetryCount?: number;
@@ -101,7 +105,7 @@ export interface AgenticLoopResult {
   toolLifecycle: AgenticLoopToolLifecycleEvent[];
 }
 
-interface AgenticLoopHooks {
+export interface AgenticLoopHooks {
   workspaceContext?: string;
   executeTool?: (toolCall: AgenticLoopToolCall) => Promise<TaskResult>;
   onAssistantMessage?: (content: string) => Promise<void>;
@@ -135,8 +139,6 @@ export class AgenticLoopCancelledError extends Error {
     this.name = "AgenticLoopCancelledError";
   }
 }
-
-const gitToolFailureClassifier = new GitToolFailureClassifier();
 
 /**
  * AgenticLoop executes a bounded loop of LLM calls and tool execution
@@ -188,9 +190,7 @@ export class AgenticLoop {
   ): Promise<AgenticLoopResult> {
     this.reset();
     const messages: CoreMessage[] = [...initialMessages];
-    const currentTurnIntent =
-      classifyCurrentTurnIntentFromMessages(initialMessages);
-    const requiresMutation = requiresMutationForIntent(currentTurnIntent);
+    const requiresMutation = false;
     const latestTurnExplicitCiLogRequest =
       latestTurnRequestsCiLogs(initialMessages);
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
@@ -245,47 +245,107 @@ export class AgenticLoop {
       }
 
       // Call LLM with tool definitions for this step.
-      let response;
+      let response: LLMTextResponse | null = null;
+      const llmCallStartedAt = Date.now();
+      const requestToolCount = isFinalSynthesisStep
+        ? 0
+        : Object.keys(tools).length;
+      console.log(
+        formatRuntimeDiagnosticLogLine("agentic-loop/model", "started", {
+          runId: this.config.runId,
+          sessionId: this.config.sessionId,
+          step: step + 1,
+          maxSteps: this.config.maxSteps,
+          providerId: context.providerId ?? null,
+          modelId: context.runtimeModelId ?? context.modelId ?? null,
+          finalSynthesisStep: isFinalSynthesisStep,
+          messageCount: messages.length,
+          messageRoles: summarizeMessageRoles(messages),
+          toolDefinitionCount: requestToolCount,
+        }),
+      );
       try {
-        response = await this.generateLoopText(
-          {
-            context: {
-              runId: this.config.runId,
-              sessionId: this.config.sessionId,
-              agentType: context.agentType,
-              phase: "task",
+        response = await runWithCancellationPolling(
+          this.generateLoopText(
+            {
+              context: {
+                runId: this.config.runId,
+                sessionId: this.config.sessionId,
+                agentType: context.agentType,
+                phase: "task",
+              },
+              messages,
+              system: buildAgenticLoopSystemPrompt({
+                workspaceContext: context.workspaceContext,
+                finalSynthesisOnly: isFinalSynthesisStep,
+                requiresMutation,
+                completedMutatingToolCount: this.completedMutatingToolCount,
+                completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+                explicitCiLogRequest: latestTurnExplicitCiLogRequest,
+                encounteredCiLogsAuthorizationBoundary,
+                attemptedCiLogsCliFallback,
+                capabilityManifest,
+                latestCorrectionHint,
+              }),
+              tools: isFinalSynthesisStep ? undefined : tools,
+              model: context.modelId,
+              providerId: context.providerId,
+              runtimeModelId: context.runtimeModelId,
+              providerTransport: context.providerTransport,
+              providerEndpoint: context.providerEndpoint,
+              temperature: context.temperature,
             },
-            messages,
-            system: buildAgenticLoopSystemPrompt({
-              workspaceContext: context.workspaceContext,
-              finalSynthesisOnly: isFinalSynthesisStep,
-              requiresMutation,
-              completedMutatingToolCount: this.completedMutatingToolCount,
-              completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-              explicitCiLogRequest: latestTurnExplicitCiLogRequest,
-              encounteredCiLogsAuthorizationBoundary,
-              attemptedCiLogsCliFallback,
-              capabilityManifest,
-              latestCorrectionHint,
-            }),
-            tools: isFinalSynthesisStep ? undefined : tools,
-            model: context.modelId,
-            providerId: context.providerId,
-            runtimeModelId: context.runtimeModelId,
-            providerTransport: context.providerTransport,
-            providerEndpoint: context.providerEndpoint,
-            temperature: context.temperature,
-          },
-          step,
+            step,
+            context,
+          ),
           context,
         );
       } catch (error) {
-        console.error(`[agentic-loop] LLM call failed at step ${step}:`, error);
-        throw error;
+        if (error instanceof AgenticLoopCancelledError) {
+          stopReason = "cancelled";
+        } else {
+          console.error(
+            formatRuntimeDiagnosticLogLine("agentic-loop/model", "failed", {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              elapsedMs: Date.now() - llmCallStartedAt,
+              providerId: context.providerId ?? null,
+              modelId: context.runtimeModelId ?? context.modelId ?? null,
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: boundLogText(
+                error instanceof Error ? error.message : String(error),
+              ),
+            }),
+          );
+          throw error;
+        }
       }
 
-      const responseText =
-        typeof response.text === "string" ? response.text : "";
+      if (stopReason === "cancelled" || response === null) {
+        break;
+      }
+
+      const responseParts =
+        response.parts ??
+        normalizeModelOutputParts({
+          text: response.text,
+          toolCalls: response.toolCalls,
+          usage: response.usage,
+          finishReason: response.finishReason,
+        });
+      const responseText = getVisibleModelText(responseParts);
+      console.log(
+        formatRuntimeDiagnosticLogLine("agentic-loop/model", "completed", {
+          runId: this.config.runId,
+          sessionId: this.config.sessionId,
+          step: step + 1,
+          elapsedMs: Date.now() - llmCallStartedAt,
+          responseChars: responseText.length,
+          toolCallCount: response.toolCalls?.length ?? 0,
+          toolCalls: summarizeToolCalls(response.toolCalls ?? []),
+        }),
+      );
 
       // Add LLM response to messages
       messages.push(buildAssistantMessage(responseText, response.toolCalls));
@@ -383,7 +443,14 @@ export class AgenticLoop {
           }
 
           console.log(
-            `[agentic-loop] Executing tool: ${toolCall.toolName} (call: ${toolCall.id})`,
+            formatRuntimeDiagnosticLogLine("agentic-loop/tool", "started", {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              argKeys: Object.keys(toolCall.args).sort(),
+            }),
           );
 
           const toolStartedAt = Date.now();
@@ -395,9 +462,25 @@ export class AgenticLoop {
                 this.createToolTask(toolCall.id, toolCall),
               );
           const executionTimeMs = Date.now() - toolStartedAt;
+          console.log(
+            formatRuntimeDiagnosticLogLine("agentic-loop/tool", "finished", {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              resultStatus: result.status,
+              elapsedMs: executionTimeMs,
+              outputChars: readToolOutputLength(result),
+              errorCode: result.error?.code ?? null,
+              errorMessage: result.error?.message
+                ? boundLogText(result.error.message)
+                : null,
+            }),
+          );
 
           if (result.status === "DONE") {
-            if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+            if (isMutatingCodingToolId(toolCall.toolName)) {
               this.completedMutatingToolCount++;
             } else {
               this.completedReadOnlyToolCount++;
@@ -485,10 +568,32 @@ export class AgenticLoop {
             toolErrorMessage,
             executionTimeMs,
           );
-          console.error(
-            `[agentic-loop] Tool execution failed: ${toolCall.toolName}`,
-            error,
+          const permissionGate =
+            error instanceof PermissionGateError ? error.gateResult.kind : null;
+          const logLine = formatRuntimeDiagnosticLogLine(
+            "agentic-loop/tool",
+            "failed",
+            {
+              runId: this.config.runId,
+              sessionId: this.config.sessionId,
+              step: step + 1,
+              toolCallId: toolCall.id,
+              toolName: toolCall.toolName,
+              status:
+                permissionGate === "ask"
+                  ? "permission_gated"
+                  : permissionGate === "deny"
+                    ? "permission_denied"
+                    : "threw",
+              errorName: error instanceof Error ? error.name : "UnknownError",
+              errorMessage: boundLogText(errorMessage),
+            },
           );
+          if (permissionGate) {
+            console.warn(logLine);
+          } else {
+            console.error(logLine);
+          }
           toolResults.push({
             toolId: toolCall.id,
             toolName: toolCall.toolName,
@@ -540,7 +645,6 @@ export class AgenticLoop {
       failedToolCount: this.failedToolCount,
       stepsExecuted: this.stepsExecuted,
       requiresMutation,
-      currentTurnIntent,
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       llmRetryCount: this.llmRetryCount,
@@ -673,7 +777,7 @@ export class AgenticLoop {
       toolCallId: toolCall.id,
       toolName: toolCall.toolName,
       status,
-      mutating: isMutatingGoldenFlowToolName(toolCall.toolName),
+      mutating: isMutatingCodingToolId(toolCall.toolName),
       recordedAt: new Date().toISOString(),
       detail,
       metadata,
@@ -701,7 +805,7 @@ export class AgenticLoop {
   private getDuplicateReadOnlyToolCallMessage(
     toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
   ): string | null {
-    if (isMutatingGoldenFlowToolName(toolCall.toolName)) {
+    if (isMutatingCodingToolId(toolCall.toolName)) {
       return null;
     }
 
@@ -714,116 +818,6 @@ export class AgenticLoop {
   }
 }
 
-function buildAgenticLoopSystemPrompt(input: {
-  workspaceContext?: string;
-  finalSynthesisOnly: boolean;
-  requiresMutation: boolean;
-  completedMutatingToolCount: number;
-  completedReadOnlyToolCount: number;
-  explicitCiLogRequest: boolean;
-  encounteredCiLogsAuthorizationBoundary: boolean;
-  attemptedCiLogsCliFallback: boolean;
-  capabilityManifest?: RunCapabilityManifest;
-  latestCorrectionHint?: string;
-}): string {
-  const sections = [
-    "You are LegionCode's autonomous build agent.",
-    "Your job is to inspect the real workspace, decide which tools to use, and answer the user's request in clear natural language.",
-    "Start with the real workspace before concluding anything. Never invent file contents, project structure, git state, or completed work.",
-    "Tool strategy:",
-    "- Prefer typed git tools for repository work (status, diff, branch, stage, commit, push, PR) to keep actions structured and auditable.",
-    "- Use shell/bash for git only when the required step is not covered by typed git tools, or when the user explicitly asks for a shell command.",
-    "- Never run git config user.name or git config user.email through bash during agent flow. For commit identity issues, use git_commit with authorName and authorEmail (or rely on OAuth-backed identity).",
-    "- Use GitHub connector read tools for remote metadata (PRs, checks, reviews, issues). Prefer github_pr_list for discovering the current PR by branch, then github_pr_get/github_pr_checks_get/github_review_threads_get.",
-    "- For pull-request note/comment requests, use github_cli_pr_comment through the bounded CLI lane instead of raw gh shell commands.",
-    "- For CI/debug requests, use github_pr_checks_get to identify failing checks and github_actions_job_logs_get to fetch failing job log tails before proposing fixes.",
-    "- If github_actions_job_logs_get returns 401/403, treat it as an authorization boundary and stop retrying the same logs request.",
-    "- Prefer github_* connector tools first for GitHub metadata. Use the bounded github_cli_* tools as the parity lane when connector coverage or authorization is insufficient.",
-    "- Keep raw gh shell usage discouraged. Do not invoke gh through bash for autonomous GitHub tasks.",
-    "- Never ask the user to type internal approval directives or magic command phrases. Ask them to use approval controls, or explain the required approval plainly.",
-    "- When a git shell command fails with a normal nonzero exit, inspect the error and choose the next bounded recovery step instead of stopping immediately.",
-    "- A clean git status after a failed push or PR step often means the changes were already committed locally. Do not recreate files just because the working tree is clean.",
-    "- When staging for a request, detect the changed paths and stage only those specific files. Never stage the whole workspace just to make commit or push succeed.",
-    "- If git_push fails because the remote branch is ahead or non-fast-forward, do not rewrite files. Use git_pull to sync with a fast-forward-only pull, then retry git_push. If git_pull cannot fast-forward, stop and explain that manual branch resolution is required.",
-    "- For repository or git status questions without a specific command, use git_status before answering.",
-    "- For PR-targeted edits, resolve the PR head branch and switch to that branch before any write_file mutation.",
-    "- If git_branch_switch reports checkout-overwrite conflicts, do not stop. Decide the next bounded recovery step (for example commit or stash on the current branch, then retry switching).",
-    "- For vague component, page, route, or file questions, discover with list_files, glob, or grep before read_file.",
-    "- Prefer narrowing search after one broad listing. Do not repeat the same missing path after a file-not-found error.",
-    "- If a non-mutating tool returns no match or not found, keep exploring with different tools or paths instead of stopping.",
-    "- If a file-edit mutation tool fails, stop and explain what failed.",
-    "- git_commit messages must be a single-line conventional commit subject (for example: feat: add hero carousel).",
-    "Answer quality:",
-    "- After gathering enough evidence, answer the user directly in plain English.",
-    "- Summarize tool results instead of echoing raw JSON or raw telemetry.",
-    "- Reference the files or git facts you actually observed.",
-    "- Do not narrate internal self-talk, speculation loops, or hidden deliberation.",
-  ];
-
-  if (input.capabilityManifest) {
-    sections.push(
-      buildRuntimeCapabilityPromptSection(input.capabilityManifest),
-    );
-  }
-
-  if (input.latestCorrectionHint) {
-    sections.push(`Tool correction hint:\n${input.latestCorrectionHint}`);
-  }
-
-  if (input.requiresMutation) {
-    sections.push(
-      [
-        "Edit-reporting rule:",
-        "- If you change files, reference the concrete files or git facts you actually observed.",
-        "- If you did not change files, say so plainly and do not claim that files were updated or improved.",
-      ].join("\n"),
-    );
-  }
-
-  if (input.workspaceContext) {
-    sections.push(`Workspace context:\n${input.workspaceContext}`);
-  }
-
-  if (input.explicitCiLogRequest) {
-    sections.push(
-      [
-        "CI logs request rule:",
-        "- The latest user request explicitly asked for CI/check logs from the remote run.",
-        "- Stay on remote log retrieval with github_pr_checks_get and github_actions_job_logs_get.",
-        "- Do not run or suggest local lint/test commands as a fallback unless the user explicitly asks for a local fallback.",
-        "- If logs are blocked by 401/403, report the authorization boundary and required reconnect/permissions step.",
-      ].join("\n"),
-    );
-
-    if (
-      input.encounteredCiLogsAuthorizationBoundary &&
-      !input.attemptedCiLogsCliFallback
-    ) {
-      sections.push(
-        [
-          "CI logs auth-boundary fallback:",
-          "- You already hit a 401/403 on github_actions_job_logs_get in this run.",
-          "- Attempt one bounded github_cli_actions_job_logs_get fallback for the same job logs before finalizing.",
-          "- If GitHub CLI is unavailable or still unauthorized, stop retrying and clearly report that outcome.",
-        ].join("\n"),
-      );
-    }
-  }
-
-  if (input.finalSynthesisOnly) {
-    const finalStepRules = [
-      "Final step rule:",
-      "- This is the final step. Do not call tools.",
-      "- Synthesize what you have already learned into the best truthful answer you can.",
-      "- If the task is incomplete, say what you checked, what you found, and what remains uncertain.",
-    ];
-
-    sections.push(finalStepRules.join("\n"));
-  }
-
-  return sections.join("\n");
-}
-
 function buildAgenticLoopTextAttemptIdempotencyKey(
   runId: string,
   step: number,
@@ -833,74 +827,60 @@ function buildAgenticLoopTextAttemptIdempotencyKey(
   return `agentic-loop:${runId}:${executionNonce ?? "default"}:step:${step + 1}:attempt:${attempt}`;
 }
 
+const CANCELLATION_POLL_INTERVAL_MS = 2_000;
+
+async function runWithCancellationPolling<T>(
+  operation: Promise<T>,
+  context: Pick<AgenticLoopHooks, "isRunCancelled">,
+): Promise<T> {
+  if (!context.isRunCancelled) {
+    return operation;
+  }
+
+  let stopPolling = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const cancellation = new Promise<never>((_, reject) => {
+    const schedulePoll = (): void => {
+      timeout = setTimeout(() => {
+        void pollCancellation(context, () => stopPolling).catch(reject);
+      }, CANCELLATION_POLL_INTERVAL_MS);
+    };
+
+    const pollCancellation = async (
+      pollContext: Pick<AgenticLoopHooks, "isRunCancelled">,
+      shouldStop: () => boolean,
+    ): Promise<void> => {
+      if (shouldStop()) {
+        return;
+      }
+      if (await isCancellationRequested(pollContext)) {
+        throw new AgenticLoopCancelledError();
+      }
+      if (!shouldStop()) {
+        schedulePoll();
+      }
+    };
+
+    schedulePoll();
+  });
+
+  try {
+    return await Promise.race([operation, cancellation]);
+  } finally {
+    stopPolling = true;
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 async function isCancellationRequested(
   context: Pick<AgenticLoopHooks, "isRunCancelled">,
 ): Promise<boolean> {
   return (await context.isRunCancelled?.()) ?? false;
 }
 
-function buildReadOnlyToolFingerprint(
-  toolCall: Pick<AgenticLoopToolCall, "toolName" | "args">,
-): string {
-  return `${toolCall.toolName}:${stableSerialize(toolCall.args)}`;
-}
-
-function stableSerialize(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
-  }
-
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(
-      ([left], [right]) => left.localeCompare(right),
-    );
-    return `{${entries
-      .map(
-        ([key, entryValue]) =>
-          `${JSON.stringify(key)}:${stableSerialize(entryValue)}`,
-      )
-      .join(",")}}`;
-  }
-
-  return JSON.stringify(value);
-}
-
-function isTerminalToolFailure(input: {
-  toolName: string;
-  error: string;
-  metadata?: ToolActivityMetadata;
-}): boolean {
-  if (shouldClassifyAsGitOrShellFailure(input)) {
-    return gitToolFailureClassifier.classify({
-      toolName: input.toolName,
-      message: input.error,
-      metadata: input.metadata,
-    }).terminal;
-  }
-
-  return isMutatingGoldenFlowToolName(input.toolName);
-}
-
-function buildStructuredToolFailureError(input: {
-  toolName: string;
-  errorMessage: string;
-  manifest: RunCapabilityManifest;
-}): StructuredToolError | null {
-  if (!isValidationFailure(input.errorMessage, input.toolName)) {
-    return null;
-  }
-  return buildInvalidToolInputError({
-    attemptedTool: input.toolName,
-    validationMessage: input.errorMessage,
-    manifest: input.manifest,
-  });
-}
-
-function isValidationFailure(message: string, toolName: string): boolean {
-  return message.startsWith(`Invalid ${toolName} input.`);
-}
-
-function buildAssistantMessage(
+export function buildAssistantMessage(
   text: string,
   toolCalls: AgenticLoopToolCall[] | undefined,
 ): CoreMessage {
@@ -944,7 +924,7 @@ function buildAssistantMessage(
   };
 }
 
-function buildToolResultMessage(
+export function buildToolResultMessage(
   toolResults: AgenticLoopToolResult[],
 ): CoreMessage {
   return {
@@ -987,6 +967,34 @@ function extractToolActivityMetadata(
   const activity = (metadata as Record<string, unknown>).activity;
   const parsed = safeParseToolActivityMetadata(activity);
   return parsed.success ? parsed.data : undefined;
+}
+
+function summarizeMessageRoles(messages: CoreMessage[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
+}
+
+function summarizeToolCalls(toolCalls: AgenticLoopToolCall[]): string {
+  return toolCalls
+    .map(
+      (toolCall) =>
+        `${toolCall.toolName}:${toolCall.id}:${Object.keys(toolCall.args).sort().join("|")}`,
+    )
+    .join(",");
+}
+
+function readToolOutputLength(result: TaskResult): number {
+  return result.output?.content.length ?? 0;
+}
+
+function boundLogText(value: string): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length <= 240 ? compact : `${compact.slice(0, 237)}...`;
 }
 
 function latestTurnRequestsCiLogs(initialMessages: CoreMessage[]): boolean {

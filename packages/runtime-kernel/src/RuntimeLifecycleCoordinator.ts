@@ -189,6 +189,15 @@ export class RuntimeLifecycleCoordinator {
     );
   }
 
+  async updateTurnDiff(diff: unknown): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "turn.diff_updated",
+        payload: { diff: JsonRecordSchema.parse(diff) },
+      }),
+    );
+  }
+
   private async createArtifactNow(
     itemId: ItemId,
     artifact: unknown,

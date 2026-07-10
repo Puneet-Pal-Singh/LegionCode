@@ -122,7 +122,7 @@ interface TransportRequest {
 function createTransportRequest(
   options: PlatformHttpTransportOptions,
 ): TransportRequest {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
   const credentials = options.credentials ?? "include";
   const previewLimit =
     options.responsePreviewLimit ?? DEFAULT_RESPONSE_PREVIEW_LIMIT;

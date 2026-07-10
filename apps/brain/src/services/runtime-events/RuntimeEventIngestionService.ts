@@ -13,6 +13,7 @@ import {
   type RuntimeEventProcessorPort,
 } from "./RuntimeEventProcessor";
 import type { Env } from "../../types/ai";
+import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 
 export interface RuntimeEventIngestionInput {
   rawBody: string;
@@ -51,7 +52,17 @@ export class RuntimeEventIngestionService {
         );
         return { ...result, entry: processedEntry };
       } catch (error) {
-        console.error("[RuntimeEventIngestionService] Processing failed:", error);
+        console.error(
+          formatDiagnosticLogLine("runtime-event/ingestion", "failed", {
+            eventType: event.eventType,
+            idempotencyKey: event.idempotencyKey,
+            runId: readPayloadString(event.payload, "runId") ?? "missing",
+            sessionId:
+              readPayloadString(event.payload, "sessionId") ?? "missing",
+            inboxEntryId: result.entry.id,
+            error,
+          }),
+        );
         await this.repository.markFailed(
           result.entry.id,
           error instanceof Error ? error.message : String(error),
@@ -94,4 +105,15 @@ function parseJson(rawBody: string): unknown {
       "MALFORMED_RUNTIME_EVENT_BODY",
     );
   }
+}
+
+function readPayloadString(
+  payload: InternalRuntimeEventRequest["payload"],
+  key: string,
+): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value : null;
 }

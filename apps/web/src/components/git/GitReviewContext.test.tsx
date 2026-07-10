@@ -367,6 +367,29 @@ describe("GitReviewProvider", () => {
       expect.objectContaining({ enabled: false }),
     );
   });
+
+  it("does not load review data when passive review reads are disabled", () => {
+    mockGitStatusState.status = buildGitStatus([]);
+
+    render(
+      <GitReviewProvider
+        isReviewOpen
+        isReviewDataEnabled={false}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+    expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
+  });
 });
 
 function ReviewCommentSelectionProbe() {

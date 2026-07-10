@@ -13,6 +13,7 @@ interface ProviderModelBootstrapLoadingArgs {
   catalog: ProviderRegistryEntry[];
   credentials: BYOKCredential[];
   providerModels: Record<string, ProviderModelOption[]>;
+  selectedProviderId?: string | null;
 }
 
 interface ProviderVisibleModelHydrationArgs {
@@ -27,6 +28,7 @@ export function isProviderModelBootstrapLoading({
   catalog,
   credentials,
   providerModels,
+  selectedProviderId,
 }: ProviderModelBootstrapLoadingArgs): boolean {
   if (status === "loading") {
     return true;
@@ -36,10 +38,9 @@ export function isProviderModelBootstrapLoading({
     return false;
   }
 
-  const pendingProviderIds = collectBootstrapModelPreloadProviderIds(
-    catalog,
-    credentials,
-  );
+  const pendingProviderIds = selectedProviderId
+    ? [selectedProviderId]
+    : collectBootstrapModelPreloadProviderIds(catalog, credentials);
   if (pendingProviderIds.length === 0) {
     return false;
   }

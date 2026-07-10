@@ -38,6 +38,7 @@ import { GitCommitDialog } from "../git/GitCommitDialog";
 import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
+import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -47,9 +48,10 @@ interface WorkspaceProps {
   onModeChange?: (mode: RunMode) => void;
   isSessionRunning?: boolean;
   hasStartedSession?: boolean;
-  allowPendingQueryRestore?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
+  initialPromptSubmission?: { id: string; prompt: string } | null;
+  onInitialPromptHandled?: (id: string) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
@@ -70,9 +72,10 @@ export function Workspace({
   onModeChange,
   isSessionRunning = false,
   hasStartedSession = false,
-  allowPendingQueryRestore = true,
   onSessionStatusChange,
   onPromptSubmitted,
+  initialPromptSubmission = null,
+  onInitialPromptHandled,
   onPendingApprovalStateChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
@@ -160,6 +163,8 @@ export function Workspace({
     runId: activeRunId,
     error: chatError,
     debugEvents,
+    isModelConfigReady,
+    serverTurnId,
   } = useChat(
     sessionId,
     initialRunId,
@@ -168,7 +173,6 @@ export function Workspace({
     },
     mode,
     productMode,
-    allowPendingQueryRestore,
   );
   const { summary: runSummary } = useRunSummary(activeRunId, true);
   const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
@@ -204,6 +208,43 @@ export function Workspace({
       lastMessage,
     ],
   );
+  const handledInitialPromptIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!initialPromptSubmission) {
+      return;
+    }
+    if (!isModelConfigReady) {
+      return;
+    }
+    if (handledInitialPromptIdRef.current === initialPromptSubmission.id) {
+      return;
+    }
+    if (!claimInitialPromptSubmission(initialPromptSubmission.id)) {
+      onInitialPromptHandled?.(initialPromptSubmission.id);
+      return;
+    }
+
+    const prompt = initialPromptSubmission.prompt.trim();
+    if (!prompt) {
+      onInitialPromptHandled?.(initialPromptSubmission.id);
+      return;
+    }
+
+    handledInitialPromptIdRef.current = initialPromptSubmission.id;
+    onInitialPromptHandled?.(initialPromptSubmission.id);
+    append({ role: "user", content: prompt })
+      .catch((error) => {
+        console.error("[Workspace] Failed to submit setup prompt:", error);
+        onSessionStatusChange?.("failed");
+      });
+  }, [
+    append,
+    initialPromptSubmission,
+    isModelConfigReady,
+    onInitialPromptHandled,
+    onSessionStatusChange,
+  ]);
   const {
     isApprovalWaitingRun,
     isStaleCanonicalActiveRun,
@@ -211,6 +252,8 @@ export function Workspace({
     isRunLoading,
     canStopRun,
   } = runUiState;
+  const passiveGitProbeEnabled =
+    !activeRunId || (runSummaryMatchesActiveRun && !isRunLoading);
   useEffect(() => {
     logClientEvent("run/ui-state", "derived", {
       runId: activeRunId,
@@ -225,6 +268,7 @@ export function Workspace({
       runLoading: isRunLoading,
       approvalWaiting: isApprovalWaitingRun,
       canStop: canStopRun,
+      passiveGitProbeEnabled,
     });
   }, [
     activeRunId,
@@ -236,6 +280,7 @@ export function Workspace({
     isLocallyStoppedRun,
     isRunLoading,
     isSessionRunning,
+    passiveGitProbeEnabled,
     pendingApprovalRequestId,
     runSummaryMatchesActiveRun,
     runUiState.kind,
@@ -244,7 +289,7 @@ export function Workspace({
     status,
     gitAvailable,
     refetch: refetchGitStatus,
-  } = useGitStatus(activeRunId, sessionId, !isRunLoading);
+  } = useGitStatus(activeRunId, sessionId, passiveGitProbeEnabled);
   const repositoryOwner = repo?.owner?.login?.trim() ?? "";
   const repositoryName = repo?.name?.trim() ?? "";
   const repositoryBranch = (
@@ -317,7 +362,7 @@ export function Workspace({
     sessionId,
     activeRunId,
     gitAvailable,
-    isRunLoading,
+    isRunLoading: !passiveGitProbeEnabled || isRunLoading,
     isContextMismatch,
     isGitHubLoaded,
     repositoryOwner,
@@ -372,6 +417,7 @@ export function Workspace({
         isReviewActive={
           isGitReviewOpen || activeTab === "review" || activeTab === "changes"
         }
+        isReviewDataEnabled={passiveGitProbeEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={isGitWorkspaceRecovering}
       >
@@ -387,11 +433,11 @@ export function Workspace({
                 handleSubmit: handleSubmitWithSessionMetadata,
                 append,
                 stop: handleStopRun,
-                canStop: canStopRun,
-                isLoading: isRunLoading,
+                isLoading,
                 hasHydrated,
                 error: chatError,
                 debugEvents,
+                serverTurnId,
               }}
               sessionId={sessionId}
               hasStartedSession={hasStartedSession}

@@ -336,10 +336,13 @@ function buildTerminalContent(
     return summary;
   }
   if (state === "completed") {
-    return "Turn completed.";
+    return "Completed.";
   }
   const reason = readString(outcome, "reason");
-  return reason ? `Turn ${state}: ${reason}` : `Turn ${state}.`;
+  if (reason) {
+    return reason;
+  }
+  return state === "interrupted" ? "Interrupted." : "";
 }
 
 function readTextPayload(payload: Record<string, unknown>): string {

@@ -51,6 +51,11 @@ export {
   type ProtocolTimestamp,
 } from "./common.js";
 export {
+  runIdFromTurnId,
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "./lifecycle-turn-routing.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,
@@ -227,6 +232,11 @@ export {
   type WorkerId,
   type WorkspaceId,
   type WorkspaceManifestId,
+} from "./ids.js";
+export {
+  createTurnId,
+  createThreadId,
+  createRunAttemptId,
 } from "./ids.js";
 export {
   ApprovalStatusSchema,

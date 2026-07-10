@@ -16,4 +16,4 @@ else
   echo "[gate:staging-cutover] No remote staging endpoints configured; blocking on hermetic local substitute."
 fi
 
-pnpm gate:golden-repo-to-pr
+corepack pnpm gate:golden-repo-to-pr

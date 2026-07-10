@@ -65,11 +65,11 @@ describe("PlanSchema - Phase 2: Structured Input Persistence", () => {
         type: "git" as const,
         description: "Commit changes",
         dependsOn: [],
-        input: { action: "commit", message: "feat: add feature" },
+        input: { action: "git_commit", message: "feat: add feature" },
       };
       const result = PlannedTaskSchema.parse(task);
       expect(result.input).toEqual({
-        action: "commit",
+        action: "git_commit",
         message: "feat: add feature",
       });
     });

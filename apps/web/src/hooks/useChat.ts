@@ -24,6 +24,7 @@ interface UseChatResult {
   stop: () => void;
   artifactState: ArtifactState;
   runId: string;
+  serverTurnId: string | null;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
@@ -41,7 +42,6 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
-  allowPendingQueryRestore = true,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -54,6 +54,7 @@ export function useChat(
     stop,
     setMessages,
     runId: activeRunId,
+    serverTurnId,
     resetRun,
     isModelConfigReady,
     error,
@@ -70,14 +71,8 @@ export function useChat(
 
   // Handle message persistence
   useChatPersistence({
-    sessionId,
     runId: activeRunId,
     messages,
-    messagesLength: messages.length,
-    isLoading,
-    append,
-    isModelConfigReady,
-    allowPendingQueryRestore,
   });
 
   // Handle artifact state
@@ -98,6 +93,7 @@ export function useChat(
     stop,
     artifactState,
     runId: activeRunId,
+    serverTurnId,
     resetRun,
     isModelConfigReady,
     error,

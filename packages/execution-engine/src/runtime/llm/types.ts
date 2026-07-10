@@ -2,6 +2,7 @@ import type { CoreMessage, CoreTool } from "ai";
 import type { ZodSchema } from "zod";
 import type { ProviderModelTransport } from "@repo/shared-types";
 import type { LLMUsage } from "../cost/index.js";
+import type { NormalizedModelPart } from "./ModelOutputParts.js";
 
 export type LLMPhase = "planning" | "task" | "synthesis" | "memory";
 export type LLMExecutionLane =
@@ -52,6 +53,7 @@ export interface LLMStructuredRequest<T> {
 
 export interface LLMTextResponse {
   text: string;
+  parts: NormalizedModelPart[];
   usage: LLMUsage;
   providerRequestId?: string;
   finishReason?: string;
@@ -117,6 +119,7 @@ export interface LLMRuntimeAIService {
     usage: LLMUsage;
     finishReason?: string;
     toolCalls?: Array<{
+      toolCallId?: string;
       toolName: string;
       args: unknown;
     }>;

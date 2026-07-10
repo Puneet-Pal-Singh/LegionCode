@@ -126,13 +126,3 @@ export interface SessionGitHubContext {
   fullName: string;
   branch: string;
 }
-
-/**
- * Session-scoped pending query
- * Stores user input waiting to be executed
- */
-export interface SessionPendingQuery {
-  sessionId: string;
-  query: string;
-  createdAt: string;
-}

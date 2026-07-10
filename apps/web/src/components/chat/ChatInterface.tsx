@@ -1,7 +1,10 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
-import { type ProductMode, type RunMode } from "@repo/shared-types";
+import {
+  type ProductMode,
+  type RunMode,
+} from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import { useRunSummary } from "../../hooks/useRunSummary.js";
@@ -19,11 +22,6 @@ import {
 import { ActivityTurn } from "./activity/ActivityTurn.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
-import {
-  isApprovalRequiredRunStatus,
-  isTerminalRunStatus,
-  normalizeRunStatus,
-} from "../../lib/run-status.js";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";
@@ -37,9 +35,7 @@ import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { useActivityPresentation } from "./chat-interface/useActivityPresentation";
 import { usePlanModeController } from "./chat-interface/usePlanModeController";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
-import { derivePendingApprovalFromEvents } from "./chat-interface/approvals";
 
-// Flip to true when you want to temporarily inspect the legacy workflow debug UI.
 const SHOW_WORKFLOW_DEBUG_PANEL = false;
 interface ChatInterfaceProps {
   chatProps: {
@@ -53,11 +49,11 @@ interface ChatInterfaceProps {
     ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
-    canStop?: boolean;
     isLoading: boolean;
     hasHydrated?: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
+    serverTurnId?: string | null;
   };
   sessionId: string;
   hasStartedSession?: boolean;
@@ -96,11 +92,11 @@ export function ChatInterface({
     handleSubmit,
     append,
     stop,
-    canStop,
     isLoading,
     hasHydrated = true,
     error,
     debugEvents = [],
+    serverTurnId,
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [expandedActivityTurns, setExpandedActivityTurns] = useState<
@@ -110,26 +106,22 @@ export function ChatInterface({
     Record<string, boolean>
   >({});
 
+  const lifecycleTurnId = useMemo(
+    () => serverTurnId ?? null,
+    [serverTurnId],
+  );
   const { projection: lifecycleProjection } = useTurnLifecycleProjection(
-    runId,
-    true,
+    lifecycleTurnId,
+    Boolean(lifecycleTurnId),
   );
-  const { summary } = useRunSummary(runId, isLoading);
-  const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
-  const isTerminalSummarySettled = Boolean(
-    summary?.status &&
-    isTerminalRunStatus(summary.status) &&
-    !isApprovalRequiredRunStatus(summary.status),
+  const hasLifecycleReplay = (lifecycleProjection?.lastSequence ?? 0) > 0;
+  const lifecycleActive = Boolean(
+    hasLifecycleReplay && !lifecycleProjection?.terminal,
   );
-  const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
-  const isCanonicalRunActive =
-    normalizedSummaryStatus === "RUNNING" ||
-    isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
-    Boolean(summary?.pendingApproval);
-  const activeRunLoading =
-    !isLifecycleTerminalSettled &&
-    !isTerminalSummarySettled &&
-    (isLoading || isCanonicalRunActive);
+  const isTransportLoading = isLoading && !hasLifecycleReplay;
+  const activeRunLoading = lifecycleActive || isTransportLoading;
+  const { summary } = useRunSummary(runId, !lifecycleActive);
+  const eventReconnectTrigger = 0;
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -139,8 +131,9 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, Boolean(runId));
-  const { feed } = useRunActivityFeed(runId, activeRunLoading);
+  const { events } = useRunEvents(runId, Boolean(runId), eventReconnectTrigger);
+  const shouldPollActivityFeed = !hasLifecycleReplay || lifecycleActive;
+  const { feed } = useRunActivityFeed(runId, shouldPollActivityFeed);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const { providerModels } = useProviderStore(runId);
@@ -183,20 +176,6 @@ export function ChatInterface({
     events,
     isLoading: activeRunLoading,
   });
-  const fallbackApproval = useMemo(() => {
-    if (summary?.pendingApproval) {
-      return summary.pendingApproval;
-    }
-    if (!isCanonicalRunActive && !activeRunLoading) {
-      return null;
-    }
-    return derivePendingApprovalFromEvents(events);
-  }, [
-    activeRunLoading,
-    events,
-    isCanonicalRunActive,
-    summary,
-  ]);
   const {
     pendingApproval,
     decisions: displayedApprovalDecisions,
@@ -208,7 +187,9 @@ export function ChatInterface({
   } = useApprovalController({
     runId,
     lifecycleProjection,
-    fallbackApproval,
+    summaryPendingApproval: hasLifecycleReplay
+      ? null
+      : (summary?.pendingApproval ?? null),
     onPendingApprovalChange,
   });
   const conversationTurns = useMemo(
@@ -230,6 +211,7 @@ export function ChatInterface({
     conversationTurns,
     activityTurns: activityViewModel.turns,
     hasScopedFeed: Boolean(scopedFeed),
+    turnDiff: lifecycleProjection?.turnDiff ?? null,
   });
   useEffect(() => {
     // Reset expansion preferences when the active run changes.
@@ -341,9 +323,10 @@ export function ChatInterface({
       onRemoveReviewComment={handleRemoveReviewComment}
       reviewCommentError={reviewCommentError}
       onStop={stop}
-      canStop={activeRunLoading && (canStop ?? true)}
+      canStop={activeRunLoading}
       isLoading={activeRunLoading || isTranscriptHydrating}
       sessionId={sessionId}
+      runId={runId}
       mode={mode}
       onModeChange={onModeChange}
       hasMessages={messages.length > 0}

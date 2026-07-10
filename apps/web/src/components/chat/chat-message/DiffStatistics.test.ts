@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { DiffContent } from "@repo/shared-types";
-import { calculateDiffStats, splitPathForDisplay } from "./diff-statistics";
+import {
+  calculateChangedFileTotals,
+  calculateDiffStats,
+  getFileStats,
+  splitPathForDisplay,
+} from "./diff-statistics";
 
 describe("chat message diff statistics", () => {
   it("counts added and deleted lines from typed diff hunks", () => {
@@ -32,6 +37,61 @@ describe("chat message diff statistics", () => {
     expect(splitPathForDisplay("apps/web/src/ChatMessage.tsx")).toEqual({
       directory: "apps/web/src/",
       name: "ChatMessage.tsx",
+    });
+  });
+
+  it("prefers known file stats and computes unknown stats from a diff", () => {
+    expect(
+      getFileStats({
+        path: "known.ts",
+        status: "modified",
+        additions: 4,
+        deletions: 2,
+        isStaged: false,
+      }),
+    ).toEqual({ additions: 4, deletions: 2 });
+
+    expect(
+      getFileStats(
+        {
+          path: "unknown.ts",
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+          isStaged: false,
+        },
+        {
+          loading: false,
+          diff: {
+            oldPath: "unknown.ts",
+            newPath: "unknown.ts",
+            isBinary: false,
+            isNewFile: false,
+            isDeleted: false,
+            hunks: [],
+          },
+        },
+      ),
+    ).toEqual({ additions: 0, deletions: 0 });
+  });
+
+  it("propagates unknown totals while a diff is loading", () => {
+    const file = {
+      path: "loading.ts",
+      status: "modified" as const,
+      additions: 0,
+      deletions: 0,
+      isStaged: false,
+    };
+    expect(getFileStats(file, { loading: true })).toEqual({
+      additions: null,
+      deletions: null,
+    });
+    expect(
+      calculateChangedFileTotals([file], { [file.path]: { loading: true } }),
+    ).toEqual({
+      additions: null,
+      deletions: null,
     });
   });
 });

@@ -67,6 +67,7 @@ interface ChatInputBarProps {
   isLoading?: boolean;
   placeholder?: string;
   sessionId: string;
+  runId?: string;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
   hasMessages?: boolean;
@@ -88,6 +89,7 @@ export function ChatInputBar({
   isLoading = false,
   placeholder,
   sessionId,
+  runId,
   mode = DEFAULT_RUN_MODE,
   onModeChange,
   hasMessages = false,
@@ -153,7 +155,7 @@ export function ChatInputBar({
     refreshProviderModels,
     setModelView,
     applySessionSelection,
-  } = useProviderStore();
+  } = useProviderStore(runId);
   const hasImageAttachments = imageAttachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
@@ -207,8 +209,9 @@ export function ChatInputBar({
         catalog,
         credentials,
         providerModels,
+        selectedProviderId,
       }),
-    [status, catalog, credentials, providerModels],
+    [status, catalog, credentials, providerModels, selectedProviderId],
   );
   const isSelectedProviderModelHydrationPending = useMemo(
     () =>
@@ -308,7 +311,7 @@ export function ChatInputBar({
         !e.shiftKey
       ) {
         e.preventDefault();
-    const selectedPath =
+        const selectedPath =
           suggestedFiles[highlightedSuggestionIndex] ?? suggestedFiles[0];
         if (selectedPath) {
           selectSuggestedFile(selectedPath);
@@ -941,6 +944,12 @@ export function ChatInputBar({
                 }}
                 onSelectModelView={setModelView}
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}
+                onEnsureSelectedProviderModels={(providerId) =>
+                  loadProviderModels(providerId, {
+                    view: selectedModelView,
+                    append: false,
+                  })
+                }
                 onRefreshSelectedProviderModels={refreshProviderModels}
                 onConnectProvider={() => {
                   setProviderDialogInitialTab("available");

@@ -1,8 +1,8 @@
 import { RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import {
-  isGoldenFlowToolName,
-  type GoldenFlowToolName,
-} from "../contracts/CodingToolGateway.js";
+  type CodingToolId,
+  isCodingToolId,
+} from "../tools/CodingToolRegistry.js";
 import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import {
   AgenticLoopCancelledError,
@@ -23,14 +23,7 @@ import {
 } from "./RunApprovalWaitPolicy.js";
 import type { RunEngineEnv } from "./RunEngineTypes.js";
 import { recordLifecycleStep } from "./RunMetadataPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
-import {
-  classifyCurrentTurnIntent,
-  classifyLocalDiffRelevance,
-  requiresMutationForIntent,
-  type CurrentTurnIntent,
-  type LocalDiffRelevance,
-} from "./RunCurrentTurnIntent.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 
 interface AgenticLoopToolCall {
   id: string;
@@ -75,8 +68,6 @@ export function buildAgenticLoopCallbacks(input: {
 }): AgenticLoopCallbacks {
   let hasMutationEvidence = false;
   let scopeDecisionRequested = false;
-  const currentTurnIntent = classifyCurrentTurnIntent(input.run.input.prompt);
-  const mutationScopedTurn = requiresMutationForIntent(currentTurnIntent);
   const allowResumeGitPush = canResumeGitPushFromContinuation(input.run);
   return {
     executeTool: input.directExecutionService
@@ -91,8 +82,6 @@ export function buildAgenticLoopCallbacks(input: {
             env: input.env,
             runId: input.runId,
             hasMutationEvidence,
-            currentTurnIntent,
-            mutationScopedTurn,
             scopeDecisionRequested,
             allowResumeGitPush,
             setHasMutationEvidence: (value) => {
@@ -154,13 +143,13 @@ export function buildAgenticLoopCallbacks(input: {
       );
     },
     onAssistantMessage: async (content) => {
-      const sanitizedContent = sanitizeUserFacingOutput(content).trim();
-      if (!sanitizedContent) {
+      const redactedContent = redactUserFacingOutput(content).trim();
+      if (!redactedContent) {
         return;
       }
       await input.runEventRecorder.recordMessageEmitted(
         "assistant",
-        sanitizedContent,
+        redactedContent,
         undefined,
         {
           phase: "commentary",
@@ -210,8 +199,6 @@ async function executeDirectToolCall(input: {
   env: RunEngineEnv;
   runId: string;
   hasMutationEvidence: boolean;
-  currentTurnIntent: CurrentTurnIntent;
-  mutationScopedTurn: boolean;
   scopeDecisionRequested: boolean;
   allowResumeGitPush: boolean;
   setHasMutationEvidence: (value: boolean) => void;
@@ -221,7 +208,7 @@ async function executeDirectToolCall(input: {
     input.toolCall.toolName,
     input.toolCall.args,
   );
-  if (!isGoldenFlowToolName(input.toolCall.toolName)) {
+  if (!isCodingToolId(input.toolCall.toolName)) {
     throw new Error(
       `Unsupported direct agentic tool: ${input.toolCall.toolName}`,
     );
@@ -258,8 +245,6 @@ async function executeDirectToolCall(input: {
   const diffRelevanceDenial = resolveLocalDiffScopeDenial({
     toolName: input.toolCall.toolName,
     toolArgs: input.toolCall.args,
-    prompt: input.run.input.prompt,
-    mutationScopedTurn: input.mutationScopedTurn,
     scopeDecisionRequested: input.scopeDecisionRequested,
     changedFiles: workspaceMutationProbe.changedFiles,
   });
@@ -279,7 +264,6 @@ async function executeDirectToolCall(input: {
     workflowIntent: permissionState.workflowIntent,
     toolName: input.toolCall.toolName,
     toolArgs: input.toolCall.args,
-    currentTurnIntent: input.currentTurnIntent,
     hasMutationEvidence,
     allowResumeGitPush: input.allowResumeGitPush,
     ownerUserId: input.run.metadata.actorUserId,
@@ -370,7 +354,7 @@ async function executeDirectToolCall(input: {
   return result;
 }
 
-function isWorkspaceContentMutation(toolName: GoldenFlowToolName): boolean {
+function isWorkspaceContentMutation(toolName: CodingToolId): boolean {
   return (
     toolName === "write_file" ||
     toolName === "edit_file" ||
@@ -380,7 +364,7 @@ function isWorkspaceContentMutation(toolName: GoldenFlowToolName): boolean {
   );
 }
 
-function needsGitMutationEvidenceProbe(toolName: GoldenFlowToolName): boolean {
+function needsGitMutationEvidenceProbe(toolName: CodingToolId): boolean {
   return (
     toolName === "git_stage" ||
     toolName === "git_commit" ||
@@ -443,14 +427,12 @@ async function detectWorkspaceMutationEvidence(
 }
 
 function resolveLocalDiffScopeDenial(input: {
-  toolName: GoldenFlowToolName;
+  toolName: CodingToolId;
   toolArgs: Record<string, unknown>;
-  prompt: string;
-  mutationScopedTurn: boolean;
   scopeDecisionRequested: boolean;
   changedFiles: string[];
 }): string | null {
-  if (!input.mutationScopedTurn || input.scopeDecisionRequested) {
+  if (input.scopeDecisionRequested) {
     return null;
   }
 
@@ -462,23 +444,29 @@ function resolveLocalDiffScopeDenial(input: {
     return null;
   }
 
-  const relevance = classifyLocalDiffRelevance({
-    prompt: input.prompt,
-    changedFiles: input.changedFiles,
-    requestedFiles: extractRequestedFilesFromGitArgs(
-      input.toolName,
-      input.toolArgs,
-    ),
-  });
-  if (relevance === "relevant") {
+  const requestedFiles = extractRequestedFilesFromGitArgs(
+    input.toolName,
+    input.toolArgs,
+  );
+  if (
+    requestedFiles.length > 0 &&
+    requestedFilesCoverChangedFiles({
+      requestedFiles,
+      changedFiles: input.changedFiles,
+    })
+  ) {
     return null;
   }
 
-  return buildLocalDiffScopePrompt(relevance, input.changedFiles);
+  if (requestedFiles.length === 0 && input.changedFiles.length === 1) {
+    return null;
+  }
+
+  return buildLocalDiffScopePrompt(input.changedFiles);
 }
 
 function extractRequestedFilesFromGitArgs(
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   toolArgs: Record<string, unknown>,
 ): string[] {
   if (toolName !== "git_stage") {
@@ -496,24 +484,37 @@ function extractRequestedFilesFromGitArgs(
     .filter((value) => value.length > 0);
 }
 
-function buildLocalDiffScopePrompt(
-  relevance: LocalDiffRelevance,
-  changedFiles: string[],
-): string {
+function buildLocalDiffScopePrompt(changedFiles: string[]): string {
   const changedPreview =
     changedFiles.length === 0
       ? "none detected"
       : changedFiles.slice(0, 6).join(", ");
-  const reason =
-    relevance === "unrelated"
-      ? "the current local diff appears unrelated to this request"
-      : "the current local diff scope is ambiguous for this request";
 
   return [
-    `Before staging/committing/pushing, I need one scope decision because ${reason}.`,
+    "Before staging/committing/pushing, I need one scope decision because the current local diff scope is not explicit.",
     `Detected changed files: ${changedPreview}.`,
     "Tell me exactly which files or target scope to use, then I will continue.",
   ].join(" ");
+}
+
+function requestedFilesCoverChangedFiles(input: {
+  requestedFiles: string[];
+  changedFiles: string[];
+}): boolean {
+  const requestedFiles = input.requestedFiles.map(normalizePath);
+  const changedFiles = input.changedFiles.map(normalizePath);
+  return changedFiles.every((changedPath) =>
+    requestedFiles.some(
+      (requestedPath) =>
+        changedPath === requestedPath ||
+        changedPath.endsWith(`/${requestedPath}`) ||
+        requestedPath.endsWith(`/${changedPath}`),
+    ),
+  );
+}
+
+function normalizePath(path: string): string {
+  return path.trim().replace(/\\+/g, "/");
 }
 
 function buildMutationProbeFailureMessage(

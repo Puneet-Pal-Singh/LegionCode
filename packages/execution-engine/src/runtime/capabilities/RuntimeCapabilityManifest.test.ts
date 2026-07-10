@@ -61,7 +61,11 @@ describe("runtime capability manifest", () => {
       expect.objectContaining({
         name: "read_file",
         availability: "available",
-        preferredFor: ["file inspection", "line range reads"],
+        preferredFor: [
+          "file inspection",
+          "line-numbered range reads",
+          "continuing with nextOffset after truncation",
+        ],
       }),
       expect.objectContaining({
         name: "glob",

@@ -3,6 +3,11 @@ import {
   type RunTerminalState,
 } from "@repo/shared-types";
 import { buildFinalSummaryFrame } from "./FinalSummaryBuilder.js";
+import {
+  getVisibleModelText,
+  normalizeModelOutputParts,
+  type NormalizedModelPart,
+} from "../llm/ModelOutputParts.js";
 
 export type FinalAssistantMessageSource = "model" | "runtime";
 
@@ -11,6 +16,7 @@ export interface FinalAssistantMessageInput {
   sessionId: string;
   terminalState: RunTerminalState;
   modelText?: string;
+  modelParts?: NormalizedModelPart[];
   detail?: string;
   nextStep?: string;
   metadata?: Record<string, unknown>;
@@ -25,9 +31,14 @@ export interface FinalAssistantMessageResult {
 
 export class FinalAssistantMessageService {
   build(input: FinalAssistantMessageInput): FinalAssistantMessageResult {
-    const normalizedModelText = normalizeFinalAssistantText(input.modelText);
+    const isRuntimeAuthored = isRuntimeAuthoredFinalText(input.metadata);
+    const normalizedModelText = isRuntimeAuthored
+      ? normalizeRuntimeAuthoredFinalText(input.modelText)
+      : normalizeFinalAssistantText(input.modelText, input.modelParts);
     const source = normalizedModelText
-      ? resolveFinalMessageSource(input.metadata)
+      ? isRuntimeAuthored
+        ? "runtime"
+        : "model"
       : "runtime";
     const content = normalizedModelText || buildRuntimeFinalText(input);
 
@@ -39,21 +50,29 @@ export class FinalAssistantMessageService {
   }
 }
 
-function resolveFinalMessageSource(
+function isRuntimeAuthoredFinalText(
   metadata: Record<string, unknown> | undefined,
-): FinalAssistantMessageSource {
-  return typeof metadata?.code === "string" ? "runtime" : "model";
+): boolean {
+  return typeof metadata?.code === "string";
 }
 
-export function normalizeFinalAssistantText(value: string | undefined): string {
+function normalizeRuntimeAuthoredFinalText(value: string | undefined): string {
   if (!value) {
     return "";
   }
+  const normalized = value.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return normalized && !isUnusableFinalAssistantText(normalized) ? normalized : "";
+}
 
-  const normalized = stripHiddenAssistantMarkup(value)
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+export function normalizeFinalAssistantText(
+  value: string | undefined,
+  modelParts?: NormalizedModelPart[],
+): string {
+  const parts = modelParts ?? normalizeModelOutputParts({ text: value ?? "" });
+  const normalized = getVisibleModelText(parts);
+  if (!normalized) {
+    return "";
+  }
   if (!normalized || isUnusableFinalAssistantText(normalized)) {
     return "";
   }
@@ -171,13 +190,6 @@ function normalizeRuntimeSentence(value: string): string {
     return "";
   }
   return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
-}
-
-function stripHiddenAssistantMarkup(value: string): string {
-  return value.replace(
-    /<(analysis|thinking|reasoning|internal|tool_call|tool_result)\b[^>]*>[\s\S]*?<\/\1>/gi,
-    "",
-  );
 }
 
 function parseJsonObject(value: string): Record<string, unknown> | null {

@@ -59,6 +59,20 @@ describe("ResultFormatter", () => {
     );
   });
 
+  it("extracts structured errors from legacy success false results", () => {
+    const result = {
+      success: false,
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "Git commit author is not configured.",
+      },
+    };
+
+    expect(extractExecutionFailure(result)).toBe(
+      "Git commit author is not configured.",
+    );
+  });
+
   it("redacts internal sandbox run paths from task output", () => {
     const result = {
       message:

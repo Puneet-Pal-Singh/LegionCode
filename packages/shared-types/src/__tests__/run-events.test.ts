@@ -37,6 +37,7 @@ describe("RunStatus", () => {
     expect(isRunStatus(RUN_STATUSES.WAITING)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.PAUSED)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.FAILED)).toBe(true);
+    expect(isRunStatus(RUN_STATUSES.CANCELLED)).toBe(true);
     expect(isRunStatus(RUN_STATUSES.COMPLETE)).toBe(true);
   });
 

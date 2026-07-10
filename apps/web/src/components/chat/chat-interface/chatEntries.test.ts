@@ -5,11 +5,11 @@ import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
 
 describe("buildChatEntries", () => {
-  it("anchors runtime-keyed activity turns to the matching prompt", () => {
+  it("anchors activity turns to the user message whose id matches the turn key", () => {
     const userMessage = createMessage("user-1", "user", "Inspect the repo");
     const assistantMessage = createMessage("assistant-1", "assistant", "Done");
     const activityTurn = createActivityTurn({
-      key: "run_123456:turn-1",
+      key: "user-1",
       userPrompt: "Inspect the repo",
     });
 
@@ -26,11 +26,11 @@ describe("buildChatEntries", () => {
     ]);
   });
 
-  it("anchors an unmatched active turn to the latest prompt", () => {
+  it("does not attach unmatched active turns to any user message", () => {
     const firstUser = createMessage("user-1", "user", "First prompt");
     const secondUser = createMessage("user-2", "user", "Second prompt");
     const activeTurn = createActivityTurn({
-      key: "run_123456",
+      key: "run_123456_orphan",
       userPrompt: undefined,
       isActiveTurn: true,
     });
@@ -44,21 +44,28 @@ describe("buildChatEntries", () => {
     expect(entries).toEqual([
       { kind: "message", message: firstUser },
       { kind: "message", message: secondUser },
-      { kind: "turn", turn: activeTurn },
     ]);
   });
 
-  it("does not reuse stale prompt matches for repeated prompt text", () => {
+  it("attaches repeated identical prompts to distinct turns via canonical ids", () => {
     const firstUser = createMessage("user-1", "user", "try again?");
-    const firstAssistant = createMessage("assistant-1", "assistant", "First");
+    const firstAssistant = createMessage(
+      "assistant-1",
+      "assistant",
+      "First",
+    );
     const secondUser = createMessage("user-2", "user", "try again?");
-    const secondAssistant = createMessage("assistant-2", "assistant", "Second");
+    const secondAssistant = createMessage(
+      "assistant-2",
+      "assistant",
+      "Second",
+    );
     const firstTurn = createActivityTurn({
-      key: "run_123456:turn-1",
+      key: "user-1",
       userPrompt: "try again?",
     });
     const secondTurn = createActivityTurn({
-      key: "run_123456:turn-2",
+      key: "user-2",
       userPrompt: "try again?",
     });
 

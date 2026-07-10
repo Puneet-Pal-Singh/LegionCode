@@ -48,7 +48,7 @@ export class RuntimeEventProcessor implements RuntimeEventProcessorPort {
         runId: event.runId,
         sessionId: event.sessionId,
         eventType: event.type,
-        payload: event.payload as unknown as JsonValue,
+        payload: event as unknown as JsonValue,
         idempotencyKey,
       },
       step: buildRunStepCandidate(event),

@@ -80,7 +80,7 @@ describe("RunRiskyActionPolicy", () => {
     expect(result.request.category).toBe("git_mutation");
   });
 
-  it("bypasses mutation evidence denials on read-only turns", async () => {
+  it("asks for git commit without requiring push mutation evidence", async () => {
     const store = new PermissionApprovalStore(
       new MockRuntimeState(),
       "run-risk-2-read-only",
@@ -94,7 +94,6 @@ describe("RunRiskyActionPolicy", () => {
       workflowIntent: "explore",
       toolName: "git_commit",
       toolArgs: { message: "feat: test" },
-      currentTurnIntent: "read_only",
       hasMutationEvidence: false,
       approvalStore: store,
     });

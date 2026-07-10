@@ -2,9 +2,7 @@
 // Phase 3.2: Engine module barrel exports
 
 export {
-  RunEngine,
   RunEngineError,
-  type IRunEngine,
   type RunEngineDependencies,
   type RunEngineEnv,
   type RunEngineOptions,
@@ -16,10 +14,23 @@ export {
 
 export { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 export {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-  getGoldenFlowToolRoute,
-  isGoldenFlowToolName,
-  type GoldenFlowToolName,
+  RuntimeKernelNativeRunner,
+  type RuntimeKernelNativeRunnerInput,
+} from "./RuntimeKernelNativeRunner.js";
+export {
+  RuntimeToolGateway,
+  type RuntimeToolExecutionResult,
+} from "./RuntimeToolGateway.js";
+export {
+  RuntimeWorkspaceScope,
+  RuntimeWorkspaceScopeError,
+  type RuntimeWorkspaceExecutionScope,
+} from "./RuntimeWorkspaceScope.js";
+export {
+  getCodingCoreToolRegistry,
+  getCodingToolRoute,
+  isCodingToolId,
+  enforceCodingToolFloor,
+  type CodingToolId,
   type ToolGatewayRoute,
-} from "../contracts/CodingToolGateway.js";
+} from "../tools/CodingToolRegistry.js";

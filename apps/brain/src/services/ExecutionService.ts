@@ -4,6 +4,7 @@ import {
   sanitizeLogPayload,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import {
   describeGitHubScopeBoundaryError,
   parseGitHubScopeList,
@@ -24,6 +25,21 @@ import { getUserSessionByUserId } from "./AuthService";
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
 const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
+const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
+const LOCAL_DEV_SESSION_RETRY_DELAY_MS = 500;
+
+type SecureExecutionStatus = "success" | "failure" | "timeout" | "cancelled";
+
+interface SecureExecutionError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+interface SecureExecutionMetrics {
+  duration: number;
+  memoryUsed?: number;
+}
 
 interface SecureExecutionSession {
   sessionId: string;
@@ -34,25 +50,27 @@ interface SecureExecutionSessionResponse extends SecureExecutionSession {
   expiresAt: number;
 }
 
+interface SecureExecutionWorkspaceScope {
+  runId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
+}
+
 interface SecureExecutionTaskResponse {
   taskId: string;
-  status: "success" | "failure" | "timeout" | "cancelled";
+  status: SecureExecutionStatus;
   output?: string;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-  metrics?: {
-    duration: number;
-    memoryUsed?: number;
-  };
+  error?: SecureExecutionError;
+  metrics?: SecureExecutionMetrics;
 }
 
 interface LegacyExecutionResult {
   success: boolean;
+  status?: SecureExecutionStatus;
   output?: string;
-  error?: string;
+  error?: string | SecureExecutionError;
+  metrics?: SecureExecutionMetrics;
 }
 
 interface SecureExecutionLogEntry {
@@ -97,14 +115,24 @@ export class ExecutionService {
         source?: "stdout" | "stderr";
         timestamp?: number;
       }) => Promise<void> | void;
+      scope?: SecureExecutionWorkspaceScope;
     },
   ) {
+    const scope = options?.scope;
+    if (scope && scope.runId !== this.runId) {
+      throw new Error("Execution workspace scope does not belong to this run.");
+    }
     const executionAction = normalizeExecutionAction(plugin, action);
     let executionFinished = false;
     let logForwardingPromise: Promise<void> | null = null;
     console.log(
-      `[ExecutionService] ${plugin}:${executionAction}`,
-      sanitizeLogPayload(payload),
+      formatDiagnosticLogLine("execution/tool", "requested", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        plugin,
+        action: executionAction,
+        payloadKeys: Object.keys(sanitizeLogPayload(payload)).sort().join(","),
+      }),
     );
 
     try {
@@ -115,7 +143,7 @@ export class ExecutionService {
       );
 
       if (plugin === "git" && executionAction === "git_create_pull_request") {
-        return await this.executeGitCreatePullRequest(payload);
+        return await this.executeGitCreatePullRequest(payload, scope);
       }
 
       const executionResult = await this.executeSecureTask(
@@ -123,26 +151,44 @@ export class ExecutionService {
         executionAction,
         payload,
         options,
+        scope,
         () => executionFinished,
         (nextValue) => {
           executionFinished = nextValue;
         },
       );
-      logExecutionFailure(plugin, executionAction, executionResult);
+      logExecutionFailure(
+        this.runId,
+        this.sessionId,
+        plugin,
+        executionAction,
+        executionResult,
+      );
       return toLegacyExecutionResult(executionResult);
     } catch (error) {
       executionFinished = true;
       await logForwardingPromise;
       if (isExpectedGitStatusExecutionError(plugin, executionAction, error)) {
         console.log(
-          `[ExecutionService] ${plugin}:${executionAction} transient startup miss`,
-          sanitizeLogPayload({
+          formatDiagnosticLogLine("execution/tool", "transient-startup-miss", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            plugin,
+            action: executionAction,
             errorMessage:
               error instanceof Error ? error.message : String(error),
           }),
         );
       } else {
-        console.error(`[ExecutionService] Error:`, sanitizeUnknownError(error));
+        console.error(
+          formatDiagnosticLogLine("execution/tool", "threw", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            plugin,
+            action: executionAction,
+            error: sanitizeUnknownError(error),
+          }),
+        );
       }
       throw error;
     }
@@ -185,7 +231,13 @@ export class ExecutionService {
     try {
       const session = await getUserSessionByUserId(this.env, userId);
       if (!session) {
-        console.log(`[ExecutionService] No session found for user ${userId}`);
+        console.log(
+          formatDiagnosticLogLine("execution/github-auth", "session-missing", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            userId,
+          }),
+        );
         return null;
       }
 
@@ -196,7 +248,12 @@ export class ExecutionService {
       const persistedScopes = parseGitHubScopeList(session.githubScopes);
 
       console.log(
-        `[ExecutionService] Successfully retrieved GitHub token for user ${userId}`,
+        formatDiagnosticLogLine("execution/github-auth", "token-ready", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          userId,
+          scopeCount: persistedScopes?.length ?? 0,
+        }),
       );
       return {
         token,
@@ -204,8 +261,12 @@ export class ExecutionService {
       };
     } catch (error) {
       console.error(
-        `[ExecutionService] Failed to get GitHub token:`,
-        sanitizeUnknownError(error),
+        formatDiagnosticLogLine("execution/github-auth", "token-failed", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          userId,
+          error: sanitizeUnknownError(error),
+        }),
       );
       return null;
     }
@@ -226,7 +287,14 @@ export class ExecutionService {
     const authState = await this.getGitHubAuthState(this.userId);
     if (authState?.token) {
       nextPayload.token = authState.token;
-      console.log(`[ExecutionService] Injected GitHub token for ${action}`);
+      console.log(
+        formatDiagnosticLogLine("execution/github-auth", "token-injected", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          plugin,
+          action,
+        }),
+      );
     }
 
     const scopeBoundary = resolveGitHubScopeBoundary({
@@ -256,7 +324,14 @@ export class ExecutionService {
 
     nextPayload.authorName = commitIdentity.authorName;
     nextPayload.authorEmail = commitIdentity.authorEmail;
-    console.log("[ExecutionService] Resolved git commit identity for runtime");
+    console.log(
+      formatDiagnosticLogLine("execution/git", "commit-identity-resolved", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        plugin,
+        action,
+      }),
+    );
     return nextPayload;
   }
 
@@ -273,12 +348,25 @@ export class ExecutionService {
           }) => Promise<void> | void;
         }
       | undefined,
+    scope: SecureExecutionWorkspaceScope | undefined,
     isFinished: () => boolean,
     setFinished: (value: boolean) => void,
   ): Promise<SecureExecutionTaskResponse> {
     const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
-    const executionSession = await this.getExecutionSession();
+    const executionSession = await this.getExecutionSession(scope);
     const taskId = createExecutionTaskId(plugin, action);
+    const startedAt = Date.now();
+    console.log(
+      formatDiagnosticLogLine("execution/tool", "dispatching", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        secureSessionId: executionSession.sessionId,
+        taskId,
+        plugin,
+        action,
+        timeoutMs,
+      }),
+    );
     const logForwardingPromise = options?.onOutput
       ? this.forwardExecutionLogs({
           sessionId: executionSession.sessionId,
@@ -304,7 +392,12 @@ export class ExecutionService {
             sessionId: executionSession.sessionId,
             taskId,
             action: `${plugin}.execute`,
-            params: { ...payload, runId: this.runId, action },
+            params: {
+              ...payload,
+              runId: this.runId,
+              action,
+              ...(scope ? { workspaceScope: scope } : {}),
+            },
             timeout: timeoutMs,
           }),
         },
@@ -314,6 +407,18 @@ export class ExecutionService {
 
       if (!res.ok) {
         await logForwardingPromise;
+        console.error(
+          formatDiagnosticLogLine("execution/tool", "http-failed", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            secureSessionId: executionSession.sessionId,
+            taskId,
+            plugin,
+            action,
+            httpStatus: res.status,
+            elapsedMs: Date.now() - startedAt,
+          }),
+        );
         throw new Error(
           (await res.text()) || `Failed to execute ${plugin}:${action}`,
         );
@@ -322,16 +427,43 @@ export class ExecutionService {
       const executionResult =
         await parseJsonResponse<SecureExecutionTaskResponse>(res);
       await logForwardingPromise;
+      console.log(
+        formatDiagnosticLogLine("execution/tool", "completed", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          secureSessionId: executionSession.sessionId,
+          taskId,
+          plugin,
+          action,
+          secureStatus: executionResult.status,
+          errorCode: executionResult.error?.code,
+          durationMs: executionResult.metrics?.duration,
+          elapsedMs: Date.now() - startedAt,
+        }),
+      );
       return executionResult;
     } catch (error) {
       setFinished(true);
       await logForwardingPromise;
+      console.error(
+        formatDiagnosticLogLine("execution/tool", "failed", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          secureSessionId: executionSession.sessionId,
+          taskId,
+          plugin,
+          action,
+          elapsedMs: Date.now() - startedAt,
+          error: sanitizeUnknownError(error),
+        }),
+      );
       throw error;
     }
   }
 
   private async executeGitCreatePullRequest(
     payload: Record<string, unknown>,
+    scope: SecureExecutionWorkspaceScope | undefined,
   ): Promise<LegacyExecutionResult> {
     try {
       const request = parseGitPullRequestPayload(payload);
@@ -345,12 +477,17 @@ export class ExecutionService {
         };
       }
 
-      const gitStatusResult = await this.execute("git", "git_status", {});
+      const gitStatusResult = await this.execute(
+        "git",
+        "git_status",
+        {},
+        { scope },
+      );
       if (!gitStatusResult.success || !gitStatusResult.output) {
         return {
           success: false,
           error:
-            gitStatusResult.error ??
+            readLegacyExecutionErrorMessage(gitStatusResult.error) ??
             "Unable to verify git branch state before creating a pull request.",
         };
       }
@@ -408,9 +545,11 @@ export class ExecutionService {
     return await res.text();
   }
 
-  private async getExecutionSession(): Promise<SecureExecutionSession> {
+  private async getExecutionSession(
+    scope: SecureExecutionWorkspaceScope | undefined,
+  ): Promise<SecureExecutionSession> {
     if (!this.executionSessionPromise) {
-      this.executionSessionPromise = this.createExecutionSession();
+      this.executionSessionPromise = this.createExecutionSession(scope);
     }
 
     try {
@@ -421,34 +560,61 @@ export class ExecutionService {
     }
   }
 
-  private async createExecutionSession(): Promise<SecureExecutionSession> {
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          runId: this.runId,
-          taskId: createSessionTaskId(this.sessionId),
-          repoPath: EXECUTION_SESSION_REPO_PATH,
-        }),
-      },
-      DEFAULT_EXECUTION_TIMEOUT_MS,
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        (await response.text()) || "Failed to create secure execution session",
+  private async createExecutionSession(
+    scope: SecureExecutionWorkspaceScope | undefined,
+  ): Promise<SecureExecutionSession> {
+    for (
+      let attempt = 1;
+      attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
+      attempt += 1
+    ) {
+      const response = await fetchWithTimeout(
+        this.env.SECURE_API,
+        `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            runId: this.runId,
+            taskId: createSessionTaskId(this.sessionId),
+            repoPath: EXECUTION_SESSION_REPO_PATH,
+            ...(scope ? { workspaceScope: scope } : {}),
+          }),
+        },
+        DEFAULT_EXECUTION_TIMEOUT_MS,
       );
+
+      if (response.ok) {
+        const session =
+          await parseJsonResponse<SecureExecutionSessionResponse>(response);
+        return {
+          sessionId: session.sessionId,
+          token: session.token,
+        };
+      }
+
+      const message =
+        (await response.text()) || "Failed to create secure execution session";
+      if (
+        attempt < LOCAL_DEV_SESSION_RETRY_ATTEMPTS &&
+        isLocalDevSessionProxyMiss(message)
+      ) {
+        console.log(
+          formatDiagnosticLogLine("execution/tool", "session-retry", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            attempt,
+            maxAttempts: LOCAL_DEV_SESSION_RETRY_ATTEMPTS,
+          }),
+        );
+        await sleep(LOCAL_DEV_SESSION_RETRY_DELAY_MS);
+        continue;
+      }
+
+      throw new Error(message);
     }
 
-    const session =
-      await parseJsonResponse<SecureExecutionSessionResponse>(response);
-    return {
-      sessionId: session.sessionId,
-      token: session.token,
-    };
+    throw new Error("Failed to create secure execution session");
   }
 
   private async forwardExecutionLogs(input: {
@@ -585,8 +751,9 @@ function parseExecutionLogStream(body: string): SecureExecutionLogEntry[] {
       );
     } catch (error) {
       console.warn(
-        "[ExecutionService] Failed to parse execution log entry:",
-        sanitizeUnknownError(error),
+        formatDiagnosticLogLine("execution/logs", "parse-failed", {
+          error: sanitizeUnknownError(error),
+        }),
       );
     }
   }
@@ -615,19 +782,45 @@ function toLegacyExecutionResult(
   if (result.status === "success") {
     return {
       success: true,
+      status: result.status,
       output: result.output ?? "",
+      metrics: result.metrics,
     };
   }
 
   return {
     success: false,
+    status: result.status,
     error:
-      result.error?.message ??
-      `Task execution ended with status '${result.status}'`,
+      result.error ??
+      createFallbackSecureExecutionError(result.status, result.output),
+    output: result.output,
+    metrics: result.metrics,
   };
 }
 
+function createFallbackSecureExecutionError(
+  status: Exclude<SecureExecutionStatus, "success">,
+  output: string | undefined,
+): SecureExecutionError {
+  return {
+    code: `EXECUTION_${status.toUpperCase()}`,
+    message: output ?? `Task execution ended with status '${status}'`,
+  };
+}
+
+function readLegacyExecutionErrorMessage(
+  error: LegacyExecutionResult["error"],
+): string | undefined {
+  if (typeof error === "string") {
+    return error;
+  }
+  return error?.message;
+}
+
 function logExecutionFailure(
+  runId: string,
+  sessionId: string,
   plugin: string,
   action: string,
   result: Pick<SecureExecutionTaskResponse, "status" | "error">,
@@ -641,9 +834,13 @@ function logExecutionFailure(
       ? "expected bootstrap miss"
       : "status check failed";
     console.log(
-      `[ExecutionService] ${plugin}:${action} ${message}`,
-      sanitizeLogPayload({
-        status: result.status,
+      formatDiagnosticLogLine("execution/tool", "result-warning", {
+        runId,
+        sessionId,
+        plugin,
+        action,
+        warning: message,
+        secureStatus: result.status,
         errorCode: result.error?.code,
         errorMessage: result.error?.message,
       }),
@@ -652,9 +849,12 @@ function logExecutionFailure(
   }
 
   console.error(
-    `[ExecutionService] ${plugin}:${action} failed`,
-    sanitizeLogPayload({
-      status: result.status,
+    formatDiagnosticLogLine("execution/tool", "result-failed", {
+      runId,
+      sessionId,
+      plugin,
+      action,
+      secureStatus: result.status,
       errorCode: result.error?.code,
       errorMessage: result.error?.message,
       errorDetails: result.error?.details,
@@ -703,6 +903,13 @@ function isExpectedGitStatusMessage(message: string): boolean {
     /timed out/i.test(message) ||
     /econnrefused/i.test(message) ||
     /upstream connect error/i.test(message) ||
+    /couldn't find a local dev session/i.test(message) ||
+    /entrypoint of service .* to proxy to/i.test(message)
+  );
+}
+
+function isLocalDevSessionProxyMiss(message: string): boolean {
+  return (
     /couldn't find a local dev session/i.test(message) ||
     /entrypoint of service .* to proxy to/i.test(message)
   );

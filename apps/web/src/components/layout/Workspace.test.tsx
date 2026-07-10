@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { Workspace } from "./Workspace";
+import { clearInitialPromptSubmissionClaimsForTests } from "./workspace/initialPromptSubmissionGuard";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
 const mockUseGitStatusInputs = vi.hoisted(
@@ -23,6 +24,7 @@ const mockChatState = vi.hoisted(() => ({
   isHydrating: false,
   hasHydrated: true,
   runId: "run-123",
+  isModelConfigReady: true,
   error: null as string | null,
   debugEvents: [],
 }));
@@ -237,10 +239,13 @@ vi.mock("../../lib/git-workspace-bootstrap", () => ({
 
 describe("Workspace", () => {
   beforeEach(() => {
+    clearInitialPromptSubmissionClaimsForTests();
     mockChatInterface.mockClear();
     mockRefetchGitStatus.mockClear();
     mockUseGitStatusInputs.length = 0;
     mockChatState.stop.mockClear();
+    mockChatState.append.mockClear();
+    mockChatState.append.mockResolvedValue(undefined);
     Object.values(mockWorkspaceStateSetters).forEach((setter) =>
       setter.mockClear(),
     );
@@ -249,6 +254,7 @@ describe("Workspace", () => {
     mockChatState.isLoading = false;
     mockChatState.messages = [];
     mockChatState.runId = "run-123";
+    mockChatState.isModelConfigReady = true;
     mockChatState.error = null;
     mockRunSummaryState.summary = null;
     mockGitStatusState.status = {
@@ -286,6 +292,84 @@ describe("Workspace", () => {
     expect(mockWorkspaceStateSetters.setActiveTab).toHaveBeenCalledWith(
       "changes",
     );
+  });
+
+  it("submits an initial setup prompt once across workspace remounts", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockResolvedValue(undefined);
+    const onInitialPromptHandled = vi.fn();
+    const initialPromptSubmission = {
+      id: "setup-prompt-1",
+      prompt: "Hey, read my readme and tell what do you think of this project??",
+    };
+    const firstRender = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+        onInitialPromptHandled={onInitialPromptHandled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    });
+    firstRender.unmount();
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+        onInitialPromptHandled={onInitialPromptHandled}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onInitialPromptHandled).toHaveBeenCalledWith("setup-prompt-1");
+    });
+    expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    expect(mockChatState.append).toHaveBeenCalledWith({
+      role: "user",
+      content:
+        "Hey, read my readme and tell what do you think of this project??",
+    });
+  });
+
+  it("waits for model configuration before submitting an initial setup prompt", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockClear();
+    mockChatState.isModelConfigReady = false;
+    const initialPromptSubmission = {
+      id: "setup-prompt-2",
+      prompt: "Read README",
+    };
+    const { rerender } = render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+      />,
+    );
+
+    expect(mockChatState.append).not.toHaveBeenCalled();
+
+    mockChatState.isModelConfigReady = true;
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("refreshes git status when local chat loading settles", async () => {
@@ -465,7 +549,7 @@ describe("Workspace", () => {
     });
   });
 
-  it("marks session as paused when canonical run status pauses", async () => {
+  it("marks paused canonical runs as paused unless approval is pending", async () => {
     const onSessionStatusChange = vi.fn();
     const { rerender } = render(
       <Workspace
@@ -488,6 +572,24 @@ describe("Workspace", () => {
 
     await waitFor(() => {
       expect(onSessionStatusChange).toHaveBeenCalledWith("paused");
+    });
+
+    mockRunSummaryState.summary = {
+      runId: "run-123",
+      status: "PAUSED",
+      pendingApproval: { requestId: "approval-1" },
+    };
+    rerender(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onSessionStatusChange={onSessionStatusChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSessionStatusChange).toHaveBeenCalledWith("waiting_for_approval");
     });
   });
 
@@ -532,6 +634,7 @@ describe("Workspace", () => {
   });
 
   it("forces a fresh git status fetch after workspace bootstrap succeeds", async () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
@@ -559,6 +662,7 @@ describe("Workspace", () => {
   });
 
   it("reruns workspace bootstrap when known repository git state becomes unavailable", async () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
@@ -642,7 +746,53 @@ describe("Workspace", () => {
     });
   });
 
+  it("does not fetch git status before canonical summary catches up to the active run", () => {
+    mockRunSummaryState.summary = null;
+    mockChatState.isLoading = false;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    const latestGitStatusInput =
+      mockUseGitStatusInputs[mockUseGitStatusInputs.length - 1];
+    expect(latestGitStatusInput).toEqual({
+      runId: "run-123",
+      sessionId: "session-123",
+      enabled: false,
+    });
+  });
+
+  it("does not trigger workspace bootstrap before canonical summary catches up", async () => {
+    mockRunSummaryState.summary = null;
+    mockChatState.isLoading = false;
+    mockGitHubTreeState.repo = {
+      owner: { login: "Puneet-Pal-Singh" },
+      name: "career-crew",
+      full_name: "Puneet-Pal-Singh/career-crew",
+      html_url: "https://github.com/Puneet-Pal-Singh/career-crew",
+      default_branch: "main",
+    };
+    mockGitHubTreeState.isGitHubLoaded = true;
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="Puneet-Pal-Singh/career-crew"
+      />,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockBootstrapGitWorkspace).not.toHaveBeenCalled();
+  });
+
   it("does not trigger workspace bootstrap when repository context mismatches active workspace", async () => {
+    mockRunSummaryState.summary = { runId: "run-123", status: "COMPLETED" };
     mockGitHubTreeState.repo = {
       owner: { login: "Puneet-Pal-Singh" },
       name: "career-crew",
@@ -691,7 +841,7 @@ describe("Workspace", () => {
     );
   });
 
-  it("keeps chat input in loading/stop mode when canonical run is still running", () => {
+  it("passes SDK loading state directly to chat interface", () => {
     mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     mockChatState.isLoading = false;
 
@@ -706,14 +856,13 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
-          isLoading: true,
+          isLoading: false,
         }),
       }),
     );
   });
 
-  it("maps pending approval summaries to a stoppable waiting session", async () => {
+  it("maps pending approval summaries to a waiting session", async () => {
     const onSessionStatusChange = vi.fn();
     mockRunSummaryState.summary = {
       runId: "run-123",
@@ -745,7 +894,6 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
           isLoading: false,
         }),
       }),
@@ -783,7 +931,7 @@ describe("Workspace", () => {
     expect(mockRefetchGitStatus).not.toHaveBeenCalled();
   });
 
-  it("clears loading when a stale active summary follows a finished assistant response", () => {
+  it("clears workspace loading when a finished assistant response follows an active summary", () => {
     const onSessionStatusChange = vi.fn();
     mockRunSummaryState.summary = { runId: "run-123", status: "RUNNING" };
     mockChatState.isLoading = false;
@@ -805,7 +953,6 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: false,
           isLoading: false,
         }),
       }),
@@ -813,7 +960,7 @@ describe("Workspace", () => {
     expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
   });
 
-  it("lets local loading state override a stale terminal summary", () => {
+  it("passes SDK loading state even when summary is terminal", () => {
     mockRunSummaryState.summary = { runId: "run-123", status: "completed" };
     mockChatState.isLoading = true;
 
@@ -829,14 +976,13 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
           isLoading: true,
         }),
       }),
     );
   });
 
-  it("shows loading controls when local session state is still running", () => {
+  it("passes SDK loading state when no summary exists", () => {
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
 
@@ -852,14 +998,13 @@ describe("Workspace", () => {
     expect(mockChatInterface).toHaveBeenCalledWith(
       expect.objectContaining({
         chatProps: expect.objectContaining({
-          canStop: true,
-          isLoading: true,
+          isLoading: false,
         }),
       }),
     );
   });
 
-  it("clears local running status when the user stops a stuck session", () => {
+  it("keeps local running status while a stop request is settling", () => {
     const onSessionStatusChange = vi.fn();
     mockChatState.isLoading = false;
     mockRunSummaryState.summary = null;
@@ -886,7 +1031,8 @@ describe("Workspace", () => {
     });
 
     expect(mockChatState.stop).toHaveBeenCalled();
-    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+    expect(onSessionStatusChange).toHaveBeenCalledWith("running");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
   });
 
   it("opens the right sidebar when review focus is requested", () => {

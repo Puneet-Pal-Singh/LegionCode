@@ -51,9 +51,16 @@ export function useChatPresentation(input: ChatPresentationInput) {
   );
   const terminalFiles = lifecycleTerminalFiles;
   const terminalViewModel = useMemo(
-    () =>
-      buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
-    [input.lifecycleProjection],
+    () => {
+      const terminal = buildLifecycleTerminalViewModel(
+        input.lifecycleProjection ?? null,
+      );
+      if (terminal && terminal.state !== "completed") {
+        return null;
+      }
+      return terminal;
+    },
+    [input.activityTurns, input.lifecycleProjection],
   );
   const hasFileSummary =
     hasChangedFileSnapshot(input.snapshots) ||

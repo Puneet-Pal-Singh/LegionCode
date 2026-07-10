@@ -27,10 +27,12 @@ export function GitReviewProvider({
   isReviewOpen,
   onReviewOpenChange,
   isReviewActive = false,
+  isReviewDataEnabled = true,
   isGitWorkspaceRecovering = false,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
-  const shouldLoadReviewData = isReviewOpen || isReviewActive;
+  const shouldLoadReviewData =
+    isReviewDataEnabled && (isReviewOpen || isReviewActive);
   const {
     status,
     gitAvailable,

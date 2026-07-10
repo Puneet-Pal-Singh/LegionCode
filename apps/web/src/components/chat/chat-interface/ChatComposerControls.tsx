@@ -41,6 +41,7 @@ interface ChatComposerControlsProps {
   canStop: boolean;
   isLoading: boolean;
   sessionId: string;
+  runId?: string;
   mode: RunMode;
   onModeChange?: (mode: RunMode) => void;
   hasMessages: boolean;
@@ -81,6 +82,7 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           canStop={props.canStop}
           isLoading={props.isLoading}
           sessionId={props.sessionId}
+          runId={props.runId}
           mode={props.mode}
           onModeChange={props.onModeChange}
           hasMessages={props.hasMessages}

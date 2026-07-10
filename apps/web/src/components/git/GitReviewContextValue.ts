@@ -20,6 +20,7 @@ export interface GitReviewProviderProps {
   isReviewOpen: boolean;
   onReviewOpenChange: (open: boolean) => void;
   isReviewActive?: boolean;
+  isReviewDataEnabled?: boolean;
   isGitWorkspaceRecovering?: boolean;
 }
 

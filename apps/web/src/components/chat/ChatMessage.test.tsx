@@ -10,7 +10,7 @@ describe("ChatMessage", () => {
       id: "assistant-1",
       role: "assistant",
       content: "**Final Report**\n\n- item one\n- item two",
-    } as Message;
+    } as unknown as Message;
 
     const { container } = render(<ChatMessage message={message} />);
 
@@ -19,7 +19,31 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("**Final Report**")).not.toBeInTheDocument();
   });
 
-  it("hides leaked assistant self-talk prefixes", () => {
+  it("renders typed visible assistant parts and skips reasoning parts", () => {
+    const message = {
+      id: "assistant-typed-parts",
+      role: "assistant",
+      content: [
+        {
+          type: "reasoning",
+          text: "The user is asking how the product works.",
+        },
+        {
+          type: "text",
+          text: "I inspected the canonical turn diff.",
+        },
+      ],
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByText(/The user is asking/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/I inspected the canonical turn diff/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not repair leaked assistant self-talk prefixes from raw strings", () => {
     const message = {
       id: "assistant-self-talk",
       role: "assistant",
@@ -29,31 +53,13 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.queryByText(/The user is asking/)).not.toBeInTheDocument();
+    expect(screen.getByText(/The user is asking/)).toBeInTheDocument();
     expect(
       screen.getByText(/I am doing well and ready to help/),
     ).toBeInTheDocument();
   });
 
-  it("hides leaked greeting analysis before the final reply", () => {
-    const message = {
-      id: "assistant-greeting-self-talk",
-      role: "assistant",
-      content:
-        'The user is greeting me with "yoyo how are you?". This is a casual greeting and does not require tools. I should respond politely. I am doing great, thank you for asking!',
-    } as Message;
-
-    render(<ChatMessage message={message} />);
-
-    expect(screen.queryByText(/The user is greeting/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/casual greeting/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/I should respond/)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/I am doing great, thank you for asking/),
-    ).toBeInTheDocument();
-  });
-
-  it("hides malformed greeting analysis with orphan punctuation", () => {
+  it("does not repair malformed greeting analysis with orphan punctuation", () => {
     const message = {
       id: "assistant-malformed-greeting-self-talk",
       role: "assistant",
@@ -63,8 +69,8 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.queryByText(/This is a greeting/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/I should respond/)).not.toBeInTheDocument();
+    expect(screen.getByText(/This is a greeting/)).toBeInTheDocument();
+    expect(screen.getByText(/I should respond/)).toBeInTheDocument();
     expect(
       screen.getByText(
         /Hello! How can I help you with the career-crew project today/,

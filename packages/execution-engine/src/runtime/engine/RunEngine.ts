@@ -22,9 +22,9 @@ import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-} from "../contracts/CodingToolGateway.js";
+  enforceCodingToolFloor,
+  getCodingCoreToolRegistry,
+} from "../tools/CodingToolRegistry.js";
 import type {
   RunInput,
   RunStatus,
@@ -60,7 +60,7 @@ import {
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import {
   transitionRunToCompleted,
   transitionRunToFailed,
@@ -425,6 +425,9 @@ export class RunEngine implements IRunEngine {
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
         );
+        console.log(
+          `[run/engine/workspace-bootstrap-evaluated] runId=${runId} status=${bootstrapEvaluation.status} blocked=${bootstrapEvaluation.blocked} hasMessage=${Boolean(bootstrapEvaluation.message)} expectedMiss=${bootstrapEvaluation.expectedMiss} mode=${bootstrapEvaluation.mode ?? "none"} clonedDuringBootstrap=${bootstrapEvaluation.clonedDuringBootstrap}`,
+        );
         run.metadata.workspaceBootstrap = {
           requested: bootstrapEvaluation.status !== "skipped",
           ready: !bootstrapEvaluation.blocked,
@@ -451,7 +454,9 @@ export class RunEngine implements IRunEngine {
           const bootstrapLogLabel = bootstrapEvaluation.expectedMiss
             ? "Workspace bootstrap expected miss blocked action planning"
             : "Workspace bootstrap blocked action planning";
-          console.log(`[run/engine] ${bootstrapLogLabel} for run ${runId}`);
+          console.log(
+            `[run/engine/workspace-bootstrap-finalizing] runId=${runId} label="${bootstrapLogLabel}" terminalState=${RUN_TERMINAL_STATES.COMPLETED} messageLength=${bootstrapEvaluation.message.length}`,
+          );
           return await this.completeRunWithAssistantMessage(
             run,
             bootstrapEvaluation.message,
@@ -465,8 +470,8 @@ export class RunEngine implements IRunEngine {
           run,
           effectiveInput,
           messages,
-          enforceGoldenFlowToolFloor(
-            { ...getGoldenFlowToolRegistry(), ...tools },
+          enforceCodingToolFloor(
+            { ...getCodingCoreToolRegistry(), ...tools },
             effectiveInput.metadata,
           ),
           finalSummaryContractEnabled,
@@ -655,7 +660,7 @@ export class RunEngine implements IRunEngine {
         : await applyReviewerPassIfEnabled({
             run,
             originalPrompt: input.prompt,
-            synthesisOutput: sanitizeUserFacingOutput(finalMessage.text),
+            synthesisOutput: redactUserFacingOutput(finalMessage.text),
             llmGateway: this.llmGateway,
           });
       const mergedMetadata: Record<string, unknown> = {

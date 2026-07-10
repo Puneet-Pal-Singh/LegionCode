@@ -14,10 +14,13 @@ import type { AgentSession } from "../../types/session";
 describe("SessionStateService", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   afterEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -43,9 +46,14 @@ describe("SessionStateService", () => {
     });
 
     it("should handle corrupted localStorage gracefully", () => {
+      const errorSpy = silenceConsoleError();
       localStorage.setItem("shadowbox:sessions:v3", "invalid json");
       const loaded = SessionStateService.loadSessions();
       expect(loaded).toEqual({});
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[SessionStateService] Failed to load sessions:"),
+        expect.any(SyntaxError),
+      );
     });
 
     it("normalizes legacy error sessions to failed", () => {
@@ -71,6 +79,7 @@ describe("SessionStateService", () => {
     });
 
     it("rejects sessions with unknown persisted statuses", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
 
       localStorage.setItem(
@@ -90,11 +99,18 @@ describe("SessionStateService", () => {
 
       const loaded = SessionStateService.loadSessions();
       expect(loaded[session.id]).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["status"]),
+      );
     });
   });
 
   describe("Server Session Hydration", () => {
     it("hydrates canonical sessions from Brain", async () => {
+      const warnSpy = silenceConsoleWarn();
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
@@ -124,6 +140,10 @@ describe("SessionStateService", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/api/sessions"),
         { credentials: "include" },
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[platform-endpoints] VITE_BRAIN_BASE_URL not set, using default:",
+        "http://localhost:8788",
       );
     });
 
@@ -231,18 +251,38 @@ describe("SessionStateService", () => {
       const session = SessionStateService.createSession("Test", "repo");
       const sessions = { [session.id]: session };
 
+      SessionStateService.saveSessions(sessions, session.id);
       SessionStateService.saveActiveSessionId(session.id, sessions);
       const loaded = SessionStateService.loadActiveSessionId();
 
       expect(loaded).toBe(session.id);
     });
 
+    it("keeps active session selection scoped to the current tab", () => {
+      const tabSession = SessionStateService.createSession("Tab", "repo");
+      const otherTabSession = SessionStateService.createSession("Other", "repo");
+      const sessions = {
+        [tabSession.id]: tabSession,
+        [otherTabSession.id]: otherTabSession,
+      };
+
+      SessionStateService.saveSessions(sessions, otherTabSession.id);
+      SessionStateService.saveActiveSessionId(tabSession.id, sessions);
+
+      expect(SessionStateService.loadActiveSessionId()).toBe(tabSession.id);
+    });
+
     it("should not save non-existent session as active", () => {
+      const warnSpy = silenceConsoleWarn();
       const sessions = {};
       SessionStateService.saveActiveSessionId("non-existent", sessions);
 
       const loaded = SessionStateService.loadActiveSessionId();
       expect(loaded).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Attempted to set non-existent session as active:",
+        "non-existent",
+      );
     });
 
     it("should clear active session ID when null", () => {
@@ -294,7 +334,10 @@ describe("SessionStateService", () => {
       SessionStateService.saveActiveSessionId(session.id, {
         [session.id]: session,
       });
-      localStorage.setItem("shadowbox:active-session-id:v3", "missing-session");
+      sessionStorage.setItem(
+        "shadowbox:active-session-id:v4",
+        "missing-session",
+      );
       SessionStateService.saveSetupSession(setupSession);
 
       const runId = SessionStateService.loadActiveSessionRunId();
@@ -382,45 +425,6 @@ describe("SessionStateService", () => {
 
       expect(loaded1).toEqual(context1);
       expect(loaded2).toEqual(context2);
-    });
-  });
-
-  describe("Session-Scoped Pending Queries", () => {
-    it("should save and load pending query for session", () => {
-      const sessionId = "session-1";
-      const query = "test task description";
-
-      SessionStateService.saveSessionPendingQuery(sessionId, query);
-      const loaded = SessionStateService.loadSessionPendingQuery(sessionId);
-
-      expect(loaded).toBe(query);
-    });
-
-    it("should return null for non-existent pending query", () => {
-      const loaded = SessionStateService.loadSessionPendingQuery("unknown");
-      expect(loaded).toBeNull();
-    });
-
-    it("should clear pending query for specific session", () => {
-      const sessionId = "session-1";
-      const query = "test task";
-
-      SessionStateService.saveSessionPendingQuery(sessionId, query);
-      SessionStateService.clearSessionPendingQuery(sessionId);
-
-      const loaded = SessionStateService.loadSessionPendingQuery(sessionId);
-      expect(loaded).toBeNull();
-    });
-
-    it("should isolate pending queries between sessions", () => {
-      SessionStateService.saveSessionPendingQuery("session-1", "query 1");
-      SessionStateService.saveSessionPendingQuery("session-2", "query 2");
-
-      const loaded1 = SessionStateService.loadSessionPendingQuery("session-1");
-      const loaded2 = SessionStateService.loadSessionPendingQuery("session-2");
-
-      expect(loaded1).toBe("query 1");
-      expect(loaded2).toBe("query 2");
     });
   });
 
@@ -579,33 +583,61 @@ describe("SessionStateService", () => {
     });
 
     it("should reject session with missing id", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = { ...session, id: "" };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        "",
+        "Failed checks:",
+        expect.arrayContaining(["id"]),
+      );
     });
 
     it("should reject session with activeRunId not in runIds", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = { ...session, activeRunId: "unknown-run" };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["activeRunId", "activeRunId-in-runIds"]),
+      );
     });
 
     it("should reject session with invalid status", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = {
         ...session,
         status: "invalid" as unknown as AgentSession["status"],
       };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["status"]),
+      );
     });
 
     it("should reject session with non-array runIds", () => {
+      const warnSpy = silenceConsoleWarn();
       const session = SessionStateService.createSession("Test", "repo");
       const invalid = {
         ...session,
         runIds: "not an array" as unknown as string[],
       };
       expect(SessionStateService.validateSession(invalid)).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[SessionStateService] Validation failed for session",
+        session.id,
+        "Failed checks:",
+        expect.arrayContaining(["runIds", "activeRunId-in-runIds"]),
+      );
     });
   });
 
@@ -640,19 +672,6 @@ describe("SessionStateService", () => {
       expect(loaded1).not.toEqual(loaded2);
     });
 
-    it("should not leak pending queries between sessions", () => {
-      SessionStateService.saveSessionPendingQuery("session-1", "query 1");
-      SessionStateService.saveSessionPendingQuery("session-2", "query 2");
-
-      // Clearing one should not affect the other
-      SessionStateService.clearSessionPendingQuery("session-1");
-
-      const loaded1 = SessionStateService.loadSessionPendingQuery("session-1");
-      const loaded2 = SessionStateService.loadSessionPendingQuery("session-2");
-
-      expect(loaded1).toBeNull();
-      expect(loaded2).toBe("query 2");
-    });
   });
 });
 
@@ -670,4 +689,12 @@ function createServerSession(title: string) {
     createdAt: "2026-05-14T00:00:00.000Z",
     updatedAt: "2026-05-15T00:00:00.000Z",
   };
+}
+
+function silenceConsoleWarn() {
+  return vi.spyOn(console, "warn").mockImplementation(() => undefined);
+}
+
+function silenceConsoleError() {
+  return vi.spyOn(console, "error").mockImplementation(() => undefined);
 }

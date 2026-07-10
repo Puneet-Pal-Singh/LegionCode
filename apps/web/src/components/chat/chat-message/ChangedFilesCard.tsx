@@ -1,14 +1,8 @@
 import { useState } from "react";
-import {
-  ArrowUpRight,
-  ChevronDown,
-  ChevronRight,
-  Maximize2,
-  Minimize2,
-} from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { DiffContent, FileStatus } from "@repo/shared-types";
-import { cn } from "../../../lib/utils";
 import { ChangeStats } from "./DiffStatistics";
+import { ChangedFilesCardHeader } from "./ChangedFilesCardHeader";
 import {
   calculateChangedFileTotals,
   getFileStats,
@@ -40,38 +34,13 @@ export function ChangedFilesCard({
     });
   return (
     <div className="mt-5 overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
-      <div
-        className={cn(
-          "flex items-center justify-between border-b border-zinc-800/80 bg-zinc-900/30 px-4 py-2.5",
-          !isExpanded && "border-b-0",
-        )}
-      >
-        <div className="flex items-center gap-3 text-sm font-semibold text-zinc-100">
-          <span>
-            {files.length}{" "}
-            {files.length === 1 ? "file changed" : "files changed"}
-          </span>
-          {files.length > 1 && <ChangeStats {...totals} />}
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
-            onClick={onReviewOpen}
-          >
-            <span>Review</span>
-            <ArrowUpRight size={14} />
-          </button>
-          <button
-            type="button"
-            className="text-zinc-500 transition-colors hover:text-zinc-300"
-            onClick={() => setIsExpanded(!isExpanded)}
-            title={isExpanded ? "Collapse files" : "Expand files"}
-          >
-            {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-        </div>
-      </div>
+      <ChangedFilesCardHeader
+        fileCount={files.length}
+        totals={totals}
+        isExpanded={isExpanded}
+        onReviewOpen={onReviewOpen}
+        onToggleExpanded={() => setIsExpanded(!isExpanded)}
+      />
       {isExpanded && (
         <div className="divide-y divide-zinc-800/80">
           {files.map((file) => (

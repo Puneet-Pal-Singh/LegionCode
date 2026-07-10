@@ -67,6 +67,10 @@ export type WorkerToolResult =
       readonly failure: ProtocolError;
     }
   | {
+      readonly kind: "cancelled";
+      readonly reason: string;
+    }
+  | {
       readonly kind: "approval_required";
       readonly request: ApprovalRequestedPayload;
     };

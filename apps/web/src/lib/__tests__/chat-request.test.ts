@@ -7,6 +7,7 @@ describe("parseChatRequestBody", () => {
       parseChatRequestBody({
         sessionId: "session-1",
         runId: "run-1",
+        clientMessageId: "client_msg_1",
         mode: "build",
         productMode: "full_agent",
         providerId: "axis",
@@ -20,6 +21,7 @@ describe("parseChatRequestBody", () => {
     ).toMatchObject({
       sessionId: "session-1",
       runId: "run-1",
+      clientMessageId: "client_msg_1",
       repositoryBaseUrl: "https://github.com/owner/repo",
     });
   });

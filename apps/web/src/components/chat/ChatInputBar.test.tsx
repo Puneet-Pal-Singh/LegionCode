@@ -158,6 +158,22 @@ describe("ChatInputBar", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("scopes provider selection to the active run", () => {
+    render(
+      <ChatInputBar
+        input=""
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        sessionId="session-1"
+        runId="run_model_choice"
+      />,
+    );
+
+    expect(useProviderStoreModule.useProviderStore).toHaveBeenCalledWith(
+      "run_model_choice",
+    );
+  });
+
   describe("idle switch warning", () => {
     it("does not show warning on initial render", () => {
       render(

@@ -127,7 +127,10 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const counts = new Map<string, Omit<GitFileLineCount, "path">>();
-    await this.mergeNumstat(workspaceRoot, runId, counts, ["diff", "--numstat"]);
+    await this.mergeNumstat(workspaceRoot, runId, counts, [
+      "diff",
+      "--numstat",
+    ]);
     await this.mergeNumstat(workspaceRoot, runId, counts, [
       "diff",
       "--cached",
@@ -180,9 +183,7 @@ export class DefaultGitService {
     return { path, patch: diffResult.stdout };
   }
 
-  async getRepoIdentity(
-    input: GitRepoIdentityInput,
-  ): Promise<string | null> {
+  async getRepoIdentity(input: GitRepoIdentityInput): Promise<string | null> {
     const remoteUrl = await this.readConfigValue({
       workspace: input.workspace,
       key: "remote.origin.url",
@@ -191,11 +192,8 @@ export class DefaultGitService {
   }
 
   async readConfigValue(input: GitConfigValueInput): Promise<string | null> {
-    const value = await this.readOptionalGitValue(input.workspace, [
-      "config",
-      "--get",
-      input.key,
-    ]);
+    const values = await this.readConfigValues(input.workspace);
+    const value = values.get(input.key);
     return value && value.length > 0 ? value : null;
   }
 
@@ -439,7 +437,13 @@ export class DefaultGitService {
     workspace: GitFileLineCountsInput["workspace"],
     path: string,
   ): Promise<number | null> {
-    const result = await this.executeGit(workspace, ["ls-files", "--others", "--exclude-standard", "--", path]);
+    const result = await this.executeGit(workspace, [
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "--",
+      path,
+    ]);
     if (result.exitCode !== 0 || !hasExactPath(result.stdout, path)) {
       return null;
     }
@@ -589,6 +593,20 @@ export class DefaultGitService {
     });
   }
 
+  private async readConfigValues(
+    workspace: GitCommitInput["workspace"],
+  ): Promise<ReadonlyMap<string, string>> {
+    const result = await this.executeGit(workspace, [
+      "config",
+      "--null",
+      "--list",
+    ]);
+    if (result.exitCode !== 0) {
+      return new Map();
+    }
+    return parseNullDelimitedConfig(result.stdout);
+  }
+
   private async writeCommitAuthor(input: GitCommitInput): Promise<void> {
     await this.writeGitConfigValue(
       input.workspace,
@@ -658,6 +676,21 @@ export class DefaultGitService {
     const value = result.stdout.trim();
     return value.length > 0 ? value : null;
   }
+}
+
+function parseNullDelimitedConfig(stdout: string): ReadonlyMap<string, string> {
+  const values = new Map<string, string>();
+  for (const entry of stdout.split("\0")) {
+    if (entry.length === 0) {
+      continue;
+    }
+    const separatorIndex = entry.indexOf("\n");
+    if (separatorIndex < 0) {
+      continue;
+    }
+    values.set(entry.slice(0, separatorIndex), entry.slice(separatorIndex + 1));
+  }
+  return values;
 }
 
 function getCommandErrorText(result: {
@@ -730,10 +763,14 @@ function shouldKeepPatchPath(
   if (!internalPathPrefix) {
     return true;
   }
-  return path !== internalPathPrefix && !path.startsWith(`${internalPathPrefix}/`);
+  return (
+    path !== internalPathPrefix && !path.startsWith(`${internalPathPrefix}/`)
+  );
 }
 
-function toPathspecArgs(paths: readonly string[] | undefined): readonly string[] {
+function toPathspecArgs(
+  paths: readonly string[] | undefined,
+): readonly string[] {
   if (!paths || paths.length === 0) {
     return [];
   }
@@ -766,7 +803,9 @@ function normalizeRepoIdentity(remoteUrl: string): string | null {
   try {
     const parsed = new URL(trimmed);
     const normalizedPath = normalizeRepoIdentityPath(parsed.pathname);
-    return normalizedPath ? `${parsed.host.toLowerCase()}/${normalizedPath}` : null;
+    return normalizedPath
+      ? `${parsed.host.toLowerCase()}/${normalizedPath}`
+      : null;
   } catch {
     return null;
   }

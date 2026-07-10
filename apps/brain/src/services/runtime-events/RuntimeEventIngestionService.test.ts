@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRuntimeEventInboxRepository } from "@repo/persistence";
 import {
   INTERNAL_RUNTIME_EVENT_SIGNATURE_HEADER,
@@ -18,10 +18,19 @@ function createMockEnv(): Env {
 }
 
 describe("RuntimeEventIngestionService", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("verifies, validates, and dedupes signed runtime events", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
     const repository = new MemoryRuntimeEventInboxRepository();
     const verifier = new RuntimeEventSignatureVerifier(SECRET, () => NOW);
-    const service = new RuntimeEventIngestionService(repository, verifier, createMockEnv());
+    const service = new RuntimeEventIngestionService(
+      repository,
+      verifier,
+      createMockEnv(),
+    );
     const rawBody = JSON.stringify({
       source: "secure-agent-api",
       eventType: "tool.completed",
@@ -42,7 +51,11 @@ describe("RuntimeEventIngestionService", () => {
   it("rejects unsigned body tampering", async () => {
     const repository = new MemoryRuntimeEventInboxRepository();
     const verifier = new RuntimeEventSignatureVerifier(SECRET, () => NOW);
-    const service = new RuntimeEventIngestionService(repository, verifier, createMockEnv());
+    const service = new RuntimeEventIngestionService(
+      repository,
+      verifier,
+      createMockEnv(),
+    );
     const rawBody = JSON.stringify({
       source: "secure-agent-api",
       eventType: "tool.completed",
@@ -61,6 +74,10 @@ describe("RuntimeEventIngestionService", () => {
   });
 
   it("retries accepted inbox entries that failed projection", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const errorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const repository = new MemoryRuntimeEventInboxRepository();
     const verifier = new RuntimeEventSignatureVerifier(SECRET, () => NOW);
     const processor = {
@@ -92,6 +109,9 @@ describe("RuntimeEventIngestionService", () => {
     expect(retried.inserted).toBe(false);
     expect(retried.entry.status).toBe("processed");
     expect(processor.process).toHaveBeenCalledTimes(2);
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining("[runtime-event/ingestion/failed]"),
+    );
   });
 });
 

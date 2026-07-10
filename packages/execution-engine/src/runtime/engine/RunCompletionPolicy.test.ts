@@ -265,30 +265,198 @@ describe("RunCompletionPolicy", () => {
         failedStep: "npm_test",
       }),
     );
+    expect(run.status).toBe("FAILED");
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      "Tests failed after the edit.",
+      expect.any(Number),
+    );
+    expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ runStatus: "FAILED" }),
+    );
   });
 
-  it("handles final assistant transcript persistence failure gracefully", async () => {
+  it("fails file-review finalization without read or search evidence", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await completeRunWithAssistantMessage({
+      run,
+      text: "The file looks correct.",
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_read_or_search"],
+      },
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain(
+      "did not record the required evidence",
+    );
+    expect(run.status).toBe("FAILED");
+    expect(run.metadata.terminalState).toBe(
+      RUN_TERMINAL_STATES.FAILED_VALIDATION,
+    );
+    expect(run.metadata.finalizationContract).toMatchObject({
+      settled: false,
+      missingEvidence: ["file_read_or_search"],
+    });
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      expect.stringContaining("required evidence"),
+      expect.any(Number),
+    );
+  });
+
+  it("settles file-review finalization with read or search evidence", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          status: "completed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "read",
+            path: "src/App.tsx",
+            count: 30,
+            truncated: false,
+            loadedPaths: ["src/App.tsx"],
+          },
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      text: "The file looks correct.",
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_read_or_search"],
+      },
+      deps,
+    });
+
+    expect(run.status).toBe("COMPLETED");
+    expect(run.metadata.finalizationContract).toMatchObject({
+      settled: true,
+      missingEvidence: [],
+    });
+    expect(run.metadata.evidenceLedger).toEqual([
+      expect.objectContaining({
+        kind: "file_read",
+        path: "src/App.tsx",
+      }),
+    ]);
+  });
+
+  it("fails edit finalization without edit or diff evidence", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          status: "completed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "read",
+            path: "src/App.tsx",
+            count: 30,
+            truncated: false,
+            loadedPaths: ["src/App.tsx"],
+          },
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      text: "I changed the file.",
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_edit_or_diff"],
+      },
+      deps,
+    });
+
+    expect(run.status).toBe("FAILED");
+    expect(run.metadata.terminalMessage).toMatchObject({
+      code: "FINALIZATION_MISSING_EVIDENCE",
+      finalizationContract: {
+        settled: false,
+        missingEvidence: ["file_edit_or_diff"],
+      },
+    });
+  });
+
+  it("settles edit finalization with edit or diff evidence", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_diff",
+          status: "completed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "git",
+            displayText: "Diff",
+          },
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      text: "I changed the file.",
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_edit_or_diff"],
+      },
+      deps,
+    });
+
+    expect(run.status).toBe("COMPLETED");
+    expect(run.metadata.finalizationContract).toMatchObject({
+      settled: true,
+      missingEvidence: [],
+    });
+    expect(run.metadata.evidenceLedger).toEqual([
+      expect.objectContaining({ kind: "git_diff" }),
+    ]);
+  });
+
+  it("fails terminal settlement when final assistant transcript persistence fails", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
     const failure = new Error("transcript unavailable");
     vi.mocked(deps.persistConversationMessages).mockRejectedValueOnce(failure);
 
-    const response = await completeRunWithAssistantMessage({
-      run,
-      text: "Done.",
-      deps,
-    });
-
-    await expect(response.text()).resolves.toBe("Done.");
+    await expect(
+      completeRunWithAssistantMessage({
+        run,
+        text: "Done.",
+        deps,
+      }),
+    ).rejects.toThrow("transcript unavailable");
     expect(deps.safeMemoryOperation).toHaveBeenCalled();
-    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalled();
-    expect(deps.runEventRecorder.recordRunCompleted).toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordMessageEmitted).not.toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
   });
 });
 
 function createRun(status: "RUNNING" | "CANCELLED"): Run {
   return new Run(
-    "run-1",
+    "run_100001",
     "session-1",
     status,
     "coding",
@@ -322,6 +490,7 @@ function createDeps(
     recordRunStatusChanged: vi.fn(),
     recordMessageEmitted: vi.fn(),
     recordRunCompleted: vi.fn(),
+    recordRunFailed: vi.fn(),
   } as unknown as RunEventRecorder;
   const memoryCoordinator = {
     extractAndPersist: vi.fn(),
@@ -336,12 +505,6 @@ function createDeps(
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
     },
-    safeMemoryOperation: vi.fn(async (operation) => {
-      try {
-        return await operation();
-      } catch {
-        return undefined;
-      }
-    }),
+    safeMemoryOperation: vi.fn(async (operation) => await operation()),
   };
 }

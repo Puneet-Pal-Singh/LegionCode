@@ -47,6 +47,7 @@ function buildShellGuidanceLines(manifest: RunCapabilityManifest): string[] {
   return [
     "Shell commands may require user approval.",
     "For simple file inspection, do not use shell commands like sed, cat, or grep when read_file, list_files, glob, or grep tools are available.",
+    "read_file returns line-numbered windows with continuation metadata; if truncated, continue from nextOffset or narrow with grep/glob.",
     "Use shell for package scripts, tests, builds, and commands that have no purpose-built LegionCode tool.",
   ];
 }

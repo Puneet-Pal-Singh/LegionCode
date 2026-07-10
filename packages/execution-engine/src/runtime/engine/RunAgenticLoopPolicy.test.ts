@@ -206,7 +206,7 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("I'll update the file now.");
   });
 
-  it("does not emit incomplete-mutation copy for read-only current turn intent", () => {
+  it("does not emit incomplete-mutation copy when mutation is not required by protocol state", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -219,8 +219,7 @@ describe("RunAgenticLoopPolicy", () => {
       toolExecutionCount: 0,
       failedToolCount: 0,
       stepsExecuted: 1,
-      requiresMutation: true,
-      currentTurnIntent: "read_only",
+      requiresMutation: false,
       completedMutatingToolCount: 0,
       completedReadOnlyToolCount: 0,
       toolLifecycle: [],
@@ -948,7 +947,7 @@ describe("RunAgenticLoopPolicy", () => {
     expect(output).not.toContain("<tool_call>");
   });
 
-  it("removes leaked internal-style preface and keeps only user-facing reply text", () => {
+  it("does not repair leaked internal-style preface with phrase matching", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -970,12 +969,14 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalOutput(result);
 
-    expect(output).toBe("Yo! How can I help you today?");
-    expect(output).not.toContain("The user said");
-    expect(output).not.toContain("I should respond");
+    expect(output).toBe(
+      'The user said "yo". This is a greeting. I should respond politely and ask how I can help them with the repo. Yo! How can I help you today?',
+    );
+    expect(output).toContain("The user said");
+    expect(output).toContain("I should respond");
   });
 
-  it("falls back to synthesized summary when leaked internal preface has no user-facing reply", () => {
+  it("preserves assistant text instead of synthesizing around leaked preface", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -997,14 +998,14 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalOutput(result);
 
-    expect(output).toContain(
-      "I completed the tool loop, but I could not produce a final assistant answer for this run.",
+    expect(output).toBe(
+      'The user said "yo". This is a greeting. I should respond politely.',
     );
-    expect(output).not.toContain("The user said");
-    expect(output).not.toContain("I should respond");
+    expect(output).toContain("The user said");
+    expect(output).toContain("I should respond");
   });
 
-  it("removes multi-sentence internal planning preface before user-facing text", () => {
+  it("does not strip multi-sentence planning text as final-output repair", () => {
     const result: AgenticLoopResult = {
       stopReason: "llm_stop",
       messages: [
@@ -1026,10 +1027,12 @@ describe("RunAgenticLoopPolicy", () => {
 
     const output = buildAgenticLoopFinalOutput(result);
 
-    expect(output).toBe("I found the requested issue and can fix it next.");
-    expect(output).not.toContain("The user wants");
-    expect(output).not.toContain("I need to inspect");
-    expect(output).not.toContain("Usually, PRs");
-    expect(output).not.toContain("Wait, I should");
+    expect(output).toBe(
+      "The user wants me to check the PR. I need to inspect branch state first. First, I'll check git status. The current branch is main. Usually, PRs are on their own branches. Wait, I should switch branches. I found the requested issue and can fix it next.",
+    );
+    expect(output).toContain("The user wants");
+    expect(output).toContain("I need to inspect");
+    expect(output).toContain("Usually, PRs");
+    expect(output).toContain("Wait, I should");
   });
 });

@@ -1,8 +1,19 @@
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { RunRecord, TranscriptMessageRecord } from "@repo/persistence";
 import {
+  MESSAGE_TRANSCRIPT_PHASES,
+  MESSAGE_TRANSCRIPT_STATUSES,
+  RUN_WORKFLOW_STEPS,
+} from "@repo/shared-types";
+import {
+  createMessageEmittedEvent,
+  createRunProgressEvent,
+  createToolCompletedEvent,
+  createToolRequestedEvent,
   Run,
+  RunEventRepository,
   RunRepository,
+  type RunEvent,
   type RuntimeDurableObjectState,
   type RuntimeStorage,
   tagRuntimeStateSemantics,
@@ -56,6 +67,225 @@ describe("persistAssistantMessageFromRunResponse", () => {
       "completed",
       undefined,
       expect.any(String),
+    );
+  });
+
+  it("persists only the current turn activity transcript with the assistant turn", async () => {
+    const ctx = new MockDurableObjectState();
+    await seedRun(ctx, {
+      status: "COMPLETED",
+      outputContent: "Done from canonical run output.",
+    });
+    await seedRunEvents(ctx, [
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "first prompt",
+          "user",
+          { clientMessageId: "client-msg-1" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        1,
+      ),
+      timestamped(
+        createRunProgressEvent(
+          baseEventInput(),
+          RUN_WORKFLOW_STEPS.EXECUTION,
+          "Old first-turn work",
+          "This must not be saved on the second assistant turn.",
+          "completed",
+        ),
+        2,
+      ),
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "second prompt",
+          "user",
+          { clientMessageId: "client-msg-2" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        3,
+      ),
+      timestamped(
+        createRunProgressEvent(
+          baseEventInput(),
+          RUN_WORKFLOW_STEPS.EXECUTION,
+          "Finding files",
+          "Finding **/Footer.tsx",
+          "completed",
+        ),
+        4,
+      ),
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "Reading src/components/layout/Footer.tsx",
+          "assistant",
+          { step: "read" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.COMMENTARY,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        5,
+      ),
+      timestamped(
+        createToolRequestedEvent(
+          {
+            ...baseEventInput(),
+            taskId: "tool-read-footer",
+            toolName: "read_file",
+          },
+          { path: "src/components/layout/Footer.tsx" },
+          {
+            displayText: "Reading src/components/layout/Footer.tsx",
+            description: "Read footer source",
+          },
+        ),
+        6,
+      ),
+      timestamped(
+        createToolCompletedEvent(
+          {
+            ...baseEventInput(),
+            taskId: "tool-read-footer",
+            toolName: "read_file",
+          },
+          { ok: true },
+          42,
+        ),
+        7,
+      ),
+    ]);
+    const persistAssistantTurn = vi
+      .spyOn(PersistenceService.prototype, "persistAssistantTurn")
+      .mockResolvedValue(createTranscriptMessageRecord("assistant-1"));
+    vi.spyOn(PersistenceService.prototype, "updateRunStatus").mockResolvedValue(
+      createRunRecord(),
+    );
+
+    await persistAssistantMessageFromRunResponse(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      SESSION_ID,
+      RUN_ID,
+      CORRELATION_ID,
+      createOkTextResponse("This response body is not the source of truth."),
+    );
+
+    const persistedTurn = persistAssistantTurn.mock.calls[0]?.[0];
+    expect(persistedTurn).toEqual(
+      expect.objectContaining({
+        sessionId: SESSION_ID,
+        runId: RUN_ID,
+        turnId: "client-msg-2",
+        text: "Done from canonical run output.",
+      }),
+    );
+    expect(persistedTurn?.activity?.events).toEqual([]);
+    expect(persistedTurn?.activity?.activitySnapshot).toMatchObject({
+      runId: RUN_ID,
+      sessionId: SESSION_ID,
+      status: "COMPLETED",
+    });
+    expect(persistedTurn?.activity?.activitySnapshot.items).toEqual([
+      expect.objectContaining({
+        kind: "text",
+        role: "user",
+        content: "second prompt",
+        turnId: "client-msg-2",
+      }),
+      expect.objectContaining({
+        kind: "reasoning",
+        label: "Finding files",
+        summary: "Finding **/Footer.tsx",
+        turnId: "client-msg-2",
+      }),
+      expect.objectContaining({
+        kind: "commentary",
+        text: "Reading src/components/layout/Footer.tsx",
+        turnId: "client-msg-2",
+      }),
+      expect.objectContaining({
+        kind: "tool",
+        toolName: "read_file",
+        status: "completed",
+        turnId: "client-msg-2",
+        metadata: expect.objectContaining({
+          displayText: "Reading src/components/layout/Footer.tsx",
+          path: "src/components/layout/Footer.tsx",
+        }),
+      }),
+    ]);
+    expect(persistedTurn?.activity?.activitySnapshot.items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Old first-turn work" }),
+      ]),
+    );
+  });
+
+  it("uses the latest user event as the assistant turn id when activity is empty", async () => {
+    const ctx = new MockDurableObjectState();
+    await seedRun(ctx, {
+      status: "COMPLETED",
+      outputContent: "No workflow rows, still persist this turn.",
+    });
+    await seedRunEvents(ctx, [
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "first prompt",
+          "user",
+          { clientMessageId: "client-msg-1" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        1,
+      ),
+      timestamped(
+        createMessageEmittedEvent(
+          baseEventInput(),
+          "second prompt",
+          "user",
+          { clientMessageId: "client-msg-2" },
+          {
+            phase: MESSAGE_TRANSCRIPT_PHASES.PROMPT,
+            status: MESSAGE_TRANSCRIPT_STATUSES.COMPLETED,
+          },
+        ),
+        2,
+      ),
+    ]);
+    const persistAssistantTurn = vi
+      .spyOn(PersistenceService.prototype, "persistAssistantTurn")
+      .mockResolvedValue(createTranscriptMessageRecord("assistant-1"));
+    vi.spyOn(PersistenceService.prototype, "updateRunStatus").mockResolvedValue(
+      createRunRecord(),
+    );
+
+    await persistAssistantMessageFromRunResponse(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      SESSION_ID,
+      RUN_ID,
+      CORRELATION_ID,
+      createOkTextResponse("This response body is not the source of truth."),
+    );
+
+    expect(persistAssistantTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnId: "client-msg-2",
+        text: "No workflow rows, still persist this turn.",
+      }),
     );
   });
 
@@ -184,6 +414,34 @@ async function seedRun(
       },
     ),
   );
+}
+
+async function seedRunEvents(
+  ctx: MockDurableObjectState,
+  events: RunEvent[],
+): Promise<void> {
+  const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+  const runEventRepository = new RunEventRepository(runtimeState);
+  for (const event of events) {
+    await runEventRepository.append(RUN_ID, event);
+  }
+}
+
+function baseEventInput(): { runId: string; sessionId: string } {
+  return {
+    runId: RUN_ID,
+    sessionId: SESSION_ID,
+  };
+}
+
+function timestamped<TEvent extends RunEvent>(
+  event: TEvent,
+  order: number,
+): TEvent {
+  return {
+    ...event,
+    timestamp: `2026-03-24T00:00:0${order}.000Z`,
+  };
 }
 
 function createOkTextResponse(content: string): Response {

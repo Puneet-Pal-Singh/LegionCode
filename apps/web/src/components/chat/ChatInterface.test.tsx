@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Message } from "@ai-sdk/react";
+import { RUN_EVENT_TYPES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
 import type { GitStatusResponse, RunEvent } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 import { ChatInterface } from "./ChatInterface.js";
@@ -180,6 +181,7 @@ vi.mock("../../lib/run-summary-events.js", () => ({
 import { useRunSummary } from "../../hooks/useRunSummary.js";
 import { useRunEvents } from "../../hooks/useRunEvents.js";
 import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
+import { useTurnLifecycleProjection } from "../../hooks/useTurnLifecycleProjection.js";
 
 function buildTerminalProjection(turnId: string): LifecycleProjection {
   const typedTurnId = turnId as LifecycleProjection["turnId"];
@@ -335,7 +337,7 @@ describe("ChatInterface", () => {
             id: "text-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -347,7 +349,7 @@ describe("ChatInterface", () => {
             id: "reasoning-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -361,7 +363,7 @@ describe("ChatInterface", () => {
             id: "handoff-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "handoff",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -470,6 +472,46 @@ describe("ChatInterface", () => {
     expect(screen.queryByText("What should we build?")).not.toBeInTheDocument();
   });
 
+  it("polls activity feed for historical backfill when no lifecycle projection is available", () => {
+    vi.mocked(useRunSummary).mockReturnValue({ summary: null });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              content: "Update Footer.tsx",
+            },
+          ],
+          runId: "run-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          hasHydrated: true,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(useRunActivityFeed).toHaveBeenLastCalledWith("run-active", true);
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: false,
+        isLoading: false,
+      }),
+    );
+  });
+
   it("does not render a completed terminal fallback when an assistant message is visible", () => {
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
@@ -565,7 +607,6 @@ describe("ChatInterface", () => {
           handleSubmit: vi.fn(),
           append: vi.fn(),
           stop: vi.fn(),
-          canStop: true,
           isLoading: true,
           hasHydrated: true,
           error: null,
@@ -581,8 +622,8 @@ describe("ChatInterface", () => {
     expect(screen.queryByText(/Run completed\./)).not.toBeInTheDocument();
     expect(mockChatInputBar).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        canStop: false,
-        isLoading: false,
+        canStop: true,
+        isLoading: true,
       }),
     );
   });
@@ -727,6 +768,165 @@ describe("ChatInterface", () => {
     expect(mockOpenPromptArtifactReview).not.toHaveBeenCalled();
   });
 
+  it("prefers server-provided turnId for lifecycle projection over client derivation", () => {
+    vi.mocked(useTurnLifecycleProjection).mockClear();
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "anything" },
+      { id: "assistant-1", role: "assistant", content: "reply" },
+    ];
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run_testclientvalue000000000001",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: "trn_serverpreferred0001",
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const lifecycleCalls = vi.mocked(useTurnLifecycleProjection).mock.calls;
+    expect(lifecycleCalls.length).toBeGreaterThan(0);
+    expect(lifecycleCalls[0]?.[0]).toBe("trn_serverpreferred0001");
+  });
+
+  it("does not start lifecycle projection until serverTurnId is provided", () => {
+    vi.mocked(useTurnLifecycleProjection).mockClear();
+    const messages: Message[] = [
+      { id: "user-1", role: "user", content: "anything" },
+      { id: "assistant-1", role: "assistant", content: "reply" },
+    ];
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages,
+          runId: "run_clientfallback000000000001",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    const lifecycleCalls = vi.mocked(useTurnLifecycleProjection).mock.calls;
+    expect(lifecycleCalls.length).toBeGreaterThan(0);
+    expect(lifecycleCalls[0]?.[0]).toBeNull();
+  });
+
+  it("keeps activity polling alive while the run controller is stoppable", () => {
+    mockTurnLifecycleProjection.projection = {
+      turnId: "trn_active_lifecycle_001",
+      lastSequence: 5,
+      terminal: null,
+      activeThinking: true,
+      pendingApproval: null,
+      items: [],
+      turnDiff: null,
+      assistantText: "",
+    } as unknown as LifecycleProjection;
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [{ id: "user-1", role: "user", content: "hi" }],
+          runId: "run-lifecycle-active",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: "trn_active_lifecycle_001",
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: true,
+        isLoading: true,
+      }),
+    );
+    expect(useRunActivityFeed).toHaveBeenLastCalledWith(
+      "run-lifecycle-active",
+      true,
+    );
+  });
+
+  it("shows terminal state when lifecycle projection is settled, ignoring run-summary RUNNING status", () => {
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run-lifecycle-terminal",
+        status: "RUNNING",
+        totalTasks: 3,
+        completedTasks: 1,
+        failedTasks: 0,
+      },
+    });
+    mockTurnLifecycleProjection.projection = {
+      turnId: "trn_terminal_lifecycle_001",
+      lastSequence: 12,
+      terminal: { status: "completed" },
+      activeThinking: false,
+      pendingApproval: null,
+      items: [],
+      turnDiff: null,
+      assistantText: "Done!",
+    } as unknown as LifecycleProjection;
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            { id: "user-1", role: "user", content: "done" },
+            { id: "assistant-1", role: "assistant", content: "Done!" },
+          ],
+          runId: "run-lifecycle-terminal",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: "trn_terminal_lifecycle_001",
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(mockChatInputBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        canStop: false,
+        isLoading: false,
+      }),
+    );
+  });
+
   it("replays provider interruption rows from hydrated transcript activity", () => {
     vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
 
@@ -759,7 +959,7 @@ describe("ChatInterface", () => {
                           id: "activity-user",
                           runId: "run-1",
                           sessionId: "session-1",
-                          turnId: "turn-1",
+                          turnId: "user-1",
                           kind: "text",
                           role: "user",
                           content: "check CI",
@@ -771,12 +971,11 @@ describe("ChatInterface", () => {
                           id: "activity-provider",
                           runId: "run-1",
                           sessionId: "session-1",
-                          turnId: "turn-1",
+                          turnId: "user-1",
                           kind: "commentary",
                           phase: "commentary",
                           status: "completed",
-                          text:
-                            "The selected model stopped responding.",
+                          text: "The selected model stopped responding.",
                           metadata: {
                             code: "PROVIDER_UNAVAILABLE",
                             providerId: "google",
@@ -820,7 +1019,7 @@ describe("ChatInterface", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps changed files on the final assistant message after git status becomes clean", async () => {
+  it("does not keep completed-turn changed files when only live git remains", async () => {
     const changedStatus: GitStatusResponse = {
       files: [
         {
@@ -897,14 +1096,11 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("index.tsx")).toBeInTheDocument();
-      expect(screen.getByText("+5")).toBeInTheDocument();
-      expect(screen.getByText("-1")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
     });
   });
 
-  it("attaches changed files that arrive after the assistant message settles", async () => {
+  it("does not attach completed-turn changed files that arrive only from live git after settlement", async () => {
     const changedStatus: GitStatusResponse = {
       files: [
         {
@@ -976,14 +1172,11 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("index.tsx")).toBeInTheDocument();
-      expect(screen.getByText("+13")).toBeInTheDocument();
-      expect(screen.getByText("-18")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
     });
   });
 
-  it("prefers grounded activity edit stats over live zero-count git status", async () => {
+  it("does not treat completed activity previews as canonical changed-file review", async () => {
     mockGitReviewState.status = {
       files: [
         {
@@ -1011,7 +1204,7 @@ describe("ChatInterface", () => {
             id: "user-activity",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -1023,7 +1216,7 @@ describe("ChatInterface", () => {
             id: "edit-activity",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:02.000Z",
@@ -1070,25 +1263,14 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("+84")).toBeInTheDocument();
-      expect(screen.getByText("-74")).toBeInTheDocument();
-    });
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /expand changes for src\/components\/landing\/hero\/index\.tsx/i,
-      }),
-    );
-
-    await waitFor(() => {
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
       expect(
-        screen.getByText("+ const heroTitle = 'Career Crew';"),
-      ).toBeInTheDocument();
+        screen.queryByText("+ const heroTitle = 'Career Crew';"),
+      ).not.toBeInTheDocument();
     });
   });
 
-  it("shows only files changed during the current assistant turn", async () => {
+  it("does not infer completed-turn changed files from live git deltas alone", async () => {
     const footerStatus: GitStatusResponse = {
       files: [
         {
@@ -1186,8 +1368,8 @@ describe("ChatInterface", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("index.tsx")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("index.tsx")).not.toBeInTheDocument();
       expect(screen.queryByText("Footer.tsx")).not.toBeInTheDocument();
     });
   });
@@ -1293,6 +1475,76 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
+  it("resolves run-summary approvals through the live run approval endpoint", async () => {
+    const fetchSpy = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    mockTurnLifecycleProjection.projection = null;
+    vi.mocked(useRunSummary).mockReturnValue({
+      summary: {
+        runId: "run_summaryapproval001",
+        status: "approval_required",
+        totalTasks: 1,
+        completedTasks: 0,
+        failedTasks: 0,
+        planArtifact: null,
+        pendingApproval: {
+          requestId: "appr_runtime001",
+          runId: "run_summaryapproval001",
+          origin: "agent",
+          category: "shell_command",
+          title: "Approve bash",
+          reason: "Allow command action for cat package.json?",
+          actionFingerprint: "kernel:bash:cat-package",
+          command: "cat package.json",
+          availableDecisions: ["allow_once", "deny", "abort"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [],
+          runId: "run_summaryapproval001",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(screen.getByText("Approve bash")).toBeInTheDocument();
+    expect(screen.getByText("cat package.json")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/api/run/approval"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_summaryapproval001",
+            requestId: "appr_runtime001",
+            decision: "allow_once",
+          }),
+        }),
+      );
+    });
+    expect(mockSubmitLifecycleApproval).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Approval recorded. Continuing..."),
+    ).toBeInTheDocument();
+  });
+
   it("maps canonical cancel options to the abort approval action", () => {
     mockTurnLifecycleProjection.projection = buildApprovalProjection({
       turnId: "trn_labels001",
@@ -1327,6 +1579,7 @@ describe("ChatInterface", () => {
   });
 
   it("does not render legacy run-event approvals without canonical projection", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const staleApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested",
@@ -1366,29 +1619,37 @@ describe("ChatInterface", () => {
       events: [staleApprovalEvent],
     });
 
-    render(
-      <ChatInterface
-        chatProps={{
-          messages: [],
-          runId: "run-no-pending",
-          input: "",
-          handleInputChange: vi.fn(),
-          handleSubmit: vi.fn(),
-          append: vi.fn(),
-          stop: vi.fn(),
-          isLoading: false,
-          error: null,
-          debugEvents: [],
-        }}
-        sessionId="session-1"
-        mode="build"
-      />,
-    );
+    try {
+      render(
+        <ChatInterface
+          chatProps={{
+            messages: [],
+            runId: "run-no-pending",
+            input: "",
+            handleInputChange: vi.fn(),
+            handleSubmit: vi.fn(),
+            append: vi.fn(),
+            stop: vi.fn(),
+            isLoading: false,
+            error: null,
+            debugEvents: [],
+          }}
+          sessionId="session-1"
+          mode="build"
+        />,
+      );
 
-    expect(
-      screen.queryByRole("button", { name: "Allow once" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Allow once" }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[activity/feed] Skipping activity turn without canonical turnId.",
+        expect.objectContaining({ runId: "run-no-pending" }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("subscribes to live run events while the chat run is active", () => {
@@ -1413,10 +1674,80 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(useRunEvents).toHaveBeenCalledWith("run-local-polling", true);
+    expect(useRunEvents).toHaveBeenCalledWith(
+      "run-local-polling",
+      true,
+      expect.any(Number),
+    );
   });
 
-  it("renders active run-event approvals while canonical projection is unavailable", () => {
+  it("keeps activity polling when canonical events remain open after local loading clears", () => {
+    const events: RunEvent[] = [
+      {
+        version: 1,
+        eventId: "event-user",
+        runId: "run-event-open",
+        sessionId: "session-1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.MESSAGE_EMITTED,
+        payload: {
+          role: "user",
+          content: "Update footer",
+          metadata: { clientMessageId: "user-message-1" },
+        },
+      },
+      {
+        version: 1,
+        eventId: "event-thinking",
+        runId: "run-event-open",
+        sessionId: "session-1",
+        timestamp: "2026-01-01T00:00:01.000Z",
+        source: "brain",
+        type: RUN_EVENT_TYPES.RUN_PROGRESS,
+        payload: {
+          phase: RUN_WORKFLOW_STEPS.EXECUTION,
+          label: "Thinking",
+          summary: "",
+          status: "active",
+        },
+      },
+    ];
+    vi.mocked(useRunSummary).mockReturnValue({ summary: null });
+    vi.mocked(useRunEvents).mockReturnValue({ events });
+    vi.mocked(useRunActivityFeed).mockReturnValue({ feed: null });
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [
+            {
+              id: "user-message-1",
+              role: "user",
+              content: "Update footer",
+            },
+          ],
+          runId: "run-event-open",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+        }}
+        sessionId="session-1"
+        mode="build"
+      />,
+    );
+
+    expect(useRunActivityFeed).toHaveBeenCalledWith("run-event-open", true);
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+  });
+
+  it("does not render active run-event approvals without canonical projection", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const pendingApprovalEvent: RunEvent = {
       version: 1,
       eventId: "evt-approval-requested-active",
@@ -1456,31 +1787,39 @@ describe("ChatInterface", () => {
       events: [pendingApprovalEvent],
     });
 
-    render(
-      <ChatInterface
-        chatProps={{
-          messages: [],
-          runId: "run-active-no-summary-pending",
-          input: "",
-          handleInputChange: vi.fn(),
-          handleSubmit: vi.fn(),
-          append: vi.fn(),
-          stop: vi.fn(),
-          isLoading: true,
-          error: null,
-          debugEvents: [],
-        }}
-        sessionId="session-1"
-        mode="build"
-      />,
-    );
+    try {
+      render(
+        <ChatInterface
+          chatProps={{
+            messages: [],
+            runId: "run-active-no-summary-pending",
+            input: "",
+            handleInputChange: vi.fn(),
+            handleSubmit: vi.fn(),
+            append: vi.fn(),
+            stop: vi.fn(),
+            isLoading: true,
+            error: null,
+            debugEvents: [],
+          }}
+          sessionId="session-1"
+          mode="build"
+        />,
+      );
 
-    expect(
-      screen.getByText("LegionCode wants to run a shell command"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Allow once" }),
-    ).toBeInTheDocument();
+      expect(
+        screen.queryByText("LegionCode wants to run a shell command"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Allow once" }),
+      ).not.toBeInTheDocument();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[activity/feed] Skipping activity turn without canonical turnId.",
+        expect.objectContaining({ runId: "run-active-no-summary-pending" }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("shows unresolved canonical approval for approval-required terminal summaries", () => {
@@ -1820,41 +2159,49 @@ describe("ChatInterface", () => {
 
   it("auto-switches back to build mode after recoverable planner failures in plan mode", () => {
     const onModeChange = vi.fn();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    render(
-      <ChatInterface
-        chatProps={{
-          messages: [
-            {
-              id: "user-1",
-              role: "user",
-              content: "hey",
-            },
-            {
-              id: "assistant-1",
-              role: "assistant",
-              content:
-                "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
-            },
-          ],
-          runId: "run-1",
-          input: "",
-          handleInputChange: vi.fn(),
-          handleSubmit: vi.fn(),
-          append: vi.fn(),
-          stop: vi.fn(),
-          isLoading: false,
-          error: null,
-          debugEvents: [],
-        }}
-        sessionId="session-1"
-        mode="plan"
-        onModeChange={onModeChange}
-      />,
-    );
+    try {
+      render(
+        <ChatInterface
+          chatProps={{
+            messages: [
+              {
+                id: "user-1",
+                role: "user",
+                content: "hey",
+              },
+              {
+                id: "assistant-1",
+                role: "assistant",
+                content:
+                  "I couldn't generate a valid structured plan for this turn, so I stopped before running tools.",
+              },
+            ],
+            runId: "run-1",
+            input: "",
+            handleInputChange: vi.fn(),
+            handleSubmit: vi.fn(),
+            append: vi.fn(),
+            stop: vi.fn(),
+            isLoading: false,
+            error: null,
+            debugEvents: [],
+          }}
+          sessionId="session-1"
+          mode="plan"
+          onModeChange={onModeChange}
+        />,
+      );
 
-    expect(onModeChange).toHaveBeenCalledWith("build");
-    expect(onModeChange).toHaveBeenCalledTimes(1);
+      expect(onModeChange).toHaveBeenCalledWith("build");
+      expect(onModeChange).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[chat/interface] Auto-switching runId=run-1 from plan to build after planner recovery output.",
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("passes the active repository through to the chat input bar", () => {
@@ -1986,7 +2333,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -1998,7 +2345,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2012,7 +2359,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:02.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2032,7 +2379,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2044,7 +2391,7 @@ describe("ChatInterface", () => {
             id: "turn-2-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "reasoning",
             createdAt: "2026-03-24T10:01:01.000Z",
             updatedAt: "2026-03-24T10:01:01.000Z",
@@ -2058,7 +2405,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:02.000Z",
             updatedAt: "2026-03-24T10:01:03.000Z",
@@ -2078,7 +2425,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-2",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:04.000Z",
             updatedAt: "2026-03-24T10:01:05.000Z",
@@ -2173,7 +2520,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2185,7 +2532,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:05.000Z",
@@ -2250,10 +2597,10 @@ describe("ChatInterface", () => {
       (container.textContent ?? "").indexOf("lets upgrade our footer"),
     );
     await waitFor(() => {
-      expect(screen.getByText(/1 file changed/i)).toBeInTheDocument();
-      expect(screen.getByText("Footer.tsx")).toBeInTheDocument();
-      expect(screen.getByText("+126")).toBeInTheDocument();
-      expect(screen.getByText("-102")).toBeInTheDocument();
+      expect(screen.queryByText(/1 file changed/i)).not.toBeInTheDocument();
+      expect(screen.queryByText("Footer.tsx")).not.toBeInTheDocument();
+      expect(screen.queryByText("+126")).not.toBeInTheDocument();
+      expect(screen.queryByText("-102")).not.toBeInTheDocument();
     });
   });
 
@@ -2278,7 +2625,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2290,7 +2637,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2380,7 +2727,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2392,7 +2739,7 @@ describe("ChatInterface", () => {
             id: "turn-1-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "reasoning",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:01.000Z",
@@ -2406,7 +2753,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:02.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2426,7 +2773,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2438,7 +2785,7 @@ describe("ChatInterface", () => {
             id: "turn-2-reasoning",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "reasoning",
             createdAt: "2026-03-24T10:01:01.000Z",
             updatedAt: "2026-03-24T10:01:01.000Z",
@@ -2452,7 +2799,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-1",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:02.000Z",
             updatedAt: "2026-03-24T10:01:03.000Z",
@@ -2472,7 +2819,7 @@ describe("ChatInterface", () => {
             id: "turn-2-tool-2",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:01:04.000Z",
             updatedAt: "2026-03-24T10:01:05.000Z",
@@ -2570,7 +2917,7 @@ describe("ChatInterface", () => {
             id: "turn-1-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "text",
             createdAt: "2026-03-24T10:00:00.000Z",
             updatedAt: "2026-03-24T10:00:00.000Z",
@@ -2582,7 +2929,7 @@ describe("ChatInterface", () => {
             id: "turn-1-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-1",
             kind: "tool",
             createdAt: "2026-03-24T10:00:01.000Z",
             updatedAt: "2026-03-24T10:00:03.000Z",
@@ -2602,7 +2949,7 @@ describe("ChatInterface", () => {
             id: "turn-2-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-2",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:01:00.000Z",
             updatedAt: "2026-03-24T10:01:00.000Z",
@@ -2614,7 +2961,7 @@ describe("ChatInterface", () => {
             id: "turn-3-user",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-3",
+            turnId: "user-3",
             kind: "text",
             createdAt: "2026-03-24T10:02:00.000Z",
             updatedAt: "2026-03-24T10:02:00.000Z",
@@ -2626,7 +2973,7 @@ describe("ChatInterface", () => {
             id: "turn-3-tool",
             runId: "run-1",
             sessionId: "session-1",
-            turnId: "turn-3",
+            turnId: "user-3",
             kind: "tool",
             createdAt: "2026-03-24T10:02:01.000Z",
             updatedAt: "2026-03-24T10:02:05.000Z",
@@ -2775,7 +3122,7 @@ describe("ChatInterface", () => {
             id: "run-2-user",
             runId: "run-2",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-2",
             kind: "text",
             createdAt: "2026-03-24T10:10:00.000Z",
             updatedAt: "2026-03-24T10:10:00.000Z",
@@ -2787,7 +3134,7 @@ describe("ChatInterface", () => {
             id: "run-2-tool-1",
             runId: "run-2",
             sessionId: "session-1",
-            turnId: "turn-1",
+            turnId: "user-2",
             kind: "tool",
             createdAt: "2026-03-24T10:10:01.000Z",
             updatedAt: "2026-03-24T10:10:03.000Z",

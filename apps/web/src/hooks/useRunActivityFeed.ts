@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { runActivityPath } from "../lib/platform-endpoints.js";
 import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
-import { logClientEvent } from "../lib/client-logger.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 interface UseRunActivityFeedResult {
   feed: ActivityFeedSnapshot | null;
@@ -44,16 +44,34 @@ export function useRunActivityFeed(
         return;
       }
       if (inFlightRef.current) {
+        logClientEvent("run/activity", "fetch-skipped", {
+          runId: currentRunId,
+          reason: "in-flight",
+          inFlightRunId: inFlightRunIdRef.current,
+          force: Boolean(options?.force),
+        });
         return;
       }
       const now = Date.now();
       if (now < retryAfterRef.current) {
+        logClientEvent("run/activity", "fetch-skipped", {
+          runId: currentRunId,
+          reason: "retry-delay",
+          retryInMs: retryAfterRef.current - now,
+          force: Boolean(options?.force),
+        });
         return;
       }
       if (
         !options?.force &&
         now - lastFetchAtRef.current < ACTIVITY_FEED_MIN_FETCH_INTERVAL_MS
       ) {
+        logClientEvent("run/activity", "fetch-skipped", {
+          runId: currentRunId,
+          reason: "throttled",
+          sinceLastFetchMs: now - lastFetchAtRef.current,
+          force: false,
+        });
         return;
       }
 
@@ -61,20 +79,37 @@ export function useRunActivityFeed(
         inFlightRef.current = true;
         inFlightRunIdRef.current = currentRunId;
         lastFetchAtRef.current = now;
+        logClientEvent("run/activity", "fetch-started", {
+          runId: currentRunId,
+          force: Boolean(options?.force),
+          shouldPoll,
+        });
         const response = await fetch(runActivityPath(currentRunId), {
           credentials: "include",
         });
         if (activeRunIdRef.current !== currentRunId) {
+          logClientEvent("run/activity", "fetch-discarded", {
+            runId: currentRunId,
+            activeRunId: activeRunIdRef.current,
+            reason: "run-changed-after-response",
+            status: response.status,
+          });
           return;
         }
         if (!response.ok) {
           if (response.status === 404) {
+            logClientEvent("run/activity", "not-found", {
+              runId: currentRunId,
+              status: response.status,
+            });
             return;
           }
           if (AUTH_BLOCKING_STATUS_CODES.has(response.status)) {
-            console.warn(
-              `[run/activity-feed] auth failed for runId=${currentRunId}; retrying after delay`,
-            );
+            logClientWarning("run/activity", "auth-failed", {
+              runId: currentRunId,
+              status: response.status,
+              retryDelayMs: ACTIVITY_FEED_RETRY_DELAY_MS,
+            });
           }
           retryAfterRef.current = Date.now() + ACTIVITY_FEED_RETRY_DELAY_MS;
           logActivityFeedWarning(
@@ -87,9 +122,22 @@ export function useRunActivityFeed(
 
         const payload = parseActivityFeedSnapshot(await response.json());
         if (activeRunIdRef.current !== currentRunId) {
+          logClientEvent("run/activity", "payload-discarded", {
+            runId: currentRunId,
+            activeRunId: activeRunIdRef.current,
+            reason: "run-changed-after-payload",
+            payloadStatus: payload.status,
+            itemCount: payload.items.length,
+          });
           return;
         }
         if (payload.runId !== currentRunId) {
+          logClientWarning("run/activity", "payload-run-mismatch", {
+            runId: currentRunId,
+            payloadRunId: payload.runId,
+            status: payload.status,
+            itemCount: payload.items.length,
+          });
           return;
         }
         retryAfterRef.current = 0;
@@ -115,7 +163,7 @@ export function useRunActivityFeed(
         }
       }
     },
-    [runId],
+    [runId, shouldPoll],
   );
 
   useEffect(() => {
@@ -218,9 +266,10 @@ function logActivityFeedWarning(
     return;
   }
 
-  console.warn(
-    `[run/activity-feed] failed to fetch activity feed for runId=${runId}: ${message}`,
-  );
+  logClientWarning("run/activity", "fetch-failed", {
+    runId,
+    error: message,
+  });
   lastErrorLogRef.current = {
     timestamp: now,
     message,

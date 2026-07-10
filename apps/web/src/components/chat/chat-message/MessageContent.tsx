@@ -35,20 +35,23 @@ export function MarkdownMessageContent({
         remarkPlugins={remarkPlugins}
         disallowedElements={["img"]}
         components={{
-          a: ({ className, ...props }) => (
-            <a
-              {...props}
-              target="_blank"
-              rel="noreferrer noopener"
-              className={cn(
-                "underline decoration-dotted underline-offset-2 transition-colors",
-                isUser
-                  ? "text-zinc-100 hover:text-white"
-                  : "text-emerald-300 hover:text-emerald-200",
-                className,
-              )}
-            />
-          ),
+          a: ({ node, className, ...props }) => {
+            void node;
+            return (
+              <a
+                {...props}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={cn(
+                  "underline decoration-dotted underline-offset-2 transition-colors",
+                  isUser
+                    ? "text-zinc-100 hover:text-white"
+                    : "text-emerald-300 hover:text-emerald-200",
+                  className,
+                )}
+              />
+            );
+          },
         }}
       >
         {content}

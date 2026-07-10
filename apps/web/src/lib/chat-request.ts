@@ -10,6 +10,7 @@ export const ChatRequestBodySchema = z
   .object({
     sessionId: z.string().trim().min(1),
     runId: z.string().trim().min(1),
+    clientMessageId: z.string().trim().min(1).optional(),
     mode: z.custom<RunMode>().optional(),
     productMode: z.custom<ProductMode>().optional(),
     providerId: z.string().trim().min(1).optional(),

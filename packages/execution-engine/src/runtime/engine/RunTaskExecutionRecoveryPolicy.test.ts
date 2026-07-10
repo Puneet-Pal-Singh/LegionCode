@@ -186,12 +186,26 @@ describe("RunTaskExecutionRecoveryPolicy", () => {
       "Recoverable timeout",
       "The model timed out before choosing the next action.",
       "completed",
+      {
+        metadata: expect.objectContaining({
+          code: "TASK_EXECUTION_TIMEOUT",
+          timeoutMs: 60000,
+          stepsExecuted: 2,
+          toolExecutionCount: 1,
+          completedReadOnlyToolCount: 1,
+          completedMutatingToolCount: 0,
+          noFilesChanged: true,
+        }),
+      },
     );
     expect(completeRunWithRecoveredAssistantMessage).toHaveBeenCalledWith(
       run,
       expect.stringContaining("No file was changed before the timeout."),
       expect.objectContaining({
         code: "TASK_EXECUTION_TIMEOUT",
+        stepsExecuted: 2,
+        toolExecutionCount: 1,
+        noFilesChanged: true,
       }),
       "TASK_EXECUTION_TIMEOUT: Model timed out before choosing the next action.",
     );

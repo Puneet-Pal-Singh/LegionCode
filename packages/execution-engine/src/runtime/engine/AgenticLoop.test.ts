@@ -76,7 +76,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stepsExecuted).toBe(1);
     });
 
-    it("keeps CI inspection read-only even when earlier turns asked for mutation", async () => {
+    it("does not derive mutation requirements from prompt intent", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "CI checks are currently green.",
         usage: { promptTokens: 11, completionTokens: 6 },
@@ -94,7 +94,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
 
       expect(result.stopReason).toBe("llm_stop");
       expect(result.requiresMutation).toBe(false);
-      expect(result.currentTurnIntent).toBe("read_only");
+      expect("currentTurnIntent" in result).toBe(false);
     });
 
     it("stops neutrally when an edit request ends without a mutating tool", async () => {
@@ -288,6 +288,67 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stopReason).toBe("cancelled");
       expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
       expect(executor.execute).toHaveBeenCalledTimes(0);
+    });
+
+    it("stops while the model call is in flight when the run is cancelled", async () => {
+      vi.useFakeTimers();
+      try {
+        const isRunCancelled = vi
+          .fn<() => Promise<boolean>>()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+
+        vi.mocked(llmGateway.generateText!).mockReturnValue(
+          new Promise(() => undefined),
+        );
+
+        const resultPromise = loop.execute(
+          [{ role: "user", content: "update the footer" }],
+          {},
+          {
+            agentType: "coding",
+            isRunCancelled,
+          },
+        );
+
+        await vi.advanceTimersByTimeAsync(2_000);
+        const result = await resultPromise;
+
+        expect(result.stopReason).toBe("cancelled");
+        expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops cancellation polling after the model returns", async () => {
+      vi.useFakeTimers();
+      try {
+        const isRunCancelled = vi
+          .fn<() => Promise<boolean>>()
+          .mockResolvedValue(false);
+        vi.mocked(llmGateway.generateText!).mockResolvedValue({
+          text: "Done",
+          usage: { promptTokens: 10, completionTokens: 5 },
+        });
+
+        const result = await loop.execute(
+          [{ role: "user", content: "inspect the repository" }],
+          {},
+          {
+            agentType: "coding",
+            isRunCancelled,
+          },
+        );
+        const callsAfterCompletion = isRunCancelled.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(6_000);
+
+        expect(result.stopReason).toBe("llm_stop");
+        expect(isRunCancelled).toHaveBeenCalledTimes(callsAfterCompletion);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -1243,7 +1304,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         .calls[4]?.[0] as {
         system?: string;
       };
-      expect(correctiveRequest.system).toContain("Edit-reporting rule:");
+      expect(correctiveRequest.system).not.toContain("Edit-reporting rule:");
       expect(correctiveRequest.system).not.toContain("Progress correction:");
       expect(correctiveRequest.system).not.toContain("Corrective retry:");
       expect(correctiveRequest.system).not.toContain(

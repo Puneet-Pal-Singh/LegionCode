@@ -4,16 +4,9 @@ import {
   type TurnActivityTranscriptPart,
 } from "@repo/shared-types";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
+import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
-
-interface ServerToolCall {
-  id?: string;
-  function?: {
-    name?: string;
-    arguments?: string;
-  };
-}
 
 interface CorePart {
   type: "text" | "tool-call";
@@ -39,7 +32,6 @@ interface ServerMessage {
   id?: string;
   role: "system" | "user" | "assistant" | "tool";
   content: string | ServerMessagePart[];
-  tool_calls?: ServerToolCall[];
   createdAt?: string | Date;
   data?: {
     activityParts?: unknown[];
@@ -64,6 +56,13 @@ export class ChatHydrationService {
     sessionId: string,
     runId: string,
   ): Promise<HydrationResult> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
+    logClientEvent("chat/hydration-service", "started", {
+      requestId,
+      sessionId,
+      runId,
+    });
     try {
       const allMessages: ServerMessage[] = [];
       let cursor: string | undefined;
@@ -91,10 +90,23 @@ export class ChatHydrationService {
       }
 
       const messages = this.convertServerMessages(allMessages, runId);
+      logClientEvent("chat/hydration-service", "completed", {
+        requestId,
+        runId,
+        messageCount: messages.length,
+        messageIds: summarizeServerMessages(allMessages),
+        durationMs: Date.now() - startedAt,
+      });
       return { messages };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
+      logClientWarning("chat/hydration-service", "failed", {
+        requestId,
+        runId,
+        error: errorMessage,
+        durationMs: Date.now() - startedAt,
+      });
       return { messages: [], error: errorMessage };
     }
   }
@@ -117,9 +129,26 @@ export class ChatHydrationService {
       url.searchParams.set("cursor", cursor);
     }
 
+    const pageRequestId = crypto.randomUUID();
+    logClientEvent("chat/history", "page-requested", {
+      requestId: pageRequestId,
+      sessionId,
+      runId,
+      cursor: cursor ?? null,
+      limit,
+    });
     const res = await fetch(url.toString(), { credentials: "include" });
 
     if (!res.ok) {
+      const errorPreview = await readResponsePreview(res);
+      logClientWarning("chat/history", "page-failed", {
+        requestId: pageRequestId,
+        sessionId,
+        runId,
+        status: res.status,
+        statusText: res.statusText,
+        preview: errorPreview,
+      });
       return {
         messages: [],
         error: `History fetch failed: ${res.status} ${res.statusText}`,
@@ -136,12 +165,26 @@ export class ChatHydrationService {
       Array.isArray(data.messages)
     ) {
       const paginatedResponse = data as PaginatedHistoryResponse;
+      logClientEvent("chat/history", "page-received", {
+        requestId: pageRequestId,
+        sessionId,
+        runId,
+        messageCount: paginatedResponse.messages.length,
+        messageIds: summarizeServerMessages(paginatedResponse.messages),
+        hasNextCursor: Boolean(paginatedResponse.nextCursor),
+      });
       return {
         messages: paginatedResponse.messages,
         nextCursor: paginatedResponse.nextCursor,
       };
     }
 
+    logClientWarning("chat/history", "page-invalid", {
+      requestId: pageRequestId,
+      sessionId,
+      runId,
+      payloadType: typeof data,
+    });
     return { messages: [], error: "Invalid history format" };
   }
 
@@ -153,7 +196,7 @@ export class ChatHydrationService {
       .filter((msg) => msg.role !== "tool")
       .map((msg, index) => {
         let content = "";
-        let toolInvocations: ToolInvocation[] = [];
+        const toolInvocations: ToolInvocation[] = [];
         const activityParts: TurnActivityTranscriptPart[] = readActivityData(
           msg.data,
         );
@@ -187,12 +230,6 @@ export class ChatHydrationService {
           createdAt: msg.createdAt ? new Date(msg.createdAt) : new Date(),
         };
 
-        // Handle legacy tool_calls format
-        if (msg.role === "assistant" && msg.tool_calls) {
-          const legacyTools = this.convertToolCalls(msg.tool_calls, runId);
-          toolInvocations = [...toolInvocations, ...legacyTools];
-        }
-
         if (toolInvocations.length > 0) {
           converted.toolInvocations = toolInvocations;
         }
@@ -207,28 +244,19 @@ export class ChatHydrationService {
       });
   }
 
-  private convertToolCalls(
-    toolCalls: ServerToolCall[],
-    runId: string,
-  ): ToolInvocation[] {
-    return toolCalls.map((tc, tcIndex) => ({
-      state: "result" as const,
-      toolCallId: tc.id || `${runId}-tool-${tcIndex}`,
-      toolName: tc.function?.name || "unknown",
-      args: this.parseToolArguments(tc.function?.arguments),
-      result: null,
-    }));
-  }
+}
 
-  private parseToolArguments(
-    args: string | undefined,
-  ): Record<string, unknown> {
-    if (!args) return {};
-    try {
-      return JSON.parse(args) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+function summarizeServerMessages(messages: ServerMessage[]): string {
+  return messages
+    .map((message) => `${message.role}:${message.id ?? "missing"}`)
+    .join(",");
+}
+
+async function readResponsePreview(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 240);
+  } catch {
+    return "";
   }
 }
 

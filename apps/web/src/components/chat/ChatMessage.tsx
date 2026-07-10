@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
 import { cn } from "../../lib/utils";
 import type { ChatMessageMetadata } from "./messageMetadata";
@@ -6,12 +5,8 @@ import { ChangedFilesCard } from "./chat-message/ChangedFilesCard";
 import { MessageActions } from "./chat-message/MessageActions";
 import { MessageArtifacts } from "./chat-message/MessageArtifacts";
 import { MessageContent } from "./chat-message/MessageContent";
-import {
-  extractMessageText,
-  stripAssistantChangeCounts,
-  visibleAssistantContent,
-} from "./chat-message/markdownTransforms";
 import type { ChangedFilesSummary } from "./chat-message/types";
+import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent";
 
 interface ChatMessageProps {
   message: Message;
@@ -29,18 +24,10 @@ export function ChatMessage({
   changedFilesSummary,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
-  const content = useMemo(() => {
-    const extractedText = extractMessageText(message.content);
-    return message.role === "assistant"
-      ? visibleAssistantContent(extractedText)
-      : extractedText.trim();
-  }, [message.content, message.role]);
-  const displayContent = useMemo(
-    () =>
-      !isUser && changedFilesSummary && content
-        ? stripAssistantChangeCounts(content)
-        : content,
-    [changedFilesSummary, content, isUser],
+  const displayContent = useMessageDisplayContent(
+    message,
+    isUser,
+    changedFilesSummary,
   );
 
   return (

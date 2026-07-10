@@ -7,6 +7,7 @@ describe("useStatusSync", () => {
     const setLocallyStoppedRunId = vi.fn();
     const stop = vi.fn();
     const refetchGitStatus = vi.fn().mockResolvedValue(undefined);
+    const onSessionStatusChange = vi.fn();
 
     const { result, rerender } = renderHook(
       ({ isLoading }) =>
@@ -24,6 +25,7 @@ describe("useStatusSync", () => {
           setLocallyStoppedRunId,
           stop,
           refetchGitStatus,
+          onSessionStatusChange,
         }),
       { initialProps: { isLoading: false } },
     );
@@ -37,5 +39,7 @@ describe("useStatusSync", () => {
     expect(stop).toHaveBeenCalledTimes(1);
     expect(setLocallyStoppedRunId).toHaveBeenCalledWith("run-123");
     expect(setLocallyStoppedRunId).not.toHaveBeenCalledWith(null);
+    expect(onSessionStatusChange).toHaveBeenCalledWith("running");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("completed");
   });
 });

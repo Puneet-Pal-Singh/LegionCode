@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @shadowbox/execution-engine build && wrangler dev --port 8788 --inspector-port 9230",
+    "dev": "node ./scripts/dev-with-secure-runtime.mjs --config wrangler.local.jsonc",
     "deploy": "wrangler deploy",
     "check-types": "tsc --noEmit",
     "lint": "eslint .",
@@ -26,6 +26,8 @@
     "@ai-sdk/anthropic": "1.1.0",
     "@ai-sdk/google": "1.1.0",
     "@ai-sdk/openai": "^1.1.0",
+    "@repo/event-store": "workspace:*",
+    "@repo/observability": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@shadowbox/context-pruner": "workspace:*",

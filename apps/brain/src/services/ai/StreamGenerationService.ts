@@ -31,7 +31,7 @@ export function createChatStream(
     onFinish?: (result: GenerateTextResult) => Promise<void> | void;
     onChunk?: (chunk: {
       content?: string;
-      toolCall?: { toolName: string; args: unknown };
+      toolCall?: { toolCallId?: string; toolName: string; args: unknown };
     }) => void;
   },
 ): ReadableStream<Uint8Array> {
@@ -47,6 +47,7 @@ export function createChatStream(
   let accumulatedText = "";
   let finalUsage: LLMUsage | undefined;
   let finalFinishReason: string | undefined;
+  const toolCalls: NonNullable<GenerateTextResult["toolCalls"]> = [];
 
   return new ReadableStream<Uint8Array>({
     start: async (controller) => {
@@ -69,6 +70,9 @@ export function createChatStream(
               if (callbacks?.onChunk && chunk.toolCall) {
                 callbacks.onChunk({ toolCall: chunk.toolCall });
               }
+              if (chunk.toolCall) {
+                toolCalls.push(chunk.toolCall);
+              }
               break;
 
             case "finish":
@@ -88,6 +92,7 @@ export function createChatStream(
             totalTokens: 0,
           },
           finishReason: finalFinishReason,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         };
 
         if (callbacks?.onFinish) {

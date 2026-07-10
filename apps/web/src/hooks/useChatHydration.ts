@@ -79,9 +79,12 @@ export function useChatHydration(
     const retryOnError = (error: unknown): void => {
       const message = error instanceof Error ? error.message : String(error);
       logClientWarning("chat/hydration", "failed", {
+        sessionId,
         runId,
+        scopeKey: requestScopeKey,
         error: message,
         retrySignal,
+        liveMessageCount: messagesRef.current.length,
       });
       if (isCurrentScope()) {
         scheduleRetry();
@@ -99,7 +102,11 @@ export function useChatHydration(
           logClientEvent("chat/hydration", "discarded", {
             runId,
             reason: "scope-changed",
+            requestScopeKey,
+            activeScopeKey: activeScopeKeyRef.current,
+            cancelled,
             hydratedMessageCount: result.messages.length,
+            hydratedIds: readMessageIds(result.messages).join(","),
           });
           return;
         }
@@ -121,6 +128,12 @@ export function useChatHydration(
           hydratedMessageCount: result.messages.length,
           liveMessageCount: messagesRef.current.length,
           finalMessageCount: nextMessages.length,
+          hydratedRoles: summarizeMessageRoles(result.messages),
+          liveRoles: summarizeMessageRoles(messagesRef.current),
+          finalRoles: summarizeMessageRoles(nextMessages),
+          hydratedIds: summarizeMessageIdentities(result.messages),
+          liveIds: summarizeMessageIdentities(messagesRef.current),
+          finalIds: summarizeMessageIdentities(nextMessages),
           mergeMode: replaceLiveMessages ? "replace" : "preserve-live",
         });
         setMessages(nextMessages);
@@ -159,6 +172,40 @@ export function useChatHydration(
   return { isHydrating, hasHydrated };
 }
 
+function summarizeMessageRoles(messages: Message[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
+}
+
+function summarizeMessageIdentities(messages: Message[]): string {
+  return messages
+    .map(
+      (message) =>
+        `${message.role}:${message.id}:${hashLogString(readMessageText(message))}`,
+    )
+    .join(",");
+}
+
+function readMessageText(message: Message): string {
+  if (typeof message.content === "string") {
+    return message.content.trim();
+  }
+  return "";
+}
+
+function hashLogString(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
 function readMessageIds(messages: Message[]): string[] {
   return messages.map((message) => message.id);
 }
@@ -177,5 +224,39 @@ function mergeHydratedAndLiveMessages(
   const liveById = new Map(live.map((message) => [message.id, message]));
   const merged = hydrated.map((message) => liveById.get(message.id) ?? message);
   const hydratedIds = new Set(hydrated.map((message) => message.id));
-  return [...merged, ...live.filter((message) => !hydratedIds.has(message.id))];
+  return collapseAdjacentDuplicateUserMessages([
+    ...merged,
+    ...live.filter((message) => !hydratedIds.has(message.id)),
+  ]);
+}
+
+function collapseAdjacentDuplicateUserMessages(messages: Message[]): Message[] {
+  const collapsed: Message[] = [];
+  for (const message of messages) {
+    const previous = collapsed.at(-1);
+    if (areDuplicateUserMessages(previous, message)) {
+      collapsed[collapsed.length - 1] = preferCanonicalUserMessage(
+        previous,
+        message,
+      );
+      continue;
+    }
+    collapsed.push(message);
+  }
+  return collapsed;
+}
+
+function areDuplicateUserMessages(
+  previous: Message | undefined,
+  next: Message,
+): previous is Message {
+  return (
+    previous?.role === "user" &&
+    next.role === "user" &&
+    readMessageText(previous) === readMessageText(next)
+  );
+}
+
+function preferCanonicalUserMessage(previous: Message, next: Message): Message {
+  return previous.id.startsWith("client_msg_") ? previous : next;
 }

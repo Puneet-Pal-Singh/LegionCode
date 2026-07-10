@@ -123,7 +123,11 @@ export class RunEventRecorder {
     try {
       await this.eventListener(event);
     } catch (error) {
-      console.warn("[run/events] failed to emit live run event", error);
+      console.error(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-failed`,
+        error,
+      );
+      throw error;
     }
 
     return inserted;
@@ -264,7 +268,11 @@ export class RunEventRecorder {
     try {
       await this.eventListener(event);
     } catch (error) {
-      console.warn("[run/events] failed to emit live run event", error);
+      console.error(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-failed`,
+        error,
+      );
+      throw error;
     }
   }
 }

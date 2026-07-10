@@ -15,16 +15,18 @@ import { PlanSchema } from "../planner/index.js";
 import { BaseAgent } from "./BaseAgent.js";
 import { validateSafePath, extractStructuredField } from "./validation.js";
 import {
-  getGoldenFlowToolRoute,
-  isGoldenFlowToolName,
   isConcreteCommandInput,
   isConcretePathInput,
   isValidGitActionInput,
-  type GoldenFlowToolName,
-  type GoldenFlowToolInputByName,
   VALID_GIT_ACTIONS,
-  validateGoldenFlowToolInput,
 } from "../contracts/index.js";
+import {
+  getCodingToolRoute,
+  isCodingToolId,
+  validateCodingToolInput,
+  type CodingToolId,
+  type CodingToolInputByName,
+} from "../tools/CodingToolRegistry.js";
 import {
   extractExecutionFailure,
   formatExecutionResult,
@@ -88,8 +90,8 @@ export class CodingAgent extends BaseAgent {
       case "review":
         return this.executeReview(task, context);
       default:
-        if (isGoldenFlowToolName(task.type)) {
-          return this.executeGoldenFlowToolTask(task, task.type);
+        if (isCodingToolId(task.type)) {
+          return this.executeCodingToolTask(task, task.type);
         }
         throw new UnsupportedTaskTypeError(String(task.type));
     }
@@ -316,9 +318,9 @@ VALIDATION RULES:
     return this.buildSuccessResult(task.id, formatExecutionResult(result));
   }
 
-  private async executeGoldenFlowToolTask(
+  private async executeCodingToolTask(
     task: Task,
-    toolName: GoldenFlowToolName,
+    toolName: CodingToolId,
   ): Promise<TaskResult> {
     switch (toolName) {
       case "read_file":
@@ -367,7 +369,7 @@ VALIDATION RULES:
   }
 
   private async executeReadFileTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "read_file",
       task.input,
     );
@@ -381,7 +383,7 @@ VALIDATION RULES:
   }
 
   private async executeListFilesTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "list_files",
       task.input,
     );
@@ -395,7 +397,7 @@ VALIDATION RULES:
   }
 
   private async executeWriteFileTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "write_file",
       task.input,
     );
@@ -420,7 +422,7 @@ VALIDATION RULES:
   }
 
   private async executeEditFileTool(task: Task): Promise<TaskResult> {
-    const validated = this.validateGoldenFlowInput("edit_file", task.input);
+    const validated = this.validateCodingToolInput("edit_file", task.input);
     const path = normalizeTaskPath(validated.path);
     validateTaskPath(path);
     validateSafePath(path);
@@ -431,7 +433,7 @@ VALIDATION RULES:
   }
 
   private async executeMultiEditTool(task: Task): Promise<TaskResult> {
-    const validated = this.validateGoldenFlowInput("multi_edit", task.input);
+    const validated = this.validateCodingToolInput("multi_edit", task.input);
     const edits = validated.edits.map((edit) => {
       const path = normalizeTaskPath(edit.path);
       validateTaskPath(path);
@@ -454,7 +456,7 @@ VALIDATION RULES:
   }
 
   private async executeApplyPatchTool(task: Task): Promise<TaskResult> {
-    const validated = this.validateGoldenFlowInput("apply_patch", task.input);
+    const validated = this.validateCodingToolInput("apply_patch", task.input);
     return this.executeValidatedMutation(task.id, "apply_patch", validated);
   }
 
@@ -462,7 +464,7 @@ VALIDATION RULES:
     task: Task,
     toolName: "format_file" | "language_diagnostics",
   ): Promise<TaskResult> {
-    const validated = this.validateGoldenFlowInput(toolName, task.input);
+    const validated = this.validateCodingToolInput(toolName, task.input);
     const path = normalizeTaskPath(validated.path);
     validateTaskPath(path);
     validateSafePath(path);
@@ -474,7 +476,7 @@ VALIDATION RULES:
   }
 
   private async executeBashTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("bash", task.input);
+    const validatedInput = this.validateCodingToolInput("bash", task.input);
     return this.executeCommandWithGuards(
       task.id,
       validatedInput.command,
@@ -483,7 +485,7 @@ VALIDATION RULES:
   }
 
   private async executeGitStatusTool(task: Task): Promise<TaskResult> {
-    this.validateGoldenFlowInput("git_status", task.input);
+    this.validateCodingToolInput("git_status", task.input);
     const result = await this.executeGatewayPlugin("git_status", {});
     const failure = extractExecutionFailure(result);
     if (failure) {
@@ -493,7 +495,7 @@ VALIDATION RULES:
   }
 
   private async executeGitStageTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "git_stage",
       task.input,
     );
@@ -515,7 +517,7 @@ VALIDATION RULES:
   }
 
   private async executeGitCommitTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "git_commit",
       task.input,
     );
@@ -545,7 +547,7 @@ VALIDATION RULES:
   }
 
   private async executeGitPushTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("git_push", task.input);
+    const validatedInput = this.validateCodingToolInput("git_push", task.input);
     const payload: Record<string, unknown> = {};
     if (validatedInput.remote) {
       payload.remote = validatedInput.remote.trim();
@@ -563,7 +565,7 @@ VALIDATION RULES:
   }
 
   private async executeGitPullTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("git_pull", task.input);
+    const validatedInput = this.validateCodingToolInput("git_pull", task.input);
     const payload: Record<string, unknown> = {};
     if (validatedInput.remote) {
       payload.remote = validatedInput.remote.trim();
@@ -583,7 +585,7 @@ VALIDATION RULES:
   private async executeGitCreatePullRequestTool(
     task: Task,
   ): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "git_create_pull_request",
       task.input,
     );
@@ -611,7 +613,7 @@ VALIDATION RULES:
   }
 
   private async executeGitBranchCreateTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "git_branch_create",
       task.input,
     );
@@ -626,7 +628,7 @@ VALIDATION RULES:
   }
 
   private async executeGitBranchSwitchTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput(
+    const validatedInput = this.validateCodingToolInput(
       "git_branch_switch",
       task.input,
     );
@@ -641,7 +643,7 @@ VALIDATION RULES:
   }
 
   private async executeGitDiffTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("git_diff", task.input);
+    const validatedInput = this.validateCodingToolInput("git_diff", task.input);
     const payload: Record<string, unknown> = {};
     const path = validatedInput.path;
     if (path) {
@@ -663,7 +665,7 @@ VALIDATION RULES:
   }
 
   private async executeGlobTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("glob", task.input);
+    const validatedInput = this.validateCodingToolInput("glob", task.input);
     const { pattern } = validatedInput;
     const startPath = validatedInput.path ?? ".";
     if (startPath !== ".") {
@@ -685,7 +687,7 @@ VALIDATION RULES:
   }
 
   private async executeGrepTool(task: Task): Promise<TaskResult> {
-    const validatedInput = this.validateGoldenFlowInput("grep", task.input);
+    const validatedInput = this.validateCodingToolInput("grep", task.input);
     const { pattern } = validatedInput;
     const startPath = validatedInput.path ?? ".";
     if (startPath !== ".") {
@@ -860,10 +862,10 @@ VALIDATION RULES:
   }
 
   private async executeGatewayPlugin(
-    toolName: GoldenFlowToolName,
+    toolName: CodingToolId,
     payload: Record<string, unknown>,
   ): Promise<unknown> {
-    const route = getGoldenFlowToolRoute(toolName);
+    const route = getCodingToolRoute(toolName);
     if (!route) {
       throw new TaskInputError(
         toolName,
@@ -888,12 +890,12 @@ VALIDATION RULES:
     return formatExecutionResult(readResult);
   }
 
-  private validateGoldenFlowInput<T extends GoldenFlowToolName>(
+  private validateCodingToolInput<T extends CodingToolId>(
     toolName: T,
     input: TaskInput,
-  ): GoldenFlowToolInputByName[T] {
+  ): CodingToolInputByName[T] {
     try {
-      return validateGoldenFlowToolInput(toolName, input);
+      return validateCodingToolInput(toolName, input);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Invalid tool input";

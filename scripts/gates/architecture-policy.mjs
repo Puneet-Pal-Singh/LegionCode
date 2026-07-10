@@ -32,6 +32,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
+    "@repo/observability",
     "@repo/persistence",
     "@repo/platform-protocol",
     "@repo/provider-core",
@@ -40,10 +41,15 @@ export const APP_IMPORT_POLICY = {
   ],
   "@shadowbox/secure-agent-api": [
     "@repo/git-service",
+    "@repo/observability",
     "@repo/shared-types",
     "@repo/worker-protocol",
   ],
-  "@shadowbox/web": ["@repo/platform-client-sdk", "@repo/shared-types"],
+  "@shadowbox/web": [
+    "@repo/observability",
+    "@repo/platform-client-sdk",
+    "@repo/shared-types",
+  ],
 };
 
 export const CANONICAL_AUTHORITIES = [
@@ -141,3 +147,111 @@ export const DIRECT_GIT_COMMAND_POLICY = [
     ],
   },
 ];
+
+export const POLICY_INVENTORY_PATH =
+  "scripts/gates/harness-policy-inventory.json";
+
+export const POLICY_INVENTORY_ALLOWED_CATEGORIES = [
+  "approval",
+  "auth-access",
+  "config",
+  "conversation",
+  "execution-preparation",
+  "finalization",
+  "lifecycle",
+  "memory",
+  "metadata",
+  "mode-intent",
+  "permission",
+  "provider",
+  "recovery",
+  "retry",
+  "synthesis",
+  "workspace-bootstrap",
+];
+
+export const POLICY_INVENTORY_ALLOWED_DISPOSITIONS = [
+  "keep-pure-policy",
+  "convert-data-config-policy",
+  "convert-typed-protocol-projector",
+  "delete-from-product-path",
+  "quarantine-temporarily",
+];
+
+export const HARNESS_PRODUCT_PATH_GUARDS = {
+  turnModePolicy: {
+    forbiddenImportPattern:
+      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunTurnModePolicy(?:\.js)?["']/,
+    allowedFiles: [],
+  },
+  promptIntentPolicy: {
+    forbiddenImportPattern:
+      /import\s+(?!type\b)[\s\S]*?from\s+["'][^"']*RunCurrentTurnIntent(?:\.js)?["']/,
+    allowedFiles: [
+      "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
+    ],
+  },
+  finalAnswerRegexRepair: {
+    patterns: [
+      {
+        name: "final-answer scaffold literal repair",
+        pattern:
+          /\b(?:User says|Direct Answer|Helpful Details)\b|["'`/]Intent\s*:/,
+      },
+      {
+        name: "leaked internal preface stripping",
+        pattern:
+          /\b(?:LEAKED_INTERNAL_PREFACE_PATTERNS|stripLeakedInternalPreface|stripOrphanPunctuationBeforeInternalPreface|readLeadingSentence|isLeakedInternalPrefaceSentence)\b/,
+      },
+      {
+        name: "assistant self-talk string repair",
+        pattern:
+          /\b(?:sanitizeAssistantVisibleContent|stripInternalSelfTalkPrefix|stripOrphanPunctuationBeforeInternalSelfTalk|readLeadingAssistantSentence|isInternalSelfTalkSentence)\b/,
+      },
+    ],
+    quarantinedFiles: [],
+  },
+  duplicateToolRegistries: {
+    canonicalFiles: [
+      "packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts",
+    ],
+    quarantinedFiles: [
+      {
+        path: "packages/execution-engine/src/tools/ToolRegistry.ts",
+        owner: "runtime-harness-stabilization",
+        reason:
+          "Legacy generic registry predates the runtime capability manifest/tool metadata registry and is not the product authority.",
+        deletionTrigger:
+          "Delete or convert in slice 036.4 when tool execution is behind the canonical registry/gateway boundary.",
+        gate: "scripts/gates/check-architecture-boundaries.mjs",
+      },
+    ],
+    declarationPattern: /\bclass\s+(?:Coding)?ToolRegistry\s*\{/,
+  },
+  clientSideTurnIdDerivation: {
+    // The companion validator (validateClientSideTurnIdDerivation in
+    // check-architecture-boundaries.mjs) only scans apps/web/src.
+    // No Web product code may derive turn identity client-side; the
+    // canonical turnId arrives via the X-Turn-Id response header.
+    forbiddenImportPattern:
+      /\b(?:turnIdFromRunId|turnSeedFromLatestUserMessage)\b/,
+    allowedFiles: [],
+    description:
+      "Web product code must not derive turn identity client-side; use canonical server-provided turnId from the X-Turn-Id response header.",
+  },
+  activeStateRunSummaryAuthority: {
+    forbiddenImportPattern:
+      /\b(?:isRunEventActivityOpen|isApprovalRequiredRunStatus|isTerminalRunStatus|normalizeRunStatus)\b/,
+    allowedFiles: [
+      "apps/web/src/hooks/useRunSummary.ts",
+      "apps/web/src/lib/run-status.ts",
+      "apps/web/src/services/activity/RunEventActivitySnapshot.ts",
+      "apps/web/src/components/chat/chat-interface/useActivityPresentation.ts",
+      "apps/web/src/components/chat/chat-interface/useChangedFilesController.ts",
+      "apps/web/src/components/layout/Workspace.tsx",
+      "apps/web/src/components/layout/workspace/runUiState.ts",
+    ],
+    description:
+      "Active Web chat components (especially ChatInterface.tsx) must not use run-summary status helpers as turn-state authority; active workflow/thinking/approval/terminal state must come from the canonical lifecycle projection only.",
+  },
+};

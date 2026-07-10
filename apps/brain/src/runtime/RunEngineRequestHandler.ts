@@ -1,16 +1,28 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 import type { CoreMessage, CoreTool } from "ai";
 import { z } from "zod";
+import type { LifecycleEventStore } from "@repo/persistence";
 import {
   ApprovalDecisionKindSchema,
   RUN_EVENT_TYPES,
+  RUN_TERMINAL_STATES,
   RUN_WORKFLOW_STEPS,
   type RunEvent,
 } from "@repo/shared-types";
-import { RunIdSchema } from "@repo/platform-protocol";
+import {
+  ApprovalDecisionSchema,
+  ApprovalIdSchema,
+  createRunAttemptId,
+  createThreadId,
+  createTurnId,
+  EventSequenceSchema,
+  type LifecycleEvent,
+  RunIdSchema,
+  TurnDiffPayloadSchema,
+  TurnIdSchema,
+} from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
-  RunEngine,
   RunEventRecorder,
   RunEventRepository,
   projectRunActivityFeed,
@@ -18,6 +30,7 @@ import {
   tagRuntimeStateSemantics,
   RunRepository,
   TaskRepository,
+  RuntimeKernelNativeRunner,
 } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { parseExecuteRunRequest } from "./parsing/RunEngineRequestParser";
@@ -31,6 +44,9 @@ import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { buildRunEngineRuntimeDebugPayload } from "../core/observability/runtime";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
+import { parseTraceparent } from "@repo/observability";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 import {
   runEngineErrorResponse,
   runEngineJsonResponse,
@@ -39,9 +55,14 @@ import {
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
 import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersistence";
 import type { RealtimeEventPort } from "./ports";
+import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
+import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
+import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
+import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
+import type { LifecycleEventStreamPort } from "./ports";
 import {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
+  getCodingCoreToolRegistry,
+  enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
 
 const CancelRunRequestSchema = z.object({
@@ -51,6 +72,22 @@ const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
   requestId: z.string().min(1),
   decision: ApprovalDecisionKindSchema,
+});
+const LifecycleApprovalDecisionRequestSchema = z.object({
+  turnId: TurnIdSchema,
+  approvalId: ApprovalIdSchema,
+  decision: ApprovalDecisionSchema,
+  decidedBy: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+});
+const LifecycleEventsQuerySchema = z.object({
+  turnId: TurnIdSchema,
+  afterSequence: EventSequenceSchema.nullable(),
+  limit: z.number().int().min(1).max(1_000),
+});
+const LifecycleEventsStreamQuerySchema = z.object({
+  turnId: TurnIdSchema,
+  afterSequence: EventSequenceSchema.nullable(),
 });
 
 export interface RunEngineRequestLock {
@@ -67,13 +104,84 @@ export interface RunEngineExecuteResult {
 export type RunEnginePostExecutionResult =
   PersistedAssistantMessageResult | null | void;
 
+export interface CanonicalRunEventSink {
+  persist(event: RunEvent, correlationId: string): Promise<void>;
+}
+
+export interface RunEngineRequestHandlerDependencies {
+  canonicalEventSink?: CanonicalRunEventSink;
+  lifecycleEventStore?: LifecycleEventStore;
+  lifecycleEventStream?: LifecycleEventStreamPort;
+}
+
 export class RunEngineRequestHandler {
+  private readonly fallbackLifecycleEventStream =
+    new CloudflareLifecycleEventStreamAdapter();
+
+  private readonly turnToRunMap = new Map<string, string>();
+  private turnToRunMapLoaded = false;
+
+  private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
+
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
     private readonly withExecutionLock: RunEngineRequestLock,
     private readonly eventStream?: RealtimeEventPort,
+    private readonly dependencies: RunEngineRequestHandlerDependencies = {},
   ) {}
+
+  async handleLifecycleEventsRequest(request: Request): Promise<Response> {
+    const input = parseLifecycleEventsQuery(request);
+    if (!input.ok) {
+      return runEngineErrorResponse(request, this.env, input.message, 400);
+    }
+
+    const replay = await this.createLifecycleEventStore().replay(input.value);
+    return runEngineJsonResponse(request, this.env, replay);
+  }
+
+  async handleLifecycleEventsStreamRequest(
+    request: Request,
+  ): Promise<Response> {
+    const input = parseLifecycleEventsStreamQuery(request);
+    if (!input.ok) {
+      return runEngineErrorResponse(request, this.env, input.message, 400);
+    }
+
+    return withRunEngineHeaders(
+      request,
+      this.env,
+      new Response(
+        this.createLifecycleEventStream().getStream(
+          input.value.turnId,
+          input.value.afterSequence,
+        ),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            "X-Turn-Id": input.value.turnId,
+          },
+        },
+      ),
+    );
+  }
+
+  async handleTurnDiffRequest(request: Request): Promise<Response> {
+    const input = parseLifecycleEventsStreamQuery(request);
+    if (!input.ok) {
+      return runEngineErrorResponse(request, this.env, input.message, 400);
+    }
+
+    return runEngineJsonResponse(request, this.env, {
+      diff: await readLatestTurnDiff(
+        this.createLifecycleEventStore(),
+        input.value.turnId,
+      ),
+    });
+  }
 
   async handleSummaryRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -189,6 +297,11 @@ export class RunEngineRequestHandler {
         503,
       );
     }
+    console.log(
+      formatDiagnosticLogLine("run/events", "stream-opened", {
+        runId,
+      }),
+    );
     return withRunEngineHeaders(
       request,
       this.env,
@@ -232,12 +345,9 @@ export class RunEngineRequestHandler {
     const eventRepo = new RunEventRepository(runtimeState);
     const run = await runRepo.getById(runId);
     const events = await eventRepo.getByRun(runId);
+    const activity = projectRunActivityFeed({ runId, run, events });
 
-    return runEngineJsonResponse(
-      request,
-      this.env,
-      projectRunActivityFeed({ runId, run, events }),
-    );
+    return runEngineJsonResponse(request, this.env, activity);
   }
 
   async handleCancelRequest(request: Request): Promise<Response> {
@@ -275,7 +385,8 @@ export class RunEngineRequestHandler {
       new RunEventRepository(runtimeState),
       runId,
       run.sessionId,
-      (event) => {
+      async (event) => {
+        await this.persistCanonicalRunEvent(event, "run-cancel");
         this.emitLiveEvent(event);
       },
     );
@@ -301,6 +412,12 @@ export class RunEngineRequestHandler {
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
     );
+    await runEventRecorder.recordMessageEmitted(
+      "assistant",
+      "The run was cancelled before execution could finish.",
+      { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
+      { phase: "final_answer", status: "completed" },
+    );
 
     let cancelledTasks = 0;
     const tasks = await taskRepo.getByRun(runId);
@@ -312,7 +429,7 @@ export class RunEngineRequestHandler {
       }
     }
 
-    this.eventStream?.complete(runId);
+    this.completeRunStreamAfterCancel(run);
 
     return runEngineJsonResponse(request, this.env, {
       runId,
@@ -355,7 +472,8 @@ export class RunEngineRequestHandler {
       new RunEventRepository(runtimeState),
       payload.runId,
       run.sessionId,
-      (event) => {
+      async (event) => {
+        await this.persistCanonicalRunEvent(event, "run-approval");
         this.emitLiveEvent(event);
       },
     );
@@ -423,6 +541,78 @@ export class RunEngineRequestHandler {
     });
   }
 
+  async handleLifecycleApprovalRequest(request: Request): Promise<Response> {
+    let payload: z.infer<typeof LifecycleApprovalDecisionRequestSchema>;
+    try {
+      const body = await parseRequestBody(request, "lifecycle-approval");
+      payload = validateWithSchema(
+        body,
+        LifecycleApprovalDecisionRequestSchema,
+        "lifecycle-approval",
+      );
+    } catch {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Invalid lifecycle approval payload",
+        400,
+      );
+    }
+
+    await this.ensureTurnToRunMapLoaded();
+
+    const runId = this.turnToRunMap.get(payload.turnId);
+    if (!runId) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Run not found for turnId",
+        404,
+      );
+    }
+    const runtimeState = this.createRuntimeState();
+    const runRepo = new RunRepository(runtimeState);
+    const run = await runRepo.getById(runId);
+    if (!run) {
+      return runEngineErrorResponse(request, this.env, "Run not found", 404);
+    }
+
+    const approvalStore = new PermissionApprovalStore(runtimeState, runId);
+    try {
+      await approvalStore.resolveDecision(
+        {
+          kind: mapLifecycleApprovalDecision(payload.decision),
+          requestId: payload.approvalId,
+        },
+        run.metadata.actorUserId,
+      );
+    } catch (error) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        error instanceof Error
+          ? error.message
+          : "Unable to resolve lifecycle approval decision",
+        mapApprovalResolutionErrorStatus(error),
+      );
+    }
+
+    const decidedEvent = await waitForLifecycleApprovalDecisionEvent({
+      store: this.createLifecycleEventStore(),
+      turnId: payload.turnId,
+      approvalId: payload.approvalId,
+    });
+    if (!decidedEvent) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Approval decision was recorded but the lifecycle decision event was not observed.",
+        504,
+      );
+    }
+    return runEngineJsonResponse(request, this.env, decidedEvent);
+  }
+
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
     return runEngineJsonResponse(
       request,
@@ -458,14 +648,44 @@ export class RunEngineRequestHandler {
     }
 
     try {
+      const trace = parseTraceparent(request.headers.get("traceparent"));
+      console.log(
+        formatDiagnosticLogLine("run/runtime", "execute-request-accepted", {
+          correlationId: payload.correlationId,
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+          providerId: payload.input.providerId ?? null,
+          modelId: payload.input.modelId ?? null,
+          mode: payload.input.mode,
+          messageCount: payload.messages.length,
+          toolCount: payload.tools?.length ?? 0,
+          traceId: trace?.traceId,
+          spanId: trace?.spanId,
+        }),
+      );
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
+        const turnId = createTurnId();
+        const runAttemptId = createRunAttemptId();
+        const threadId = createThreadId();
+        await this.ensureTurnToRunMapLoaded();
+        await this.mapTurnToRun(turnId, payload.runId);
+        this.createLifecycleEventStream().start(turnId);
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
           this.ctx,
           this.env,
           payload,
           { strict: true },
+        );
+        console.log(
+          formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
+            correlationId: payload.correlationId,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            hasEventStream: Boolean(this.eventStream),
+            toolCount: payload.tools?.length ?? 0,
+          }),
         );
         const editArtifactCoordinator = createEditArtifactCoordinator({
           env: this.env,
@@ -480,8 +700,7 @@ export class RunEngineRequestHandler {
           userMessageId: userMessageId ?? undefined,
           sourceTurnId: userMessageId ?? undefined,
         });
-
-        const runEngine = new RunEngine(
+        const runtimeRunner = new RuntimeKernelNativeRunner(
           runtimeState,
           {
             env: this.env,
@@ -492,21 +711,43 @@ export class RunEngineRequestHandler {
             requestOrigin: payload.requestOrigin,
           },
           agent,
-          undefined,
           {
             ...runEngineDeps,
-            prepareMutationCapture: () => editArtifactCoordinator.prepare(),
-            runEventListener: (event) => {
-              this.emitLiveEvent(event);
+            runEventListener: async (event) => {
+              // Legacy RunEvent records remain a projection for internal
+              // activity/artifact capture only. Kernel lifecycle events are
+              // appended and streamed exclusively by the lifecycle store.
               editArtifactCoordinator.handleEvent(event);
             },
           },
         );
 
-        const executionResponse = await runEngine.execute(
-          payload.input,
-          payload.messages as CoreMessage[],
-          toRuntimeCoreTools(payload.tools),
+        const runtimeTools = toRuntimeCoreTools(payload.tools);
+        const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+          correlationId: payload.correlationId,
+          store: this.createLifecycleEventStore(),
+          stream: this.createLifecycleEventStream(),
+        });
+        await editArtifactCoordinator.prepare();
+        const executionResponse = await runtimeRunner.execute({
+          input: payload.input,
+          messages: payload.messages as CoreMessage[],
+          tools: runtimeTools,
+          lifecycleEvents: kernelLifecycleEvents,
+          turnId,
+          runAttemptId,
+          threadId,
+          workspaceId: payload.workspaceId,
+        });
+        console.log(
+          formatDiagnosticLogLine("run/runtime", "engine-executed", {
+            correlationId: payload.correlationId,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            responseStatus: executionResponse.status,
+          }),
         );
 
         const postExecutionResult = onExecuteResult
@@ -517,14 +758,33 @@ export class RunEngineRequestHandler {
               response: executionResponse,
             })
           : null;
+        console.log(
+          formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
+            correlationId: payload.correlationId,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            assistantMessageId: postExecutionResult?.assistantMessageId ?? null,
+          }),
+        );
         if (postExecutionResult?.assistantMessageId) {
           editArtifactCoordinator.setMessageContext({
             assistantMessageId: postExecutionResult.assistantMessageId,
           });
         }
         await editArtifactCoordinator.waitForPendingCapture();
+        console.log(
+          formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
+            correlationId: payload.correlationId,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+          }),
+        );
 
-        return withRunEngineHeaders(request, this.env, executionResponse);
+        return withRunEngineHeaders(request, this.env, executionResponse, {
+          "X-Thread-Id": threadId,
+          "X-Turn-Id": turnId,
+          "X-Run-Attempt-Id": runAttemptId,
+        });
       });
     } catch (error: unknown) {
       const domainError = mapRunExecutionErrorToDomain(
@@ -543,14 +803,23 @@ export class RunEngineRequestHandler {
           metadata,
         );
       }
-      console.error(
-        `[run/engine-runtime] ${payload.correlationId}: untyped runtime failure: ${sanitizeUnknownError(error)}`,
+      reportBrainError(this.env, {
+        request,
+        operation: "run.engine.execute",
+        error,
+        context: {
+          correlationId: payload.correlationId,
+          runId: payload.runId,
+          sessionId: payload.sessionId,
+        },
+      });
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "RunEngine DO execution failed",
+        500,
+        "RUN_ENGINE_EXECUTION_FAILED",
       );
-      const message =
-        error instanceof Error
-          ? error.message
-          : "RunEngine DO execution failed";
-      return runEngineErrorResponse(request, this.env, message, 500);
     }
   }
 
@@ -563,15 +832,150 @@ export class RunEngineRequestHandler {
 
   private emitLiveEvent(event: RunEvent): void {
     if (!this.eventStream) {
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=skipped reason=stream-unavailable`,
+      );
       return;
     }
 
-    this.eventStream.emit(event);
+    this.emitLiveEventSafely(event);
     if (
       event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
       event.type === RUN_EVENT_TYPES.RUN_FAILED
     ) {
-      this.eventStream.complete(event.runId);
+      this.completeLiveEventStreamSafely(event);
+    }
+  }
+
+  private emitLiveEventSafely(event: RunEvent): boolean {
+    try {
+      this.eventStream?.emit(event);
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
+      );
+      return true;
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "emit-failed", {
+          runId: event.runId,
+          sessionId: event.sessionId ?? null,
+          eventId: event.eventId,
+          type: event.type,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+      return false;
+    }
+  }
+
+  private completeLiveEventStreamSafely(event: RunEvent): void {
+    try {
+      this.eventStream?.complete(event.runId);
+      console.log(
+        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=completed-stream`,
+      );
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "complete-failed", {
+          runId: event.runId,
+          sessionId: event.sessionId ?? null,
+          eventId: event.eventId,
+          type: event.type,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+    }
+  }
+
+  private completeRunStreamAfterCancel(run: {
+    id: string;
+    sessionId: string;
+  }): void {
+    try {
+      this.eventStream?.complete(run.id);
+    } catch (error) {
+      console.warn(
+        formatDiagnosticLogLine("run/events-live", "cancel-complete-failed", {
+          runId: run.id,
+          sessionId: run.sessionId,
+          error: sanitizeUnknownError(error),
+        }),
+      );
+    }
+  }
+
+  private async persistCanonicalRunEvent(
+    event: RunEvent,
+    correlationId: string,
+  ): Promise<void> {
+    await this.createCanonicalEventSink().persist(event, correlationId);
+  }
+
+  private createCanonicalEventSink(): CanonicalRunEventSink {
+    return (
+      this.dependencies.canonicalEventSink ??
+      new RunEngineCanonicalEventSink(this.env)
+    );
+  }
+
+  private createLifecycleEventStore(): LifecycleEventStore {
+    return (
+      this.dependencies.lifecycleEventStore ??
+      new BrainLifecycleEventStore(this.env)
+    );
+  }
+
+  private createLifecycleEventStream(): LifecycleEventStreamPort {
+    return (
+      this.dependencies.lifecycleEventStream ??
+      this.fallbackLifecycleEventStream
+    );
+  }
+
+  private async ensureTurnToRunMapLoaded(): Promise<void> {
+    if (this.turnToRunMapLoaded) {
+      this.pruneStaleTurnMappings();
+      return;
+    }
+
+    const raw = await this.ctx.storage.get<Record<string, string>>(
+      RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+    );
+    if (raw && typeof raw === "object") {
+      for (const [turnId, runId] of Object.entries(raw)) {
+        this.turnToRunMap.set(turnId, runId);
+      }
+    }
+
+    this.turnToRunMapLoaded = true;
+  }
+
+  private async persistTurnToRunMap(): Promise<void> {
+    const entries: Record<string, string> = {};
+    for (const [turnId, runId] of this.turnToRunMap) {
+      entries[turnId] = runId;
+    }
+    await this.ctx.storage.put(
+      RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
+      entries,
+    );
+  }
+
+  private async mapTurnToRun(turnId: string, runId: string): Promise<void> {
+    this.turnToRunMap.set(turnId, runId);
+    this.pruneStaleTurnMappings();
+    await this.persistTurnToRunMap();
+  }
+
+  private pruneStaleTurnMappings(): void {
+    const maxCount = 10_000;
+    if (this.turnToRunMap.size <= maxCount) {
+      return;
+    }
+    const keys = [...this.turnToRunMap.keys()];
+    const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
+    for (const key of toDelete) {
+      this.turnToRunMap.delete(key);
     }
   }
 
@@ -627,8 +1031,181 @@ function toRuntimeCoreTools(
   }
 
   if (Object.keys(parsedTools).length === 0) {
-    return getGoldenFlowToolRegistry();
+    return getCodingCoreToolRegistry();
   }
 
-  return enforceGoldenFlowToolFloor(parsedTools);
+  return enforceCodingToolFloor(parsedTools);
+}
+
+type ParsedLifecycleQuery<T> =
+  | { ok: true; value: T }
+  | { ok: false; message: string };
+
+function parseLifecycleEventsQuery(
+  request: Request,
+): ParsedLifecycleQuery<z.infer<typeof LifecycleEventsQuerySchema>> {
+  const url = new URL(request.url);
+  return parseLifecycleQuery(
+    {
+      turnId: readTurnId(url),
+      afterSequence: readOptionalSequence(url.searchParams),
+      limit: readOptionalLimit(url.searchParams),
+    },
+    LifecycleEventsQuerySchema,
+  );
+}
+
+function parseLifecycleEventsStreamQuery(
+  request: Request,
+): ParsedLifecycleQuery<z.infer<typeof LifecycleEventsStreamQuerySchema>> {
+  const url = new URL(request.url);
+  return parseLifecycleQuery(
+    {
+      turnId: readTurnId(url),
+      afterSequence: readOptionalSequence(url.searchParams),
+    },
+    LifecycleEventsStreamQuerySchema,
+  );
+}
+
+function parseLifecycleQuery<TSchema extends z.ZodTypeAny>(
+  input: unknown,
+  schema: TSchema,
+): ParsedLifecycleQuery<z.infer<TSchema>> {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) {
+    return { ok: true, value: parsed.data };
+  }
+  return {
+    ok: false,
+    message: parsed.error.issues[0]?.message ?? "Invalid lifecycle query",
+  };
+}
+
+function readTurnId(url: URL): string | null {
+  return readTurnIdFromPath(url.pathname) ?? url.searchParams.get("turnId");
+}
+
+function readTurnIdFromPath(pathname: string): string | null {
+  const match = pathname.match(
+    /^\/turns\/([^/]+)\/lifecycle-events(?:\/stream)?$/,
+  );
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function readOptionalSequence(params: URLSearchParams): number | null {
+  const value = params.get("afterSequence");
+  return value === null || value.trim() === "" ? null : Number(value);
+}
+
+function readOptionalLimit(params: URLSearchParams): number {
+  const value = params.get("limit");
+  return value === null || value.trim() === "" ? 100 : Number(value);
+}
+
+async function readLatestTurnDiff(store: LifecycleEventStore, turnId: string) {
+  let afterSequence: number | null = null;
+  let latestDiff: unknown = null;
+
+  while (true) {
+    const replay = await store.replay({
+      turnId: TurnIdSchema.parse(turnId),
+      afterSequence,
+      limit: 1_000,
+    });
+    for (const event of replay.events) {
+      if (event.type === "turn.diff_updated") {
+        latestDiff = event.payload.diff;
+      }
+    }
+    if (replay.events.length < 1_000 || replay.nextSequence === null) {
+      break;
+    }
+    afterSequence = replay.nextSequence;
+  }
+
+  return latestDiff === null ? null : TurnDiffPayloadSchema.parse(latestDiff);
+}
+
+function mapLifecycleApprovalDecision(
+  decision: "approved" | "denied" | "cancelled",
+): z.infer<typeof ApprovalDecisionKindSchema> {
+  switch (decision) {
+    case "approved":
+      return "allow_once";
+    case "cancelled":
+      return "abort";
+    case "denied":
+      return "deny";
+  }
+}
+
+function mapApprovalResolutionErrorStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    message.includes("No pending approval request") ||
+    message.includes("does not match pending request")
+  ) {
+    return 409;
+  }
+  if (
+    message.includes("not allowed for this request") ||
+    message.includes("rejected because it is too broad") ||
+    message.includes("authenticated user id")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
+async function waitForLifecycleApprovalDecisionEvent(input: {
+  store: LifecycleEventStore;
+  turnId: string;
+  approvalId: string;
+}): Promise<LifecycleEvent | null> {
+  const deadline = Date.now() + 2_000;
+  let afterSequence: number | null = null;
+  while (Date.now() <= deadline) {
+    const found = await findLifecycleApprovalDecisionEvent(
+      input,
+      afterSequence,
+    );
+    if (found.event) {
+      return found.event;
+    }
+    afterSequence = found.nextSequence;
+    await waitForLifecycleApprovalReplayCycle();
+  }
+  return null;
+}
+
+async function findLifecycleApprovalDecisionEvent(
+  input: {
+    store: LifecycleEventStore;
+    turnId: string;
+    approvalId: string;
+  },
+  afterSequence: number | null,
+): Promise<{ event: LifecycleEvent | null; nextSequence: number | null }> {
+  const replay = await input.store.replay({
+    turnId: TurnIdSchema.parse(input.turnId),
+    afterSequence,
+    limit: 1_000,
+  });
+  const event =
+    replay.events.find(
+      (candidate) =>
+        candidate.type === "approval.decided" &&
+        candidate.approvalId === input.approvalId,
+    ) ?? null;
+  return {
+    event,
+    nextSequence: replay.nextSequence,
+  };
+}
+
+function waitForLifecycleApprovalReplayCycle(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 50);
+  });
 }

@@ -135,11 +135,17 @@ export class FileSystemPlugin implements IPlugin {
     payload: unknown,
     _onLog?: LogCallback,
   ): Promise<PluginResult> {
+    const startedAt = Date.now();
     try {
       const toolboxContext = readToolboxCommandContext(payload);
       const parsedPayload = FileSystemPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsedPayload.runId ?? toolboxContext.runId);
       const workspaceRoot = getWorkspaceRoot(runId);
+      if (shouldLogSuccessfulFilesystemTools()) {
+        console.log(
+          `[filesystem/tool] runId=${runId} action=${parsedPayload.action} status=entered workspaceRoot=${workspaceRoot}`,
+        );
+      }
 
       await runSafeCommand(
         sandbox,
@@ -152,91 +158,154 @@ export class FileSystemPlugin implements IPlugin {
       );
 
       if (parsedPayload.action === "list_files") {
-        return await this.listFiles(
-          sandbox,
-          workspaceRoot,
-          parsedPayload,
-          toolboxContext,
+        return logFilesystemResult(
           runId,
+          parsedPayload.action,
+          startedAt,
+          await this.listFiles(
+            sandbox,
+            workspaceRoot,
+            parsedPayload,
+            toolboxContext,
+            runId,
+          ),
         );
       }
       if (parsedPayload.action === "read_file") {
-        return await this.readFile(
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.readFile(
+            sandbox,
+            workspaceRoot,
+            parsedPayload,
+            toolboxContext,
+            runId,
+          ),
+        );
+      }
+      if (parsedPayload.action === "files") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.files(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "tree") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.tree(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "glob") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.glob(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            {
+              path: parsedPayload.path,
+              glob: parsedPayload.pattern,
+              maxResults: parsedPayload.maxResults,
+            },
+          ),
+        );
+      }
+      if (parsedPayload.action === "grep") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.ripgrepService.grep(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "write_file") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.workspaceEditService.write(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "edit_file") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.workspaceEditService.edit(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload,
+          ),
+        );
+      }
+      if (parsedPayload.action === "multi_edit") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.workspaceEditService.multiEdit(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload.edits,
+          ),
+        );
+      }
+      if (parsedPayload.action === "format_file") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.languageToolService.formatFile(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload.path,
+          ),
+        );
+      }
+      if (parsedPayload.action === "language_diagnostics") {
+        return logFilesystemResult(
+          runId,
+          parsedPayload.action,
+          startedAt,
+          await this.languageToolService.diagnostics(
+            { sandbox, workspaceRoot, toolboxContext, runId },
+            parsedPayload.path,
+          ),
+        );
+      }
+      return logFilesystemResult(
+        runId,
+        parsedPayload.action,
+        startedAt,
+        await this.makeDirectory(
           sandbox,
           workspaceRoot,
           parsedPayload,
           toolboxContext,
           runId,
-        );
-      }
-      if (parsedPayload.action === "files") {
-        return await this.ripgrepService.files(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "tree") {
-        return await this.ripgrepService.tree(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "glob") {
-        return await this.ripgrepService.glob(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          {
-            path: parsedPayload.path,
-            glob: parsedPayload.pattern,
-            maxResults: parsedPayload.maxResults,
-          },
-        );
-      }
-      if (parsedPayload.action === "grep") {
-        return await this.ripgrepService.grep(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "write_file") {
-        return await this.workspaceEditService.write(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "edit_file") {
-        return await this.workspaceEditService.edit(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload,
-        );
-      }
-      if (parsedPayload.action === "multi_edit") {
-        return await this.workspaceEditService.multiEdit(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload.edits,
-        );
-      }
-      if (parsedPayload.action === "format_file") {
-        return await this.languageToolService.formatFile(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload.path,
-        );
-      }
-      if (parsedPayload.action === "language_diagnostics") {
-        return await this.languageToolService.diagnostics(
-          { sandbox, workspaceRoot, toolboxContext, runId },
-          parsedPayload.path,
-        );
-      }
-      return await this.makeDirectory(
-        sandbox,
-        workspaceRoot,
-        parsedPayload,
-        toolboxContext,
-        runId,
+        ),
       );
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Filesystem operation failed";
+      console.error(
+        `[filesystem/tool] action=unknown status=failed elapsedMs=${Date.now() - startedAt} error=${message}`,
+      );
       return { success: false, error: message };
     }
   }
@@ -370,17 +439,28 @@ export class FileSystemPlugin implements IPlugin {
     }
 
     const returnedLines = countOutputLines(result.stdout);
-    const capped = capReadOutput(result.stdout);
     const totalLines = await this.countLines(
       sandbox,
       targetPath,
       toolboxContext,
       runId,
     );
-    const truncated =
-      capped.truncated ||
-      capped.output.includes("[line truncated]") ||
+    const windowTruncated =
+      result.stdout.includes("[line truncated]") ||
       (typeof totalLines === "number" && offset + limit < totalLines);
+    const nextOffset = windowTruncated ? offset + returnedLines : null;
+    const formattedOutput = formatReadFileOutput({
+      path: payload.path,
+      content: result.stdout,
+      offset,
+      limit,
+      totalLines,
+      returnedLines,
+      truncated: windowTruncated,
+      nextOffset,
+    });
+    const capped = capReadOutput(formattedOutput);
+    const truncated = capped.truncated || windowTruncated;
     return {
       success: true,
       output: capped.output,
@@ -393,8 +473,9 @@ export class FileSystemPlugin implements IPlugin {
         totalLines,
         returnedLines,
         returnedBytes: capped.output.length,
+        nextOffset,
         narrowHint: truncated
-          ? "Use offset/limit or narrow the target file to continue."
+          ? `Use read_file with offset=${nextOffset ?? offset + returnedLines} and limit=${limit} to continue, or use grep/glob to narrow the target.`
           : undefined,
       },
       truncated,
@@ -506,6 +587,47 @@ function capReadOutput(output: string): { output: string; truncated: boolean } {
   return { output: capped.value, truncated: capped.truncated };
 }
 
+function formatReadFileOutput(input: {
+  path: string;
+  content: string;
+  offset: number;
+  limit: number;
+  totalLines: number | null;
+  returnedLines: number;
+  truncated: boolean;
+  nextOffset: number | null;
+}): string {
+  const header = [
+    `[read_file] path=${input.path}`,
+    `offset=${input.offset}`,
+    `limit=${input.limit}`,
+    `returnedLines=${input.returnedLines}`,
+    `totalLines=${input.totalLines ?? "unknown"}`,
+    `truncated=${input.truncated}`,
+    input.nextOffset === null ? null : `nextOffset=${input.nextOffset}`,
+  ]
+    .filter((field): field is string => Boolean(field))
+    .join(" ");
+  const body = prefixReadLines(input.content, input.offset);
+  const footer =
+    input.truncated && input.nextOffset !== null
+      ? `\n[read_file] Continue with {"path":"${input.path}","offset":${input.nextOffset},"limit":${input.limit}} or use grep/glob to narrow.`
+      : "";
+  return body ? `${header}\n${body}${footer}` : `${header}\n`;
+}
+
+function prefixReadLines(content: string, offset: number): string {
+  if (!content) {
+    return "";
+  }
+  const lines = content.endsWith("\n")
+    ? content.slice(0, -1).split(/\r?\n/)
+    : content.split(/\r?\n/);
+  return lines
+    .map((line, index) => `${offset + index + 1}: ${line}`)
+    .join("\n");
+}
+
 function countOutputLines(output: string): number {
   if (output.length === 0) {
     return 0;
@@ -518,4 +640,33 @@ function countOutputLines(output: string): number {
 function parseLineCount(output: string): number | null {
   const value = Number(output.trim().split(/\s+/)[0]);
   return Number.isFinite(value) ? value : null;
+}
+
+function logFilesystemResult(
+  runId: string,
+  action: FileSystemPayload["action"],
+  startedAt: number,
+  result: PluginResult,
+): PluginResult {
+  const error = typeof result.error === "string" ? result.error : undefined;
+  const metadata =
+    result.metadata && typeof result.metadata === "object"
+      ? JSON.stringify(result.metadata)
+      : "none";
+  const message = `[filesystem/tool] runId=${runId} action=${action} status=completed success=${result.success} truncated=${result.truncated ?? false} elapsedMs=${Date.now() - startedAt} error=${error ?? "none"} metadata=${metadata}`;
+  if (result.success) {
+    if (shouldLogSuccessfulFilesystemTools()) {
+      console.log(message);
+    }
+  } else {
+    console.error(message);
+  }
+  return result;
+}
+
+function shouldLogSuccessfulFilesystemTools(): boolean {
+  const env = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return env.process?.env?.LEGIONCODE_VERBOSE_TOOL_LOGS === "true";
 }

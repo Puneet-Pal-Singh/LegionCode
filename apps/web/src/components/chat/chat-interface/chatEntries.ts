@@ -37,10 +37,11 @@ export function buildChatEntries(
       }
     }
 
-    if (conversationTurn.assistantMessage) {
+    const assistantMessage = conversationTurn.assistantMessage;
+    if (shouldIncludeAssistantMessage(assistantMessage)) {
       entries.push({
         kind: "message",
-        message: conversationTurn.assistantMessage,
+        message: assistantMessage,
       });
     }
   }
@@ -88,19 +89,12 @@ function correlateActivityTurnsToMessages(
       turn.userMessage ? [turn.userMessage.id] : [],
     ),
   );
-  const latestUserMessageId = findLatestUserMessageId(conversationTurns);
-  const promptQueues = buildPromptQueues(conversationTurns);
 
   for (const activityTurn of turns) {
     if (!activityTurn?.hasVisibleRows) {
       continue;
     }
-    const messageId = resolveActivityTurnMessageId(
-      activityTurn,
-      userMessageIds,
-      promptQueues,
-      latestUserMessageId,
-    );
+    const messageId = resolveActivityTurnMessageId(activityTurn, userMessageIds);
     if (!messageId) {
       if (logUnmatched) {
         warnUnmatchedActivityTurn(options.runId, activityTurn.key);
@@ -115,83 +109,41 @@ function correlateActivityTurnsToMessages(
   return assignments;
 }
 
+function shouldIncludeAssistantMessage(
+  message: Message | undefined,
+): message is Message {
+  if (!message || message.role !== "assistant") {
+    return false;
+  }
+
+  const terminalState = readTerminalState(message);
+  return terminalState == null || terminalState === "completed";
+}
+
+function readTerminalState(message: Message): string | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  const metadata = (data as Record<string, unknown>).metadata;
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const terminalState = (metadata as Record<string, unknown>).terminalState;
+  return typeof terminalState === "string" ? terminalState : null;
+}
+
 function resolveActivityTurnMessageId(
   activityTurn: ActivityTurnViewModel,
   userMessageIds: Set<string>,
-  promptQueues: Map<string, string[]>,
-  latestUserMessageId: string | null,
 ): string | null {
   if (userMessageIds.has(activityTurn.key)) {
     return activityTurn.key;
   }
 
-  const promptKey = normalizePrompt(activityTurn.userPrompt);
-  const promptMatch = promptKey
-    ? promptQueues.get(promptKey)?.shift()
-    : undefined;
-  if (promptMatch) {
-    return promptMatch;
-  }
-
-  if (isUnkeyedActiveThinkingTurn(activityTurn)) {
-    return latestUserMessageId;
-  }
-
   return null;
-}
-
-function isUnkeyedActiveThinkingTurn(
-  activityTurn: ActivityTurnViewModel,
-): boolean {
-  return (
-    activityTurn.isActiveTurn &&
-    !activityTurn.userPrompt?.trim() &&
-    activityTurn.rows.length > 0 &&
-    activityTurn.rows.every(
-      (row) =>
-        row.kind === "reasoning" &&
-        row.status === "active" &&
-        row.label === "Thinking" &&
-        row.summary.trim() === "",
-    )
-  );
-}
-
-function findLatestUserMessageId(
-  conversationTurns: ReturnType<typeof buildConversationTurns>,
-): string | null {
-  for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
-    const message = conversationTurns[index]?.userMessage;
-    if (message) return message.id;
-  }
-  return null;
-}
-
-function buildPromptQueues(
-  conversationTurns: ReturnType<typeof buildConversationTurns>,
-): Map<string, string[]> {
-  const queues = new Map<string, string[]>();
-  for (const conversationTurn of conversationTurns) {
-    const message = conversationTurn.userMessage;
-    if (!message) {
-      continue;
-    }
-    const promptKey = normalizePrompt(message.content);
-    if (!promptKey) {
-      continue;
-    }
-    queues.set(promptKey, [...(queues.get(promptKey) ?? []), message.id]);
-  }
-  return queues;
-}
-
-function normalizePrompt(value: string | null | undefined): string {
-  return (
-    value
-      ?.trim()
-      .replace(/@(?=\S)/g, "")
-      .replace(/\s+/g, " ") ?? ""
-  );
 }
 
 const unmatchedActivityWarningKeys = new Set<string>();

@@ -108,22 +108,35 @@ describe("DefaultGitService", () => {
     });
   });
 
-  it("reads repo identity from the canonical config path", async () => {
+  it("reads repo identity from the canonical config snapshot", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
-      stdout: "git@github.com:Shadowbox/App.git\n",
+      stdout: "remote.origin.url\ngit@github.com:Shadowbox/App.git\0",
       stderr: "",
     });
     const service = new DefaultGitService(executor);
 
-    await expect(service.getRepoIdentity({ workspace: WORKSPACE })).resolves.toBe(
-      "github.com/shadowbox/app",
-    );
-    expect(executor.calls[0]?.args).toEqual([
-      "config",
-      "--get",
-      "remote.origin.url",
-    ]);
+    await expect(
+      service.getRepoIdentity({ workspace: WORKSPACE }),
+    ).resolves.toBe("github.com/shadowbox/app");
+    expect(executor.calls[0]?.args).toEqual(["config", "--null", "--list"]);
+  });
+
+  it("returns null for missing config keys without running missing-key probes", async () => {
+    const executor = new FakeGitExecutor({
+      exitCode: 0,
+      stdout: "remote.origin.url\ngit@github.com:Shadowbox/App.git\0",
+      stderr: "",
+    });
+    const service = new DefaultGitService(executor);
+
+    await expect(
+      service.readConfigValue({
+        workspace: WORKSPACE,
+        key: "user.name",
+      }),
+    ).resolves.toBeNull();
+    expect(executor.calls[0]?.args).toEqual(["config", "--null", "--list"]);
   });
 
   it("reports line counts through canonical numstat commands", async () => {
@@ -184,7 +197,11 @@ describe("DefaultGitService", () => {
   it("returns a patch for an untracked file through git-service", async () => {
     const executor = new QueueGitExecutor([
       { exitCode: 0, stdout: "src/new.ts\n", stderr: "" },
-      { exitCode: 1, stdout: "diff --git a/src/new.ts b/src/new.ts\n", stderr: "" },
+      {
+        exitCode: 1,
+        stdout: "diff --git a/src/new.ts b/src/new.ts\n",
+        stderr: "",
+      },
     ]);
     const service = new DefaultGitService(executor);
 
@@ -320,9 +337,9 @@ describe("DefaultGitService", () => {
       workspace: WORKSPACE,
       branchName: "main",
     });
-    await expect(service.listBranches({ workspace: WORKSPACE })).resolves.toEqual(
-      { output: "* main\n" },
-    );
+    await expect(
+      service.listBranches({ workspace: WORKSPACE }),
+    ).resolves.toEqual({ output: "* main\n" });
 
     expect(executor.calls.map((call) => call.args)).toEqual([
       ["pull", "--ff-only", "origin", "main"],

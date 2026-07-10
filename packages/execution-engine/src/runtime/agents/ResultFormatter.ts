@@ -54,7 +54,7 @@ export function extractExecutionFailure(result: unknown): string | null {
   }
 
   if (result.success === false) {
-    const explicitError = readStringField(result.error);
+    const explicitError = readErrorMessage(result.error);
     if (explicitError) {
       return redactInternalRuntimeDetails(explicitError);
     }
@@ -83,12 +83,22 @@ function buildExecutionStatusFailure(
   result: Record<string, unknown>,
 ): string {
   const message =
-    readStringField(result.error) ??
+    readErrorMessage(result.error) ??
     readStringField(result.message) ??
     readStringField(result.stderr) ??
     readStringField(result.output) ??
     defaultExecutionStatusMessage(code);
   return `${code}: ${redactInternalRuntimeDetails(message)}`;
+}
+
+function readErrorMessage(error: unknown): string | null {
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+  if (isRecord(error)) {
+    return readStringField(error.message) ?? readStringField(error.code);
+  }
+  return null;
 }
 
 function defaultExecutionStatusMessage(

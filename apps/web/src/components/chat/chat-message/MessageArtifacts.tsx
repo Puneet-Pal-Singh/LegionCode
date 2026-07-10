@@ -1,5 +1,11 @@
 import type { Message } from "@ai-sdk/react";
+import { z } from "zod";
 import { ArtifactPreview } from "../ArtifactPreview";
+
+const codeArtifactArgsSchema = z.object({
+  path: z.string().optional(),
+  content: z.string().optional(),
+});
 
 export function MessageArtifacts({
   message,
@@ -31,13 +37,6 @@ function toArtifactArgs(value: unknown): {
   path?: string;
   content?: string;
 } {
-  if (!value || typeof value !== "object") {
-    return {};
-  }
-
-  const record = value as Record<string, unknown>;
-  return {
-    path: typeof record.path === "string" ? record.path : undefined,
-    content: typeof record.content === "string" ? record.content : undefined,
-  };
+  const parsed = codeArtifactArgsSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
 }

@@ -10,6 +10,9 @@ import {
 
 describe("RunEngineReliabilityPolicy", () => {
   it("persists and emits a sanitized final summary for failed runs", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const run = new Run("run_100000", "session-1", "RUNNING", "coding", {
       agentType: "coding",
       prompt: "run tests",
@@ -48,6 +51,11 @@ describe("RunEngineReliabilityPolicy", () => {
       "runtime exploded at https://internal/errors/123",
       25,
     );
+    expect(consoleError).toHaveBeenCalledWith(
+      "[run/engine] Run run_100000 failed:",
+      "runtime exploded at https://internal/errors/123",
+    );
+    consoleError.mockRestore();
   });
 
   it("fails fast when memory persistence fails", async () => {

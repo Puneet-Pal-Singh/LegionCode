@@ -15,7 +15,11 @@ vi.mock("../auth/GitHubLoginButton", () => ({
 }));
 
 vi.mock("../navigation/TopEnvironmentSummary", () => ({
-  TopEnvironmentSummary: () => <button type="button">Toggle summary</button>,
+  TopEnvironmentSummary: ({ enabled }: { enabled?: boolean }) => (
+    <button type="button" data-enabled={String(enabled)}>
+      Toggle summary
+    </button>
+  ),
 }));
 
 const environmentSummary = {
@@ -91,5 +95,19 @@ describe("TopNavBar", () => {
     expect(screen.getByTestId("top-nav-actions")).toHaveStyle({
       marginRight: "520px",
     });
+  });
+
+  it("passes environment summary probe gating through to the summary control", () => {
+    render(
+      <TopNavBar
+        isAuthenticated
+        environmentSummary={{ ...environmentSummary, enabled: false }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Toggle summary" })).toHaveAttribute(
+      "data-enabled",
+      "false",
+    );
   });
 });

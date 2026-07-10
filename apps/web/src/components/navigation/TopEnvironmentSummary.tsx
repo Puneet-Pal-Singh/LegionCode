@@ -7,6 +7,7 @@ interface TopEnvironmentSummaryProps {
   runId: string;
   repo: Repository | null;
   branch: string;
+  enabled?: boolean;
   onBranchChange: (branch: string) => void;
   onOpenChanges: () => void;
   onOpenCommit: () => void;
@@ -17,6 +18,7 @@ export function TopEnvironmentSummary({
   runId,
   repo,
   branch,
+  enabled = true,
   onBranchChange,
   onOpenChanges,
   onOpenCommit,
@@ -24,7 +26,7 @@ export function TopEnvironmentSummary({
   const { status } = useGitStatus(
     runId,
     sessionId,
-    Boolean(runId && sessionId),
+    Boolean(enabled && runId && sessionId),
   );
   return (
     <EnvironmentSummaryMenu

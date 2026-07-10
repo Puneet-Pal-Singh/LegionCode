@@ -503,7 +503,8 @@ describe("GitPlugin", () => {
       if (args.includes("--git-path")) {
         return {
           exitCode: 0,
-          stdout: "/home/sandbox/runs/run_snapshot/.git/index.legioncode-turn\n",
+          stdout:
+            "/home/sandbox/runs/run_snapshot/.git/index.legioncode-turn\n",
           stderr: "",
         };
       }
@@ -533,7 +534,9 @@ describe("GitPlugin", () => {
       expect.arrayContaining(["rev-parse", "--git-path"]),
     );
     expect(
-      gitCalls.slice(1, 4).every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
+      gitCalls
+        .slice(1, 4)
+        .every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
     ).toBe(true);
   });
 
@@ -714,11 +717,12 @@ describe("GitPlugin", () => {
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (args.includes("user.name") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "Random User", stderr: "" };
-      }
-      if (args.includes("user.email") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "random@example.com", stderr: "" };
+      if (args.includes("--null") && args.includes("--list")) {
+        return {
+          exitCode: 0,
+          stdout: "user.name\nRandom User\0user.email\nrandom@example.com\0",
+          stderr: "",
+        };
       }
       if (args.includes("--porcelain=v2")) {
         return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
@@ -846,11 +850,12 @@ describe("GitPlugin", () => {
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (args.includes("user.name") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "Puneet Singh", stderr: "" };
-      }
-      if (args.includes("user.email") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "puneet@example.com", stderr: "" };
+      if (args.includes("--null") && args.includes("--list")) {
+        return {
+          exitCode: 0,
+          stdout: "user.name\nPuneet Singh\0user.email\npuneet@example.com\0",
+          stderr: "",
+        };
       }
       if (args.includes("--porcelain=v2")) {
         return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
@@ -880,16 +885,18 @@ describe("GitPlugin", () => {
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (args.includes("user.name") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "Existing User", stderr: "" };
-      }
-      if (args.includes("user.email") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "existing@example.com", stderr: "" };
+      if (args.includes("--null") && args.includes("--list")) {
+        return {
+          exitCode: 0,
+          stdout:
+            "user.name\nExisting User\0user.email\nexisting@example.com\0",
+          stderr: "",
+        };
       }
       if (args.includes("--porcelain=v2")) {
         return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
       }
-      if (args.includes("user.name") && !args.includes("--get")) {
+      if (args.includes("user.name") && !args.includes("--list")) {
         return { exitCode: 1, stdout: "", stderr: "write failed" };
       }
       return { exitCode: 0, stdout: "", stderr: "" };
