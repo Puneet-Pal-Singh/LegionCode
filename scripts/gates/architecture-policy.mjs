@@ -32,6 +32,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
 
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
+    "@repo/observability",
     "@repo/persistence",
     "@repo/platform-protocol",
     "@repo/provider-core",
