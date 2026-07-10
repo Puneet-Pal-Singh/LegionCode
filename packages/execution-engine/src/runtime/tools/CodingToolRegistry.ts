@@ -137,6 +137,13 @@ export interface ToolExecutionContext {
     plugin: ToolGatewayRoute["plugin"],
     action: string,
     input: Record<string, unknown>,
+    options?: {
+      onOutput?: (chunk: {
+        message: string;
+        source?: "stdout" | "stderr";
+        timestamp?: number;
+      }) => Promise<void> | void;
+    },
   ): Promise<unknown>;
 }
 
@@ -1218,8 +1225,9 @@ export function isCodingToolId(value: string): value is CodingToolId {
 }
 
 export function isMutatingCodingToolId(toolName: string): boolean {
-  return getCodingToolDefinition(toolName)?.permission.mode ===
-    "approval_required";
+  return (
+    getCodingToolDefinition(toolName)?.permission.mode === "approval_required"
+  );
 }
 
 export function getCodingToolRoute(toolName: string): ToolGatewayRoute | null {

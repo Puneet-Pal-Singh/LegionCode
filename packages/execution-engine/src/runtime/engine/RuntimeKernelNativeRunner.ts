@@ -121,11 +121,13 @@ import type {
   RunEngineDependencies,
   RunEngineOptions,
 } from "./RunEngineTypes.js";
-import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
+import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
+import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
+import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -234,7 +236,10 @@ export class RuntimeKernelNativeRunner {
     if (run.metadata.manifest?.mode !== "build") {
       return await this.executePlanMode(run, input.input);
     }
-    const bootstrapResponse = await this.prepareBuildWorkspace(run, input.input);
+    const bootstrapResponse = await this.prepareBuildWorkspace(
+      run,
+      input.input,
+    );
     if (bootstrapResponse) {
       return bootstrapResponse;
     }
@@ -287,11 +292,28 @@ export class RuntimeKernelNativeRunner {
       runEventRecorder: this.runEventRecorder,
       isRunCancelled: this.isRunCancelled.bind(this),
     });
+    const capabilityManifest = createCloudSandboxRunCapabilityManifest({
+      runId: protocol.run.id,
+      workspaceRoot: protocol.manifest.filesystemRoot,
+      availableToolIds: Object.keys(runtimeTools),
+      providerId: input.input.providerId,
+      modelId: input.input.runtimeModelId ?? input.input.modelId,
+    });
     const worker = new KernelToolWorker({
       executionService,
       runEventRecorder: this.runEventRecorder,
       tracker: provider,
       isRunCancelled: this.isRunCancelled.bind(this),
+      toolGateway: new RuntimeToolGateway({
+        executor: executionService,
+        manifest: capabilityManifest,
+        scope: new RuntimeWorkspaceScope({
+          runId: protocol.run.id,
+          runAttemptId: protocol.runAttemptId,
+          workspaceId: protocol.manifest.workspaceId,
+          root: protocol.manifest.filesystemRoot,
+        }),
+      }),
     });
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
@@ -400,6 +422,7 @@ export class RuntimeKernelNativeRunner {
             },
           ),
         );
+        await kernel.interruptTurn(protocol.turn.id, "Run cancelled by user.");
         provider.recordCancelled();
         recordAgenticLoopMetadata(run, provider.buildResult());
         return createStreamResponse("");
@@ -492,8 +515,7 @@ export class RuntimeKernelNativeRunner {
       blocked: bootstrapEvaluation.blocked,
       message: bootstrapEvaluation.message ?? undefined,
       expectedMiss: bootstrapEvaluation.expectedMiss,
-      clonedDuringBootstrap:
-        bootstrapEvaluation.clonedDuringBootstrap ?? false,
+      clonedDuringBootstrap: bootstrapEvaluation.clonedDuringBootstrap ?? false,
       recordedAt: new Date().toISOString(),
     };
     await this.runRepo.update(run);
@@ -1136,6 +1158,7 @@ class KernelToolWorker implements WorkerProtocolPort {
       runEventRecorder: RunEventRecorder;
       tracker: KernelAgenticProvider;
       isRunCancelled: () => Promise<boolean>;
+      toolGateway: RuntimeToolGateway;
     },
   ) {}
 
@@ -1166,23 +1189,29 @@ class KernelToolWorker implements WorkerProtocolPort {
     });
     let result: TaskResult;
     try {
-      result = await runWithNativeCancellationPolling(
-        executeAgenticLoopTool(this.options.executionService, {
+      const gatewayResult = await runWithNativeCancellationPolling(
+        this.options.toolGateway.execute({
           taskId: input.toolCall.toolCallId,
           toolName,
           toolInput: {
             description: `Execute ${toolName}`,
             ...input.toolCall.input,
           },
-          onOutputAppended: async (chunk) => {
+          onOutput: async (chunk) => {
             await this.options.runEventRecorder.recordToolOutputAppended(
               { id: input.toolCall.toolCallId, type: toolName },
-              chunk,
+              {
+                stdoutDelta:
+                  chunk.source === "stderr" ? undefined : chunk.message,
+                stderrDelta:
+                  chunk.source === "stderr" ? chunk.message : undefined,
+              },
             );
           },
         }),
         this.options.isRunCancelled,
       );
+      result = gatewayResult.result;
     } catch (error) {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
       const message = normalizeToolExecutionErrorMessage(toolName, error);
