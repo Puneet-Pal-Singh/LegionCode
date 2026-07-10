@@ -7,7 +7,7 @@ import {
 } from "./FinalAssistantMessageService.js";
 
 describe("FinalAssistantMessageService", () => {
-  it("preserves substantive model-authored final text", () => {
+  it("does not treat raw model text as a final transcript part", () => {
     const result = new FinalAssistantMessageService().build({
       runId: "run-1",
       sessionId: "session-1",
@@ -15,11 +15,10 @@ describe("FinalAssistantMessageService", () => {
       modelText: "\n\nDone. I updated the requested files.\n",
     });
 
-    expect(result.content).toBe("Done. I updated the requested files.");
-    expect(result.source).toBe("model");
+    expect(result.source).toBe("runtime");
     expect(result.metadata).toMatchObject({
       terminalState: RUN_TERMINAL_STATES.COMPLETED,
-      finalMessageSource: "model",
+      finalMessageSource: "runtime",
     });
   });
 
@@ -68,7 +67,7 @@ describe("FinalAssistantMessageService", () => {
       normalizeFinalAssistantText(
         "<analysis>private note</analysis>\nDone. The update is complete.",
       ),
-    ).toBe("Done. The update is complete.");
+    ).toBe("");
   });
 
   it("does not extract final copy from leaked provider reasoning", () => {
@@ -76,9 +75,7 @@ describe("FinalAssistantMessageService", () => {
       normalizeFinalAssistantText(
         'Looking at the previous turn, the user asked "Hey say ok?" and I responded with internal text.\n\nThe user is likely testing responsiveness.\n\nI will simply respond "ok" again, but this time without the internal monologue in the final output.ok',
       ),
-    ).toBe(
-      'Looking at the previous turn, the user asked "Hey say ok?" and I responded with internal text.\n\nThe user is likely testing responsiveness.\n\nI will simply respond "ok" again, but this time without the internal monologue in the final output.ok',
-    );
+    ).toBe("");
   });
 
   it("keeps legacy plain text instead of guessing hidden intent", () => {
@@ -86,9 +83,7 @@ describe("FinalAssistantMessageService", () => {
       normalizeFinalAssistantText(
         "I don't need to use any tools for this.I'm doing well, thank you for asking! I'm ready to help you with your project.",
       ),
-    ).toBe(
-      "I don't need to use any tools for this.I'm doing well, thank you for asking! I'm ready to help you with your project.",
-    );
+    ).toBe("");
   });
 
   it("rejects dense labeled planning outlines instead of extracting direct-answer lines", () => {
@@ -126,6 +121,12 @@ describe("FinalAssistantMessageService", () => {
         undefined,
         [
           {
+            id: "reasoning",
+            schemaVersion: 1,
+            runId: "run-1",
+            turnId: "turn-1",
+            sequence: 0,
+            createdAt: "2026-07-10T00:00:00.000Z",
             type: "reasoning",
             visibility: "audit_only",
             text: [
@@ -142,8 +143,8 @@ describe("FinalAssistantMessageService", () => {
   it("renders explicit typed final parts", () => {
     expect(
       normalizeFinalAssistantText(undefined, [
-        { type: "reasoning", visibility: "audit_only", text: "private plan" },
-        { type: "final", text: "Done. I checked the requested file." },
+        { id: "reasoning", schemaVersion: 1, runId: "run-1", turnId: "turn-1", sequence: 0, createdAt: "2026-07-10T00:00:00.000Z", type: "reasoning", visibility: "audit_only", text: "private plan" },
+        { id: "final", schemaVersion: 1, runId: "run-1", turnId: "turn-1", sequence: 1, createdAt: "2026-07-10T00:00:00.000Z", type: "final", visibility: "visible", text: "Done. I checked the requested file." },
       ]),
     ).toBe("Done. I checked the requested file.");
   });
@@ -151,7 +152,7 @@ describe("FinalAssistantMessageService", () => {
   it("keeps substantive JSON instead of guessing intent", () => {
     const text = '{ "changedFiles": ["src/App.tsx"] }';
 
-    expect(normalizeFinalAssistantText(text)).toBe(text);
+    expect(normalizeFinalAssistantText(text)).toBe("");
     expect(isUnusableFinalAssistantText(text)).toBe(false);
   });
 

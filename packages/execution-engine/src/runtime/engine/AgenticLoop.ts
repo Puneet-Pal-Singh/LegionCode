@@ -318,7 +318,9 @@ export class AgenticLoop {
         break;
       }
 
-      const responseParts = response.parts;
+      // LLMGateway always supplies parts. An absent field is treated as an
+      // empty malformed provider result; raw response.text is never promoted.
+      const responseParts = response.parts ?? [];
       const responseText = projectVisibleTranscriptText(responseParts);
       console.log(
         formatRuntimeDiagnosticLogLine("agentic-loop/model", "completed", {
