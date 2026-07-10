@@ -50,6 +50,13 @@ interface SecureExecutionSessionResponse extends SecureExecutionSession {
   expiresAt: number;
 }
 
+interface SecureExecutionWorkspaceScope {
+  runId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
+}
+
 interface SecureExecutionTaskResponse {
   taskId: string;
   status: SecureExecutionStatus;
@@ -108,8 +115,13 @@ export class ExecutionService {
         source?: "stdout" | "stderr";
         timestamp?: number;
       }) => Promise<void> | void;
+      scope?: SecureExecutionWorkspaceScope;
     },
   ) {
+    const scope = options?.scope;
+    if (scope && scope.runId !== this.runId) {
+      throw new Error("Execution workspace scope does not belong to this run.");
+    }
     const executionAction = normalizeExecutionAction(plugin, action);
     let executionFinished = false;
     let logForwardingPromise: Promise<void> | null = null;
@@ -131,7 +143,7 @@ export class ExecutionService {
       );
 
       if (plugin === "git" && executionAction === "git_create_pull_request") {
-        return await this.executeGitCreatePullRequest(payload);
+        return await this.executeGitCreatePullRequest(payload, scope);
       }
 
       const executionResult = await this.executeSecureTask(
@@ -139,6 +151,7 @@ export class ExecutionService {
         executionAction,
         payload,
         options,
+        scope,
         () => executionFinished,
         (nextValue) => {
           executionFinished = nextValue;
@@ -335,11 +348,12 @@ export class ExecutionService {
           }) => Promise<void> | void;
         }
       | undefined,
+    scope: SecureExecutionWorkspaceScope | undefined,
     isFinished: () => boolean,
     setFinished: (value: boolean) => void,
   ): Promise<SecureExecutionTaskResponse> {
     const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
-    const executionSession = await this.getExecutionSession();
+    const executionSession = await this.getExecutionSession(scope);
     const taskId = createExecutionTaskId(plugin, action);
     const startedAt = Date.now();
     console.log(
@@ -378,7 +392,12 @@ export class ExecutionService {
             sessionId: executionSession.sessionId,
             taskId,
             action: `${plugin}.execute`,
-            params: { ...payload, runId: this.runId, action },
+            params: {
+              ...payload,
+              runId: this.runId,
+              action,
+              ...(scope ? { workspaceScope: scope } : {}),
+            },
             timeout: timeoutMs,
           }),
         },
@@ -444,6 +463,7 @@ export class ExecutionService {
 
   private async executeGitCreatePullRequest(
     payload: Record<string, unknown>,
+    scope: SecureExecutionWorkspaceScope | undefined,
   ): Promise<LegacyExecutionResult> {
     try {
       const request = parseGitPullRequestPayload(payload);
@@ -457,7 +477,12 @@ export class ExecutionService {
         };
       }
 
-      const gitStatusResult = await this.execute("git", "git_status", {});
+      const gitStatusResult = await this.execute(
+        "git",
+        "git_status",
+        {},
+        { scope },
+      );
       if (!gitStatusResult.success || !gitStatusResult.output) {
         return {
           success: false,
@@ -520,9 +545,11 @@ export class ExecutionService {
     return await res.text();
   }
 
-  private async getExecutionSession(): Promise<SecureExecutionSession> {
+  private async getExecutionSession(
+    scope: SecureExecutionWorkspaceScope | undefined,
+  ): Promise<SecureExecutionSession> {
     if (!this.executionSessionPromise) {
-      this.executionSessionPromise = this.createExecutionSession();
+      this.executionSessionPromise = this.createExecutionSession(scope);
     }
 
     try {
@@ -533,7 +560,9 @@ export class ExecutionService {
     }
   }
 
-  private async createExecutionSession(): Promise<SecureExecutionSession> {
+  private async createExecutionSession(
+    scope: SecureExecutionWorkspaceScope | undefined,
+  ): Promise<SecureExecutionSession> {
     for (
       let attempt = 1;
       attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
@@ -548,7 +577,8 @@ export class ExecutionService {
           body: JSON.stringify({
             runId: this.runId,
             taskId: createSessionTaskId(this.sessionId),
-            repoPath: EXECUTION_SESSION_REPO_PATH,
+            repoPath: scope?.root ?? EXECUTION_SESSION_REPO_PATH,
+            ...(scope ? { workspaceScope: scope } : {}),
           }),
         },
         DEFAULT_EXECUTION_TIMEOUT_MS,

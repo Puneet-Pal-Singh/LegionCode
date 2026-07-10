@@ -300,7 +300,6 @@ export class RuntimeKernelNativeRunner {
       modelId: input.input.runtimeModelId ?? input.input.modelId,
     });
     const worker = new KernelToolWorker({
-      executionService,
       runEventRecorder: this.runEventRecorder,
       tracker: provider,
       isRunCancelled: this.isRunCancelled.bind(this),
@@ -1154,7 +1153,6 @@ async function runWithNativeCancellationPolling<T>(
 class KernelToolWorker implements WorkerProtocolPort {
   constructor(
     private readonly options: {
-      executionService: RuntimeExecutionService;
       runEventRecorder: RunEventRecorder;
       tracker: KernelAgenticProvider;
       isRunCancelled: () => Promise<boolean>;
