@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import type { DiffContent } from "@repo/shared-types";
 import { useRunContext } from "../../hooks/useRunContext";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
@@ -29,6 +30,7 @@ export function GitReviewProvider({
   isReviewActive = false,
   isReviewDataEnabled = true,
   isGitWorkspaceRecovering = false,
+  canonicalTurnReview = null,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
   const shouldLoadReviewData =
@@ -62,6 +64,7 @@ export function GitReviewProvider({
     runId: runId ?? undefined,
     sessionId: sessionId ?? undefined,
     liveGitFiles,
+    canonicalTurnReview,
     enabled: shouldLoadReviewData,
   });
   const {
@@ -83,27 +86,62 @@ export function GitReviewProvider({
   } = artifactDiffState;
   const reviewFiles = useMemo(
     () =>
-      reviewSource.kind === "prompt_artifact"
+      reviewSource.kind === "turn_diff"
+        ? (canonicalTurnReview?.files ?? EMPTY_FILE_STATUSES)
+        : reviewSource.kind === "prompt_artifact"
         ? mapArtifactFilesToStatus(promptArtifactSource?.files ?? [])
         : liveGitFiles,
-    [liveGitFiles, promptArtifactSource?.files, reviewSource.kind],
+    [canonicalTurnReview?.files, liveGitFiles, promptArtifactSource?.files, reviewSource.kind],
   );
+  const [turnDiffState, setTurnDiffState] = useState<{
+    turnId: string | null;
+    diff: DiffContent | null;
+  }>({ turnId: null, diff: null });
+  const turnDiffTurnId =
+    reviewSource.kind === "turn_diff" ? reviewSource.turnId : null;
+  const fetchTurnDiff = useCallback(
+    async (path: string): Promise<void> => {
+      const file = reviewFiles.find((candidate) => candidate.path === path);
+      if (!canonicalTurnReview || !file) return;
+      setTurnDiffState({
+        turnId: canonicalTurnReview.turnId,
+        diff: await canonicalTurnReview.loadFileDiff(file),
+      });
+    },
+    [canonicalTurnReview, reviewFiles],
+  );
+  const turnDiff =
+    turnDiffState.turnId === turnDiffTurnId ? turnDiffState.diff : null;
   const diff =
-    reviewSource.kind === "prompt_artifact" ? artifactDiff : liveDiff;
+    reviewSource.kind === "turn_diff"
+      ? turnDiff
+      : reviewSource.kind === "prompt_artifact"
+        ? artifactDiff
+        : liveDiff;
   const activeDiffLoading =
-    reviewSource.kind === "prompt_artifact"
-      ? artifactDiffLoading
-      : liveDiffLoading;
+    reviewSource.kind === "turn_diff"
+      ? false
+      : reviewSource.kind === "prompt_artifact"
+        ? artifactDiffLoading
+        : liveDiffLoading;
   const activeDiffError =
-    reviewSource.kind === "prompt_artifact" ? artifactDiffError : liveDiffError;
+    reviewSource.kind === "turn_diff"
+      ? (canonicalTurnReview?.error ?? null)
+      : reviewSource.kind === "prompt_artifact"
+        ? artifactDiffError
+        : liveDiffError;
   const diffLoading =
-    reviewSource.kind === "prompt_artifact"
-      ? artifactDiffLoading || reviewSourceLoading
-      : liveDiffLoading;
+    reviewSource.kind === "turn_diff"
+      ? false
+      : reviewSource.kind === "prompt_artifact"
+        ? artifactDiffLoading || reviewSourceLoading
+        : liveDiffLoading;
   const diffError =
-    reviewSource.kind === "prompt_artifact"
-      ? (artifactDiffError ?? reviewSourceError)
-      : liveDiffError;
+    reviewSource.kind === "turn_diff"
+      ? (canonicalTurnReview?.error ?? null)
+      : reviewSource.kind === "prompt_artifact"
+        ? (artifactDiffError ?? reviewSourceError)
+        : liveDiffError;
   const stagedFiles = useMemo(
     () => collectStagedFilePaths(status?.files ?? []),
     [status?.files],
@@ -114,6 +152,7 @@ export function GitReviewProvider({
     reviewSourceKind: reviewSource.kind,
     fetchLiveDiff,
     fetchArtifactDiff,
+    fetchTurnDiff,
   });
   const currentDiffFingerprint = useMemo(
     () => (diff ? buildDiffFingerprint(diff) : null),
@@ -127,6 +166,7 @@ export function GitReviewProvider({
     currentDiffFingerprint,
   });
   const stageActions = useReviewStageActions({
+    canMutateGit: reviewSource.kind === "live_git",
     runId,
     sessionId,
     files: status?.files ?? [],
@@ -152,6 +192,7 @@ export function GitReviewProvider({
     reviewSourceKind: reviewSource.kind,
     fetchLiveDiff,
     fetchArtifactDiff,
+    fetchTurnDiff,
   });
   const openLiveGitReview = useCallback((): void => {
     openLiveGitReviewSource();
@@ -194,6 +235,10 @@ export function GitReviewProvider({
       authorEmail?: string;
       files?: string[];
     }): Promise<boolean> => {
+      if (reviewSource.kind !== "live_git") {
+        stageActions.setStageError("Canonical turn review is read-only.");
+        return false;
+      }
       stageActions.setStageError(null);
       const message =
         commitMessage.trim() || generateCommitMessage(status?.files ?? []);
@@ -222,6 +267,7 @@ export function GitReviewProvider({
       commitMessage,
       fileSelection,
       refetch,
+      reviewSource.kind,
       stagedFiles,
       stageActions,
       status?.files,

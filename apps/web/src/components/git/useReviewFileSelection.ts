@@ -4,9 +4,10 @@ import type { FileStatus } from "@repo/shared-types";
 interface UseReviewFileSelectionInput {
   files: FileStatus[];
   stagedFiles: Set<string>;
-  reviewSourceKind: "live_git" | "prompt_artifact";
+  reviewSourceKind: "live_git" | "prompt_artifact" | "turn_diff";
   fetchLiveDiff: (path: string, staged: boolean) => Promise<void>;
   fetchArtifactDiff: (path: string) => Promise<void>;
+  fetchTurnDiff: (path: string) => Promise<void>;
 }
 
 export function useReviewFileSelection({
@@ -15,6 +16,7 @@ export function useReviewFileSelection({
   reviewSourceKind,
   fetchLiveDiff,
   fetchArtifactDiff,
+  fetchTurnDiff,
 }: UseReviewFileSelectionInput) {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const activeSelectedFilePath = selectedFilePath ?? files[0]?.path ?? null;
@@ -34,9 +36,14 @@ export function useReviewFileSelection({
         return;
       }
 
+      if (reviewSourceKind === "turn_diff") {
+        await fetchTurnDiff(path);
+        return;
+      }
+
       await fetchLiveDiff(path, staged);
     },
-    [fetchArtifactDiff, fetchLiveDiff, reviewSourceKind],
+    [fetchArtifactDiff, fetchLiveDiff, fetchTurnDiff, reviewSourceKind],
   );
 
   const selectFile = useCallback(

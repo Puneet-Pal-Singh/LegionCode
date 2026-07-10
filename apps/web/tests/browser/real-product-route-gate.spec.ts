@@ -13,13 +13,30 @@ test.describe("real product route lifecycle gate", () => {
   }) => {
     await page.goto("/agents/");
     const composer = page.getByRole("textbox").last();
-    await composer.fill("Create the deterministic product-gate change.");
+    const prompt = "Create the deterministic product-gate change.";
+    await composer.fill(prompt);
     await page.getByRole("button", { name: "Send message" }).click();
 
+    await expect(page.getByText(prompt)).toBeVisible();
     await expect(page.getByTestId("lifecycle-workflow")).toBeVisible();
+    await expect(page.getByTestId("lifecycle-approval")).toBeVisible();
+    await page.getByRole("button", { name: /Allow once|Approve/i }).click();
+    await expect(
+      page.locator(
+        '[data-testid^="lifecycle-item-"][data-kind="tool_call"], [data-testid^="lifecycle-item-"][data-kind="command_execution"], [data-testid^="lifecycle-item-"][data-kind="file_change"]',
+      ),
+    ).toBeVisible();
     await expect(page.getByTestId("lifecycle-terminal-settled")).toBeVisible({
       timeout: 120_000,
     });
+    await expect(page.getByTestId("completed-turn-review")).toBeVisible();
+    await page
+      .getByTestId("completed-turn-review")
+      .getByRole("button", { name: "Review" })
+      .click();
+    await expect(
+      page.getByTestId("canonical-turn-review-sidebar"),
+    ).toBeVisible();
     const terminalState = await page
       .getByTestId("lifecycle-terminal-settled")
       .textContent();

@@ -119,6 +119,14 @@ export function ChatInterface({
     enabled: !activeTurn.hasCanonicalTurn && !isLoading,
   });
   const activeRunLoading = activeTurn.isActive || activeTurn.isTransportPending;
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "assistant") {
+        return messages[index]?.id ?? null;
+      }
+    }
+    return null;
+  }, [messages]);
   const {
     status: gitStatus,
     selectedReviewComments,
@@ -182,7 +190,10 @@ export function ChatInterface({
     lifecycleProjection,
     onPendingApprovalChange,
   });
-  const completedTurnReview = useCompletedTurnReview(lifecycleProjection);
+  const completedTurnReview = useCompletedTurnReview(
+    lifecycleProjection,
+    latestAssistantMessageId,
+  );
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
     [messages],
@@ -374,6 +385,7 @@ export function ChatInterface({
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
+      completedTurnReview={completedTurnReview}
       showThinking={showThinking}
       lifecycleProjection={lifecycleProjection}
       workflowDebug={

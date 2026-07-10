@@ -7,6 +7,7 @@ import { REVIEW_SOURCE_LABELS } from "../../services/review/ReviewSourceResolver
 interface ReviewScopeDropdownProps {
   value: ReviewScope;
   onChange: (scope: ReviewScope) => void;
+  canonicalAvailable?: boolean;
   className?: string;
 }
 
@@ -25,6 +26,11 @@ const REVIEW_SCOPE_OPTIONS: Array<{
     label: REVIEW_SOURCE_LABELS.prompt_artifact.scope,
     disabled: false,
   },
+  {
+    value: "turn-diff",
+    label: REVIEW_SOURCE_LABELS.turn_diff.scope,
+    disabled: false,
+  },
   { value: "branch-changes", label: "Branch changes", disabled: true },
 ];
 
@@ -37,12 +43,16 @@ const DEFAULT_REVIEW_SCOPE_OPTION = REVIEW_SCOPE_OPTIONS[0] as {
 export function ReviewScopeDropdown({
   value,
   onChange,
+  canonicalAvailable = false,
   className,
 }: ReviewScopeDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const selectedOption =
     REVIEW_SCOPE_OPTIONS.find((option) => option.value === value) ??
     DEFAULT_REVIEW_SCOPE_OPTION;
+  const options = REVIEW_SCOPE_OPTIONS.filter(
+    (option) => option.value !== "turn-diff" || canonicalAvailable,
+  );
 
   return (
     <div className={cn("relative", className)}>
@@ -75,7 +85,7 @@ export function ReviewScopeDropdown({
             role="menu"
             className="absolute left-0 top-full z-[70] mt-1 min-w-52 rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl"
           >
-            {REVIEW_SCOPE_OPTIONS.map((option) => {
+            {options.map((option) => {
               const isSelected = option.value === value;
               return (
                 <button

@@ -235,7 +235,10 @@ function ChangedFilesCard({
   };
 
   return (
-    <div className="mt-5 overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]">
+    <div
+      data-testid="completed-turn-review"
+      className="mt-5 overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/65 shadow-[0_12px_30px_rgba(0,0,0,0.22)]"
+    >
       {/* Header */}
       <div
         className={cn(

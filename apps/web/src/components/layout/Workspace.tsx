@@ -40,6 +40,7 @@ import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
 import { useActiveTurnProjection } from "../chat/chat-interface/useActiveTurnProjection.js";
+import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -179,6 +180,18 @@ export function Workspace({
     turnId: serverTurnId,
     transportLoading: isLoading,
   });
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "assistant") {
+        return messages[index]?.id ?? null;
+      }
+    }
+    return null;
+  }, [messages]);
+  const completedTurnReview = useCompletedTurnReview(
+    activeTurn.projection,
+    latestAssistantMessageId,
+  );
   const { summary: runSummary } = useRunSummary(
     activeRunId,
     !activeTurn.hasCanonicalTurn && !isLoading,
@@ -212,15 +225,16 @@ export function Workspace({
       deriveWorkspaceRunUiState({
         canonicalRunStatus,
         hasPendingApproval,
-        isChatLoading: isLoading,
+        isChatLoading: activeTurn.isTransportPending,
         isSessionRunning,
         isLocallyStoppedRun,
-        lastMessage,
+        lastMessage: activeTurn.hasCanonicalTurn ? undefined : lastMessage,
       }),
     [
+      activeTurn.hasCanonicalTurn,
+      activeTurn.isTransportPending,
       canonicalRunStatus,
       hasPendingApproval,
-      isLoading,
       isLocallyStoppedRun,
       isSessionRunning,
       lastMessage,
@@ -282,7 +296,7 @@ export function Workspace({
       summaryMatches: runSummaryMatchesActiveRun,
       pendingApproval: hasPendingApproval,
       pendingApprovalRequestId,
-      chatLoading: isLoading,
+      chatLoading: activeTurn.isTransportPending,
       sessionRunning: isSessionRunning,
       locallyStopped: isLocallyStoppedRun,
       runLoading: isRunLoading,
@@ -296,7 +310,7 @@ export function Workspace({
     canonicalRunStatus,
     hasPendingApproval,
     isApprovalWaitingRun,
-    isLoading,
+    activeTurn.isTransportPending,
     isLocallyStoppedRun,
     isRunLoading,
     isSessionRunning,
@@ -369,7 +383,7 @@ export function Workspace({
     pendingApprovalRequestId,
     isStaleCanonicalActiveRun,
     isEffectiveCanonicalRunActive,
-    isLoading,
+    isLoading: activeTurn.isTransportPending,
     chatError,
     hasPendingApproval,
     isLocallyStoppedRun,
@@ -440,6 +454,16 @@ export function Workspace({
         isReviewDataEnabled={passiveGitProbeEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={isGitWorkspaceRecovering}
+        canonicalTurnReview={
+          completedTurnReview.turnId
+            ? {
+                turnId: completedTurnReview.turnId,
+                files: completedTurnReview.files,
+                loadFileDiff: completedTurnReview.loadFileDiff,
+                error: completedTurnReview.error,
+              }
+            : null
+        }
       >
         <div className="ui-center-surface flex-1 flex overflow-hidden relative">
           {/* Chat Area */}

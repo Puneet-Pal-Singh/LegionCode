@@ -31,6 +31,7 @@ export function ReviewDiffToolbar({
   onReviewChanges,
   isFilesOpen = false,
   onToggleFiles,
+  canonicalAvailable = false,
 }: {
   reviewScope: ReviewScope;
   onReviewScopeChange: (scope: ReviewScope) => void;
@@ -47,6 +48,7 @@ export function ReviewDiffToolbar({
   onReviewChanges?: () => void;
   isFilesOpen?: boolean;
   onToggleFiles?: () => void;
+  canonicalAvailable?: boolean;
 }) {
   const [showViewMenu, setShowViewMenu] = useState(false);
   const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -65,6 +67,7 @@ export function ReviewDiffToolbar({
         <ReviewScopeDropdown
           value={reviewScope}
           onChange={onReviewScopeChange}
+          canonicalAvailable={canonicalAvailable}
         />
       </div>
       <div className="flex items-center gap-2">

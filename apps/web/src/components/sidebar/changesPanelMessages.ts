@@ -20,6 +20,10 @@ export function getEmptyReviewLabel({
       : (reviewSourceError ?? "No saved changes for the last turn");
   }
 
+  if (reviewScope === "turn-diff") {
+    return reviewSourceError ?? "No canonical changes for the last turn";
+  }
+
   if (reviewSourceReason === "explicit") {
     return "No Git changes";
   }

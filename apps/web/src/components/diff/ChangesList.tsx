@@ -17,6 +17,7 @@ interface ChangesListProps {
   emptyLabel?: string;
   sourceBadgeLabel?: string;
   searchable?: boolean;
+  canonicalAvailable?: boolean;
 }
 
 interface ChangeTreeNode {
@@ -37,6 +38,7 @@ export function ChangesList({
   emptyLabel = "No changes",
   sourceBadgeLabel,
   searchable = false,
+  canonicalAvailable = false,
 }: ChangesListProps) {
   const [query, setQuery] = useState("");
   const visibleFiles = useMemo(
@@ -66,9 +68,10 @@ export function ChangesList({
               deletions={stats.deletions}
             />
           </div>
-          <ReviewScopeDropdown
-            value={reviewScope}
-            onChange={onReviewScopeChange}
+        <ReviewScopeDropdown
+          value={reviewScope}
+          onChange={onReviewScopeChange}
+          canonicalAvailable={canonicalAvailable}
           />
         </div>
       ) : null}

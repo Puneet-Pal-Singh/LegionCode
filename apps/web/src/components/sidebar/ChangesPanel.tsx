@@ -83,7 +83,7 @@ export function ChangesPanel({
   }, [files, review]);
 
   if (
-    !isSavedEditMode &&
+    review.reviewSource.kind !== "turn_diff" &&
     (review.statusLoading || review.isGitWorkspaceRecovering) &&
     !review.status
   ) {
@@ -95,13 +95,17 @@ export function ChangesPanel({
     );
   }
 
-  if (!isSavedEditMode && review.statusError && !review.status) {
+  if (
+    review.reviewSource.kind !== "turn_diff" &&
+    review.statusError &&
+    !review.status
+  ) {
     return (
       <ReviewErrorState className={className} message={review.statusError} />
     );
   }
 
-  if (!isSavedEditMode && !review.gitAvailable) {
+  if (review.reviewSource.kind !== "turn_diff" && !review.gitAvailable) {
     return (
       <GitUnavailableState
         className={className}
@@ -124,8 +128,11 @@ export function ChangesPanel({
       onReviewScopeChange={review.setReviewScope}
       showToolbar={mode === "sidebar" && showToolbar}
       searchable
+      canonicalAvailable={review.reviewSource.kind === "turn_diff"}
       sourceBadgeLabel={
-        review.reviewScope === "prompt-artifact"
+        review.reviewScope === "turn-diff"
+          ? REVIEW_SOURCE_LABELS.turn_diff.badge
+          : review.reviewScope === "prompt-artifact"
           ? REVIEW_SOURCE_LABELS.prompt_artifact.badge
           : REVIEW_SOURCE_LABELS.live_git.badge
       }
@@ -135,6 +142,11 @@ export function ChangesPanel({
 
   return (
     <div
+      data-testid={
+        review.reviewSource.kind === "turn_diff"
+          ? "canonical-turn-review-sidebar"
+          : undefined
+      }
       className={`flex h-full min-h-0 flex-col overflow-visible bg-transparent ${
         mode === "modal"
           ? "p-0"
@@ -160,6 +172,7 @@ export function ChangesPanel({
           onReviewChanges={onReviewChanges}
           isFilesOpen={isFilesOpen}
           onToggleFiles={onToggleFiles}
+          canonicalAvailable={review.reviewSource.kind === "turn_diff"}
         />
       ) : null}
       <div

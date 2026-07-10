@@ -20,5 +20,9 @@ export function useHistoricalRunBackfill(input: {
   const { summary } = useRunSummary(runId, enabled);
   const { events } = useRunEvents(runId, enabled, 0);
   const { feed } = useRunActivityFeed(runId, enabled);
-  return { summary, events, feed };
+  return {
+    summary: enabled ? summary : null,
+    events: enabled ? events : [],
+    feed: enabled ? feed : null,
+  };
 }
