@@ -11,7 +11,7 @@ export function MessageArtifacts({
   return message.toolInvocations
     ?.filter((invocation) => invocation.toolName === "create_code_artifact")
     .map((invocation, index) => {
-      const args = invocation.args as Record<string, string | undefined>;
+      const args = toArtifactArgs(invocation.args);
       const path = args.path || "untitled";
       const content = args.content || "";
       if (!content) return null;
@@ -25,4 +25,19 @@ export function MessageArtifacts({
         />
       );
     });
+}
+
+function toArtifactArgs(value: unknown): {
+  path?: string;
+  content?: string;
+} {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    path: typeof record.path === "string" ? record.path : undefined,
+    content: typeof record.content === "string" ? record.content : undefined,
+  };
 }

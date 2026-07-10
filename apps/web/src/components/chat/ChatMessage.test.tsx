@@ -182,6 +182,86 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("Build · Gemma 4 31B · 12:40 AM")).toBeNull();
   });
 
+  it("renders code artifacts and forwards the open callback", () => {
+    const onArtifactOpen = vi.fn();
+    const message = {
+      id: "assistant-artifact",
+      role: "assistant",
+      content: "Here is the file.",
+      toolInvocations: [
+        {
+          toolCallId: "artifact-call",
+          toolName: "create_code_artifact",
+          args: { path: "src/index.ts", content: "export const value = 1;" },
+          state: "result",
+        },
+      ],
+    } as Message;
+
+    render(<ChatMessage message={message} onArtifactOpen={onArtifactOpen} />);
+
+    expect(screen.getByText("src/index.ts")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Open Full View"));
+    expect(onArtifactOpen).toHaveBeenCalledWith(
+      "src/index.ts",
+      "export const value = 1;",
+    );
+  });
+
+  it("forwards the changed-file review callback", () => {
+    const onReviewOpen = vi.fn();
+    const message = {
+      id: "assistant-review",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/index.ts",
+        status: "modified",
+        additions: 1,
+        deletions: 0,
+        isStaged: false,
+      },
+    ];
+
+    render(
+      <ChatMessage
+        message={message}
+        onReviewOpen={onReviewOpen}
+        changedFilesSummary={{ files }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(onReviewOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies assistant content through the action callback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const message = {
+      id: "assistant-copy",
+      role: "assistant",
+      content: "Copy this message.",
+    } as Message;
+
+    render(
+      <ChatMessage
+        message={message}
+        metadata={{ modeLabel: "Build", timeLabel: "12:42 AM" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Copy this message."),
+    );
+  });
+
   it("renders a changed files summary for assistant messages", () => {
     const message = {
       id: "assistant-changes",
@@ -322,6 +402,44 @@ describe("ChatMessage", () => {
       expect(screen.getAllByText("+2").length).toBeGreaterThan(0);
       expect(screen.getAllByText("-1").length).toBeGreaterThan(0);
     });
+  });
+
+  it("renders loading and error states from the supplied diff loader", async () => {
+    const message = {
+      id: "assistant-changes-error",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/index.tsx",
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+        isStaged: false,
+      },
+    ];
+    let rejectDiff: ((error: Error) => void) | undefined;
+    const loadFileDiff = vi.fn(
+      () =>
+        new Promise<DiffContent>((_resolve, reject) => {
+          rejectDiff = reject;
+        }),
+    );
+
+    render(
+      <ChatMessage
+        message={message}
+        changedFilesSummary={{ files, loadFileDiff }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /src\/index\.tsx/ }));
+    expect(screen.getByText("Loading diff...")).toBeInTheDocument();
+    rejectDiff?.(new Error("Unable to load diff"));
+    await waitFor(() =>
+      expect(screen.getByText("Unable to load diff")).toBeInTheDocument(),
+    );
   });
 
   it("does not let an empty loaded diff erase known changed file stats", async () => {
