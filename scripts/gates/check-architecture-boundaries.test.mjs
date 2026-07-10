@@ -161,7 +161,21 @@ test("rejects production imports of RunTurnModePolicy", async (context) => {
 
   assert.match(
     (await validateArchitecture(root)).join("\n"),
-    /must not import RunTurnModePolicy for product routing/,
+    /must not use deleted turn-mode\/direct-plan policy for product routing/,
+  );
+});
+
+test("rejects production imports of deleted RunDirectPlanPolicy", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "packages/execution-engine/src/runtime/engine/RunEngine.ts",
+    'import { buildDirectExecutionPlan } from "./RunDirectPlanPolicy.js";\n',
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /must not use deleted turn-mode\/direct-plan policy for product routing/,
   );
 });
 
@@ -175,7 +189,21 @@ test("rejects production imports of RunCurrentTurnIntent", async (context) => {
 
   assert.match(
     (await validateArchitecture(root)).join("\n"),
-    /must not import RunCurrentTurnIntent for prompt intent routing/,
+    /must not use prompt intent classifiers for product routing/,
+  );
+});
+
+test("rejects prompt-regex product route selection", async (context) => {
+  const root = await createFixture(context);
+  await writeSource(
+    root,
+    "packages/execution-engine/src/runtime/engine/RunEngine.ts",
+    'const route = /^(?:read|edit)/i.test(prompt) ? "plan" : "build";\n',
+  );
+
+  assert.match(
+    (await validateArchitecture(root)).join("\n"),
+    /must not route product behavior from prompt text/,
   );
 });
 
@@ -328,11 +356,6 @@ async function createFixture(context) {
       "export interface PermissionPolicy {}",
       "export interface PermissionRequest {}",
     ].join("\n"),
-  );
-  await writeSource(
-    fixtureRoot,
-    "packages/execution-engine/src/runtime/engine/RunCurrentTurnIntent.ts",
-    "export function classifyCurrentTurnIntent() { return 'read_only'; }\n",
   );
   await writeSource(
     fixtureRoot,

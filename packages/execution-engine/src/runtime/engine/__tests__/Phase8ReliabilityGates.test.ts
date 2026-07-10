@@ -1,9 +1,6 @@
 /**
  * Phase 8: Golden Scenario Reliability Tests
  * Tests the single-agent baseline under production-like conditions:
- * - Direct file read (concrete path)
- * - Direct file edit (concrete target)
- * - Bounded command execution
  * - Combined read+edit+test+git diff workflow
  * - Timeout handling
  * - Schema mismatch recovery
@@ -11,7 +8,6 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { buildDirectExecutionPlan } from "../RunDirectPlanPolicy.js";
 import { Run } from "../../run/Run.js";
 import { RunRepository } from "../../run/RunRepository.js";
 import { TaskRepository } from "../../task/TaskRepository.js";
@@ -81,61 +77,6 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
   beforeEach(() => {
     mockCtx = new MockDurableObjectState();
     runtimeState = tagRuntimeStateSemantics(mockCtx, "do");
-  });
-
-  describe("Golden Scenario: Direct File Read", () => {
-    it("should execute direct read_file with concrete path without planner", () => {
-      const plan = buildDirectExecutionPlan("read README.md");
-
-      expect(plan).not.toBeNull();
-      expect(plan?.tasks).toHaveLength(1);
-      expect(plan?.tasks[0].type).toBe("read_file");
-    });
-
-    it("should route direct read requests to action without LLM", () => {
-      const plan = buildDirectExecutionPlan(
-        "read packages/execution-engine/src/index.ts",
-      );
-
-      expect(plan).not.toBeNull();
-      expect(plan?.tasks[0].type).toBe("read_file");
-      expect(plan?.tasks[0].input).toHaveProperty("path");
-    });
-  });
-
-  describe("Golden Scenario: Direct File Edit", () => {
-    it("should execute direct write_file with concrete path without planner", () => {
-      const plan = buildDirectExecutionPlan(
-        "write README.md\n```md\n# Shadowbox\n```",
-      );
-
-      expect(plan).not.toBeNull();
-      expect(plan?.tasks[0].type).toBe("write_file");
-    });
-
-    it("should handle multi-step edit requests (requires planner)", () => {
-      const plan = buildDirectExecutionPlan(
-        "edit src/foo.ts to fix the bug and then run tests",
-      );
-
-      expect(plan).toBeNull();
-    });
-  });
-
-  describe("Golden Scenario: Bounded Command Execution", () => {
-    it("should execute bounded bash without planner", () => {
-      const plan = buildDirectExecutionPlan("pnpm test -- --run");
-
-      expect(plan).not.toBeNull();
-      expect(plan?.tasks[0].type).toBe("bash");
-    });
-
-    it("should route bounded commands to action without LLM", () => {
-      const plan = buildDirectExecutionPlan("pnpm build");
-
-      expect(plan).not.toBeNull();
-      expect(plan?.tasks[0].type).toBe("bash");
-    });
   });
 
   describe("Golden Scenario: Combined Workflow", () => {
