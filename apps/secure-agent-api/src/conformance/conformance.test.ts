@@ -24,6 +24,18 @@ import type {
   SandboxExecutionPort,
   SessionStatePort,
 } from "../ports";
+import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
+
+const CONFORMANCE_LEASE: SandboxExecutionLease = {
+  leaseId: "lease:conformance:attempt-1",
+  sandboxId: "workspace:conformance:attempt:attempt-1",
+  workspaceId: "conformance",
+  runAttemptId: "attempt-1",
+  owner: "conformance",
+  correlationId: "conformance-correlation",
+  expiresAt: Date.now() + 60_000,
+  mutationMode: "serialized",
+};
 
 interface DurableObjectStorageLike {
   get<T>(key: string): Promise<T | undefined>;
@@ -314,6 +326,7 @@ describe("Portability Conformance", () => {
         taskId: "task-1",
         action: "MockPlugin.execute",
         params: { action: "mock", command: "echo hi", runId: "run-1" },
+        lease: CONFORMANCE_LEASE,
       });
 
       expect(result.taskId).toBe("task-1");
@@ -326,6 +339,7 @@ describe("Portability Conformance", () => {
         taskId: "task-2",
         action: "MissingPlugin.execute",
         params: {},
+        lease: CONFORMANCE_LEASE,
       });
 
       expect(result.status).toBe("failure");
@@ -396,6 +410,7 @@ describe("Portability Conformance", () => {
           command: "echo backend",
           runId: "run-default",
         },
+        lease: CONFORMANCE_LEASE,
       });
 
       expect(result.status).toBe("success");

@@ -106,7 +106,10 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
       async executeTask(sessionId, input) {
         return {
           taskId: input.taskId,
+          leaseId: "lease:test:attempt-1",
+          correlationId: "test-correlation",
           status: "success",
+          retryable: false,
           output: `executed ${input.action} for ${sessionId}`,
           metrics: { duration: 12 },
         };
@@ -123,6 +126,12 @@ function createSessionRequest(): Request {
       runId: "run-auth-1",
       taskId: "task-auth-1",
       repoPath: "workspace/repo",
+      workspaceScope: {
+        runId: "run-auth-1",
+        runAttemptId: "attempt-auth-1",
+        workspaceId: "workspace-auth-1",
+        root: "/runs/auth-1",
+      },
     }),
   });
 }
@@ -194,6 +203,12 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
         action: "run",
         command: "echo hello",
         runId: "run-auth-1",
+        workspaceScope: {
+          runId: "run-auth-1",
+          runAttemptId: "attempt-auth-1",
+          workspaceId: "workspace-auth-1",
+          root: "/runs/auth-1",
+        },
       },
     }),
   });

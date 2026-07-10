@@ -21,6 +21,10 @@ import type {
 } from "../ports/SandboxExecutionPort";
 import type { RuntimeEventPublisher } from "../services/runtime-events/InternalRuntimeEventClient";
 import type { JsonValue } from "@repo/shared-types";
+import {
+  createSandboxLease,
+  type SandboxExecutionLease,
+} from "../ports/SandboxExecutionLease";
 
 type RuntimeStub = Record<string, unknown>;
 
@@ -35,6 +39,7 @@ interface SessionRecord {
   token: string;
   createdAt: number;
   workspaceScope?: WorkspaceScope;
+  lease: SandboxExecutionLease;
 }
 
 interface PublicSessionRecord {
@@ -44,6 +49,7 @@ interface PublicSessionRecord {
   expiresAt: number;
   createdAt: number;
   workspaceScope?: WorkspaceScope;
+  lease: SandboxExecutionLease;
 }
 
 interface WorkspaceScope {
@@ -78,6 +84,10 @@ interface RuntimeSessionStore {
   ) => Promise<SessionLogEntry[]>;
   deleteExecutionSession: (sessionId: string) => Promise<void>;
 }
+
+type LeaseRuntime = RuntimeStub & {
+  releaseLease?: (leaseId: string) => Promise<void>;
+};
 
 function generateSessionId(): string {
   const randomBytes = new Uint8Array(8);
@@ -163,7 +173,7 @@ async function storeSession(
   repoPath: string,
   token: string,
   workspaceScope?: WorkspaceScope,
-): Promise<number> {
+): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
     throw new Error("Session storage is unavailable");
@@ -171,6 +181,16 @@ async function storeSession(
 
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
+  if (!workspaceScope) {
+    throw new Error("workspaceScope is required for scoped sandbox execution");
+  }
+  const lease = createSandboxLease({
+    workspaceId: workspaceScope.workspaceId,
+    runAttemptId: workspaceScope.runAttemptId,
+    owner: sessionId,
+    correlationId: `secure-api:${sessionId}`,
+    now,
+  });
   await sessionStore.storeExecutionSession(sessionId, {
     runId,
     taskId,
@@ -179,8 +199,9 @@ async function storeSession(
     token,
     createdAt: now,
     workspaceScope,
+    lease,
   });
-  return expiresAt;
+  return { expiresAt, lease };
 }
 
 async function getActiveSession(
@@ -310,7 +331,9 @@ function parseExecutionResponse(result: unknown): ExecuteTaskResponse | null {
   return parsed.success ? parsed.data : null;
 }
 
-function toTaskExecutionInput(request: ExecuteTaskRequest): TaskExecutionInput {
+function toTaskExecutionInput(
+  request: ExecuteTaskRequest,
+): Omit<TaskExecutionInput, "lease"> {
   return {
     taskId: request.taskId,
     action: request.action,
@@ -318,6 +341,22 @@ function toTaskExecutionInput(request: ExecuteTaskRequest): TaskExecutionInput {
     timeout: request.timeout,
     retryable: request.retryable,
   };
+}
+
+function getExecutionHttpStatus(result: ExecuteTaskResponse): number {
+  if (result.status === "success") return 200;
+  if (result.status === "timeout") return 504;
+  if (result.status === "cancelled") return 499;
+  if (
+    result.error?.code === "SANDBOX_UNAVAILABLE" ||
+    result.error?.code === "SANDBOX_STARTUP_FAILED" ||
+    result.error?.code === "SANDBOX_ABORTED" ||
+    result.error?.code === "SANDBOX_TIMEOUT" ||
+    result.error?.code === "LEASE_EXPIRED"
+  ) {
+    return 503;
+  }
+  return 422;
 }
 
 function hasMatchingWorkspaceScope(
@@ -414,7 +453,7 @@ export async function handleCreateSession(
     const { runId, taskId, repoPath, workspaceScope } = validation.data;
     const sessionId = generateSessionId();
     const token = generateToken();
-    const expiresAt = await storeSession(
+    const storedSession = await storeSession(
       runtime,
       sessionId,
       runId,
@@ -428,7 +467,8 @@ export async function handleCreateSession(
     const response: Record<string, unknown> = {
       sessionId,
       token,
-      expiresAt,
+      expiresAt: storedSession.expiresAt,
+      lease: storedSession.lease,
     };
     if (manifest) {
       response.manifest = manifest;
@@ -511,7 +551,10 @@ export async function handleExecuteTask(
 
     const runtimeResult = await executionPort.executeTask(
       sessionId,
-      toTaskExecutionInput(validation.data),
+      {
+        ...toTaskExecutionInput(validation.data),
+        lease: auth.session.lease,
+      },
       {
         onLog: async (entry) => {
           await recordLog(
@@ -557,7 +600,7 @@ export async function handleExecuteTask(
     console.log(
       `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${executionResult.taskId} action=${validation.data.action} status=${executionResult.status} outputLength=${executionResult.output?.length ?? 0} durationMs=${executionResult.metrics?.duration ?? "none"} elapsedMs=${Date.now() - startedAt}`,
     );
-    return jsonResponse(executionResult, 200);
+    return jsonResponse(executionResult, getExecutionHttpStatus(executionResult));
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(
@@ -711,6 +754,10 @@ export async function handleDeleteSession(
       );
     }
 
+    const releaseLease = (runtime as LeaseRuntime).releaseLease;
+    if (typeof releaseLease === "function") {
+      await releaseLease(auth.session.lease.leaseId);
+    }
     await sessionStore.deleteExecutionSession(sessionId);
     console.log(
       `[api/delete-session] Session deleted: ${sessionId.substring(0, 8)}...`,

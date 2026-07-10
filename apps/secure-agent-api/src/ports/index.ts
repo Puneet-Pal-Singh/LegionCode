@@ -1,14 +1,17 @@
-/**
- * Secure Agent API ports - Canonical boundary contracts for execution.
- *
- * These ports implement the portability boundary architecture from:
- * - Charter 46: Product Architecture Charter
- * - Plan 59: Runtime Decompose/Decouple HLD
- * - PORTABILITY-BOUNDARY-DECOUPLING-PLAN
- */
-
-// Port type exports
-export type { SandboxExecutionPort, TaskExecutionInput, TaskExecutionResult } from "./SandboxExecutionPort";
+export type {
+  SandboxExecutionPort,
+  TaskExecutionInput,
+  TaskExecutionResult,
+} from "./SandboxExecutionPort";
+export type {
+  SandboxExecutionLease,
+  SandboxExecutionLeaseRequest,
+} from "./SandboxExecutionLease";
+export {
+  createSandboxLease,
+  isLeaseExpired,
+  workspaceLeaseKey,
+} from "./SandboxExecutionLease";
 export type {
   SessionStatePort,
   SessionState,

@@ -33,6 +33,7 @@ import type {
   TaskExecutionInput,
   TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
+import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 
 interface RuntimeSessionRecord {
@@ -48,6 +49,7 @@ interface RuntimeSessionRecord {
     workspaceId: string;
     root: string;
   };
+  lease: SandboxExecutionLease;
 }
 
 interface RuntimeSessionLogEntry {
@@ -62,8 +64,9 @@ const EXECUTION_SESSION_KEY_PREFIX = "execution:session:";
 const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
 
 export class AgentRuntime extends DurableObject {
-  private sandbox: Sandbox | null = null;
-  private composedRuntime: ComposedRuntime | null = null;
+  private sandboxes = new Map<string, Sandbox>();
+  private composedRuntimes = new Map<string, ComposedRuntime>();
+  private readyLeases = new Set<string>();
   private plugins: Map<string, IPlugin> = new Map();
   private stream = new StreamHandler();
   private storageService: StorageService;
@@ -92,52 +95,48 @@ export class AgentRuntime extends DurableObject {
   }
 
   // 2. SRP: Sandbox Lifecycle only
-  private async ensureSandbox(): Promise<Sandbox> {
-    if (!this.sandbox) {
-      const shortId = this.ctx.id.toString().substring(0, 50);
-      this.sandbox = getSandbox(this.env.Sandbox, shortId);
-
-      // Async boot - don't block the caller
-      this.bootPlugins();
+  private async ensureSandbox(lease: SandboxExecutionLease): Promise<Sandbox> {
+    let sandbox = this.sandboxes.get(lease.leaseId);
+    if (!sandbox) {
+      sandbox = getSandbox(this.env.Sandbox, lease.sandboxId);
+      this.sandboxes.set(lease.leaseId, sandbox);
     }
-    return this.sandbox;
+    if (!this.readyLeases.has(lease.leaseId)) {
+      await this.bootPlugins(sandbox);
+      this.readyLeases.add(lease.leaseId);
+    }
+    return sandbox;
   }
 
-  private async ensureComposedRuntime(): Promise<ComposedRuntime> {
-    if (this.composedRuntime) {
-      return this.composedRuntime;
+  private async ensureComposedRuntime(
+    lease: SandboxExecutionLease,
+  ): Promise<ComposedRuntime> {
+    const existing = this.composedRuntimes.get(lease.leaseId);
+    if (existing) {
+      return existing;
     }
 
-    const sandbox = await this.ensureSandbox();
-    this.composedRuntime = composeRuntime({
+    const sandbox = await this.ensureSandbox(lease);
+    const runtime = composeRuntime({
       durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
       sandbox,
       plugins: this.plugins,
       r2Bucket: this.artifactBucket,
+      executionLease: lease,
     });
-    return this.composedRuntime;
+    this.composedRuntimes.set(lease.leaseId, runtime);
+    return runtime;
   }
 
-  private async bootPlugins() {
-    if (!this.sandbox) return;
-
-    // Log to terminal console for you, but don't spam the user's UI terminal
-    console.log("[AgentRuntime] Booting plugins in background...");
+  private async bootPlugins(sandbox: Sandbox) {
+    console.log("[AgentRuntime] Booting plugins for scoped sandbox lease...");
 
     const promises = Array.from(this.plugins.values()).map(async (plugin) => {
       if (plugin.setup) {
-        await plugin.setup(this.sandbox!);
+        await plugin.setup(sandbox);
       }
     });
-
-    await Promise.all(promises).catch((e) => {
-      this.stream.broadcast(
-        "error",
-        "One or more background services failed to start.",
-      );
-    });
-
-    // Only one clean message to the user
+    await Promise.all(promises);
     this.stream.broadcast("system", "Environment Optimized & Ready");
   }
 
@@ -164,8 +163,31 @@ export class AgentRuntime extends DurableObject {
     input: TaskExecutionInput,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
-    const runtime = await this.ensureComposedRuntime();
+    if (!input.lease) {
+      return {
+        taskId: input.taskId,
+        leaseId: "",
+        correlationId: "",
+        status: "failure",
+        retryable: false,
+        error: {
+          code: "LEASE_REQUIRED",
+          message: "A scoped sandbox execution lease is required",
+        },
+      };
+    }
+    const runtime = await this.ensureComposedRuntime(input.lease);
     return runtime.executionPort.executeTask(sessionId, input, hooks);
+  }
+
+  async releaseLease(leaseId: string): Promise<void> {
+    const runtime = this.composedRuntimes.get(leaseId);
+    if (runtime) {
+      await runtime.executionPort.releaseLease(leaseId);
+    }
+    this.composedRuntimes.delete(leaseId);
+    this.readyLeases.delete(leaseId);
+    this.sandboxes.delete(leaseId);
   }
 
   getManifest() {
