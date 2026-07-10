@@ -228,6 +228,7 @@ async function validateHarnessProductPathGuards(root, violations) {
   const sourceFiles = await listSourceFiles(join(root, "apps"), join(root, "packages"));
   await validateTurnModePolicyImports(root, sourceFiles, violations);
   await validatePromptIntentPolicyImports(root, sourceFiles, violations);
+  await validatePromptTextRouting(root, sourceFiles, violations);
   await validateFinalAnswerRegexRepair(root, sourceFiles, violations);
   await validateDuplicateToolRegistries(root, sourceFiles, violations);
 }
@@ -240,9 +241,12 @@ async function validateTurnModePolicyImports(root, sourceFiles, violations) {
       continue;
     }
     const source = await readFile(file, "utf8");
-    if (guard.forbiddenImportPattern.test(source)) {
+    if (
+      guard.forbiddenImportPattern.test(source) ||
+      guard.forbiddenReferencePattern.test(source)
+    ) {
       violations.push(
-        `${path}: production code must not import RunTurnModePolicy for product routing; use capability manifest, tool registry, permission policy, and evidence-backed settlement.`,
+        `${path}: production code must not use deleted turn-mode/direct-plan policy for product routing; use explicit turn metadata, capability policy, tool registry, and evidence-backed settlement.`,
       );
     }
   }
@@ -256,9 +260,28 @@ async function validatePromptIntentPolicyImports(root, sourceFiles, violations) 
       continue;
     }
     const source = await readFile(file, "utf8");
-    if (guard.forbiddenImportPattern.test(source)) {
+    if (
+      guard.forbiddenImportPattern.test(source) ||
+      guard.forbiddenReferencePattern.test(source)
+    ) {
       violations.push(
-        `${path}: production code must not import RunCurrentTurnIntent for prompt intent routing; use capability manifest, tool registry, permission policy, and evidence-backed settlement.`,
+        `${path}: production code must not use prompt intent classifiers for product routing; use explicit turn metadata, capability policy, tool registry, and evidence-backed settlement.`,
+      );
+    }
+  }
+}
+
+async function validatePromptTextRouting(root, sourceFiles, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.promptTextRouting;
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.forbiddenPattern.test(source)) {
+      violations.push(
+        `${path}: production code must not route product behavior from prompt text; use explicit turn metadata and capability/runtime context.`,
       );
     }
   }

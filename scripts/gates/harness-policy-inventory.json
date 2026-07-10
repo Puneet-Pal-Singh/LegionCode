@@ -111,15 +111,6 @@
       "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunCompletionPolicy.test.ts"
     },
     {
-      "path": "packages/execution-engine/src/runtime/engine/RunDirectPlanPolicy.ts",
-      "owner": "runtime-planning",
-      "category": "mode-intent",
-      "disposition": "delete-from-product-path",
-      "purpose": "Legacy direct-plan detection and plan response behavior.",
-      "deletionTrigger": "Remove product dependence when all requests flow through the same turn protocol in slice 035.4.",
-      "gate": "scripts/gates/check-architecture-boundaries.mjs"
-    },
-    {
       "path": "packages/execution-engine/src/runtime/engine/RunEngineConfigPolicy.ts",
       "owner": "runtime-config",
       "category": "config",
