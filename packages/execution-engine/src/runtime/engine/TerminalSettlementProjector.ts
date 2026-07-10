@@ -23,6 +23,7 @@ export interface TerminalSettlement {
 export function projectTerminalSettlement(input: {
   terminalState: RunTerminalState;
   contract: FinalizationContract;
+  terminalStatusHint?: "PAUSED";
 }): TerminalSettlement {
   if (input.terminalState === RUN_TERMINAL_STATES.APPROVAL_REQUIRED) {
     return {
@@ -40,6 +41,16 @@ export function projectTerminalSettlement(input: {
   }
 
   const outcomeCode = outcomeCodeForTerminalState(input.terminalState);
+  if (
+    input.terminalState === RUN_TERMINAL_STATES.INTERRUPTED &&
+    input.terminalStatusHint === "PAUSED"
+  ) {
+    return {
+      terminalState: input.terminalState,
+      outcomeCode,
+      terminalStatus: "PAUSED",
+    };
+  }
   return {
     terminalState: input.terminalState,
     outcomeCode,

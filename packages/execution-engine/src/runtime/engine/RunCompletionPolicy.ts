@@ -240,6 +240,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   const settlement = projectTerminalSettlement({
     terminalState,
     contract: finalization.contract,
+    terminalStatusHint: terminalStatus === "PAUSED" ? "PAUSED" : undefined,
   });
   const finalMetadata = buildTerminalFinalMetadata({
     metadata: finalization.metadata,

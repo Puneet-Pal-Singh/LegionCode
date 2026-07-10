@@ -50,7 +50,7 @@ describe("RunCompletionPolicy", () => {
     expect(run.status).toBe("RUNNING");
   });
 
-  it("settles an interrupted recovered assistant message as a failed run", async () => {
+  it("can persist an interrupted recovered assistant message as a paused run", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
 
@@ -66,7 +66,7 @@ describe("RunCompletionPolicy", () => {
     });
 
     await expect(response.text()).resolves.toContain("paused this run");
-    expect(run.status).toBe("FAILED");
+    expect(run.status).toBe("PAUSED");
     expect(deps.runRepo.updateUnlessStatus).toHaveBeenCalledWith(run, [
       "PAUSED",
       "COMPLETED",
@@ -75,17 +75,13 @@ describe("RunCompletionPolicy", () => {
     ]);
     expect(deps.runEventRecorder.recordRunStatusChanged).toHaveBeenCalledWith(
       "RUNNING",
-      "FAILED",
+      "PAUSED",
       "synthesis",
     );
-    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(Number),
-      "INTERRUPTED",
-    );
+    expect(deps.runEventRecorder.recordRunFailed).not.toHaveBeenCalled();
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({ runStatus: "FAILED" }),
+      expect.objectContaining({ runStatus: "PAUSED" }),
     );
   });
 
