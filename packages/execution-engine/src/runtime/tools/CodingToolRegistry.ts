@@ -83,6 +83,16 @@ export const ToolRendererHintSchema = z.enum([
 ]);
 export type ToolRendererHint = z.infer<typeof ToolRendererHintSchema>;
 
+export const TOOL_EVIDENCE_KINDS = [
+  "file_read",
+  "file_search",
+  "file_edit",
+  "git_diff",
+  "git_status",
+  "command_run",
+] as const;
+export type ToolEvidenceKind = (typeof TOOL_EVIDENCE_KINDS)[number];
+
 export const ToolModelCapabilitySchema = z.enum(["patch_application"]);
 export type ToolModelCapability = z.infer<typeof ToolModelCapabilitySchema>;
 
@@ -154,6 +164,7 @@ export interface ToolDefinition {
   tokenPolicy: ToolTokenPolicy;
   outputRenderer: ToolRendererHint;
   rendererHint: ToolRendererHint;
+  evidenceKinds: readonly ToolEvidenceKind[];
   preferredFor: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
@@ -183,6 +194,7 @@ export const ToolDefinitionSchema = z
     riskLevel: PermissionRiskLevelSchema,
     parallelism: ToolParallelismSchema,
     rendererHint: ToolRendererHintSchema,
+    evidenceKinds: z.array(z.enum(TOOL_EVIDENCE_KINDS)),
     preferredFor: z.array(z.string().min(1)).min(1),
     avoidWhen: z.array(z.string().min(1)).optional(),
     alternatives: z.array(z.string().min(1)).optional(),
@@ -502,6 +514,7 @@ function createRoutedToolDefinition(input: {
   tokenPolicy: ToolTokenPolicy;
   outputRenderer?: ToolRendererHint;
   rendererHint?: ToolRendererHint;
+  evidenceKinds?: readonly ToolEvidenceKind[];
   preferredFor?: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
@@ -524,6 +537,7 @@ function createRoutedToolDefinition(input: {
     parallelism: input.parallelism ?? deriveParallelism(input),
     outputRenderer: rendererHint,
     rendererHint,
+    evidenceKinds: input.evidenceKinds ?? [],
     preferredFor: input.preferredFor ?? usage.preferredFor,
     avoidWhen: input.avoidWhen ?? usage.avoidWhen,
     alternatives: input.alternatives ?? usage.alternatives,
@@ -811,6 +825,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "text",
+    evidenceKinds: ["file_read"],
     route: { plugin: "filesystem", action: "read_file" },
   }),
   createRoutedToolDefinition({
@@ -822,6 +837,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "text",
+    evidenceKinds: ["file_search"],
     route: { plugin: "filesystem", action: "list_files" },
   }),
   createRoutedToolDefinition({
@@ -833,6 +849,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "write",
     tokenPolicy: WRITE_TOKEN_POLICY,
     outputRenderer: "text",
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "write_file" },
   }),
   createRoutedToolDefinition({
@@ -846,6 +863,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     outputRenderer: "text",
     preferredFor: ["small exact replacements", "hash-guarded edits"],
     alternatives: ["write_file", "multi_edit"],
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "edit_file" },
   }),
   createRoutedToolDefinition({
@@ -860,6 +878,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     outputRenderer: "json",
     preferredFor: ["coordinated exact replacements across files"],
     alternatives: ["edit_file"],
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "multi_edit" },
   }),
   createRoutedToolDefinition({
@@ -875,6 +894,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     avoidWhen: ["the selected model lacks patch application capability"],
     alternatives: ["edit_file", "multi_edit"],
     requiredModelCapabilities: ["patch_application"],
+    evidenceKinds: ["file_edit", "git_diff"],
     route: { plugin: "git", action: "git_patch_apply" },
   }),
   createRoutedToolDefinition({
@@ -888,6 +908,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     tokenPolicy: WRITE_TOKEN_POLICY,
     outputRenderer: "text",
     preferredFor: ["deterministic formatting after code edits"],
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "format_file" },
   }),
   createRoutedToolDefinition({
@@ -912,6 +933,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "shell",
     tokenPolicy: SHELL_TOKEN_POLICY,
     outputRenderer: "shell",
+    evidenceKinds: ["command_run"],
     route: { plugin: "bash", action: "run" },
   }),
   createRoutedToolDefinition({
@@ -1000,6 +1022,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "git",
     tokenPolicy: GIT_TOKEN_POLICY,
     outputRenderer: "git",
+    evidenceKinds: ["git_status"],
     route: { plugin: "git", action: "git_status" },
   }),
   createRoutedToolDefinition({
@@ -1011,6 +1034,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "git",
     tokenPolicy: GIT_TOKEN_POLICY,
     outputRenderer: "diff",
+    evidenceKinds: ["git_diff"],
     route: { plugin: "git", action: "git_diff" },
   }),
   createRoutedToolDefinition({
@@ -1143,6 +1167,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "json",
+    evidenceKinds: ["file_search"],
     route: { plugin: "filesystem", action: "glob" },
   }),
   createRoutedToolDefinition({
@@ -1154,6 +1179,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "json",
+    evidenceKinds: ["file_search"],
     route: { plugin: "filesystem", action: "grep" },
   }),
 ];
