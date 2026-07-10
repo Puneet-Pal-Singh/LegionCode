@@ -16,7 +16,10 @@ import type {
   ProviderCapabilityFlags,
   ProviderCapabilityResolver,
 } from "./types.js";
-import { normalizeModelOutputParts } from "./ModelOutputParts.js";
+import {
+  LegacyProviderTranscriptPartNormalizer,
+  type TranscriptPartNormalizer,
+} from "./TranscriptPartNormalizer.js";
 
 const TOKEN_CHAR_RATIO = 4;
 // Conservative cross-provider placeholder for image/file parts when exact
@@ -38,6 +41,7 @@ export interface LLMGatewayDependencies {
   costLedger: ICostLedger;
   pricingResolver: IPricingResolver;
   providerCapabilityResolver?: ProviderCapabilityResolver;
+  transcriptPartNormalizer?: TranscriptPartNormalizer;
 }
 
 export class LLMTimeoutError extends Error {
@@ -99,7 +103,12 @@ export class LLMUnusableResponseError extends Error {
 }
 
 export class LLMGateway implements ILLMGateway {
-  constructor(private deps: LLMGatewayDependencies) {}
+  private readonly transcriptPartNormalizer: TranscriptPartNormalizer;
+
+  constructor(private deps: LLMGatewayDependencies) {
+    this.transcriptPartNormalizer =
+      deps.transcriptPartNormalizer ?? new LegacyProviderTranscriptPartNormalizer();
+  }
 
   async generateText(req: LLMTextRequest): Promise<LLMTextResponse> {
     this.assertProviderCapabilities(req);
@@ -211,8 +220,12 @@ export class LLMGateway implements ILLMGateway {
 
     return {
       text: result.text,
-      parts: normalizeModelOutputParts({
-        text: result.text,
+      parts: this.transcriptPartNormalizer.normalize({
+        runId: req.context.runId,
+        turnId: req.context.turnId ?? req.context.runId,
+        providerId: req.providerId ?? "unknown",
+        providerParts: result.transcriptParts,
+        providerText: result.text,
         toolCalls,
         usage,
         finishReason: result.finishReason,

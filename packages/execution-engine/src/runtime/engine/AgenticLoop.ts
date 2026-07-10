@@ -17,10 +17,7 @@ import {
   type ILLMGateway,
   type LLMTextResponse,
 } from "../llm/index.js";
-import {
-  getVisibleModelText,
-  normalizeModelOutputParts,
-} from "../llm/ModelOutputParts.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { isMutatingCodingToolId } from "../tools/CodingToolRegistry.js";
@@ -321,15 +318,8 @@ export class AgenticLoop {
         break;
       }
 
-      const responseParts =
-        response.parts ??
-        normalizeModelOutputParts({
-          text: response.text,
-          toolCalls: response.toolCalls,
-          usage: response.usage,
-          finishReason: response.finishReason,
-        });
-      const responseText = getVisibleModelText(responseParts);
+      const responseParts = response.parts;
+      const responseText = projectVisibleTranscriptText(responseParts);
       console.log(
         formatRuntimeDiagnosticLogLine("agentic-loop/model", "completed", {
           runId: this.config.runId,

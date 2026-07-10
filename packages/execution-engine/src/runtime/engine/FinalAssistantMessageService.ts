@@ -4,10 +4,9 @@ import {
 } from "@repo/shared-types";
 import { buildFinalSummaryFrame } from "./FinalSummaryBuilder.js";
 import {
-  getVisibleModelText,
-  normalizeModelOutputParts,
-  type NormalizedModelPart,
-} from "../llm/ModelOutputParts.js";
+  projectVisibleTranscriptText,
+  type TranscriptPart,
+} from "@repo/platform-protocol";
 
 export type FinalAssistantMessageSource = "model" | "runtime";
 
@@ -16,7 +15,7 @@ export interface FinalAssistantMessageInput {
   sessionId: string;
   terminalState: RunTerminalState;
   modelText?: string;
-  modelParts?: NormalizedModelPart[];
+  modelParts?: TranscriptPart[];
   detail?: string;
   nextStep?: string;
   metadata?: Record<string, unknown>;
@@ -66,10 +65,11 @@ function normalizeRuntimeAuthoredFinalText(value: string | undefined): string {
 
 export function normalizeFinalAssistantText(
   value: string | undefined,
-  modelParts?: NormalizedModelPart[],
+  modelParts?: TranscriptPart[],
 ): string {
-  const parts = modelParts ?? normalizeModelOutputParts({ text: value ?? "" });
-  const normalized = getVisibleModelText(parts);
+  // Raw provider text is intentionally not a transcript fallback. The
+  // normalizer is the only owner allowed to establish visible parts.
+  const normalized = projectVisibleTranscriptText(modelParts ?? []);
   if (!normalized) {
     return "";
   }
