@@ -831,7 +831,7 @@ describe("ChatInterface", () => {
     expect(lifecycleCalls[0]?.[0]).toBeNull();
   });
 
-  it("keeps activity polling alive while the run controller is stoppable", () => {
+  it("does not let activity polling own an active lifecycle-backed run", () => {
     mockTurnLifecycleProjection.projection = {
       turnId: "trn_active_lifecycle_001",
       lastSequence: 5,
@@ -871,7 +871,7 @@ describe("ChatInterface", () => {
     );
     expect(useRunActivityFeed).toHaveBeenLastCalledWith(
       "run-lifecycle-active",
-      true,
+      false,
     );
   });
 
@@ -1475,7 +1475,7 @@ describe("ChatInterface", () => {
     expect(screen.getByTestId("chat-input-bar")).toBeInTheDocument();
   });
 
-  it("resolves run-summary approvals through the live run approval endpoint", async () => {
+  it("does not render or resolve approvals from a run-summary fallback", async () => {
     const fetchSpy = vi.fn(async () => new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchSpy);
     mockTurnLifecycleProjection.projection = null;
@@ -1521,28 +1521,13 @@ describe("ChatInterface", () => {
       />,
     );
 
-    expect(screen.getByText("Approve bash")).toBeInTheDocument();
-    expect(screen.getByText("cat package.json")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
-
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("/api/run/approval"),
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({
-            runId: "run_summaryapproval001",
-            requestId: "appr_runtime001",
-            decision: "allow_once",
-          }),
-        }),
-      );
-    });
+    expect(screen.queryByText("Approve bash")).not.toBeInTheDocument();
+    expect(screen.queryByText("cat package.json")).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/run/approval"),
+      expect.anything(),
+    );
     expect(mockSubmitLifecycleApproval).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText("Approval recorded. Continuing..."),
-    ).toBeInTheDocument();
   });
 
   it("maps canonical cancel options to the abort approval action", () => {
@@ -1652,7 +1637,7 @@ describe("ChatInterface", () => {
     }
   });
 
-  it("subscribes to live run events while the chat run is active", () => {
+  it("keeps historical run events disabled during transport-only loading", () => {
     vi.mocked(useRunSummary).mockReturnValue({ summary: null });
 
     render(
@@ -1675,9 +1660,9 @@ describe("ChatInterface", () => {
     );
 
     expect(useRunEvents).toHaveBeenCalledWith(
-      "run-local-polling",
-      true,
-      expect.any(Number),
+      expect.any(String),
+      false,
+      0,
     );
   });
 

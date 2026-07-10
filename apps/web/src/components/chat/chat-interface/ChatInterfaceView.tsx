@@ -8,7 +8,9 @@ import type {
 import type { ChatMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
 import { ChatMessage } from "../ChatMessage";
+import { LifecycleWorkflow } from "./LifecycleWorkflow.js";
 import { formatDebugPayload } from "./approvals";
 import {
   resolveChangedFilesSummary,
@@ -44,7 +46,9 @@ interface ChatInterfaceViewProps {
     artifactId: string,
     file: FileStatus,
   ) => Promise<DiffContent>;
+  loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   showThinking: boolean;
+  lifecycleProjection: LifecycleProjection | null;
   workflowDebug: ReactNode;
 }
 
@@ -54,6 +58,11 @@ export const ChatInterfaceView = forwardRef<
 >(function ChatInterfaceView(props, scrollRef) {
   return (
     <div className="flex h-full flex-col bg-black">
+      {props.lifecycleProjection?.terminal ? (
+        <span data-testid="lifecycle-terminal-settled" className="sr-only">
+          {props.lifecycleProjection.terminal.state}
+        </span>
+      ) : null}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         {props.showHeroComposer ? (
           <HeroComposer>{props.renderComposer("hero")}</HeroComposer>
@@ -64,6 +73,7 @@ export const ChatInterfaceView = forwardRef<
             {props.showDebugPanel ? (
               <ChatDebugPanel events={props.debugEvents} />
             ) : null}
+            <LifecycleWorkflow projection={props.lifecycleProjection} />
             <Transcript {...props} />
             <TerminalMessage {...props} />
             {props.showThinking ? <ThinkingIndicator /> : null}
@@ -127,7 +137,8 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
         terminalViewModel: terminal,
         files: props.terminalReviewFiles,
         turnDiff: props.terminalTurnDiff,
-        loadArtifactFileDiff: props.loadArtifactChangedFileDiff,
+        loadArtifactFileDiff: (_artifactId, file) =>
+          props.loadCompletedTurnFileDiff(file),
         onPromptArtifactReview: (artifactId) => {
           props.openPromptArtifactReview(artifactId);
           props.onReviewOpen?.();

@@ -18,27 +18,17 @@ import type {
   LifecycleProjectionApproval,
 } from "../../../services/lifecycle/LifecycleProjection";
 import { getDisplayedApprovalDecisions } from "../approval/approvalDecisions.js";
-import {
-  readApprovalErrorMessage,
-  submitApprovalDecision,
-} from "./approvals.js";
 
 const APPROVAL_NOTICE_CLEAR_DELAY_MS = 5_000;
 type ApprovalNotice = { kind: "resolved"; requestId: string } | null;
 
 interface ApprovalControllerInput {
-  runId: string;
   lifecycleProjection: LifecycleProjection | null;
-  summaryPendingApproval?: ApprovalRequest | null;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   lifecycleClient?: LifecycleClient;
 }
 
 type PendingApprovalState =
-  | {
-      source: "run-summary";
-      request: ApprovalRequest;
-    }
   | {
       source: "lifecycle";
       request: ApprovalRequest;
@@ -61,9 +51,8 @@ export function useApprovalController(input: ApprovalControllerInput) {
     () =>
       buildPendingApprovalState({
         lifecycleProjection: input.lifecycleProjection,
-        summaryPendingApproval: input.summaryPendingApproval ?? null,
       }),
-    [input.lifecycleProjection, input.summaryPendingApproval],
+    [input.lifecycleProjection],
   );
   const pendingApproval = pendingApprovalState?.request ?? null;
 
@@ -79,7 +68,6 @@ export function useApprovalController(input: ApprovalControllerInput) {
     (decision: ApprovalDecisionKind) =>
       resolveDecision({
         decision,
-        runId: input.runId,
         lifecycleClient,
         pendingApprovalState,
         submittingRef,
@@ -87,7 +75,7 @@ export function useApprovalController(input: ApprovalControllerInput) {
         setError,
         setNotice,
       }),
-    [input.runId, lifecycleClient, pendingApprovalState],
+    [lifecycleClient, pendingApprovalState],
   );
 
   return {
@@ -105,19 +93,8 @@ export function useApprovalController(input: ApprovalControllerInput) {
 
 function buildPendingApprovalState(input: {
   lifecycleProjection: LifecycleProjection | null;
-  summaryPendingApproval: ApprovalRequest | null;
 }): PendingApprovalState | null {
-  const lifecycle = buildLifecycleApprovalState(input.lifecycleProjection);
-  if (lifecycle) {
-    return lifecycle;
-  }
-  if (input.summaryPendingApproval) {
-    return {
-      source: "run-summary",
-      request: input.summaryPendingApproval,
-    };
-  }
-  return null;
+  return buildLifecycleApprovalState(input.lifecycleProjection);
 }
 
 function buildLifecycleApprovalState(
@@ -189,7 +166,6 @@ function useApprovalLifecycle(
 
 interface ResolveDecisionInput {
   readonly decision: ApprovalDecisionKind;
-  readonly runId: string;
   readonly lifecycleClient: LifecycleClient;
   readonly pendingApprovalState: PendingApprovalState | null;
   readonly submittingRef: MutableRefObject<boolean>;
@@ -218,15 +194,6 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
         decidedBy: null,
         reason: null,
       });
-    } else {
-      const response = await submitApprovalDecision({
-        runId: pendingApproval.runId || input.runId,
-        requestId: pendingApproval.requestId,
-        decision: input.decision,
-      });
-      if (!response.ok) {
-        throw new Error(await readApprovalErrorMessage(response));
-      }
     }
     input.setNotice({
       kind: "resolved",

@@ -39,6 +39,7 @@ import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
+import { useActiveTurnProjection } from "../chat/chat-interface/useActiveTurnProjection.js";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -174,16 +175,33 @@ export function Workspace({
     mode,
     productMode,
   );
-  const { summary: runSummary } = useRunSummary(activeRunId, true);
-  const runSummaryMatchesActiveRun = runSummary?.runId === activeRunId;
-  const canonicalRunStatus = runSummaryMatchesActiveRun
-    ? normalizeRunStatus(runSummary.status)
-    : null;
-  const hasPendingApproval =
-    runSummaryMatchesActiveRun && Boolean(runSummary?.pendingApproval);
-  const pendingApprovalRequestId = runSummaryMatchesActiveRun
-    ? (runSummary?.pendingApproval?.requestId ?? null)
-    : null;
+  const activeTurn = useActiveTurnProjection({
+    turnId: serverTurnId,
+    transportLoading: isLoading,
+  });
+  const { summary: runSummary } = useRunSummary(
+    activeRunId,
+    !activeTurn.hasCanonicalTurn && !isLoading,
+  );
+  const runSummaryMatchesActiveRun =
+    !activeTurn.hasCanonicalTurn && runSummary?.runId === activeRunId;
+  const canonicalRunStatus = activeTurn.hasCanonicalTurn
+    ? activeTurn.isActive
+      ? "RUNNING"
+      : lifecycleStatusToRunStatus(
+          activeTurn.projection?.terminal?.state ?? null,
+        )
+    : runSummaryMatchesActiveRun
+      ? normalizeRunStatus(runSummary.status)
+      : null;
+  const hasPendingApproval = activeTurn.hasCanonicalTurn
+    ? Boolean(activeTurn.projection?.pendingApproval)
+    : runSummaryMatchesActiveRun && Boolean(runSummary?.pendingApproval);
+  const pendingApprovalRequestId = activeTurn.hasCanonicalTurn
+    ? (activeTurn.projection?.pendingApproval?.approvalId ?? null)
+    : runSummaryMatchesActiveRun
+      ? (runSummary?.pendingApproval?.requestId ?? null)
+      : null;
   const lastMessage = messages[messages.length - 1];
   const [locallyStoppedRunId, setLocallyStoppedRunId] = useState<string | null>(
     null,
@@ -253,7 +271,9 @@ export function Workspace({
     canStopRun,
   } = runUiState;
   const passiveGitProbeEnabled =
-    !activeRunId || (runSummaryMatchesActiveRun && !isRunLoading);
+    !activeRunId ||
+    activeTurn.isTerminal ||
+    (runSummaryMatchesActiveRun && !isRunLoading);
   useEffect(() => {
     logClientEvent("run/ui-state", "derived", {
       runId: activeRunId,
@@ -579,4 +599,19 @@ export function Workspace({
       </GitReviewProvider>
     </RunContextProvider>
   );
+}
+
+function lifecycleStatusToRunStatus(
+  state: "completed" | "failed" | "interrupted" | null,
+): ReturnType<typeof normalizeRunStatus> | null {
+  switch (state) {
+    case "completed":
+      return "COMPLETED";
+    case "failed":
+      return "FAILED";
+    case "interrupted":
+      return "CANCELLED";
+    default:
+      return null;
+  }
 }
