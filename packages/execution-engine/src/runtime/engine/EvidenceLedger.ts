@@ -85,7 +85,9 @@ export function hasEvidenceForRequirement(
     command_run: ["command_run"],
   } satisfies Record<FinalizationEvidenceRequirement, readonly EvidenceKind[]>;
   return ledger.some(
-    (record) => record.status === "observed" && kinds[requirement].includes(record.kind),
+    (record) =>
+      record.status === "observed" &&
+      (kinds[requirement] as readonly EvidenceKind[]).includes(record.kind),
   );
 }
 

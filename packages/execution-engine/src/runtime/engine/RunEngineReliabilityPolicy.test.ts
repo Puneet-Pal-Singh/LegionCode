@@ -45,7 +45,10 @@ describe("RunEngineReliabilityPolicy", () => {
     expect(runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
       expect.stringContaining("[internal-url]"),
-      { terminalState: RUN_TERMINAL_STATES.FAILED_RUNTIME },
+      expect.objectContaining({
+        terminalState: RUN_TERMINAL_STATES.FAILED_RUNTIME,
+        outcomeCode: "RUNTIME_FAILED",
+      }),
     );
     expect(runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
       "runtime exploded at https://internal/errors/123",

@@ -18,6 +18,7 @@ import {
   buildTerminalFinalMetadata,
 } from "./FinalMessageProjector.js";
 import { projectTerminalSettlement } from "./TerminalSettlementProjector.js";
+import { settleTerminalRun } from "./TerminalFinalizationCoordinator.js";
 import { createStreamResponse } from "./CompletionResponseWriter.js";
 import { persistSynthesisArtifacts } from "./CompletionSynthesisArtifacts.js";
 import {
@@ -25,7 +26,6 @@ import {
 } from "./TurnSettlementContract.js";
 import {
   transitionRunToCompleted,
-  transitionRunToFailed,
   transitionRunToPaused,
 } from "./RunStatusPolicy.js";
 export { createStreamResponse } from "./CompletionResponseWriter.js";
@@ -143,16 +143,12 @@ async function persistFinalAssistantRun(
   console.log(
     `[run/completion/finalization-started] runId=${run.id} previousStatus=${previousStatus} terminalStatus=${terminalStatus} terminalState=${terminalState} textLength=${redactedText.length}`,
   );
-  recordLifecycleStep(run, "SYNTHESIS");
-  transitionFinalAssistantRun(run, terminalStatus);
-  recordLifecycleStep(run, "TERMINAL", `status=${terminalStatus}`);
-  recordOrchestrationTerminal(run);
-  run.output = {
-    content: redactedText,
-    finalSummary: redactedText,
-  };
-  run.metadata.terminalState = terminalState;
-  run.metadata.terminalMessage = finalMessage.metadata;
+  settleTerminalRun({
+    run,
+    settlement,
+    finalMessage,
+    redactedContent: redactedText,
+  });
   run.metadata.evidenceLedger = finalization.ledger;
   run.metadata.finalizationContract = finalization.contract;
   if (!(await updateFinalizedRunIfActive(run, deps, terminalStatus))) {
@@ -332,23 +328,6 @@ function transitionRecoveredRun(
 ): void {
   if (terminalStatus === "PAUSED") {
     transitionRunToPaused(run, run.id);
-    return;
-  }
-
-  transitionRunToCompleted(run, run.id);
-}
-
-function transitionFinalAssistantRun(
-  run: Run,
-  terminalStatus: FinalizedRunTerminalStatus,
-): void {
-  if (terminalStatus === "PAUSED") {
-    transitionRunToPaused(run, run.id);
-    return;
-  }
-
-  if (terminalStatus === "FAILED") {
-    transitionRunToFailed(run, run.id);
     return;
   }
 
