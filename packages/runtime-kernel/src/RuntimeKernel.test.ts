@@ -85,6 +85,51 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(terminalEvents(sink)).toHaveLength(1);
   });
 
+  it("persists one terminal sandbox infrastructure failure without provider relabeling", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => toolStep());
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "failed" as const,
+      failure: {
+        code: "worker_unavailable" as const,
+        message: "Sandbox container became unavailable during execution",
+        retryable: true,
+        correlationId: "secure-correlation-1",
+        details: {
+          secureStatus: "sandbox_unavailable",
+          secureCode: "SANDBOX_UNAVAILABLE",
+          taskId: "secure-task-1",
+          leaseId: "lease-1",
+        },
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({ code: "worker_failed" });
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)).toMatchObject({
+      type: "turn.failed",
+      payload: {
+        outcome: {
+          failure: {
+            code: "worker_unavailable",
+            retryable: true,
+            correlationId: "secure-correlation-1",
+            details: {
+              secureStatus: "sandbox_unavailable",
+              secureCode: "SANDBOX_UNAVAILABLE",
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(sink.events)).not.toContain("provider_unavailable");
+  });
+
   it("emits approval lifecycle events before policy-gated execution", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();

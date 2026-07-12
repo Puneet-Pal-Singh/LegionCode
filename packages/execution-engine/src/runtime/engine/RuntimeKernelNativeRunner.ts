@@ -1293,6 +1293,9 @@ class KernelToolWorker implements WorkerProtocolPort {
           message,
           0,
         );
+        if (gatewayResult.failure) {
+          return { kind: "failed", failure: gatewayResult.failure };
+        }
         return failed(
           gatewayResult.code === "executor_failed"
             ? "command_failed"
