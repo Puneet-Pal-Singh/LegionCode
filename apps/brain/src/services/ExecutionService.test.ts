@@ -42,6 +42,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-1",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "file contents",
             metrics: { duration: 8 },
@@ -53,6 +56,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-2",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "second call",
             metrics: { duration: 9 },
@@ -148,6 +154,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-retry",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "file contents",
             metrics: { duration: 7 },
@@ -197,6 +206,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-fail",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "failure",
             error: {
               code: "PLUGIN_EXECUTION_FAILED",
@@ -204,7 +216,7 @@ describe("ExecutionService", () => {
             },
             metrics: { duration: 12 },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 422, headers: { "Content-Type": "application/json" } },
         ),
       );
 
@@ -218,7 +230,7 @@ describe("ExecutionService", () => {
 
     await expect(
       service.execute("node", "run", { command: "pnpm lint" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: false,
       status: "failure",
       error: {
@@ -228,16 +240,16 @@ describe("ExecutionService", () => {
       metrics: { duration: 12 },
     });
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[execution/tool/result-failed]"),
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("plugin=node action=run"),
+      expect.stringContaining('"plugin":"node","action":"run"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("secureStatus=failure"),
+      expect.stringContaining('"secureStatus":"failure"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("errorCode=PLUGIN_EXECUTION_FAILED"),
+      expect.stringContaining('"errorCode":"PLUGIN_EXECUTION_FAILED"'),
     );
     errorSpy.mockRestore();
   });
@@ -264,6 +276,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-timeout",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "timeout",
             output: "partial output",
             error: {
@@ -273,7 +288,7 @@ describe("ExecutionService", () => {
             },
             metrics: { duration: 120000 },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 504, headers: { "Content-Type": "application/json" } },
         ),
       );
 
@@ -287,7 +302,7 @@ describe("ExecutionService", () => {
 
     await expect(
       service.execute("filesystem", "read_file", { path: "src/index.ts" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: false,
       status: "timeout",
       output: "partial output",
@@ -299,16 +314,150 @@ describe("ExecutionService", () => {
       metrics: { duration: 120000 },
     });
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[execution/tool/result-failed]"),
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("plugin=filesystem action=read_file"),
+      expect.stringContaining('"plugin":"filesystem","action":"read_file"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("secureStatus=timeout"),
+      expect.stringContaining('"secureStatus":"timeout"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("errorCode=EXECUTION_TIMEOUT"),
+      expect.stringContaining('"errorCode":"EXECUTION_TIMEOUT"'),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("bridges sandbox infrastructure failure identity into the runtime port", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-sandbox",
+            token: "tok-sandbox",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-sandbox",
+            leaseId: "lease-sandbox",
+            correlationId: "secure-correlation-sandbox",
+            retryable: true,
+            status: "sandbox_unavailable",
+            error: {
+              code: "SANDBOX_UNAVAILABLE",
+              message: "Sandbox container became unavailable during execution",
+              details: { exitCode: 137 },
+            },
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const service = new ExecutionService(
+      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      "session-sandbox",
+      "run-sandbox",
+    );
+
+    const result = await service.execute(
+      "filesystem",
+      "read_file",
+      { path: "src/index.ts" },
+      {
+        scope: {
+          runId: "run-sandbox",
+          runAttemptId: "attempt-sandbox",
+          workspaceId: "workspace-sandbox",
+          root: "/workspace",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      status: "sandbox_unavailable",
+      metadata: {
+        success: false,
+        runtimeFailure: {
+          code: "worker_unavailable",
+          retryable: true,
+          correlationId: "secure-correlation-sandbox",
+          details: {
+            secureStatus: "sandbox_unavailable",
+            secureCode: "SANDBOX_UNAVAILABLE",
+            taskId: "task-sandbox",
+            leaseId: "lease-sandbox",
+            workspaceScope: {
+              runAttemptId: "attempt-sandbox",
+              workspaceId: "workspace-sandbox",
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("rejects a 2xx secure failure payload as a typed contract violation", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-contract",
+            token: "tok-contract",
+            expiresAt: Date.now() + 60_000,
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-contract",
+            leaseId: "lease-contract",
+            correlationId: "secure-correlation-contract",
+            retryable: true,
+            status: "failure",
+            error: { code: "COMMAND_FAILED", message: "command failed" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const service = new ExecutionService(
+      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      "session-contract",
+      "run-contract",
+    );
+
+    await expect(
+      service.execute("filesystem", "read_file", { path: "src/index.ts" }),
+    ).resolves.toMatchObject({
+      success: false,
+      error: { code: "SECURE_EXECUTION_CONTRACT_VIOLATION" },
+      metadata: {
+        runtimeFailure: {
+          code: "internal_error",
+          details: {
+            failureKind: "secure_execution_contract_violation",
+            httpStatus: 200,
+          },
+        },
+      },
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.contract-violation"'),
     );
     errorSpy.mockRestore();
   });
@@ -334,6 +483,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-git",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -383,6 +535,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-commit",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -453,6 +608,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-commit-oauth",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -525,6 +683,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-github",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: '{"number":228}',
           }),
@@ -605,6 +766,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-github-cli",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: '{"actionsJobId":1234}',
           }),
@@ -702,9 +866,7 @@ describe("ExecutionService", () => {
     ).rejects.toThrow("Missing GitHub OAuth scope");
     expect(fetchMock).toHaveBeenCalledTimes(0);
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        '[execution/tool/threw] runId=run-github-cli-scope sessionId=session-github-cli-scope plugin=github_cli action=actions_job_logs_get error="Missing GitHub OAuth scope',
-      ),
+      expect.stringContaining('"event":"execution.tool.threw"'),
     );
     errorSpy.mockRestore();
   });
@@ -730,6 +892,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-node",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -801,6 +966,9 @@ describe("ExecutionService", () => {
       return new Response(
         JSON.stringify({
           taskId: "filesystem-read_file-task",
+          leaseId: "lease-test",
+          correlationId: "secure-correlation-test",
+          retryable: true,
           status: "success",
           output: "done",
         }),
@@ -857,6 +1025,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-failure",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "failure",
             error: {
               code: "PLUGIN_EXECUTION_FAILED",
@@ -864,7 +1035,7 @@ describe("ExecutionService", () => {
               details: { stderr: "fatal: empty ident name" },
             },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 422, headers: { "Content-Type": "application/json" } },
         ),
       );
 
@@ -878,7 +1049,7 @@ describe("ExecutionService", () => {
 
     await expect(
       service.execute("git", "git_commit", { message: "feat: add hero" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: false,
       status: "failure",
       error: {
@@ -889,20 +1060,20 @@ describe("ExecutionService", () => {
     });
 
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[execution/tool/result-failed]"),
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("plugin=git action=git_commit"),
+      expect.stringContaining('"plugin":"git","action":"git_commit"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("secureStatus=failure"),
+      expect.stringContaining('"secureStatus":"failure"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("errorCode=PLUGIN_EXECUTION_FAILED"),
+      expect.stringContaining('"errorCode":"PLUGIN_EXECUTION_FAILED"'),
     );
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        'errorMessage="Git commit author is not configured."',
+        '"errorMessage":"Git commit author is not configured."',
       ),
     );
 
@@ -932,6 +1103,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-status",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "failure",
             error: {
               code: "PLUGIN_EXECUTION_FAILED",
@@ -939,7 +1113,7 @@ describe("ExecutionService", () => {
                 "fatal: not a git repository (or any of the parent directories): .git",
             },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 422, headers: { "Content-Type": "application/json" } },
         ),
       );
 
@@ -951,7 +1125,9 @@ describe("ExecutionService", () => {
       "run-status",
     );
 
-    await expect(service.execute("git", "git_status", {})).resolves.toEqual({
+    await expect(
+      service.execute("git", "git_status", {}),
+    ).resolves.toMatchObject({
       success: false,
       status: "failure",
       error: {
@@ -962,19 +1138,19 @@ describe("ExecutionService", () => {
     });
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining("[execution/tool/result-failed]"),
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[execution/tool/result-warning]"),
+      expect.stringContaining('"event":"execution.tool.result-warning"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("plugin=git action=git_status"),
+      expect.stringContaining('"plugin":"git","action":"git_status"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('warning="expected bootstrap miss"'),
+      expect.stringContaining('"warning":"expected bootstrap miss"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("secureStatus=failure"),
+      expect.stringContaining('"secureStatus":"failure"'),
     );
 
     logSpy.mockRestore();
@@ -1010,18 +1186,20 @@ describe("ExecutionService", () => {
     );
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining("status=threw"),
-    );
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("[execution/tool/transient-startup-miss]"),
+      expect.stringContaining('"event":"execution.tool.threw"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        "runId=run-status-local-dev sessionId=session-status-local-dev",
+        '"event":"execution.tool.transient-startup-miss"',
       ),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringMatching(/errorMessage=.*local dev session/i),
+      expect.stringContaining(
+        '"runId":"run-status-local-dev","sessionId":"session-status-local-dev"',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/"errorMessage":".*local dev session/i),
     );
 
     logSpy.mockRestore();
@@ -1050,6 +1228,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-status",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: JSON.stringify({
               gitAvailable: true,
@@ -1160,6 +1341,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-status",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "not-json",
           }),

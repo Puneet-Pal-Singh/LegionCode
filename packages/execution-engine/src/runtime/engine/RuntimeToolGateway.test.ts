@@ -157,6 +157,66 @@ describe("RuntimeToolGateway", () => {
     expect(failed).toMatchObject({ kind: "failed", code: "executor_failed" });
     expect(cancelledResult).toMatchObject({ kind: "cancelled" });
   });
+
+  it("preserves a typed runtime failure from the execution backend", async () => {
+    const executor: RuntimeExecutionService = {
+      execute: async () => ({
+        success: false,
+        title: "Secure execution",
+        output: "Sandbox container became unavailable during execution",
+        metadata: {
+          success: false,
+          runtimeFailure: {
+            code: "worker_unavailable",
+            message: "Sandbox container became unavailable during execution",
+            retryable: true,
+            correlationId: "secure-correlation-1",
+            details: {
+              secureStatus: "sandbox_unavailable",
+              secureCode: "SANDBOX_UNAVAILABLE",
+              taskId: "secure-task-1",
+              leaseId: "lease-1",
+            },
+          },
+        },
+        truncated: false,
+      }),
+    };
+    const gateway = new RuntimeToolGateway({
+      executor,
+      manifest: createCloudSandboxRunCapabilityManifest({
+        runId: "run_one",
+        workspaceRoot: "/runs/one",
+        availableToolIds: ["read_file"],
+      }),
+      scope: new RuntimeWorkspaceScope({
+        runId: "run_one",
+        runAttemptId: RunAttemptIdSchema.parse("attempt_run_one_000001"),
+        workspaceId: WorkspaceIdSchema.parse("wrk_run_one_000001"),
+        root: "/runs/one",
+      }),
+    });
+
+    const result = await gateway.execute({
+      taskId: "tool-call-1",
+      toolName: "read_file",
+      toolInput: { description: "read", path: "src/a.ts" },
+    });
+
+    expect(result).toMatchObject({
+      kind: "failed",
+      code: "executor_failed",
+      retryable: true,
+      failure: {
+        code: "worker_unavailable",
+        correlationId: "secure-correlation-1",
+        details: {
+          secureStatus: "sandbox_unavailable",
+          secureCode: "SANDBOX_UNAVAILABLE",
+        },
+      },
+    });
+  });
 });
 
 function createGateway(
