@@ -84,6 +84,7 @@ describe("RunEngineRequestHandler", () => {
         method: "POST",
         body: JSON.stringify({
           runId: "run_123456",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
           identity: {
             workspaceId: "00000000-0000-4000-8000-000000000001",
             threadId: "thr_123456",
@@ -124,6 +125,7 @@ describe("RunEngineRequestHandler", () => {
         method: "POST",
         body: JSON.stringify({
           runId: "run_123456",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
           sessionId: "session-1",
           correlationId: "corr-1",
           input: {
