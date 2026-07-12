@@ -1,32 +1,20 @@
 import type { AgentType } from "@shadowbox/execution-engine/runtime";
 import type { Env } from "../types/ai";
 import { HandleChatRequest } from "../application/chat";
-import { ChatProviderSelectionSchema } from "../schemas/provider";
 import {
   errorResponse,
   jsonResponse,
   withEngineHeaders,
 } from "../http/response";
-import { parseRequestBody, validateWithSchema } from "../http/validation";
-import {
-  DomainError,
-  isDomainError,
-  mapDomainErrorToHttp,
-} from "../domain/errors";
-import { extractIdentifiers, mapAgentIdToType } from "./chat-request-helpers";
+import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
+import { mapAgentIdToType } from "./chat-request-helpers";
 import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
-  resolveExecutionScope,
   resolveRuntimeTarget,
-  type ExecutionScope,
 } from "./chat-runtime-helpers";
 import { RunAdmissionService } from "../runtime/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
-import {
-  validateChatImageInput,
-  type ChatImageInputState,
-} from "../services/chat/ChatImageInputPolicy";
 import {
   applySubmittedClientMessageId,
   summarizeCoreMessages,
@@ -34,20 +22,9 @@ import {
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
 import {
-  ChatRequestBodySchema,
-  type ChatRequestBody,
-} from "./chat-request-schema";
-
-interface ChatRequest {
-  body: ChatRequestBody;
-  correlationId: string;
-  sessionId: string;
-  runId: string;
-  imageInput: ChatImageInputState;
-  userId?: string;
-  workspaceId?: string;
-  identity: NonNullable<ChatRequestBody["identity"]>;
-}
+  parseAuthenticatedChatRequest,
+  type AuthenticatedChatRequest,
+} from "./ChatRequestBoundary";
 
 /**
  * ChatController
@@ -61,77 +38,29 @@ export class ChatController {
     console.log(`[chat/request] ${correlationId} received`);
 
     try {
-      // Parse body and validate against schema
-      const rawBody = await parseRequestBody(req, correlationId);
-      const body = validateWithSchema<ChatRequestBody>(
-        rawBody,
-        ChatRequestBodySchema,
+      const chatRequest = await parseAuthenticatedChatRequest(
+        req,
+        env,
         correlationId,
       );
-      const identifiers = extractIdentifiers(body, correlationId);
-      if (!body.identity) {
-        throw new DomainError(
-          "TURN_BOOTSTRAP_REQUIRED",
-          "A server-issued turn bootstrap is required before chat execution.",
-          428,
-          false,
-          correlationId,
-        );
-      }
 
       console.log(
-        `[chat/request] ${correlationId} session: ${identifiers.sessionId}, run: ${identifiers.runId}`,
+        `[chat/request] ${correlationId} session: ${chatRequest.sessionId}, run: ${chatRequest.runId}`,
       );
       console.log(
-        `[chat/request] ${correlationId} messages: ${body.messages?.length || 0}`,
+        `[chat/request] ${correlationId} messages: ${chatRequest.body.messages?.length || 0}`,
       );
       console.log(
         `[chat/request] ${correlationId} envelope=${JSON.stringify({
-          sessionId: identifiers.sessionId,
-          runId: identifiers.runId,
-          clientMessageId: body.clientMessageId ?? null,
-          providerId: body.providerId ?? null,
-          modelId: body.modelId ?? null,
-          mode: body.mode ?? null,
-          messageCount: body.messages?.length ?? 0,
+          sessionId: chatRequest.sessionId,
+          runId: chatRequest.runId,
+          clientMessageId: chatRequest.body.clientMessageId ?? null,
+          providerId: chatRequest.body.providerId ?? null,
+          modelId: chatRequest.body.modelId ?? null,
+          mode: chatRequest.body.mode ?? null,
+          messageCount: chatRequest.body.messages?.length ?? 0,
         })}`,
       );
-
-      // Validate provider/model selection if provided
-      validateWithSchema(
-        {
-          providerId: body.providerId,
-          modelId: body.modelId,
-        },
-        ChatProviderSelectionSchema,
-        correlationId,
-      );
-
-      const imageInput = validateChatImageInput(body, correlationId);
-
-      const chatRequest: ChatRequest = {
-        body,
-        correlationId,
-        sessionId: identifiers.sessionId,
-        runId: identifiers.runId,
-        imageInput,
-        ...(await resolveExecutionScope(
-          req,
-          env,
-          identifiers.runId,
-          correlationId,
-        )),
-        identity: body.identity,
-      };
-      if (chatRequest.identity.workspaceId !== chatRequest.workspaceId) {
-        throw new DomainError(
-          "TURN_SCOPE_MISMATCH",
-          "Turn bootstrap identity does not match the authorized workspace scope.",
-          409,
-          false,
-          correlationId,
-        );
-      }
 
       console.log(`[chat/request] ${correlationId} routing to RunEngine`);
       const response = await ChatController.handleWithRunEngine(
@@ -219,11 +148,18 @@ export class ChatController {
 
   private static async handleWithRunEngine(
     req: Request,
-    chatRequest: ChatRequest,
+    chatRequest: AuthenticatedChatRequest,
     env: Env,
   ): Promise<Response> {
-    const { body, correlationId, sessionId, runId, userId, workspaceId, identity } =
-      chatRequest;
+    const {
+      body,
+      correlationId,
+      sessionId,
+      runId,
+      userId,
+      workspaceId,
+      identity,
+    } = chatRequest;
     const admissionService = new RunAdmissionService(env);
     let admissionGrant:
       | Awaited<ReturnType<RunAdmissionService["enforce"]>>
@@ -242,11 +178,8 @@ export class ChatController {
     const admissionInput = {
       userId,
       workspaceId,
-      sessionId,
-      // The chat boundary owns these canonical identities before dispatch.
-      // The runtime may create a fresh attempt only after admission succeeds.
-      threadId: sessionId,
-      runAttemptId: runId,
+      threadId: identity.threadId,
+      runAttemptId: identity.runAttemptId,
       mode: body.mode,
       workflowIntent: body.workflowIntent,
     };
@@ -359,10 +292,7 @@ export class ChatController {
       throw error;
     } finally {
       if (admissionGrant) {
-        await admissionService.release(
-          admissionGrant,
-          correlationId,
-        );
+        await admissionService.release(admissionGrant, correlationId);
       }
     }
   }

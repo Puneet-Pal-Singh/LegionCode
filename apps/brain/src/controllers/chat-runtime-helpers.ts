@@ -61,7 +61,7 @@ export interface RunEngineExecutionPayload {
   };
   messages: CoreMessage[];
   tools?: Record<string, SerializableToolDefinition>;
-  identity?: TurnScopeBootstrap;
+  identity: TurnScopeBootstrap;
 }
 
 export function extractPromptFromMessages(

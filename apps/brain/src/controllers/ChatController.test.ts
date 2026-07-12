@@ -76,6 +76,46 @@ describe("ChatController DO runtime migration", () => {
     );
   });
 
+  it("uses the server-issued thread and run attempt for admission and execution", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const admissionLimiter = createMockRunAdmissionLimiterNamespace();
+    const env = createEnv(runtime.namespace, {
+      runAdmissionLimiter: admissionLimiter.namespace,
+    });
+    const identity = {
+      workspaceId: TEST_WORKSPACE_ID,
+      threadId: "thr_server_scope",
+      turnId: "trn_server_scope",
+      runAttemptId: "attempt_server_scope",
+    };
+
+    const response = await ChatController.handle(
+      await createChatRequest(env, { identity }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const executionPayload = JSON.parse(
+      (runtime.fetch.mock.calls[0]?.[1] as { body: string }).body,
+    ) as { identity: typeof identity };
+    expect(executionPayload.identity).toEqual(identity);
+
+    const acquireCall = admissionLimiter.fetch.mock.calls.find(
+      ([input]) => new URL(String(input)).pathname === "/acquire-concurrency",
+    );
+    expect(acquireCall).toBeDefined();
+    const admissionBody = JSON.parse(
+      (acquireCall?.[1] as { body: string }).body,
+    ) as {
+      leaseId: string;
+      constraints: Array<{ scopeKey: string }>;
+    };
+    expect(admissionBody.leaseId).toBe("run-attempt:attempt_server_scope");
+    expect(admissionBody.constraints[0]?.scopeKey).toBe(
+      "thread:thr_server_scope",
+    );
+  });
+
   it("fails fast when RUN_ENGINE_RUNTIME binding is unavailable", async () => {
     const envWithRuntime = createEnv(createMockRuntimeNamespace().namespace);
     const envWithoutRuntime = envWithRuntime as unknown as Record<
@@ -465,6 +505,12 @@ async function createChatRequest(
     repositoryName?: string;
     repositoryBranch?: string;
     repositoryBaseUrl?: string;
+    identity?: {
+      workspaceId: string;
+      threadId: string;
+      turnId: string;
+      runAttemptId: string;
+    };
     messages?: Array<{
       id?: string;
       role: string;
@@ -484,7 +530,7 @@ async function createChatRequest(
     body: JSON.stringify({
       sessionId: "session-1",
       runId: runIdValue,
-      identity: {
+      identity: overrides.identity ?? {
         workspaceId: TEST_WORKSPACE_ID,
         threadId: "thr_test001",
         turnId: "trn_test001",
@@ -544,6 +590,7 @@ function createEnv(
   options: {
     runEngineAgent?: Env["RUN_ENGINE_AGENT"];
     cloudflareAgentsEnabled?: Env["FEATURE_FLAG_CLOUDFLARE_AGENTS_V1"];
+    runAdmissionLimiter?: Env["RUN_ADMISSION_LIMITER"];
   } = {},
 ): Env {
   const oauthState = new Map<string, string>();
@@ -580,7 +627,9 @@ function createEnv(
       },
     } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
-    RUN_ADMISSION_LIMITER: createMockRunAdmissionLimiterNamespace(),
+    RUN_ADMISSION_LIMITER:
+      options.runAdmissionLimiter ??
+      createMockRunAdmissionLimiterNamespace().namespace,
     RUN_ENGINE_AGENT: options.runEngineAgent,
     FEATURE_FLAG_CLOUDFLARE_AGENTS_V1:
       options.cloudflareAgentsEnabled ?? "false",
@@ -637,10 +686,11 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
   const get = vi.fn(() => ({ fetch }));
   const idFromName = vi.fn(() => ({ toString: () => "mock-admission-id" }));
 
-  return {
+  const namespace = {
     idFromName,
     get,
   } as unknown as Env["RUN_ADMISSION_LIMITER"];
+  return { namespace, fetch };
 }
 
 async function createSessionToken(
