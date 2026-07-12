@@ -6,7 +6,10 @@ import { useChatPersistence } from "./useChatPersistence";
 import { createConversationScope } from "./conversationScope";
 
 const scope = createConversationScope({
-  workspaceId: "workspace-1",
+  workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+  threadId: "thr_test-1",
+  turnId: "trn_test-1",
+  runAttemptId: "attempt_test-1",
   sessionId: "session-1",
   runId: "run-1",
 });

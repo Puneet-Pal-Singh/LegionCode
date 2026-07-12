@@ -2,17 +2,24 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentStore } from "../store/agentStore";
 import { useChatCore } from "./useChatCore";
-import { createConversationScope } from "./conversationScope";
+import {
+  conversationScopeKey,
+  createConversationScope,
+} from "./conversationScope";
 
 const testScope = createConversationScope({
-  workspaceId: "workspace-1",
+  workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+  threadId: "thr_test-1",
+  turnId: "trn_test-1",
+  runAttemptId: "attempt_test-1",
   sessionId: "session-1",
   runId: "run-2",
 });
 
-const { mockUseChat, mockResolveForChat } = vi.hoisted(() => ({
+const { mockUseChat, mockResolveForChat, mockBootstrapScope } = vi.hoisted(() => ({
   mockUseChat: vi.fn(),
   mockResolveForChat: vi.fn(),
+  mockBootstrapScope: vi.fn(),
 }));
 
 vi.mock("@ai-sdk/react", () => ({
@@ -37,6 +44,13 @@ vi.mock("./useProviderStore.js", () => ({
   }),
 }));
 
+vi.mock("./conversationScope", async () => {
+  const actual = await vi.importActual<typeof import("./conversationScope")>(
+    "./conversationScope",
+  );
+  return { ...actual, bootstrapConversationScope: mockBootstrapScope };
+});
+
 vi.mock("../lib/platform-endpoints.js", () => ({
   chatStreamPath: () => "https://brain.local/chat",
   getBrainHttpBase: () => "https://brain.local",
@@ -60,6 +74,15 @@ describe("useChatCore", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockResolveForChat.mockReset();
+    mockBootstrapScope.mockReset();
+    mockBootstrapScope.mockImplementation(
+      async (sessionId: string, runId: string) =>
+        createConversationScope({
+          ...testScope,
+          sessionId,
+          runId,
+        }),
+    );
     mockUseChat.mockReset();
     appendSpy = vi.fn();
     stopStreamSpy = vi.fn();
@@ -143,7 +166,19 @@ describe("useChatCore", () => {
     );
   });
 
-  it("ignores stale stream callbacks after switching session scope", () => {
+  it("ignores stale stream callbacks after switching session scope", async () => {
+    mockBootstrapScope.mockImplementation((sessionId: string, runId: string) =>
+      Promise.resolve(
+        createConversationScope({
+          workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+          threadId: `thr_${sessionId.replace(/[^A-Za-z0-9]/g, "")}001`,
+          turnId: `trn_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+          runAttemptId: `attempt_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+          sessionId,
+          runId,
+        }),
+      ),
+    );
     const { result, rerender } = renderHook(
       ({ sessionId, runId }) => useChatCore(sessionId, runId),
       {
@@ -153,6 +188,9 @@ describe("useChatCore", () => {
         },
       },
     );
+
+    await waitFor(() => expect(result.current.scope?.threadId).toBe("thr_session1001"));
+    const firstScopeKey = conversationScopeKey(result.current.scope!);
 
     const firstOptions = mockUseChat.mock.calls[0]?.[0] as {
       onError?: (error: Error) => void;
@@ -164,6 +202,9 @@ describe("useChatCore", () => {
       rerender({ sessionId: "session-2", runId: "run-2" });
     });
 
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
+    expect(conversationScopeKey(result.current.scope!)).not.toBe(firstScopeKey);
+
     act(() => {
       firstOptions.onError?.(new Error("old stream failed"));
       firstOptions.onResponse?.(new Response(null, { status: 500 }));
@@ -174,10 +215,11 @@ describe("useChatCore", () => {
     expect(result.current.debugEvents).toHaveLength(0);
   });
 
-  it("captures canonical server turnId from the X-Turn-Id response header", () => {
+  it("uses the pre-stream bootstrap turnId as the canonical turn identity", async () => {
     const { result } = renderHook(() => useChatCore("session-1"));
 
-    expect(result.current.serverTurnId).toBeNull();
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
+    expect(result.current.serverTurnId).toBe("trn_test-1");
 
     const options = mockUseChat.mock.calls[0]?.[0] as {
       onResponse?: (response: Response) => void;
@@ -187,16 +229,18 @@ describe("useChatCore", () => {
       options.onResponse?.(
         new Response(null, {
           status: 200,
-          headers: { "X-Turn-Id": "trn_serverallocated001" },
+          headers: { "X-Turn-Id": "trn_test-1" },
         }),
       );
     });
 
-    expect(result.current.serverTurnId).toBe("trn_serverallocated001");
+    expect(result.current.serverTurnId).toBe("trn_test-1");
   });
 
-  it("does not overwrite serverTurnId with empty X-Turn-Id header", () => {
+  it("does not swap the canonical turnId from a post-stream header", async () => {
     const { result } = renderHook(() => useChatCore("session-1"));
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
 
     const options = mockUseChat.mock.calls[0]?.[0] as {
       onResponse?: (response: Response) => void;
@@ -206,7 +250,7 @@ describe("useChatCore", () => {
       options.onResponse?.(
         new Response(null, {
           status: 200,
-          headers: { "X-Turn-Id": "trn_firstresponse0001" },
+          headers: { "X-Turn-Id": "trn_mismatched001" },
         }),
       );
     });
@@ -214,7 +258,7 @@ describe("useChatCore", () => {
       options.onResponse?.(new Response(null, { status: 200 }));
     });
 
-    expect(result.current.serverTurnId).toBe("trn_firstresponse0001");
+    expect(result.current.serverTurnId).toBe("trn_test-1");
   });
 
   it("does not hydrate transcript state from the global cache on scope changes", () => {
@@ -237,7 +281,7 @@ describe("useChatCore", () => {
     expect(setMessagesSpy).not.toHaveBeenCalled();
   });
 
-  it("leaves transcript ownership with the remounted Vercel chat instance", () => {
+  it("leaves transcript ownership with the remounted Vercel chat instance", async () => {
     const staleMessages = [
       {
         id: "old-message",
@@ -273,9 +317,13 @@ describe("useChatCore", () => {
       },
     );
 
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
+
     act(() => {
       rerender({ sessionId: "session-2", runId: "run-2" });
     });
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
 
     expect(result.current.messages).toEqual(staleMessages);
     expect(agentStore.getMessages(testScope)).toEqual(currentMessages);
@@ -285,6 +333,8 @@ describe("useChatCore", () => {
     const { result } = renderHook(() =>
       useChatCore("session-1", undefined, "plan"),
     );
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
 
     await act(async () => {
       await result.current.append({
@@ -305,6 +355,12 @@ describe("useChatCore", () => {
           runId: expect.stringMatching(/^run_/),
           clientMessageId: expect.stringMatching(/^client_msg_/),
           mode: "plan",
+          identity: {
+            workspaceId: testScope.workspaceId,
+            threadId: testScope.threadId,
+            turnId: testScope.turnId,
+            runAttemptId: testScope.runAttemptId,
+          },
         }),
       }),
     );
@@ -314,6 +370,8 @@ describe("useChatCore", () => {
     const { result } = renderHook(() =>
       useChatCore("session-1", undefined, "build", "full_agent"),
     );
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
 
     await act(async () => {
       await result.current.append({
@@ -341,6 +399,8 @@ describe("useChatCore", () => {
 
   it("skips provider resolve API call when selection already exists", async () => {
     const { result } = renderHook(() => useChatCore("session-1"));
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
 
     await act(async () => {
       await result.current.append({
@@ -389,6 +449,7 @@ describe("useChatCore", () => {
       append: appendSpy,
     });
     const { result } = renderHook(() => useChatCore("session-1"));
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
     let submitted = false;
 
     await act(async () => {
@@ -413,6 +474,7 @@ describe("useChatCore", () => {
 
   it("submits image-only messages with redacted debug metadata", async () => {
     const { result } = renderHook(() => useChatCore("session-1"));
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
     let submitted = false;
 
     await act(async () => {
@@ -474,6 +536,8 @@ describe("useChatCore", () => {
     );
     const { result } = renderHook(() => useChatCore("session-1"));
 
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
+
     act(() => {
       void result.current.append({
         role: "user",
@@ -512,6 +576,8 @@ describe("useChatCore", () => {
     );
     const { result } = renderHook(() => useChatCore("session-1"));
 
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
+
     act(() => {
       void result.current.append({
         role: "user",
@@ -546,7 +612,10 @@ describe("useChatCore", () => {
     );
     agentStore.setMessages(
       createConversationScope({
-        workspaceId: "session-1",
+        workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+        threadId: "thr_session-1",
+        turnId: "trn_repeatedprompt001",
+        runAttemptId: "attempt_repeatedprompt001",
         sessionId: "session-1",
         runId: "run-repeated-prompt",
       }),
@@ -558,7 +627,10 @@ describe("useChatCore", () => {
     mockUseChat.mockReturnValue({
       messages: agentStore.getMessages(
         createConversationScope({
-          workspaceId: "session-1",
+          workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+          threadId: "thr_session-1",
+          turnId: "trn_repeatedprompt001",
+          runAttemptId: "attempt_repeatedprompt001",
           sessionId: "session-1",
           runId: "run-repeated-prompt",
         }),
@@ -573,6 +645,8 @@ describe("useChatCore", () => {
     const { result } = renderHook(() =>
       useChatCore("session-1", "run-repeated-prompt"),
     );
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
 
     act(() => {
       void result.current.append({

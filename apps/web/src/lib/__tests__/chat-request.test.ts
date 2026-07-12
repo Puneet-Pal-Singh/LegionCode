@@ -7,6 +7,12 @@ describe("parseChatRequestBody", () => {
       parseChatRequestBody({
         sessionId: "session-1",
         runId: "run-1",
+        identity: {
+          workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+          threadId: "thr_test-1",
+          turnId: "trn_test-1",
+          runAttemptId: "attempt_test-1",
+        },
         clientMessageId: "client_msg_1",
         mode: "build",
         productMode: "full_agent",
@@ -31,6 +37,12 @@ describe("parseChatRequestBody", () => {
       parseChatRequestBody({
         sessionId: "",
         runId: "run-1",
+        identity: {
+          workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+          threadId: "thr_test-1",
+          turnId: "trn_test-1",
+          runAttemptId: "attempt_test-1",
+        },
         repositoryBaseUrl: "not-a-url",
       }),
     ).toThrow();

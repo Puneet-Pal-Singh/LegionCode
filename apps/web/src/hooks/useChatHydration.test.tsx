@@ -5,7 +5,14 @@ import { useChatHydration } from "./useChatHydration";
 import { createConversationScope } from "./conversationScope";
 
 function scopeFor(sessionId: string, runId: string) {
-  return createConversationScope({ workspaceId: sessionId, sessionId, runId });
+  return createConversationScope({
+    workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+    threadId: `thr_${sessionId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    turnId: `trn_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    runAttemptId: `attempt_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    sessionId,
+    runId,
+  });
 }
 
 vi.mock("../lib/platform-endpoints.js", () => ({
