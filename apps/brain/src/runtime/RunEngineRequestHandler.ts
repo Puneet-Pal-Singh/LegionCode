@@ -661,8 +661,24 @@ export class RunEngineRequestHandler {
         return runEngineJsonResponse(request, this.env, identity, 201);
       });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Invalid turn bootstrap";
-      return runEngineErrorResponse(request, this.env, message, 400);
+      if (isDomainError(error)) {
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          message,
+          status,
+          code,
+          metadata,
+        );
+      }
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Failed to persist the server-owned turn bootstrap",
+        500,
+        "TURN_BOOTSTRAP_FAILED",
+      );
     }
   }
 
@@ -719,7 +735,6 @@ export class RunEngineRequestHandler {
         }),
       );
       return await this.withExecutionLock(payload.runId, async () => {
-        this.eventStream?.start(payload.runId);
         if (!payload.identity) {
           return runEngineErrorResponse(
             request,
@@ -749,6 +764,7 @@ export class RunEngineRequestHandler {
             "TURN_SCOPE_MISMATCH",
           );
         }
+        this.eventStream?.start(payload.runId);
         const { turnId, runAttemptId, threadId } = identity;
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
