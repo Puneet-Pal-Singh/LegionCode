@@ -33,8 +33,6 @@ export function useChatHydration(
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeKey = conversationScopeKey(scope);
   const activeScopeKeyRef = useRef(scopeKey);
-  const scopeRef = useRef(scope);
-  scopeRef.current = scope;
   const messagesRef = useRef(messages);
 
   useEffect(() => {
@@ -95,9 +93,7 @@ export function useChatHydration(
 
     async function hydrate() {
       try {
-        const result = await hydrationServiceRef.current.hydrateMessages(
-          scopeRef.current,
-        );
+        const result = await hydrationServiceRef.current.hydrateMessages(scope);
 
         if (!isCurrentScope()) {
           logClientEvent("chat/hydration", "discarded", {
