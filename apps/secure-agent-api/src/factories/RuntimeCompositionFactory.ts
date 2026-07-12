@@ -23,6 +23,7 @@ import {
   type RuntimeExecutionBackend,
 } from "../adapters/AgentRuntimeAdapterFactory";
 import type { IPlugin } from "../interfaces/types";
+import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 
 /**
  * Type-compatible R2 bucket interface for artifact adapter composition.
@@ -71,6 +72,7 @@ export interface ComposeRuntimeInput {
   plugins: Map<string, IPlugin>;
   r2Bucket: R2BucketCompat;
   executionBackend?: RuntimeExecutionBackend;
+  executionLease?: SandboxExecutionLease;
 }
 
 /**
@@ -91,6 +93,7 @@ export function composeRuntime(
     plugins: input.plugins,
     r2Bucket: input.r2Bucket,
     executionBackend: input.executionBackend,
+    executionLease: input.executionLease,
   });
 
   return {
