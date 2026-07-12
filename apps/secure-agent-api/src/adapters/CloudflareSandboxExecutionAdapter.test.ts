@@ -8,12 +8,34 @@
  * 4. Timeout and cancellation semantics
  */
 
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { CloudflareSandboxExecutionAdapter } from "./CloudflareSandboxExecutionAdapter";
 import type { IPlugin, ToolDefinition } from "../interfaces/types";
 import type { TaskExecutionHooks } from "../ports/SandboxExecutionPort";
+import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 
 const TEST_RUN_ID = "run-1";
+const TEST_LEASE: SandboxExecutionLease = {
+  leaseId: "lease:workspace-1:attempt-1",
+  sandboxId: "workspace:workspace-1:attempt:attempt-1",
+  workspaceScope: {
+    runId: TEST_RUN_ID,
+    runAttemptId: "attempt-1",
+    workspaceId: "workspace-1",
+    root: "/workspace-1",
+  },
+  owner: "test-session",
+  correlationId: "corr-1",
+  expiresAt: Date.now() + 60_000,
+  generation: 0,
+  mutationMode: "serialized",
+};
+
+function withLease<T extends Record<string, unknown>>(
+  input: T,
+): T & { lease: SandboxExecutionLease } {
+  return { ...input, lease: TEST_LEASE };
+}
 
 // Mock plugin for testing
 class MockPlugin implements IPlugin {
@@ -70,7 +92,11 @@ describe("CloudflareSandboxExecutionAdapter", () => {
     pluginMap = new Map([["MockPlugin", mockPlugin]]);
     mockSandbox = {}; // Sandbox is not directly used in current implementation
 
-    adapter = new CloudflareSandboxExecutionAdapter(mockSandbox, pluginMap);
+    adapter = new CloudflareSandboxExecutionAdapter(
+      mockSandbox,
+      pluginMap,
+      TEST_LEASE,
+    );
   });
 
   describe("executeTask", () => {
@@ -81,7 +107,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { action: "run", test: "value", runId: TEST_RUN_ID },
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.taskId).toBe("task-1");
       expect(result.status).toBe("success");
@@ -96,7 +122,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: {},
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.taskId).toBe("task-2");
       expect(result.status).toBe("failure");
@@ -111,7 +137,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: {},
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.status).toBe("failure");
       expect(result.error?.code).toBe("PLUGIN_NOT_FOUND");
@@ -124,7 +150,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { action: "run", test: "value" },
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.status).toBe("failure");
       expect(result.error?.code).toBe("INVALID_INPUT");
@@ -138,7 +164,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { runId: TEST_RUN_ID },
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.status).toBe("failure");
       expect(result.error?.code).toBe("INVALID_INPUT");
@@ -152,7 +178,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { action: "run", shouldFail: true, runId: TEST_RUN_ID },
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.taskId).toBe("task-4");
       expect(result.status).toBe("failure");
@@ -169,7 +195,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         timeout: 50,
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       // Task completes, timeout doesn't fire because delay < timeout
       expect(result.taskId).toBe("task-5");
@@ -210,7 +236,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { path: "/test.txt", runId: TEST_RUN_ID },
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.status).toBe("success");
     });
@@ -238,7 +264,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
 
       pluginMap.set("node", new NodePlugin());
 
-      const result = await adapter.executeTask("session-1", {
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease({
         taskId: "task-node-run",
         action: "node.execute",
         params: {
@@ -246,7 +272,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
           command: "echo hi",
           runId: TEST_RUN_ID,
         },
-      });
+      }));
 
       expect(result.status).toBe("success");
       expect(result.output).toBe("hi");
@@ -284,12 +310,12 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       };
 
       const result = await adapter.executeTask(
-        "session-1",
-        {
+        TEST_LEASE.leaseId,
+        withLease({
           taskId: "task-log-drain",
           action: "logger.execute",
           params: { action: "run", runId: TEST_RUN_ID },
-        },
+        }),
         hooks,
       );
 
@@ -332,7 +358,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
 
       pluginMap.set("node", new NodePlugin());
 
-      const result = await adapter.executeTask("session-1", {
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease({
         taskId: "task-node-toolbox",
         action: "node.execute",
         params: {
@@ -340,7 +366,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
           command: "echo hi",
           runId: TEST_RUN_ID,
         },
-      });
+      }));
 
       expect(result.status).toBe("success");
     });
@@ -366,7 +392,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
 
       pluginMap.set("node", new NodePlugin());
 
-      const result = await adapter.executeTask("session-1", {
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease({
         taskId: "task-node-trimmed-run",
         action: "node.execute",
         params: {
@@ -374,7 +400,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
           command: "echo hi",
           runId: TEST_RUN_ID,
         },
-      });
+      }));
 
       expect(result.status).toBe("success");
       expect(result.output).toBe("trimmed");
@@ -391,11 +417,11 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       };
 
       // Start task
-      const taskPromise = adapter.executeTask("session-1", input);
+      const taskPromise = adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       // Cancel attempt while task is still running
       // (may succeed if task hasn't completed yet)
-      const cancelled = await adapter.cancelTask("session-1", "task-7");
+      const cancelled = await adapter.cancelTask(TEST_LEASE.leaseId, "task-7");
 
       // Task exists in active executions, so cancel should be attempted
       // Actual result depends on timing
@@ -406,7 +432,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
     });
 
     it("should return false for non-existent task", async () => {
-      const result = await adapter.cancelTask("session-1", "non-existent");
+      const result = await adapter.cancelTask(TEST_LEASE.leaseId, "non-existent");
       expect(result).toBe(false);
     });
   });
@@ -438,8 +464,8 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { action: "run", runId: TEST_RUN_ID },
       };
 
-      await adapter.executeTask("session-1", input);
-      await adapter.cleanup("session-1");
+      await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
+      await adapter.cleanup(TEST_LEASE.leaseId);
 
       // Verify no hanging timeouts (manual inspection only)
       // In real test, would use jest.fake timers
@@ -455,11 +481,341 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         params: { action: "run", shouldFail: true, runId: TEST_RUN_ID },
       };
 
-      const result = await adapter.executeTask("session-1", input);
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease(input));
 
       expect(result.error).toBeDefined();
       expect(result.error?.code).toBeDefined();
       expect(result.error?.message).toBeDefined();
+    });
+  });
+
+  describe("lease isolation", () => {
+    it("serializes mutations from distinct leases for the same workspace run-attempt", async () => {
+      const order: string[] = [];
+      let concurrent = 0;
+      let maximumConcurrent = 0;
+      const tracker: IPlugin = {
+        name: "tracker",
+        tools: [],
+        async execute(_sandbox, payload): Promise<{ success: boolean; output: string }> {
+          const callId = (payload as { __toolbox: { callId: string } }).__toolbox.callId;
+          order.push(`start:${callId}`);
+          concurrent += 1;
+          maximumConcurrent = Math.max(maximumConcurrent, concurrent);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          concurrent -= 1;
+          order.push(`finish:${callId}`);
+          return { success: true, output: callId };
+        },
+      };
+      const firstLease = TEST_LEASE;
+      const secondLease: SandboxExecutionLease = {
+        ...TEST_LEASE,
+        leaseId: "lease:workspace-1:attempt-1:second",
+        owner: "second-session",
+        correlationId: "corr-2",
+      };
+      const localAdapter = new CloudflareSandboxExecutionAdapter(
+        mockSandbox,
+        new Map([[tracker.name, tracker]]),
+        firstLease,
+      );
+      localAdapter.registerLease(secondLease);
+
+      const first = localAdapter.executeTask(firstLease.leaseId, {
+        taskId: "first",
+        action: "tracker.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: firstLease,
+      });
+      const second = localAdapter.executeTask(secondLease.leaseId, {
+        taskId: "second",
+        action: "tracker.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: secondLease,
+      });
+
+      await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+      expect(maximumConcurrent).toBe(1);
+      expect(order).toEqual([
+        "start:first",
+        "finish:first",
+        "start:second",
+        "finish:second",
+      ]);
+    });
+
+    it("cancels only the matching lease when sibling leases share a task id", async () => {
+      const slowPlugin: IPlugin = {
+        name: "slow",
+        tools: [],
+        async execute(): Promise<{ success: boolean; output: string }> {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return { success: true, output: "complete" };
+        },
+      };
+      const firstLease: SandboxExecutionLease = {
+        ...TEST_LEASE,
+        mutationMode: "read_only",
+      };
+      const secondLease: SandboxExecutionLease = {
+        ...firstLease,
+        leaseId: "lease:workspace-1:attempt-1:read-only",
+        owner: "second-session",
+        correlationId: "corr-read-only",
+      };
+      const localAdapter = new CloudflareSandboxExecutionAdapter(
+        mockSandbox,
+        new Map([[slowPlugin.name, slowPlugin]]),
+        firstLease,
+      );
+      localAdapter.registerLease(secondLease);
+      const first = localAdapter.executeTask(firstLease.leaseId, {
+        taskId: "shared-task",
+        action: "slow.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: firstLease,
+      });
+      const second = localAdapter.executeTask(secondLease.leaseId, {
+        taskId: "shared-task",
+        action: "slow.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: secondLease,
+      });
+
+      expect(await localAdapter.cancelTask(firstLease.leaseId, "shared-task")).toBe(true);
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+      expect(firstResult.status).toBe("cancelled");
+      expect(secondResult.status).toBe("success");
+      expect(await localAdapter.cancelTask(firstLease.leaseId, "shared-task")).toBe(false);
+    });
+
+    it("allows explicit read-only leases to run without taking the mutation lock", async () => {
+      let concurrent = 0;
+      let maximumConcurrent = 0;
+      const readOnlyPlugin: IPlugin = {
+        name: "readonly",
+        tools: [],
+        async execute(): Promise<{ success: boolean; output: string }> {
+          concurrent += 1;
+          maximumConcurrent = Math.max(maximumConcurrent, concurrent);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          concurrent -= 1;
+          return { success: true, output: "read" };
+        },
+      };
+      const firstLease: SandboxExecutionLease = {
+        ...TEST_LEASE,
+        mutationMode: "read_only",
+      };
+      const secondLease: SandboxExecutionLease = {
+        ...firstLease,
+        leaseId: "lease:workspace-1:attempt-1:readonly-second",
+        owner: "readonly-second",
+        correlationId: "corr-readonly-second",
+      };
+      const localAdapter = new CloudflareSandboxExecutionAdapter(
+        mockSandbox,
+        new Map([[readOnlyPlugin.name, readOnlyPlugin]]),
+        firstLease,
+      );
+      localAdapter.registerLease(secondLease);
+
+      const [first, second] = await Promise.all([
+        localAdapter.executeTask(firstLease.leaseId, {
+          taskId: "read-first",
+          action: "readonly.execute",
+          params: { action: "run", runId: TEST_RUN_ID },
+          lease: firstLease,
+        }),
+        localAdapter.executeTask(secondLease.leaseId, {
+          taskId: "read-second",
+          action: "readonly.execute",
+          params: { action: "run", runId: TEST_RUN_ID },
+          lease: secondLease,
+        }),
+      ]);
+
+      expect(first.status).toBe("success");
+      expect(second.status).toBe("success");
+      expect(maximumConcurrent).toBe(2);
+    });
+
+    it("keeps active task state isolated between different workspace adapters", async () => {
+      const slowPlugin: IPlugin = {
+        name: "slow",
+        tools: [],
+        async execute(): Promise<{ success: boolean; output: string }> {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return { success: true, output: "complete" };
+        },
+      };
+      const workspaceTwoLease: SandboxExecutionLease = {
+        ...TEST_LEASE,
+        leaseId: "lease:workspace-2:attempt-1",
+        owner: "workspace-two",
+        correlationId: "corr-workspace-two",
+        workspaceScope: {
+          runId: TEST_RUN_ID,
+          runAttemptId: "attempt-1",
+          workspaceId: "workspace-2",
+          root: "/workspace-2",
+        },
+      };
+      const workspaceOne = new CloudflareSandboxExecutionAdapter(
+        mockSandbox,
+        new Map([[slowPlugin.name, slowPlugin]]),
+        TEST_LEASE,
+      );
+      const workspaceTwo = new CloudflareSandboxExecutionAdapter(
+        mockSandbox,
+        new Map([[slowPlugin.name, slowPlugin]]),
+        workspaceTwoLease,
+      );
+      const first = workspaceOne.executeTask(TEST_LEASE.leaseId, {
+        taskId: "shared-task",
+        action: "slow.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: TEST_LEASE,
+      });
+      const second = workspaceTwo.executeTask(workspaceTwoLease.leaseId, {
+        taskId: "shared-task",
+        action: "slow.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: workspaceTwoLease,
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(await workspaceOne.cancelTask(TEST_LEASE.leaseId, "shared-task")).toBe(true);
+      expect((await first).status).toBe("cancelled");
+      expect((await second).status).toBe("success");
+    });
+
+    it("settles a timeout without retaining a sibling task entry", async () => {
+      const slowPlugin: IPlugin = {
+        name: "slow",
+        tools: [],
+        async execute(): Promise<{ success: boolean; output: string }> {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return { success: true, output: "complete" };
+        },
+      };
+      const timeoutLease: SandboxExecutionLease = {
+        ...TEST_LEASE,
+        mutationMode: "read_only",
+      };
+      const siblingLease: SandboxExecutionLease = {
+        ...timeoutLease,
+        leaseId: "lease:workspace-2:attempt-1:read-only",
+        owner: "sibling-session",
+        correlationId: "corr-sibling",
+        workspaceScope: {
+          runId: TEST_RUN_ID,
+          runAttemptId: "attempt-1",
+          workspaceId: "workspace-2",
+          root: "/workspace-2",
+        },
+      };
+      const localAdapter = new CloudflareSandboxExecutionAdapter(
+        mockSandbox,
+        new Map([[slowPlugin.name, slowPlugin]]),
+        timeoutLease,
+      );
+      localAdapter.registerLease(siblingLease);
+      const timedOut = localAdapter.executeTask(timeoutLease.leaseId, {
+        taskId: "timeout-task",
+        action: "slow.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        timeout: 1,
+        lease: timeoutLease,
+      });
+      const sibling = localAdapter.executeTask(siblingLease.leaseId, {
+        taskId: "sibling-task",
+        action: "slow.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: siblingLease,
+      });
+
+      expect((await timedOut).status).toBe("timeout");
+      expect(await localAdapter.cancelTask(timeoutLease.leaseId, "timeout-task")).toBe(false);
+      expect((await sibling).status).toBe("success");
+    });
+
+    it("rejects an expired lease without invoking a plugin", async () => {
+      const expired = { ...TEST_LEASE, expiresAt: Date.now() - 1 };
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, {
+        taskId: "expired-task",
+        action: "MockPlugin.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: expired,
+      });
+
+      expect(result.status).toBe("sandbox_unavailable");
+      expect(result.error?.code).toBe("SANDBOX_LEASE_REQUIRED");
+      expect(result.retryable).toBe(true);
+    });
+
+    it("releases only the dead lease after an exit 137", async () => {
+      const destroy = vi.fn(async () => undefined);
+      const sandbox = { destroy };
+      const failingPlugin: IPlugin = {
+        name: "dead",
+        tools: [],
+        async execute(): Promise<never> {
+          throw { exitCode: 137, message: "container exited" };
+        },
+      };
+      const localAdapter = new CloudflareSandboxExecutionAdapter(
+        sandbox as never,
+        new Map([[failingPlugin.name, failingPlugin]]),
+        TEST_LEASE,
+      );
+
+      const result = await localAdapter.executeTask(TEST_LEASE.leaseId, {
+        taskId: "dead-task",
+        action: "dead.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+        lease: TEST_LEASE,
+      });
+
+      expect(result.status).toBe("sandbox_unavailable");
+      expect(result.error?.code).toBe("SANDBOX_UNAVAILABLE");
+      expect(result.retryable).toBe(true);
+      expect(destroy).toHaveBeenCalledOnce();
+    });
+
+    it("does not cancel a sibling lease during cleanup", async () => {
+      const siblingLease = {
+        ...TEST_LEASE,
+        leaseId: "lease:workspace-2:attempt-1",
+        workspaceScope: {
+          runId: TEST_RUN_ID,
+          runAttemptId: "attempt-1",
+          workspaceId: "workspace-2",
+          root: "/workspace-2",
+        },
+        sandboxId: "workspace:workspace-2:attempt:attempt-1",
+      };
+      adapter.registerLease(siblingLease);
+      const first = adapter.executeTask(TEST_LEASE.leaseId, {
+        taskId: "first-task",
+        action: "MockPlugin.execute",
+        params: { action: "run", delay: 25, runId: TEST_RUN_ID },
+        lease: TEST_LEASE,
+      });
+      const second = adapter.executeTask(siblingLease.leaseId, {
+        taskId: "second-task",
+        action: "MockPlugin.execute",
+        params: { action: "run", delay: 5, runId: TEST_RUN_ID },
+        lease: siblingLease,
+      });
+
+      await adapter.cleanup(TEST_LEASE.leaseId);
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      expect(firstResult.taskId).toBe("first-task");
+      expect(secondResult.status).toBe("success");
     });
   });
 });
