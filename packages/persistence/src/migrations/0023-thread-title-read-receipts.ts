@@ -7,6 +7,8 @@ export const threadTitleReadReceiptsMigration: SqlMigration = {
     `ALTER TABLE canonical_thread_projections ADD COLUMN IF NOT EXISTS title_version INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE canonical_thread_projections ADD COLUMN IF NOT EXISTS title_status TEXT NOT NULL DEFAULT 'ready'`,
     `ALTER TABLE canonical_thread_projections ADD COLUMN IF NOT EXISTS last_terminal_turn_id TEXT`,
+    `ALTER TABLE canonical_thread_projections DROP CONSTRAINT IF EXISTS canonical_thread_projections_title_status_check`,
+    `ALTER TABLE canonical_thread_projections ADD CONSTRAINT canonical_thread_projections_title_status_check CHECK (title_status IN ('pending', 'ready', 'failed'))`,
     `CREATE TABLE IF NOT EXISTS thread_read_receipts (
       thread_id TEXT NOT NULL,
       viewer_id TEXT NOT NULL,

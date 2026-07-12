@@ -4,21 +4,23 @@ import type {
   Thread,
   ThreadId,
   ThreadItem,
+  TurnId,
+  UserId,
 } from "@repo/platform-protocol";
 
 export const THREAD_PROJECTION_VERSION = 1;
 
 export interface ThreadReadReceipt {
   threadId: ThreadId;
-  viewerId: string;
-  lastAcknowledgedTerminalTurnId: string | null;
+  viewerId: UserId;
+  lastAcknowledgedTerminalTurnId: TurnId | null;
   acknowledgedAt: string;
 }
 
 export interface AcknowledgeThreadInput {
   threadId: ThreadId;
-  viewerId: string;
-  terminalTurnId: string;
+  viewerId: UserId;
+  terminalTurnId: TurnId;
   acknowledgedAt: string;
 }
 
@@ -26,7 +28,7 @@ export interface ApplyGeneratedTitleInput {
   threadId: ThreadId;
   title: string;
   expectedTitleVersion: number;
-  terminalTurnId: string;
+  terminalTurnId: TurnId;
 }
 
 export interface ThreadProjectionEventInput {
@@ -55,7 +57,7 @@ export interface ThreadProjectionRepository {
   ): Promise<ThreadProjectionSnapshot | null>;
   getThreadReadReceipt(
     threadId: ThreadId,
-    viewerId: string,
+    viewerId: UserId,
   ): Promise<ThreadReadReceipt | null>;
   acknowledgeThread(input: AcknowledgeThreadInput): Promise<ThreadReadReceipt>;
   applyGeneratedTitle(input: ApplyGeneratedTitleInput): Promise<boolean>;
@@ -67,7 +69,8 @@ export class ThreadProjectionError extends Error {
       | "event_thread_mismatch"
       | "missing_thread_created"
       | "missing_item_source"
-      | "invalid_projection_sequence",
+      | "invalid_projection_sequence"
+      | "acknowledgement_turn_mismatch",
     message: string,
   ) {
     super(message);

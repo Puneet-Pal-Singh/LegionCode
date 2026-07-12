@@ -648,11 +648,6 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
     mode: session.mode ?? DEFAULT_RUN_MODE,
     status: normalizeStoredSessionStatus(session.status),
     titleSource: session.titleSource ?? "generated",
-    titleVersion: session.titleVersion ?? 1,
-    titleStatus: session.titleStatus ?? "ready",
-    lastTerminalTurnId: session.lastTerminalTurnId ?? null,
-    lastAcknowledgedTerminalTurnId:
-      session.lastAcknowledgedTerminalTurnId ?? null,
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
     createdAt: session.createdAt ?? session.updatedAt,
@@ -675,6 +670,7 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
     id: session.id,
     name: session.title,
     titleSource: session.titleSource ?? "generated",
+    ...mapServerThreadMetadata(session),
     repository: session.repository,
     activeRunId: session.activeRunId,
     runIds: [session.activeRunId],
@@ -689,6 +685,44 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
 
 function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
   return status;
+}
+
+function mapServerThreadMetadata(
+  session: ServerSessionRecord,
+): Pick<
+  AgentSession,
+  | "titleVersion"
+  | "titleStatus"
+  | "lastTerminalTurnId"
+  | "lastAcknowledgedTerminalTurnId"
+> {
+  return {
+    ...(isTitleVersion(session.titleVersion)
+      ? { titleVersion: session.titleVersion }
+      : {}),
+    ...(isTitleStatus(session.titleStatus)
+      ? { titleStatus: session.titleStatus }
+      : {}),
+    ...(typeof session.lastTerminalTurnId === "string"
+      ? { lastTerminalTurnId: session.lastTerminalTurnId }
+      : {}),
+    ...(typeof session.lastAcknowledgedTerminalTurnId === "string"
+      ? {
+          lastAcknowledgedTerminalTurnId:
+            session.lastAcknowledgedTerminalTurnId,
+        }
+      : {}),
+  };
+}
+
+function isTitleVersion(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isTitleStatus(
+  value: unknown,
+): value is NonNullable<AgentSession["titleStatus"]> {
+  return value === "pending" || value === "ready" || value === "failed";
 }
 
 async function sendSessionMutation(

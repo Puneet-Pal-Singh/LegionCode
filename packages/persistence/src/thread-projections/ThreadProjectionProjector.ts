@@ -71,7 +71,7 @@ function applyProjectionInput(
 
   if (isTerminalTurnEvent(input.event)) {
     state.lastTerminalTurnId = input.event.payload.turn.id;
-    if (state.thread?.titleSource === "generated") {
+    if (isFirstEligibleTitleTurn(state.thread, input.event)) {
       state.thread = ThreadSchema.parse({
         ...state.thread,
         titleStatus: "pending",
@@ -126,6 +126,18 @@ function isTerminalTurnEvent(
   event: PlatformEvent,
 ): event is Extract<PlatformEvent, { type: "turn.completed" | "turn.failed" }> {
   return event.type === "turn.completed" || event.type === "turn.failed";
+}
+
+function isFirstEligibleTitleTurn(
+  thread: Thread | null,
+  event: PlatformEvent,
+): boolean {
+  return (
+    event.type === "turn.completed" &&
+    thread?.titleSource === "generated" &&
+    thread.titleVersion === 1 &&
+    thread.titleStatus === "ready"
+  );
 }
 
 function projectThreadState(
