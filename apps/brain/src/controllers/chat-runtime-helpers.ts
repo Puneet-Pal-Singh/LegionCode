@@ -298,8 +298,11 @@ async function fetchViaCloudflareAgentsRuntime(
     return client.getSummary({ runId });
   }
 
-  if (requestInit.path === "/cancel") {
-    return client.cancel({ runId });
+  if (requestInit.path === "/interrupt") {
+    return client.interrupt({
+      runId,
+      payload: requestInit.body ? JSON.parse(requestInit.body) : {},
+    });
   }
 
   throw new Error(

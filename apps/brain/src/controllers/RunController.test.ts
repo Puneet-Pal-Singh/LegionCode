@@ -26,6 +26,15 @@ vi.mock("../services/AuthService", () => ({
 
 import { RunController } from "./RunController";
 
+const INTERRUPT_PAYLOAD = {
+  runId: "run_123e4567e89b42d3a456426614174100",
+  workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+  sessionId: "session-123456",
+  threadId: "thr_123456",
+  turnId: "trn_123456",
+  runAttemptId: "attempt_123456",
+};
+
 describe("RunController", () => {
   beforeEach(() => {
     runtimeHelpers.fetchRunRuntimeRoute.mockReset();
@@ -512,14 +521,14 @@ describe("RunController", () => {
     });
   });
 
-  it("rejects cancel without an authenticated session", async () => {
+  it("rejects interrupt without an authenticated session", async () => {
     authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
     const env = {} as Env;
 
-    const response = await RunController.cancel(
-      new Request("https://brain.local/api/run/cancel", {
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
         method: "POST",
-        body: JSON.stringify({ runId: "123e4567-e89b-42d3-a456-426614174100" }),
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
       }),
       env,
     );
@@ -528,7 +537,7 @@ describe("RunController", () => {
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
   });
 
-  it("rejects cancel when the run is not owned by the user", async () => {
+  it("rejects interrupt when the run is not owned by the user", async () => {
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({
         getRun: vi.fn().mockResolvedValue(null),
@@ -538,16 +547,57 @@ describe("RunController", () => {
     );
     const env = {} as Env;
 
-    const response = await RunController.cancel(
-      new Request("https://brain.local/api/run/cancel", {
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
         method: "POST",
-        body: JSON.stringify({ runId: "victim-run-id" }),
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
       }),
       env,
     );
 
     expect(response.status).toBe(404);
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("forwards only an authorized canonical interrupt identity to the runtime", async () => {
+    const env = {} as Env;
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue({
+          id: INTERRUPT_PAYLOAD.runId,
+          workspaceId: INTERRUPT_PAYLOAD.workspaceId,
+          sessionId: INTERRUPT_PAYLOAD.sessionId,
+        }),
+      }),
+    );
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      Response.json({
+        runId: INTERRUPT_PAYLOAD.runId,
+        accepted: true,
+        status: "interrupt_requested",
+      }),
+    );
+
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
+        method: "POST",
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
+      }),
+      env,
+    );
+
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
+      env,
+      INTERRUPT_PAYLOAD.runId,
+      "execution-engine-v1",
+      {
+        method: "POST",
+        path: "/interrupt",
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    await expect(response.json()).resolves.toMatchObject({ accepted: true });
   });
 
   it("rejects approve without an authenticated session", async () => {

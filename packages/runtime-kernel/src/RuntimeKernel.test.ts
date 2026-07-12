@@ -251,7 +251,24 @@ describe("RuntimeKernel canonical lifecycle", () => {
     );
 
     expect(sink.events.at(-1)?.type).toBe("turn.failed");
+    expect(terminalEvents(sink)).toHaveLength(1);
     expect(eventTypes(sink)).not.toContain("turn.completed");
+  });
+
+  it("settles provider timeout as one failed terminal outcome", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new Error("provider timed out");
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "provider timed out",
+    );
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)?.type).toBe("turn.failed");
   });
 
   it("settles typed cancellation as one interrupted terminal outcome", async () => {
