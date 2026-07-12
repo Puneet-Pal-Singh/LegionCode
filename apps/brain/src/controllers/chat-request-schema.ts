@@ -4,6 +4,7 @@ import {
   WorkflowEntrypointSchema,
   WorkflowIntentSchema,
 } from "@repo/shared-types";
+import { TurnScopeBootstrapSchema } from "@repo/platform-protocol";
 import { z } from "zod";
 
 const SerializableToolDefinitionSchema = z.object({
@@ -19,6 +20,7 @@ export const ChatRequestBodySchema = z.object({
   sessionId: z.string().optional(),
   agentId: z.string().optional(),
   runId: z.string().optional(),
+  identity: TurnScopeBootstrapSchema.optional(),
   mode: RunModeSchema.optional(),
   providerId: z.string().optional(),
   modelId: z.string().optional(),

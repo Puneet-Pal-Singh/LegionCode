@@ -61,7 +61,7 @@ export interface RunEngineExecutionPayload {
   };
   messages: CoreMessage[];
   tools?: Record<string, SerializableToolDefinition>;
-  identity?: TurnScopeBootstrap;
+  identity: TurnScopeBootstrap;
 }
 
 export function extractPromptFromMessages(
@@ -196,23 +196,6 @@ export async function executeViaRunEngineDurableObject(
       "Content-Type": "application/json",
       traceparent: formatTraceparent(createTraceContext()),
     },
-  });
-}
-
-export async function executeBootstrappedRun(
-  env: Env,
-  runId: string,
-  payload: RunEngineExecutionPayload,
-): Promise<Response> {
-  const identity = await startRunTurn(
-    env,
-    runId,
-    payload,
-    payload.input.orchestratorBackend,
-  );
-  return executeViaRunEngineDurableObject(env, runId, {
-    ...payload,
-    identity,
   });
 }
 
