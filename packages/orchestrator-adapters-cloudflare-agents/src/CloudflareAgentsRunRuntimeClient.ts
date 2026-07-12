@@ -13,8 +13,9 @@ export interface RunRuntimeSummaryRequest {
   runId: string;
 }
 
-export interface RunRuntimeCancelRequest {
+export interface RunRuntimeInterruptRequest {
   runId: string;
+  payload: unknown;
 }
 
 export class CloudflareAgentsRunRuntimeClient {
@@ -38,11 +39,11 @@ export class CloudflareAgentsRunRuntimeClient {
     });
   }
 
-  async cancel(request: RunRuntimeCancelRequest): Promise<Response> {
-    return this.fetchRoute(request.runId, "/cancel", {
+  async interrupt(request: RunRuntimeInterruptRequest): Promise<Response> {
+    return this.fetchRoute(request.runId, "/interrupt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runId: request.runId }),
+      body: JSON.stringify(request.payload),
     });
   }
 

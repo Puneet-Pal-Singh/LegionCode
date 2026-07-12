@@ -170,7 +170,7 @@ function createRouter(): Router {
   );
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
-  router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
+  router.add(/^\/api\/run\/interrupt$/, RunController.interrupt, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
   router.add(
     /^\/turns\/[^/]+\/lifecycle-events$/,
