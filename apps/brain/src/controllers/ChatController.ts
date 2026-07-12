@@ -8,10 +8,14 @@ import {
   withEngineHeaders,
 } from "../http/response";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
-import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
+import {
+  DomainError,
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
 import { extractIdentifiers, mapAgentIdToType } from "./chat-request-helpers";
 import {
-  executeBootstrappedRun,
+  executeViaRunEngineDurableObject,
   extractPromptFromMessages,
   resolveExecutionScope,
   resolveRuntimeTarget,
@@ -42,6 +46,7 @@ interface ChatRequest {
   imageInput: ChatImageInputState;
   userId?: string;
   workspaceId?: string;
+  identity: NonNullable<ChatRequestBody["identity"]>;
 }
 
 /**
@@ -64,6 +69,15 @@ export class ChatController {
         correlationId,
       );
       const identifiers = extractIdentifiers(body, correlationId);
+      if (!body.identity) {
+        throw new DomainError(
+          "TURN_BOOTSTRAP_REQUIRED",
+          "A server-issued turn bootstrap is required before chat execution.",
+          428,
+          false,
+          correlationId,
+        );
+      }
 
       console.log(
         `[chat/request] ${correlationId} session: ${identifiers.sessionId}, run: ${identifiers.runId}`,
@@ -107,7 +121,17 @@ export class ChatController {
           identifiers.runId,
           correlationId,
         )),
+        identity: body.identity,
       };
+      if (chatRequest.identity.workspaceId !== chatRequest.workspaceId) {
+        throw new DomainError(
+          "TURN_SCOPE_MISMATCH",
+          "Turn bootstrap identity does not match the authorized workspace scope.",
+          409,
+          false,
+          correlationId,
+        );
+      }
 
       console.log(`[chat/request] ${correlationId} routing to RunEngine`);
       const response = await ChatController.handleWithRunEngine(
@@ -198,7 +222,7 @@ export class ChatController {
     chatRequest: ChatRequest,
     env: Env,
   ): Promise<Response> {
-    const { body, correlationId, sessionId, runId, userId, workspaceId } =
+    const { body, correlationId, sessionId, runId, userId, workspaceId, identity } =
       chatRequest;
     const admissionService = new RunAdmissionService(env);
     let admissionGrant:
@@ -272,6 +296,7 @@ export class ChatController {
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
           tools: body.tools,
+          identity,
         },
         req.headers.get("Origin") || undefined,
       );
@@ -289,7 +314,7 @@ export class ChatController {
           clientMessageId: body.clientMessageId ?? null,
         }),
       );
-      const doResponse = await executeBootstrappedRun(
+      const doResponse = await executeViaRunEngineDurableObject(
         env,
         runId,
         useCaseResult.executionPayload,

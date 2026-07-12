@@ -8,7 +8,7 @@ import type { Env } from "../types/ai";
 
 const VALID_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "default";
+const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 const mockCloudflareAgentExecute = vi.fn();
 
 vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
@@ -369,6 +369,12 @@ describe("ChatController DO runtime migration", () => {
       body: JSON.stringify({
         sessionId: "session-1",
         runId: VALID_RUN_ID,
+        identity: {
+          workspaceId: TEST_WORKSPACE_ID,
+          threadId: "thr_test001",
+          turnId: "trn_test001",
+          runAttemptId: "attempt_test001",
+        },
         messages: [],
       }),
     });
@@ -411,6 +417,12 @@ describe("ChatController DO runtime migration", () => {
       body: JSON.stringify({
         sessionId: "session-1",
         runId: VALID_RUN_ID,
+        identity: {
+          workspaceId: TEST_WORKSPACE_ID,
+          threadId: "thr_test001",
+          turnId: "trn_test001",
+          runAttemptId: "attempt_test001",
+        },
         messages: [
           {
             role: "user",
@@ -472,6 +484,12 @@ async function createChatRequest(
     body: JSON.stringify({
       sessionId: "session-1",
       runId: runIdValue,
+      identity: {
+        workspaceId: TEST_WORKSPACE_ID,
+        threadId: "thr_test001",
+        turnId: "trn_test001",
+        runAttemptId: "attempt_test001",
+      },
       agentId: overrides.agentId,
       mode: overrides.mode,
       providerId: overrides.providerId,

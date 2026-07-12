@@ -199,23 +199,6 @@ export async function executeViaRunEngineDurableObject(
   });
 }
 
-export async function executeBootstrappedRun(
-  env: Env,
-  runId: string,
-  payload: RunEngineExecutionPayload,
-): Promise<Response> {
-  const identity = await startRunTurn(
-    env,
-    runId,
-    payload,
-    payload.input.orchestratorBackend,
-  );
-  return executeViaRunEngineDurableObject(env, runId, {
-    ...payload,
-    identity,
-  });
-}
-
 export async function startRunTurn(
   env: Env,
   runId: string,
