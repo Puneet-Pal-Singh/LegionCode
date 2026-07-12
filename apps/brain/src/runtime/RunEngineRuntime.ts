@@ -89,6 +89,10 @@ export class RunEngineRuntime extends DurableObject {
       });
     }
 
+    if (url.pathname === "/turn/start" && request.method === "POST") {
+      return requestHandler.handleTurnStartRequest(request);
+    }
+
     if (url.pathname === "/summary" && request.method === "GET") {
       return requestHandler.handleSummaryRequest(request);
     }

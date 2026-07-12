@@ -1,4 +1,5 @@
 import type { CoreMessage } from "ai";
+import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import type { RunMode } from "@repo/shared-types";
 import {
   CloudflareAgentsRunRuntimeClient,
@@ -57,6 +58,7 @@ export interface RunEngineExecutionPayload {
   };
   messages: CoreMessage[];
   tools?: Record<string, SerializableToolDefinition>;
+  identity?: TurnScopeBootstrap;
 }
 
 export function extractPromptFromMessages(
@@ -192,6 +194,36 @@ export async function executeViaRunEngineDurableObject(
       traceparent: formatTraceparent(createTraceContext()),
     },
   });
+}
+
+export async function startRunTurn(
+  env: Env,
+  runId: string,
+  payload: Pick<
+    RunEngineExecutionPayload,
+    "sessionId" | "workspaceId" | "userId" | "correlationId"
+  >,
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<TurnScopeBootstrap> {
+  const response = await fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "POST",
+    path: "/turn/start",
+    body: JSON.stringify({ runId, ...payload }),
+    headers: {
+      "Content-Type": "application/json",
+      traceparent: formatTraceparent(createTraceContext()),
+    },
+  });
+  if (!response.ok) {
+    throw new DomainError(
+      "TURN_BOOTSTRAP_FAILED",
+      "Failed to establish the server-owned turn scope.",
+      response.status,
+      response.status >= 500,
+      payload.correlationId,
+    );
+  }
+  return (await response.json()) as TurnScopeBootstrap;
 }
 
 export async function fetchRunRuntimeRoute(

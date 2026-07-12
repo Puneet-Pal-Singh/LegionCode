@@ -18,6 +18,8 @@ import {
   EventSequenceSchema,
   type LifecycleEvent,
   RunIdSchema,
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
 } from "@repo/platform-protocol";
@@ -631,6 +633,39 @@ export class RunEngineRequestHandler {
     );
   }
 
+  async handleTurnStartRequest(request: Request): Promise<Response> {
+    try {
+      const body = await parseRequestBody(request);
+      const input = validateWithSchema<
+        z.infer<typeof TurnScopeBootstrapRequestSchema>
+      >(
+        body,
+        TurnScopeBootstrapRequestSchema,
+      );
+      const workspaceId = BrainWorkspaceIdSchema.parse(input.workspaceId);
+
+      return await this.withExecutionLock(input.runId, async () => {
+        await this.ensureTurnToRunMapLoaded();
+        const identity = TurnScopeBootstrapSchema.parse({
+          workspaceId,
+          threadId: createThreadId(),
+          turnId: createTurnId(),
+          runAttemptId: createRunAttemptId(),
+        });
+        await this.mapTurnToRun(identity.turnId, input.runId, {
+          ...identity,
+          runId: input.runId,
+          sessionId: input.sessionId,
+        });
+        this.createLifecycleEventStream().start(identity.turnId);
+        return runEngineJsonResponse(request, this.env, identity, 201);
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Invalid turn bootstrap";
+      return runEngineErrorResponse(request, this.env, message, 400);
+    }
+  }
+
   async handleExecuteRequest(
     request: Request,
     onExecuteResult?: (
@@ -685,19 +720,36 @@ export class RunEngineRequestHandler {
       );
       return await this.withExecutionLock(payload.runId, async () => {
         this.eventStream?.start(payload.runId);
-        const turnId = createTurnId();
-        const runAttemptId = createRunAttemptId();
-        const threadId = createThreadId();
+        if (!payload.identity) {
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            "A server-issued turn bootstrap is required before execution",
+            428,
+            "TURN_BOOTSTRAP_REQUIRED",
+          );
+        }
+        const identity = TurnScopeBootstrapSchema.parse(payload.identity);
         await this.ensureTurnToRunMapLoaded();
-        await this.mapTurnToRun(turnId, payload.runId, {
-          runId: payload.runId,
-          workspaceId: workspaceId.data,
-          threadId: threadId,
-          turnId,
-          runAttemptId,
-          sessionId: payload.sessionId,
-        });
-        this.createLifecycleEventStream().start(turnId);
+        const storedIdentity = this.turnRuntimeIdentities.get(identity.turnId);
+        const storedRunId = this.turnToRunMap.get(identity.turnId);
+        if (
+          !storedIdentity ||
+          storedRunId !== payload.runId ||
+          storedIdentity.workspaceId !== workspaceId.data ||
+          storedIdentity.sessionId !== payload.sessionId ||
+          storedIdentity.threadId !== identity.threadId ||
+          storedIdentity.runAttemptId !== identity.runAttemptId
+        ) {
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            "Turn bootstrap identity does not match the authorized execution scope",
+            409,
+            "TURN_SCOPE_MISMATCH",
+          );
+        }
+        const { turnId, runAttemptId, threadId } = identity;
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
           this.ctx,
