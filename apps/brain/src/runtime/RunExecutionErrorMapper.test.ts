@@ -245,10 +245,11 @@ describe("RunExecutionErrorMapper", () => {
         code,
         status,
         retryable,
-        correlationId: "secure-corr-1",
+        correlationId: "run-corr-1",
         metadata: {
           taskId: "task-1",
           leaseId: "lease-1",
+          secureCorrelationId: "secure-corr-1",
           secureStatus,
           secureCode: "CONTAINER_EXITED",
         },

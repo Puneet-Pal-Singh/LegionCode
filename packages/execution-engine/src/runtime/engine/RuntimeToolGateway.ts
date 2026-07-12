@@ -1,5 +1,9 @@
 import type { RunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import {
+  ProtocolErrorSchema,
+  type ProtocolError,
+} from "@repo/platform-protocol";
+import {
   codingToolRegistry,
   type ToolDefinition,
 } from "../tools/CodingToolRegistry.js";
@@ -26,6 +30,7 @@ export type RuntimeToolExecutionResult =
         | "workspace_escape_denied"
         | "executor_failed";
       readonly retryable: boolean;
+      readonly failure?: ProtocolError;
     }
   | { readonly kind: "cancelled"; readonly result: TaskResult };
 
@@ -131,11 +136,27 @@ export class RuntimeToolGateway {
         };
       }
       if (result.metadata.success === false) {
+        const runtimeFailure = readRuntimeFailure(result.metadata);
+        if (runtimeFailure?.code === "command_cancelled") {
+          return {
+            kind: "cancelled",
+            result: {
+              taskId: input.taskId,
+              status: "CANCELLED",
+              error: {
+                code: runtimeFailure.code,
+                message: runtimeFailure.message,
+              },
+              completedAt: new Date(),
+            },
+          };
+        }
         return this.failure(
           input.taskId,
           "executor_failed",
-          result.output,
-          isRetryable(result.metadata),
+          runtimeFailure?.message ?? result.output,
+          runtimeFailure?.retryable ?? isRetryable(result.metadata),
+          runtimeFailure ?? undefined,
         );
       }
       return {
@@ -186,15 +207,17 @@ export class RuntimeToolGateway {
     code: Extract<RuntimeToolExecutionResult, { kind: "failed" }>["code"],
     message: string,
     retryable: boolean,
+    failure?: ProtocolError,
   ): Extract<RuntimeToolExecutionResult, { kind: "failed" }> {
     return {
       kind: "failed",
       code,
       retryable,
+      ...(failure ? { failure } : {}),
       result: {
         taskId,
         status: "FAILED",
-        error: { code, message },
+        error: { code: failure?.code ?? code, message },
         completedAt: new Date(),
       },
     };
@@ -203,4 +226,11 @@ export class RuntimeToolGateway {
 
 function isRetryable(metadata: Record<string, unknown>): boolean {
   return metadata.retryable === true;
+}
+
+function readRuntimeFailure(
+  metadata: Record<string, unknown>,
+): ProtocolError | null {
+  const parsed = ProtocolErrorSchema.safeParse(metadata.runtimeFailure);
+  return parsed.success ? parsed.data : null;
 }

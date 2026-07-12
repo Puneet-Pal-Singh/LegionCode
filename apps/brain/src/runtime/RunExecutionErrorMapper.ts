@@ -4,6 +4,7 @@ import {
   SecureExecutionContractViolationError,
   SecureExecutionFailureError,
 } from "../services/secure-execution/SecureExecutionContract";
+import { SecureRuntimeFailureMapper } from "../services/secure-execution/SecureRuntimeFailureMapper";
 
 const RUN_MANIFEST_IMMUTABLE_CODE = "RUN_MANIFEST_IMMUTABLE";
 const RUN_MANIFEST_IMMUTABLE_STATUS = 409;
@@ -69,6 +70,7 @@ const SECURE_EXECUTION_FAILED_CODE = "SECURE_EXECUTION_FAILED";
 const SECURE_EXECUTION_TIMEOUT_CODE = "EXECUTION_TIMEOUT";
 const SECURE_EXECUTION_CANCELLED_CODE = "EXECUTION_CANCELLED";
 const SECURE_CONTRACT_VIOLATION_CODE = "SECURE_EXECUTION_CONTRACT_VIOLATION";
+const secureRuntimeFailureMapper = new SecureRuntimeFailureMapper();
 
 type MessageResolver = string | ((error: ProviderCapabilityError) => string);
 
@@ -138,7 +140,7 @@ export function mapRunExecutionErrorToDomain(
   }
 
   if (error instanceof SecureExecutionFailureError) {
-    return mapSecureExecutionFailure(error);
+    return mapSecureExecutionFailure(error, correlationId);
   }
 
   if (error instanceof SecureExecutionContractViolationError) {
@@ -148,7 +150,13 @@ export function mapRunExecutionErrorToDomain(
       502,
       true,
       correlationId,
-      { httpStatus: error.httpStatus },
+      {
+        ...secureRuntimeFailureMapper.toContractViolation(
+          error.httpStatus,
+          error.message,
+        ).details,
+        requestCorrelationId: correlationId ?? null,
+      },
     );
   }
 
@@ -232,43 +240,38 @@ export function mapRunExecutionErrorToDomain(
 
 function mapSecureExecutionFailure(
   error: SecureExecutionFailureError,
+  requestCorrelationId?: string,
 ): DomainError {
-  const { outcome } = error;
-  const secureError = outcome.error;
+  const runtimeFailure = secureRuntimeFailureMapper.toRuntimeFailure(
+    error.outcome,
+    error.httpStatus,
+    error.context,
+  );
   const code =
-    outcome.status === "sandbox_unavailable"
+    runtimeFailure.code === "worker_unavailable"
       ? SECURE_SANDBOX_UNAVAILABLE_CODE
-      : outcome.status === "timeout"
+      : runtimeFailure.code === "command_timed_out"
         ? SECURE_EXECUTION_TIMEOUT_CODE
-        : outcome.status === "cancelled"
+        : runtimeFailure.code === "command_cancelled"
           ? SECURE_EXECUTION_CANCELLED_CODE
           : SECURE_EXECUTION_FAILED_CODE;
   const status =
-    outcome.status === "timeout"
+    runtimeFailure.code === "command_timed_out"
       ? 504
-      : outcome.status === "cancelled"
+      : runtimeFailure.code === "command_cancelled"
         ? 499
-        : outcome.status === "sandbox_unavailable"
+        : runtimeFailure.code === "worker_unavailable"
           ? 503
           : 422;
-  const retryable = outcome.status === "cancelled" ? false : outcome.retryable;
   return new DomainError(
     code,
-    secureError?.message ?? `Secure execution ${outcome.status}`,
+    runtimeFailure.message,
     status,
-    retryable,
-    outcome.correlationId,
+    runtimeFailure.retryable,
+    requestCorrelationId ?? runtimeFailure.correlationId ?? undefined,
     {
-      taskId: outcome.taskId,
-      leaseId: outcome.leaseId,
-      secureStatus: outcome.status,
-      secureCode: secureError?.code,
-      secureDetails: secureError?.details,
-      httpStatus: error.httpStatus,
-      plugin: error.context?.plugin,
-      action: error.context?.action,
-      runId: error.context?.runId,
-      workspaceScope: error.context?.workspaceScope,
+      ...(runtimeFailure.details ?? {}),
+      requestCorrelationId: requestCorrelationId ?? null,
     },
   );
 }
