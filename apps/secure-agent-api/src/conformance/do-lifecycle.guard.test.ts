@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const AGENT_RUNTIME_FILE = join(
-  process.cwd(),
-  "apps/secure-agent-api/src/core/AgentRuntime.ts",
-);
+const APP_ROOT = existsSync(join(process.cwd(), "src/core/AgentRuntime.ts"))
+  ? process.cwd()
+  : join(process.cwd(), "apps/secure-agent-api");
+const AGENT_RUNTIME_FILE = join(APP_ROOT, "src/core/AgentRuntime.ts");
 const FORBIDDEN_ALWAYS_AWAKE_PATTERNS = [
   /setInterval\s*\(/,
   /\.setAlarm\s*\(/,
