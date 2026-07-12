@@ -1,19 +1,19 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Response } from "@playwright/test";
 
 /**
- * Plan 039.1 product gate.
+ * Real product concurrent-thread reproduction gate.
  *
- * This is intentionally environment-gated: the route must be authenticated
- * and backed by the deterministic runtime fixture (or a deployed real cloud
- * route). A skipped run is reported by Playwright and is not evidence that
- * the product path is healthy.
+ * This test is deliberately environment-gated. A skip is reported by
+ * Playwright and is never evidence that the authenticated product path works.
+ * It has no mock fallback: its selectors and correlations are the public
+ * browser contract supplied by the deployed product.
  *
- * Local deterministic command:
+ * Deterministic fixture command:
  *   SHADOWBOX_CONCURRENT_PRODUCT_GATE=1 \
  *   SHADOWBOX_DETERMINISTIC_RUNTIME_FIXTURE=1 pnpm --dir apps/web test:browser \
  *   concurrent-product-reproduction.spec.ts
  *
- * Real cloud command:
+ * Real-cloud command:
  *   SHADOWBOX_CONCURRENT_PRODUCT_GATE=1 \
  *   SHADOWBOX_REAL_CLOUD_CONCURRENT_GATE=1 \
  *   VITE_BRAIN_BASE_URL=https://<authenticated-deployment> pnpm --dir apps/web \
@@ -26,128 +26,174 @@ const fixtureEnabled =
 const realCloudEnabled =
   process.env.SHADOWBOX_REAL_CLOUD_CONCURRENT_GATE === "1";
 const workspaceName = process.env.SHADOWBOX_CONCURRENT_WORKSPACE ?? "Shadowbox";
+const terminalEventTypes = new Set([
+  "turn.completed",
+  "turn.interrupted",
+  "turn.failed",
+]);
 
 test.describe("real product concurrent thread reproduction gate", () => {
   test.skip(
     !enabled,
-    "Set SHADOWBOX_CONCURRENT_PRODUCT_GATE=1 with an authenticated route and deterministic runtime fixture or deployed real-cloud route.",
+    "Set SHADOWBOX_CONCURRENT_PRODUCT_GATE=1 with an authenticated route and deterministic fixture or deployed real-cloud route.",
   );
   test.skip(
     enabled && !fixtureEnabled && !realCloudEnabled,
     "Choose SHADOWBOX_DETERMINISTIC_RUNTIME_FIXTURE=1 or SHADOWBOX_REAL_CLOUD_CONCURRENT_GATE=1; an unqualified run is not proof.",
   );
 
-  test("keeps concurrent prompts, workflow rows, approval, stop, and replay scoped", async ({
+  test("keeps concurrent prompts, workflow, approval, stop, and replay scoped", async ({
     page,
   }, testInfo) => {
-    const correlations: Correlation[] = [];
-    const createdSessionIds: string[] = [];
-    observeProductCorrelations(page, correlations, createdSessionIds);
+    const correlations: TurnScope[] = [];
+    observeServerCorrelations(page, correlations);
 
     await page.goto("/agents/");
     await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
 
-    const workspace = newTaskButton(page);
-    await expect(workspace).toBeVisible();
-
-    // Thread A: a short non-tool prompt.
-    await workspace.click();
-    const threadA = await selectNewestTask(page, createdSessionIds);
+    // A short turn creates A. Its canonical identity is read only from the
+    // server response, never from a client-generated session value or title.
+    await createAndSelectDraftThread(page);
     const promptA = "Return the word A.";
-    await sendPrompt(page, promptA);
-    await expect(page.getByText(promptA, { exact: true })).toBeVisible();
-    const turnA = await waitForCorrelation(correlations, threadA.sessionId);
-    await settleCurrentTurn(page);
-
-    // Thread B: a tool-capable prompt. Keep it active at the approval gate.
-    await newTaskButton(page).click();
-    const threadB = await selectNewestTask(page, createdSessionIds);
-    const promptB = "Inspect the workspace and report the current branch.";
-    await sendPrompt(page, promptB);
-    await expect(page.getByText(promptB, { exact: true })).toBeVisible();
-    const turnB = await waitForCorrelation(correlations, threadB.sessionId);
-    await expect(page.getByTestId("lifecycle-workflow")).toBeVisible();
-
-    // Switch away and back while B is still alive. The visible B controls
-    // must not follow the selected sidebar row into A.
-    await selectTask(page, threadA);
-    const promptA2 = "Return the word A2.";
-    await sendPrompt(page, promptA2);
-    const turnA2 = await waitForCorrelation(
-      correlations,
-      threadA.sessionId,
-      turnA.turnId,
-    );
-    await selectTask(page, threadB);
-    await assertLifecycleIdentity(page, turnB);
-    await selectTask(page, threadA);
-    await assertLifecycleIdentity(page, turnA2);
-    await selectTask(page, threadB);
-    await assertLifecycleIdentity(page, turnB);
-
-    // Stop B, verify one terminal settlement, then submit a follow-up on B.
-    await stopCurrentTurn(page);
-    await expect(page.getByTestId("lifecycle-terminal-settled")).toBeVisible({
-      timeout: 120_000,
+    const turnA = await sendAndCapture(page, correlations, promptA);
+    await waitForTerminal(page, turnA);
+    await assertScopedSurface(page, turnA, promptA, {
+      terminal: true,
+      final: true,
     });
-    await expect
-      .poll(() => countTerminalEvents(page, turnB), {
-        timeout: 120_000,
-      })
-      .toBe(1);
 
+    // B enters the tool/approval path and remains live while A receives A2.
+    await createAndSelectDraftThread(page);
+    const promptB =
+      "Inspect the workspace and request the deterministic tool action.";
+    const turnB = await sendAndCapture(page, correlations, promptB);
+    await assertScopedSurface(page, turnB, promptB, {
+      tool: true,
+      workflow: true,
+      approval: true,
+      spinner: true,
+    });
+
+    await selectThread(page, turnA.threadId);
+    const promptA2 = "Return the word A2.";
+    const turnA2 = await sendAndCapture(page, correlations, promptA2);
+    expect(turnA2.threadId).toBe(turnA.threadId);
+
+    // Selection changes while both turns are alive must never move B's
+    // lifecycle projection onto A, or vice versa.
+    await selectThread(page, turnB.threadId);
+    await assertScopedSurface(page, turnB, promptB, {
+      tool: true,
+      workflow: true,
+      approval: true,
+      spinner: true,
+    });
+    await selectThread(page, turnA.threadId);
+    await assertScopedSurface(page, turnA2, promptA2, { spinner: true });
+    await selectThread(page, turnB.threadId);
+    await assertScopedSurface(page, turnB, promptB, {
+      tool: true,
+      workflow: true,
+      approval: true,
+      spinner: true,
+    });
+
+    await stopTurn(page, turnB);
+    await waitForInterruptedTerminal(page, turnB);
+    await assertScopedSurface(page, turnB, promptB, {
+      terminal: true,
+      final: true,
+    });
+
+    // The follow-up is admitted only after B's single terminal projection.
     const followUp = "Confirm the stopped run is settled, then say B2.";
-    await sendPrompt(page, followUp);
-    const turnB2 = await waitForCorrelation(
-      correlations,
-      threadB.sessionId,
-      turnB.turnId,
-    );
-    await settleCurrentTurn(page);
-    await assertLifecycleIdentity(page, turnB2);
+    const turnB2 = await sendAndCapture(page, correlations, followUp);
+    expect(turnB2.threadId).toBe(turnB.threadId);
+    await assertScopedSurface(page, turnB2, followUp, { spinner: true });
 
-    const titleBeforeReload = await selectedTaskTitle(page, threadB);
+    // Background completion creates B's unread marker. Reload must preserve
+    // B's title and marker, and selecting B acknowledges B alone.
+    const titleBeforeReload = await threadRow(page, turnB.threadId).innerText();
+    await selectThread(page, turnA.threadId);
+    await waitForTerminal(page, turnB2);
+    await expect(threadRow(page, turnB.threadId)).toHaveAttribute(
+      "data-unread",
+      "true",
+    );
+    await expect(threadRow(page, turnA.threadId)).not.toHaveAttribute(
+      "data-unread",
+      "true",
+    );
+
     await page.reload();
     await expect(page.getByRole("listbox", { name: "Tasks" })).toBeVisible();
-    await selectTask(page, threadB);
-    await expect(page.getByText(followUp, { exact: true })).toBeVisible();
-    await expect(page.getByTestId("lifecycle-terminal-settled")).toBeVisible({
-      timeout: 120_000,
+    await expect(threadRow(page, turnB.threadId)).toContainText(
+      titleBeforeReload,
+    );
+    await expect(threadRow(page, turnB.threadId)).toHaveAttribute(
+      "data-unread",
+      "true",
+    );
+    await selectThread(page, turnB.threadId);
+    await assertScopedSurface(page, turnB2, followUp, {
+      terminal: true,
+      final: true,
     });
-    await expect
-      .poll(() => selectedTaskTitle(page, threadB), { timeout: 30_000 })
-      .toBe(titleBeforeReload);
+    await expect(threadRow(page, turnB.threadId)).not.toHaveAttribute(
+      "data-unread",
+      "true",
+    );
+    await expect(threadRow(page, turnA.threadId)).not.toHaveAttribute(
+      "data-unread",
+      "true",
+    );
 
-    // Attach only server-issued correlation values; prompts and credentials
-    // are deliberately excluded from failure evidence.
+    // Server-issued correlations only: prompts, tokens, and credentials are
+    // intentionally excluded from failure artifacts.
     await testInfo.attach("concurrency-correlations.json", {
       body: JSON.stringify(correlations, null, 2),
       contentType: "application/json",
     });
   });
 
-  test("reports typed secure-runtime unavailability", async ({ page }) => {
+  test("reports typed sandbox unavailability without provider relabelling", async ({
+    page,
+  }) => {
     test.skip(
       process.env.SHADOWBOX_SECURE_RUNTIME_UNAVAILABLE_FIXTURE !== "1",
       "Set SHADOWBOX_SECURE_RUNTIME_UNAVAILABLE_FIXTURE=1 on the controlled unavailable-runtime fixture.",
     );
 
+    const correlations: TurnScope[] = [];
+    observeServerCorrelations(page, correlations);
     await page.goto("/agents/");
-    await newTaskButton(page).click();
-    const task = page.getByRole("option", { selected: true });
-    await expect(task).toBeVisible();
-    await task.click();
-    await sendPrompt(page, "Run the secure-runtime unavailable fixture.");
-    await expect(page.getByText(/sandbox/i)).toBeVisible({ timeout: 120_000 });
-    await expect(
-      page.getByText("PROVIDER_UNAVAILABLE", { exact: true }),
-    ).toHaveCount(0);
+    await createAndSelectDraftThread(page);
+    const turn = await sendAndCapture(
+      page,
+      correlations,
+      "Run the secure-runtime unavailable fixture.",
+    );
+    const surface = turnSurface(page, turn);
+    await expect(surface).toBeVisible({ timeout: 120_000 });
+    await expect(surface.getByTestId("sandbox-error")).toHaveAttribute(
+      "data-error-code",
+      "SANDBOX_UNAVAILABLE",
+    );
+    await expect(surface).not.toContainText("PROVIDER_UNAVAILABLE");
   });
 });
 
-interface Correlation {
-  readonly sessionId: string;
+interface TurnScope {
+  readonly threadId: string;
   readonly turnId: string;
+  readonly runAttemptId: string;
+}
+
+async function createAndSelectDraftThread(page: Page): Promise<void> {
+  await page
+    .getByRole("button", { name: `New task in ${workspaceName}` })
+    .click();
+  await expect(page.getByRole("option", { selected: true })).toBeVisible();
 }
 
 async function sendPrompt(page: Page, prompt: string): Promise<void> {
@@ -156,190 +202,197 @@ async function sendPrompt(page: Page, prompt: string): Promise<void> {
   await page.getByRole("button", { name: "Send message" }).click();
 }
 
-async function settleCurrentTurn(page: Page): Promise<void> {
-  await expect(page.getByTestId("lifecycle-terminal-settled")).toBeVisible({
-    timeout: 120_000,
-  });
+async function sendAndCapture(
+  page: Page,
+  correlations: TurnScope[],
+  prompt: string,
+): Promise<TurnScope> {
+  const observedCount = correlations.length;
+  await sendPrompt(page, prompt);
+  return await waitForNewTurn(correlations, observedCount);
 }
 
-async function stopCurrentTurn(page: Page): Promise<void> {
+async function selectThread(page: Page, threadId: string): Promise<void> {
+  await threadRow(page, threadId).click();
+  await expect(threadRow(page, threadId)).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+}
+
+function threadRow(page: Page, threadId: string) {
+  return page.getByTestId(`thread-${threadId}`);
+}
+
+function turnSurface(page: Page, turn: TurnScope) {
+  return page.getByTestId(`thread-${turn.threadId}-turn-${turn.turnId}`);
+}
+
+async function assertScopedSurface(
+  page: Page,
+  turn: TurnScope,
+  prompt: string,
+  expected: {
+    readonly tool?: boolean;
+    readonly workflow?: boolean;
+    readonly approval?: boolean;
+    readonly spinner?: boolean;
+    readonly terminal?: boolean;
+    readonly final?: boolean;
+  } = {},
+): Promise<void> {
+  const surface = turnSurface(page, turn);
+  await expect(surface).toBeVisible({ timeout: 120_000 });
+  await expect(surface).toHaveAttribute("data-thread-id", turn.threadId);
+  await expect(surface).toHaveAttribute("data-turn-id", turn.turnId);
+  await expect(surface).toHaveAttribute(
+    "data-run-attempt-id",
+    turn.runAttemptId,
+  );
+  await expect(surface.getByText(prompt, { exact: true })).toBeVisible();
+
   await expect(
-    page.getByRole("button", { name: "Stop generation" }),
+    surface.getByTestId(`${turnSurfaceId(turn)}-typed-part`),
   ).toBeVisible({
     timeout: 120_000,
   });
-  await page.getByRole("button", { name: "Stop generation" }).click();
-}
-
-interface ThreadHandle {
-  readonly sessionId: string;
-  readonly title: string;
-}
-
-async function selectNewestTask(
-  page: Page,
-  createdSessionIds: string[],
-): Promise<ThreadHandle> {
-  const task = page.getByRole("option", { selected: true });
-  await expect(task).toBeVisible();
-  const title = (await task.textContent())?.trim();
-  if (!title) throw new Error("Created task has no visible title");
-  await task.click();
-  await expect
-    .poll(() => createdSessionIds.length, { timeout: 30_000 })
-    .toBeGreaterThan(0);
-  const sessionId = createdSessionIds.at(-1);
-  if (!sessionId) throw new Error("Created task has no server session ID");
-  return { sessionId, title };
-}
-
-async function selectTask(page: Page, thread: ThreadHandle): Promise<void> {
-  const task = page
-    .getByRole("option")
-    .filter({ hasText: thread.title })
-    .first();
-  await expect(task).toBeVisible();
-  await task.click();
-}
-
-function newTaskButton(page: Page) {
-  return page.getByRole("button", { name: `New task in ${workspaceName}` });
-}
-
-async function selectedTaskTitle(
-  page: Page,
-  thread: ThreadHandle,
-): Promise<string> {
-  const task = page
-    .getByRole("option")
-    .filter({ hasText: thread.title })
-    .first();
-  await expect(task).toBeVisible();
-  return (await task.textContent())?.trim() ?? "";
-}
-
-function observeProductCorrelations(
-  page: Page,
-  correlations: Correlation[],
-  createdSessionIds: string[],
-): void {
-  page.on("request", (request) => {
-    if (
-      request.url().endsWith("/api/sessions") &&
-      request.method() === "POST"
-    ) {
-      try {
-        const body = request.postDataJSON() as { sessionId?: unknown };
-        if (typeof body.sessionId === "string") {
-          createdSessionIds.push(body.sessionId);
-        }
-      } catch {
-        // The response assertion below remains the source of truth.
-      }
-    }
-  });
-  page.on("response", async (response) => {
-    if (
-      !response.url().endsWith("/chat") ||
-      response.request().method() !== "POST"
-    ) {
-      return;
-    }
-    const sessionId = await requestSessionId(response);
-    const turnId = response.headers()["x-turn-id"]?.trim();
-    if (
-      !sessionId ||
-      !turnId ||
-      correlations.some((item) => item.turnId === turnId)
-    ) {
-      return;
-    }
-    correlations.push({ sessionId, turnId });
-  });
-}
-
-async function requestSessionId(
-  response: import("@playwright/test").Response,
-): Promise<string | null> {
-  try {
-    const body = response.request().postDataJSON() as { sessionId?: unknown };
-    return typeof body.sessionId === "string" ? body.sessionId : null;
-  } catch {
-    return null;
+  if (expected.tool) {
+    await expect(
+      surface.getByTestId(`${turnSurfaceId(turn)}-tool`),
+    ).toBeVisible();
+  }
+  if (expected.workflow) {
+    await expect(
+      surface.getByTestId(`${turnSurfaceId(turn)}-workflow`),
+    ).toBeVisible();
+  }
+  if (expected.approval) {
+    await expect(
+      surface.getByTestId(`${turnSurfaceId(turn)}-approval`),
+    ).toBeVisible();
+  }
+  if (expected.spinner) {
+    await expect(
+      surface.getByTestId(`${turnSurfaceId(turn)}-spinner`),
+    ).toBeVisible();
+  }
+  if (expected.terminal) {
+    await expect(
+      surface.getByTestId(`${turnSurfaceId(turn)}-terminal`),
+    ).toBeVisible();
+  }
+  if (expected.final) {
+    await expect(
+      surface.getByTestId(`${turnSurfaceId(turn)}-final`),
+    ).toBeVisible();
   }
 }
 
-async function waitForCorrelation(
-  correlations: Correlation[],
-  sessionId: string,
-  previousTurnId?: string,
-): Promise<Correlation> {
+async function stopTurn(page: Page, turn: TurnScope): Promise<void> {
+  const surface = turnSurface(page, turn);
+  const stop = surface.getByRole("button", { name: "Stop generation" });
+  await expect(stop).toBeVisible({ timeout: 120_000 });
+  await stop.click();
+  await expect(stop).toHaveCount(0);
+}
+
+async function waitForTerminal(page: Page, turn: TurnScope): Promise<void> {
+  await expect
+    .poll(() => countTerminalEvents(page, turn), { timeout: 120_000 })
+    .toBe(1);
+}
+
+async function waitForInterruptedTerminal(
+  page: Page,
+  turn: TurnScope,
+): Promise<void> {
   await expect
     .poll(
-      () =>
-        correlations
-          .filter(
-            (item) =>
-              item.sessionId === sessionId && item.turnId !== previousTurnId,
-          )
-          .at(-1)?.turnId,
+      async () => {
+        const events = await terminalEvents(page, turn);
+        return events.map((event) => event.type);
+      },
       { timeout: 120_000 },
     )
-    .toBeTruthy();
-  const correlation = correlations
-    .filter(
-      (item) => item.sessionId === sessionId && item.turnId !== previousTurnId,
-    )
-    .at(-1);
-  if (!correlation)
-    throw new Error(`No server turn correlation for ${sessionId}`);
-  return correlation;
+    .toEqual(["turn.interrupted"]);
 }
 
-async function assertLifecycleIdentity(
+function observeServerCorrelations(
   page: Page,
-  correlation: Correlation,
-): Promise<void> {
-  const brainBaseUrl =
-    process.env.VITE_BRAIN_BASE_URL ?? "http://127.0.0.1:8788";
-  const response = await page.request.get(
-    `${brainBaseUrl}/api/run/events?runId=${encodeURIComponent(correlation.turnId)}`,
+  correlations: TurnScope[],
+): void {
+  page.on("response", async (response) => {
+    if (!isChatResponse(response)) return;
+    const turn = responseScope(response);
+    if (!turn || correlations.some((item) => item.turnId === turn.turnId))
+      return;
+    correlations.push(turn);
+  });
+}
+
+function isChatResponse(response: Response): boolean {
+  return (
+    response.url().endsWith("/chat") && response.request().method() === "POST"
   );
-  expect(response.ok()).toBeTruthy();
-  const payload = (await response.json()) as {
-    events?: Array<{ turnId?: string; itemId?: string }>;
-  };
-  const events = payload.events ?? [];
-  expect(events.length).toBeGreaterThan(0);
-  expect(new Set(events.map((event) => event.turnId))).toEqual(
-    new Set([correlation.turnId]),
-  );
-  for (const itemId of new Set(
-    events.map((event) => event.itemId).filter(Boolean),
-  )) {
-    await expect(page.getByTestId(`lifecycle-item-${itemId}`)).toBeVisible();
-  }
+}
+
+function responseScope(response: Response): TurnScope | null {
+  const headers = response.headers();
+  const threadId = headers["x-thread-id"]?.trim();
+  const turnId = headers["x-turn-id"]?.trim();
+  const runAttemptId = headers["x-run-attempt-id"]?.trim();
+  return threadId && turnId && runAttemptId
+    ? { threadId, turnId, runAttemptId }
+    : null;
+}
+
+async function waitForNewTurn(
+  correlations: TurnScope[],
+  observedCount: number,
+): Promise<TurnScope> {
+  await expect
+    .poll(() => correlations.length, { timeout: 120_000 })
+    .toBeGreaterThan(observedCount);
+  const turn = correlations.at(-1);
+  if (!turn)
+    throw new Error(
+      "Chat response omitted canonical thread/turn/run-attempt headers",
+    );
+  return turn;
 }
 
 async function countTerminalEvents(
   page: Page,
-  turn: Correlation,
+  turn: TurnScope,
 ): Promise<number> {
+  return (await terminalEvents(page, turn)).length;
+}
+
+async function terminalEvents(
+  page: Page,
+  turn: TurnScope,
+): Promise<Array<Partial<TurnScope> & { type?: string }>> {
   const brainBaseUrl =
     process.env.VITE_BRAIN_BASE_URL ?? "http://127.0.0.1:8788";
   const response = await page.request.get(
-    `${brainBaseUrl}/api/run/events?runId=${encodeURIComponent(turn.turnId)}`,
+    `${brainBaseUrl}/turns/${encodeURIComponent(turn.turnId)}/lifecycle-events`,
   );
-  if (!response.ok()) return 0;
+  if (!response.ok()) return [];
   const payload = (await response.json()) as {
-    events?: Array<{ type?: string; turnId?: string }>;
+    events?: Array<Partial<TurnScope> & { type?: string }>;
   };
-  return (payload.events ?? []).filter(
+  const events = payload.events ?? [];
+  for (const event of events) {
+    expect(event.threadId).toBe(turn.threadId);
+    expect(event.turnId).toBe(turn.turnId);
+  }
+  return events.filter(
     (event) =>
-      event.turnId === turn.turnId &&
-      (event.type === "turn.completed" ||
-        event.type === "turn.cancelled" ||
-        event.type === "turn.failed" ||
-        event.type === "turn.interrupted"),
-  ).length;
+      event.runAttemptId === turn.runAttemptId &&
+      terminalEventTypes.has(event.type ?? ""),
+  );
+}
+
+function turnSurfaceId(turn: TurnScope): string {
+  return `thread-${turn.threadId}-turn-${turn.turnId}`;
 }
