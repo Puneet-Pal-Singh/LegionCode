@@ -116,6 +116,45 @@ describe("ChatController DO runtime migration", () => {
     );
   });
 
+  it("rejects chat execution without a pre-stream bootstrap identity", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      await createChatRequest(env, { identity: undefined }),
+      env,
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_BOOTSTRAP_REQUIRED",
+    });
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an identity outside the authorized workspace before execution", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      await createChatRequest(env, {
+        identity: {
+          workspaceId: "123e4567-e89b-42d3-a456-426614174999",
+          threadId: "thr_other_scope",
+          turnId: "trn_other_scope",
+          runAttemptId: "attempt_other_scope",
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_SCOPE_MISMATCH",
+    });
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
   it("fails fast when RUN_ENGINE_RUNTIME binding is unavailable", async () => {
     const envWithRuntime = createEnv(createMockRuntimeNamespace().namespace);
     const envWithoutRuntime = envWithRuntime as unknown as Record<
@@ -505,12 +544,14 @@ async function createChatRequest(
     repositoryName?: string;
     repositoryBranch?: string;
     repositoryBaseUrl?: string;
-    identity?: {
-      workspaceId: string;
-      threadId: string;
-      turnId: string;
-      runAttemptId: string;
-    };
+    identity?:
+      | {
+          workspaceId: string;
+          threadId: string;
+          turnId: string;
+          runAttemptId: string;
+        }
+      | undefined;
     messages?: Array<{
       id?: string;
       role: string;
@@ -530,12 +571,15 @@ async function createChatRequest(
     body: JSON.stringify({
       sessionId: "session-1",
       runId: runIdValue,
-      identity: overrides.identity ?? {
-        workspaceId: TEST_WORKSPACE_ID,
-        threadId: "thr_test001",
-        turnId: "trn_test001",
-        runAttemptId: "attempt_test001",
-      },
+      identity:
+        "identity" in overrides
+          ? overrides.identity
+          : {
+              workspaceId: TEST_WORKSPACE_ID,
+              threadId: "thr_test001",
+              turnId: "trn_test001",
+              runAttemptId: "attempt_test001",
+            },
       agentId: overrides.agentId,
       mode: overrides.mode,
       providerId: overrides.providerId,
