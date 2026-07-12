@@ -22,22 +22,28 @@ const HYDRATION_RETRY_DELAY_MS = 300;
  * Single Responsibility: Only manage hydration lifecycle
  */
 export function useChatHydration(
-  scope: ConversationScope,
+  scope: ConversationScope | null,
   messages: Message[],
   setMessages: (messages: Message[]) => void,
 ): UseChatHydrationResult {
-  const { sessionId, runId } = scope;
+  const sessionId = scope?.sessionId ?? null;
+  const runId = scope?.runId ?? null;
   const [isHydrating, setIsHydrating] = useState(false);
   const [hasHydrated, setHasHydrated] = useState(false);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
-  const scopeKey = conversationScopeKey(scope);
+  const scopeRef = useRef(scope);
+  const scopeKey = scope ? conversationScopeKey(scope) : null;
   const activeScopeKeyRef = useRef(scopeKey);
   const messagesRef = useRef(messages);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    scopeRef.current = scope;
+  }, [scope]);
 
   const {
     signal: retrySignal,
@@ -62,6 +68,7 @@ export function useChatHydration(
 
   // Perform hydration
   useEffect(() => {
+    if (!scopeKey || !sessionId || !runId) return;
     if (hasHydratedRef.current) return;
 
     let cancelled = false;
@@ -93,7 +100,9 @@ export function useChatHydration(
 
     async function hydrate() {
       try {
-        const result = await hydrationServiceRef.current.hydrateMessages(scope);
+        const result = await hydrationServiceRef.current.hydrateMessages(
+          scopeRef.current!,
+        );
 
         if (!isCurrentScope()) {
           logClientEvent("chat/hydration", "discarded", {

@@ -1,4 +1,4 @@
-import { useMemo, type FormEvent } from "react";
+import { type FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
 import { useChatCore } from "./useChatCore";
@@ -8,10 +8,6 @@ import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
-import {
-  createConversationScope,
-  type ConversationScope,
-} from "./conversationScope";
 
 interface UseChatResult {
   messages: Message[];
@@ -46,7 +42,6 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
-  workspaceId?: string,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -59,22 +54,13 @@ export function useChat(
     stop,
     setMessages,
     runId: activeRunId,
+    scope,
     serverTurnId,
     resetRun,
     isModelConfigReady,
     error,
     debugEvents,
-  } = useChatCore(sessionId, runId, mode, productMode, workspaceId);
-
-  const scope: ConversationScope = useMemo(
-    () =>
-      createConversationScope({
-        workspaceId: workspaceId ?? sessionId,
-        sessionId,
-        runId: activeRunId,
-      }),
-    [activeRunId, sessionId, workspaceId],
-  );
+  } = useChatCore(sessionId, runId, mode, productMode);
 
   // Handle message hydration
   const { isHydrating, hasHydrated } = useChatHydration(

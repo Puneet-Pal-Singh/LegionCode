@@ -4,7 +4,7 @@ import { ChatPersistenceService } from "../services/ChatPersistenceService";
 import type { ConversationScope } from "./conversationScope";
 
 interface UseChatPersistenceProps {
-  scope: ConversationScope;
+  scope: ConversationScope | null;
   messages: Message[];
 }
 
@@ -19,6 +19,9 @@ export function useChatPersistence({
   const persistenceService = useMemo(() => new ChatPersistenceService(), []);
 
   useEffect(() => {
+    if (!scope) {
+      return;
+    }
     persistenceService.syncToStore(scope, messages);
   }, [messages, scope, persistenceService]);
 }

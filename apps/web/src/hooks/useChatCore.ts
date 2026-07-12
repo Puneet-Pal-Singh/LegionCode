@@ -41,8 +41,10 @@ import {
 } from "../components/chat/chatImageAttachments";
 import { createRunId } from "../lib/run-id";
 import {
+  bootstrapConversationScope,
   conversationScopeKey,
-  createConversationScope,
+  publishConversationScopeReady,
+  type ConversationScope,
 } from "./conversationScope";
 
 type ChatUserContent =
@@ -81,6 +83,7 @@ interface UseChatCoreResult {
   stop: () => void;
   setMessages: (messages: Message[]) => void;
   runId: string;
+  scope: ConversationScope | null;
   serverTurnId: string | null;
   resetRun: () => void;
   isModelConfigReady: boolean;
@@ -99,7 +102,6 @@ export function useChatCore(
   externalRunId?: string,
   mode: RunMode = DEFAULT_RUN_MODE,
   productMode?: ProductMode,
-  workspaceId?: string,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
@@ -119,23 +121,19 @@ export function useChatCore(
   } | null>(null);
   const runId = externalRunId || internalRunId;
   const apiPath = chatStreamPath();
-  const conversationScope = useMemo(
-    () =>
-      createConversationScope({
-        // The current Web session API exposes its server-issued workspace
-        // boundary as the session identity. Keep it explicit at this client
-        // boundary so a future workspace id can be supplied without changing
-        // stream/cache ownership again.
-        workspaceId: workspaceId ?? sessionId,
-        sessionId,
-        runId,
-      }),
-    [runId, sessionId, workspaceId],
-  );
-  const scopeKey = conversationScopeKey(conversationScope);
+  const [conversationScope, setConversationScope] =
+    useState<ConversationScope | null>(null);
+  const activeConversationScope =
+    conversationScope?.sessionId === sessionId &&
+    conversationScope.runId === runId
+      ? conversationScope
+      : null;
+  const scopeKey = activeConversationScope
+    ? conversationScopeKey(activeConversationScope)
+    : null;
   const activeScopeKeyRef = useRef(scopeKey);
   const isActiveScope = useCallback(
-    (candidateScopeKey: string) =>
+    (candidateScopeKey: string | null) =>
       activeScopeKeyRef.current === candidateScopeKey,
     [],
   );
@@ -145,13 +143,45 @@ export function useChatCore(
     setError(null);
     setIsSubmitting(false);
     setIsStopping(false);
-    setServerTurnId(null);
+    setServerTurnId(activeConversationScope?.turnId ?? null);
     setDebugEvents([]);
     setPendingUserMessage((current) =>
       current?.scopeKey === scopeKey ? current : null,
     );
     lastLoggedStreamErrorRef.current = null;
-  }, [scopeKey]);
+  }, [activeConversationScope?.turnId, scopeKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setConversationScope(null);
+
+    void bootstrapConversationScope(sessionId, runId)
+      .then((scope) => {
+        if (!cancelled) {
+          setConversationScope(scope);
+          publishConversationScopeReady(scope);
+        }
+      })
+      .catch((bootstrapError: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        const message =
+          bootstrapError instanceof Error
+            ? bootstrapError.message
+            : "Failed to establish the server-owned turn scope.";
+        setError(message);
+        logClientWarning("chat/bootstrap", "failed", {
+          sessionId,
+          runId,
+          error: message,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, sessionId]);
 
   const pushDebugEvent = useCallback(
     (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
@@ -171,7 +201,7 @@ export function useChatCore(
 
   // Vercel owns the stream instance. Its identity must include every
   // transcript boundary, never only the run attempt.
-  const instanceKey = scopeKey;
+  const instanceKey = scopeKey ?? undefined;
   const {
     status,
     credentials,
@@ -187,7 +217,10 @@ export function useChatCore(
     [],
   );
   const hasConnectedCredential = credentials.length > 0;
-  const isModelConfigReady = status === "ready" && hasConnectedCredential;
+  const isModelConfigReady =
+    status === "ready" &&
+    hasConnectedCredential &&
+    activeConversationScope !== null;
 
   const {
     messages,
@@ -205,6 +238,16 @@ export function useChatCore(
       runId,
       mode,
       productMode,
+      ...(activeConversationScope
+        ? {
+            identity: {
+              workspaceId: activeConversationScope.workspaceId,
+              threadId: activeConversationScope.threadId,
+              turnId: activeConversationScope.turnId,
+              runAttemptId: activeConversationScope.runAttemptId,
+            },
+          }
+        : {}),
     },
     initialMessages: [],
     id: instanceKey,
@@ -212,15 +255,21 @@ export function useChatCore(
       if (!isActiveScope(scopeKey)) {
         return;
       }
-      const turnId = response.headers.get("X-Turn-Id")?.trim() ?? null;
-      if (turnId) {
-        setServerTurnId(turnId);
+      const responseTurnId = response.headers.get("X-Turn-Id")?.trim() ?? null;
+      if (responseTurnId && responseTurnId !== activeConversationScope?.turnId) {
+        logClientWarning("chat/stream", "scope-mismatch", {
+          runId,
+          sessionId,
+          expectedTurnId: activeConversationScope?.turnId ?? null,
+          responseTurnId,
+        });
+        return;
       }
       dispatchRunSummaryRefresh(runId);
       logClientEvent("chat/stream", "response", {
         runId,
         sessionId,
-        turnId,
+        turnId: activeConversationScope?.turnId ?? null,
         status: response.status,
       });
       pushDebugEvent({
@@ -359,6 +408,7 @@ export function useChatCore(
     (
       config: ResolvedProviderConfig,
       clientMessageId: string,
+      identity: ConversationScope,
     ): ChatRequestBody =>
       parseChatRequestBody({
         sessionId,
@@ -369,6 +419,12 @@ export function useChatCore(
         harnessId: resolveRuntimeHarnessId(sessionId),
         providerId: config.providerId,
         modelId: config.modelId,
+        identity: {
+          workspaceId: identity.workspaceId,
+          threadId: identity.threadId,
+          turnId: identity.turnId,
+          runAttemptId: identity.runAttemptId,
+        },
         ...loadRepositoryContextFields(sessionId),
       }),
     [mode, productMode, runId, sessionId],
@@ -442,9 +498,14 @@ export function useChatCore(
       const requestScopeKey = scopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
-      if ((!content && !hasImages) || status !== "ready") {
+      if (
+        (!content && !hasImages) ||
+        status !== "ready" ||
+        !activeConversationScope ||
+        !requestScopeKey
+      ) {
         throw new Error(
-          "Chat is still initializing model settings. Wait a moment, then try again. If this continues, open Settings and reconnect a provider key.",
+          "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
         );
       }
       const submittedMessage = ensureClientMessageId(message);
@@ -500,6 +561,7 @@ export function useChatCore(
         const requestBody = buildChatRequestBody(
           providerConfig,
           submittedMessage.id,
+          activeConversationScope,
         );
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
@@ -544,6 +606,7 @@ export function useChatCore(
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
+      activeConversationScope,
       runId,
       sessionId,
       scopeKey,
@@ -635,11 +698,14 @@ export function useChatCore(
       attachments?: ChatSubmitAttachments,
     ): Promise<boolean> => {
       e?.preventDefault();
-      const requestScopeKey = scopeKey;
       const originalInput = input;
       const trimmedInput = input.trim();
       const imageAttachments = attachments?.imageAttachments ?? [];
-      if (shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)) {
+      if (
+        !activeConversationScope ||
+        !scopeKey ||
+        shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)
+      ) {
         logClientWarning("chat/submit", "blocked", {
           runId,
           sessionId,
@@ -652,6 +718,7 @@ export function useChatCore(
         });
         return false;
       }
+      const requestScopeKey = scopeKey;
       clearChatInput();
       return submitPreparedInput(
         buildChatAppendMessage(trimmedInput, imageAttachments),
@@ -667,6 +734,7 @@ export function useChatCore(
       isStopping,
       isSubmitting,
       runId,
+      activeConversationScope,
       scopeKey,
       sessionId,
       shouldBlockSubmit,
@@ -724,6 +792,7 @@ export function useChatCore(
     stop,
     setMessages,
     runId,
+    scope: activeConversationScope,
     serverTurnId,
     resetRun,
     isModelConfigReady,
