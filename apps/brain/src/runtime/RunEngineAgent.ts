@@ -47,6 +47,10 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
       });
     }
 
+    if (url.pathname === "/turn/start" && request.method === "POST") {
+      return handler.handleTurnStartRequest(request);
+    }
+
     if (url.pathname === "/summary" && request.method === "GET") {
       return handler.handleSummaryRequest(request);
     }

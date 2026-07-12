@@ -30,6 +30,123 @@ import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 
 describe("RunEngineRequestHandler", () => {
+  it("issues one persisted four-id scope before execution starts", async () => {
+    const ctx = new MockDurableObjectState();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+
+    const response = await handler.handleTurnStartRequest(
+      new Request("https://run-engine/turn/start", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "corr-1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const identity = (await response.json()) as Record<string, string>;
+    expect(Object.keys(identity).sort()).toEqual([
+      "runAttemptId",
+      "threadId",
+      "turnId",
+      "workspaceId",
+    ]);
+    expect(identity.workspaceId).toBe(
+      "00000000-0000-4000-8000-000000000001",
+    );
+    expect(identity.threadId).toMatch(/^thr_/);
+    expect(identity.turnId).toMatch(/^trn_/);
+    expect(identity.runAttemptId).toMatch(/^attempt_/);
+
+    const persisted = await ctx.storage.get("turnRuntimeIdentities");
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        [identity.turnId]: expect.objectContaining(identity),
+      }),
+    );
+  });
+
+  it("rejects execution when bootstrap identity is not authorized for the run scope", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const response = await handler.handleExecuteRequest(
+      new Request("https://run-engine/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          identity: {
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            threadId: "thr_123456",
+            turnId: "trn_123456",
+            runAttemptId: "attempt_123456",
+          },
+          sessionId: "session-1",
+          correlationId: "corr-1",
+          input: {
+            mode: "build",
+            agentType: "coding",
+            prompt: "read README",
+            sessionId: "session-1",
+            orchestratorBackend: "execution-engine-v1",
+            executionBackend: "cloudflare_sandbox",
+            harnessMode: "platform_owned",
+            authMode: "api_key",
+          },
+          messages: [{ role: "user", content: "read README" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_SCOPE_MISMATCH",
+    });
+  });
+
+  it("rejects execution without a server-issued bootstrap identity", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const response = await handler.handleExecuteRequest(
+      new Request("https://run-engine/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          correlationId: "corr-1",
+          input: {
+            mode: "build",
+            agentType: "coding",
+            prompt: "read README",
+            sessionId: "session-1",
+            orchestratorBackend: "execution-engine-v1",
+            executionBackend: "cloudflare_sandbox",
+            harnessMode: "platform_owned",
+            authMode: "api_key",
+          },
+          messages: [{ role: "user", content: "read README" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_BOOTSTRAP_REQUIRED",
+    });
+  });
+
   it("serves run-engine runtime debug metadata with run-engine headers", async () => {
     const ctx = new MockDurableObjectState();
     const handler = new RunEngineRequestHandler(
