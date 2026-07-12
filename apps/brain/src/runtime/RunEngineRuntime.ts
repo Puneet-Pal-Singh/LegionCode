@@ -42,6 +42,7 @@ import {
   createCloudflareLifecycleEventStreamPort,
 } from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
@@ -64,6 +65,7 @@ export class RunEngineRuntime extends DurableObject {
   private readonly eventStreamPort = createCloudflareEventStreamPort();
   private readonly lifecycleEventStreamPort =
     createCloudflareLifecycleEventStreamPort();
+  private readonly interruptRegistry = new InMemoryRunInterruptRegistry();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -496,7 +498,10 @@ export class RunEngineRuntime extends DurableObject {
       this.env as Env,
       this.withExecutionLock.bind(this),
       this.eventStreamPort,
-      { lifecycleEventStream: this.lifecycleEventStreamPort },
+      {
+        lifecycleEventStream: this.lifecycleEventStreamPort,
+        interruptRegistry: this.interruptRegistry,
+      },
     );
   }
 }

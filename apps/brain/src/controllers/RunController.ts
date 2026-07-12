@@ -3,18 +3,13 @@ import {
   ApprovalDecisionKindSchema,
   type ApprovalDecisionKind,
 } from "@repo/shared-types";
-import {
-  RunAttemptIdSchema,
-  ThreadIdSchema,
-  TurnIdSchema,
-  WorkspaceIdSchema,
-} from "@repo/platform-protocol";
 import { projectRunActivityFeed } from "@shadowbox/execution-engine/runtime";
 import type { RunStatus as RuntimeRunStatus } from "@shadowbox/orchestrator-core";
 import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
+import { RunInterruptIdentitySchema } from "../runtime/RunInterruptContract";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import { mapRunEventRecordsToCanonicalEvents } from "../services/runs/RunEventRecordMapper";
 import {
@@ -37,13 +32,7 @@ const RuntimeOrchestratorBackendSchema = z.enum([
   "execution-engine-v1",
   "cloudflare_agents",
 ]);
-const InterruptRunRequestSchema = z.object({
-  runId: z.string().trim().min(1),
-  workspaceId: WorkspaceIdSchema,
-  sessionId: z.string().trim().min(1),
-  threadId: ThreadIdSchema,
-  turnId: TurnIdSchema,
-  runAttemptId: RunAttemptIdSchema,
+const InterruptRunRequestSchema = RunInterruptIdentitySchema.extend({
   orchestratorBackend: RuntimeOrchestratorBackendSchema.optional(),
 });
 const ApproveRunRequestSchema = z.object({

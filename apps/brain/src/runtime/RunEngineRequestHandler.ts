@@ -16,9 +16,6 @@ import {
   createThreadId,
   createTurnId,
   EventSequenceSchema,
-  RunAttemptIdSchema,
-  ThreadIdSchema,
-  WorkspaceIdSchema,
   type LifecycleEvent,
   RunIdSchema,
   TurnDiffPayloadSchema,
@@ -61,6 +58,15 @@ import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
+import {
+  InMemoryRunInterruptRegistry,
+  type RunInterruptRegistry,
+} from "./RunInterruptRegistry";
+import {
+  BrainWorkspaceIdSchema,
+  RunInterruptIdentitySchema,
+  type RunInterruptIdentity,
+} from "./RunInterruptContract";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
 import type { LifecycleEventStreamPort } from "./ports";
 import {
@@ -68,14 +74,6 @@ import {
   enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
 
-const InterruptRunRequestSchema = z.object({
-  runId: RunIdSchema,
-  workspaceId: WorkspaceIdSchema,
-  sessionId: z.string().trim().min(1),
-  threadId: ThreadIdSchema,
-  turnId: TurnIdSchema,
-  runAttemptId: RunAttemptIdSchema,
-});
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
   requestId: z.string().min(1),
@@ -120,11 +118,10 @@ export interface RunEngineRequestHandlerDependencies {
   canonicalEventSink?: CanonicalRunEventSink;
   lifecycleEventStore?: LifecycleEventStore;
   lifecycleEventStream?: LifecycleEventStreamPort;
+  interruptRegistry?: RunInterruptRegistry;
 }
 
-type TurnRuntimeIdentity = z.infer<typeof InterruptRunRequestSchema> & {
-  sessionId: string;
-};
+type TurnRuntimeIdentity = RunInterruptIdentity;
 
 export class RunEngineRequestHandler {
   private readonly fallbackLifecycleEventStream =
@@ -135,10 +132,7 @@ export class RunEngineRequestHandler {
     string,
     TurnRuntimeIdentity
   >();
-  private readonly activeInterrupts = new Map<
-    string,
-    (turnId: string, reason: string) => Promise<void>
-  >();
+  private readonly interruptRegistry: RunInterruptRegistry;
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
@@ -150,7 +144,10 @@ export class RunEngineRequestHandler {
     private readonly withExecutionLock: RunEngineRequestLock,
     private readonly eventStream?: RealtimeEventPort,
     private readonly dependencies: RunEngineRequestHandlerDependencies = {},
-  ) {}
+  ) {
+    this.interruptRegistry =
+      dependencies.interruptRegistry ?? new InMemoryRunInterruptRegistry();
+  }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
     const input = parseLifecycleEventsQuery(request);
@@ -375,9 +372,11 @@ export class RunEngineRequestHandler {
     let payload: TurnRuntimeIdentity;
     try {
       const body = await parseRequestBody(request, "run-interrupt");
-      const validated = validateWithSchema<
-        z.infer<typeof InterruptRunRequestSchema>
-      >(body, InterruptRunRequestSchema, "run-interrupt");
+      const validated = validateWithSchema<RunInterruptIdentity>(
+        body,
+        RunInterruptIdentitySchema,
+        "run-interrupt",
+      );
       payload = validated;
     } catch {
       return runEngineErrorResponse(
@@ -387,6 +386,8 @@ export class RunEngineRequestHandler {
         400,
       );
     }
+
+    await this.ensureTurnToRunMapLoaded();
 
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
@@ -428,8 +429,11 @@ export class RunEngineRequestHandler {
       });
     }
 
-    const interrupt = this.activeInterrupts.get(payload.turnId);
-    if (!interrupt) {
+    const accepted = await this.interruptRegistry.request(
+      payload.turnId,
+      "User interrupted the turn.",
+    );
+    if (!accepted) {
       return runEngineErrorResponse(
         request,
         this.env,
@@ -437,7 +441,6 @@ export class RunEngineRequestHandler {
         409,
       );
     }
-    await interrupt(payload.turnId, "User interrupted the turn.");
 
     return runEngineJsonResponse(request, this.env, {
       runId: payload.runId,
@@ -654,6 +657,16 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, message, 400);
     }
 
+    const workspaceId = BrainWorkspaceIdSchema.safeParse(payload.workspaceId);
+    if (!workspaceId.success) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "workspaceId is required",
+        400,
+      );
+    }
+
     try {
       const trace = parseTraceparent(request.headers.get("traceparent"));
       console.log(
@@ -678,9 +691,7 @@ export class RunEngineRequestHandler {
         await this.ensureTurnToRunMapLoaded();
         await this.mapTurnToRun(turnId, payload.runId, {
           runId: payload.runId,
-          workspaceId: WorkspaceIdSchema.parse(
-            payload.workspaceId ?? payload.runId,
-          ),
+          workspaceId: workspaceId.data,
           threadId: threadId,
           turnId,
           runAttemptId,
@@ -706,7 +717,7 @@ export class RunEngineRequestHandler {
         const editArtifactCoordinator = createEditArtifactCoordinator({
           env: this.env,
           userId: payload.userId,
-          workspaceId: payload.workspaceId,
+          workspaceId: workspaceId.data,
           runId: payload.runId,
           sessionId: payload.sessionId,
           repositoryContext: payload.input.repositoryContext,
@@ -747,8 +758,8 @@ export class RunEngineRequestHandler {
           stream: this.createLifecycleEventStream(),
         });
         await editArtifactCoordinator.prepare();
-        this.activeInterrupts.set(turnId, async (requestedTurnId, reason) => {
-          await runtimeRunner.interrupt(TurnIdSchema.parse(requestedTurnId), reason);
+        this.interruptRegistry.register(turnId, async (reason) => {
+          await runtimeRunner.interrupt(turnId, reason);
         });
         let executionResponse: Response;
         try {
@@ -760,10 +771,10 @@ export class RunEngineRequestHandler {
             turnId,
             runAttemptId,
             threadId,
-            workspaceId: payload.workspaceId,
+            workspaceId: workspaceId.data,
           });
         } finally {
-          this.activeInterrupts.delete(turnId);
+          this.interruptRegistry.unregister(turnId);
         }
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {

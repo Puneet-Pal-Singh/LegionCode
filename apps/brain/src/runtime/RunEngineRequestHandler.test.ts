@@ -19,12 +19,15 @@ import {
   tagRuntimeStateSemantics,
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
+import type { LifecycleEventStore } from "@repo/persistence";
 import type { Env } from "../types/ai";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import {
   RunEngineRequestHandler,
   type CanonicalRunEventSink,
 } from "./RunEngineRequestHandler";
+import { RunInterruptIdentitySchema } from "./RunInterruptContract";
+import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 
 describe("RunEngineRequestHandler", () => {
   it("serves run-engine runtime debug metadata with run-engine headers", async () => {
@@ -384,7 +387,7 @@ describe("RunEngineRequestHandler", () => {
         },
         body: JSON.stringify({
           runId,
-          workspaceId: "wrk_123456",
+          workspaceId: "123e4567-e89b-42d3-a456-426614174111",
           sessionId: "session-123456",
           threadId: "thr_123456",
           turnId: "trn_123456",
@@ -394,6 +397,96 @@ describe("RunEngineRequestHandler", () => {
     );
 
     expect(interruptResponse.status).toBe(409);
+  });
+
+  it("dispatches one active interrupt across request-handler instances and replays its terminal settlement", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const identity = RunInterruptIdentitySchema.parse({
+      runId: "run_123e4567e89b42d3a456426614174213",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      sessionId: "session-1",
+      threadId: "thr_123456",
+      turnId: "trn_123456",
+      runAttemptId: "attempt_123456",
+    });
+    await runRepo.create(
+      new Run(identity.runId, identity.sessionId, "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "interrupt this run",
+        sessionId: identity.sessionId,
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", {
+      [identity.turnId]: identity.runId,
+    });
+    await ctx.storage.put("turnRuntimeIdentities", {
+      [identity.turnId]: identity,
+    });
+
+    const interruptRegistry = new InMemoryRunInterruptRegistry();
+    const interrupt = vi.fn().mockResolvedValue(undefined);
+    interruptRegistry.register(identity.turnId, interrupt);
+    let settled = false;
+    const lifecycleEventStore = {
+      replay: vi.fn(async () => ({
+        events: settled
+          ? ([{ type: "turn.interrupted" }] as unknown[])
+          : [],
+        nextSequence: null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { interruptRegistry, lifecycleEventStore },
+    );
+
+    const crossThread = RunInterruptIdentitySchema.parse({
+      ...identity,
+      threadId: "thr_654321",
+    });
+    const rejected = await handler.handleInterruptRequest(
+      interruptRequest(crossThread),
+    );
+
+    expect(rejected.status).toBe(409);
+    expect(interrupt).not.toHaveBeenCalled();
+
+    const first = await handler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      accepted: true,
+      status: "interrupt_requested",
+    });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(interrupt).toHaveBeenCalledWith("User interrupted the turn.");
+
+    settled = true;
+    const replayHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { interruptRegistry, lifecycleEventStore },
+    );
+    const repeated = await replayHandler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(repeated.status).toBe(200);
+    await expect(repeated.json()).resolves.toMatchObject({
+      accepted: false,
+      status: "settled",
+      terminalEvent: { type: "turn.interrupted" },
+    });
+    expect(interrupt).toHaveBeenCalledTimes(1);
   });
 
   it("does not queue interrupt behind the execution lock", async () => {
@@ -426,7 +519,7 @@ describe("RunEngineRequestHandler", () => {
         },
         body: JSON.stringify({
           runId,
-          workspaceId: "wrk_123456",
+          workspaceId: "123e4567-e89b-42d3-a456-426614174111",
           sessionId: "session-123456",
           threadId: "thr_123456",
           turnId: "trn_123456",
@@ -727,6 +820,21 @@ function createNoopCanonicalEventSink(): CanonicalRunEventSink {
       return;
     },
   };
+}
+
+function interruptRequest(identity: {
+  runId: string;
+  workspaceId: string;
+  sessionId: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+}): Request {
+  return new Request("https://brain.local/interrupt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(identity),
+  });
 }
 
 class InMemoryStorage implements RuntimeStorage {
