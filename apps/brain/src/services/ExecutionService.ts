@@ -21,25 +21,21 @@ import {
   GIT_STATUS_TIMEOUT_MS,
 } from "./gitExecutionTimeouts";
 import { getUserSessionByUserId } from "./AuthService";
+import {
+  parseSecureExecutionOutcome,
+  SecureExecutionContractViolationError,
+  SecureExecutionFailureError,
+  type SecureExecutionError,
+  type SecureExecutionMetrics,
+  type SecureExecutionOutcome,
+  type SecureExecutionStatus,
+} from "./secure-execution/SecureExecutionContract";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
 const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
 const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
 const LOCAL_DEV_SESSION_RETRY_DELAY_MS = 500;
-
-type SecureExecutionStatus = "success" | "failure" | "timeout" | "cancelled";
-
-interface SecureExecutionError {
-  code: string;
-  message: string;
-  details?: unknown;
-}
-
-interface SecureExecutionMetrics {
-  duration: number;
-  memoryUsed?: number;
-}
 
 interface SecureExecutionSession {
   sessionId: string;
@@ -57,13 +53,7 @@ interface SecureExecutionWorkspaceScope {
   root: string;
 }
 
-interface SecureExecutionTaskResponse {
-  taskId: string;
-  status: SecureExecutionStatus;
-  output?: string;
-  error?: SecureExecutionError;
-  metrics?: SecureExecutionMetrics;
-}
+type SecureExecutionTaskResponse = SecureExecutionOutcome;
 
 interface LegacyExecutionResult {
   success: boolean;
@@ -405,6 +395,7 @@ export class ExecutionService {
       );
       setFinished(true);
 
+      const executionResult = await parseSecureExecutionResponse(res);
       if (!res.ok) {
         await logForwardingPromise;
         console.error(
@@ -419,13 +410,35 @@ export class ExecutionService {
             elapsedMs: Date.now() - startedAt,
           }),
         );
-        throw new Error(
-          (await res.text()) || `Failed to execute ${plugin}:${action}`,
-        );
+        if (executionResult) {
+          throw new SecureExecutionFailureError(executionResult, res.status, {
+            plugin,
+            action,
+            runId: this.runId,
+            workspaceScope: scope
+              ? {
+                  runAttemptId: scope.runAttemptId,
+                  workspaceId: scope.workspaceId,
+                  root: scope.root,
+                }
+              : undefined,
+          });
+        }
+        throw new Error(`Failed to execute ${plugin}:${action}`);
       }
 
-      const executionResult =
-        await parseJsonResponse<SecureExecutionTaskResponse>(res);
+      if (!executionResult) {
+        throw new SecureExecutionContractViolationError(
+          "Secure execution API returned an invalid success payload",
+          res.status,
+        );
+      }
+      if (executionResult.status !== "success") {
+        throw new SecureExecutionContractViolationError(
+          `Secure execution API returned ${executionResult.status} with HTTP ${res.status}`,
+          res.status,
+        );
+      }
       await logForwardingPromise;
       console.log(
         formatDiagnosticLogLine("execution/tool", "completed", {
@@ -774,6 +787,33 @@ async function parseJsonResponse<T>(
       }`,
     );
   }
+}
+
+async function parseSecureExecutionResponse(
+  response: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>,
+): Promise<SecureExecutionTaskResponse | null> {
+  const text = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return null;
+  }
+
+  const outcome = parseSecureExecutionOutcome(body);
+  if (outcome && !response.ok && outcome.status !== "success") {
+    return outcome;
+  }
+  if (outcome && response.ok && outcome.status === "success") {
+    return outcome;
+  }
+  if (outcome && response.ok) {
+    throw new SecureExecutionContractViolationError(
+      `Secure execution API returned ${outcome.status} with HTTP ${response.status}`,
+      response.status,
+    );
+  }
+  return null;
 }
 
 function toLegacyExecutionResult(

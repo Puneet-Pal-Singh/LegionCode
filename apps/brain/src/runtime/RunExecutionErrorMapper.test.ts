@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { DomainError } from "../domain/errors";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { ProviderCapabilityError } from "@shadowbox/execution-engine/runtime";
+import {
+  SecureExecutionContractViolationError,
+  SecureExecutionFailureError,
+} from "../services/secure-execution/SecureExecutionContract";
 
 describe("RunExecutionErrorMapper", () => {
   it("passes through existing domain errors", () => {
@@ -211,6 +215,63 @@ describe("RunExecutionErrorMapper", () => {
     expect(mapped?.metadata).toMatchObject({
       lane: undefined,
       reason: undefined,
+    });
+  });
+
+  it.each([
+    ["sandbox_unavailable", "SANDBOX_UNAVAILABLE", 503, true],
+    ["timeout", "EXECUTION_TIMEOUT", 504, true],
+    ["cancelled", "EXECUTION_CANCELLED", 499, false],
+    ["failure", "SECURE_EXECUTION_FAILED", 422, true],
+  ] as const)(
+    "maps secure %s without provider relabeling",
+    (secureStatus, code, status, retryable) => {
+      const mapped = mapRunExecutionErrorToDomain(
+        new SecureExecutionFailureError(
+          {
+            taskId: "task-1",
+            leaseId: "lease-1",
+            correlationId: "secure-corr-1",
+            status: secureStatus,
+            retryable,
+            error: { code: "CONTAINER_EXITED", message: "container exited" },
+          },
+          status,
+        ),
+        "run-corr-1",
+      );
+
+      expect(mapped).toMatchObject({
+        code,
+        status,
+        retryable,
+        correlationId: "secure-corr-1",
+        metadata: {
+          taskId: "task-1",
+          leaseId: "lease-1",
+          secureStatus,
+          secureCode: "CONTAINER_EXITED",
+        },
+      });
+      expect(mapped?.code).not.toBe("PROVIDER_UNAVAILABLE");
+    },
+  );
+
+  it("maps a 2xx secure failure payload as a contract violation", () => {
+    const mapped = mapRunExecutionErrorToDomain(
+      new SecureExecutionContractViolationError(
+        "Secure execution API returned failure with HTTP 200",
+        200,
+      ),
+      "run-corr-2",
+    );
+
+    expect(mapped).toMatchObject({
+      code: "SECURE_EXECUTION_CONTRACT_VIOLATION",
+      status: 502,
+      retryable: true,
+      correlationId: "run-corr-2",
+      metadata: { httpStatus: 200 },
     });
   });
 });
