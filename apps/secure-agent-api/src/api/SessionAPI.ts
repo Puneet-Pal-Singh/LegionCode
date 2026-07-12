@@ -18,6 +18,7 @@ import {
 import type {
   SandboxExecutionPort,
   TaskExecutionInput,
+  TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
 import type { RuntimeEventPublisher } from "../services/runtime-events/InternalRuntimeEventClient";
 import type { JsonValue } from "@repo/shared-types";
@@ -38,7 +39,7 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
-  workspaceScope?: WorkspaceScope;
+  workspaceScope: WorkspaceScope;
   lease: SandboxExecutionLease;
 }
 
@@ -48,7 +49,7 @@ interface PublicSessionRecord {
   repoPath: string;
   expiresAt: number;
   createdAt: number;
-  workspaceScope?: WorkspaceScope;
+  workspaceScope: WorkspaceScope;
   lease: SandboxExecutionLease;
 }
 
@@ -172,7 +173,7 @@ async function storeSession(
   taskId: string,
   repoPath: string,
   token: string,
-  workspaceScope?: WorkspaceScope,
+  workspaceScope: WorkspaceScope,
 ): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
@@ -181,12 +182,8 @@ async function storeSession(
 
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
-  if (!workspaceScope) {
-    throw new Error("workspaceScope is required for scoped sandbox execution");
-  }
   const lease = createSandboxLease({
-    workspaceId: workspaceScope.workspaceId,
-    runAttemptId: workspaceScope.runAttemptId,
+    workspaceScope,
     owner: sessionId,
     correlationId: `secure-api:${sessionId}`,
     now,
@@ -316,7 +313,7 @@ function getRuntimeExecutionPort(
         executeTask as (
           sessionIdArg: string,
           inputArg: TaskExecutionInput,
-        ) => Promise<ExecuteTaskResponse>
+        ) => Promise<TaskExecutionResult>
       )(sessionId, input),
   };
 }
@@ -347,13 +344,7 @@ function getExecutionHttpStatus(result: ExecuteTaskResponse): number {
   if (result.status === "success") return 200;
   if (result.status === "timeout") return 504;
   if (result.status === "cancelled") return 499;
-  if (
-    result.error?.code === "SANDBOX_UNAVAILABLE" ||
-    result.error?.code === "SANDBOX_STARTUP_FAILED" ||
-    result.error?.code === "SANDBOX_ABORTED" ||
-    result.error?.code === "SANDBOX_TIMEOUT" ||
-    result.error?.code === "LEASE_EXPIRED"
-  ) {
+  if (result.status === "sandbox_unavailable") {
     return 503;
   }
   return 422;
@@ -367,7 +358,6 @@ function hasMatchingWorkspaceScope(
   if (requestedRunId !== undefined && requestedRunId !== session.runId) {
     return false;
   }
-  if (!session.workspaceScope) return true;
   const candidate = params.workspaceScope;
   if (!isWorkspaceScope(candidate)) {
     return false;
@@ -378,6 +368,26 @@ function hasMatchingWorkspaceScope(
     candidate.workspaceId === session.workspaceScope.workspaceId &&
     candidate.root === session.workspaceScope.root
   );
+}
+
+async function replaceDeadLease(
+  runtime: RuntimeStub,
+  sessionId: string,
+  session: SessionRecord,
+): Promise<void> {
+  if (session.lease.generation >= 1) return;
+  const sessionStore = getRuntimeSessionStore(runtime);
+  if (!sessionStore) return;
+  const replacement = createSandboxLease({
+    workspaceScope: session.workspaceScope,
+    owner: sessionId,
+    correlationId: `${session.lease.correlationId}:replacement-1`,
+    generation: session.lease.generation + 1,
+  });
+  await sessionStore.storeExecutionSession(sessionId, {
+    ...session,
+    lease: replacement,
+  });
 }
 
 function isWorkspaceScope(value: unknown): value is WorkspaceScope {
@@ -587,6 +597,10 @@ export async function handleExecuteTask(
       request: validation.data,
       result: executionResult,
     });
+
+    if (executionResult.status === "sandbox_unavailable") {
+      await replaceDeadLease(runtime, sessionId, auth.session);
+    }
 
     await recordLog(
       runtime,

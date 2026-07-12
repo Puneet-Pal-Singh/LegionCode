@@ -12,18 +12,20 @@ export interface TaskExecutionInput {
   retryable?: boolean;
 }
 
+export interface TaskExecutionError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
 export interface TaskExecutionResult {
   taskId: string;
   leaseId: string;
   correlationId: string;
-  status: "success" | "failure" | "timeout" | "cancelled";
+  status: "success" | "failure" | "timeout" | "cancelled" | "sandbox_unavailable";
   retryable: boolean;
   output?: string;
-  error?: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
+  error?: TaskExecutionError;
   metrics?: {
     duration: number;
     memoryUsed?: number;
@@ -37,21 +39,27 @@ export interface TaskExecutionHooks {
   }) => Promise<void> | void;
 }
 
+export interface LeaseReleaseResult {
+  released: boolean;
+  sandboxReleased: boolean;
+}
+
 export interface SandboxExecutionPort {
   acquireLease(
     request: SandboxExecutionLeaseRequest,
   ): Promise<SandboxExecutionLease>;
+  registerLease(lease: SandboxExecutionLease): void;
   executeTask(
-    sessionId: string,
+    leaseId: string,
     input: TaskExecutionInput,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult>;
-  cancelTask(sessionId: string, taskId: string): Promise<boolean>;
-  getHealth(sessionId: string): Promise<{
+  cancelTask(leaseId: string, taskId: string): Promise<boolean>;
+  getHealth(leaseId: string): Promise<{
     healthy: boolean;
     memoryUsed?: number;
     cpuUsage?: number;
   }>;
-  cleanup(sessionId: string): Promise<void>;
-  releaseLease(leaseId: string): Promise<boolean>;
+  cleanup(leaseId: string): Promise<void>;
+  releaseLease(leaseId: string): Promise<LeaseReleaseResult>;
 }

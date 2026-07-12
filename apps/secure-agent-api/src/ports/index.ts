@@ -6,6 +6,8 @@ export type {
 export type {
   SandboxExecutionLease,
   SandboxExecutionLeaseRequest,
+  SandboxMutationMode,
+  WorkspaceScope,
 } from "./SandboxExecutionLease";
 export {
   createSandboxLease,

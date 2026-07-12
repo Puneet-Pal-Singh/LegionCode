@@ -59,12 +59,12 @@ export const SessionCreateResponseSchema = z.object({
   lease: z.object({
     leaseId: z.string().min(1),
     sandboxId: z.string().min(1),
-    workspaceId: z.string().min(1),
-    runAttemptId: z.string().min(1),
+    workspaceScope: WorkspaceScopeSchema,
     owner: z.string().min(1),
     correlationId: z.string().min(1),
     expiresAt: z.number().int().positive(),
-    mutationMode: z.enum(["serialized", "read_only"]).optional(),
+    generation: z.number().int().nonnegative(),
+    mutationMode: z.enum(["serialized", "read_only"]),
   }),
 });
 
@@ -89,7 +89,7 @@ export const ExecuteTaskResponseSchema = z.object({
   taskId: z.string().min(1),
   leaseId: z.string().min(1),
   correlationId: z.string().min(1),
-  status: z.enum(["success", "failure", "timeout", "cancelled"]),
+  status: z.enum(["success", "failure", "timeout", "cancelled", "sandbox_unavailable"]),
   retryable: z.boolean(),
   output: z.string().optional(),
   error: z

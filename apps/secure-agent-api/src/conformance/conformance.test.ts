@@ -29,11 +29,16 @@ import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 const CONFORMANCE_LEASE: SandboxExecutionLease = {
   leaseId: "lease:conformance:attempt-1",
   sandboxId: "workspace:conformance:attempt:attempt-1",
-  workspaceId: "conformance",
-  runAttemptId: "attempt-1",
+  workspaceScope: {
+    runId: "run-1",
+    runAttemptId: "attempt-1",
+    workspaceId: "conformance",
+    root: "/conformance",
+  },
   owner: "conformance",
   correlationId: "conformance-correlation",
   expiresAt: Date.now() + 60_000,
+  generation: 0,
   mutationMode: "serialized",
 };
 
@@ -227,6 +232,7 @@ describe("Portability Conformance", () => {
       sandbox: {} as Sandbox,
       plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
       r2Bucket,
+      executionLease: CONFORMANCE_LEASE,
     });
   });
 
@@ -322,7 +328,7 @@ describe("Portability Conformance", () => {
 
   describe("Execution Contract", () => {
     it("should route plugin execution through sandbox execution port", async () => {
-      const result = await runtime.executionPort.executeTask("session-1", {
+      const result = await runtime.executionPort.executeTask(CONFORMANCE_LEASE.leaseId, {
         taskId: "task-1",
         action: "MockPlugin.execute",
         params: { action: "mock", command: "echo hi", runId: "run-1" },
@@ -335,7 +341,7 @@ describe("Portability Conformance", () => {
     });
 
     it("should classify unknown actions as deterministic failures", async () => {
-      const result = await runtime.executionPort.executeTask("session-1", {
+      const result = await runtime.executionPort.executeTask(CONFORMANCE_LEASE.leaseId, {
         taskId: "task-2",
         action: "MissingPlugin.execute",
         params: {},
@@ -387,6 +393,7 @@ describe("Portability Conformance", () => {
         sandbox: {} as Sandbox,
         plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
         r2Bucket,
+        executionLease: CONFORMANCE_LEASE,
       });
 
       expect(runtime.executionPort).not.toBe(runtime2.executionPort);
@@ -400,9 +407,10 @@ describe("Portability Conformance", () => {
         sandbox: {} as Sandbox,
         plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
         r2Bucket,
+        executionLease: CONFORMANCE_LEASE,
       });
 
-      const result = await defaultRuntime.executionPort.executeTask("session-1", {
+      const result = await defaultRuntime.executionPort.executeTask(CONFORMANCE_LEASE.leaseId, {
         taskId: "task-default-backend",
         action: "MockPlugin.execute",
         params: {

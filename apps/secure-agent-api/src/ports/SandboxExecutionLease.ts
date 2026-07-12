@@ -1,3 +1,6 @@
+export const DEFAULT_SANDBOX_LEASE_TTL_MS = 15 * 60 * 1000;
+export const MAX_SANDBOX_LEASE_TTL_MS = 60 * 60 * 1000;
+
 export interface WorkspaceScope {
   runId: string;
   runAttemptId: string;
@@ -5,56 +8,61 @@ export interface WorkspaceScope {
   root: string;
 }
 
+export type SandboxMutationMode = "serialized" | "read_only";
+
 export interface SandboxExecutionLease {
   leaseId: string;
   sandboxId: string;
-  workspaceId?: string;
-  runAttemptId?: string;
-  workspaceScope?: WorkspaceScope;
+  workspaceScope: WorkspaceScope;
   owner: string;
   correlationId: string;
   expiresAt: number;
-  mutationMode?: "serialized" | "read_only";
+  generation: number;
+  mutationMode: SandboxMutationMode;
 }
 
 export interface SandboxExecutionLeaseRequest {
-  workspaceId: string;
-  runAttemptId: string;
+  workspaceScope: WorkspaceScope;
   owner: string;
   correlationId: string;
-  mutationMode?: "serialized" | "read_only";
+  generation?: number;
+  mutationMode?: SandboxMutationMode;
   ttlMs?: number;
 }
 
 export function workspaceLeaseKey(
-  lease: Pick<SandboxExecutionLease, "workspaceId" | "runAttemptId" | "workspaceScope"> | SandboxExecutionLeaseRequest,
+  lease: Pick<SandboxExecutionLease, "workspaceScope"> | SandboxExecutionLeaseRequest,
 ): string {
-  const scope = "workspaceScope" in lease ? lease.workspaceScope : undefined;
-  return [lease.workspaceId ?? scope?.workspaceId, lease.runAttemptId ?? scope?.runAttemptId].join(":");
+  return [
+    lease.workspaceScope.workspaceId,
+    lease.workspaceScope.runAttemptId,
+  ].join(":");
 }
 
-export function createSandboxLease(input: {
-  workspaceId: string;
-  runAttemptId: string;
-  owner: string;
-  correlationId: string;
-  now?: number;
-  ttlMs?: number;
-  mutationMode?: "serialized" | "read_only";
-}): SandboxExecutionLease {
+export function createSandboxLease(
+  input: SandboxExecutionLeaseRequest & { now?: number },
+): SandboxExecutionLease {
   const now = input.now ?? Date.now();
+  const ttlMs = Math.min(
+    Math.max(input.ttlMs ?? DEFAULT_SANDBOX_LEASE_TTL_MS, 1_000),
+    MAX_SANDBOX_LEASE_TTL_MS,
+  );
+  const { workspaceId, runAttemptId } = input.workspaceScope;
   return {
-    leaseId: `lease:${input.workspaceId}:${input.runAttemptId}`,
-    sandboxId: `workspace:${input.workspaceId}:attempt:${input.runAttemptId}`,
-    workspaceId: input.workspaceId,
-    runAttemptId: input.runAttemptId,
+    leaseId: `lease_${crypto.randomUUID()}`,
+    sandboxId: `workspace:${workspaceId}:attempt:${runAttemptId}`,
+    workspaceScope: input.workspaceScope,
     owner: input.owner,
     correlationId: input.correlationId,
-    expiresAt: now + Math.min(Math.max(input.ttlMs ?? 300_000, 1_000), 3_600_000),
+    expiresAt: now + ttlMs,
+    generation: input.generation ?? 0,
     mutationMode: input.mutationMode ?? "serialized",
   };
 }
 
-export function isLeaseExpired(lease: SandboxExecutionLease, now = Date.now()): boolean {
+export function isLeaseExpired(
+  lease: SandboxExecutionLease,
+  now = Date.now(),
+): boolean {
   return lease.expiresAt <= now;
 }

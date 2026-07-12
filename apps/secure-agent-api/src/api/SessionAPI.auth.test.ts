@@ -13,7 +13,8 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
-  workspaceScope?: WorkspaceScope;
+  workspaceScope: WorkspaceScope;
+  lease: { generation: number };
 }
 
 interface WorkspaceScope {
@@ -59,7 +60,7 @@ interface RuntimeStoreMock extends Record<string, unknown> {
       },
     ) => Promise<{
       taskId: string;
-      status: "success" | "failure" | "timeout" | "cancelled";
+      status: "success" | "failure" | "timeout" | "cancelled" | "sandbox_unavailable";
       output?: string;
       error?: {
         code: string;
@@ -361,6 +362,38 @@ describe("session auth hardening", () => {
         idempotencyKey: `run-auth-1:${sessionId}:task-execute-auth:runtime.task.finished`,
       },
     ]);
+  });
+
+  it("returns 503 and stores one explicit replacement lease after sandbox loss", async () => {
+    const runtime = createRuntimeStoreMock();
+    const stored: SessionRecord[] = [];
+    const originalStore = runtime.storeExecutionSession;
+    runtime.storeExecutionSession = async (sessionId, session) => {
+      stored.push(session);
+      await originalStore(sessionId, session);
+    };
+    runtime.executionPort.executeTask = async (_leaseId, input) => ({
+      taskId: input.taskId,
+      leaseId: "dead-lease",
+      correlationId: "dead-correlation",
+      status: "sandbox_unavailable",
+      retryable: true,
+      error: {
+        code: "SANDBOX_UNAVAILABLE",
+        message: "container exited",
+      },
+      metrics: { duration: 1 },
+    });
+
+    const { sessionId, token } = await createSession(runtime);
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${token}`),
+      runtime,
+    );
+
+    expect(response.status).toBe(503);
+    expect(stored).toHaveLength(2);
+    expect(stored[1]?.lease.generation).toBe(1);
   });
 
   it("rejects logs without authorization header", async () => {
