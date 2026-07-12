@@ -17,8 +17,7 @@ import {
   resolveRuntimeTarget,
   type ExecutionScope,
 } from "./chat-runtime-helpers";
-import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
-import { RunAdmissionService } from "../services/RunAdmissionService";
+import { RunAdmissionService } from "../runtime/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
 import {
   validateChatImageInput,
@@ -220,7 +219,10 @@ export class ChatController {
       userId,
       workspaceId,
       sessionId,
-      clientFingerprint: await buildAdmissionScopeFingerprint(req),
+      // The chat boundary owns these canonical identities before dispatch.
+      // The runtime may create a fresh attempt only after admission succeeds.
+      threadId: sessionId,
+      runAttemptId: runId,
       mode: body.mode,
       workflowIntent: body.workflowIntent,
     };
@@ -334,7 +336,6 @@ export class ChatController {
       if (admissionGrant) {
         await admissionService.release(
           admissionGrant,
-          admissionInput,
           correlationId,
         );
       }

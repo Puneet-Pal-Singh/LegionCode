@@ -18,6 +18,7 @@ import { CloudflareSandboxExecutionAdapter } from "./CloudflareSandboxExecutionA
 import { CloudflareSessionStateAdapter } from "./CloudflareSessionStateAdapter";
 import { CloudflareArtifactStoreAdapter } from "./CloudflareArtifactStoreAdapter";
 import { IPlugin } from "../interfaces/types";
+import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 
 export type RuntimeExecutionBackend =
   | "cloudflare_sandbox"
@@ -53,6 +54,7 @@ interface AdapterCompositionConfig {
   plugins: Map<string, IPlugin>;
   r2Bucket: R2Bucket;
   executionBackend?: RuntimeExecutionBackend;
+  executionLease?: SandboxExecutionLease;
 }
 
 /**
@@ -71,9 +73,10 @@ export class AgentRuntimeAdapterFactory {
     sandbox: Sandbox,
     plugins: Map<string, IPlugin>,
     executionBackend: RuntimeExecutionBackend = "cloudflare_sandbox",
+    executionLease?: SandboxExecutionLease,
   ): SandboxExecutionPort {
     if (executionBackend === "cloudflare_sandbox") {
-      return new CloudflareSandboxExecutionAdapter(sandbox, plugins);
+      return new CloudflareSandboxExecutionAdapter(sandbox, plugins, executionLease);
     }
     throw new UnsupportedExecutionBackendError(executionBackend);
   }
@@ -116,6 +119,7 @@ export class AgentRuntimeAdapterFactory {
         config.sandbox,
         config.plugins,
         executionBackend,
+        config.executionLease,
       ),
       sessionState: this.createSessionStateAdapter(
         config.durableObjectState,
