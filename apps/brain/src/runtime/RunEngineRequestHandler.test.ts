@@ -113,6 +113,40 @@ describe("RunEngineRequestHandler", () => {
     });
   });
 
+  it("rejects execution without a server-issued bootstrap identity", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const response = await handler.handleExecuteRequest(
+      new Request("https://run-engine/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          correlationId: "corr-1",
+          input: {
+            mode: "build",
+            agentType: "coding",
+            prompt: "read README",
+            sessionId: "session-1",
+            orchestratorBackend: "execution-engine-v1",
+            executionBackend: "cloudflare_sandbox",
+            harnessMode: "platform_owned",
+            authMode: "api_key",
+          },
+          messages: [{ role: "user", content: "read README" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_BOOTSTRAP_REQUIRED",
+    });
+  });
+
   it("serves run-engine runtime debug metadata with run-engine headers", async () => {
     const ctx = new MockDurableObjectState();
     const handler = new RunEngineRequestHandler(

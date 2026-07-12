@@ -11,8 +11,7 @@ import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
 import { extractIdentifiers, mapAgentIdToType } from "./chat-request-helpers";
 import {
-  executeViaRunEngineDurableObject,
-  startRunTurn,
+  executeBootstrappedRun,
   extractPromptFromMessages,
   resolveExecutionScope,
   resolveRuntimeTarget,
@@ -290,16 +289,10 @@ export class ChatController {
           clientMessageId: body.clientMessageId ?? null,
         }),
       );
-      const turnIdentity = await startRunTurn(
+      const doResponse = await executeBootstrappedRun(
         env,
         runId,
         useCaseResult.executionPayload,
-        useCaseResult.executionPayload.input.orchestratorBackend,
-      );
-      const doResponse = await executeViaRunEngineDurableObject(
-        env,
-        runId,
-        { ...useCaseResult.executionPayload, identity: turnIdentity },
       );
       const runtimeTarget = resolveRuntimeTarget(
         env,

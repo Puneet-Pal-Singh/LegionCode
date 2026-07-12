@@ -1,5 +1,8 @@
 import type { CoreMessage } from "ai";
-import type { TurnScopeBootstrap } from "@repo/platform-protocol";
+import {
+  TurnScopeBootstrapSchema,
+  type TurnScopeBootstrap,
+} from "@repo/platform-protocol";
 import type { RunMode } from "@repo/shared-types";
 import {
   CloudflareAgentsRunRuntimeClient,
@@ -196,6 +199,23 @@ export async function executeViaRunEngineDurableObject(
   });
 }
 
+export async function executeBootstrappedRun(
+  env: Env,
+  runId: string,
+  payload: RunEngineExecutionPayload,
+): Promise<Response> {
+  const identity = await startRunTurn(
+    env,
+    runId,
+    payload,
+    payload.input.orchestratorBackend,
+  );
+  return executeViaRunEngineDurableObject(env, runId, {
+    ...payload,
+    identity,
+  });
+}
+
 export async function startRunTurn(
   env: Env,
   runId: string,
@@ -223,7 +243,7 @@ export async function startRunTurn(
       payload.correlationId,
     );
   }
-  return (await response.json()) as TurnScopeBootstrap;
+  return TurnScopeBootstrapSchema.parse(await response.json());
 }
 
 export async function fetchRunRuntimeRoute(
