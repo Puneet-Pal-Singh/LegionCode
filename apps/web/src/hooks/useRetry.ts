@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 interface UseRetryOptions {
   delayMs: number;
   maxAttempts?: number;
-  scopeKey: string;
+  scopeKey: string | null;
 }
 
 interface UseRetryReturn {

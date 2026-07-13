@@ -5,6 +5,7 @@ import {
 } from "@repo/shared-types";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
+import type { ConversationScope } from "../hooks/conversationScope";
 
 type ToolInvocation = NonNullable<Message["toolInvocations"]>[number];
 
@@ -53,9 +54,9 @@ export class ChatHydrationService {
   constructor() {}
 
   async hydrateMessages(
-    sessionId: string,
-    runId: string,
+    scope: ConversationScope,
   ): Promise<HydrationResult> {
+    const { sessionId, runId } = scope;
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
     logClientEvent("chat/hydration-service", "started", {
@@ -70,8 +71,7 @@ export class ChatHydrationService {
 
       for (let page = 0; page < maxPages; page++) {
         const result = await this.fetchHistoryPage(
-          sessionId,
-          runId,
+          scope,
           cursor,
           50, // page size
         );
@@ -89,7 +89,7 @@ export class ChatHydrationService {
         cursor = result.nextCursor;
       }
 
-      const messages = this.convertServerMessages(allMessages, runId);
+      const messages = this.convertServerMessages(allMessages, scope.runId);
       logClientEvent("chat/hydration-service", "completed", {
         requestId,
         runId,
@@ -112,8 +112,7 @@ export class ChatHydrationService {
   }
 
   private async fetchHistoryPage(
-    sessionId: string,
-    runId: string,
+    scope: ConversationScope,
     cursor?: string,
     limit: number = 50,
   ): Promise<{
@@ -121,6 +120,7 @@ export class ChatHydrationService {
     nextCursor?: string;
     error?: string;
   }> {
+    const { sessionId, runId } = scope;
     const baseUrl = chatHistoryPath(runId);
     const url = new URL(baseUrl);
     url.searchParams.set("session", sessionId);
