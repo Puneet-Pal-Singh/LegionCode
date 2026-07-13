@@ -18,6 +18,7 @@ interface ProjectionState {
   itemsById: Map<string, ThreadItem>;
   lastCursor: ThreadProjectionSnapshot["lastCursor"] | null;
   lastProjectionSequence: number;
+  lastTerminalTurnId: Thread["lastTerminalTurnId"];
 }
 
 export function projectThreadEvents(
@@ -29,6 +30,7 @@ export function projectThreadEvents(
     itemsById: new Map(),
     lastCursor: null,
     lastProjectionSequence: 0,
+    lastTerminalTurnId: null,
   };
 
   for (const input of inputs) {
@@ -40,7 +42,7 @@ export function projectThreadEvents(
   }
 
   return {
-    thread: state.thread,
+    thread: { ...state.thread, lastTerminalTurnId: state.lastTerminalTurnId },
     items: [...state.itemsById.values()].sort(sortItems),
     lastCursor: requireLastCursor(state),
     projectionVersion: THREAD_PROJECTION_VERSION,
@@ -65,6 +67,18 @@ function applyProjectionInput(
     const item = projectThreadItem(input.event, input.projectionSequence);
     state.itemsById.set(item.id, item);
     state.thread = updateActiveLeafItem(state.thread, item);
+  }
+
+  if (isTerminalTurnEvent(input.event)) {
+    state.lastTerminalTurnId = input.event.payload.turn.id;
+    if (isFirstEligibleTitleTurn(state.thread, input.event)) {
+      state.thread = ThreadSchema.parse({
+        ...state.thread,
+        titleStatus: "pending",
+        lastTerminalTurnId: state.lastTerminalTurnId,
+        lastEventSequence: input.projectionSequence,
+      });
+    }
   }
 }
 
@@ -106,6 +120,24 @@ function isThreadItemEvent(
   event: PlatformEvent,
 ): event is Extract<PlatformEvent, { type: `item.${string}` }> {
   return event.type.startsWith("item.");
+}
+
+function isTerminalTurnEvent(
+  event: PlatformEvent,
+): event is Extract<PlatformEvent, { type: "turn.completed" | "turn.failed" }> {
+  return event.type === "turn.completed" || event.type === "turn.failed";
+}
+
+function isFirstEligibleTitleTurn(
+  thread: Thread | null,
+  event: PlatformEvent,
+): boolean {
+  return (
+    event.type === "turn.completed" &&
+    thread?.titleSource === "generated" &&
+    thread.titleVersion === 1 &&
+    thread.titleStatus === "ready"
+  );
 }
 
 function projectThreadState(

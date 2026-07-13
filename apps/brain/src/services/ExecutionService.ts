@@ -15,31 +15,28 @@ import type {
   CreatePullRequestFromRunPayload,
   GitStatusResponse,
 } from "@repo/shared-types";
+import type { ProtocolError } from "@repo/platform-protocol";
 import { resolveCommitIdentityForStoredOAuthSession } from "./git/GitCommitIdentityService";
 import {
   GIT_MUTATION_TIMEOUT_MS,
   GIT_STATUS_TIMEOUT_MS,
 } from "./gitExecutionTimeouts";
 import { getUserSessionByUserId } from "./AuthService";
+import {
+  parseSecureExecutionOutcome,
+  SecureExecutionContractViolationError,
+  type SecureExecutionError,
+  type SecureExecutionMetrics,
+  type SecureExecutionOutcome,
+  type SecureExecutionStatus,
+} from "./secure-execution/SecureExecutionContract";
+import { SecureRuntimeFailureMapper } from "./secure-execution/SecureRuntimeFailureMapper";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
 const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
 const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
 const LOCAL_DEV_SESSION_RETRY_DELAY_MS = 500;
-
-type SecureExecutionStatus = "success" | "failure" | "timeout" | "cancelled";
-
-interface SecureExecutionError {
-  code: string;
-  message: string;
-  details?: unknown;
-}
-
-interface SecureExecutionMetrics {
-  duration: number;
-  memoryUsed?: number;
-}
 
 interface SecureExecutionSession {
   sessionId: string;
@@ -57,12 +54,11 @@ interface SecureExecutionWorkspaceScope {
   root: string;
 }
 
-interface SecureExecutionTaskResponse {
-  taskId: string;
-  status: SecureExecutionStatus;
-  output?: string;
-  error?: SecureExecutionError;
-  metrics?: SecureExecutionMetrics;
+type SecureExecutionTaskResponse = SecureExecutionOutcome;
+
+interface SecureExecutionTaskResult {
+  outcome: SecureExecutionTaskResponse;
+  httpStatus: number;
 }
 
 interface LegacyExecutionResult {
@@ -71,7 +67,13 @@ interface LegacyExecutionResult {
   output?: string;
   error?: string | SecureExecutionError;
   metrics?: SecureExecutionMetrics;
+  title?: string;
+  metadata?: Record<string, unknown>;
+  diagnostics?: Array<{ severity: "error"; message: string }>;
+  truncated?: boolean;
 }
+
+const secureRuntimeFailureMapper = new SecureRuntimeFailureMapper();
 
 interface SecureExecutionLogEntry {
   taskId?: string;
@@ -146,7 +148,7 @@ export class ExecutionService {
         return await this.executeGitCreatePullRequest(payload, scope);
       }
 
-      const executionResult = await this.executeSecureTask(
+      const secureExecution = await this.executeSecureTask(
         plugin,
         executionAction,
         payload,
@@ -162,12 +164,41 @@ export class ExecutionService {
         this.sessionId,
         plugin,
         executionAction,
-        executionResult,
+        secureExecution.outcome,
       );
-      return toLegacyExecutionResult(executionResult);
+      return toLegacyExecutionResult(
+        secureExecution,
+        createSecureExecutionFailureContext(
+          plugin,
+          executionAction,
+          this.runId,
+          scope,
+        ),
+      );
     } catch (error) {
       executionFinished = true;
       await logForwardingPromise;
+      if (error instanceof SecureExecutionContractViolationError) {
+        console.error(
+          formatDiagnosticLogLine("execution/tool", "contract-violation", {
+            runId: this.runId,
+            sessionId: this.sessionId,
+            plugin,
+            action: executionAction,
+            httpStatus: error.httpStatus,
+            errorMessage: error.message,
+          }),
+        );
+        return toContractViolationExecutionResult(
+          error,
+          createSecureExecutionFailureContext(
+            plugin,
+            executionAction,
+            this.runId,
+            scope,
+          ),
+        );
+      }
       if (isExpectedGitStatusExecutionError(plugin, executionAction, error)) {
         console.log(
           formatDiagnosticLogLine("execution/tool", "transient-startup-miss", {
@@ -351,7 +382,7 @@ export class ExecutionService {
     scope: SecureExecutionWorkspaceScope | undefined,
     isFinished: () => boolean,
     setFinished: (value: boolean) => void,
-  ): Promise<SecureExecutionTaskResponse> {
+  ): Promise<SecureExecutionTaskResult> {
     const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
     const executionSession = await this.getExecutionSession(scope);
     const taskId = createExecutionTaskId(plugin, action);
@@ -405,6 +436,7 @@ export class ExecutionService {
       );
       setFinished(true);
 
+      const executionResult = await parseSecureExecutionResponse(res);
       if (!res.ok) {
         await logForwardingPromise;
         console.error(
@@ -419,13 +451,27 @@ export class ExecutionService {
             elapsedMs: Date.now() - startedAt,
           }),
         );
-        throw new Error(
-          (await res.text()) || `Failed to execute ${plugin}:${action}`,
+        if (executionResult) {
+          return { outcome: executionResult, httpStatus: res.status };
+        }
+        throw new SecureExecutionContractViolationError(
+          "Secure execution API returned an invalid failure payload",
+          res.status,
         );
       }
 
-      const executionResult =
-        await parseJsonResponse<SecureExecutionTaskResponse>(res);
+      if (!executionResult) {
+        throw new SecureExecutionContractViolationError(
+          "Secure execution API returned an invalid success payload",
+          res.status,
+        );
+      }
+      if (executionResult.status !== "success") {
+        throw new SecureExecutionContractViolationError(
+          `Secure execution API returned ${executionResult.status} with HTTP ${res.status}`,
+          res.status,
+        );
+      }
       await logForwardingPromise;
       console.log(
         formatDiagnosticLogLine("execution/tool", "completed", {
@@ -441,7 +487,7 @@ export class ExecutionService {
           elapsedMs: Date.now() - startedAt,
         }),
       );
-      return executionResult;
+      return { outcome: executionResult, httpStatus: res.status };
     } catch (error) {
       setFinished(true);
       await logForwardingPromise;
@@ -484,12 +530,7 @@ export class ExecutionService {
         { scope },
       );
       if (!gitStatusResult.success || !gitStatusResult.output) {
-        return {
-          success: false,
-          error:
-            readLegacyExecutionErrorMessage(gitStatusResult.error) ??
-            "Unable to verify git branch state before creating a pull request.",
-        };
+        return gitStatusResult;
       }
 
       const status = parseGitStatusOutput(gitStatusResult.output);
@@ -776,26 +817,117 @@ async function parseJsonResponse<T>(
   }
 }
 
+async function parseSecureExecutionResponse(
+  response: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>,
+): Promise<SecureExecutionTaskResponse | null> {
+  const text = await response.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return null;
+  }
+
+  const outcome = parseSecureExecutionOutcome(body);
+  if (outcome && !response.ok && outcome.status !== "success") {
+    return outcome;
+  }
+  if (outcome && response.ok && outcome.status === "success") {
+    return outcome;
+  }
+  if (outcome && response.ok) {
+    throw new SecureExecutionContractViolationError(
+      `Secure execution API returned ${outcome.status} with HTTP ${response.status}`,
+      response.status,
+    );
+  }
+  return null;
+}
+
 function toLegacyExecutionResult(
-  result: SecureExecutionTaskResponse,
+  result: SecureExecutionTaskResult,
+  context: Parameters<SecureRuntimeFailureMapper["toRuntimeFailure"]>[2],
 ): LegacyExecutionResult {
-  if (result.status === "success") {
+  if (result.outcome.status === "success") {
     return {
       success: true,
-      status: result.status,
-      output: result.output ?? "",
-      metrics: result.metrics,
+      status: result.outcome.status,
+      output: result.outcome.output ?? "",
+      metrics: result.outcome.metrics,
     };
   }
 
+  const error =
+    result.outcome.error ??
+    createFallbackSecureExecutionError(
+      result.outcome.status,
+      result.outcome.output,
+    );
+  const runtimeFailure = secureRuntimeFailureMapper.toRuntimeFailure(
+    result.outcome,
+    result.httpStatus,
+    context,
+  );
   return {
     success: false,
-    status: result.status,
-    error:
-      result.error ??
-      createFallbackSecureExecutionError(result.status, result.output),
-    output: result.output,
-    metrics: result.metrics,
+    status: result.outcome.status,
+    error,
+    output: result.outcome.output,
+    metrics: result.outcome.metrics,
+    ...toRuntimeToolFailureBridge(runtimeFailure),
+  };
+}
+
+function toContractViolationExecutionResult(
+  error: SecureExecutionContractViolationError,
+  context: Parameters<SecureRuntimeFailureMapper["toContractViolation"]>[2],
+): LegacyExecutionResult {
+  const runtimeFailure = secureRuntimeFailureMapper.toContractViolation(
+    error.httpStatus,
+    error.message,
+    context,
+  );
+  return {
+    success: false,
+    error: {
+      code: "SECURE_EXECUTION_CONTRACT_VIOLATION",
+      message: error.message,
+    },
+    ...toRuntimeToolFailureBridge(runtimeFailure),
+  };
+}
+
+function toRuntimeToolFailureBridge(
+  runtimeFailure: ProtocolError,
+): Pick<
+  LegacyExecutionResult,
+  "title" | "metadata" | "diagnostics" | "truncated"
+> {
+  return {
+    title: "Secure execution",
+    metadata: { success: false, runtimeFailure },
+    diagnostics: [{ severity: "error", message: runtimeFailure.message }],
+    truncated: false,
+  };
+}
+
+function createSecureExecutionFailureContext(
+  plugin: string,
+  action: string,
+  runId: string,
+  scope: SecureExecutionWorkspaceScope | undefined,
+): Parameters<SecureRuntimeFailureMapper["toRuntimeFailure"]>[2] {
+  return {
+    plugin,
+    action,
+    runId,
+    workspaceScope: scope
+      ? {
+          runAttemptId: scope.runAttemptId,
+          workspaceId: scope.workspaceId,
+          root: scope.root,
+        }
+      : undefined,
   };
 }
 

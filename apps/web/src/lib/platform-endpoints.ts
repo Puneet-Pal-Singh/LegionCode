@@ -188,6 +188,10 @@ export function sessionTitlePath(sessionId: string): string {
   return `${sessionsPath()}/${encodeURIComponent(sessionId)}/title`;
 }
 
+export function sessionReadReceiptPath(sessionId: string): string {
+  return `${sessionsPath()}/${encodeURIComponent(sessionId)}/read-receipt`;
+}
+
 export function sessionPinPath(sessionId: string): string {
   return `${sessionsPath()}/${encodeURIComponent(sessionId)}/pin`;
 }

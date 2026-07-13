@@ -18,6 +18,8 @@ import {
   EventSequenceSchema,
   type LifecycleEvent,
   RunIdSchema,
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
 } from "@repo/platform-protocol";
@@ -58,6 +60,15 @@ import type { RealtimeEventPort } from "./ports";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
 import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
+import {
+  InMemoryRunInterruptRegistry,
+  type RunInterruptRegistry,
+} from "./RunInterruptRegistry";
+import {
+  BrainWorkspaceIdSchema,
+  RunInterruptIdentitySchema,
+  type RunInterruptIdentity,
+} from "./RunInterruptContract";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
 import type { LifecycleEventStreamPort } from "./ports";
 import {
@@ -65,9 +76,6 @@ import {
   enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
 
-const CancelRunRequestSchema = z.object({
-  runId: RunIdSchema,
-});
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
   requestId: z.string().min(1),
@@ -112,16 +120,25 @@ export interface RunEngineRequestHandlerDependencies {
   canonicalEventSink?: CanonicalRunEventSink;
   lifecycleEventStore?: LifecycleEventStore;
   lifecycleEventStream?: LifecycleEventStreamPort;
+  interruptRegistry?: RunInterruptRegistry;
 }
+
+type TurnRuntimeIdentity = RunInterruptIdentity;
 
 export class RunEngineRequestHandler {
   private readonly fallbackLifecycleEventStream =
     new CloudflareLifecycleEventStreamAdapter();
 
   private readonly turnToRunMap = new Map<string, string>();
+  private readonly turnRuntimeIdentities = new Map<
+    string,
+    TurnRuntimeIdentity
+  >();
+  private readonly interruptRegistry: RunInterruptRegistry;
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
+  private static readonly TURN_IDENTITY_STORAGE_KEY = "turnRuntimeIdentities";
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -129,7 +146,10 @@ export class RunEngineRequestHandler {
     private readonly withExecutionLock: RunEngineRequestLock,
     private readonly eventStream?: RealtimeEventPort,
     private readonly dependencies: RunEngineRequestHandlerDependencies = {},
-  ) {}
+  ) {
+    this.interruptRegistry =
+      dependencies.interruptRegistry ?? new InMemoryRunInterruptRegistry();
+  }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
     const input = parseLifecycleEventsQuery(request);
@@ -350,92 +370,84 @@ export class RunEngineRequestHandler {
     return runEngineJsonResponse(request, this.env, activity);
   }
 
-  async handleCancelRequest(request: Request): Promise<Response> {
-    let runId: string;
+  async handleInterruptRequest(request: Request): Promise<Response> {
+    let payload: TurnRuntimeIdentity;
     try {
-      const payload = await parseRequestBody(request, "run-cancel");
-      const validated = validateWithSchema<{ runId: string }>(
-        payload,
-        CancelRunRequestSchema,
-        "run-cancel",
+      const body = await parseRequestBody(request, "run-interrupt");
+      const validated = validateWithSchema<RunInterruptIdentity>(
+        body,
+        RunInterruptIdentitySchema,
+        "run-interrupt",
       );
-      runId = validated.runId;
+      payload = validated;
     } catch {
       return runEngineErrorResponse(
         request,
         this.env,
-        "Invalid cancel payload",
+        "Invalid interrupt payload",
         400,
       );
     }
 
+    await this.ensureTurnToRunMapLoaded();
+
     const runtimeState = this.createRuntimeState();
     const runRepo = new RunRepository(runtimeState);
-    const taskRepo = new TaskRepository(runtimeState);
-
-    const run = await runRepo.getById(runId);
+    const run = await runRepo.getById(payload.runId);
     if (!run) {
       return runEngineJsonResponse(request, this.env, {
-        runId,
-        cancelled: false,
+        runId: payload.runId,
+        accepted: false,
         status: null,
       });
     }
-    const runEventRecorder = new RunEventRecorder(
-      new RunEventRepository(runtimeState),
-      runId,
-      run.sessionId,
-      async (event) => {
-        await this.persistCanonicalRunEvent(event, "run-cancel");
-        this.emitLiveEvent(event);
-      },
-    );
 
-    const isTerminal =
-      run.status === "COMPLETED" ||
-      run.status === "FAILED" ||
-      run.status === "CANCELLED";
-    if (isTerminal) {
+    const identity = this.turnRuntimeIdentities.get(payload.turnId);
+    if (
+      !identity ||
+      run.sessionId !== payload.sessionId ||
+      !sameTurnRuntimeIdentity(identity, payload)
+    ) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Interrupt identity does not match the active run",
+        409,
+      );
+    }
+
+    const replay = await this.createLifecycleEventStore().replay({
+      turnId: payload.turnId,
+      afterSequence: null,
+      limit: 1_000,
+    });
+    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
+    if (terminalEvent) {
       return runEngineJsonResponse(request, this.env, {
-        runId,
-        cancelled: false,
-        status: run.status,
+        runId: payload.runId,
+        accepted: false,
+        status: "settled",
+        terminalEvent,
       });
     }
 
-    const previousStatus = run.status;
-    run.transition("CANCELLED");
-    await runRepo.update(run);
-    await runEventRecorder.recordRunStatusChanged(
-      previousStatus,
-      run.status,
-      RUN_WORKFLOW_STEPS.EXECUTION,
-      "user_cancelled",
+    const accepted = await this.interruptRegistry.request(
+      payload.turnId,
+      "User interrupted the turn.",
     );
-    await runEventRecorder.recordMessageEmitted(
-      "assistant",
-      "The run was cancelled before execution could finish.",
-      { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
-      { phase: "final_answer", status: "completed" },
-    );
-
-    let cancelledTasks = 0;
-    const tasks = await taskRepo.getByRun(runId);
-    for (const task of tasks) {
-      if (["PENDING", "READY", "RUNNING"].includes(task.status)) {
-        task.transition("CANCELLED");
-        await taskRepo.update(task);
-        cancelledTasks += 1;
-      }
+    if (!accepted) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Turn is no longer interruptible",
+        409,
+      );
     }
 
-    this.completeRunStreamAfterCancel(run);
-
     return runEngineJsonResponse(request, this.env, {
-      runId,
-      cancelled: true,
-      status: "CANCELLED",
-      cancelledTasks,
+      runId: payload.runId,
+      accepted: true,
+      status: "interrupt_requested",
     });
   }
 
@@ -621,6 +633,55 @@ export class RunEngineRequestHandler {
     );
   }
 
+  async handleTurnStartRequest(request: Request): Promise<Response> {
+    try {
+      const body = await parseRequestBody(request);
+      const input = validateWithSchema<
+        z.infer<typeof TurnScopeBootstrapRequestSchema>
+      >(
+        body,
+        TurnScopeBootstrapRequestSchema,
+      );
+      const workspaceId = BrainWorkspaceIdSchema.parse(input.workspaceId);
+
+      return await this.withExecutionLock(input.runId, async () => {
+        await this.ensureTurnToRunMapLoaded();
+        const identity = TurnScopeBootstrapSchema.parse({
+          workspaceId,
+          threadId: createThreadId(),
+          turnId: createTurnId(),
+          runAttemptId: createRunAttemptId(),
+        });
+        await this.mapTurnToRun(identity.turnId, input.runId, {
+          ...identity,
+          runId: input.runId,
+          sessionId: input.sessionId,
+        });
+        this.createLifecycleEventStream().start(identity.turnId);
+        return runEngineJsonResponse(request, this.env, identity, 201);
+      });
+    } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          message,
+          status,
+          code,
+          metadata,
+        );
+      }
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Failed to persist the server-owned turn bootstrap",
+        500,
+        "TURN_BOOTSTRAP_FAILED",
+      );
+    }
+  }
+
   async handleExecuteRequest(
     request: Request,
     onExecuteResult?: (
@@ -647,6 +708,16 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, message, 400);
     }
 
+    const workspaceId = BrainWorkspaceIdSchema.safeParse(payload.workspaceId);
+    if (!workspaceId.success) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "workspaceId is required",
+        400,
+      );
+    }
+
     try {
       const trace = parseTraceparent(request.headers.get("traceparent"));
       console.log(
@@ -664,13 +735,37 @@ export class RunEngineRequestHandler {
         }),
       );
       return await this.withExecutionLock(payload.runId, async () => {
-        this.eventStream?.start(payload.runId);
-        const turnId = createTurnId();
-        const runAttemptId = createRunAttemptId();
-        const threadId = createThreadId();
+        if (!payload.identity) {
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            "A server-issued turn bootstrap is required before execution",
+            428,
+            "TURN_BOOTSTRAP_REQUIRED",
+          );
+        }
+        const identity = TurnScopeBootstrapSchema.parse(payload.identity);
         await this.ensureTurnToRunMapLoaded();
-        await this.mapTurnToRun(turnId, payload.runId);
-        this.createLifecycleEventStream().start(turnId);
+        const storedIdentity = this.turnRuntimeIdentities.get(identity.turnId);
+        const storedRunId = this.turnToRunMap.get(identity.turnId);
+        if (
+          !storedIdentity ||
+          storedRunId !== payload.runId ||
+          storedIdentity.workspaceId !== workspaceId.data ||
+          storedIdentity.sessionId !== payload.sessionId ||
+          storedIdentity.threadId !== identity.threadId ||
+          storedIdentity.runAttemptId !== identity.runAttemptId
+        ) {
+          return runEngineErrorResponse(
+            request,
+            this.env,
+            "Turn bootstrap identity does not match the authorized execution scope",
+            409,
+            "TURN_SCOPE_MISMATCH",
+          );
+        }
+        this.eventStream?.start(payload.runId);
+        const { turnId, runAttemptId, threadId } = identity;
         const runtimeState = this.createRuntimeState();
         const { agent, runEngineDeps } = buildRuntimeDependencies(
           this.ctx,
@@ -690,7 +785,7 @@ export class RunEngineRequestHandler {
         const editArtifactCoordinator = createEditArtifactCoordinator({
           env: this.env,
           userId: payload.userId,
-          workspaceId: payload.workspaceId,
+          workspaceId: workspaceId.data,
           runId: payload.runId,
           sessionId: payload.sessionId,
           repositoryContext: payload.input.repositoryContext,
@@ -731,16 +826,24 @@ export class RunEngineRequestHandler {
           stream: this.createLifecycleEventStream(),
         });
         await editArtifactCoordinator.prepare();
-        const executionResponse = await runtimeRunner.execute({
-          input: payload.input,
-          messages: payload.messages as CoreMessage[],
-          tools: runtimeTools,
-          lifecycleEvents: kernelLifecycleEvents,
-          turnId,
-          runAttemptId,
-          threadId,
-          workspaceId: payload.workspaceId,
+        this.interruptRegistry.register(turnId, async (reason) => {
+          await runtimeRunner.interrupt(turnId, reason);
         });
+        let executionResponse: Response;
+        try {
+          executionResponse = await runtimeRunner.execute({
+            input: payload.input,
+            messages: payload.messages as CoreMessage[],
+            tools: runtimeTools,
+            lifecycleEvents: kernelLifecycleEvents,
+            turnId,
+            runAttemptId,
+            threadId,
+            workspaceId: workspaceId.data,
+          });
+        } finally {
+          this.interruptRegistry.unregister(turnId);
+        }
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
             correlationId: payload.correlationId,
@@ -887,23 +990,6 @@ export class RunEngineRequestHandler {
     }
   }
 
-  private completeRunStreamAfterCancel(run: {
-    id: string;
-    sessionId: string;
-  }): void {
-    try {
-      this.eventStream?.complete(run.id);
-    } catch (error) {
-      console.warn(
-        formatDiagnosticLogLine("run/events-live", "cancel-complete-failed", {
-          runId: run.id,
-          sessionId: run.sessionId,
-          error: sanitizeUnknownError(error),
-        }),
-      );
-    }
-  }
-
   private async persistCanonicalRunEvent(
     event: RunEvent,
     correlationId: string,
@@ -946,6 +1032,14 @@ export class RunEngineRequestHandler {
         this.turnToRunMap.set(turnId, runId);
       }
     }
+    const identities = await this.ctx.storage.get<
+      Record<string, TurnRuntimeIdentity>
+    >(RunEngineRequestHandler.TURN_IDENTITY_STORAGE_KEY);
+    if (identities && typeof identities === "object") {
+      for (const [turnId, identity] of Object.entries(identities)) {
+        this.turnRuntimeIdentities.set(turnId, identity);
+      }
+    }
 
     this.turnToRunMapLoaded = true;
   }
@@ -959,10 +1053,19 @@ export class RunEngineRequestHandler {
       RunEngineRequestHandler.TURN_MAP_STORAGE_KEY,
       entries,
     );
+    await this.ctx.storage.put(
+      RunEngineRequestHandler.TURN_IDENTITY_STORAGE_KEY,
+      Object.fromEntries(this.turnRuntimeIdentities),
+    );
   }
 
-  private async mapTurnToRun(turnId: string, runId: string): Promise<void> {
+  private async mapTurnToRun(
+    turnId: string,
+    runId: string,
+    identity: TurnRuntimeIdentity,
+  ): Promise<void> {
     this.turnToRunMap.set(turnId, runId);
+    this.turnRuntimeIdentities.set(turnId, identity);
     this.pruneStaleTurnMappings();
     await this.persistTurnToRunMap();
   }
@@ -976,6 +1079,7 @@ export class RunEngineRequestHandler {
     const toDelete = keys.slice(0, this.turnToRunMap.size - maxCount);
     for (const key of toDelete) {
       this.turnToRunMap.delete(key);
+      this.turnRuntimeIdentities.delete(key);
     }
   }
 
@@ -1000,6 +1104,33 @@ export class RunEngineRequestHandler {
       },
     });
   }
+}
+
+function sameTurnRuntimeIdentity(
+  expected: TurnRuntimeIdentity,
+  received: TurnRuntimeIdentity,
+): boolean {
+  return (
+    expected.runId === received.runId &&
+    expected.workspaceId === received.workspaceId &&
+    expected.threadId === received.threadId &&
+    expected.turnId === received.turnId &&
+    expected.runAttemptId === received.runAttemptId &&
+    expected.sessionId === received.sessionId
+  );
+}
+
+function isTerminalLifecycleEvent(
+  event: LifecycleEvent,
+): event is Extract<
+  LifecycleEvent,
+  { type: "turn.completed" | "turn.failed" | "turn.interrupted" }
+> {
+  return (
+    event.type === "turn.completed" ||
+    event.type === "turn.failed" ||
+    event.type === "turn.interrupted"
+  );
 }
 
 function readLatestUserMessageId(

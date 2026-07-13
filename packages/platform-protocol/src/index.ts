@@ -56,6 +56,12 @@ export {
   turnSeedFromLatestUserMessage,
 } from "./lifecycle-turn-routing.js";
 export {
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeBootstrapSchema,
+  type TurnScopeBootstrapRequest,
+  type TurnScopeBootstrap,
+} from "./turn-scope-bootstrap.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,
@@ -68,6 +74,7 @@ export {
   ThreadSchema,
   ThreadStatusSchema,
   ThreadTitleSourceSchema,
+  ThreadTitleStatusSchema,
   ToolCallItemContentSchema,
   TurnSchema,
   TurnStatusSchema,
@@ -83,6 +90,7 @@ export {
   type ThreadItemType,
   type ThreadStatus,
   type ThreadTitleSource,
+  type ThreadTitleStatus,
   type ToolCallItemContent,
   type Turn,
   type TurnStatus,

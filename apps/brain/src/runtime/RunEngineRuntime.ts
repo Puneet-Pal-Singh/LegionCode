@@ -42,6 +42,7 @@ import {
   createCloudflareLifecycleEventStreamPort,
 } from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
@@ -64,6 +65,7 @@ export class RunEngineRuntime extends DurableObject {
   private readonly eventStreamPort = createCloudflareEventStreamPort();
   private readonly lifecycleEventStreamPort =
     createCloudflareLifecycleEventStreamPort();
+  private readonly interruptRegistry = new InMemoryRunInterruptRegistry();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -85,6 +87,10 @@ export class RunEngineRuntime extends DurableObject {
           result.response,
         );
       });
+    }
+
+    if (url.pathname === "/turn/start" && request.method === "POST") {
+      return requestHandler.handleTurnStartRequest(request);
     }
 
     if (url.pathname === "/summary" && request.method === "GET") {
@@ -118,8 +124,8 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleActivityRequest(request);
     }
 
-    if (url.pathname === "/cancel" && request.method === "POST") {
-      return requestHandler.handleCancelRequest(request);
+    if (url.pathname === "/interrupt" && request.method === "POST") {
+      return requestHandler.handleInterruptRequest(request);
     }
 
     if (url.pathname === "/approval" && request.method === "POST") {
@@ -496,7 +502,10 @@ export class RunEngineRuntime extends DurableObject {
       this.env as Env,
       this.withExecutionLock.bind(this),
       this.eventStreamPort,
-      { lifecycleEventStream: this.lifecycleEventStreamPort },
+      {
+        lifecycleEventStream: this.lifecycleEventStreamPort,
+        interruptRegistry: this.interruptRegistry,
+      },
     );
   }
 }

@@ -1,18 +1,32 @@
 import type { Message } from "@ai-sdk/react";
+import {
+  conversationScopeKey,
+  type ConversationScope,
+} from "../hooks/conversationScope";
 
 class AgentStore {
   private messagesMap: Map<string, Message[]> = new Map();
 
-  getMessages(runId: string): Message[] {
-    return this.messagesMap.get(runId) || [];
+  getMessages(scope: ConversationScope): Message[] {
+    return this.messagesMap.get(conversationScopeKey(scope)) ?? [];
   }
 
-  setMessages(runId: string, messages: Message[]) {
-    this.messagesMap.set(runId, messages);
+  setMessages(scope: ConversationScope, messages: Message[]): void {
+    this.messagesMap.set(conversationScopeKey(scope), messages);
   }
 
-  clearMessages(runId: string) {
-    this.messagesMap.delete(runId);
+  clearMessages(scope: ConversationScope): void {
+    this.messagesMap.delete(conversationScopeKey(scope));
+  }
+
+  /** Session cleanup cannot reconstruct a complete cache scope; remove all
+   * cached entries for the run without exposing run-only transcript reads. */
+  clearMessagesForRun(runId: string): void {
+    for (const key of this.messagesMap.keys()) {
+      if (key.endsWith(`/${encodeURIComponent(runId)}`)) {
+        this.messagesMap.delete(key);
+      }
+    }
   }
 
   clearAllMessages() {

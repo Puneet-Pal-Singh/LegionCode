@@ -73,6 +73,7 @@ export type {
 export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/PostgresLifecycleProjectionRepository.js";
 export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
 export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
+export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title-read-receipts.js";
 export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
@@ -96,6 +97,9 @@ export {
   type ThreadProjectionEventInput,
   type ThreadProjectionRepository,
   type ThreadProjectionSnapshot,
+  type ThreadReadReceipt,
+  type AcknowledgeThreadInput,
+  type ApplyGeneratedTitleInput,
 } from "./thread-projections/types.js";
 export {
   ApprovalProjectionStatusSchema,

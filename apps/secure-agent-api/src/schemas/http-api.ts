@@ -36,7 +36,7 @@ export const SessionCreateRequestSchema = z
         (path) => !path.includes(".."),
         "repoPath must not contain path traversal",
       ),
-    workspaceScope: WorkspaceScopeSchema.optional(),
+    workspaceScope: WorkspaceScopeSchema,
     metadata: z.record(z.unknown()).optional(),
   })
   .superRefine((value, context) => {
@@ -56,6 +56,16 @@ export const SessionCreateResponseSchema = z.object({
   token: z.string().min(1),
   expiresAt: z.number().int().positive(),
   manifest: z.unknown().optional(),
+  lease: z.object({
+    leaseId: z.string().min(1),
+    sandboxId: z.string().min(1),
+    workspaceScope: WorkspaceScopeSchema,
+    owner: z.string().min(1),
+    correlationId: z.string().min(1),
+    expiresAt: z.number().int().positive(),
+    generation: z.number().int().nonnegative(),
+    mutationMode: z.enum(["serialized", "read_only"]),
+  }),
 });
 
 export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>;
@@ -77,7 +87,10 @@ export type ExecuteTaskRequest = z.infer<typeof ExecuteTaskRequestSchema>;
 
 export const ExecuteTaskResponseSchema = z.object({
   taskId: z.string().min(1),
-  status: z.enum(["success", "failure", "timeout", "cancelled"]),
+  leaseId: z.string().min(1),
+  correlationId: z.string().min(1),
+  status: z.enum(["success", "failure", "timeout", "cancelled", "sandbox_unavailable"]),
+  retryable: z.boolean(),
   output: z.string().optional(),
   error: z
     .object({

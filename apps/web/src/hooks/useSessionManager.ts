@@ -312,7 +312,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
         sessionsToRemove.forEach((s) => {
           // Clear all runs for this session
           for (const runId of s.runIds) {
-            agentStore.clearMessages(runId);
+            agentStore.clearMessagesForRun(runId);
           }
         });
         const remaining = prev.filter((s) => s.repository !== repository);
@@ -539,7 +539,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       SessionStateService.clearSessionGitHubContext(session.id);
       // Clear all message runs for this session
       for (const runId of session.runIds) {
-        agentStore.clearMessages(runId);
+        agentStore.clearMessagesForRun(runId);
       }
     });
 

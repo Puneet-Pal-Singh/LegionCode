@@ -20,6 +20,9 @@ interface ThreadProjectionRow extends SqlRow {
   workspace_id: string;
   title: string;
   title_source: string;
+  title_version: number;
+  title_status: string;
+  last_terminal_turn_id: string | null;
   status: string;
   pinned_at: string | null;
   archived_at: string | null;
@@ -51,11 +54,19 @@ interface ThreadItemProjectionRow extends SqlRow {
   projection_version: number;
 }
 
+interface ThreadReadReceiptRow extends SqlRow {
+  thread_id: string;
+  viewer_id: string;
+  last_acknowledged_terminal_turn_id: string | null;
+  acknowledged_at: string;
+}
+
 class ThreadProjectionSqlClient implements SqlClient {
   readonly queries: Array<{ statement: string; params: readonly SqlValue[] }> =
     [];
   private threads = new Map<string, ThreadProjectionRow>();
   private items = new Map<string, ThreadItemProjectionRow>();
+  private readReceipts = new Map<string, ThreadReadReceiptRow>();
 
   constructor(private readonly options: { failOnItemId?: string } = {}) {}
 
@@ -67,6 +78,12 @@ class ThreadProjectionSqlClient implements SqlClient {
     if (statement.includes("INSERT INTO canonical_thread_projections")) {
       this.upsertThread(params);
       return emptyResult();
+    }
+    if (statement.includes("INSERT INTO thread_read_receipts")) {
+      return rowsResult<Row>(this.upsertReadReceipt(params));
+    }
+    if (statement.includes("UPDATE canonical_thread_projections")) {
+      return rowsResult<Row>(this.applyGeneratedTitle(params));
     }
     if (statement.includes("DELETE FROM canonical_thread_item_projections")) {
       this.deleteThreadItems(params);
@@ -82,6 +99,9 @@ class ThreadProjectionSqlClient implements SqlClient {
     if (statement.includes("FROM canonical_thread_item_projections")) {
       return rowsResult<Row>(this.selectItems(params));
     }
+    if (statement.includes("FROM thread_read_receipts")) {
+      return rowsResult<Row>(this.selectReadReceipt(params));
+    }
     throw new Error(`Unhandled SQL: ${statement}`);
   }
 
@@ -90,11 +110,13 @@ class ThreadProjectionSqlClient implements SqlClient {
   ): Promise<T> {
     const threads = new Map(this.threads);
     const items = new Map(this.items);
+    const readReceipts = new Map(this.readReceipts);
     try {
       return await callback(this);
     } catch (error) {
       this.threads = threads;
       this.items = items;
+      this.readReceipts = readReceipts;
       throw error;
     }
   }
@@ -138,6 +160,60 @@ class ThreadProjectionSqlClient implements SqlClient {
     return [...this.items.values()]
       .filter((item) => item.thread_id === threadIdParam)
       .sort((left, right) => left.event_sequence - right.event_sequence);
+  }
+
+  private upsertReadReceipt(
+    params: readonly SqlValue[],
+  ): ThreadReadReceiptRow[] {
+    const threadIdParam = readStringParam(params[0], "thread_id");
+    const terminalTurnId = readStringParam(params[2], "terminal_turn_id");
+    if (
+      this.threads.get(threadIdParam)?.last_terminal_turn_id !== terminalTurnId
+    ) {
+      return [];
+    }
+    const receipt: ThreadReadReceiptRow = {
+      thread_id: threadIdParam,
+      viewer_id: readStringParam(params[1], "viewer_id"),
+      last_acknowledged_terminal_turn_id: terminalTurnId,
+      acknowledged_at: readStringParam(params[3], "acknowledged_at"),
+    };
+    this.readReceipts.set(`${receipt.thread_id}:${receipt.viewer_id}`, receipt);
+    return [receipt];
+  }
+
+  private selectReadReceipt(
+    params: readonly SqlValue[],
+  ): ThreadReadReceiptRow[] {
+    const key = `${readStringParam(params[0], "thread_id")}:${readStringParam(params[1], "viewer_id")}`;
+    const receipt = this.readReceipts.get(key);
+    return receipt ? [receipt] : [];
+  }
+
+  private applyGeneratedTitle(
+    params: readonly SqlValue[],
+  ): ThreadProjectionRow[] {
+    const threadIdParam = readStringParam(params[2], "thread_id");
+    const thread = this.threads.get(threadIdParam);
+    if (
+      !thread ||
+      thread.title_source !== "generated" ||
+      thread.title_status !== "pending" ||
+      thread.title_version !==
+        readNumberParam(params[3], "expected_title_version") ||
+      thread.last_terminal_turn_id !==
+        readStringParam(params[4], "terminal_turn_id")
+    ) {
+      return [];
+    }
+    const updated = {
+      ...thread,
+      title: readStringParam(params[0], "title"),
+      title_version: readNumberParam(params[1], "next_title_version"),
+      title_status: "ready",
+    };
+    this.threads.set(threadIdParam, updated);
+    return [updated];
   }
 }
 
@@ -187,6 +263,77 @@ describe("PostgresThreadProjectionRepository", () => {
     const persisted = await repository.getThreadProjection(threadId);
     expect(client.countItems()).toBe(1);
     expect(persisted?.items.map((item) => item.id)).toEqual(["itm_asst001"]);
+  });
+
+  it("persists a scoped acknowledgement only for the current terminal turn", async () => {
+    const client = new ThreadProjectionSqlClient();
+    const repository = new PostgresThreadProjectionRepository(client);
+    await repository.rebuildFromEvents({
+      threadId,
+      events: [
+        projectionInput(createThreadEvent("thread.created", thread, 1), 1),
+        projectionInput(createTurnEvent(firstTurn, 2), 2),
+      ],
+    });
+
+    const receipt = await repository.acknowledgeThread({
+      threadId,
+      viewerId: "usr_abc123",
+      terminalTurnId: firstTurn.id,
+      acknowledgedAt: timestamp,
+    });
+
+    expect(receipt.lastAcknowledgedTerminalTurnId).toBe(firstTurn.id);
+    await expect(
+      repository.acknowledgeThread({
+        threadId,
+        viewerId: "usr_abc123",
+        terminalTurnId: "trn_wrong999",
+        acknowledgedAt: timestamp,
+      }),
+    ).rejects.toMatchObject({ code: "acknowledgement_turn_mismatch" });
+  });
+
+  it("accepts a generated title exactly once for its current terminal version", async () => {
+    const client = new ThreadProjectionSqlClient();
+    const repository = new PostgresThreadProjectionRepository(client);
+    await repository.rebuildFromEvents({
+      threadId,
+      events: [
+        projectionInput(createThreadEvent("thread.created", thread, 1), 1),
+        projectionInput(createTurnEvent(firstTurn, 2), 2),
+      ],
+    });
+
+    await expect(
+      repository.applyGeneratedTitle({
+        threadId,
+        title: "Durable title",
+        expectedTitleVersion: 1,
+        terminalTurnId: firstTurn.id,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      repository.applyGeneratedTitle({
+        threadId,
+        title: "Stale duplicate",
+        expectedTitleVersion: 1,
+        terminalTurnId: firstTurn.id,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      repository.applyGeneratedTitle({
+        threadId,
+        title: "Stale terminal",
+        expectedTitleVersion: 2,
+        terminalTurnId: "trn_wrong999",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      repository.getThreadProjection(threadId),
+    ).resolves.toMatchObject({
+      thread: { title: "Durable title", titleVersion: 2, titleStatus: "ready" },
+    });
   });
 
   it("rolls back when item materialization fails", async () => {
@@ -246,6 +393,20 @@ function createItemEvent(
   });
 }
 
+function createTurnEvent(
+  turn: typeof firstTurn,
+  sequence: number,
+): PlatformEvent {
+  return PlatformEventSchema.parse({
+    ...baseEnvelope("turn.completed", turn.threadId, sequence),
+    runId: turn.runId,
+    scopeType: "run",
+    scopeId: turn.runId,
+    type: "turn.completed",
+    payload: { turn },
+  });
+}
+
 function baseEnvelope(type: string, eventThreadId: string, sequence: number) {
   return {
     eventId: `evt_${sequence.toString().padStart(6, "0")}` as EventId,
@@ -267,19 +428,25 @@ function createThreadRow(params: readonly SqlValue[]): ThreadProjectionRow {
     workspace_id: readStringParam(params[2], "workspace_id"),
     title: readStringParam(params[3], "title"),
     title_source: readStringParam(params[4], "title_source"),
-    status: readStringParam(params[5], "status"),
-    pinned_at: readNullableStringParam(params[6], "pinned_at"),
-    archived_at: readNullableStringParam(params[7], "archived_at"),
-    active_run_id: readNullableStringParam(params[8], "active_run_id"),
+    title_version: readNumberParam(params[5], "title_version"),
+    title_status: readStringParam(params[6], "title_status"),
+    last_terminal_turn_id: readNullableStringParam(
+      params[7],
+      "last_terminal_turn_id",
+    ),
+    status: readStringParam(params[8], "status"),
+    pinned_at: readNullableStringParam(params[9], "pinned_at"),
+    archived_at: readNullableStringParam(params[10], "archived_at"),
+    active_run_id: readNullableStringParam(params[11], "active_run_id"),
     active_leaf_item_id: readNullableStringParam(
-      params[9],
+      params[12],
       "active_leaf_item_id",
     ),
-    created_at: readStringParam(params[10], "created_at"),
-    updated_at: readStringParam(params[11], "updated_at"),
-    last_event_sequence: readNumberParam(params[12], "last_event_sequence"),
-    last_cursor: readStringParam(params[13], "last_cursor"),
-    projection_version: readNumberParam(params[14], "projection_version"),
+    created_at: readStringParam(params[13], "created_at"),
+    updated_at: readStringParam(params[14], "updated_at"),
+    last_event_sequence: readNumberParam(params[15], "last_event_sequence"),
+    last_cursor: readStringParam(params[16], "last_cursor"),
+    projection_version: readNumberParam(params[17], "projection_version"),
   };
 }
 
@@ -378,4 +545,17 @@ const assistantItem = {
   role: "assistant",
   type: "assistant_message",
   content: { text: "Old answer" },
+};
+
+const firstTurn = {
+  id: "trn_abc123",
+  threadId: "thr_abc123",
+  runId: "run_abc123",
+  parentTurnId: null,
+  status: "completed",
+  startedAt: timestamp,
+  completedAt: timestamp,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  lastEventSequence: 2,
 };

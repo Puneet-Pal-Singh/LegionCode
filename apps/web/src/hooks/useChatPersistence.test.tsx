@@ -3,6 +3,16 @@ import type { Message } from "@ai-sdk/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentStore } from "../store/agentStore";
 import { useChatPersistence } from "./useChatPersistence";
+import { createConversationScope } from "./conversationScope";
+
+const scope = createConversationScope({
+  workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+  threadId: "thr_test-1",
+  turnId: "trn_test-1",
+  runAttemptId: "attempt_test-1",
+  sessionId: "session-1",
+  runId: "run-1",
+});
 
 describe("useChatPersistence", () => {
   beforeEach(() => {
@@ -17,7 +27,7 @@ describe("useChatPersistence", () => {
 
     renderHook(() =>
       useChatPersistence({
-        runId: "run-1",
+        scope,
         messages: [],
       }),
     );
@@ -32,17 +42,17 @@ describe("useChatPersistence", () => {
       role: "assistant",
       content: "stale",
     } satisfies Message;
-    agentStore.setMessages("run-1", [oldMessage]);
+    agentStore.setMessages(scope, [oldMessage]);
 
     renderHook(() =>
       useChatPersistence({
-        runId: "run-1",
+        scope,
         messages: [],
       }),
     );
 
     await waitFor(() => {
-      expect(agentStore.getMessages("run-1")).toEqual([]);
+      expect(agentStore.getMessages(scope)).toEqual([]);
     });
   });
 
@@ -58,7 +68,7 @@ describe("useChatPersistence", () => {
 
     renderHook(() =>
       useChatPersistence({
-        runId: "run-1",
+        scope,
         messages,
       }),
     );

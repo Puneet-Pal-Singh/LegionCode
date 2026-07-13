@@ -38,6 +38,7 @@ import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { generateChatTitleFromPrompt } from "./lib/chat-title-generator";
+import { CONVERSATION_SCOPE_READY_EVENT } from "./hooks/conversationScope";
 import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
@@ -285,6 +286,51 @@ function AppContent() {
   );
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
+  const [readyConversationScope, setReadyConversationScope] = useState<{
+    sessionId: string;
+    runId: string;
+    scopeKey: string;
+  } | null>(null);
+  const activeConversationScopeKey =
+    readyConversationScope?.sessionId === activeSessionId &&
+    readyConversationScope.runId === activeSession?.activeRunId
+      ? readyConversationScope.scopeKey
+      : null;
+
+  useEffect(() => {
+    const handleConversationScopeReady = (event: Event): void => {
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== "object") {
+        return;
+      }
+      const record = detail as Record<string, unknown>;
+      if (
+        record.sessionId === activeSessionId &&
+        record.runId === activeSession?.activeRunId &&
+        typeof record.scopeKey === "string"
+      ) {
+        setReadyConversationScope({
+          sessionId: record.sessionId as string,
+          runId: record.runId as string,
+          scopeKey: record.scopeKey,
+        });
+      }
+    };
+
+    window.addEventListener(
+      CONVERSATION_SCOPE_READY_EVENT,
+      handleConversationScopeReady,
+    );
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_SCOPE_READY_EVENT,
+        handleConversationScopeReady,
+      );
+    };
+  }, [activeSession?.activeRunId, activeSessionId]);
   const setupSession = useMemo<SetupSessionState | null>(() => {
     if (!isAuthenticated || sessions.length > 0) {
       return null;
@@ -1140,6 +1186,7 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <Workspace
+                  key={activeConversationScopeKey ?? undefined}
                   sessionId={activeSessionId}
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}

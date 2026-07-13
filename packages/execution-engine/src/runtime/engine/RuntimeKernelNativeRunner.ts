@@ -152,6 +152,14 @@ export interface RuntimeKernelNativeRunnerInput {
 }
 
 export class RuntimeKernelNativeRunner {
+  private activeTurn:
+    | {
+        readonly turnId: Turn["id"];
+        readonly kernel: Promise<RuntimeKernel | null>;
+        readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
+      }
+    | null = null;
+  private readonly interruptedTurns = new Set<Turn["id"]>();
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
   private readonly runEventRecorder: RunEventRecorder;
@@ -232,6 +240,17 @@ export class RuntimeKernelNativeRunner {
   }
 
   async execute(input: RuntimeKernelNativeRunnerInput): Promise<Response> {
+    this.beginActiveTurn(input.turnId);
+    try {
+      return await this.executeActiveTurn(input);
+    } finally {
+      this.endActiveTurn(input.turnId);
+    }
+  }
+
+  private async executeActiveTurn(
+    input: RuntimeKernelNativeRunnerInput,
+  ): Promise<Response> {
     await this.budgetManager.loadSessionCosts();
     const run = await this.getOrCreateRun(input.input);
     await this.prepareRun(run, input);
@@ -341,7 +360,11 @@ export class RuntimeKernelNativeRunner {
       maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
       clock: { now },
     });
+    this.resolveActiveKernel(protocol.turn.id, kernel);
     const result = await this.startKernelTurn(kernel, protocol, run, provider);
+    if (this.interruptedTurns.delete(protocol.turn.id)) {
+      return createStreamResponse("");
+    }
     if (result instanceof Response) {
       return result;
     }
@@ -362,6 +385,47 @@ export class RuntimeKernelNativeRunner {
       deps: this.getRunCompletionDependencies(),
     });
     return response;
+  }
+
+  async interrupt(turnId: Turn["id"], reason: string): Promise<void> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== turnId) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime runner`,
+      );
+    }
+
+    const kernel = await activeTurn.kernel;
+    if (!kernel) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} did not reach the runtime kernel`,
+      );
+    }
+    this.interruptedTurns.add(turnId);
+    await kernel.interruptTurn(turnId, reason);
+  }
+
+  private beginActiveTurn(turnId: Turn["id"]): void {
+    let resolveKernel: (kernel: RuntimeKernel | null) => void = () => {};
+    const kernel = new Promise<RuntimeKernel | null>((resolve) => {
+      resolveKernel = resolve;
+    });
+    this.activeTurn = { turnId, kernel, resolveKernel };
+  }
+
+  private resolveActiveKernel(turnId: Turn["id"], kernel: RuntimeKernel): void {
+    if (this.activeTurn?.turnId === turnId) {
+      this.activeTurn.resolveKernel(kernel);
+    }
+  }
+
+  private endActiveTurn(turnId: Turn["id"]): void {
+    if (this.activeTurn?.turnId === turnId) {
+      this.activeTurn.resolveKernel(null);
+      this.activeTurn = null;
+    }
   }
 
   private async executePlanMode(run: Run, input: RunInput): Promise<Response> {
@@ -412,6 +476,9 @@ export class RuntimeKernelNativeRunner {
       );
       return await kernel.startTurn(protocol);
     } catch (error) {
+      if (this.interruptedTurns.has(protocol.turn.id)) {
+        return createStreamResponse("");
+      }
       if (error instanceof NativeRunCancelledError) {
         console.log(
           formatRuntimeDiagnosticLogLine(
@@ -1226,6 +1293,9 @@ class KernelToolWorker implements WorkerProtocolPort {
           message,
           0,
         );
+        if (gatewayResult.failure) {
+          return { kind: "failed", failure: gatewayResult.failure };
+        }
         return failed(
           gatewayResult.code === "executor_failed"
             ? "command_failed"

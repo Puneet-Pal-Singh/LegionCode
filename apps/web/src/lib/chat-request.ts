@@ -1,5 +1,6 @@
 import type { ProductMode, RunMode } from "@repo/shared-types";
 import { z } from "zod";
+import { TurnScopeBootstrapSchema } from "./turn-scope-contract";
 
 export const RuntimeHarnessIdSchema = z.enum([
   "cloudflare-sandbox",
@@ -10,6 +11,7 @@ export const ChatRequestBodySchema = z
   .object({
     sessionId: z.string().trim().min(1),
     runId: z.string().trim().min(1),
+    identity: TurnScopeBootstrapSchema,
     clientMessageId: z.string().trim().min(1).optional(),
     mode: z.custom<RunMode>().optional(),
     productMode: z.custom<ProductMode>().optional(),
@@ -30,7 +32,9 @@ const DEFAULT_RUNTIME_HARNESS: RuntimeHarnessId = "cloudflare-sandbox";
 const RUNTIME_HARNESS_QUERY_PARAM = "harness";
 const RUNTIME_HARNESS_SESSION_KEY_PREFIX = "shadowbox:runtime-harness:";
 
-export function parseChatRequestBody(input: ChatRequestBody): ChatRequestBody {
+export function parseChatRequestBody(
+  input: z.input<typeof ChatRequestBodySchema>,
+): ChatRequestBody {
   return ChatRequestBodySchema.parse(input);
 }
 

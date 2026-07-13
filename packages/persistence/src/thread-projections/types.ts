@@ -4,9 +4,32 @@ import type {
   Thread,
   ThreadId,
   ThreadItem,
+  TurnId,
+  UserId,
 } from "@repo/platform-protocol";
 
 export const THREAD_PROJECTION_VERSION = 1;
+
+export interface ThreadReadReceipt {
+  threadId: ThreadId;
+  viewerId: UserId;
+  lastAcknowledgedTerminalTurnId: TurnId | null;
+  acknowledgedAt: string;
+}
+
+export interface AcknowledgeThreadInput {
+  threadId: ThreadId;
+  viewerId: UserId;
+  terminalTurnId: TurnId;
+  acknowledgedAt: string;
+}
+
+export interface ApplyGeneratedTitleInput {
+  threadId: ThreadId;
+  title: string;
+  expectedTitleVersion: number;
+  terminalTurnId: TurnId;
+}
 
 export interface ThreadProjectionEventInput {
   event: PlatformEvent;
@@ -32,6 +55,12 @@ export interface ThreadProjectionRepository {
   getThreadProjection(
     threadId: ThreadId,
   ): Promise<ThreadProjectionSnapshot | null>;
+  getThreadReadReceipt(
+    threadId: ThreadId,
+    viewerId: UserId,
+  ): Promise<ThreadReadReceipt | null>;
+  acknowledgeThread(input: AcknowledgeThreadInput): Promise<ThreadReadReceipt>;
+  applyGeneratedTitle(input: ApplyGeneratedTitleInput): Promise<boolean>;
 }
 
 export class ThreadProjectionError extends Error {
@@ -40,7 +69,8 @@ export class ThreadProjectionError extends Error {
       | "event_thread_mismatch"
       | "missing_thread_created"
       | "missing_item_source"
-      | "invalid_projection_sequence",
+      | "invalid_projection_sequence"
+      | "acknowledgement_turn_mismatch",
     message: string,
   ) {
     super(message);

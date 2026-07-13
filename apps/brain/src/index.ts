@@ -11,6 +11,7 @@ import { WorkspaceController } from "./controllers/WorkspaceController";
 import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
+import { TurnController } from "./controllers/TurnController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -81,6 +82,7 @@ function createRouter(): Router {
   );
   router.add(/^\/api\/chat\/history$/, TranscriptController.getHistory, "GET");
   router.add(/\/chat/, ChatController.handle, "POST");
+  router.add(/^\/turn\/start$/, TurnController.start, "POST");
   router.add(
     /^\/api\/debug\/runtime$/,
     RuntimeController.getRuntimeDebug,
@@ -170,7 +172,7 @@ function createRouter(): Router {
   );
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
-  router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
+  router.add(/^\/api\/run\/interrupt$/, RunController.interrupt, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
   router.add(
     /^\/turns\/[^/]+\/lifecycle-events$/,
