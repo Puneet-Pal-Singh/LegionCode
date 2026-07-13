@@ -19,6 +19,7 @@ import {
   sessionArchivePath,
   sessionPinPath,
   sessionTitlePath,
+  sessionReadReceiptPath,
   sessionUnarchivePath,
   sessionUnpinPath,
   sessionsPath,
@@ -59,6 +60,10 @@ interface ServerSessionRecord {
   archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  titleVersion?: number;
+  titleStatus?: "pending" | "ready" | "failed";
+  lastTerminalTurnId?: string | null;
+  lastAcknowledgedTerminalTurnId?: string | null;
 }
 
 interface ServerSessionsResponse {
@@ -207,6 +212,7 @@ export class SessionStateService {
   static async updateGeneratedSessionTitle(
     sessionId: string,
     title: string,
+    metadata?: { expectedTitleVersion?: number; terminalTurnId?: string },
   ): Promise<AgentSession> {
     const response = await fetch(sessionTitlePath(sessionId), {
       method: "PATCH",
@@ -214,10 +220,27 @@ export class SessionStateService {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ title, titleSource: "generated" }),
+      body: JSON.stringify({
+        title,
+        titleSource: "generated",
+        ...metadata,
+      }),
     });
 
     return readMetadataMutationResponse(response, "Generated session title");
+  }
+
+  static async acknowledgeSession(
+    sessionId: string,
+    terminalTurnId: string,
+  ): Promise<AgentSession> {
+    const response = await fetch(sessionReadReceiptPath(sessionId), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminalTurnId }),
+    });
+    return readMetadataMutationResponse(response, "Session read receipt");
   }
 
   static async pinSession(sessionId: string): Promise<AgentSession> {
@@ -647,6 +670,7 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
     id: session.id,
     name: session.title,
     titleSource: session.titleSource ?? "generated",
+    ...mapServerThreadMetadata(session),
     repository: session.repository,
     activeRunId: session.activeRunId,
     runIds: [session.activeRunId],
@@ -661,6 +685,44 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
 
 function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
   return status;
+}
+
+function mapServerThreadMetadata(
+  session: ServerSessionRecord,
+): Pick<
+  AgentSession,
+  | "titleVersion"
+  | "titleStatus"
+  | "lastTerminalTurnId"
+  | "lastAcknowledgedTerminalTurnId"
+> {
+  return {
+    ...(isTitleVersion(session.titleVersion)
+      ? { titleVersion: session.titleVersion }
+      : {}),
+    ...(isTitleStatus(session.titleStatus)
+      ? { titleStatus: session.titleStatus }
+      : {}),
+    ...(typeof session.lastTerminalTurnId === "string"
+      ? { lastTerminalTurnId: session.lastTerminalTurnId }
+      : {}),
+    ...(typeof session.lastAcknowledgedTerminalTurnId === "string"
+      ? {
+          lastAcknowledgedTerminalTurnId:
+            session.lastAcknowledgedTerminalTurnId,
+        }
+      : {}),
+  };
+}
+
+function isTitleVersion(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isTitleStatus(
+  value: unknown,
+): value is NonNullable<AgentSession["titleStatus"]> {
+  return value === "pending" || value === "ready" || value === "failed";
 }
 
 async function sendSessionMutation(

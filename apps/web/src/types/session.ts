@@ -46,6 +46,12 @@ export interface AgentSession {
   /** Whether the current title is generated or user-authored */
   titleSource: ChatTitleSource;
 
+  /** Server-owned title projection metadata. */
+  titleVersion?: number;
+  titleStatus?: "pending" | "ready" | "failed";
+  lastTerminalTurnId?: string | null;
+  lastAcknowledgedTerminalTurnId?: string | null;
+
   /** Repository this session is tied to, if one has been selected */
   repository: string | null;
 

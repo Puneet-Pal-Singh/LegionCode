@@ -16,12 +16,16 @@ import {
   ThreadItemTypeSchema,
   ThreadStatusSchema,
   ThreadTitleSourceSchema,
+  ThreadTitleStatusSchema,
 } from "@repo/platform-protocol";
 import { buildSqlList } from "../sessions/types.js";
 
 const THREAD_STATUS_SQL_LIST = buildSqlList(ThreadStatusSchema.options);
 const THREAD_TITLE_SOURCE_SQL_LIST = buildSqlList(
   ThreadTitleSourceSchema.options,
+);
+const THREAD_TITLE_STATUS_SQL_LIST = buildSqlList(
+  ThreadTitleStatusSchema.options,
 );
 const THREAD_ITEM_ROLE_SQL_LIST = buildSqlList(ThreadItemRoleSchema.options);
 const THREAD_ITEM_STATUS_SQL_LIST = buildSqlList(
@@ -37,6 +41,9 @@ export const canonicalThreadProjections = pgTable(
     workspaceId: text("workspace_id").notNull(),
     title: text("title").notNull(),
     titleSource: text("title_source").notNull(),
+    titleVersion: integer("title_version").notNull().default(1),
+    titleStatus: text("title_status").notNull().default("ready"),
+    lastTerminalTurnId: text("last_terminal_turn_id"),
     status: text("status").notNull(),
     pinnedAt: timestamp("pinned_at", {
       withTimezone: true,
@@ -84,6 +91,10 @@ export const canonicalThreadProjections = pgTable(
     check(
       "canonical_thread_projections_title_source_check",
       sql`${table.titleSource} IN (${sql.raw(THREAD_TITLE_SOURCE_SQL_LIST)})`,
+    ),
+    check(
+      "canonical_thread_projections_title_status_check",
+      sql`${table.titleStatus} IN (${sql.raw(THREAD_TITLE_STATUS_SQL_LIST)})`,
     ),
     check(
       "canonical_thread_projections_last_event_sequence_check",
