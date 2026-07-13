@@ -4,6 +4,7 @@ import type { Env } from "../types/ai";
 
 const EnforceRequestSchema = z.object({
   bucket: z.enum(["run_submission", "mutation_run_submission"]),
+  scopeKey: z.string().min(1).max(512),
   limit: z.number().int().positive(),
   windowSeconds: z.number().int().positive(),
 });
@@ -129,7 +130,7 @@ export class RunAdmissionLimiter extends DurableObject {
     const now = Date.now();
     const windowMs = payload.windowSeconds * 1000;
     const activeWindow = Math.floor(now / windowMs);
-    const key = this.buildCounterKey(payload.bucket);
+    const key = this.buildCounterKey(payload.bucket, payload.scopeKey);
     const current = await this.readCounter(key);
 
     if (!current || current.windowBucket !== activeWindow) {
@@ -441,8 +442,11 @@ export class RunAdmissionLimiter extends DurableObject {
     return Math.ceil(remainingMs / 1000);
   }
 
-  private buildCounterKey(bucket: EnforceRequest["bucket"]): string {
-    return `${COUNTER_KEY_PREFIX}${bucket}`;
+  private buildCounterKey(
+    bucket: EnforceRequest["bucket"],
+    scopeKey: string,
+  ): string {
+    return `${COUNTER_KEY_PREFIX}${bucket}:${scopeKey}`;
   }
 
   private buildConcurrencyBucketKey(

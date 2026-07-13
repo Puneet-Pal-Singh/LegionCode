@@ -56,6 +56,12 @@ export {
   turnSeedFromLatestUserMessage,
 } from "./lifecycle-turn-routing.js";
 export {
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeBootstrapSchema,
+  type TurnScopeBootstrapRequest,
+  type TurnScopeBootstrap,
+} from "./turn-scope-bootstrap.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,
