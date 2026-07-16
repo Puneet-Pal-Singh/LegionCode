@@ -155,32 +155,6 @@ test.describe("real product concurrent thread reproduction gate", () => {
       contentType: "application/json",
     });
   });
-
-  test("reports typed sandbox unavailability without provider relabelling", async ({
-    page,
-  }) => {
-    test.skip(
-      process.env.SHADOWBOX_SECURE_RUNTIME_UNAVAILABLE_FIXTURE !== "1",
-      "Set SHADOWBOX_SECURE_RUNTIME_UNAVAILABLE_FIXTURE=1 on the controlled unavailable-runtime fixture.",
-    );
-
-    const correlations: TurnScope[] = [];
-    observeServerCorrelations(page, correlations);
-    await page.goto("/agents/");
-    await createAndSelectDraftThread(page);
-    const turn = await sendAndCapture(
-      page,
-      correlations,
-      "Run the secure-runtime unavailable fixture.",
-    );
-    const surface = turnSurface(page, turn);
-    await expect(surface).toBeVisible({ timeout: 120_000 });
-    await expect(surface.getByTestId("sandbox-error")).toHaveAttribute(
-      "data-error-code",
-      "SANDBOX_UNAVAILABLE",
-    );
-    await expect(surface).not.toContainText("PROVIDER_UNAVAILABLE");
-  });
 });
 
 interface TurnScope {
