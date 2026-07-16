@@ -1,19 +1,11 @@
-import {
-  projectVisibleTranscriptText,
-  type TranscriptPart,
-} from "@repo/platform-protocol";
+import type { TranscriptPart } from "@repo/platform-protocol";
 import type { RunTerminalState } from "@repo/shared-types";
 import type { TerminalOutcomeCode } from "./TerminalSettlementProjector.js";
-
-export type FinalVisiblePart = {
-  type: "visible_text" | "final";
-  text: string;
-};
+import { projectExplicitFinalText } from "./FinalPartValidator.js";
 
 export interface FinalAssistantMessageInput {
   terminalState: RunTerminalState;
   outcomeCode: TerminalOutcomeCode;
-  finalParts?: readonly FinalVisiblePart[];
   modelParts?: readonly TranscriptPart[];
   runtimeText?: string;
   detail?: string;
@@ -31,13 +23,7 @@ export interface FinalAssistantMessageResult {
 /** The only owner allowed to project a user-visible terminal part. */
 export class FinalAssistantMessageService {
   build(input: FinalAssistantMessageInput): FinalAssistantMessageResult {
-    const typedModelText = input.modelParts
-      ? projectVisibleTranscriptText(input.modelParts)
-      : input.finalParts
-          ?.map((part) => part.text)
-          .filter((text) => text.trim().length > 0)
-          .join("\n\n")
-          .trim();
+    const typedModelText = projectExplicitFinalText(input.modelParts ?? []);
     const modelText = typedModelText || "";
     const source = modelText ? "model" : "runtime";
     const text = modelText || input.runtimeText || buildRuntimeFinalText(input);
