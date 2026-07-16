@@ -1,7 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import localAuthSetup, {
-  LOCAL_AUTH_STATE_PATH,
-} from "./tests/browser/local-auth.setup";
+import { LOCAL_AUTH_STATE_PATH } from "./tests/browser/local-auth.setup";
 
 const localAuthFixtureEnabled =
   process.env.SHADOWBOX_LOCAL_AUTH_FIXTURE === "1";
@@ -12,7 +10,9 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   reporter: "line",
-  globalSetup: localAuthFixtureEnabled ? localAuthSetup : undefined,
+  globalSetup: localAuthFixtureEnabled
+    ? "./tests/browser/local-auth.setup.ts"
+    : undefined,
   use: {
     baseURL: "http://127.0.0.1:5174/agents",
     trace: "retain-on-failure",
