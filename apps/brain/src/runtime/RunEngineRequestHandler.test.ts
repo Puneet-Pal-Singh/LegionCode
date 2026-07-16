@@ -19,14 +19,136 @@ import {
   tagRuntimeStateSemantics,
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
+import type { LifecycleEventStore } from "@repo/persistence";
 import type { Env } from "../types/ai";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import {
   RunEngineRequestHandler,
   type CanonicalRunEventSink,
 } from "./RunEngineRequestHandler";
+import { RunInterruptIdentitySchema } from "./RunInterruptContract";
+import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 
 describe("RunEngineRequestHandler", () => {
+  it("issues one persisted four-id scope before execution starts", async () => {
+    const ctx = new MockDurableObjectState();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+
+    const response = await handler.handleTurnStartRequest(
+      new Request("https://run-engine/turn/start", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "corr-1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const identity = (await response.json()) as Record<string, string>;
+    expect(Object.keys(identity).sort()).toEqual([
+      "runAttemptId",
+      "threadId",
+      "turnId",
+      "workspaceId",
+    ]);
+    expect(identity.workspaceId).toBe(
+      "00000000-0000-4000-8000-000000000001",
+    );
+    expect(identity.threadId).toMatch(/^thr_/);
+    expect(identity.turnId).toMatch(/^trn_/);
+    expect(identity.runAttemptId).toMatch(/^attempt_/);
+
+    const persisted = await ctx.storage.get("turnRuntimeIdentities");
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        [identity.turnId]: expect.objectContaining(identity),
+      }),
+    );
+  });
+
+  it("rejects execution when bootstrap identity is not authorized for the run scope", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const response = await handler.handleExecuteRequest(
+      new Request("https://run-engine/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          identity: {
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            threadId: "thr_123456",
+            turnId: "trn_123456",
+            runAttemptId: "attempt_123456",
+          },
+          sessionId: "session-1",
+          correlationId: "corr-1",
+          input: {
+            mode: "build",
+            agentType: "coding",
+            prompt: "read README",
+            sessionId: "session-1",
+            orchestratorBackend: "execution-engine-v1",
+            executionBackend: "cloudflare_sandbox",
+            harnessMode: "platform_owned",
+            authMode: "api_key",
+          },
+          messages: [{ role: "user", content: "read README" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_SCOPE_MISMATCH",
+    });
+  });
+
+  it("rejects execution without a server-issued bootstrap identity", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const response = await handler.handleExecuteRequest(
+      new Request("https://run-engine/execute", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          sessionId: "session-1",
+          correlationId: "corr-1",
+          input: {
+            mode: "build",
+            agentType: "coding",
+            prompt: "read README",
+            sessionId: "session-1",
+            orchestratorBackend: "execution-engine-v1",
+            executionBackend: "cloudflare_sandbox",
+            harnessMode: "platform_owned",
+            authMode: "api_key",
+          },
+          messages: [{ role: "user", content: "read README" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_BOOTSTRAP_REQUIRED",
+    });
+  });
+
   it("serves run-engine runtime debug metadata with run-engine headers", async () => {
     const ctx = new MockDurableObjectState();
     const handler = new RunEngineRequestHandler(
@@ -355,7 +477,7 @@ describe("RunEngineRequestHandler", () => {
     await expect(response.text()).resolves.toContain('"toolName":"read_file"');
   });
 
-  it("streams the canonical cancellation event to connected clients", async () => {
+  it("rejects an interrupt whose canonical identity is not active", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
@@ -368,35 +490,125 @@ describe("RunEngineRequestHandler", () => {
       }),
     );
 
-    const eventStream = new CloudflareEventStreamAdapter();
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
-      eventStream,
+      undefined,
       { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
-    const streamResponse = await handler.handleEventsStreamRequest(
-      new Request(`https://brain.local/events/stream?runId=${runId}`),
-    );
-    const cancelResponse = await handler.handleCancelRequest(
-      new Request("https://brain.local/cancel", {
+    const interruptResponse = await handler.handleInterruptRequest(
+      new Request("https://brain.local/interrupt", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ runId }),
+        body: JSON.stringify({
+          runId,
+          workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+          sessionId: "session-123456",
+          threadId: "thr_123456",
+          turnId: "trn_123456",
+          runAttemptId: "attempt_123456",
+        }),
       }),
     );
 
-    expect(cancelResponse.status).toBe(200);
-    await expect(streamResponse.text()).resolves.toContain(
-      `"type":"${RUN_EVENT_TYPES.RUN_STATUS_CHANGED}"`,
-    );
+    expect(interruptResponse.status).toBe(409);
   });
 
-  it("does not queue cancel behind the execution lock", async () => {
+  it("dispatches one active interrupt across request-handler instances and replays its terminal settlement", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const identity = RunInterruptIdentitySchema.parse({
+      runId: "run_123e4567e89b42d3a456426614174213",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+      sessionId: "session-1",
+      threadId: "thr_123456",
+      turnId: "trn_123456",
+      runAttemptId: "attempt_123456",
+    });
+    await runRepo.create(
+      new Run(identity.runId, identity.sessionId, "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "interrupt this run",
+        sessionId: identity.sessionId,
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", {
+      [identity.turnId]: identity.runId,
+    });
+    await ctx.storage.put("turnRuntimeIdentities", {
+      [identity.turnId]: identity,
+    });
+
+    const interruptRegistry = new InMemoryRunInterruptRegistry();
+    const interrupt = vi.fn().mockResolvedValue(undefined);
+    interruptRegistry.register(identity.turnId, interrupt);
+    let settled = false;
+    const lifecycleEventStore = {
+      replay: vi.fn(async () => ({
+        events: settled
+          ? ([{ type: "turn.interrupted" }] as unknown[])
+          : [],
+        nextSequence: null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { interruptRegistry, lifecycleEventStore },
+    );
+
+    const crossThread = RunInterruptIdentitySchema.parse({
+      ...identity,
+      threadId: "thr_654321",
+    });
+    const rejected = await handler.handleInterruptRequest(
+      interruptRequest(crossThread),
+    );
+
+    expect(rejected.status).toBe(409);
+    expect(interrupt).not.toHaveBeenCalled();
+
+    const first = await handler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      accepted: true,
+      status: "interrupt_requested",
+    });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    expect(interrupt).toHaveBeenCalledWith("User interrupted the turn.");
+
+    settled = true;
+    const replayHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { interruptRegistry, lifecycleEventStore },
+    );
+    const repeated = await replayHandler.handleInterruptRequest(
+      interruptRequest(identity),
+    );
+
+    expect(repeated.status).toBe(200);
+    await expect(repeated.json()).resolves.toMatchObject({
+      accepted: false,
+      status: "settled",
+      terminalEvent: { type: "turn.interrupted" },
+    });
+    expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not queue interrupt behind the execution lock", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
     const runRepo = new RunRepository(runtimeState);
@@ -418,17 +630,24 @@ describe("RunEngineRequestHandler", () => {
       { canonicalEventSink: createNoopCanonicalEventSink() },
     );
 
-    const cancelResponse = await handler.handleCancelRequest(
-      new Request("https://brain.local/cancel", {
+    const interruptResponse = await handler.handleInterruptRequest(
+      new Request("https://brain.local/interrupt", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ runId }),
+        body: JSON.stringify({
+          runId,
+          workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+          sessionId: "session-123456",
+          threadId: "thr_123456",
+          turnId: "trn_123456",
+          runAttemptId: "attempt_123456",
+        }),
       }),
     );
 
-    expect(cancelResponse.status).toBe(200);
+    expect(interruptResponse.status).toBe(409);
     expect(withExecutionLock).not.toHaveBeenCalled();
   });
 
@@ -720,6 +939,21 @@ function createNoopCanonicalEventSink(): CanonicalRunEventSink {
       return;
     },
   };
+}
+
+function interruptRequest(identity: {
+  runId: string;
+  workspaceId: string;
+  sessionId: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+}): Request {
+  return new Request("https://brain.local/interrupt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(identity),
+  });
 }
 
 class InMemoryStorage implements RuntimeStorage {

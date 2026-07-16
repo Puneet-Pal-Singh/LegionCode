@@ -89,6 +89,35 @@ describe("ThreadProjectionProjector", () => {
     expect(snapshot?.thread.lastEventSequence).toBe(3);
   });
 
+  it("marks only the first completed turn as title-eligible while retaining later terminal unread state", () => {
+    const snapshot = projectThreadEvents(threadId, [
+      projectionInput(createThreadEvent("thread.created", thread, 1), 1),
+      projectionInput(createTurnEvent("turn.completed", firstTurn, 2), 2),
+      projectionInput(
+        createThreadEvent(
+          "thread.title.updated",
+          {
+            ...thread,
+            title: "Durable title",
+            titleVersion: 2,
+            titleStatus: "ready",
+            lastTerminalTurnId: firstTurn.id,
+          },
+          3,
+        ),
+        3,
+      ),
+      projectionInput(createTurnEvent("turn.completed", secondTurn, 4), 4),
+    ]);
+
+    expect(snapshot?.thread).toMatchObject({
+      title: "Durable title",
+      titleVersion: 2,
+      titleStatus: "ready",
+      lastTerminalTurnId: secondTurn.id,
+    });
+  });
+
   it("rejects events from another thread", () => {
     expect(() =>
       projectThreadEvents(threadId, [
@@ -165,6 +194,21 @@ function createItemEvent(
   });
 }
 
+function createTurnEvent(
+  type: "turn.completed" | "turn.failed",
+  turn: typeof firstTurn,
+  sequence: number,
+): PlatformEvent {
+  return PlatformEventSchema.parse({
+    ...baseEnvelope(type, turn.threadId, sequence),
+    runId: turn.runId,
+    scopeType: "run",
+    scopeId: turn.runId,
+    type,
+    payload: { turn },
+  });
+}
+
 function baseEnvelope(type: string, eventThreadId: string, sequence: number) {
   return {
     eventId: `evt_${sequence.toString().padStart(6, "0")}` as EventId,
@@ -217,4 +261,23 @@ const assistantItem = {
   role: "assistant",
   type: "assistant_message",
   content: { text: "Old answer" },
+};
+
+const firstTurn = {
+  id: "trn_abc123",
+  threadId: "thr_abc123",
+  runId: "run_abc123",
+  parentTurnId: null,
+  status: "completed",
+  startedAt: timestamp,
+  completedAt: timestamp,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  lastEventSequence: 2,
+};
+
+const secondTurn = {
+  ...firstTurn,
+  id: "trn_def456",
+  lastEventSequence: 4,
 };

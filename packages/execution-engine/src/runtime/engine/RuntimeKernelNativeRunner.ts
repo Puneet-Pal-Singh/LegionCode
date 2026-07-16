@@ -16,6 +16,7 @@ import {
   type ThreadId,
   type ToolCallItemContent,
   type Turn,
+  projectVisibleTranscriptText,
 } from "@repo/platform-protocol";
 import type {
   ApprovalResolution,
@@ -47,7 +48,6 @@ import {
   isCodingToolId,
   isMutatingCodingToolId,
 } from "../tools/CodingToolRegistry.js";
-import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import type {
   AgenticLoopToolLifecycleEvent,
   IAgent,
@@ -121,15 +121,16 @@ import type {
   RunEngineDependencies,
   RunEngineOptions,
 } from "./RunEngineTypes.js";
-import { executeAgenticLoopTool } from "./AgenticLoopToolExecutor.js";
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
+import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
+import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
+import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
-const RECOVERABLE_TOOL_FAILURE_KEY = "__legionRecoverableToolFailure";
 type KernelWorkspaceManifest = NonNullable<
   Awaited<
     ReturnType<
@@ -146,13 +147,23 @@ export interface RuntimeKernelNativeRunnerInput {
   turnId: Turn["id"];
   runAttemptId?: string;
   threadId?: string;
+  workspaceId?: string;
   now?: () => string;
 }
 
 export class RuntimeKernelNativeRunner {
+  private activeTurn:
+    | {
+        readonly turnId: Turn["id"];
+        readonly kernel: Promise<RuntimeKernel | null>;
+        readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
+      }
+    | null = null;
+  private readonly interruptedTurns = new Set<Turn["id"]>();
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
   private readonly runEventRecorder: RunEventRecorder;
+  private readonly eventRepo: RunEventRepository;
   private readonly memoryCoordinator: MemoryCoordinator;
   private readonly pricingRegistry: IPricingRegistry;
   private readonly costLedger: ICostLedger;
@@ -176,6 +187,7 @@ export class RuntimeKernelNativeRunner {
       options.runId,
     );
     const eventRepo = new RunEventRepository(ctx);
+    this.eventRepo = eventRepo;
     this.runEventRecorder = new RunEventRecorder(
       eventRepo,
       options.runId,
@@ -228,13 +240,27 @@ export class RuntimeKernelNativeRunner {
   }
 
   async execute(input: RuntimeKernelNativeRunnerInput): Promise<Response> {
+    this.beginActiveTurn(input.turnId);
+    try {
+      return await this.executeActiveTurn(input);
+    } finally {
+      this.endActiveTurn(input.turnId);
+    }
+  }
+
+  private async executeActiveTurn(
+    input: RuntimeKernelNativeRunnerInput,
+  ): Promise<Response> {
     await this.budgetManager.loadSessionCosts();
     const run = await this.getOrCreateRun(input.input);
     await this.prepareRun(run, input);
     if (run.metadata.manifest?.mode !== "build") {
       return await this.executePlanMode(run, input.input);
     }
-    const bootstrapResponse = await this.prepareBuildWorkspace(run, input.input);
+    const bootstrapResponse = await this.prepareBuildWorkspace(
+      run,
+      input.input,
+    );
     if (bootstrapResponse) {
       return bootstrapResponse;
     }
@@ -275,6 +301,7 @@ export class RuntimeKernelNativeRunner {
       timestamp: now(),
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
+      canonicalWorkspaceId: input.workspaceId,
     });
     const provider = new KernelAgenticProvider({
       run,
@@ -287,11 +314,27 @@ export class RuntimeKernelNativeRunner {
       runEventRecorder: this.runEventRecorder,
       isRunCancelled: this.isRunCancelled.bind(this),
     });
+    const capabilityManifest = createCloudSandboxRunCapabilityManifest({
+      runId: protocol.run.id,
+      workspaceRoot: protocol.manifest.filesystemRoot,
+      availableToolIds: Object.keys(runtimeTools),
+      providerId: input.input.providerId,
+      modelId: input.input.runtimeModelId ?? input.input.modelId,
+    });
     const worker = new KernelToolWorker({
-      executionService,
       runEventRecorder: this.runEventRecorder,
       tracker: provider,
       isRunCancelled: this.isRunCancelled.bind(this),
+      toolGateway: new RuntimeToolGateway({
+        executor: executionService,
+        manifest: capabilityManifest,
+        scope: new RuntimeWorkspaceScope({
+          runId: protocol.run.id,
+          runAttemptId: protocol.runAttemptId,
+          workspaceId: protocol.manifest.workspaceId,
+          root: protocol.manifest.filesystemRoot,
+        }),
+      }),
     });
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
@@ -317,7 +360,11 @@ export class RuntimeKernelNativeRunner {
       maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
       clock: { now },
     });
+    this.resolveActiveKernel(protocol.turn.id, kernel);
     const result = await this.startKernelTurn(kernel, protocol, run, provider);
+    if (this.interruptedTurns.delete(protocol.turn.id)) {
+      return createStreamResponse("");
+    }
     if (result instanceof Response) {
       return result;
     }
@@ -338,6 +385,47 @@ export class RuntimeKernelNativeRunner {
       deps: this.getRunCompletionDependencies(),
     });
     return response;
+  }
+
+  async interrupt(turnId: Turn["id"], reason: string): Promise<void> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== turnId) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime runner`,
+      );
+    }
+
+    const kernel = await activeTurn.kernel;
+    if (!kernel) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} did not reach the runtime kernel`,
+      );
+    }
+    this.interruptedTurns.add(turnId);
+    await kernel.interruptTurn(turnId, reason);
+  }
+
+  private beginActiveTurn(turnId: Turn["id"]): void {
+    let resolveKernel: (kernel: RuntimeKernel | null) => void = () => {};
+    const kernel = new Promise<RuntimeKernel | null>((resolve) => {
+      resolveKernel = resolve;
+    });
+    this.activeTurn = { turnId, kernel, resolveKernel };
+  }
+
+  private resolveActiveKernel(turnId: Turn["id"], kernel: RuntimeKernel): void {
+    if (this.activeTurn?.turnId === turnId) {
+      this.activeTurn.resolveKernel(kernel);
+    }
+  }
+
+  private endActiveTurn(turnId: Turn["id"]): void {
+    if (this.activeTurn?.turnId === turnId) {
+      this.activeTurn.resolveKernel(null);
+      this.activeTurn = null;
+    }
   }
 
   private async executePlanMode(run: Run, input: RunInput): Promise<Response> {
@@ -388,6 +476,9 @@ export class RuntimeKernelNativeRunner {
       );
       return await kernel.startTurn(protocol);
     } catch (error) {
+      if (this.interruptedTurns.has(protocol.turn.id)) {
+        return createStreamResponse("");
+      }
       if (error instanceof NativeRunCancelledError) {
         console.log(
           formatRuntimeDiagnosticLogLine(
@@ -400,6 +491,7 @@ export class RuntimeKernelNativeRunner {
             },
           ),
         );
+        await kernel.interruptTurn(protocol.turn.id, "Run cancelled by user.");
         provider.recordCancelled();
         recordAgenticLoopMetadata(run, provider.buildResult());
         return createStreamResponse("");
@@ -492,8 +584,7 @@ export class RuntimeKernelNativeRunner {
       blocked: bootstrapEvaluation.blocked,
       message: bootstrapEvaluation.message ?? undefined,
       expectedMiss: bootstrapEvaluation.expectedMiss,
-      clonedDuringBootstrap:
-        bootstrapEvaluation.clonedDuringBootstrap ?? false,
+      clonedDuringBootstrap: bootstrapEvaluation.clonedDuringBootstrap ?? false,
       recordedAt: new Date().toISOString(),
     };
     await this.runRepo.update(run);
@@ -606,6 +697,7 @@ export class RuntimeKernelNativeRunner {
       persistConversationMessages:
         this.persistConversationMessagesForRun.bind(this),
       runEventRecorder: this.runEventRecorder,
+      readCanonicalRunEvents: this.eventRepo.getByRun.bind(this.eventRepo),
       runRepo: this.runRepo,
       safeMemoryOperation: async (operation) => await operation(),
     };
@@ -778,7 +870,8 @@ class KernelAgenticProvider implements ProviderPort {
     this.stepsExecuted += 1;
     await this.recordModelStepCompleted(input);
     const toolCalls = this.repairToolCalls(response.toolCalls ?? []);
-    this.messages.push(buildAssistantMessage(response.text ?? "", toolCalls));
+    const visibleText = projectVisibleTranscriptText(response.parts ?? []);
+    this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
       this.stopReason = "llm_stop";
       return {
@@ -786,13 +879,13 @@ class KernelAgenticProvider implements ProviderPort {
         itemId: ItemIdSchema.parse(
           toProtocolId("itm", `${input.run.id}-final`),
         ),
-        output: response.text ?? "",
+        output: visibleText,
       };
     }
-    if (response.text?.trim()) {
+    if (visibleText.trim()) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",
-        response.text.trim(),
+        visibleText.trim(),
         undefined,
         { phase: "commentary", status: "completed" },
       );
@@ -958,12 +1051,11 @@ class KernelAgenticProvider implements ProviderPort {
     const nextResults = results.slice(this.consumedToolResults);
     this.consumedToolResults = results.length;
     for (const result of nextResults) {
-      const recoverableFailure = readRecoverableToolFailure(result.output);
       this.currentBatchResults.push({
         toolId: result.toolCallId,
         toolName: this.findToolName(result.toolCallId),
-        result: recoverableFailure ? null : result.output,
-        error: recoverableFailure?.message,
+        result: result.output,
+        error: undefined,
         terminalError: false,
       });
     }
@@ -1078,9 +1170,9 @@ function isToolArgRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-class NativeRunCancelledError extends Error {
+class NativeRunCancelledError extends RuntimeKernelError {
   constructor() {
-    super("Run was cancelled");
+    super("turn_cancelled", "Run was cancelled");
     this.name = "NativeRunCancelledError";
   }
 }
@@ -1132,10 +1224,10 @@ async function runWithNativeCancellationPolling<T>(
 class KernelToolWorker implements WorkerProtocolPort {
   constructor(
     private readonly options: {
-      executionService: RuntimeExecutionService;
       runEventRecorder: RunEventRecorder;
       tracker: KernelAgenticProvider;
       isRunCancelled: () => Promise<boolean>;
+      toolGateway: RuntimeToolGateway;
     },
   ) {}
 
@@ -1166,31 +1258,62 @@ class KernelToolWorker implements WorkerProtocolPort {
     });
     let result: TaskResult;
     try {
-      result = await runWithNativeCancellationPolling(
-        executeAgenticLoopTool(this.options.executionService, {
+      const gatewayResult = await runWithNativeCancellationPolling(
+        this.options.toolGateway.execute({
           taskId: input.toolCall.toolCallId,
           toolName,
           toolInput: {
             description: `Execute ${toolName}`,
             ...input.toolCall.input,
           },
-          onOutputAppended: async (chunk) => {
+          onOutput: async (chunk) => {
             await this.options.runEventRecorder.recordToolOutputAppended(
               { id: input.toolCall.toolCallId, type: toolName },
-              chunk,
+              {
+                stdoutDelta:
+                  chunk.source === "stderr" ? undefined : chunk.message,
+                stderrDelta:
+                  chunk.source === "stderr" ? chunk.message : undefined,
+              },
             );
           },
+          isCancelled: this.options.isRunCancelled,
         }),
         this.options.isRunCancelled,
       );
+      if (gatewayResult.kind === "cancelled") {
+        return { kind: "cancelled", reason: "Run cancelled by user." };
+      }
+      if (gatewayResult.kind === "failed") {
+        const message =
+          gatewayResult.result.error?.message ?? "Tool execution failed";
+        this.options.tracker.recordToolFailed(input.toolCall, message, true);
+        await this.options.runEventRecorder.recordToolFailed(
+          { id: input.toolCall.toolCallId, type: toolName },
+          message,
+          0,
+        );
+        if (gatewayResult.failure) {
+          return { kind: "failed", failure: gatewayResult.failure };
+        }
+        return failed(
+          gatewayResult.code === "executor_failed"
+            ? "command_failed"
+            : gatewayResult.code === "tool_unavailable"
+              ? "not_found"
+              : gatewayResult.code === "workspace_escape_denied"
+                ? "policy_denied"
+                : "validation_failed",
+          message,
+          gatewayResult.retryable,
+        );
+      }
+      result = gatewayResult.result;
     } catch (error) {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
-      const message = normalizeToolExecutionErrorMessage(toolName, error);
-      const terminal = isTerminalToolFailure({
-        toolName,
-        error: message,
-      });
-      this.options.tracker.recordToolFailed(input.toolCall, message, terminal);
+      const message =
+        error instanceof Error ? error.message : "Tool execution failed";
+      this.options.tracker.recordToolFailed(input.toolCall, message, true);
       await this.options.runEventRecorder.recordToolFailed(
         { id: input.toolCall.toolCallId, type: toolName },
         message,
@@ -1204,9 +1327,6 @@ class KernelToolWorker implements WorkerProtocolPort {
           errorMessage: message,
         }),
       );
-      if (!terminal) {
-        return completedRecoverableFailure(message);
-      }
       return failed("command_failed", message);
     }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
@@ -1237,12 +1357,7 @@ class KernelToolWorker implements WorkerProtocolPort {
       };
     }
     const message = result.error?.message ?? "Tool execution failed";
-    const terminal = isTerminalToolFailure({
-      toolName,
-      error: message,
-      metadata: result.output?.metadata,
-    });
-    this.options.tracker.recordToolFailed(input.toolCall, message, terminal);
+    this.options.tracker.recordToolFailed(input.toolCall, message, true);
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
       message,
@@ -1256,32 +1371,8 @@ class KernelToolWorker implements WorkerProtocolPort {
         errorMessage: message,
       }),
     );
-    if (!terminal) {
-      return completedRecoverableFailure(message);
-    }
     return failed("command_failed", message);
   }
-}
-
-function normalizeToolExecutionErrorMessage(
-  toolName: string,
-  error: unknown,
-): string {
-  const message =
-    error instanceof Error ? error.message : "Tool execution failed";
-  if (!message.startsWith("Invalid")) {
-    return message;
-  }
-
-  if (toolName === "read_file") {
-    return "read_file failed because the model omitted the required file path. Retry with the same path and the next offset, or choose a concrete file path first.";
-  }
-
-  if (toolName === "list_files" || toolName === "glob" || toolName === "grep") {
-    return `${toolName} failed because the model sent malformed tool arguments. Retry the search with a concrete path or pattern.`;
-  }
-
-  return message;
 }
 
 class NativeApprovalWaitPort implements ApprovalWaitPort {
@@ -1433,13 +1524,17 @@ function buildProtocolEnvelope(input: {
   timestamp: string;
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
+  canonicalWorkspaceId?: string;
 }): {
   run: ProtocolRun;
   turn: Turn;
   runAttemptId: RunAttemptId;
   manifest: KernelWorkspaceManifest;
 } {
-  const workspaceId = toProtocolId("wrk", input.runId);
+  const workspaceId = toProtocolId(
+    "wrk",
+    input.canonicalWorkspaceId ?? input.runId,
+  );
   const threadId = input.canonicalThreadId
     ? ThreadIdSchema.parse(input.canonicalThreadId)
     : toProtocolId("thr", input.sessionId);
@@ -1572,8 +1667,9 @@ function readString(value: unknown): string | null {
 }
 
 function failed(
-  code: "validation_failed" | "command_failed",
+  code: "validation_failed" | "command_failed" | "not_found" | "policy_denied",
   message: string,
+  retryable = false,
 ): WorkerToolResult {
   return {
     kind: "failed",
@@ -1581,32 +1677,10 @@ function failed(
       code,
       message,
       details: null,
-      retryable: false,
+      retryable,
       correlationId: null,
     },
   };
-}
-
-function completedRecoverableFailure(message: string): WorkerToolResult {
-  return {
-    kind: "completed",
-    output: JsonRecordSchema.parse({
-      [RECOVERABLE_TOOL_FAILURE_KEY]: {
-        message,
-      },
-    }),
-  };
-}
-
-function readRecoverableToolFailure(
-  value: ToolResult["output"],
-): { message: string } | null {
-  const candidate = value[RECOVERABLE_TOOL_FAILURE_KEY];
-  if (!candidate || typeof candidate !== "object") {
-    return null;
-  }
-  const message = readString((candidate as Record<string, unknown>).message);
-  return message ? { message } : null;
 }
 
 function normalizeModelId(value: string | undefined): string {

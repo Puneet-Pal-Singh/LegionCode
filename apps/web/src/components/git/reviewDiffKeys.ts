@@ -7,9 +7,13 @@ export function buildReviewDiffSourceKey({
   reviewSource: ReviewSourceSelection;
   artifactId?: string;
 }): string {
-  return reviewSource.kind === "prompt_artifact"
-    ? (artifactId ?? "pending-artifact")
-    : "live-git";
+  if (reviewSource.kind === "prompt_artifact") {
+    return artifactId ?? "pending-artifact";
+  }
+  if (reviewSource.kind === "turn_diff") {
+    return `turn-diff:${reviewSource.turnId}`;
+  }
+  return "live-git";
 }
 
 export function buildAutoFetchDiffKey({

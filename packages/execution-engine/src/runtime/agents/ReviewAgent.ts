@@ -8,6 +8,7 @@ import type {
   SynthesisContext,
   TaskResult,
 } from "../types.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 import type { Task } from "../task/index.js";
 import type { Plan, PlanContext } from "../planner/index.js";
 import { PlanSchema } from "../planner/index.js";
@@ -102,7 +103,7 @@ export class ReviewAgent extends BaseAgent {
       providerTransport: context.providerTransport,
       providerEndpoint: context.providerEndpoint,
     });
-    return result.text;
+    return projectVisibleTranscriptText(result.parts ?? []);
   }
 
   getCapabilities(): AgentCapability[] {
@@ -179,7 +180,7 @@ Rules:
       providerEndpoint: context.providerEndpoint,
     });
 
-    return this.buildSuccessResult(task.id, analysisResult.text);
+    return this.buildSuccessResult(task.id, projectVisibleTranscriptText(analysisResult.parts ?? []));
   }
 
   private async executeReview(
@@ -209,7 +210,7 @@ Rules:
       providerEndpoint: context.providerEndpoint,
     });
 
-    return this.buildSuccessResult(task.id, reviewResult.text);
+    return this.buildSuccessResult(task.id, projectVisibleTranscriptText(reviewResult.parts ?? []));
   }
 
   private buildSuccessResult(taskId: string, content: string): TaskResult {

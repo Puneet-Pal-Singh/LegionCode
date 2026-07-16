@@ -51,6 +51,12 @@ export class ToolExecutionCoordinator {
     } catch (error) {
       if (
         error instanceof RuntimeKernelError &&
+        error.code === "turn_cancelled"
+      ) {
+        throw error;
+      }
+      if (
+        error instanceof RuntimeKernelError &&
         error.code === "approval_denied"
       ) {
         await this.lifecycle.declineToolCall(
@@ -135,6 +141,9 @@ export class ToolExecutionCoordinator {
     if (initial.kind === "failed") {
       throw this.workerFailure(initial.failure);
     }
+    if (initial.kind === "cancelled") {
+      throw new RuntimeKernelError("turn_cancelled", initial.reason);
+    }
     if (approval !== null) {
       throw new RuntimeKernelError(
         "approval_retry_required",
@@ -182,6 +191,9 @@ export class ToolExecutionCoordinator {
     }
     if (result.kind === "failed") {
       throw this.workerFailure(result.failure);
+    }
+    if (result.kind === "cancelled") {
+      throw new RuntimeKernelError("turn_cancelled", result.reason);
     }
     return result;
   }

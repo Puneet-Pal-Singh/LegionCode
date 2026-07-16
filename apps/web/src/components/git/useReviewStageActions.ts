@@ -7,6 +7,7 @@ import {
 } from "../../lib/git-client.js";
 
 interface UseReviewStageActionsInput {
+  canMutateGit: boolean;
   runId: string | null;
   sessionId: string | null;
   files: FileStatus[];
@@ -17,6 +18,7 @@ interface UseReviewStageActionsInput {
 }
 
 export function useReviewStageActions({
+  canMutateGit,
   runId,
   sessionId,
   files,
@@ -28,6 +30,10 @@ export function useReviewStageActions({
   const [stageError, setStageError] = useState<string | null>(null);
   const updateManyFilesStage = useCallback(
     async (paths: string[], nextStaged: boolean): Promise<boolean> => {
+      if (!canMutateGit) {
+        setStageError("Canonical turn review is read-only.");
+        return false;
+      }
       if (!paths.length) {
         return true;
       }
@@ -63,7 +69,7 @@ export function useReviewStageActions({
         return false;
       }
     },
-    [fetchLiveDiff, refetch, runId, selectedFilePath, sessionId],
+    [canMutateGit, fetchLiveDiff, refetch, runId, selectedFilePath, sessionId],
   );
   const toggleFileStaged = useCallback(
     async (path: string, nextStaged: boolean): Promise<void> => {
@@ -89,6 +95,9 @@ export function useReviewStageActions({
   }, [files, stagedFiles, updateManyFilesStage]);
   const createBranch = useCallback(
     async (branch: string): Promise<string> => {
+      if (!canMutateGit) {
+        throw new Error("Canonical turn review is read-only.");
+      }
       if (!runId || !sessionId) {
         throw new Error(
           !runId ? "No run context available" : "No session context available",
@@ -103,10 +112,13 @@ export function useReviewStageActions({
       await refetch(true);
       return result.branch;
     },
-    [refetch, runId, sessionId],
+    [canMutateGit, refetch, runId, sessionId],
   );
   const pushBranch = useCallback(
     async (branch: string): Promise<string> => {
+      if (!canMutateGit) {
+        throw new Error("Canonical turn review is read-only.");
+      }
       if (!runId || !sessionId) {
         throw new Error(
           !runId ? "No run context available" : "No session context available",
@@ -121,7 +133,7 @@ export function useReviewStageActions({
       await refetch(true);
       return result.branch;
     },
-    [refetch, runId, sessionId],
+    [canMutateGit, refetch, runId, sessionId],
   );
 
   return {

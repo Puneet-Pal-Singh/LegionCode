@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { RUN_TERMINAL_STATES } from "@repo/shared-types";
+import {
+  RUN_EVENT_TYPES,
+  RUN_TERMINAL_STATES,
+  type RunEvent,
+} from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import { Run } from "../run/index.js";
@@ -46,7 +50,7 @@ describe("RunCompletionPolicy", () => {
     expect(run.status).toBe("RUNNING");
   });
 
-  it("can persist a recovered assistant message as a paused run", async () => {
+  it("can persist an interrupted recovered assistant message as a paused run", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
 
@@ -74,6 +78,7 @@ describe("RunCompletionPolicy", () => {
       "PAUSED",
       "synthesis",
     );
+    expect(deps.runEventRecorder.recordRunFailed).not.toHaveBeenCalled();
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
       expect.objectContaining({ runStatus: "PAUSED" }),
@@ -168,20 +173,22 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      text: '{ "success": true, "output": "" }',
+      text: "",
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
 
     await expect(response.text()).resolves.toContain(
-      "I finished the run, but the model did not produce a final response.",
+      "The run completed without a model-written final response.",
     );
     expect(run.output?.finalSummary).toContain(
-      "I finished the run, but the model did not produce a final response.",
+      "The run completed without a model-written final response.",
     );
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
-      expect.stringContaining("I finished the run"),
+      expect.stringContaining(
+        "The run completed without a model-written final response.",
+      ),
       expect.objectContaining({
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         finalMessageSource: "runtime",
@@ -196,6 +203,19 @@ describe("RunCompletionPolicy", () => {
     await completeRunWithAssistantMessage({
       run,
       text: "Done. I changed the requested files.",
+      modelParts: [
+        {
+          id: "model-final-part",
+          schemaVersion: 1,
+          runId: run.id,
+          turnId: run.id,
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "final",
+          visibility: "visible",
+          text: "Done. I changed the requested files.",
+        },
+      ],
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
@@ -252,23 +272,20 @@ describe("RunCompletionPolicy", () => {
 
     expect(run.metadata.terminalMessage).toMatchObject({
       terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
-      changedFileCount: 1,
-      lastSuccessfulStep: "create_code_artifact",
-      failedStep: "npm_test",
-      nextAction: "Fix the failing test and retry.",
+      outcomeCode: "TOOL_EXECUTION_FAILED",
     });
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
       "Tests failed after the edit.",
       expect.objectContaining({
-        changedFileCount: 1,
-        failedStep: "npm_test",
+        outcomeCode: "TOOL_EXECUTION_FAILED",
       }),
     );
     expect(run.status).toBe("FAILED");
     expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
       "Tests failed after the edit.",
       expect.any(Number),
+      "TOOL_EXECUTION_FAILED",
     );
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
       expect.objectContaining({ runStatus: "FAILED" }),
@@ -290,7 +307,7 @@ describe("RunCompletionPolicy", () => {
     });
 
     await expect(response.text()).resolves.toContain(
-      "did not record the required evidence",
+      "required evidence is missing",
     );
     expect(run.status).toBe("FAILED");
     expect(run.metadata.terminalState).toBe(
@@ -303,6 +320,7 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
       expect.stringContaining("required evidence"),
       expect.any(Number),
+      "FINALIZATION_MISSING_EVIDENCE",
     );
   });
 
@@ -501,10 +519,68 @@ function createDeps(
     memoryCoordinator,
     persistConversationMessages: vi.fn(),
     runEventRecorder,
+    readCanonicalRunEvents: vi.fn(async () =>
+      canonicalEventsFromRun(currentRun),
+    ),
     runRepo: {
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
     },
     safeMemoryOperation: vi.fn(async (operation) => await operation()),
   };
+}
+
+function canonicalEventsFromRun(run: Run): RunEvent[] {
+  return (run.metadata.agenticLoop?.toolLifecycle ?? []).map((event, index) => {
+    const base = {
+      version: 1 as const,
+      eventId: `event-${index}`,
+      runId: run.id,
+      sessionId: run.sessionId,
+      timestamp: event.recordedAt,
+      source: "muscle" as const,
+    };
+    if (event.status === "failed") {
+      return {
+        ...base,
+        type: RUN_EVENT_TYPES.TOOL_FAILED,
+        payload: {
+          toolId: event.toolCallId,
+          toolName: event.toolName,
+          error: event.detail ?? "failed",
+          executionTimeMs: 0,
+        },
+      } satisfies RunEvent;
+    }
+    return {
+      ...base,
+      type: RUN_EVENT_TYPES.TOOL_COMPLETED,
+      payload: {
+        toolId: event.toolCallId,
+        toolName: event.toolName,
+        result: { metadata: canonicalActivityMetadata(event.metadata) },
+        executionTimeMs: 0,
+      },
+    } satisfies RunEvent;
+  });
+}
+
+function canonicalActivityMetadata(
+  metadata: NonNullable<
+    NonNullable<Run["metadata"]["agenticLoop"]>["toolLifecycle"]
+  >[number]["metadata"],
+) {
+  if (!metadata) return undefined;
+  switch (metadata.family) {
+    case "read":
+      return { count: 0, truncated: false, loadedPaths: [], ...metadata };
+    case "search":
+      return { count: 0, truncated: false, loadedPaths: [], ...metadata };
+    case "edit":
+      return { additions: 0, deletions: 0, ...metadata };
+    case "shell":
+      return { origin: "agent_tool" as const, truncated: false, ...metadata };
+    default:
+      return metadata;
+  }
 }

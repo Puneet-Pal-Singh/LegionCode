@@ -9,6 +9,7 @@ import type {
   TaskResult,
   TaskInput,
 } from "../types.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 import type { Task } from "../task/index.js";
 import type { Plan, PlanContext } from "../planner/index.js";
 import { PlanSchema } from "../planner/index.js";
@@ -142,13 +143,7 @@ export class CodingAgent extends BaseAgent {
         providerTransport: context.providerTransport,
         providerEndpoint: context.providerEndpoint,
       });
-      if (looksLikeRawToolTranscript(result.text)) {
-        console.warn(
-          `[agents/coding] Synthesis returned raw tool transcript for run ${context.runId}; using grounded fallback`,
-        );
-        return groundedSummary.fallbackSummary;
-      }
-      return result.text;
+      return projectVisibleTranscriptText(result.parts ?? []) || groundedSummary.fallbackSummary;
     } catch (error) {
       console.warn(
         `[agents/coding] Falling back to grounded summary for run ${context.runId}`,
@@ -928,7 +923,7 @@ VALIDATION RULES:
       providerTransport: context.providerTransport,
       providerEndpoint: context.providerEndpoint,
     });
-    return this.buildSuccessResult(task.id, result.text);
+    return this.buildSuccessResult(task.id, projectVisibleTranscriptText(result.parts ?? []));
   }
 
   private buildSuccessResult(
@@ -1064,12 +1059,6 @@ function looksLikeDirectoryError(message: string): boolean {
 function looksLikeMissingTargetError(message: string): boolean {
   return /no such file or directory|file does not exist|path .* not found/i.test(
     message,
-  );
-}
-
-function looksLikeRawToolTranscript(value: string): boolean {
-  return /<tool_call>|<\/tool_call>|<tool_calls>|<\/tool_calls>|<parameters>|<\/parameters>/i.test(
-    value,
   );
 }
 

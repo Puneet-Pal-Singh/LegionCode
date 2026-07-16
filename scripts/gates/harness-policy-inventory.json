@@ -4,6 +4,14 @@
   "purpose": "Machine-readable inventory for LegionCode harness policy files. New *Policy.ts files must be classified here before they can enter apps/ or packages/.",
   "entries": [
     {
+      "path": "apps/brain/src/runtime/RunAdmissionPolicy.ts",
+      "owner": "brain-run-admission",
+      "category": "lifecycle",
+      "disposition": "keep-pure-policy",
+      "purpose": "Build typed run-admission limits from canonical user, workspace, thread, and run-attempt identities.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test -- src/runtime/RunAdmissionPolicy.test.ts"
+    },
+    {
       "path": "apps/brain/src/runtime/policies/AgentTypePolicy.ts",
       "owner": "brain-control-plane",
       "category": "config",
@@ -109,15 +117,6 @@
       "purpose": "Finalize runs, persist assistant messages, record terminal lifecycle, and currently mixes too many responsibilities.",
       "deletionTrigger": "Split into terminal resolver, final projector, settlement writer, and response writer in slices 035.5 and 036.5.",
       "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunCompletionPolicy.test.ts"
-    },
-    {
-      "path": "packages/execution-engine/src/runtime/engine/RunDirectPlanPolicy.ts",
-      "owner": "runtime-planning",
-      "category": "mode-intent",
-      "disposition": "delete-from-product-path",
-      "purpose": "Legacy direct-plan detection and plan response behavior.",
-      "deletionTrigger": "Remove product dependence when all requests flow through the same turn protocol in slice 035.4.",
-      "gate": "scripts/gates/check-architecture-boundaries.mjs"
     },
     {
       "path": "packages/execution-engine/src/runtime/engine/RunEngineConfigPolicy.ts",

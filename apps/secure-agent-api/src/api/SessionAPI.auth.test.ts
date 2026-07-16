@@ -13,6 +13,15 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
+  workspaceScope: WorkspaceScope;
+  lease: { generation: number };
+}
+
+interface WorkspaceScope {
+  runId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
 }
 
 interface SessionLogEntry {
@@ -51,7 +60,7 @@ interface RuntimeStoreMock extends Record<string, unknown> {
       },
     ) => Promise<{
       taskId: string;
-      status: "success" | "failure" | "timeout" | "cancelled";
+      status: "success" | "failure" | "timeout" | "cancelled" | "sandbox_unavailable";
       output?: string;
       error?: {
         code: string;
@@ -98,7 +107,10 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
       async executeTask(sessionId, input) {
         return {
           taskId: input.taskId,
+          leaseId: "lease:test:attempt-1",
+          correlationId: "test-correlation",
           status: "success",
+          retryable: false,
           output: `executed ${input.action} for ${sessionId}`,
           metrics: { duration: 12 },
         };
@@ -115,6 +127,32 @@ function createSessionRequest(): Request {
       runId: "run-auth-1",
       taskId: "task-auth-1",
       repoPath: "workspace/repo",
+      workspaceScope: {
+        runId: "run-auth-1",
+        runAttemptId: "attempt-auth-1",
+        workspaceId: "workspace-auth-1",
+        root: "/runs/auth-1",
+      },
+    }),
+  });
+}
+
+const scopedWorkspace: WorkspaceScope = {
+  runId: "run-scoped-1",
+  runAttemptId: "attempt_scoped_000001",
+  workspaceId: "wrk_scoped_000001",
+  root: "/runs/scoped-1",
+};
+
+function createScopedSessionRequest(): Request {
+  return new Request("http://localhost/api/v1/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: scopedWorkspace.runId,
+      taskId: "task-scoped-1",
+      repoPath: ".",
+      workspaceScope: scopedWorkspace,
     }),
   });
 }
@@ -166,7 +204,33 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
         action: "run",
         command: "echo hello",
         runId: "run-auth-1",
+        workspaceScope: {
+          runId: "run-auth-1",
+          runAttemptId: "attempt-auth-1",
+          workspaceId: "workspace-auth-1",
+          root: "/runs/auth-1",
+        },
       },
+    }),
+  });
+}
+
+function createScopedExecuteRequest(
+  sessionId: string,
+  token: string,
+  workspaceScope: WorkspaceScope,
+): Request {
+  return new Request("http://localhost/api/v1/execute", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      sessionId,
+      taskId: "task-scoped-execute",
+      action: "node.execute",
+      params: { workspaceScope },
     }),
   });
 }
@@ -238,6 +302,38 @@ describe("session auth hardening", () => {
     expect(body.output).toContain("node.execute");
   });
 
+  it("persists the run workspace scope and rejects cross-run execution", async () => {
+    const runtime = createRuntimeStoreMock();
+    const sessionResponse = await handleCreateSession(
+      createScopedSessionRequest(),
+      runtime,
+    );
+    expect(sessionResponse.status).toBe(201);
+    const { sessionId, token } = (await sessionResponse.json()) as {
+      sessionId: string;
+      token: string;
+    };
+
+    const mismatchedScope = {
+      ...scopedWorkspace,
+      runId: "run-scoped-2",
+    };
+    const rejected = await handleExecuteTask(
+      createScopedExecuteRequest(sessionId, token, mismatchedScope),
+      runtime,
+    );
+    expect(rejected.status).toBe(409);
+    expect(((await rejected.json()) as ErrorBody).code).toBe(
+      "WORKSPACE_SCOPE_MISMATCH",
+    );
+
+    const accepted = await handleExecuteTask(
+      createScopedExecuteRequest(sessionId, token, scopedWorkspace),
+      runtime,
+    );
+    expect(accepted.status).toBe(200);
+  });
+
   it("publishes signed runtime task events around execution", async () => {
     const runtime = createRuntimeStoreMock();
     const { sessionId, token } = await createSession(runtime);
@@ -266,6 +362,38 @@ describe("session auth hardening", () => {
         idempotencyKey: `run-auth-1:${sessionId}:task-execute-auth:runtime.task.finished`,
       },
     ]);
+  });
+
+  it("returns 503 and stores one explicit replacement lease after sandbox loss", async () => {
+    const runtime = createRuntimeStoreMock();
+    const stored: SessionRecord[] = [];
+    const originalStore = runtime.storeExecutionSession;
+    runtime.storeExecutionSession = async (sessionId, session) => {
+      stored.push(session);
+      await originalStore(sessionId, session);
+    };
+    runtime.executionPort.executeTask = async (_leaseId, input) => ({
+      taskId: input.taskId,
+      leaseId: "dead-lease",
+      correlationId: "dead-correlation",
+      status: "sandbox_unavailable",
+      retryable: true,
+      error: {
+        code: "SANDBOX_UNAVAILABLE",
+        message: "container exited",
+      },
+      metrics: { duration: 1 },
+    });
+
+    const { sessionId, token } = await createSession(runtime);
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${token}`),
+      runtime,
+    );
+
+    expect(response.status).toBe(503);
+    expect(stored).toHaveLength(2);
+    expect(stored[1]?.lease.generation).toBe(1);
   });
 
   it("rejects logs without authorization header", async () => {

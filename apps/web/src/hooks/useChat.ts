@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { type FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
 import { useChatCore } from "./useChatCore";
@@ -54,6 +54,7 @@ export function useChat(
     stop,
     setMessages,
     runId: activeRunId,
+    scope,
     serverTurnId,
     resetRun,
     isModelConfigReady,
@@ -63,15 +64,14 @@ export function useChat(
 
   // Handle message hydration
   const { isHydrating, hasHydrated } = useChatHydration(
-    sessionId,
-    activeRunId,
+    scope,
     messages,
     setMessages,
   );
 
   // Handle message persistence
   useChatPersistence({
-    runId: activeRunId,
+    scope,
     messages,
   });
 

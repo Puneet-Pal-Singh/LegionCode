@@ -38,13 +38,13 @@ describe("CloudflareAgentsRunRuntimeClient", () => {
     const client = new CloudflareAgentsRunRuntimeClient(binding);
 
     await client.getSummary({ runId: "run-2" });
-    await client.cancel({ runId: "run-2" });
+    await client.interrupt({ runId: "run-2", payload: { runId: "run-2" } });
 
     const calls = vi.mocked(fetchCloudflareAgentRoute).mock.calls;
     expect(calls).toHaveLength(2);
     expect(calls[0]?.[1]).toBe("run-2");
     expect(calls[1]?.[1]).toBe("run-2");
     expect(calls[0]?.[2].url).toBe("https://shadowbox-agent/summary?runId=run-2");
-    expect(calls[1]?.[2].url).toBe("https://shadowbox-agent/cancel");
+    expect(calls[1]?.[2].url).toBe("https://shadowbox-agent/interrupt");
   });
 });

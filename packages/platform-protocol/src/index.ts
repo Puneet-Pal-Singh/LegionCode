@@ -56,6 +56,12 @@ export {
   turnSeedFromLatestUserMessage,
 } from "./lifecycle-turn-routing.js";
 export {
+  TurnScopeBootstrapRequestSchema,
+  TurnScopeBootstrapSchema,
+  type TurnScopeBootstrapRequest,
+  type TurnScopeBootstrap,
+} from "./turn-scope-bootstrap.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,
@@ -68,6 +74,7 @@ export {
   ThreadSchema,
   ThreadStatusSchema,
   ThreadTitleSourceSchema,
+  ThreadTitleStatusSchema,
   ToolCallItemContentSchema,
   TurnSchema,
   TurnStatusSchema,
@@ -83,6 +90,7 @@ export {
   type ThreadItemType,
   type ThreadStatus,
   type ThreadTitleSource,
+  type ThreadTitleStatus,
   type ToolCallItemContent,
   type Turn,
   type TurnStatus,
@@ -315,3 +323,17 @@ export {
   type PermissionPolicyDecision,
   type PermissionRiskLevel,
 } from "./permissions.js";
+export {
+  TRANSCRIPT_PART_SCHEMA_VERSION,
+  TranscriptPartSchema,
+  TranscriptPartDeltaSchema,
+  TranscriptPartEventSchema,
+  TranscriptPartIdSchema,
+  isVisibleTranscriptPart,
+  projectVisibleTranscriptText,
+  replayTranscriptPartEvents,
+  type TranscriptPart,
+  type TranscriptPartDelta,
+  type TranscriptPartEvent,
+  type TranscriptPartId,
+} from "./transcript-parts.js";

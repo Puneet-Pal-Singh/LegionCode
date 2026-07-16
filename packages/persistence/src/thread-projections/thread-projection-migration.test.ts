@@ -6,10 +6,12 @@ import {
   ThreadItemTypeSchema,
   ThreadStatusSchema,
   ThreadTitleSourceSchema,
+  ThreadTitleStatusSchema,
 } from "@repo/platform-protocol";
 import { describe, expect, it } from "vitest";
 import { persistenceMigrations } from "../migrations/0001-runtime-event-inbox.js";
 import { threadProjectionsMigration } from "../migrations/0017-thread-projections.js";
+import { threadTitleReadReceiptsMigration } from "../migrations/0023-thread-title-read-receipts.js";
 import { buildSqlList } from "../sessions/types.js";
 
 const migrationSqlPath = join(
@@ -19,6 +21,18 @@ const migrationSqlPath = join(
 );
 
 describe("thread projection migration", () => {
+  it("registers title metadata and read receipts after canonical run identity", () => {
+    const migrationIds = persistenceMigrations.map((migration) => migration.id);
+    const canonicalRunIdIndex = migrationIds.indexOf(
+      "0022_canonical_run_id_text",
+    );
+
+    expect(canonicalRunIdIndex).toBeGreaterThanOrEqual(0);
+    expect(persistenceMigrations[canonicalRunIdIndex + 1]).toBe(
+      threadTitleReadReceiptsMigration,
+    );
+  });
+
   it("registers after canonical event tables", () => {
     const migrationIds = persistenceMigrations.map((migration) => migration.id);
     const canonicalEventsIndex = migrationIds.indexOf(
@@ -45,6 +59,18 @@ describe("thread projection migration", () => {
     expect(sql).toContain("projection_version INTEGER NOT NULL");
     expect(sql).toContain("FOREIGN KEY (thread_id)");
     expect(sql).toContain("ON DELETE CASCADE");
+    expect(sql).toContain("title_version INTEGER NOT NULL DEFAULT 1");
+    expect(sql).toContain("title_status TEXT NOT NULL DEFAULT 'ready'");
+    expect(sql).toContain("last_terminal_turn_id TEXT");
+  });
+
+  it("adds durable, terminal-scoped viewer read receipts", () => {
+    const sql = threadTitleReadReceiptsMigration.statements.join("\n");
+
+    expect(sql).toContain("thread_read_receipts");
+    expect(sql).toContain("PRIMARY KEY (thread_id, viewer_id)");
+    expect(sql).toContain("last_acknowledged_terminal_turn_id TEXT");
+    expect(sql).toContain("ON DELETE CASCADE");
   });
 
   it("keeps committed SQL aligned with protocol registries", () => {
@@ -55,6 +81,9 @@ describe("thread projection migration", () => {
     );
     expect(migrationSql).toContain(
       `CHECK (title_source IN (${buildSqlList(ThreadTitleSourceSchema.options)}))`,
+    );
+    expect(migrationSql).toContain(
+      `CHECK (title_status IN (${buildSqlList(ThreadTitleStatusSchema.options)}))`,
     );
     expect(migrationSql).toContain(
       `CHECK (role IN (${buildSqlList(ThreadItemRoleSchema.options)}))`,

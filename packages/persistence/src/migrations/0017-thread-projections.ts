@@ -4,6 +4,7 @@ import {
   ThreadItemTypeSchema,
   ThreadStatusSchema,
   ThreadTitleSourceSchema,
+  ThreadTitleStatusSchema,
 } from "@repo/platform-protocol";
 import { buildSqlList } from "../sessions/types.js";
 import type { SqlMigration } from "./types.js";
@@ -12,6 +13,7 @@ const THREAD_STATUS_SQL_LIST = buildSqlList(ThreadStatusSchema.options);
 const THREAD_TITLE_SOURCE_SQL_LIST = buildSqlList(
   ThreadTitleSourceSchema.options,
 );
+const THREAD_TITLE_STATUS_SQL_LIST = buildSqlList(ThreadTitleStatusSchema.options);
 const THREAD_ITEM_ROLE_SQL_LIST = buildSqlList(ThreadItemRoleSchema.options);
 const THREAD_ITEM_STATUS_SQL_LIST = buildSqlList(
   ThreadItemStatusSchema.options,
@@ -29,6 +31,9 @@ export const threadProjectionsMigration: SqlMigration = {
         workspace_id TEXT NOT NULL,
         title TEXT NOT NULL,
         title_source TEXT NOT NULL,
+        title_version INTEGER NOT NULL DEFAULT 1,
+        title_status TEXT NOT NULL DEFAULT 'ready',
+        last_terminal_turn_id TEXT,
         status TEXT NOT NULL,
         pinned_at TIMESTAMPTZ,
         archived_at TIMESTAMPTZ,
@@ -44,6 +49,8 @@ export const threadProjectionsMigration: SqlMigration = {
           CHECK (status IN (${THREAD_STATUS_SQL_LIST})),
         CONSTRAINT canonical_thread_projections_title_source_check
           CHECK (title_source IN (${THREAD_TITLE_SOURCE_SQL_LIST})),
+        CONSTRAINT canonical_thread_projections_title_status_check
+          CHECK (title_status IN (${THREAD_TITLE_STATUS_SQL_LIST})),
         CONSTRAINT canonical_thread_projections_last_event_sequence_check
           CHECK (last_event_sequence > 0),
         CONSTRAINT canonical_thread_projections_version_check

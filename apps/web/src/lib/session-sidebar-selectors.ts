@@ -6,6 +6,17 @@ export interface SessionRepositoryGroup {
   sessions: AgentSession[];
 }
 
+export function selectSessionUnread(session: AgentSession): boolean {
+  return Boolean(
+    session.lastTerminalTurnId &&
+      session.lastTerminalTurnId !== session.lastAcknowledgedTerminalTurnId,
+  );
+}
+
+export function selectSessionActive(session: AgentSession): boolean {
+  return session.status === "running" || session.status === "waiting_for_approval";
+}
+
 const NO_REPOSITORY_LABEL = "No repository";
 
 export function selectVisibleSessions(

@@ -22,6 +22,7 @@ import {
   type WorkflowIntent,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
+import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
@@ -64,6 +65,7 @@ export interface HandleChatRequestInput {
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
   tools?: Record<string, SerializableToolDefinition>;
+  identity: TurnScopeBootstrap;
 }
 
 export interface HandleChatRequestOutput {
@@ -95,6 +97,7 @@ export interface HandleChatRequestOutput {
     };
     messages: CoreMessage[];
     tools?: Record<string, SerializableToolDefinition>;
+    identity: TurnScopeBootstrap;
   };
 }
 
@@ -133,6 +136,7 @@ export class HandleChatRequest {
       repositoryName,
       repositoryBranch,
       repositoryBaseUrl,
+      identity,
     } = input;
 
     const runtimeSelections = this.resolveRuntimeSelections(input);
@@ -241,6 +245,7 @@ export class HandleChatRequest {
       // Build execution payload with repository context
       const executionPayload = {
         runId,
+        identity,
         userId,
         workspaceId,
         sessionId,

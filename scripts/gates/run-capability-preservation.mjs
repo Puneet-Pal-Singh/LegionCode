@@ -73,7 +73,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/components/chat/ChatInterface.test.tsx",
-        "keeps activity polling alive while the run controller is stoppable",
+        "does not let activity polling own an active lifecycle-backed run",
       ],
       [
         "apps/web/src/components/chat/chat-interface/useActivityPresentation.test.tsx",

@@ -9,6 +9,7 @@ import type {
 import type {
   ReviewScope,
   ReviewSourceSelection,
+  CanonicalTurnReviewSource,
 } from "../../services/review/ReviewSourceResolver";
 import type {
   CreateReviewCommentInput,
@@ -22,6 +23,7 @@ export interface GitReviewProviderProps {
   isReviewActive?: boolean;
   isReviewDataEnabled?: boolean;
   isGitWorkspaceRecovering?: boolean;
+  canonicalTurnReview?: CanonicalTurnReviewSource | null;
 }
 
 export interface GitReviewContextValue {
