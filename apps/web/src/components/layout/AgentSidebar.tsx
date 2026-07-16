@@ -11,6 +11,7 @@ import type { AgentSession } from "../../hooks/useSessionManager";
 import {
   groupSessionsByRepository,
   selectPinnedSessions,
+  selectSessionUnread,
 } from "../../lib/session-sidebar-selectors";
 import {
   SidebarShell,
@@ -56,6 +57,20 @@ const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
 ];
 
 const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
+
+function buildTaskMetrics(
+  session: AgentSession,
+  hasPendingApproval: boolean,
+): SidebarTaskItem["metrics"] {
+  const metrics: NonNullable<SidebarTaskItem["metrics"]> = {};
+  if (hasPendingApproval) {
+    metrics.label = "Awaiting approval";
+  }
+  if (selectSessionUnread(session)) {
+    metrics.unreadCount = 1;
+  }
+  return Object.keys(metrics).length > 0 ? metrics : undefined;
+}
 
 function shouldHighlightCompleted(
   session: AgentSession,
@@ -185,9 +200,10 @@ export function AgentSidebar({
             : mapSessionStatus(session, activeSessionId),
           updatedAt: session.createdAt,
           isActive: session.id === activeSessionId,
-          metrics: approvalStatesBySessionId[session.id]
-            ? { label: "Awaiting approval" }
-            : undefined,
+          metrics: buildTaskMetrics(
+            session,
+            Boolean(approvalStatesBySessionId[session.id]),
+          ),
         }));
 
         const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
@@ -229,9 +245,10 @@ export function AgentSidebar({
           : mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
-        metrics: approvalStatesBySessionId[session.id]
-          ? { label: "Awaiting approval" }
-          : undefined,
+        metrics: buildTaskMetrics(
+          session,
+          Boolean(approvalStatesBySessionId[session.id]),
+        ),
       })),
       normalizedQuery,
       statusFilter,
