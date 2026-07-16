@@ -8,8 +8,9 @@ This directory contains agent-specific configuration and skills.
 .agents/
 ├── skills/           # Agent Skills (https://agentskills.io/)
 │   ├── git-workflow/
-│   ├── security/
 │   ├── pr-workflow/
+│   ├── quality-gates/
+│   └── security/
 │   └── README.md
 └── README.md         # This file
 ```
@@ -21,7 +22,9 @@ Agent Skills extend agent capabilities with specialized knowledge. See [.agents/
 ## Core Documentation
 
 - [AGENTS.md](../AGENTS.md) - Main agent constitution and guidelines
-- [GEMINI.md](../GEMINI.md) - Points to AGENTS.md (legacy, now consolidated)
+
+`AGENTS.md` is the sole repository policy. Skills hold focused procedures and
+must not restate or override it.
 
 ## Supported Agents
 
