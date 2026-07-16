@@ -19,6 +19,10 @@ import { buildSessionMemoryClient } from "./SessionMemoryFactory";
 import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
 import { WorkspaceBootstrapService } from "../services/WorkspaceBootstrapService";
 import { getUserSessionByUserId } from "../../services/AuthService";
+import {
+  canonicalRuntimeWorkspaceRoot,
+  toSecureExecutionWorkspaceScope,
+} from "../RuntimeWorkspaceScope";
 
 /**
  * Build complete runtime dependencies for RunEngine execution.
@@ -69,6 +73,19 @@ export function buildRuntimeDependencies(
   } = budgetingComponents;
 
   // Resolve agent with strict policy
+  const identity = payload.identity;
+  if (!identity) {
+    throw new Error(
+      "A server-issued turn bootstrap is required before execution",
+    );
+  }
+  const workspaceScope = toSecureExecutionWorkspaceScope({
+    runId: payload.runId,
+    runAttemptId: identity.runAttemptId,
+    workspaceId: identity.workspaceId,
+    root: canonicalRuntimeWorkspaceRoot(payload.runId),
+  });
+
   const agent = resolveAgent(
     env,
     llmGateway,
@@ -76,6 +93,7 @@ export function buildRuntimeDependencies(
     payload.runId,
     payload.userId,
     payload.input.agentType,
+    workspaceScope,
     {
       strict: options.strict ?? true,
       correlationId: payload.correlationId,
@@ -91,6 +109,7 @@ export function buildRuntimeDependencies(
     payload.sessionId,
     payload.runId,
     payload.userId,
+    workspaceScope,
   );
 
   return {

@@ -46,11 +46,12 @@ describe("GitController", () => {
       );
 
     const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run-1&sessionId=session-1"),
+      new Request(
+        "https://brain.local/api/git/status?runId=run_git_01&sessionId=session-1",
+      ),
       {
-        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-        NODE_ENV: "test",
-      } as Env,
+        ...createTestEnv(fetchMock),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -62,16 +63,26 @@ describe("GitController", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
-    expect(sessionUrl).toBe("http://internal/api/v1/session?session=run-1");
+    expect(sessionUrl).toBe(
+      "http://internal/api/v1/session?session=run_git_01",
+    );
     expect(sessionInit?.method).toBe("POST");
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
-      runId: "run-1",
-      taskId: "git-status-run-1",
+      runId: "run_git_01",
+      taskId: "git-status-run_git_01",
       repoPath: ".",
+      workspaceScope: {
+        runId: "run_git_01",
+        runAttemptId: "attempt_git_test",
+        workspaceId: "00000000-0000-0000-0000-000000000001",
+        root: "/home/sandbox/runs/run_git_01",
+      },
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
-    expect(executeUrl).toBe("http://internal/api/v1/execute?session=run-1");
+    expect(executeUrl).toBe(
+      "http://internal/api/v1/execute?session=run_git_01",
+    );
     expect(executeInit?.headers).toMatchObject({
       Authorization: "Bearer tok-git-1",
       "Content-Type": "application/json",
@@ -81,7 +92,13 @@ describe("GitController", () => {
       action: "git.execute",
       params: {
         action: "git_status",
-        runId: "run-1",
+        runId: "run_git_01",
+        workspaceScope: {
+          runId: "run_git_01",
+          runAttemptId: "attempt_git_test",
+          workspaceId: "00000000-0000-0000-0000-000000000001",
+          root: "/home/sandbox/runs/run_git_01",
+        },
       },
       timeout: GIT_STATUS_TIMEOUT_MS,
     });
@@ -114,15 +131,14 @@ describe("GitController", () => {
       new Request("https://brain.local/api/git/stage", {
         method: "POST",
         body: JSON.stringify({
-          runId: "run-unstage",
+          runId: "run_unstage",
           files: ["src/app.ts"],
           unstage: true,
         }),
       }),
       {
-        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-        NODE_ENV: "test",
-      } as Env,
+        ...createTestEnv(fetchMock),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -131,7 +147,7 @@ describe("GitController", () => {
       action: "git.execute",
       params: {
         action: "git_unstage",
-        runId: "run-unstage",
+        runId: "run_unstage",
         files: ["src/app.ts"],
       },
     });
@@ -160,11 +176,10 @@ describe("GitController", () => {
       );
 
     const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run-1"),
+      new Request("https://brain.local/api/git/status?runId=run_git_01"),
       {
-        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-        NODE_ENV: "test",
-      } as Env,
+        ...createTestEnv(fetchMock),
+      },
     );
 
     expect(response.status).toBe(502);
@@ -202,12 +217,11 @@ describe("GitController", () => {
 
     const response = await GitController.getDiff(
       new Request(
-        "https://brain.local/api/git/diff?runId=run-1&sessionId=session-1&path=src%2Fmain.ts",
+        "https://brain.local/api/git/diff?runId=run_git_01&sessionId=session-1&path=src%2Fmain.ts",
       ),
       {
-        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-        NODE_ENV: "test",
-      } as Env,
+        ...createTestEnv(fetchMock),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -268,11 +282,10 @@ describe("GitController", () => {
       );
 
     const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run-retry"),
+      new Request("https://brain.local/api/git/status?runId=run_retry_1"),
       {
-        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-        NODE_ENV: "test",
-      } as Env,
+        ...createTestEnv(fetchMock),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -287,7 +300,7 @@ describe("GitController", () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(
-          "Couldn't find a local dev session for the \"default\" entrypoint of service \"shadowbox-api\" to proxy to",
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
           { status: 503, headers: { "Content-Type": "text/plain" } },
         ),
       )
@@ -321,11 +334,12 @@ describe("GitController", () => {
       );
 
     const response = await GitController.getStatus(
-      new Request("https://brain.local/api/git/status?runId=run-retry-local-dev"),
+      new Request(
+        "https://brain.local/api/git/status?runId=run_retry_local_dev",
+      ),
       {
-        SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
-        NODE_ENV: "test",
-      } as Env,
+        ...createTestEnv(fetchMock),
+      },
     );
 
     expect(response.status).toBe(200);
@@ -335,4 +349,59 @@ describe("GitController", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it("fails before secure session creation when the turn scope is unavailable", async () => {
+    const response = await GitController.getStatus(
+      new Request("https://brain.local/api/git/status?runId=run_git_01"),
+      createTestEnv(fetchMock, false),
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "GIT_WORKSPACE_SCOPE_REQUIRED",
+      retryable: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
+
+function createTestEnv(
+  fetchMock: ReturnType<typeof vi.fn>,
+  scopeAvailable = true,
+): Env {
+  const runtime = {
+    idFromName: vi.fn(() => "runtime-id"),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async (request: Request | string) => {
+        if (!scopeAvailable) {
+          return new Response(JSON.stringify({ code: "TURN_SCOPE_REQUIRED" }), {
+            status: 428,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        const requestUrl = typeof request === "string" ? request : request.url;
+        const runId =
+          new URL(requestUrl).searchParams.get("runId") ?? "run_git_01";
+        return new Response(
+          JSON.stringify({
+            runId,
+            workspaceId: "00000000-0000-0000-0000-000000000001",
+            sessionId: "session-1",
+            threadId: "thr_git_test",
+            turnId: "trn_git_test",
+            runAttemptId: "attempt_git_test",
+            root: `/home/sandbox/runs/${runId}`,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    })),
+  } as unknown as Env["RUN_ENGINE_RUNTIME"];
+
+  return {
+    SECURE_API: { fetch: fetchMock } as Env["SECURE_API"],
+    RUN_ENGINE_RUNTIME: runtime,
+    NODE_ENV: "test",
+  } as Env;
+}

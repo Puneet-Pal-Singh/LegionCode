@@ -93,6 +93,10 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleTurnStartRequest(request);
     }
 
+    if (url.pathname === "/scope" && request.method === "GET") {
+      return requestHandler.handleWorkspaceScopeRequest(request);
+    }
+
     if (url.pathname === "/summary" && request.method === "GET") {
       return requestHandler.handleSummaryRequest(request);
     }
