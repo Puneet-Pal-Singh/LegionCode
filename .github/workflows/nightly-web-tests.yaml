@@ -1,0 +1,48 @@
+name: Nightly Web Tests
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-web-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-web-test-report:
+    name: Full Web Tests (report-only)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      QUARANTINE_OWNER: "@shadowbox/web"
+      PROMOTION_CRITERIA: "Promote after the suite is deterministic and a maintainer assigns an owner and required-check status."
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run full web tests
+        run: pnpm --filter @shadowbox/web test -- --run
+
+      - name: Report quarantine metadata
+        if: always()
+        run: |
+          echo "Full web tests remain report-only while existing flaky and failing tests are stabilized."
+          echo "Owner: ${QUARANTINE_OWNER}"
+          echo "Promotion criteria: ${PROMOTION_CRITERIA}"

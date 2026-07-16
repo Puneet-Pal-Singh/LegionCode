@@ -4,11 +4,12 @@ This directory contains [Agent Skills](https://agentskills.io/) that extend agen
 
 ## Available Skills
 
-| Skill                           | Description                                               |
-| ------------------------------- | --------------------------------------------------------- |
-| [git-workflow](./git-workflow/) | Safe git operations: branching, committing, status checks |
-| [security](./security/)         | Security audits, vulnerability scanning, code review      |
-| [pr-workflow](./pr-workflow/)   | Create, review, and merge Pull Requests                   |
+| Skill                             | Description                                      |
+| --------------------------------- | ------------------------------------------------ |
+| [git-workflow](./git-workflow/)   | Safe, intentional Git operations                 |
+| [pr-workflow](./pr-workflow/)     | Focused pull-request review and publishing       |
+| [quality-gates](./quality-gates/) | CI, test-tier, smoke-test, and gate design       |
+| [security](./security/)           | Security work at sensitive LegionCode boundaries  |
 
 ## Skill Format
 
@@ -27,46 +28,12 @@ Skills use **progressive disclosure**:
 2. **Activation**: Full SKILL.md loaded when task matches
 3. **Execution**: Agent follows instructions, loads references as needed
 
-## Creating New Skills
+## Policy boundary
 
-Template for new skill:
-
-```markdown
----
-name: skill-name
-description: What this skill does and when to use it
-license: MIT
-metadata:
-  author: Your Name
-  version: "1.0"
----
-
-# Skill Name
-
-## When to Use This Skill
-
-Use when...
-
-## Instructions
-
-Step-by-step guidance...
-
-## Examples
-
-Example usage...
-
-## Safety Rules
-
-Important constraints...
-```
-
-## Integration
-
-These skills integrate with [AGENTS.md](../../AGENTS.md):
-
-- `git-workflow` implements Section 9 (Git Protocol) and Section 12 (Multi-Agent Safety)
-- `security` implements the Security Auditor role
-- `pr-workflow` implements the DevOps/Git Operator role
+[AGENTS.md](../../AGENTS.md) is the single source of repository policy. Keep a
+skill procedural, concise, and scoped to one workflow; do not copy policy or
+refer to brittle section numbers. Add automation only when it is a reusable
+workflow or enforces a repeated/high-severity failure.
 
 ## References
 
