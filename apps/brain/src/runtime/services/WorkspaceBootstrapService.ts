@@ -8,6 +8,7 @@ import type {
 import { z } from "zod";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";
+import type { SecureExecutionWorkspaceScope } from "../RuntimeWorkspaceScope";
 
 type GitAction =
   | "git_status"
@@ -29,6 +30,7 @@ interface GitExecutionClient {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
+    options?: { scope?: SecureExecutionWorkspaceScope },
   ): Promise<unknown>;
 }
 
@@ -105,6 +107,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   constructor(
     private executionClient: GitExecutionClient,
     private syncTtlMs: number = DEFAULT_SYNC_TTL_MS,
+    private readonly workspaceScope?: SecureExecutionWorkspaceScope,
   ) {}
 
   static fromEnv(
@@ -112,9 +115,20 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     _sessionId: string,
     runId: string,
     userId?: string,
+    workspaceScope?: SecureExecutionWorkspaceScope,
   ): WorkspaceBootstrapService {
-    const executionService = new ExecutionService(env, runId, runId, userId);
-    return new WorkspaceBootstrapService(executionService);
+    const executionService = new ExecutionService(
+      env,
+      runId,
+      runId,
+      userId,
+      workspaceScope,
+    );
+    return new WorkspaceBootstrapService(
+      executionService,
+      DEFAULT_SYNC_TTL_MS,
+      workspaceScope,
+    );
   }
 
   async bootstrap(
@@ -444,7 +458,11 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<GitPluginResult> {
     const startedAt = Date.now();
     try {
-      const result = await this.executionClient.execute("git", action, payload);
+      const result = this.workspaceScope
+        ? await this.executionClient.execute("git", action, payload, {
+            scope: this.workspaceScope,
+          })
+        : await this.executionClient.execute("git", action, payload);
       const parsedResult = toGitPluginResult(result);
       console.log(
         `[workspace/bootstrap/timing] run=${runId} action=${action} success=${parsedResult.success} elapsedMs=${Date.now() - startedAt}`,
