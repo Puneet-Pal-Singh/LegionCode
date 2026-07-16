@@ -69,6 +69,7 @@ import {
   buildAgenticLoopFinalMessage,
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
+  resolveAssistantFinalParts,
 } from "./RunAgenticLoopPolicy.js";
 import {
   buildPlanModeResponse,
@@ -668,11 +669,12 @@ export class RunEngine implements IRunEngine {
         ...(finalMessage.metadata ?? {}),
         terminalState,
       };
+      const modelParts = resolveAssistantFinalParts(finalOutput, finalMessage);
       return this.completeRunWithAssistantMessage(
         run,
-        finalOutput,
+        modelParts?.length ? undefined : finalOutput,
         mergedMetadata,
-        finalOutput === finalMessage.text ? finalMessage.parts : undefined,
+        modelParts,
       );
     } catch (error) {
       if (error instanceof PermissionGateError) {
@@ -757,8 +759,6 @@ export class RunEngine implements IRunEngine {
       safeMemoryOperation: this.safeMemoryOperation.bind(this),
     };
   }
-
-
   async getRunStatus(runId: string): Promise<RunStatus | null> {
     const run = await this.runRepo.getById(runId);
     return run?.status ?? null;
@@ -799,7 +799,6 @@ export class RunEngine implements IRunEngine {
       const finalMessage = new FinalAssistantMessageService().build({
         terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
         outcomeCode: "INTERRUPTED",
-        finalParts: [],
       });
       await this.runEventRecorder.recordMessageEmitted(
         "assistant",
@@ -945,13 +944,13 @@ export class RunEngine implements IRunEngine {
 
   private async completeRunWithAssistantMessage(
     run: Run,
-    text: string,
+    runtimeText: string | undefined,
     metadata?: Record<string, unknown>,
     modelParts?: import("@repo/platform-protocol").TranscriptPart[],
   ): Promise<Response> {
     return finalizeRunWithAssistantMessagePolicy({
       run,
-      text,
+      runtimeText,
       modelParts,
       metadata,
       deps: this.getRunCompletionDependencies(),
@@ -960,14 +959,14 @@ export class RunEngine implements IRunEngine {
 
   private async completeRunWithRecoveredAssistantMessage(
     run: Run,
-    text: string,
+    runtimeText: string,
     metadata?: Record<string, unknown>,
     errorMetadata?: string,
     terminalStatus?: "COMPLETED" | "PAUSED",
   ): Promise<Response> {
     return completeRunWithRecoveredAssistantMessagePolicy({
       run,
-      text,
+      runtimeText,
       metadata,
       errorMetadata,
       terminalStatus,

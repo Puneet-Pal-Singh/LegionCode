@@ -1,23 +1,20 @@
 import type { RunTerminalState } from "@repo/shared-types";
 import type { Run } from "../run/index.js";
-import {
-  FinalAssistantMessageService,
-  type FinalVisiblePart,
-} from "./FinalAssistantMessageService.js";
+import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
 import type { TerminalSettlement } from "./TerminalSettlementProjector.js";
 
 export function buildFinalAssistantMessage(input: {
   run: Run;
-  finalParts: readonly FinalVisiblePart[];
   modelParts?: readonly import("@repo/platform-protocol").TranscriptPart[];
+  runtimeText?: string;
   metadata?: Record<string, unknown>;
   settlement: TerminalSettlement;
 }) {
   return new FinalAssistantMessageService().build({
     terminalState: input.settlement.terminalState,
     outcomeCode: input.settlement.outcomeCode,
-    finalParts: input.finalParts,
     modelParts: input.modelParts,
+    runtimeText: input.runtimeText,
     metadata: input.metadata,
   });
 }

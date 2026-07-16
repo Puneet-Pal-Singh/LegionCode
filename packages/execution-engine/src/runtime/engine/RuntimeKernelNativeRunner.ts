@@ -375,9 +375,13 @@ export class RuntimeKernelNativeRunner {
     }
     const finalMessage = buildAgenticLoopFinalMessage(provider.buildResult());
     recordAgenticLoopMetadata(run, provider.buildResult());
+    const modelParts = finalMessage.parts;
     const response = await finalizeRunWithAssistantMessage({
       run,
-      text: finalMessage.text || result.output,
+      runtimeText: modelParts?.length
+        ? undefined
+        : finalMessage.text || result.output,
+      modelParts,
       metadata: {
         ...(finalMessage.metadata ?? {}),
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
@@ -447,7 +451,7 @@ export class RuntimeKernelNativeRunner {
     recordLifecycleStep(run, "PLAN_VALIDATED");
     return await finalizeRunWithAssistantMessage({
       run,
-      text: buildPlanModeResponse(planArtifact),
+      runtimeText: buildPlanModeResponse(planArtifact),
       deps: this.getRunCompletionDependencies(),
     });
   }
@@ -511,7 +515,7 @@ export class RuntimeKernelNativeRunner {
       );
       return await finalizeRunWithAssistantMessage({
         run,
-        text: message,
+        runtimeText: message,
         metadata: { terminalState },
         deps: this.getRunCompletionDependencies(),
       });
@@ -604,7 +608,7 @@ export class RuntimeKernelNativeRunner {
 
     return await finalizeRunWithAssistantMessage({
       run,
-      text: bootstrapEvaluation.message,
+      runtimeText: bootstrapEvaluation.message,
       deps: this.getRunCompletionDependencies(),
     });
   }

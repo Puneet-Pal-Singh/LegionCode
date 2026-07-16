@@ -23,7 +23,6 @@ describe("terminal finalization matrix", () => {
       const final = new FinalAssistantMessageService().build({
         terminalState,
         outcomeCode: settlement.outcomeCode,
-        finalParts: [],
       });
 
       expect(settlement.outcomeCode).toBeTypeOf("string");

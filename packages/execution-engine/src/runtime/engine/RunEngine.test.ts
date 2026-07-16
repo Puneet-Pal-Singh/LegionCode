@@ -72,7 +72,9 @@ describe("RunEngine", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("I can help you plan the next task.");
+    expect(await response.text()).toContain(
+      "I can help you plan the next task.",
+    );
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(workspaceBootstrapper.bootstrap).not.toHaveBeenCalled();
   });
@@ -2273,20 +2275,12 @@ describe("RunEngine", () => {
     expect(responseText).toContain("Updated sections/components: README");
 
     const executeSpy = executionService.execute as ReturnType<typeof vi.fn>;
-    expect(executeSpy).toHaveBeenCalledWith(
-      "filesystem",
-      "list_files",
-      {
-        path: ".",
-      },
-    );
-    expect(executeSpy).toHaveBeenCalledWith(
-      "filesystem",
-      "read_file",
-      {
-        path: "README.md",
-      },
-    );
+    expect(executeSpy).toHaveBeenCalledWith("filesystem", "list_files", {
+      path: ".",
+    });
+    expect(executeSpy).toHaveBeenCalledWith("filesystem", "read_file", {
+      path: "README.md",
+    });
     expect(executeSpy).toHaveBeenCalledWith(
       "filesystem",
       "write_file",
@@ -4162,7 +4156,10 @@ describe("RunEngine", () => {
       },
     );
 
-    await privateApi.handleExecutionError("run_created000001", new Error("boom"));
+    await privateApi.handleExecutionError(
+      "run_created000001",
+      new Error("boom"),
+    );
 
     const persisted = await privateApi.runRepo.getById("run_created000001");
     expect(persisted?.status).toBe("FAILED");
@@ -5059,16 +5056,18 @@ function adaptLegacyTestGateway(gateway: ILLMGateway): ILLMGateway {
           typeof legacyText === "string" && legacyText.length > 0
             ? [
                 {
+                  // The test adapter declares its legacy response as an
+                  // explicit terminal model part. Ambiguous provider text is
+                  // covered separately with visible_text/reasoning fixtures.
                   id: `test-part-${request.context.runId}-${request.context.phase}`,
                   schemaVersion: 1 as const,
                   runId: request.context.runId,
                   turnId: request.context.turnId ?? request.context.runId,
                   sequence: 0,
                   createdAt: "2026-07-10T00:00:00.000Z",
-                  type: "visible_text" as const,
+                  type: "final" as const,
                   visibility: "visible" as const,
                   text: legacyText,
-                  finalized: false,
                 },
               ]
             : [],
