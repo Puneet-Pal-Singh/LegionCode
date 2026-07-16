@@ -156,10 +156,9 @@ function TurnSurface({
 }) {
   const turnId = turn?.key ?? props.lifecycleProjection?.turnId;
   if (!turnId) return null;
-
-  if (!props.threadId) return null;
-
-  const surfaceId = `thread-${props.threadId}-turn-${turnId}`;
+  const surfaceId = props.threadId
+    ? `thread-${props.threadId}-turn-${turnId}`
+    : null;
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
   const hasTool = Boolean(
     turn?.rows.some((row) => row.kind === "tool" || row.kind === "group"),
@@ -184,14 +183,19 @@ function TurnSurface({
 
   return (
     <section
-      data-testid={surfaceId}
-      data-thread-id={props.threadId}
+      data-testid={surfaceId ?? undefined}
+      data-thread-id={props.threadId ?? undefined}
       data-turn-id={turnId}
-      data-run-attempt-id={props.runAttemptId ?? undefined}
+      data-run-attempt-id={
+        surfaceId ? (props.runAttemptId ?? undefined) : undefined
+      }
       className="space-y-3"
     >
       {userMessage ? (
-        <div data-testid={`${surfaceId}-typed-part`} data-kind="user_prompt">
+        <div
+          data-testid={surfaceId ? `${surfaceId}-typed-part` : undefined}
+          data-kind="user_prompt"
+        >
           <ChatMessage
             message={userMessage}
             metadata={props.messageMetadataById[userMessage.id]}
@@ -199,7 +203,7 @@ function TurnSurface({
         </div>
       ) : turn?.userPrompt ? (
         <div
-          data-testid={`${surfaceId}-typed-part`}
+          data-testid={surfaceId ? `${surfaceId}-typed-part` : undefined}
           data-kind="user_prompt"
           className="text-right text-sm text-zinc-300"
         >
@@ -208,26 +212,30 @@ function TurnSurface({
       ) : null}
 
       {turn && (hasTool || turn.rows.length > 0) ? (
-        <div data-testid={`${surfaceId}-tool-surface`}>
+        <div
+          data-testid={surfaceId ? `${surfaceId}-tool-surface` : undefined}
+        >
           {props.renderActivityTurn(turn)}
         </div>
       ) : null}
       {hasTool ? (
         <span
-          data-testid={`${surfaceId}-tool`}
+          data-testid={surfaceId ? `${surfaceId}-tool` : undefined}
           className="text-xs text-zinc-500"
         >
           Tool activity
         </span>
       ) : null}
       {isCurrentTurn ? (
-        <div data-testid={`${surfaceId}-workflow`}>
+        <div
+          data-testid={surfaceId ? `${surfaceId}-workflow` : undefined}
+        >
           <LifecycleWorkflow projection={props.lifecycleProjection} />
         </div>
       ) : null}
       {hasApproval ? (
         <div
-          data-testid={`${surfaceId}-approval`}
+          data-testid={surfaceId ? `${surfaceId}-approval` : undefined}
           className="text-xs font-medium text-orange-200"
         >
           Approval required
@@ -235,7 +243,7 @@ function TurnSurface({
       ) : null}
       {isActive ? (
         <div
-          data-testid={`${surfaceId}-spinner`}
+          data-testid={surfaceId ? `${surfaceId}-spinner` : undefined}
           role="status"
           className="text-sm text-zinc-500"
         >
@@ -244,14 +252,14 @@ function TurnSurface({
       ) : null}
       {terminal ? (
         <div
-          data-testid={`${surfaceId}-terminal`}
+          data-testid={surfaceId ? `${surfaceId}-terminal` : undefined}
           data-status={terminal.state}
           className="text-sm text-zinc-400"
         >
           {terminal.state}
           {terminal.errorCode === "SANDBOX_UNAVAILABLE" ? (
             <span
-              data-testid={`${surfaceId}-sandbox-error`}
+              data-testid={surfaceId ? `${surfaceId}-sandbox-error` : undefined}
               data-error-code={terminal.errorCode}
             >
               Sandbox unavailable
@@ -260,7 +268,7 @@ function TurnSurface({
         </div>
       ) : null}
       {assistantMessage ? (
-        <div data-testid={`${surfaceId}-final`}>
+        <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <ChatMessage
             message={assistantMessage}
             metadata={props.messageMetadataById[assistantMessage.id]}
@@ -273,12 +281,12 @@ function TurnSurface({
           />
         </div>
       ) : props.terminalViewModel && isCurrentTurn ? (
-        <div data-testid={`${surfaceId}-final`}>
+        <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <TerminalMessage {...props} />
         </div>
       ) : hasFinalPart ? (
         <div
-          data-testid={`${surfaceId}-final`}
+          data-testid={surfaceId ? `${surfaceId}-final` : undefined}
           className="text-sm text-zinc-400"
         >
           Final output
