@@ -42,6 +42,7 @@ export interface LifecycleProjectionTerminal {
   readonly state: LifecycleProjectionTerminalState;
   readonly eventId: string;
   readonly content: string;
+  readonly errorCode?: string | null;
   readonly occurredAt: string;
 }
 
@@ -249,6 +250,7 @@ function settleTurn(
       state,
       eventId: event.eventId,
       content: buildTerminalContent(state, event.payload.outcome),
+      errorCode: readString(event.payload.outcome, "code"),
       occurredAt: event.createdAt,
     },
   };

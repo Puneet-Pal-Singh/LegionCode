@@ -8,6 +8,7 @@ import { useChatArtifacts } from "./useChatArtifacts";
 import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
+import type { ConversationScope } from "./conversationScope";
 
 interface UseChatResult {
   messages: Message[];
@@ -24,6 +25,7 @@ interface UseChatResult {
   stop: () => void;
   artifactState: ArtifactState;
   runId: string;
+  scope: ConversationScope | null;
   serverTurnId: string | null;
   resetRun: () => void;
   isModelConfigReady: boolean;
@@ -93,6 +95,7 @@ export function useChat(
     stop,
     artifactState,
     runId: activeRunId,
+    scope,
     serverTurnId,
     resetRun,
     isModelConfigReady,

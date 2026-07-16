@@ -138,6 +138,9 @@ export function TaskListRow({
       <button
         type="button"
         ref={buttonRef}
+        data-testid={`thread-${task.id}`}
+        data-thread-id={task.id}
+        data-unread={task.metrics?.unreadCount ? "true" : "false"}
         tabIndex={tabIndex}
         role="option"
         aria-selected={task.isActive}

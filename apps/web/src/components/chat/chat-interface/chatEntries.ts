@@ -5,7 +5,12 @@ import { buildConversationTurns } from "../messageMetadata";
 
 export type ChatInterfaceEntry =
   | { kind: "message"; message: Message }
-  | { kind: "turn"; turn: ActivityTurnViewModel };
+  | {
+      kind: "turn";
+      turn: ActivityTurnViewModel;
+      userMessage?: Message;
+      assistantMessage?: Message;
+    };
 
 export function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
@@ -21,23 +26,34 @@ export function buildChatEntries(
   const assignedActivityTurnKeys = new Set<string>();
 
   for (const conversationTurn of conversationTurns) {
-    if (conversationTurn.userMessage) {
-      entries.push({
-        kind: "message",
-        message: conversationTurn.userMessage,
-      });
+    const userMessage = conversationTurn.userMessage;
+    const assistantMessage = conversationTurn.assistantMessage;
+    const matchedActivityTurns = userMessage
+      ? (activityTurnsByMessageId.get(userMessage.id) ?? []).filter(
+          (activityTurn) => activityTurn.hasVisibleRows,
+        )
+      : [];
 
-      const matchedActivityTurns =
-        activityTurnsByMessageId.get(conversationTurn.userMessage.id) ?? [];
-      for (const activityTurn of matchedActivityTurns) {
-        if (activityTurn.hasVisibleRows) {
-          assignedActivityTurnKeys.add(activityTurn.key);
-          entries.push({ kind: "turn", turn: activityTurn });
-        }
-      }
+    if (matchedActivityTurns.length > 0 && userMessage) {
+      matchedActivityTurns.forEach((activityTurn, index) => {
+        assignedActivityTurnKeys.add(activityTurn.key);
+        entries.push({
+          kind: "turn",
+          turn: activityTurn,
+          userMessage: index === 0 ? userMessage : undefined,
+          assistantMessage:
+            index === matchedActivityTurns.length - 1 &&
+            shouldIncludeAssistantMessage(assistantMessage)
+              ? assistantMessage
+              : undefined,
+        });
+      });
+      continue;
     }
 
-    const assistantMessage = conversationTurn.assistantMessage;
+    if (userMessage) {
+      entries.push({ kind: "message", message: userMessage });
+    }
     if (shouldIncludeAssistantMessage(assistantMessage)) {
       entries.push({
         kind: "message",
@@ -63,17 +79,14 @@ function appendUnmatchedActivityTurns(
     }
 
     const prompt = turn.userPrompt?.trim();
-    if (prompt) {
-      entries.push({
-        kind: "message",
-        message: {
+    const userMessage = prompt
+      ? ({
           id: `activity:${turn.key}:user`,
           role: "user",
           content: prompt,
-        },
-      });
-    }
-    entries.push({ kind: "turn", turn });
+        } as Message)
+      : undefined;
+    entries.push({ kind: "turn", turn, userMessage });
   }
 }
 
@@ -94,7 +107,10 @@ function correlateActivityTurnsToMessages(
     if (!activityTurn?.hasVisibleRows) {
       continue;
     }
-    const messageId = resolveActivityTurnMessageId(activityTurn, userMessageIds);
+    const messageId = resolveActivityTurnMessageId(
+      activityTurn,
+      userMessageIds,
+    );
     if (!messageId) {
       if (logUnmatched) {
         warnUnmatchedActivityTurn(options.runId, activityTurn.key);

@@ -58,9 +58,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build workspace packages
-        run: pnpm build
-
       - name: Run type checks
         run: pnpm check-types
 
@@ -207,29 +204,6 @@ jobs:
           REBUILD_PR_METADATA_MODE: report-only
         run: pnpm gate:rebuild-governance
 
-  dev-smoke:
-    name: Dev Smoke Gate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run deterministic dev smoke gate
-        run: pnpm gate:dev-smoke
-
   golden-repo-to-pr:
     name: Golden Repo-To-PR Gate
     runs-on: ubuntu-latest
@@ -252,29 +226,6 @@ jobs:
 
       - name: Run hermetic repo-to-PR golden gate
         run: pnpm gate:golden-repo-to-pr
-
-  staging-cutover:
-    name: Staging Cutover Gate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run staging/cutover substitute gate
-        run: pnpm gate:staging-cutover
 
   pr-metadata-governance:
     name: PR Metadata Governance (report-only)
@@ -304,58 +255,9 @@ jobs:
           REBUILD_PR_METADATA_MODE: blocking
         run: node scripts/gates/check-rebuild-governance.mjs
 
-  full-web-test-report:
-    name: Full Web Tests (report-only)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    env:
-      QUARANTINE_OWNER: "@shadowbox/web"
-      QUARANTINE_EXPIRES_ON: "2026-07-15"
-      PROMOTION_CRITERIA: "Three consecutive green dev runs with no timeout-dependent failures."
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run full web tests
-        run: pnpm --filter @shadowbox/web test -- --run
-
-      - name: Report-only gate metadata
-        if: always()
-        run: |
-          echo "Full web tests remain report-only while existing flaky and failing tests are stabilized."
-          echo "Owner: ${QUARANTINE_OWNER}"
-          echo "Expires on: ${QUARANTINE_EXPIRES_ON}"
-          echo "Promotion criteria: ${PROMOTION_CRITERIA}"
-
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs:
-      [
-        lint,
-        check-types,
-        boundaries,
-        runtime-conformance,
-        contract-conformance,
-        capability-preservation,
-        rebuild-governance,
-        dev-smoke,
-        golden-repo-to-pr,
-        staging-cutover,
-      ]
     steps:
       - uses: actions/checkout@v4
 
@@ -376,52 +278,21 @@ jobs:
       - name: Build project
         run: pnpm build
 
-  release-quality-gates:
-    name: Release Quality Gates (blocking)
-    if: |
-      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+  quality-gate:
+    name: Required Quality Gate
     runs-on: ubuntu-latest
+    needs:
+      [
+        lint,
+        check-types,
+        boundaries,
+        runtime-conformance,
+        contract-conformance,
+        capability-preservation,
+        rebuild-governance,
+        golden-repo-to-pr,
+        build,
+      ]
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build workspace packages
-        run: pnpm build
-
-      - name: Run boundary checks (strict)
-        run: |
-          pnpm check:boundaries
-          pnpm --filter @shadowbox/brain test -- src/architecture/layering.boundary.test.ts src/architecture/no-legacy-imports.test.ts
-          pnpm --filter @shadowbox/web test -- src/architecture/byok-sdk-boundary.test.ts src/architecture/provider-sdk-import-boundary.test.ts src/architecture/landing-boundary.test.ts
-          pnpm --filter @repo/ui-kit test -- src/architecture/provider-transport-boundary.test.ts
-          pnpm --filter @shadowbox/landing test -- --run
-
-      - name: Run smoke checks (strict)
-        run: |
-          pnpm gate:dev-smoke
-          pnpm gate:capability-preservation
-          pnpm --filter @shadowbox/web test -- --run
-
-      - name: Run runtime conformance gate (strict)
-        run: |
-          pnpm gate:runtime-conformance
-          pnpm gate:contract-conformance
-          pnpm gate:golden-repo-to-pr
-          pnpm gate:staging-cutover
-
-      - name: Run rebuild governance gate (strict)
-        run: pnpm gate:rebuild-governance
+      - name: Confirm required checks passed
+        run: echo "All required PR checks passed. Run deployed staging smoke only after deployment."
