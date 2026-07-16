@@ -98,7 +98,6 @@ export interface Env {
   PRIVATE_ALPHA_WAITLIST_URL?: string;
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
-  SHADOWBOX_LOCAL_AUTH_FIXTURE?: "1";
   FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_CHAT_REVIEWER_PASS_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_CLOUDFLARE_AGENTS_V1?: "true" | "false" | "1" | "0";
