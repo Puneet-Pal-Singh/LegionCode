@@ -31,6 +31,7 @@ import {
   type SecureExecutionStatus,
 } from "./secure-execution/SecureExecutionContract";
 import { SecureRuntimeFailureMapper } from "./secure-execution/SecureRuntimeFailureMapper";
+import type { SecureExecutionWorkspaceScope } from "../runtime/RuntimeWorkspaceScope";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
@@ -45,13 +46,6 @@ interface SecureExecutionSession {
 
 interface SecureExecutionSessionResponse extends SecureExecutionSession {
   expiresAt: number;
-}
-
-interface SecureExecutionWorkspaceScope {
-  runId: string;
-  runAttemptId: string;
-  workspaceId: string;
-  root: string;
 }
 
 type SecureExecutionTaskResponse = SecureExecutionOutcome;
@@ -105,6 +99,7 @@ export class ExecutionService {
     private sessionId: string,
     private runId: string,
     private userId?: string,
+    private readonly workspaceScope?: SecureExecutionWorkspaceScope,
   ) {}
 
   async execute(
@@ -120,7 +115,7 @@ export class ExecutionService {
       scope?: SecureExecutionWorkspaceScope;
     },
   ) {
-    const scope = options?.scope;
+    const scope = options?.scope ?? this.workspaceScope;
     if (scope && scope.runId !== this.runId) {
       throw new Error("Execution workspace scope does not belong to this run.");
     }

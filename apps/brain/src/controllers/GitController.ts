@@ -34,6 +34,12 @@ import {
   getGitHubClient,
   isSessionStoreUnavailableError,
 } from "../services/AuthService";
+import {
+  fetchRunEngineWorkspaceScope,
+  RuntimeWorkspaceScopeResponseSchema,
+  toSecureExecutionWorkspaceScope,
+  type SecureExecutionWorkspaceScope,
+} from "../runtime/RuntimeWorkspaceScope";
 
 const GitBootstrapRequestBodySchema = z.object({
   runId: z.string(),
@@ -104,6 +110,13 @@ type SecureApiRequestInit = Parameters<SecureApiFetch>[1];
 interface SecureMuscleSession {
   sessionId: string;
   token: string;
+}
+
+class GitWorkspaceScopeRequiredError extends Error {
+  constructor(readonly action: GitControllerAction) {
+    super(`Git ${action} requires a server-issued turn workspace scope`);
+    this.name = "GitWorkspaceScopeRequiredError";
+  }
 }
 
 interface CanonicalExecutionResponse {
@@ -238,8 +251,7 @@ export class GitController {
   static async commit(req: Request, env: Env): Promise<Response> {
     try {
       const body = GitCommitRequestBodySchema.parse(await req.json());
-      const { runId, message, files, authorName, authorEmail } =
-        body;
+      const { runId, message, files, authorName, authorEmail } = body;
       const authenticatedSession = await getAuthenticatedUserSession(req, env);
       const commitIdentity = await resolveCommitIdentityForCommit(
         env,
@@ -470,6 +482,8 @@ export class GitController {
         env,
         muscleSession,
         normalizedRunId,
+        undefined,
+        await resolveGitWorkspaceScope(env, normalizedRunId, "status"),
       );
       const bootstrapRequest = bootstrapper.bootstrap({
         runId: normalizedRunId,
@@ -555,11 +569,13 @@ async function executeGitViaCanonicalApi(
   payload: Record<string, unknown>,
   timeoutMs: number,
 ): Promise<PluginSuccessPayload | PluginErrorPayload> {
+  const workspaceScope = await resolveGitWorkspaceScope(env, runId, action);
   const secureSession = await createSecureMuscleSession(
     env.SECURE_API,
     muscleSession,
     runId,
     action,
+    workspaceScope,
   );
 
   const response = await fetchSecureApiWithTimeout(
@@ -577,8 +593,9 @@ async function executeGitViaCanonicalApi(
         action: "git.execute",
         params: {
           action: toCanonicalGitExecutionAction(action),
-          runId,
           ...payload,
+          runId,
+          workspaceScope,
         },
         timeout: timeoutMs,
       }),
@@ -738,6 +755,7 @@ async function createSecureMuscleSession(
   muscleSession: string,
   runId: string,
   action: string,
+  workspaceScope: SecureExecutionWorkspaceScope,
 ): Promise<SecureMuscleSession> {
   const response = await fetchSecureApiWithTimeout(
     service,
@@ -751,6 +769,7 @@ async function createSecureMuscleSession(
         runId,
         taskId: `git-${action}-${runId}`,
         repoPath: ".",
+        workspaceScope,
       }),
     },
     GIT_SESSION_TIMEOUT_MS,
@@ -784,6 +803,36 @@ async function createSecureMuscleSession(
     sessionId: candidate.sessionId,
     token: candidate.token,
   };
+}
+
+async function resolveGitWorkspaceScope(
+  env: Env,
+  runId: string,
+  action: GitControllerAction,
+): Promise<SecureExecutionWorkspaceScope> {
+  let response: Response;
+  try {
+    response = await fetchRunEngineWorkspaceScope(env, runId);
+  } catch {
+    throw new GitWorkspaceScopeRequiredError(action);
+  }
+
+  if (!response.ok) {
+    throw new GitWorkspaceScopeRequiredError(action);
+  }
+
+  let parsed: ReturnType<typeof RuntimeWorkspaceScopeResponseSchema.safeParse>;
+  try {
+    parsed = RuntimeWorkspaceScopeResponseSchema.safeParse(
+      await response.json(),
+    );
+  } catch {
+    throw new GitWorkspaceScopeRequiredError(action);
+  }
+  if (!parsed.success) {
+    throw new GitWorkspaceScopeRequiredError(action);
+  }
+  return toSecureExecutionWorkspaceScope(parsed.data);
 }
 
 function buildSecureApiUrl(muscleSession: string, pathname: string): string {
@@ -1090,6 +1139,16 @@ function mapGitControllerError(
       status: 503,
       code: "SESSION_STORE_UNAVAILABLE",
       message: "Session store is temporarily unavailable. Please retry.",
+      retryable: true,
+    };
+  }
+
+  if (error instanceof GitWorkspaceScopeRequiredError) {
+    return {
+      status: 428,
+      code: "GIT_WORKSPACE_SCOPE_REQUIRED",
+      message:
+        "A server-issued turn workspace scope is required before Git execution. Start or resume the turn, then retry.",
       retryable: true,
     };
   }

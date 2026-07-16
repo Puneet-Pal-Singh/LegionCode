@@ -75,6 +75,7 @@ import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
+import { toRuntimeWorkspaceScope } from "./RuntimeWorkspaceScope";
 
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
@@ -638,10 +639,7 @@ export class RunEngineRequestHandler {
       const body = await parseRequestBody(request);
       const input = validateWithSchema<
         z.infer<typeof TurnScopeBootstrapRequestSchema>
-      >(
-        body,
-        TurnScopeBootstrapRequestSchema,
-      );
+      >(body, TurnScopeBootstrapRequestSchema);
       const workspaceId = BrainWorkspaceIdSchema.parse(input.workspaceId);
 
       return await this.withExecutionLock(input.runId, async () => {
@@ -680,6 +678,49 @@ export class RunEngineRequestHandler {
         "TURN_BOOTSTRAP_FAILED",
       );
     }
+  }
+
+  async handleWorkspaceScopeRequest(request: Request): Promise<Response> {
+    const runIdRaw = new URL(request.url).searchParams.get("runId");
+    if (!runIdRaw) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "runId is required",
+        400,
+      );
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(
+        runIdRaw.trim(),
+        RunIdSchema,
+        "workspace-scope",
+      );
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
+    }
+
+    await this.ensureTurnToRunMapLoaded();
+    const identity = [...this.turnRuntimeIdentities.values()]
+      .reverse()
+      .find((candidate) => candidate.runId === runId);
+    if (!identity) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "A server-issued turn scope is required before Git execution",
+        428,
+        "TURN_SCOPE_REQUIRED",
+      );
+    }
+
+    return runEngineJsonResponse(
+      request,
+      this.env,
+      toRuntimeWorkspaceScope(identity),
+    );
   }
 
   async handleExecuteRequest(

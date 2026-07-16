@@ -16,6 +16,7 @@ import {
 import { resolveAgentType } from "../policies/AgentTypePolicy";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";
+import type { SecureExecutionWorkspaceScope } from "../RuntimeWorkspaceScope";
 
 /**
  * Build agent registry, resolve requested agent type, and return resolved agent.
@@ -37,9 +38,16 @@ export function resolveAgent(
   runId: string,
   userId: string | undefined,
   requestedAgentType: AgentType,
+  workspaceScope?: SecureExecutionWorkspaceScope,
   options: { strict?: boolean; correlationId?: string } = {},
 ): IAgent | undefined {
-  const executionService = new ExecutionService(env, runId, runId, userId);
+  const executionService = new ExecutionService(
+    env,
+    runId,
+    runId,
+    userId,
+    workspaceScope,
+  );
 
   const runtimeExecutionService = {
     execute: (

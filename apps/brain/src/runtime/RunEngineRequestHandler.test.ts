@@ -58,9 +58,7 @@ describe("RunEngineRequestHandler", () => {
       "turnId",
       "workspaceId",
     ]);
-    expect(identity.workspaceId).toBe(
-      "00000000-0000-4000-8000-000000000001",
-    );
+    expect(identity.workspaceId).toBe("00000000-0000-4000-8000-000000000001");
     expect(identity.threadId).toMatch(/^thr_/);
     expect(identity.turnId).toMatch(/^trn_/);
     expect(identity.runAttemptId).toMatch(/^attempt_/);
@@ -71,6 +69,55 @@ describe("RunEngineRequestHandler", () => {
         [identity.turnId]: expect.objectContaining(identity),
       }),
     );
+  });
+
+  it("returns the latest server-issued workspace scope for Git callers", async () => {
+    const ctx = new MockDurableObjectState();
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+
+    await handler.handleTurnStartRequest(
+      new Request("https://run-engine/turn/start", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "corr-1",
+        }),
+      }),
+    );
+
+    const response = await handler.handleWorkspaceScopeRequest(
+      new Request("https://run-engine/scope?runId=run_123456"),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      runId: "run_123456",
+      workspaceId: "00000000-0000-4000-8000-000000000001",
+      root: "/home/sandbox/runs/run_123456",
+    });
+  });
+
+  it("rejects workspace scope resolution before turn bootstrap", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+
+    const response = await handler.handleWorkspaceScopeRequest(
+      new Request("https://run-engine/scope?runId=run_123456"),
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_SCOPE_REQUIRED",
+    });
   });
 
   it("rejects execution when bootstrap identity is not authorized for the run scope", async () => {
@@ -550,9 +597,7 @@ describe("RunEngineRequestHandler", () => {
     let settled = false;
     const lifecycleEventStore = {
       replay: vi.fn(async () => ({
-        events: settled
-          ? ([{ type: "turn.interrupted" }] as unknown[])
-          : [],
+        events: settled ? ([{ type: "turn.interrupted" }] as unknown[]) : [],
         nextSequence: null,
       })),
     } as unknown as LifecycleEventStore;

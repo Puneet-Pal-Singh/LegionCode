@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceBootstrapService } from "./WorkspaceBootstrapService";
+import type { SecureExecutionWorkspaceScope } from "../RuntimeWorkspaceScope";
 
 const CLEAN_GIT_STATUS_OUTPUT = JSON.stringify({
   branch: "main",
@@ -13,6 +14,42 @@ const CLEAN_GIT_STATUS_OUTPUT = JSON.stringify({
 });
 
 describe("WorkspaceBootstrapService", () => {
+  it("passes the server-owned workspace scope to every Git bootstrap call", async () => {
+    const execute = vi.fn(async () => ({
+      success: true,
+      output: CLEAN_GIT_STATUS_OUTPUT,
+    }));
+    const workspaceScope: SecureExecutionWorkspaceScope = {
+      runId: "run_scope001",
+      runAttemptId: "attempt_scope001",
+      workspaceId: "00000000-0000-4000-8000-000000000001",
+      root: "/home/sandbox/runs/run_scope001",
+    };
+    const service = new WorkspaceBootstrapService(
+      { execute },
+      0,
+      workspaceScope,
+    );
+
+    const result = await service.bootstrap({
+      runId: "run_scope001",
+      mode: "read_only",
+      repositoryContext: {
+        owner: "sourcegraph",
+        repo: "shadowbox",
+        branch: "main",
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    expect(execute).toHaveBeenCalledWith(
+      "git",
+      "git_status",
+      {},
+      { scope: workspaceScope },
+    );
+  });
+
   it("returns invalid-context when owner/repo are missing", async () => {
     const execute = vi.fn(async () => ({ success: true }));
     const service = new WorkspaceBootstrapService({ execute }, 0);
