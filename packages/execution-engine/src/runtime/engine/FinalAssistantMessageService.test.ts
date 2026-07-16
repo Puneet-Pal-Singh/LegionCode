@@ -8,21 +8,78 @@ const completed = {
 };
 
 describe("FinalAssistantMessageService", () => {
-  it("projects exactly one typed final part from visible typed parts", () => {
+  it("projects exactly one typed final part and ignores non-final parts", () => {
     const result = new FinalAssistantMessageService().build({
       ...completed,
-      finalParts: [
-        { type: "visible_text", text: "Done." },
-        { type: "final", text: "The edit is complete." },
+      modelParts: [
+        {
+          id: "visible",
+          schemaVersion: 1,
+          runId: "run-1",
+          turnId: "turn-1",
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "visible_text",
+          visibility: "visible",
+          text: "Done.",
+          finalized: false,
+        },
+        {
+          id: "final",
+          schemaVersion: 1,
+          runId: "run-1",
+          turnId: "turn-1",
+          sequence: 1,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "final",
+          visibility: "visible",
+          text: "The edit is complete.",
+        },
       ],
     });
 
-    expect(result.content).toBe("Done.\n\nThe edit is complete.");
+    expect(result.content).toBe("The edit is complete.");
     expect(result.parts).toEqual([
-      { type: "final", text: "Done.\n\nThe edit is complete." },
+      { type: "final", text: "The edit is complete." },
     ]);
     expect(result.metadata.finalParts).toEqual(result.parts);
     expect(result.source).toBe("model");
+  });
+
+  it("does not promote ambiguous visible text or reasoning into a final part", () => {
+    const incidentText = "The user is asking what I should respond";
+    const result = new FinalAssistantMessageService().build({
+      ...completed,
+      modelParts: [
+        {
+          id: "reasoning",
+          schemaVersion: 1,
+          runId: "run-1",
+          turnId: "turn-1",
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "reasoning",
+          visibility: "audit_only",
+          text: incidentText,
+        },
+        {
+          id: "visible",
+          schemaVersion: 1,
+          runId: "run-1",
+          turnId: "turn-1",
+          sequence: 1,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "visible_text",
+          visibility: "visible",
+          text: incidentText,
+          finalized: false,
+        },
+      ],
+    });
+
+    expect(result.source).toBe("runtime");
+    expect(result.content).not.toContain(incidentText);
+    expect(result.content).toContain("without a model-written final response");
   });
 
   it("projects visible text from canonical transcript parts", () => {

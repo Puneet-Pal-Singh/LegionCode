@@ -22,6 +22,13 @@ export interface AssistantTurnOutput {
   metadata?: Record<string, unknown>;
 }
 
+export function resolveAssistantFinalParts(
+  finalOutput: string,
+  finalMessage: AssistantTurnOutput,
+): TranscriptPart[] | undefined {
+  return finalOutput === finalMessage.text ? finalMessage.parts : undefined;
+}
+
 export function resolveAgenticLoopTools(
   metadata: Record<string, unknown> | undefined,
   incomingTools: Record<string, CoreTool>,
