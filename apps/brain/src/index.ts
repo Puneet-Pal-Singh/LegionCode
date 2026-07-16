@@ -8,7 +8,6 @@ import { ProviderController } from "./controllers/ProviderController";
 import { RuntimeController } from "./controllers/RuntimeController";
 import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
-import { LocalAuthFixtureController } from "./controllers/LocalAuthFixtureController";
 import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
@@ -99,11 +98,6 @@ function createRouter(): Router {
   router.add(/\/auth\/github\/login/, AuthController.handleLogin);
   router.add(/\/auth\/github\/callback/, AuthController.handleCallback);
   router.add(/\/auth\/session/, AuthController.handleGetSession);
-  router.add(
-    /^\/auth\/local-test\/session$/,
-    LocalAuthFixtureController.handleCreateSession,
-    "POST",
-  );
   router.add(/\/auth\/logout/, AuthController.handleLogout);
 
   // GitHub API routes
