@@ -20,9 +20,12 @@ describe("buildChatEntries", () => {
     );
 
     expect(entries).toEqual([
-      { kind: "message", message: userMessage },
-      { kind: "turn", turn: activityTurn },
-      { kind: "message", message: assistantMessage },
+      {
+        kind: "turn",
+        turn: activityTurn,
+        userMessage,
+        assistantMessage,
+      },
     ]);
   });
 
@@ -49,17 +52,9 @@ describe("buildChatEntries", () => {
 
   it("attaches repeated identical prompts to distinct turns via canonical ids", () => {
     const firstUser = createMessage("user-1", "user", "try again?");
-    const firstAssistant = createMessage(
-      "assistant-1",
-      "assistant",
-      "First",
-    );
+    const firstAssistant = createMessage("assistant-1", "assistant", "First");
     const secondUser = createMessage("user-2", "user", "try again?");
-    const secondAssistant = createMessage(
-      "assistant-2",
-      "assistant",
-      "Second",
-    );
+    const secondAssistant = createMessage("assistant-2", "assistant", "Second");
     const firstTurn = createActivityTurn({
       key: "user-1",
       userPrompt: "try again?",
@@ -81,12 +76,18 @@ describe("buildChatEntries", () => {
     );
 
     expect(entries).toEqual([
-      { kind: "message", message: firstUser },
-      { kind: "turn", turn: firstTurn },
-      { kind: "message", message: firstAssistant },
-      { kind: "message", message: secondUser },
-      { kind: "turn", turn: secondTurn },
-      { kind: "message", message: secondAssistant },
+      {
+        kind: "turn",
+        turn: firstTurn,
+        userMessage: firstUser,
+        assistantMessage: firstAssistant,
+      },
+      {
+        kind: "turn",
+        turn: secondTurn,
+        userMessage: secondUser,
+        assistantMessage: secondAssistant,
+      },
     ]);
   });
 });

@@ -7,6 +7,7 @@ import {
 } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
+import type { ConversationScope } from "../../hooks/conversationScope";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
@@ -56,6 +57,7 @@ interface ChatInterfaceProps {
     hasHydrated?: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
+    conversationScope?: ConversationScope | null;
     serverTurnId?: string | null;
   };
   sessionId: string;
@@ -99,6 +101,7 @@ export function ChatInterface({
     hasHydrated = true,
     error,
     debugEvents = [],
+    conversationScope,
     serverTurnId,
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -366,6 +369,8 @@ export function ChatInterface({
       showDebugPanel={showDebugPanel}
       debugEvents={debugEvents}
       chatEntries={chatEntries}
+      threadId={conversationScope?.threadId ?? null}
+      runAttemptId={conversationScope?.runAttemptId ?? null}
       messageMetadataById={messageMetadataById}
       renderActivityTurn={renderActivityTurn}
       onArtifactOpen={onArtifactOpen}
