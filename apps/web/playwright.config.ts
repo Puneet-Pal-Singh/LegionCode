@@ -18,7 +18,7 @@ export default defineConfig({
   ],
   webServer: {
     command:
-      "VITE_BRAIN_BASE_URL=http://127.0.0.1:5174 pnpm exec vite --host 127.0.0.1 --port 5174 --strictPort",
+      'VITE_BRAIN_BASE_URL="${VITE_BRAIN_BASE_URL:-http://127.0.0.1:8788}" pnpm exec vite --host 127.0.0.1 --port 5174 --strictPort',
     url: "http://127.0.0.1:5174/agents/",
     reuseExistingServer: false,
     timeout: 120_000,
