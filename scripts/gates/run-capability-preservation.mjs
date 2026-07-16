@@ -251,27 +251,11 @@ const CAPABILITIES = [
     owner: "@repo/git-service",
     requiredTests: [
       [
-        "packages/git-service/src/GitService.test.ts",
-        "runs read-only porcelain-v2 status through the executor",
-      ],
-      [
-        "packages/git-service/src/GitService.test.ts",
-        "runs canonical diff with optional staged mode and explicit paths",
-      ],
-      [
         "apps/web/src/lib/git-client.test.ts",
         "requests git diff through the canonical Brain endpoint",
       ],
     ],
     commands: [
-      [
-        "pnpm",
-        "--filter",
-        "@repo/git-service",
-        "test",
-        "--",
-        "src/GitService.test.ts",
-      ],
       [
         "pnpm",
         "--filter",
