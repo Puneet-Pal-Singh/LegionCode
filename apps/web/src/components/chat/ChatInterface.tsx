@@ -1,10 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
-import {
-  type ProductMode,
-  type RunMode,
-} from "@repo/shared-types";
+import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
 import type { ConversationScope } from "../../hooks/conversationScope";
@@ -131,7 +128,6 @@ export function ChatInterface({
     return null;
   }, [messages]);
   const {
-    status: gitStatus,
     selectedReviewComments,
     openPromptArtifactReview,
     toggleReviewCommentSelected,
@@ -170,17 +166,14 @@ export function ChatInterface({
       mode === "plan" ? "Plan" : "Build",
     );
   }, [messages, debugEvents, mode, providerModels]);
-  const {
-    scopedFeed,
-    viewModel: activityViewModel,
-    scrollSignal: activityScrollSignal,
-  } = useActivityPresentation({
-    runId,
-    messages,
-    feed,
-    events,
-    isLoading: activeTurn.isTransportPending,
-  });
+  const { viewModel: activityViewModel, scrollSignal: activityScrollSignal } =
+    useActivityPresentation({
+      runId,
+      messages,
+      feed,
+      events,
+      isLoading: activeTurn.isTransportPending,
+    });
   const {
     pendingApproval,
     decisions: displayedApprovalDecisions,
@@ -209,14 +202,10 @@ export function ChatInterface({
   } = useChangedFilesController({
     messages,
     runId,
-    sessionId,
     isLoading: activeTurn.isTransportPending,
     summaryStatus: summary?.status,
-    gitFiles: gitStatus?.files ?? [],
-    conversationTurns,
-    activityTurns: activityViewModel.turns,
-    hasScopedFeed: Boolean(scopedFeed),
     turnDiff: lifecycleProjection?.turnDiff ?? null,
+    artifactIdentity: conversationScope,
   });
   useEffect(() => {
     // Reset expansion preferences when the active run changes.
@@ -371,6 +360,7 @@ export function ChatInterface({
       chatEntries={chatEntries}
       threadId={conversationScope?.threadId ?? null}
       runAttemptId={conversationScope?.runAttemptId ?? null}
+      artifactIdentity={conversationScope}
       messageMetadataById={messageMetadataById}
       renderActivityTurn={renderActivityTurn}
       onArtifactOpen={onArtifactOpen}

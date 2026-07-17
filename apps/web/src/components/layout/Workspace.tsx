@@ -266,11 +266,10 @@ export function Workspace({
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
     onInitialPromptHandled?.(initialPromptSubmission.id);
-    append({ role: "user", content: prompt })
-      .catch((error) => {
-        console.error("[Workspace] Failed to submit setup prompt:", error);
-        onSessionStatusChange?.("failed");
-      });
+    append({ role: "user", content: prompt }).catch((error) => {
+      console.error("[Workspace] Failed to submit setup prompt:", error);
+      onSessionStatusChange?.("failed");
+    });
   }, [
     append,
     initialPromptSubmission,
@@ -455,6 +454,7 @@ export function Workspace({
         isReviewDataEnabled={passiveGitProbeEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={isGitWorkspaceRecovering}
+        artifactIdentity={conversationScope}
         canonicalTurnReview={
           completedTurnReview.turnId
             ? {

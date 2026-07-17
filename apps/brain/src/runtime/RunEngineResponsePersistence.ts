@@ -12,6 +12,7 @@ import { DomainError } from "../domain/errors";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { PersistenceService } from "../services/PersistenceService";
 import type { Env } from "../types/ai";
+import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 
 export interface PersistedAssistantMessageResult {
   assistantMessageId: string;
@@ -40,6 +41,7 @@ export async function persistAssistantMessageFromRunResponse(
   runId: string,
   correlationId: string,
   response: Response,
+  identity: TurnScopeBootstrap,
 ): Promise<PersistedAssistantMessageResult | null> {
   if (!response.ok) {
     return null;
@@ -51,6 +53,7 @@ export async function persistAssistantMessageFromRunResponse(
     sessionId,
     runId,
     correlationId,
+    identity,
   );
   await persistTerminalRunStatusFromRuntime(ctx, env, runId, correlationId);
   return persistedOutput
@@ -124,6 +127,7 @@ async function persistAssistantMessageFromRunOutput(
   sessionId: string,
   runId: string,
   correlationId: string,
+  identity: TurnScopeBootstrap,
 ): Promise<TranscriptMessageRecord | null> {
   const runtimeState = tagRuntimeStateSemantics(
     ctx as unknown as LegacyDurableObjectState,
@@ -183,7 +187,10 @@ async function persistAssistantMessageFromRunOutput(
       runId,
       turnId: readCurrentTurnId(activity, events),
       text: outputContent,
-      metadata: readTerminalAssistantMetadata(events),
+      metadata: {
+        ...readTerminalAssistantMetadata(events),
+        artifactScope: identity,
+      },
       activity,
     });
   } catch (error) {

@@ -24,9 +24,11 @@ export interface ArtifactRow extends SqlRow {
   content_type: string | null;
   size_bytes: number | null;
   sha256: string | null;
+  thread_id?: string | null;
+  turn_id?: string | null;
+  run_attempt_id?: string | null;
   user_message_id?: string | null;
   assistant_message_id?: string | null;
-  source_turn_id?: string | null;
   capture_sequence?: number | null;
   patch_parse_status?: string | null;
   patch_sha256?: string | null;
@@ -60,6 +62,9 @@ export function mapArtifactRow(row: ArtifactRow): EditArtifactRecord {
     runId: row.run_id,
     sessionId: row.session_id,
     workspaceId: row.workspace_id,
+    threadId: row.thread_id ?? null,
+    turnId: row.turn_id ?? null,
+    runAttemptId: row.run_attempt_id ?? null,
     repoOwner: row.repo_owner,
     repoName: row.repo_name,
     repoUrl: row.repo_url,
@@ -73,7 +78,6 @@ export function mapArtifactRow(row: ArtifactRow): EditArtifactRecord {
     sha256: row.sha256,
     userMessageId: row.user_message_id ?? null,
     assistantMessageId: row.assistant_message_id ?? null,
-    sourceTurnId: row.source_turn_id ?? null,
     captureSequence: row.capture_sequence ?? 0,
     patchParseStatus: row.patch_parse_status ?? "unknown",
     patchSha256: row.patch_sha256 ?? row.sha256,
@@ -136,5 +140,7 @@ function parseMetadata(value: unknown): Record<string, unknown> | null {
 }
 
 function toIsoString(value: string | Date): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }

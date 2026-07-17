@@ -4,6 +4,7 @@ import type {
   EditArtifactReviewFile,
   EditArtifactDiffResponse,
   PromptArtifactReviewSource,
+  EditArtifactIdentity,
 } from "@repo/shared-types";
 import type { ArtifactRepository } from "@repo/persistence";
 import type { Env } from "../../types/ai";
@@ -35,17 +36,20 @@ interface LatestArtifactInput {
   runId: string;
   sessionId?: string;
   userId?: string;
+  identity: EditArtifactIdentity;
 }
 
 interface MessageArtifactInput {
   runId: string;
   assistantMessageId: string;
   userId?: string;
+  identity: EditArtifactIdentity;
 }
 
 interface ArtifactLookupInput {
   artifactId: string;
   userId: string;
+  identity: EditArtifactIdentity;
 }
 
 interface ArtifactDiffInput extends ArtifactLookupInput {
@@ -107,11 +111,13 @@ export class EditArtifactReviewService {
         runId: input.runId,
         userId: input.userId,
         sessionId: input.sessionId,
+        identity: input.identity,
       });
     }
     return await repository.getLatestReviewArtifactForRun({
       runId: input.runId,
       sessionId: input.sessionId,
+      identity: input.identity,
     });
   }
 
@@ -124,10 +130,12 @@ export class EditArtifactReviewService {
           runId: input.runId,
           userId: input.userId,
           assistantMessageId: input.assistantMessageId,
+          identity: input.identity,
         })
       : await repository.getReviewArtifactByMessageForRun({
           runId: input.runId,
           assistantMessageId: input.assistantMessageId,
+          identity: input.identity,
         });
     if (exactArtifact) {
       return exactArtifact;
@@ -153,6 +161,17 @@ export class EditArtifactReviewService {
         "Saved edit artifact is not available for this user.",
       );
     }
+    if (
+      artifact.threadId !== input.identity.threadId ||
+      artifact.turnId !== input.identity.turnId ||
+      artifact.runAttemptId !== input.identity.runAttemptId ||
+      artifact.workspaceId !== input.identity.workspaceId
+    ) {
+      throw new EditArtifactReviewError(
+        "ARTIFACT_UNAUTHORIZED",
+        "Saved edit artifact does not belong to the requested turn.",
+      );
+    }
     return artifact;
   }
 
@@ -165,9 +184,11 @@ export class EditArtifactReviewService {
       runId: artifact.runId,
       sessionId: artifact.sessionId,
       workspaceId: artifact.workspaceId,
+      threadId: requireArtifactIdentity(artifact).threadId,
+      turnId: requireArtifactIdentity(artifact).turnId,
+      runAttemptId: requireArtifactIdentity(artifact).runAttemptId,
       userMessageId: artifact.userMessageId ?? undefined,
       assistantMessageId: artifact.assistantMessageId ?? undefined,
-      sourceTurnId: artifact.sourceTurnId ?? undefined,
       status: toReviewStatus(artifact.status),
       files: this.toReviewFiles(artifact),
       createdAt: artifact.createdAt,
@@ -211,6 +232,23 @@ export class EditArtifactReviewService {
 
     return patch;
   }
+}
+
+function requireArtifactIdentity(
+  artifact: EditArtifactRecord,
+): EditArtifactIdentity {
+  if (!artifact.threadId || !artifact.turnId || !artifact.runAttemptId) {
+    throw new EditArtifactReviewError(
+      "ARTIFACT_UNAUTHORIZED",
+      "Saved edit artifact has no server-owned turn identity.",
+    );
+  }
+  return {
+    threadId: artifact.threadId,
+    turnId: artifact.turnId,
+    runAttemptId: artifact.runAttemptId,
+    workspaceId: artifact.workspaceId,
+  };
 }
 
 function parseArtifactDiff(patch: string, path: string): DiffContent {
