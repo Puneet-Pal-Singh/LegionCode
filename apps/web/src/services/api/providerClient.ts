@@ -70,6 +70,13 @@ export interface ProviderModelsMetadata {
   stale: boolean;
   source: BYOKModelDiscoverySource;
   staleReason?: string;
+  status?: "available" | "unavailable";
+  statusReason?:
+    | "not_connected"
+    | "timeout"
+    | "provider_unavailable"
+    | "invalid_response"
+    | "cache_unavailable";
 }
 
 export interface ProviderModelsPageResult {

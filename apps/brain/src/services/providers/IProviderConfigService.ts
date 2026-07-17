@@ -21,7 +21,6 @@ import type {
   ProviderConnectionsResponse,
   ProviderId,
 } from "@repo/shared-types";
-import type { ModelsListResponse } from "../../schemas/provider";
 
 /**
  * Minimal provider config service interface
@@ -43,7 +42,6 @@ export interface IProviderConfigService {
   ): Promise<BYOKPreferences>;
   deleteCredentialLabel(credentialId: string): Promise<BYOKPreferences>;
   getStatus(): Promise<ProviderConnection[]>;
-  getModels(providerId: ProviderId): Promise<ModelsListResponse>;
   getDiscoveredModels(
     providerId: ProviderId,
     query: BYOKDiscoveredProviderModelsQuery,
@@ -51,10 +49,6 @@ export interface IProviderConfigService {
   refreshDiscoveredModels(
     providerId: ProviderId,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
-  getOpenRouterDiscoveredModels(
-    query: BYOKDiscoveredProviderModelsQuery,
-  ): Promise<BYOKDiscoveredProviderModelsResponse>;
-  refreshOpenRouterDiscoveredModels(): Promise<BYOKDiscoveredProviderModelsRefreshResponse>;
   getApiKey(providerId: ProviderId): Promise<string | null>;
   getConnectionConfig(
     providerId: ProviderId,

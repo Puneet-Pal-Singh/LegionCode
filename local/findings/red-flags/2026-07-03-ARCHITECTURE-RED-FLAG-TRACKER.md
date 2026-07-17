@@ -44,6 +44,16 @@ is marked closed.
   fails with one fixed remediation message. Focused local-config tests (5/5),
   Brain typecheck, standalone launcher shell validation, and formatting checks
   pass; real local OAuth startup proof remains required.
+- **RF-022 — FIXED_PENDING_PROOF**: provider catalog bootstrap is now registry-
+  only; remote model discovery is owned by `ProviderCatalogService`, scoped to
+  the selected provider, bounded to 5 seconds, and returns typed unavailable
+  metadata without inventing models. Static registry defaults preserve normal
+  chat resolution, stale cache responses remain usable, and Web bootstrap no
+  longer preloads every connected provider. The legacy unpaginated model route
+  and duplicate preload/fallback owners are removed; explicit refresh is bounded
+  by the same catalog timeout. Focused catalog, controller, provider-store, and
+  bootstrap-isolation tests pass; authenticated target-cloud proof remains
+  required.
 
 ## 2026-07-17 artifact provenance repair
 

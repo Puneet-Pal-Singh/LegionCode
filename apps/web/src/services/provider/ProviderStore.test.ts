@@ -395,7 +395,7 @@ describe("ProviderStore", () => {
       );
     });
 
-    it("marks provider model list as loaded when discovery request fails", async () => {
+    it("does not retain a client-side model fallback when discovery request fails", async () => {
       vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
         new Error("Internal server error"),
       );
@@ -411,17 +411,19 @@ describe("ProviderStore", () => {
           state.providerModels,
           "openrouter",
         ),
-      ).toBe(true);
-      expect(state.providerModels.openrouter).toEqual([]);
+      ).toBe(false);
       expect(state.providerModelsPage.openrouter).toEqual({
         view: "popular",
         hasMore: false,
         nextCursor: null,
       });
-      expect(state.providerModelsMetadata.openrouter?.stale).toBe(true);
+      expect(state.providerModelsMetadata.openrouter?.stale).toBe(false);
       expect(state.providerModelsMetadata.openrouter?.source).toBe("cache");
-      expect(state.providerModelsMetadata.openrouter?.staleReason).toBe(
-        "provider_api_unavailable",
+      expect(state.providerModelsMetadata.openrouter?.status).toBe(
+        "unavailable",
+      );
+      expect(state.providerModelsMetadata.openrouter?.statusReason).toBe(
+        "cache_unavailable",
       );
     });
 
@@ -563,7 +565,7 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4");
     });
 
-    it("preloads models for all connected providers during bootstrap", async () => {
+    it("does not discover models for unrelated providers during bootstrap", async () => {
       vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([
         {
           credentialId: credential1Id,
@@ -596,49 +598,10 @@ describe("ProviderStore", () => {
           deletedAt: null,
         },
       ]);
-      vi.mocked(mockApiClient.getProviderModels).mockImplementation(
-        async (providerId: string, query?: unknown) => {
-          void query;
-          return {
-            providerId,
-            view: "popular" as const,
-            models: [
-              {
-                id: `${providerId}-model`,
-                name: `${providerId} model`,
-                provider: providerId,
-              },
-            ],
-            page: {
-              limit: 50,
-              hasMore: false,
-            },
-            metadata: {
-              fetchedAt: new Date().toISOString(),
-              stale: false,
-              source: "provider_api" as const,
-            },
-          };
-        },
-      );
-
       await store.bootstrap();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
-        "openai",
-        expect.objectContaining({
-          view: "popular",
-          limit: 50,
-        }),
-      );
-      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
-        "google",
-        expect.objectContaining({
-          view: "popular",
-          limit: 50,
-        }),
-      );
+      expect(mockApiClient.getProviderModels).not.toHaveBeenCalled();
     });
 
     it("sets status to error on failure", async () => {
