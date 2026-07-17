@@ -44,11 +44,12 @@ is marked closed.
   lookup now requires the server-owned `threadId`, `turnId`, `runAttemptId`,
   and `workspaceId` together with `runId` and `assistantMessageId`. The
   Brain review service has no latest-artifact fallback for by-message reads;
-  Postgres and memory repositories apply the complete identity predicate; and
-  Web rejects any response whose assistant-message or turn identity differs
-  from the request. Evidence: `EditArtifactReviewService.test.ts`,
-  `MemoryArtifactRepository.test.ts`, `edit-artifacts-client.test.ts`, and
-  the Web `changedFiles` tests pass.
+  Postgres and memory repositories apply the complete identity predicate; the
+  files and diff endpoints require the same identity; and Web rejects any
+  response whose assistant-message or turn identity differs from the request.
+  Evidence: `EditArtifactReviewService.test.ts`,
+  `MemoryArtifactRepository.test.ts`, `edit-artifacts-client.test.ts`, the
+  Web `changedFiles` and `ChatInterface` tests, and Brain/Web typechecks pass.
 - **ARTIFACT-P0-CAPTURE-OWNERSHIP — FIXED_PENDING_PROOF**: the existing
   capture coordinator remains the sole capture owner and records artifacts
   only from edit-tool mutation metadata with a non-empty changed-file set; it
@@ -57,7 +58,12 @@ is marked closed.
   now carry the same server-issued identity. Evidence: the existing
   `EditArtifactCaptureService.test.ts` failed/no-edit and baseline gates pass;
   `EditArtifactReviewService.test.ts` verifies saved-patch reads without live
-  Git; shared-types, persistence, Brain, and Web typechecks pass.
+  Git; the R2/object-store round trip preserves that identity; and the
+  artifact migration has a unique ordered slot with migration safety coverage.
+  Evidence: `EditArtifactObjectStore.test.ts`,
+  `PostgresMigrationRunner.test.ts`, `gate:rebuild-governance`,
+  `gate:capability-preservation`, and shared-types, persistence, Brain, Web,
+  and Secure API typechecks pass.
 
 ## 2026-07-17 post-PR-406 recovery evidence
 

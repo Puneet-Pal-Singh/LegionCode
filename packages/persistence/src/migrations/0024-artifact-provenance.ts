@@ -1,7 +1,7 @@
 import type { SqlMigration } from "./types.js";
 
 export const artifactProvenanceMigration: SqlMigration = {
-  id: "0023_artifact_provenance",
+  id: "0024_artifact_provenance",
   description: "Persist server-owned turn identity on edit artifacts",
   statements: [
     `

@@ -37,6 +37,8 @@ const ArtifactDiffQuerySchema = z.object({
   ...EditArtifactIdentitySchema.shape,
 });
 
+const ArtifactFilesQuerySchema = EditArtifactIdentitySchema;
+
 export class EditArtifactController {
   static async getLatest(request: Request, env: Env): Promise<Response> {
     try {
@@ -110,9 +112,16 @@ export class EditArtifactController {
       const params = ArtifactPathParamsSchema.parse(
         readArtifactParams(request),
       );
+      const query = ArtifactFilesQuerySchema.parse(readQuery(request));
       const files = await new EditArtifactReviewService(env).getArtifactFiles({
         artifactId: params.artifactId,
         userId,
+        identity: {
+          threadId: query.threadId,
+          turnId: query.turnId,
+          runAttemptId: query.runAttemptId,
+          workspaceId: query.workspaceId,
+        },
       });
       return jsonResponse(request, env, { files });
     } catch (error) {
