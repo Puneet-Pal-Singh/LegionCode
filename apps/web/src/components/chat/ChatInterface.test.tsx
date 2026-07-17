@@ -159,6 +159,11 @@ vi.mock("../../lib/edit-artifacts-client.js", () => ({
   getEditArtifactDiff: (input: unknown) => mockGetEditArtifactDiff(input),
   getEditArtifactReviewSourceByMessage: () =>
     mockGetEditArtifactReviewSourceByMessage(),
+  getEditArtifactReviewSourceByMessageWithStatus: () =>
+    mockGetEditArtifactReviewSourceByMessage().then((source) => ({
+      source,
+      status: source ? 200 : 204,
+    })),
 }));
 
 vi.mock("../../services/api/lifecycleClient.js", () => ({
