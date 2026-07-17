@@ -37,6 +37,13 @@ is marked closed.
 - **INC-012 — FIXED_PENDING_PROOF**: revoked-auth recovery now has an explicit
   `/auth/github/reauthorize` OAuth action, which reuses the control-plane
   callback and never places tokens in browser URLs or logs.
+- **INC-014 — FIXED_PENDING_PROOF**: Brain local startup now validates the
+  ignored Wrangler config's Durable Object bindings and migrations against the
+  checked-in canonical config before building or launching Wrangler. A tracked,
+  secret-free template carries the canonical v6 deletion migration, and drift
+  fails with one fixed remediation message. Focused local-config tests (3/3),
+  Brain typecheck, and formatting checks pass; real local OAuth startup proof
+  remains required.
 
 ## 2026-07-17 post-PR-406 recovery evidence
 
