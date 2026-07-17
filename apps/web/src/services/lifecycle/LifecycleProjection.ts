@@ -12,6 +12,13 @@ export type LifecycleProjectionTerminalState =
   | "failed"
   | "interrupted";
 
+export type LifecycleProjectionPhase =
+  | "starting"
+  | "working"
+  | "waiting_for_approval"
+  | "completed"
+  | "failed";
+
 export type LifecycleProjectionItemStatus =
   | "active"
   | "completed"
@@ -55,6 +62,7 @@ export interface LifecycleProjection {
   readonly turnDiff: TurnDiffPayload | null;
   readonly activeThinking: boolean;
   readonly assistantText: string;
+  readonly phase: LifecycleProjectionPhase;
 }
 
 type ItemEvent = LifecycleEvent & {
@@ -80,6 +88,7 @@ export function createLifecycleProjection(turnId: TurnId): LifecycleProjection {
     turnDiff: null,
     activeThinking: false,
     assistantText: "",
+    phase: "starting",
   };
 }
 
@@ -111,25 +120,31 @@ function applyKnownEvent(
   event: LifecycleEvent,
 ): LifecycleProjection {
   switch (event.type) {
+    case "turn.started":
+    case "run_attempt.started":
+      return { ...projection, phase: "starting" };
     case "item.started":
-      return upsertItem(projection, createStartedItem(event));
+      return { ...upsertItem(projection, createStartedItem(event)), phase: "working" };
     case "assistant_message.delta":
     case "reasoning.summary_delta":
     case "plan.updated":
-      return appendItemText(projection, event.itemId, readTextPayload(event.payload));
+      return {
+        ...appendItemText(projection, event.itemId, readTextPayload(event.payload)),
+        phase: "working",
+      };
     case "item.completed":
     case "item.failed":
     case "item.declined":
     case "item.interrupted":
-      return settleItem(projection, event);
+      return { ...settleItem(projection, event), phase: "working" };
     case "approval.requested":
-      return requestApproval(projection, event);
+      return { ...requestApproval(projection, event), phase: "waiting_for_approval" };
     case "approval.decided":
-      return decideApproval(projection, event);
+      return { ...decideApproval(projection, event), phase: "working" };
     case "request.resolved":
-      return { ...projection, pendingApproval: null };
+      return { ...projection, pendingApproval: null, phase: "working" };
     case "turn.diff_updated":
-      return { ...projection, turnDiff: readTurnDiff(event.payload) };
+      return { ...projection, turnDiff: readTurnDiff(event.payload), phase: "working" };
     case "turn.completed":
       return settleTurn(projection, "completed", event);
     case "turn.failed":
@@ -253,7 +268,23 @@ function settleTurn(
       errorCode: readString(event.payload.outcome, "code"),
       occurredAt: event.createdAt,
     },
+    phase: state === "completed" ? "completed" : "failed",
   };
+}
+
+export function lifecyclePhaseLabel(phase: LifecycleProjectionPhase): string {
+  switch (phase) {
+    case "starting":
+      return "Starting";
+    case "working":
+      return "Working";
+    case "waiting_for_approval":
+      return "Waiting for approval";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+  }
 }
 
 function updateItem(

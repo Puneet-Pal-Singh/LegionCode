@@ -57,6 +57,8 @@ interface PublicSessionRecord {
 
 interface WorkspaceScope {
   runId: string;
+  threadId: string;
+  turnId: string;
   runAttemptId: string;
   workspaceId: string;
   root: string;
@@ -366,6 +368,8 @@ function hasMatchingWorkspaceScope(
   }
   return (
     candidate.runId === session.workspaceScope.runId &&
+    candidate.threadId === session.workspaceScope.threadId &&
+    candidate.turnId === session.workspaceScope.turnId &&
     candidate.runAttemptId === session.workspaceScope.runAttemptId &&
     candidate.workspaceId === session.workspaceScope.workspaceId &&
     candidate.root === session.workspaceScope.root

@@ -32,6 +32,8 @@ export interface SecureExecutionFailureContext {
   action: string;
   runId: string;
   workspaceScope?: {
+    threadId: string;
+    turnId: string;
     runAttemptId: string;
     workspaceId: string;
     root: string;

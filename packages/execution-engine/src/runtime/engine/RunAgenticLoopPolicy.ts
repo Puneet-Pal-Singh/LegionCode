@@ -453,13 +453,31 @@ function buildToolExecutionFailedMetadata(
 ): Record<string, unknown> {
   const failedTools = getLatestToolLifecycle(toolLifecycle, "failed");
   const primaryFailure = getTerminalToolLifecycleEvent(failedTools);
+  const failureCode = canonicalToolFailureCode(primaryFailure?.failureCode);
 
   return {
-    code: TOOL_EXECUTION_FAILED_CODE,
+    code: failureCode ?? TOOL_EXECUTION_FAILED_CODE,
+    ...(failureCode ? { failureCode } : {}),
     retryable: true,
     resumeHint: deriveToolFailureResumeHint(primaryFailure),
     resumeActions: ["retry", "open_terminal"],
   };
+}
+
+function canonicalToolFailureCode(code: string | undefined): string | undefined {
+  switch (code) {
+    case "worker_unavailable":
+      return "SANDBOX_UNAVAILABLE";
+    case "command_timed_out":
+      return "EXECUTION_TIMEOUT";
+    case "command_cancelled":
+      return "EXECUTION_CANCELLED";
+    case "invalid_workspace_path":
+    case "workspace_escape_denied":
+      return "WORKSPACE_SCOPE_INVALID";
+    default:
+      return undefined;
+  }
 }
 
 function deriveAgenticLoopRecoveryCode(

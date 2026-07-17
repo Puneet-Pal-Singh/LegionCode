@@ -31,6 +31,8 @@ const CONFORMANCE_LEASE: SandboxExecutionLease = {
   sandboxId: "workspace:conformance:attempt:attempt-1",
   workspaceScope: {
     runId: "run-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
     runAttemptId: "attempt-1",
     workspaceId: "conformance",
     root: "/conformance",

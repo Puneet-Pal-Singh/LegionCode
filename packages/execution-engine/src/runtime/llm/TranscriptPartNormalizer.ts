@@ -27,6 +27,7 @@ export interface TranscriptPartNormalizerInput {
   toolCalls?: readonly LLMToolCall[];
   usage?: LLMUsage;
   finishReason?: string;
+  outputIntent?: "intermediate" | "final";
   createdAt?: string;
 }
 
@@ -126,6 +127,33 @@ export function visibleTextFromTranscriptParts(parts: readonly TranscriptPart[])
   return projectVisibleTranscriptText(parts);
 }
 
+/**
+ * Runtime finalization may promote only visible provider text from a response
+ * that has been proven terminal by the agent loop. Reasoning, tool narration,
+ * partial provider parts, and audit material remain non-final.
+ */
+export function finalizeTranscriptParts(
+  parts: readonly TranscriptPart[],
+): TranscriptPart[] {
+  return parts.map((part) =>
+    part.type === "visible_text"
+      ? {
+          id: part.id,
+          schemaVersion: part.schemaVersion,
+          runId: part.runId,
+          turnId: part.turnId,
+          sequence: part.sequence,
+          createdAt: part.createdAt,
+          ...(part.providerPartId ? { providerPartId: part.providerPartId } : {}),
+          ...(part.parentPartId ? { parentPartId: part.parentPartId } : {}),
+          type: "final" as const,
+          visibility: "visible" as const,
+          text: part.text,
+        }
+      : part,
+  );
+}
+
 function buildProviderPart(
   providerPart: ProviderTranscriptPart,
   input: NormalizedTranscriptPartInput,
@@ -151,7 +179,7 @@ function buildProviderPart(
     return { ...base, type: "reasoning", visibility: "audit_only", text: providerPart.text, reason: providerPart.reason };
   }
   if ((providerPart.type === "visible_text" || providerPart.type === "final") && providerPart.text) {
-    return providerPart.type === "final"
+    return providerPart.type === "final" && input.outputIntent === "final"
       ? { ...base, type: "final", visibility: "visible", text: providerPart.text }
       : { ...base, type: "visible_text", visibility: "visible", text: providerPart.text, finalized: false };
   }
@@ -174,7 +202,9 @@ function buildTextPart(
   };
   return parsed.kind === "reasoning"
     ? { ...base, type: "reasoning", visibility: "audit_only", text: parsed.text, reason: parsed.reason }
-    : { ...base, type: "visible_text", visibility: "visible", text: parsed.text, finalized: false };
+    : input.outputIntent === "final"
+      ? { ...base, type: "final", visibility: "visible", text: parsed.text }
+      : { ...base, type: "visible_text", visibility: "visible", text: parsed.text, finalized: false };
 }
 
 function parseLegacyProviderText(text: string): Array<{ kind: "visible_text" | "reasoning"; text: string; reason?: string }> {

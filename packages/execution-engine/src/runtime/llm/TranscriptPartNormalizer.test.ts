@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LegacyProviderTranscriptPartNormalizer,
+  finalizeTranscriptParts,
   visibleTextFromTranscriptParts,
 } from "./TranscriptPartNormalizer.js";
 
@@ -56,6 +57,7 @@ describe("TranscriptPartNormalizer", () => {
       ...input,
       providerParts: [{ type: "final", text: "Finished." }],
       providerText: "ignored raw text",
+      outputIntent: "final",
       usage: {
         provider: "legacy-provider",
         model: "model_1",
@@ -68,6 +70,46 @@ describe("TranscriptPartNormalizer", () => {
 
     expect(parts.map((part) => part.type)).toEqual(["final", "usage", "error"]);
     expect(visibleTextFromTranscriptParts(parts)).toBe("Finished.");
+  });
+
+  it("quarantines provider final markers until runtime declares terminal output", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerParts: [{ type: "final", text: "Intermediate." }],
+      toolCalls: [{ id: "call_1", toolName: "read_file", args: { path: "README.md" } }],
+    });
+
+    expect(parts[0]).toMatchObject({
+      type: "visible_text",
+      finalized: false,
+      text: "Intermediate.",
+    });
+    expect(parts.some((part) => part.type === "final")).toBe(false);
+  });
+
+  it("translates an ordinary terminal provider reply into an explicit final part", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerText: "Hi there.",
+      outputIntent: "final",
+    });
+
+    expect(parts.find((part) => part.type === "final")).toMatchObject({
+      type: "final",
+      text: "Hi there.",
+      visibility: "visible",
+    });
+  });
+
+  it("finalizes only visible text after runtime proves the response is terminal", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerText: "Ready.",
+    });
+    const finalized = finalizeTranscriptParts(parts);
+
+    expect(finalized[0]?.type).toBe("final");
+    expect(finalized.at(-1)?.type).toBe("raw_provider_material");
   });
 
   it("derives stable part IDs from the turn and provider correlation", () => {

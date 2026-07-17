@@ -350,8 +350,7 @@ function raceWithAbort<T>(
 }
 
 async function destroySandbox(sandbox: Sandbox): Promise<void> {
-  const destroy = (sandbox as unknown as { destroy?: () => Promise<void> }).destroy;
-  if (typeof destroy === "function") await destroy.call(sandbox);
+  await sandbox.destroy();
 }
 
 function resolveExecutePayloadAction(action: string, params: Record<string, unknown>): string {

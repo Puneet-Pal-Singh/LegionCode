@@ -13,7 +13,27 @@ const CLEAN_GIT_STATUS_OUTPUT = JSON.stringify({
   gitAvailable: true,
 });
 
+const TEST_WORKSPACE_SCOPE: SecureExecutionWorkspaceScope = {
+  runId: "test-run",
+  threadId: "test-thread",
+  turnId: "test-turn",
+  runAttemptId: "test-attempt",
+  workspaceId: "00000000-0000-4000-8000-000000000001",
+  root: "/home/sandbox/runs/test-run",
+};
+const WORKSPACE_SCOPE_OPTIONS = { scope: TEST_WORKSPACE_SCOPE };
+
 describe("WorkspaceBootstrapService", () => {
+  it("rejects server bootstrap construction without a canonical scope", () => {
+    expect(() =>
+      WorkspaceBootstrapService.fromEnv(
+        {} as never,
+        "session-unscoped",
+        "run-unscoped",
+      ),
+    ).toThrow("workspaceScope is required for workspace bootstrap");
+  });
+
   it("passes the server-owned workspace scope to every Git bootstrap call", async () => {
     const execute = vi.fn(async () => ({
       success: true,
@@ -21,6 +41,8 @@ describe("WorkspaceBootstrapService", () => {
     }));
     const workspaceScope: SecureExecutionWorkspaceScope = {
       runId: "run_scope001",
+      threadId: "thr_scope001",
+      turnId: "trn_scope001",
       runAttemptId: "attempt_scope001",
       workspaceId: "00000000-0000-4000-8000-000000000001",
       root: "/home/sandbox/runs/run_scope001",
@@ -52,7 +74,7 @@ describe("WorkspaceBootstrapService", () => {
 
   it("returns invalid-context when owner/repo are missing", async () => {
     const execute = vi.fn(async () => ({ success: true }));
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_100001",
@@ -74,7 +96,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_100001",
@@ -88,16 +110,16 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(result.status).toBe("ready");
     expect(result.clonedDuringBootstrap).toBe(true);
-    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(3, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(4, "git", "git_branch_switch", {
       branch: "dev",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenCalledTimes(4);
   });
 
@@ -115,7 +137,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({ success: true }) // fetch
       .mockResolvedValueOnce({ success: true }) // switch
       .mockResolvedValueOnce({ success: true }); // pull
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_retrystatus001",
@@ -129,11 +151,11 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(result.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(5);
-    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
-    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(3, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("retries local-dev-session proxy misses before continuing bootstrap", async () => {
@@ -151,7 +173,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({ success: true }) // fetch
       .mockResolvedValueOnce({ success: true }) // switch
       .mockResolvedValueOnce({ success: true }); // pull
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_retrylocaldev001",
@@ -165,8 +187,8 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(result.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(5);
-    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
-    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
+    expect(execute).toHaveBeenNthCalledWith(2, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("returns friendly sync-failed guidance when transient status misses persist", async () => {
@@ -187,7 +209,7 @@ describe("WorkspaceBootstrapService", () => {
         error:
           'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
       });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_syncfailed001",
@@ -211,7 +233,7 @@ describe("WorkspaceBootstrapService", () => {
       success: false,
       error: "remote: Permission to private/repo denied to user",
     }));
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_100001",
@@ -237,7 +259,7 @@ describe("WorkspaceBootstrapService", () => {
         error:
           "fatal: destination path '/home/sandbox/runs/run_100001' already exists and is not an empty directory.",
       });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_100001",
@@ -254,7 +276,7 @@ describe("WorkspaceBootstrapService", () => {
     expect(result.message).not.toContain("fatal:");
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenCalledTimes(2);
   });
 
@@ -270,7 +292,7 @@ describe("WorkspaceBootstrapService", () => {
         error:
           "fatal: destination path '/home/sandbox/runs/run_100001' already exists and is not an empty directory.",
       });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_100001",
@@ -304,7 +326,7 @@ describe("WorkspaceBootstrapService", () => {
       }) // branch list (branch missing on local+remote)
       .mockResolvedValueOnce({ success: true }) // create branch
       .mockResolvedValueOnce({ success: true }); // pull (unused because no remote branch)
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_100001",
@@ -317,10 +339,10 @@ describe("WorkspaceBootstrapService", () => {
     });
 
     expect(result.status).toBe("ready");
-    expect(execute).toHaveBeenCalledWith("git", "git_branch_list", {});
+    expect(execute).toHaveBeenCalledWith("git", "git_branch_list", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenCalledWith("git", "git_branch_create", {
       branch: "feature/bootstrap",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("skips git sync when the same run/repo/branch was recently bootstrapped", async () => {
@@ -337,7 +359,7 @@ describe("WorkspaceBootstrapService", () => {
         success: true,
         output: CLEAN_GIT_STATUS_OUTPUT,
       }); // second status
-    const service = new WorkspaceBootstrapService({ execute }, 60_000);
+    const service = new WorkspaceBootstrapService({ execute }, 60_000, TEST_WORKSPACE_SCOPE);
     const request = {
       runId: "run_cachetest001",
       mode: "git_write",
@@ -354,18 +376,18 @@ describe("WorkspaceBootstrapService", () => {
     expect(firstResult.status).toBe("ready");
     expect(secondResult.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(5);
-    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
       branch: "main",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(4, "git", "git_pull", {
       remote: "origin",
       branch: "main",
-    });
-    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_status", {});
+    }, WORKSPACE_SCOPE_OPTIONS);
+    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("does not use a fresh sync cache when the workspace is no longer a git repository", async () => {
@@ -385,7 +407,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({ success: true }) // clone after stale cache detected
       .mockResolvedValueOnce({ success: true }) // fetch after clone
       .mockResolvedValueOnce({ success: true }); // switch after clone
-    const service = new WorkspaceBootstrapService({ execute }, 60_000);
+    const service = new WorkspaceBootstrapService({ execute }, 60_000, TEST_WORKSPACE_SCOPE);
     const request = {
       runId: "run_cacherevalidates001",
       mode: "git_write",
@@ -402,10 +424,10 @@ describe("WorkspaceBootstrapService", () => {
     expect(firstResult.status).toBe("ready");
     expect(secondResult.status).toBe("ready");
     expect(secondResult.clonedDuringBootstrap).toBe(true);
-    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(5, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(6, "git", "git_clone", {
       url: "https://github.com/sourcegraph/shadowbox.git",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("coalesces concurrent bootstrap calls for the same run", async () => {
@@ -429,7 +451,7 @@ describe("WorkspaceBootstrapService", () => {
         return { success: true };
       },
     );
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
     const request = {
       runId: "run_concurrentcollapse001",
       mode: "git_write",
@@ -454,17 +476,17 @@ describe("WorkspaceBootstrapService", () => {
     expect(firstResult.status).toBe("ready");
     expect(secondResult.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(4);
-    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
       branch: "main",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(4, "git", "git_pull", {
       remote: "origin",
       branch: "main",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("serializes bootstrap calls when mode differs for the same workspace", async () => {
@@ -488,7 +510,7 @@ describe("WorkspaceBootstrapService", () => {
         return { success: true };
       },
     );
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const mutationBootstrap = service.bootstrap({
       runId: "run_modesplit001",
@@ -520,24 +542,24 @@ describe("WorkspaceBootstrapService", () => {
     expect(mutationResult.status).toBe("ready");
     expect(gitWriteResult.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(7);
-    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {});
+    expect(execute).toHaveBeenNthCalledWith(1, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(3, "git", "git_branch_switch", {
       branch: "main",
-    });
-    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_status", {});
+    }, WORKSPACE_SCOPE_OPTIONS);
+    expect(execute).toHaveBeenNthCalledWith(4, "git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(5, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(6, "git", "git_branch_switch", {
       branch: "main",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
     expect(execute).toHaveBeenNthCalledWith(7, "git", "git_pull", {
       remote: "origin",
       branch: "main",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("serializes implicit-main and explicit-main bootstrap calls together", async () => {
@@ -561,7 +583,7 @@ describe("WorkspaceBootstrapService", () => {
         return { success: true };
       },
     );
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const explicitMain = service.bootstrap({
       runId: "run_implicitmain001",
@@ -615,7 +637,7 @@ describe("WorkspaceBootstrapService", () => {
         return { success: true };
       },
     );
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const mutationRequest = {
       runId: "run_mixedkey001",
@@ -674,7 +696,7 @@ describe("WorkspaceBootstrapService", () => {
         gitAvailable: true,
       }),
     });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_dirty001",
@@ -688,7 +710,7 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(result.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith("git", "git_status", {});
+    expect(execute).toHaveBeenCalledWith("git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("preserves the current branch for an initialized run workspace", async () => {
@@ -705,7 +727,7 @@ describe("WorkspaceBootstrapService", () => {
         gitAvailable: true,
       }),
     });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_branchmismatch001",
@@ -719,7 +741,7 @@ describe("WorkspaceBootstrapService", () => {
 
     expect(result.status).toBe("ready");
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith("git", "git_status", {});
+    expect(execute).toHaveBeenCalledWith("git", "git_status", {}, WORKSPACE_SCOPE_OPTIONS);
   });
 
   it("fails closed on malformed git status payloads", async () => {
@@ -727,7 +749,7 @@ describe("WorkspaceBootstrapService", () => {
       success: true,
       output: "{not-json",
     });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_invalidstatus001",
@@ -748,7 +770,7 @@ describe("WorkspaceBootstrapService", () => {
       success: true,
       output: { branch: "main" },
     });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_invalidobjectstatus001",
@@ -792,7 +814,7 @@ describe("WorkspaceBootstrapService", () => {
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true });
-    const service = new WorkspaceBootstrapService({ execute }, 0);
+    const service = new WorkspaceBootstrapService({ execute }, 0, TEST_WORKSPACE_SCOPE);
 
     const result = await service.bootstrap({
       runId: "run_repomismatch001",
@@ -808,7 +830,7 @@ describe("WorkspaceBootstrapService", () => {
     expect(execute).toHaveBeenCalledTimes(4);
     expect(execute).toHaveBeenNthCalledWith(2, "git", "git_fetch", {
       remote: "origin",
-    });
+    }, WORKSPACE_SCOPE_OPTIONS);
   });
 });
 

@@ -41,6 +41,7 @@ describe("LifecycleProjection", () => {
     ]);
 
     expect(projection.terminal?.state).toBe("completed");
+    expect(projection.phase).toBe("completed");
     expect(projection.activeThinking).toBe(false);
   });
 
@@ -88,6 +89,7 @@ describe("LifecycleProjection", () => {
     expect(requested.pendingApproval?.approvalId).toBe(APPROVAL_ID);
     expect(requested.pendingApproval?.question).toBe("Run command?");
     expect(requested.pendingApproval?.options).toEqual(["Approve", "Deny"]);
+    expect(requested.phase).toBe("waiting_for_approval");
 
     const decided = applyLifecycleEvent(
       requested,
@@ -110,6 +112,7 @@ describe("LifecycleProjection", () => {
     );
 
     expect(resolved.pendingApproval).toBeNull();
+    expect(resolved.phase).toBe("working");
   });
 
   it("records turn diff only from the canonical turn diff event", () => {

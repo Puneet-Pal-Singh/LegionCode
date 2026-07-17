@@ -3,6 +3,8 @@ export const MAX_SANDBOX_LEASE_TTL_MS = 60 * 60 * 1000;
 
 export interface WorkspaceScope {
   runId: string;
+  threadId: string;
+  turnId: string;
   runAttemptId: string;
   workspaceId: string;
   root: string;

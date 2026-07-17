@@ -77,6 +77,7 @@ describe("LifecycleTerminalViewModel", () => {
 function emptyProjection(): LifecycleProjection {
   return {
     turnId: TURN_ID,
+    phase: "starting",
     lastSequence: 0,
     items: [],
     pendingApproval: null,

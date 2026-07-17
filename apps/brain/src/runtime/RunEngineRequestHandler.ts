@@ -987,9 +987,9 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(
         request,
         this.env,
-        "RunEngine DO execution failed",
+        "Runtime execution failed before the run could settle. Retry the request or narrow the task.",
         500,
-        "RUN_ENGINE_EXECUTION_FAILED",
+        "RUNTIME_EXECUTION_FAILED",
       );
     }
   }

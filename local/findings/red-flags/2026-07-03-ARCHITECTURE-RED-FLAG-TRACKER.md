@@ -38,6 +38,36 @@ is marked closed.
   `/auth/github/reauthorize` OAuth action, which reuses the control-plane
   callback and never places tokens in browser URLs or logs.
 
+## 2026-07-17 post-PR-406 recovery evidence
+
+PR #406 was merged to `dev`, but the following failures were reproduced on
+`dev` after the merge. These are product-path failures, not test-only gaps:
+
+- A plain `Hi` rendered `The run completed without a model-written final
+  response.` because provider text was translated as non-final visible text
+  and the finalizer correctly refused to guess. The repair must promote only
+  the terminal provider response to an explicit typed `final` part.
+- The Web surface showed no safe lifecycle state while a request was running.
+  The repair keeps the server-owned turn projection attached and renders only
+  `Starting`, `Working`, `Waiting for approval`, `Completed`, or `Failed`.
+- `hey say ok` surfaced the generic `RunEngine DO execution failed` message.
+  The repair carries canonical runtime failure codes through tool settlement so
+  the user sees an actionable runtime/sandbox/workspace failure rather than a
+  provider setup diagnosis.
+- Secure API evidence showed `workspaceScope: Required`, a
+  `DataCloneError: Could not serialize object of type DurableObject` from
+  `CloudflareSandboxExecutionAdapter.destroySandbox`, HTTP 500 on terminal
+  session deletion, and sandbox readiness failures reporting the container port
+  was not found or readiness was aborted.
+
+Status: **IN_REPAIR** in the follow-up repair PR from latest `origin/dev`.
+The implementation proof covers typed finalization, canonical thread/turn/
+run-attempt/workspace/root scope, direct Sandbox lifecycle destruction, terminal release, and
+the image/readiness port contract. Authenticated target-dev acceptance proof
+for greeting/read, Working state, scope logs, no DataCloneError, successful
+DELETE, and canonical failure presentation remains required before closing
+these red flags.
+
 ### Required release proof
 
 Run the authenticated target-dev product gate for greeting/read, edit approval,

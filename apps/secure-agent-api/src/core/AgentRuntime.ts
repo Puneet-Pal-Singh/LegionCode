@@ -46,8 +46,10 @@ interface RuntimeSessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
-  workspaceScope?: {
+  workspaceScope: {
     runId: string;
+    threadId: string;
+    turnId: string;
     runAttemptId: string;
     workspaceId: string;
     root: string;

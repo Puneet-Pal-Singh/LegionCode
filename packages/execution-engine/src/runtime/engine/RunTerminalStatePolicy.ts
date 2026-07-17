@@ -16,6 +16,14 @@ export function resolveLoopTerminalState(input: {
   if (code === "PERMISSION_DENIED") {
     return RUN_TERMINAL_STATES.FAILED_POLICY;
   }
+  if (
+    code === "SANDBOX_UNAVAILABLE" ||
+    code === "EXECUTION_TIMEOUT" ||
+    code === "EXECUTION_CANCELLED" ||
+    code === "WORKSPACE_SCOPE_INVALID"
+  ) {
+    return RUN_TERMINAL_STATES.FAILED_RUNTIME;
+  }
   if (input.loopResult.stopReason === "tool_error") {
     return RUN_TERMINAL_STATES.FAILED_TOOL;
   }
