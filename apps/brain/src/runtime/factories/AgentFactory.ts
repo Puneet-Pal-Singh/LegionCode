@@ -34,20 +34,17 @@ import type { SecureExecutionWorkspaceScope } from "../RuntimeWorkspaceScope";
 export function resolveAgent(
   env: Env,
   llmGateway: LLMGateway,
-  _sessionId: string,
+  sessionId: string,
   runId: string,
   userId: string | undefined,
   requestedAgentType: AgentType,
   workspaceScope?: SecureExecutionWorkspaceScope,
   options: { strict?: boolean; correlationId?: string } = {},
+  executionService?: ExecutionService,
 ): IAgent | undefined {
-  const executionService = new ExecutionService(
-    env,
-    runId,
-    runId,
-    userId,
-    workspaceScope,
-  );
+  const resolvedExecutionService =
+    executionService ??
+    new ExecutionService(env, sessionId, runId, userId, workspaceScope);
 
   const runtimeExecutionService = {
     execute: (
@@ -55,7 +52,10 @@ export function resolveAgent(
       action: string,
       payloadData: Record<string, unknown>,
       options?: Parameters<ExecutionService["execute"]>[3],
-    ) => executionService.execute(plugin, action, payloadData, options),
+      ) =>
+        resolvedExecutionService.execute(plugin, action, payloadData, options),
+      releaseExecutionSession: () =>
+        resolvedExecutionService.releaseExecutionSession(),
   };
 
   const registry = buildAgentRegistry(llmGateway, runtimeExecutionService);
@@ -86,6 +86,7 @@ function buildAgentRegistry(
       payloadData: Record<string, unknown>,
       options?: Parameters<ExecutionService["execute"]>[3],
     ) => Promise<unknown>;
+    releaseExecutionSession: () => Promise<void>;
   },
 ): AgentRegistry {
   const registry = new AgentRegistry();

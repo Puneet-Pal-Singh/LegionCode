@@ -95,6 +95,7 @@ import {
   finalizeRunWithAssistantMessage,
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
+import { createRuntimeFinalText } from "./FinalAssistantMessageService.js";
 import {
   recordLifecycleStep,
   recordOrchestrationActivation,
@@ -173,6 +174,7 @@ export class RuntimeKernelNativeRunner {
   private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
   private readonly workspaceBootstrapper;
+  private readonly releaseExecutionSession?: () => Promise<void>;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -231,6 +233,7 @@ export class RuntimeKernelNativeRunner {
       });
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.releaseExecutionSession = dependencies.releaseExecutionSession;
     this.memoryCoordinator =
       dependencies.memoryCoordinator ??
       new MemoryCoordinator({
@@ -245,6 +248,9 @@ export class RuntimeKernelNativeRunner {
       return await this.executeActiveTurn(input);
     } finally {
       this.endActiveTurn(input.turnId);
+      if (this.releaseExecutionSession) {
+        await this.releaseExecutionSession();
+      }
     }
   }
 
@@ -375,12 +381,14 @@ export class RuntimeKernelNativeRunner {
     }
     const finalMessage = buildAgenticLoopFinalMessage(provider.buildResult());
     recordAgenticLoopMetadata(run, provider.buildResult());
-    const modelParts = finalMessage.parts;
+    const modelParts =
+      finalMessage.source === "model" ? finalMessage.parts : undefined;
     const response = await finalizeRunWithAssistantMessage({
       run,
-      runtimeText: modelParts?.length
-        ? undefined
-        : finalMessage.text || result.output,
+      runtimeFinal:
+        finalMessage.source === "runtime"
+          ? createRuntimeFinalText(finalMessage.text || result.output)
+          : undefined,
       modelParts,
       metadata: {
         ...(finalMessage.metadata ?? {}),
@@ -451,7 +459,7 @@ export class RuntimeKernelNativeRunner {
     recordLifecycleStep(run, "PLAN_VALIDATED");
     return await finalizeRunWithAssistantMessage({
       run,
-      runtimeText: buildPlanModeResponse(planArtifact),
+      runtimeFinal: createRuntimeFinalText(buildPlanModeResponse(planArtifact)),
       deps: this.getRunCompletionDependencies(),
     });
   }
@@ -515,7 +523,7 @@ export class RuntimeKernelNativeRunner {
       );
       return await finalizeRunWithAssistantMessage({
         run,
-        runtimeText: message,
+        runtimeFinal: createRuntimeFinalText(message),
         metadata: { terminalState },
         deps: this.getRunCompletionDependencies(),
       });
@@ -608,7 +616,7 @@ export class RuntimeKernelNativeRunner {
 
     return await finalizeRunWithAssistantMessage({
       run,
-      runtimeText: bootstrapEvaluation.message,
+      runtimeFinal: createRuntimeFinalText(bootstrapEvaluation.message),
       deps: this.getRunCompletionDependencies(),
     });
   }

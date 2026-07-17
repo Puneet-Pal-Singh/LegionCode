@@ -27,6 +27,7 @@ export const LIFECYCLE_SCHEMA_VERSION = 1;
 export const TurnStatusSchema = z.enum([
   "queued",
   "in_progress",
+  "awaiting_approval",
   "completed",
   "interrupted",
   "failed",
@@ -263,7 +264,14 @@ export class LifecycleTransitionError extends Error {
 
 const TURN_TRANSITIONS = {
   queued: ["in_progress", "interrupted", "failed"],
-  in_progress: ["in_progress", "completed", "interrupted", "failed"],
+  in_progress: [
+    "in_progress",
+    "awaiting_approval",
+    "completed",
+    "interrupted",
+    "failed",
+  ],
+  awaiting_approval: ["in_progress", "completed", "interrupted", "failed"],
   completed: [],
   interrupted: [],
   failed: [],

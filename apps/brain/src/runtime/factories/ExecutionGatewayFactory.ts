@@ -18,6 +18,7 @@ import { resolveAgent } from "./AgentFactory";
 import { buildSessionMemoryClient } from "./SessionMemoryFactory";
 import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
 import { WorkspaceBootstrapService } from "../services/WorkspaceBootstrapService";
+import { ExecutionService } from "../../services/ExecutionService";
 import { getUserSessionByUserId } from "../../services/AuthService";
 import {
   canonicalRuntimeWorkspaceRoot,
@@ -86,6 +87,14 @@ export function buildRuntimeDependencies(
     root: canonicalRuntimeWorkspaceRoot(payload.runId),
   });
 
+  const executionService = new ExecutionService(
+    env,
+    payload.sessionId,
+    payload.runId,
+    payload.userId,
+    workspaceScope,
+  );
+
   const agent = resolveAgent(
     env,
     llmGateway,
@@ -98,6 +107,7 @@ export function buildRuntimeDependencies(
       strict: options.strict ?? true,
       correlationId: payload.correlationId,
     },
+    executionService,
   );
 
   // Build session memory client
@@ -110,6 +120,7 @@ export function buildRuntimeDependencies(
     payload.runId,
     payload.userId,
     workspaceScope,
+    executionService,
   );
 
   return {
@@ -126,6 +137,7 @@ export function buildRuntimeDependencies(
       workspaceBootstrapper,
       hasGitHubAuth: async ({ userId }) =>
         hasGitHubTokenForUser(env, userId ?? payload.userId),
+      releaseExecutionSession: () => executionService.releaseExecutionSession(),
     },
   };
 }

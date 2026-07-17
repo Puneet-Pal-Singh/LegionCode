@@ -14,10 +14,10 @@ import {
   ApprovalIdSchema,
   createRunAttemptId,
   createThreadId,
-  createTurnId,
   EventSequenceSchema,
   type LifecycleEvent,
   RunIdSchema,
+  turnIdFromRunId,
   TurnScopeBootstrapRequestSchema,
   TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
@@ -644,10 +644,37 @@ export class RunEngineRequestHandler {
 
       return await this.withExecutionLock(input.runId, async () => {
         await this.ensureTurnToRunMapLoaded();
+
+        // Bootstrap is idempotent for the server-owned run. A reload or a
+        // second client must receive the exact tuple that execution already
+        // owns; generating another turn here makes lifecycle routing diverge.
+        const existing = [...this.turnRuntimeIdentities.values()].find(
+          (candidate) =>
+            candidate.runId === input.runId &&
+            candidate.sessionId === input.sessionId &&
+            candidate.workspaceId === workspaceId,
+        );
+        if (existing) {
+          this.createLifecycleEventStream().start(existing.turnId);
+          return runEngineJsonResponse(
+            request,
+            this.env,
+            TurnScopeBootstrapSchema.parse({
+              workspaceId: existing.workspaceId,
+              threadId: existing.threadId,
+              turnId: existing.turnId,
+              runAttemptId: existing.runAttemptId,
+            }),
+            200,
+          );
+        }
+
         const identity = TurnScopeBootstrapSchema.parse({
           workspaceId,
           threadId: createThreadId(),
-          turnId: createTurnId(),
+          // Public lifecycle routes can recover the owning run only when the
+          // server-issued turn carries the canonical run routing segment.
+          turnId: turnIdFromRunId(input.runId, input.sessionId),
           runAttemptId: createRunAttemptId(),
         });
         await this.mapTurnToRun(identity.turnId, input.runId, {
