@@ -1,5 +1,6 @@
 import type {
   DiffContent,
+  EditArtifactIdentity,
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
@@ -42,6 +43,7 @@ export type ReviewSourceSelection =
       kind: "prompt_artifact";
       artifactId: string;
       assistantMessageId?: string;
+      identity?: EditArtifactIdentity;
       /** Tracks whether a saved edit was explicitly requested or opened from chat. */
       reason: "explicit" | "chat_artifact";
     }
@@ -54,6 +56,7 @@ export type ReviewSourceSelection =
 export interface OpenedReviewArtifact {
   artifactId: string;
   assistantMessageId?: string;
+  identity?: EditArtifactIdentity;
 }
 
 interface ResolveReviewSourceInput {
@@ -88,6 +91,7 @@ export function resolveReviewSource(
       kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
       assistantMessageId: input.openedArtifact.assistantMessageId,
+      identity: input.openedArtifact.identity,
       reason: "chat_artifact",
     };
   }
@@ -107,6 +111,7 @@ function resolveExplicitSavedEdit(
       kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
       assistantMessageId: input.openedArtifact.assistantMessageId,
+      identity: input.openedArtifact.identity,
       reason: "explicit",
     };
   }
@@ -126,6 +131,12 @@ function toSavedEditSelection(
     kind: "prompt_artifact",
     artifactId: source.artifactId,
     assistantMessageId: source.assistantMessageId,
+    identity: {
+      threadId: source.threadId,
+      turnId: source.turnId,
+      runAttemptId: source.runAttemptId,
+      workspaceId: source.workspaceId,
+    },
     reason,
   };
 }

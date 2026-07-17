@@ -133,12 +133,58 @@ describe("MemoryArtifactRepository", () => {
       }),
     ).rejects.toThrow("Artifact not found: artifact-1");
   });
+
+  it("requires the full server-owned turn identity for message review lookup", async () => {
+    const repository = new MemoryArtifactRepository();
+    await repository.createPendingArtifact(
+      baseArtifact({
+        id: "artifact-1",
+        userId: "user-1",
+        assistantMessageId: "assistant-1",
+        turnId: "turn-1",
+      }),
+    );
+    await repository.createPendingArtifact(
+      baseArtifact({
+        id: "artifact-2",
+        userId: "user-1",
+        assistantMessageId: "assistant-1",
+        turnId: "turn-2",
+      }),
+    );
+    await repository.updateStatus({
+      artifactId: "artifact-1",
+      userId: "user-1",
+      status: "stored",
+    });
+    await repository.updateStatus({
+      artifactId: "artifact-2",
+      userId: "user-1",
+      status: "stored",
+    });
+
+    const artifact = await repository.getReviewArtifactByMessage({
+      runId: "run-1",
+      userId: "user-1",
+      assistantMessageId: "assistant-1",
+      identity: {
+        threadId: "thread-1",
+        turnId: "turn-2",
+        runAttemptId: "attempt-1",
+        workspaceId: "workspace-1",
+      },
+    });
+
+    expect(artifact?.id).toBe("artifact-2");
+  });
 });
 
 function baseArtifact(input: {
   userId: string;
   id?: string;
   captureSequence?: number;
+  assistantMessageId?: string;
+  turnId?: string;
 }) {
   const id = input.id ?? "artifact-1";
   return {
@@ -147,6 +193,9 @@ function baseArtifact(input: {
     runId: "run-1",
     sessionId: "session-1",
     workspaceId: "workspace-1",
+    threadId: "thread-1",
+    turnId: input.turnId ?? "turn-1",
+    runAttemptId: "attempt-1",
     repoOwner: "owner",
     repoName: "repo",
     repoUrl: "https://github.com/owner/repo",
@@ -155,6 +204,7 @@ function baseArtifact(input: {
     artifactKind: "git_patch" as const,
     r2ObjectKey: `edit-artifacts/user-1/workspace-1/run-1/${id}/diff.patch`,
     changedFiles: [{ path: "src/main.ts", status: "modified" }],
+    assistantMessageId: input.assistantMessageId,
     captureSequence: input.captureSequence,
     expiresAt: "2999-01-01T00:00:00.000Z",
   };

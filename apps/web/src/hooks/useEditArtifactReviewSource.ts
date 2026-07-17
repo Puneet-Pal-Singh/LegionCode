@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PromptArtifactReviewSource } from "@repo/shared-types";
+import type {
+  EditArtifactIdentity,
+  PromptArtifactReviewSource,
+} from "@repo/shared-types";
 import {
   getEditArtifactReviewSourceByMessage,
   getLatestEditArtifactReviewSource,
@@ -11,6 +14,7 @@ interface UseEditArtifactReviewSourceInput {
   runId?: string;
   sessionId?: string;
   assistantMessageId?: string;
+  identity?: EditArtifactIdentity | null;
   enabled: boolean;
 }
 
@@ -34,7 +38,7 @@ export function useEditArtifactReviewSource(
   const requestIdRef = useRef(0);
 
   const refetch = useCallback(async (): Promise<void> => {
-    if (!input.enabled || !input.runId) {
+    if (!input.enabled || !input.runId || !input.identity) {
       requestIdRef.current += 1;
       setSource(null);
       setLoading(false);
@@ -59,10 +63,12 @@ export function useEditArtifactReviewSource(
         ? await getEditArtifactReviewSourceByMessage({
             runId: input.runId,
             assistantMessageId: input.assistantMessageId,
+            identity: input.identity,
           })
         : await getLatestEditArtifactReviewSource({
             runId: input.runId,
             sessionId: input.sessionId,
+            identity: input.identity,
           });
       if (requestId !== requestIdRef.current) {
         logClientEvent("review/source", "discarded", {
@@ -104,7 +110,13 @@ export function useEditArtifactReviewSource(
         setResolved(true);
       }
     }
-  }, [input.assistantMessageId, input.enabled, input.runId, input.sessionId]);
+  }, [
+    input.assistantMessageId,
+    input.enabled,
+    input.identity,
+    input.runId,
+    input.sessionId,
+  ]);
 
   useEffect(() => {
     void refetch();

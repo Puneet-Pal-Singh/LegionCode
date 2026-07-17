@@ -1,6 +1,7 @@
 import { createContext } from "react";
 import type {
   DiffContent,
+  EditArtifactIdentity,
   FileStatus,
   GitMutationErrorCode,
   GitMutationErrorMetadata,
@@ -24,6 +25,7 @@ export interface GitReviewProviderProps {
   isReviewDataEnabled?: boolean;
   isGitWorkspaceRecovering?: boolean;
   canonicalTurnReview?: CanonicalTurnReviewSource | null;
+  artifactIdentity?: EditArtifactIdentity | null;
 }
 
 export interface GitReviewContextValue {
@@ -59,6 +61,7 @@ export interface GitReviewContextValue {
   openPromptArtifactReview: (
     artifactId: string,
     assistantMessageId?: string,
+    identity?: EditArtifactIdentity,
   ) => void;
   openLiveGitReview: () => void;
   closeReview: () => void;

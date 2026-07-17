@@ -37,6 +37,7 @@ export { providerConnectionConfigMigration } from "./migrations/0015-provider-co
 export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event-tables.js";
 export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
 export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-workspace-manifests-artifact-metadata.js";
+export { artifactProvenanceMigration } from "./migrations/0023-artifact-provenance.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,

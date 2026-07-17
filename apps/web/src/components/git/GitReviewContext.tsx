@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { DiffContent } from "@repo/shared-types";
+import type { DiffContent, EditArtifactIdentity } from "@repo/shared-types";
 import { useRunContext } from "../../hooks/useRunContext";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { useGitDiff } from "../../hooks/useGitDiff";
@@ -31,6 +31,7 @@ export function GitReviewProvider({
   isReviewDataEnabled = true,
   isGitWorkspaceRecovering = false,
   canonicalTurnReview = null,
+  artifactIdentity = null,
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
   const shouldLoadReviewData =
@@ -65,6 +66,7 @@ export function GitReviewProvider({
     sessionId: sessionId ?? undefined,
     liveGitFiles,
     canonicalTurnReview,
+    artifactIdentity,
     enabled: shouldLoadReviewData,
   });
   const {
@@ -89,9 +91,14 @@ export function GitReviewProvider({
       reviewSource.kind === "turn_diff"
         ? (canonicalTurnReview?.files ?? EMPTY_FILE_STATUSES)
         : reviewSource.kind === "prompt_artifact"
-        ? mapArtifactFilesToStatus(promptArtifactSource?.files ?? [])
-        : liveGitFiles,
-    [canonicalTurnReview?.files, liveGitFiles, promptArtifactSource?.files, reviewSource.kind],
+          ? mapArtifactFilesToStatus(promptArtifactSource?.files ?? [])
+          : liveGitFiles,
+    [
+      canonicalTurnReview?.files,
+      liveGitFiles,
+      promptArtifactSource?.files,
+      reviewSource.kind,
+    ],
   );
   const [turnDiffState, setTurnDiffState] = useState<{
     turnId: string | null;
@@ -200,8 +207,12 @@ export function GitReviewProvider({
     onReviewOpenChange(true);
   }, [fileSelection, onReviewOpenChange, openLiveGitReviewSource]);
   const openPromptArtifactReview = useCallback(
-    (artifactId: string, assistantMessageId?: string): void => {
-      openPromptArtifactReviewSource(artifactId, assistantMessageId);
+    (
+      artifactId: string,
+      assistantMessageId?: string,
+      identity?: EditArtifactIdentity,
+    ): void => {
+      openPromptArtifactReviewSource(artifactId, assistantMessageId, identity);
       fileSelection.setSelectedFilePath(null);
       onReviewOpenChange(true);
     },

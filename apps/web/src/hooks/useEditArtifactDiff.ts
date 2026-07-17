@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DiffContent } from "@repo/shared-types";
+import type { DiffContent, EditArtifactIdentity } from "@repo/shared-types";
 import { getEditArtifactDiff } from "../lib/edit-artifacts-client.js";
 
 export interface UseEditArtifactDiffResult {
@@ -11,6 +11,7 @@ export interface UseEditArtifactDiffResult {
 
 export function useEditArtifactDiff(
   artifactId: string | undefined,
+  identity: EditArtifactIdentity | null,
 ): UseEditArtifactDiffResult {
   const [diff, setDiff] = useState<DiffContent | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,11 +25,11 @@ export function useEditArtifactDiff(
     setDiff(null);
     setLoading(false);
     setError(null);
-  }, [artifactId]);
+  }, [artifactId, identity]);
 
   const fetchDiff = useCallback(
     async (path: string): Promise<void> => {
-      if (!artifactId) {
+      if (!artifactId || !identity) {
         latestRequestIdRef.current += 1;
         setError("No edit artifact selected");
         return;
@@ -48,7 +49,11 @@ export function useEditArtifactDiff(
       setError(null);
 
       try {
-        const response = await getEditArtifactDiff({ artifactId, path });
+        const response = await getEditArtifactDiff({
+          artifactId,
+          path,
+          identity,
+        });
         if (requestId !== latestRequestIdRef.current) {
           return;
         }
@@ -67,7 +72,7 @@ export function useEditArtifactDiff(
         }
       }
     },
-    [artifactId],
+    [artifactId, identity],
   );
 
   return { diff, loading, error, fetch: fetchDiff };

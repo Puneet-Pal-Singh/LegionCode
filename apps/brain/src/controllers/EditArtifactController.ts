@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EditArtifactIdentitySchema } from "@repo/shared-types";
 import {
   errorResponse,
   jsonResponse,
@@ -18,11 +19,13 @@ import {
 const LatestArtifactQuerySchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1).optional(),
+  ...EditArtifactIdentitySchema.shape,
 });
 
 const MessageArtifactQuerySchema = z.object({
   runId: z.string().min(1),
   assistantMessageId: z.string().min(1),
+  ...EditArtifactIdentitySchema.shape,
 });
 
 const ArtifactPathParamsSchema = z.object({
@@ -31,6 +34,7 @@ const ArtifactPathParamsSchema = z.object({
 
 const ArtifactDiffQuerySchema = z.object({
   path: z.string().min(1),
+  ...EditArtifactIdentitySchema.shape,
 });
 
 export class EditArtifactController {
@@ -45,7 +49,14 @@ export class EditArtifactController {
       const source = await new EditArtifactReviewService(
         env,
       ).getLatestReviewSource({
-        ...query,
+        runId: query.runId,
+        sessionId: query.sessionId,
+        identity: {
+          threadId: query.threadId,
+          turnId: query.turnId,
+          runAttemptId: query.runAttemptId,
+          workspaceId: query.workspaceId,
+        },
         userId: auth.userId,
       });
 
@@ -69,7 +80,14 @@ export class EditArtifactController {
       const source = await new EditArtifactReviewService(
         env,
       ).getReviewSourceByMessage({
-        ...query,
+        runId: query.runId,
+        assistantMessageId: query.assistantMessageId,
+        identity: {
+          threadId: query.threadId,
+          turnId: query.turnId,
+          runAttemptId: query.runAttemptId,
+          workspaceId: query.workspaceId,
+        },
         userId: auth.userId,
       });
 
@@ -89,7 +107,9 @@ export class EditArtifactController {
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
-      const params = ArtifactPathParamsSchema.parse(readArtifactParams(request));
+      const params = ArtifactPathParamsSchema.parse(
+        readArtifactParams(request),
+      );
       const files = await new EditArtifactReviewService(env).getArtifactFiles({
         artifactId: params.artifactId,
         userId,
@@ -107,12 +127,20 @@ export class EditArtifactController {
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
-      const params = ArtifactPathParamsSchema.parse(readArtifactParams(request));
+      const params = ArtifactPathParamsSchema.parse(
+        readArtifactParams(request),
+      );
       const query = ArtifactDiffQuerySchema.parse(readQuery(request));
       const diff = await new EditArtifactReviewService(env).getArtifactDiff({
         artifactId: params.artifactId,
         userId,
         path: query.path,
+        identity: {
+          threadId: query.threadId,
+          turnId: query.turnId,
+          runAttemptId: query.runAttemptId,
+          workspaceId: query.workspaceId,
+        },
       });
       return jsonResponse(request, env, diff);
     } catch (error) {

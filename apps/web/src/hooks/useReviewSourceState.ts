@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type {
+  EditArtifactIdentity,
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
@@ -18,6 +19,7 @@ interface UseReviewSourceStateInput {
   liveGitFiles: FileStatus[];
   canonicalTurnReview?: CanonicalTurnReviewSource | null;
   enabled?: boolean;
+  artifactIdentity?: EditArtifactIdentity | null;
 }
 
 export function useReviewSourceState({
@@ -26,6 +28,7 @@ export function useReviewSourceState({
   liveGitFiles,
   canonicalTurnReview = null,
   enabled = true,
+  artifactIdentity = null,
 }: UseReviewSourceStateInput) {
   const reviewTargetKey = `${runId ?? ""}:${sessionId ?? ""}`;
   const [requestedScopeState, setRequestedScopeState] =
@@ -75,6 +78,7 @@ export function useReviewSourceState({
     runId,
     sessionId,
     assistantMessageId: openedArtifact?.assistantMessageId,
+    identity: openedArtifact?.identity ?? artifactIdentity,
     enabled: shouldLoadArtifactSource,
   });
   const reviewSource = useMemo(
@@ -86,13 +90,24 @@ export function useReviewSourceState({
         latestArtifactSource: promptArtifactSource,
         canonicalTurnReview,
       }),
-    [canonicalTurnReview, liveGitFiles, openedArtifact, promptArtifactSource, requestedScope],
+    [
+      canonicalTurnReview,
+      liveGitFiles,
+      openedArtifact,
+      promptArtifactSource,
+      requestedScope,
+    ],
   );
   const selectedArtifactId =
     reviewSource.kind === "prompt_artifact"
       ? reviewSource.artifactId
       : undefined;
-  const artifactDiffState = useEditArtifactDiff(selectedArtifactId);
+  const artifactDiffState = useEditArtifactDiff(
+    selectedArtifactId,
+    reviewSource.kind === "prompt_artifact"
+      ? (reviewSource.identity ?? artifactIdentity)
+      : artifactIdentity,
+  );
   const reviewScope = requestedScope ?? sourceKindToScope(reviewSource.kind);
   const reviewSourceLoading =
     shouldLoadArtifactSource &&
@@ -142,9 +157,13 @@ function useReviewSourceControls({
   }, [setOpenedArtifact, setRequestedScope]);
 
   const openPromptArtifactReviewSource = useCallback(
-    (artifactId: string, assistantMessageId?: string) => {
+    (
+      artifactId: string,
+      assistantMessageId?: string,
+      identity?: EditArtifactIdentity,
+    ) => {
       setRequestedScope("prompt-artifact");
-      setOpenedArtifact({ artifactId, assistantMessageId });
+      setOpenedArtifact({ artifactId, assistantMessageId, identity });
     },
     [setOpenedArtifact, setRequestedScope],
   );
@@ -179,6 +198,7 @@ function resolveOpenedArtifact(
     return {
       artifactId: reviewSource.artifactId,
       assistantMessageId: reviewSource.assistantMessageId,
+      identity: reviewSource.identity,
     };
   }
 
@@ -186,11 +206,19 @@ function resolveOpenedArtifact(
     ? {
         artifactId: promptArtifactSource.artifactId,
         assistantMessageId: promptArtifactSource.assistantMessageId,
+        identity: {
+          threadId: promptArtifactSource.threadId,
+          turnId: promptArtifactSource.turnId,
+          runAttemptId: promptArtifactSource.runAttemptId,
+          workspaceId: promptArtifactSource.workspaceId,
+        },
       }
     : null;
 }
 
-function sourceKindToScope(kind: "live_git" | "prompt_artifact" | "turn_diff"): ReviewScope {
+function sourceKindToScope(
+  kind: "live_git" | "prompt_artifact" | "turn_diff",
+): ReviewScope {
   if (kind === "prompt_artifact") return "prompt-artifact";
   if (kind === "turn_diff") return "turn-diff";
   return "git-changes";

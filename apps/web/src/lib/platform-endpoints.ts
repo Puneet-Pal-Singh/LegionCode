@@ -255,8 +255,18 @@ export function gitDiffPath(options: {
 export function latestEditArtifactPath(options: {
   runId: string;
   sessionId?: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+  workspaceId: string;
 }): string {
-  const params = new URLSearchParams({ runId: options.runId });
+  const params = new URLSearchParams({
+    runId: options.runId,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    runAttemptId: options.runAttemptId,
+    workspaceId: options.workspaceId,
+  });
   if (options.sessionId) {
     params.set("sessionId", options.sessionId);
   }
@@ -266,10 +276,18 @@ export function latestEditArtifactPath(options: {
 export function editArtifactByMessagePath(options: {
   runId: string;
   assistantMessageId: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+  workspaceId: string;
 }): string {
   const params = new URLSearchParams({
     runId: options.runId,
     assistantMessageId: options.assistantMessageId,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    runAttemptId: options.runAttemptId,
+    workspaceId: options.workspaceId,
   });
   return `${getBrainHttpBase()}/api/edit-artifacts/by-message?${params.toString()}`;
 }
@@ -277,8 +295,18 @@ export function editArtifactByMessagePath(options: {
 export function editArtifactDiffPath(options: {
   artifactId: string;
   path: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+  workspaceId: string;
 }): string {
-  const params = new URLSearchParams({ path: options.path });
+  const params = new URLSearchParams({
+    path: options.path,
+    threadId: options.threadId,
+    turnId: options.turnId,
+    runAttemptId: options.runAttemptId,
+    workspaceId: options.workspaceId,
+  });
   return `${getBrainHttpBase()}/api/edit-artifacts/${encodeURIComponent(
     options.artifactId,
   )}/diff?${params.toString()}`;

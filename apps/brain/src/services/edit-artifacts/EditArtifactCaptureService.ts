@@ -2,6 +2,7 @@ import type {
   EditArtifactChangedFile,
   EditArtifactPatchObjectMetadata,
   EditArtifactRecord,
+  EditArtifactIdentity,
   GitStatusResponse,
   RunEvent,
   ToolCompletedEvent,
@@ -26,6 +27,9 @@ interface CaptureAfterRunInput {
   runId: string;
   sessionId: string;
   workspaceId: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
   muscleSession: string;
   repoOwner: string | null;
   repoName: string | null;
@@ -33,7 +37,6 @@ interface CaptureAfterRunInput {
   changedFiles: EditArtifactChangedFile[];
   userMessageId?: string;
   assistantMessageId?: string;
-  sourceTurnId?: string;
   captureSequence?: number;
   baselineTree?: string;
 }
@@ -261,6 +264,9 @@ export class EditArtifactCaptureService {
       runId: input.input.runId,
       sessionId: input.input.sessionId,
       workspaceId: input.input.workspaceId,
+      threadId: input.input.threadId,
+      turnId: input.input.turnId,
+      runAttemptId: input.input.runAttemptId,
       repoOwner: input.input.repoOwner,
       repoName: input.input.repoName,
       repoUrl: input.input.repoUrl,
@@ -271,7 +277,6 @@ export class EditArtifactCaptureService {
       changedFiles: input.changedFiles,
       userMessageId: input.input.userMessageId ?? null,
       assistantMessageId: input.input.assistantMessageId ?? null,
-      sourceTurnId: input.input.sourceTurnId ?? null,
       captureSequence: input.input.captureSequence ?? 0,
       patchParseStatus: "unknown",
       patchSha256: null,
@@ -375,7 +380,6 @@ export class EditArtifactCaptureService {
       userId: input.userId,
       userMessageId: input.userMessageId ?? null,
       assistantMessageId: input.assistantMessageId ?? null,
-      sourceTurnId: input.sourceTurnId ?? null,
       captureSequence: input.captureSequence ?? 0,
       patchParseStatus: parseStatus,
       patchSha256,
@@ -445,7 +449,6 @@ interface EditArtifactCapturePort {
 interface EditArtifactMessageContext {
   userMessageId?: string;
   assistantMessageId?: string;
-  sourceTurnId?: string;
 }
 
 interface EditArtifactCoordinator {
@@ -471,6 +474,9 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
       runId: string;
       sessionId: string;
       workspaceId: string;
+      threadId: string;
+      turnId: string;
+      runAttemptId: string;
       muscleSession: string;
       repoOwner: string | null;
       repoName: string | null;
@@ -559,6 +565,7 @@ export function createEditArtifactCoordinator(input: {
   env: Env;
   userId?: string;
   workspaceId?: string;
+  identity?: EditArtifactIdentity;
   runId: string;
   sessionId: string;
   repositoryContext?: {
@@ -567,7 +574,12 @@ export function createEditArtifactCoordinator(input: {
     baseUrl?: string;
   };
 }): EditArtifactCoordinator {
-  if (!input.env.EDIT_ARTIFACTS || !input.userId || !input.workspaceId) {
+  if (
+    !input.env.EDIT_ARTIFACTS ||
+    !input.userId ||
+    !input.workspaceId ||
+    !input.identity
+  ) {
     return new NoopEditArtifactCoordinator();
   }
 
@@ -578,6 +590,9 @@ export function createEditArtifactCoordinator(input: {
       runId: input.runId,
       sessionId: input.sessionId,
       workspaceId: input.workspaceId,
+      threadId: input.identity.threadId,
+      turnId: input.identity.turnId,
+      runAttemptId: input.identity.runAttemptId,
       muscleSession: input.runId,
       repoOwner: input.repositoryContext?.owner ?? null,
       repoName: input.repositoryContext?.repo ?? null,
@@ -610,7 +625,6 @@ function removeEmptyMessageContextFields(
   return {
     userMessageId: normalizeOptionalMessageId(context.userMessageId),
     assistantMessageId: normalizeOptionalMessageId(context.assistantMessageId),
-    sourceTurnId: normalizeOptionalMessageId(context.sourceTurnId),
   };
 }
 
@@ -668,6 +682,9 @@ function buildPatchMetadata(
     runId: input.input.runId,
     sessionId: input.input.sessionId,
     workspaceId: input.input.workspaceId,
+    threadId: input.input.threadId,
+    turnId: input.input.turnId,
+    runAttemptId: input.input.runAttemptId,
     repoOwner: input.input.repoOwner,
     repoName: input.input.repoName,
     branch: input.artifact.branch,
@@ -675,7 +692,6 @@ function buildPatchMetadata(
     patchSha256,
     userMessageId: input.input.userMessageId ?? null,
     assistantMessageId: input.input.assistantMessageId ?? null,
-    sourceTurnId: input.input.sourceTurnId ?? null,
     captureSequence: input.input.captureSequence ?? 0,
     patchParseStatus: "unknown",
     storageBackend: "r2_postgres",

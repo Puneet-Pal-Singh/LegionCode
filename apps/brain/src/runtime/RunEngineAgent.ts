@@ -43,6 +43,7 @@ export class RunEngineAgent extends CloudflareAgent<Env> {
           result.runId,
           result.correlationId,
           result.response,
+          result.identity,
         );
       });
     }

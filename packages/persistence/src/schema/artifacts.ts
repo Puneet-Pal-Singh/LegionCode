@@ -36,6 +36,9 @@ export const artifacts = pgTable(
     runId: text("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
+    threadId: text("thread_id"),
+    turnId: text("turn_id"),
+    runAttemptId: text("run_attempt_id"),
     repoOwner: text("repo_owner"),
     repoName: text("repo_name"),
     repoUrl: text("repo_url"),
@@ -49,7 +52,6 @@ export const artifacts = pgTable(
     sha256: text("sha256"),
     userMessageId: text("user_message_id"),
     assistantMessageId: text("assistant_message_id"),
-    sourceTurnId: text("source_turn_id"),
     captureSequence: integer("capture_sequence").notNull().default(0),
     patchParseStatus: text("patch_parse_status").notNull().default("unknown"),
     patchSha256: text("patch_sha256"),
@@ -59,13 +61,23 @@ export const artifacts = pgTable(
     cfArtifactPath: text("cf_artifact_path"),
     storageReconciliationStatus: text("storage_reconciliation_status"),
     status: text("status").notNull().default("pending"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
-    check("artifacts_kind_check", sql.raw(`artifact_kind IN (${buildSqlList(EDIT_ARTIFACT_KINDS)})`)),
-    check("artifacts_status_check", sql.raw(`status IN (${buildSqlList(EDIT_ARTIFACT_STATUSES)})`)),
+    check(
+      "artifacts_kind_check",
+      sql.raw(`artifact_kind IN (${buildSqlList(EDIT_ARTIFACT_KINDS)})`),
+    ),
+    check(
+      "artifacts_status_check",
+      sql.raw(`status IN (${buildSqlList(EDIT_ARTIFACT_STATUSES)})`),
+    ),
     uniqueIndex("artifacts_r2_object_key_idx").on(table.r2ObjectKey),
     index("artifacts_user_workspace_updated_idx").on(
       table.userId,
@@ -114,10 +126,15 @@ export const artifactEvents = pgTable(
     eventType: text("event_type").notNull(),
     message: text("message").notNull(),
     metadataJson: jsonb("metadata_json"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
-    check("artifact_events_type_check", sql.raw(`event_type IN (${buildSqlList(EDIT_ARTIFACT_EVENT_TYPES)})`)),
+    check(
+      "artifact_events_type_check",
+      sql.raw(`event_type IN (${buildSqlList(EDIT_ARTIFACT_EVENT_TYPES)})`),
+    ),
     index("artifact_events_artifact_created_idx").on(
       table.artifactId,
       table.createdAt,
@@ -138,7 +155,12 @@ export const artifactChangedFiles = pgTable(
     deletions: integer("deletions"),
     metadataJson: jsonb("metadata_json"),
   },
-  (table) => [uniqueIndex("artifact_changed_files_artifact_path_idx").on(table.artifactId, table.path)],
+  (table) => [
+    uniqueIndex("artifact_changed_files_artifact_path_idx").on(
+      table.artifactId,
+      table.path,
+    ),
+  ],
 );
 
 function buildSqlList(values: readonly string[]): string {

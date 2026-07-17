@@ -38,6 +38,27 @@ is marked closed.
   `/auth/github/reauthorize` OAuth action, which reuses the control-plane
   callback and never places tokens in browser URLs or logs.
 
+## 2026-07-17 artifact provenance repair
+
+- **ARTIFACT-P0-MESSAGE-OWNERSHIP — FIXED_PENDING_PROOF**: artifact review
+  lookup now requires the server-owned `threadId`, `turnId`, `runAttemptId`,
+  and `workspaceId` together with `runId` and `assistantMessageId`. The
+  Brain review service has no latest-artifact fallback for by-message reads;
+  Postgres and memory repositories apply the complete identity predicate; and
+  Web rejects any response whose assistant-message or turn identity differs
+  from the request. Evidence: `EditArtifactReviewService.test.ts`,
+  `MemoryArtifactRepository.test.ts`, `edit-artifacts-client.test.ts`, and
+  the Web `changedFiles` tests pass.
+- **ARTIFACT-P0-CAPTURE-OWNERSHIP — FIXED_PENDING_PROOF**: the existing
+  capture coordinator remains the sole capture owner and records artifacts
+  only from edit-tool mutation metadata with a non-empty changed-file set; it
+  does not derive a failed/no-edit artifact from live Git. The coordinator,
+  patch metadata, assistant transcript metadata, and persisted artifact row
+  now carry the same server-issued identity. Evidence: the existing
+  `EditArtifactCaptureService.test.ts` failed/no-edit and baseline gates pass;
+  `EditArtifactReviewService.test.ts` verifies saved-patch reads without live
+  Git; shared-types, persistence, Brain, and Web typechecks pass.
+
 ## 2026-07-17 post-PR-406 recovery evidence
 
 PR #406 was merged to `dev`, but the following failures were reproduced on

@@ -108,6 +108,7 @@ export interface RunEngineExecuteResult {
   runId: string;
   sessionId: string;
   response: Response;
+  identity: z.infer<typeof TurnScopeBootstrapSchema>;
 }
 
 export type RunEnginePostExecutionResult =
@@ -854,6 +855,7 @@ export class RunEngineRequestHandler {
           env: this.env,
           userId: payload.userId,
           workspaceId: workspaceId.data,
+          identity,
           runId: payload.runId,
           sessionId: payload.sessionId,
           repositoryContext: payload.input.repositoryContext,
@@ -861,7 +863,6 @@ export class RunEngineRequestHandler {
         const userMessageId = readLatestUserMessageId(payload.messages);
         editArtifactCoordinator.setMessageContext({
           userMessageId: userMessageId ?? undefined,
-          sourceTurnId: userMessageId ?? undefined,
         });
         const runtimeRunner = new RuntimeKernelNativeRunner(
           runtimeState,
@@ -927,6 +928,7 @@ export class RunEngineRequestHandler {
               runId: payload.runId,
               sessionId: payload.sessionId,
               response: executionResponse,
+              identity,
             })
           : null;
         console.log(
