@@ -1488,7 +1488,8 @@ function mapCatalogEntryToRegistry(
       structuredOutputs: entry.capabilities.structuredOutputs,
     },
     modelSource: builtin?.modelSource ?? "static",
-    defaultModelId: entry.models[0]?.id ?? builtin?.defaultModelId,
+    defaultModelId:
+      entry.defaultModelId ?? entry.models[0]?.id ?? builtin?.defaultModelId,
     ...(builtin?.baseUrl ? { baseUrl: builtin.baseUrl } : {}),
     ...(builtin?.keyFormat ? { keyFormat: builtin.keyFormat } : {}),
   };
@@ -1841,7 +1842,7 @@ function resolveDefaultModel(
   const provider = catalog.providers.find(
     (entry) => entry.providerId === providerId,
   );
-  const modelId = provider?.models[0]?.id;
+  const modelId = provider?.defaultModelId ?? provider?.models[0]?.id;
   if (modelId) {
     return modelId;
   }
@@ -1922,7 +1923,7 @@ function resolveOptionalDefaultModel(
   const provider = catalog.providers.find(
     (entry) => entry.providerId === providerId,
   );
-  return provider?.models[0]?.id ?? null;
+  return provider?.defaultModelId ?? provider?.models[0]?.id ?? null;
 }
 
 async function persistCredentialLabel(

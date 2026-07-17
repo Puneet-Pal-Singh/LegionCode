@@ -7,8 +7,7 @@
 import type {
   BYOKDiscoveredProviderModelsResponse,
   BYOKDiscoveredProviderModelsQuery,
-  BYOKModelDiscoveryView,
-  ModelDescriptor,
+  BYOKDiscoveredProviderModelsRefreshResponse,
   ProviderCatalogEntry,
   ProviderCatalogResponse,
   ProviderRegistryEntry,
@@ -17,22 +16,24 @@ import type { ModelsListResponse } from "../../schemas/provider";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import {
+  ProviderModelDiscoveryApiError,
+  ProviderModelDiscoveryAuthError,
+  ProviderModelCacheError,
+  ProviderModelNormalizationError,
+} from "./model-discovery/errors";
+import {
   AXIS_PROVIDER_ID,
   getAxisCatalogModels,
   getAxisDiscoveredModels,
 } from "./axis";
 
-const CATALOG_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
-  view: "popular",
-  surface: "picker",
-  limit: 50,
-};
-
 const MODELS_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
   view: "all",
   surface: "picker",
-  limit: 1000,
+  limit: 200,
 };
+
+const MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 
 type ProviderCatalogVisibilityResolver = (
   provider: ProviderRegistryEntry,
@@ -54,14 +55,14 @@ export class ProviderCatalogService {
       if (!(await this.canExposeProviderSafely(provider))) {
         continue;
       }
-      const discoveredModels = await this.loadProviderModels(
-        provider.providerId,
-      );
       providers.push({
         providerId: provider.providerId,
         displayName: provider.displayName,
         capabilities: provider.capabilities,
-        models: discoveredModels,
+        models: [],
+        ...(provider.defaultModelId
+          ? { defaultModelId: provider.defaultModelId }
+          : {}),
       });
     }
 
@@ -72,129 +73,91 @@ export class ProviderCatalogService {
   }
 
   async getModels(providerId: string): Promise<ModelsListResponse> {
-    if (!(await this.isProviderVisible(providerId))) {
-      return {
-        providerId,
-        models: [],
-        lastFetchedAt: new Date().toISOString(),
-      };
-    }
-
-    const models = await this.loadProviderModels(providerId);
-    return {
-      providerId,
-      models,
-      lastFetchedAt: new Date().toISOString(),
-    };
-  }
-
-  private async loadProviderModels(
-    providerId: string,
-  ): Promise<ModelDescriptor[]> {
-    if (providerId === AXIS_PROVIDER_ID) {
-      return getAxisCatalogModels();
-    }
-
-    try {
-      const discovered = await this.modelDiscoveryService.getDiscoveredModels(
-        providerId,
-        CATALOG_DISCOVERY_QUERY,
-      );
-      return discovered.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        provider: providerId,
-        contextWindow: model.contextWindow,
-        description: model.description,
-      }));
-    } catch {
-      const defaultModelId = this.registryService.getDefaultModel(providerId);
-      if (!defaultModelId) {
-        return [];
-      }
-      return [
-        {
-          id: defaultModelId,
-          name: defaultModelId,
-          provider: providerId,
-        },
-      ];
-    }
-  }
-
-  async getDiscoveredModels(providerId: string): Promise<ModelsListResponse> {
-    if (!(await this.isProviderVisible(providerId))) {
-      return {
-        providerId,
-        models: [],
-        lastFetchedAt: new Date().toISOString(),
-      };
-    }
-
-    if (providerId === AXIS_PROVIDER_ID) {
-      return {
-        providerId,
-        models: getAxisCatalogModels(),
-        lastFetchedAt: new Date().toISOString(),
-      };
-    }
-
-    const discovered = await this.modelDiscoveryService.getDiscoveredModels(
+    const discovered = await this.getDiscoveredModels(
       providerId,
       MODELS_DISCOVERY_QUERY,
     );
-    return {
-      providerId,
-      models: discovered.models.map((model) => ({
-        id: model.id,
-        name: model.name,
-        provider: providerId,
-      })),
-      lastFetchedAt: discovered.metadata.fetchedAt,
-    };
+    return toModelsListResponse(discovered);
   }
 
-  async getStaticDiscoveredModelsForAxis(query: {
-    view: BYOKModelDiscoveryView;
-    limit: number;
-    cursor?: string;
-  }): Promise<BYOKDiscoveredProviderModelsResponse> {
-    const axisProvider = this.registryService.getProvider(AXIS_PROVIDER_ID);
-    if (!axisProvider || !(await this.canExposeProviderSafely(axisProvider))) {
-      return {
-        providerId: AXIS_PROVIDER_ID,
-        view: query.view,
-        models: [],
-        page: {
-          limit: query.limit,
-          cursor: query.cursor,
-          hasMore: false,
-        },
-        metadata: {
-          fetchedAt: new Date().toISOString(),
-          stale: false,
-          source: "provider_api",
-        },
-      };
+  async getDiscoveredModels(
+    providerId: string,
+    query: BYOKDiscoveredProviderModelsQuery,
+  ): Promise<BYOKDiscoveredProviderModelsResponse> {
+    const provider = this.registryService.getProvider(providerId);
+    if (!provider || !(await this.isProviderVisible(providerId))) {
+      return createUnavailableResponse(
+        providerId,
+        query,
+        "provider_unavailable",
+      );
     }
 
-    const models = getAxisDiscoveredModels();
-    const limited = models.slice(0, query.limit);
-    return {
-      providerId: AXIS_PROVIDER_ID,
-      view: query.view,
-      models: limited,
-      page: {
-        limit: query.limit,
-        cursor: query.cursor,
-        hasMore: false,
-      },
-      metadata: {
-        fetchedAt: new Date().toISOString(),
-        stale: false,
+    if (providerId === AXIS_PROVIDER_ID) {
+      return createRegistryResponse(
+        providerId,
+        query,
+        getAxisCatalogModels().map((model) => ({
+          id: model.id,
+          name: model.name,
+          providerId,
+          contextWindow: model.contextWindow,
+          description: model.description,
+        })),
+      );
+    }
+
+    if (provider.modelSource === "static") {
+      const defaultModelId = provider.defaultModelId;
+      return createRegistryResponse(
+        providerId,
+        query,
+        defaultModelId
+          ? [
+              {
+                id: defaultModelId,
+                name: defaultModelId,
+                providerId,
+              },
+            ]
+          : [],
+      );
+    }
+
+    try {
+      const discovered = await withTimeout(
+        this.modelDiscoveryService.getDiscoveredModels(providerId, query),
+        MODEL_DISCOVERY_TIMEOUT_MS,
+      );
+      return {
+        ...discovered,
+        metadata: {
+          ...discovered.metadata,
+          status: "available",
+        },
+      };
+    } catch (error) {
+      return createUnavailableResponse(
+        providerId,
+        query,
+        toUnavailableReason(error),
+      );
+    }
+  }
+
+  async refreshDiscoveredModels(
+    providerId: string,
+  ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
+    if (providerId === AXIS_PROVIDER_ID) {
+      return {
+        providerId: AXIS_PROVIDER_ID,
+        refreshedAt: new Date().toISOString(),
         source: "provider_api",
-      },
-    };
+        cacheInvalidated: false,
+        modelsCount: getAxisDiscoveredModels().length,
+      };
+    }
+    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
   }
 
   private async isProviderVisible(providerId: string): Promise<boolean> {
@@ -221,4 +184,114 @@ export class ProviderCatalogService {
       return false;
     }
   }
+}
+
+function toModelsListResponse(
+  discovered: BYOKDiscoveredProviderModelsResponse,
+): ModelsListResponse {
+  return {
+    providerId: discovered.providerId,
+    models: discovered.models.map((model) => ({
+      id: model.id,
+      name: model.name,
+      provider: discovered.providerId,
+      contextWindow: model.contextWindow,
+      description: model.description,
+    })),
+    lastFetchedAt: discovered.metadata.fetchedAt,
+  };
+}
+
+function createRegistryResponse(
+  providerId: string,
+  query: BYOKDiscoveredProviderModelsQuery,
+  models: BYOKDiscoveredProviderModelsResponse["models"],
+): BYOKDiscoveredProviderModelsResponse {
+  const now = new Date().toISOString();
+  const pageModels = models.slice(0, query.limit);
+  return {
+    providerId,
+    view: query.view,
+    models: pageModels,
+    page: {
+      limit: query.limit,
+      cursor: query.cursor,
+      hasMore: pageModels.length < models.length,
+    },
+    metadata: {
+      fetchedAt: now,
+      stale: false,
+      source: "registry",
+      status: "available",
+    },
+  };
+}
+
+function createUnavailableResponse(
+  providerId: string,
+  query: BYOKDiscoveredProviderModelsQuery,
+  statusReason: BYOKDiscoveredProviderModelsResponse["metadata"]["statusReason"],
+): BYOKDiscoveredProviderModelsResponse {
+  return {
+    providerId,
+    view: query.view,
+    models: [],
+    page: {
+      limit: query.limit,
+      cursor: query.cursor,
+      hasMore: false,
+    },
+    metadata: {
+      fetchedAt: new Date().toISOString(),
+      stale: true,
+      source: "cache",
+      staleReason: "provider_api_unavailable",
+      status: "unavailable",
+      statusReason,
+    },
+  };
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () =>
+        reject(
+          new ProviderModelDiscoveryApiError(
+            "Provider model discovery timed out.",
+            { status: 504, retryable: true },
+          ),
+        ),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+function toUnavailableReason(
+  error: unknown,
+): BYOKDiscoveredProviderModelsResponse["metadata"]["statusReason"] {
+  if (error instanceof ProviderModelDiscoveryAuthError) {
+    return "not_connected";
+  }
+  if (error instanceof ProviderModelCacheError) {
+    return "cache_unavailable";
+  }
+  if (error instanceof ProviderModelNormalizationError) {
+    return "invalid_response";
+  }
+  if (error instanceof ProviderModelDiscoveryApiError && error.status === 504) {
+    return "timeout";
+  }
+  return "provider_unavailable";
 }

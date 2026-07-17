@@ -21,13 +21,13 @@ import {
   type BYOKPreferencesUpdateRequest,
   type BYOKResolveRequest,
   ProviderRegistryEntry,
-  canPreloadProvider,
   canShowProviderInPrimaryUi,
 } from "@repo/shared-types";
 import {
   ProviderApiClient,
   type ProviderModelDiscoveryView,
   type ProviderModelOption,
+  type ProviderModelsMetadata,
   type ProviderModelsPageResult,
   type ProviderModelsQuery,
 } from "../api/providerClient.js";
@@ -35,12 +35,7 @@ import { resolveWebProviderProductPolicy } from "../../lib/provider-product-poli
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
-export interface ProviderModelsMetadataState {
-  fetchedAt: string;
-  stale: boolean;
-  source: "provider_api" | "cache";
-  staleReason?: string;
-}
+export type ProviderModelsMetadataState = ProviderModelsMetadata;
 
 export interface ProviderModelsPageState {
   view: ProviderModelDiscoveryView;
@@ -369,22 +364,6 @@ export class ProviderStore {
         selectedModelId: selection.selectedModelId,
         status: "ready",
       });
-
-      const preloadProviderIds = this.collectBootstrapModelPreloadProviderIds(
-        catalog,
-        credentials,
-      );
-      for (const providerId of preloadProviderIds) {
-        if (this.state.providerModels[providerId]) {
-          continue;
-        }
-        void this.loadProviderModels(providerId).catch((error) => {
-          this.log("[bootstrap] model preload failed", {
-            providerId,
-            error,
-          });
-        });
-      }
 
       this.log("[bootstrap] Success", {
         providers: catalog.length,
@@ -1878,34 +1857,6 @@ export class ProviderStore {
     }
 
     return mergeModelsById(pickerModels, curatedVisibleModels);
-  }
-
-  private collectBootstrapModelPreloadProviderIds(
-    catalog: ProviderRegistryEntry[],
-    credentials: ProviderCredential[],
-  ): string[] {
-    const providerIds = new Set<string>();
-    const catalogProviderIds = new Set(
-      catalog.map((entry) => entry.providerId),
-    );
-
-    if (
-      catalogProviderIds.has("axis") &&
-      canPreloadProvider(WEB_PROVIDER_POLICY, "axis")
-    ) {
-      providerIds.add("axis");
-    }
-
-    for (const credential of credentials) {
-      if (
-        catalogProviderIds.has(credential.providerId) &&
-        canPreloadProvider(WEB_PROVIDER_POLICY, credential.providerId)
-      ) {
-        providerIds.add(credential.providerId);
-      }
-    }
-
-    return Array.from(providerIds);
   }
 
   private isWorkspaceEpochStale(operation: string, epoch: number): boolean {

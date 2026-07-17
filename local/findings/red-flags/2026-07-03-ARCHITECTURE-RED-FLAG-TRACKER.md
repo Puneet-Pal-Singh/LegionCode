@@ -37,6 +37,14 @@ is marked closed.
 - **INC-012 — FIXED_PENDING_PROOF**: revoked-auth recovery now has an explicit
   `/auth/github/reauthorize` OAuth action, which reuses the control-plane
   callback and never places tokens in browser URLs or logs.
+- **RF-022 — FIXED_PENDING_PROOF**: provider catalog bootstrap is now registry-
+  only; remote model discovery is owned by `ProviderCatalogService`, scoped to
+  the selected provider, bounded to 5 seconds, and returns typed unavailable
+  metadata without inventing models. Static registry defaults preserve normal
+  chat resolution, stale cache responses remain usable, and Web bootstrap no
+  longer preloads every connected provider. Focused catalog tests and the
+  provider-store bootstrap isolation test are added; authenticated target-cloud
+  proof remains required.
 
 ## 2026-07-17 post-PR-406 recovery evidence
 

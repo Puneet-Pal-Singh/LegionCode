@@ -52,6 +52,7 @@ describe("ProviderModelDiscovery Conformance", () => {
     const store = createStoreStub();
     const credentialService = {
       getApiKey: vi.fn(async () => "api-key"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
@@ -85,6 +86,7 @@ describe("ProviderModelDiscovery Conformance", () => {
     const store = createStoreStub();
     const credentialService = {
       getApiKey: vi.fn(async () => null),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
@@ -105,6 +107,7 @@ describe("ProviderModelDiscovery Conformance", () => {
     store.getModelCache.mockRejectedValueOnce(new Error("cache down"));
     const credentialService = {
       getApiKey: vi.fn(async () => "api-key"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,
@@ -124,6 +127,7 @@ describe("ProviderModelDiscovery Conformance", () => {
     const store = createStoreStub();
     const credentialService = {
       getApiKey: vi.fn(async () => "api-key"),
+      getConnectionConfig: vi.fn(async () => undefined),
     } as unknown as ProviderCredentialService;
     const service = new ProviderModelDiscoveryService(
       store as unknown as ProviderModelCacheStore,

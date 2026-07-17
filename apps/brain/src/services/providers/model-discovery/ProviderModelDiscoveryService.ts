@@ -161,6 +161,7 @@ export class ProviderModelDiscoveryService {
           stale,
           source: fullList.source,
           staleReason: fullList.staleReason,
+          status: "available",
         },
       };
       this.observability.recordRequest({
@@ -326,6 +327,7 @@ export class ProviderModelDiscoveryService {
         fetchedAt: userInventory.fetchedAt,
         stale: false,
         source: userInventory.source,
+        status: "available",
       },
     };
   }
@@ -375,6 +377,7 @@ export class ProviderModelDiscoveryService {
         fetchedAt: userInventory.fetchedAt,
         stale: false,
         source: userInventory.source,
+        status: "available",
       },
     };
   }

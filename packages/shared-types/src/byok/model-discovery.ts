@@ -17,7 +17,11 @@ export type BYOKModelDiscoverySurface = z.infer<
   typeof BYOKModelDiscoverySurfaceSchema
 >;
 
-export const BYOKModelDiscoverySourceSchema = z.enum(["provider_api", "cache"]);
+export const BYOKModelDiscoverySourceSchema = z.enum([
+  "provider_api",
+  "cache",
+  "registry",
+]);
 export type BYOKModelDiscoverySource = z.infer<
   typeof BYOKModelDiscoverySourceSchema
 >;
@@ -172,6 +176,16 @@ export const BYOKDiscoveredProviderModelsMetadataSchema = z.object({
   stale: z.boolean(),
   source: BYOKModelDiscoverySourceSchema,
   staleReason: z.string().min(1).optional(),
+  status: z.enum(["available", "unavailable"]).default("available"),
+  statusReason: z
+    .enum([
+      "not_connected",
+      "timeout",
+      "provider_unavailable",
+      "invalid_response",
+      "cache_unavailable",
+    ])
+    .optional(),
 });
 export type BYOKDiscoveredProviderModelsMetadata = z.infer<
   typeof BYOKDiscoveredProviderModelsMetadataSchema

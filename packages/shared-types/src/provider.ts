@@ -63,6 +63,7 @@ export const ProviderCatalogEntrySchema = z.object({
   displayName: z.string().min(1),
   capabilities: ProviderCapabilityFlagsSchema,
   models: z.array(ModelDescriptorSchema),
+  defaultModelId: z.string().min(1).optional(),
 });
 export type ProviderCatalogEntry = z.infer<typeof ProviderCatalogEntrySchema>;
 
