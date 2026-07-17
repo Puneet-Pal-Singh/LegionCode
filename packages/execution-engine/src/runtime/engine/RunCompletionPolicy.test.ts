@@ -234,7 +234,7 @@ describe("RunCompletionPolicy", () => {
   it("does not promote a provider visible_text part into the terminal final", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
-    const incidentText = "The user is asking what I should respond";
+    const incidentText = "The user said 'hi'. I should respond with a greeting.";
 
     const response = await completeRunWithAssistantMessage({
       run,
