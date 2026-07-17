@@ -18,6 +18,8 @@ interface SessionRecord {
 
 interface WorkspaceScope {
   runId: string;
+  threadId: string;
+  turnId: string;
   runAttemptId: string;
   workspaceId: string;
   root: string;
@@ -128,6 +130,8 @@ function createSessionRequest(): Request {
       repoPath: "workspace/repo",
       workspaceScope: {
         runId: "run-auth-1",
+        threadId: "thread-auth-1",
+        turnId: "turn-auth-1",
         runAttemptId: "attempt-auth-1",
         workspaceId: "workspace-auth-1",
         root: "/runs/auth-1",
@@ -138,6 +142,8 @@ function createSessionRequest(): Request {
 
 const scopedWorkspace: WorkspaceScope = {
   runId: "run-scoped-1",
+  threadId: "thread-scoped-1",
+  turnId: "turn-scoped-1",
   runAttemptId: "attempt_scoped_000001",
   workspaceId: "wrk_scoped_000001",
   root: "/runs/scoped-1",
@@ -205,6 +211,8 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
         runId: "run-auth-1",
         workspaceScope: {
           runId: "run-auth-1",
+          threadId: "thread-auth-1",
+          turnId: "turn-auth-1",
           runAttemptId: "attempt-auth-1",
           workspaceId: "workspace-auth-1",
           root: "/runs/auth-1",

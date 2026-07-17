@@ -27,6 +27,8 @@ describe("SecureRuntimeFailureMapper", () => {
           action: "read_file",
           runId: "run-1",
           workspaceScope: {
+            threadId: "thread-1",
+            turnId: "turn-1",
             runAttemptId: "attempt-1",
             workspaceId: "workspace-1",
             root: "/workspace",

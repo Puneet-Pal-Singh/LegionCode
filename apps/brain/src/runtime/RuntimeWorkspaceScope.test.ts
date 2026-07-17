@@ -28,13 +28,15 @@ describe("RuntimeWorkspaceScope", () => {
     });
   });
 
-  it("projects only the secure execution scope fields", () => {
+  it("projects the canonical secure execution scope", () => {
     expect(
       toSecureExecutionWorkspaceScope({
         ...toRuntimeWorkspaceScope(identity),
       }),
     ).toEqual({
       runId: identity.runId,
+      threadId: identity.threadId,
+      turnId: identity.turnId,
       runAttemptId: identity.runAttemptId,
       workspaceId: identity.workspaceId,
       root: "/home/sandbox/runs/run_scope_test",

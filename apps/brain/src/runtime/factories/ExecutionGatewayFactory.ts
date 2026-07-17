@@ -82,6 +82,8 @@ export function buildRuntimeDependencies(
   }
   const workspaceScope = toSecureExecutionWorkspaceScope({
     runId: payload.runId,
+    threadId: identity.threadId,
+    turnId: identity.turnId,
     runAttemptId: identity.runAttemptId,
     workspaceId: identity.workspaceId,
     root: canonicalRuntimeWorkspaceRoot(payload.runId),

@@ -107,7 +107,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   constructor(
     private executionClient: GitExecutionClient,
     private syncTtlMs: number = DEFAULT_SYNC_TTL_MS,
-    private readonly workspaceScope?: SecureExecutionWorkspaceScope,
+    private readonly workspaceScope: SecureExecutionWorkspaceScope,
   ) {}
 
   static fromEnv(
@@ -118,6 +118,9 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     workspaceScope?: SecureExecutionWorkspaceScope,
     executionService?: ExecutionService,
   ): WorkspaceBootstrapService {
+    if (!workspaceScope) {
+      throw new Error("workspaceScope is required for workspace bootstrap");
+    }
     const resolvedExecutionService =
       executionService ??
       new ExecutionService(env, sessionId, runId, userId, workspaceScope);
@@ -455,11 +458,9 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<GitPluginResult> {
     const startedAt = Date.now();
     try {
-      const result = this.workspaceScope
-        ? await this.executionClient.execute("git", action, payload, {
-            scope: this.workspaceScope,
-          })
-        : await this.executionClient.execute("git", action, payload);
+      const result = await this.executionClient.execute("git", action, payload, {
+        scope: this.workspaceScope,
+      });
       const parsedResult = toGitPluginResult(result);
       console.log(
         `[workspace/bootstrap/timing] run=${runId} action=${action} success=${parsedResult.success} elapsedMs=${Date.now() - startedAt}`,

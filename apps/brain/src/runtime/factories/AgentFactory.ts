@@ -38,7 +38,7 @@ export function resolveAgent(
   runId: string,
   userId: string | undefined,
   requestedAgentType: AgentType,
-  workspaceScope?: SecureExecutionWorkspaceScope,
+  workspaceScope: SecureExecutionWorkspaceScope,
   options: { strict?: boolean; correlationId?: string } = {},
   executionService?: ExecutionService,
 ): IAgent | undefined {

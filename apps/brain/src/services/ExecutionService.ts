@@ -86,14 +86,20 @@ export class ExecutionService {
   private executionSessionPromise: Promise<SecureExecutionSession> | null =
     null;
   private releaseExecutionSessionPromise: Promise<void> | null = null;
+  private readonly workspaceScope: SecureExecutionWorkspaceScope;
 
   constructor(
     private env: Env,
     private sessionId: string,
     private runId: string,
     private userId?: string,
-    private readonly workspaceScope?: SecureExecutionWorkspaceScope,
-  ) {}
+    workspaceScope?: SecureExecutionWorkspaceScope,
+  ) {
+    if (!workspaceScope) {
+      throw new Error("workspaceScope is required for secure execution");
+    }
+    this.workspaceScope = workspaceScope;
+  }
 
   async execute(
     plugin: string,
@@ -109,8 +115,19 @@ export class ExecutionService {
     },
   ) {
     const scope = options?.scope ?? this.workspaceScope;
-    if (scope && scope.runId !== this.runId) {
+    if (!scope) {
+      throw new SecureExecutionContractViolationError(
+        "workspaceScope is required for secure execution",
+        400,
+      );
+    }
+    if (scope.runId !== this.runId) {
       throw new Error("Execution workspace scope does not belong to this run.");
+    }
+    if (!sameWorkspaceScope(scope, this.workspaceScope)) {
+      throw new Error(
+        "Execution workspace scope must match the server-owned run scope.",
+      );
     }
     const executionAction = normalizeExecutionAction(plugin, action);
     console.log(
@@ -469,7 +486,7 @@ export class ExecutionService {
               ...payload,
               runId: this.runId,
               action,
-              ...(scope ? { workspaceScope: scope } : {}),
+              workspaceScope: scope,
             },
             timeout: timeoutMs,
           }),
@@ -655,7 +672,7 @@ export class ExecutionService {
             runId: this.runId,
             taskId: createSessionTaskId(this.sessionId),
             repoPath: EXECUTION_SESSION_REPO_PATH,
-            ...(scope ? { workspaceScope: scope } : {}),
+            workspaceScope: scope,
           }),
         },
         DEFAULT_EXECUTION_TIMEOUT_MS,
@@ -844,12 +861,28 @@ function createSecureExecutionFailureContext(
     runId,
     workspaceScope: scope
       ? {
+          threadId: scope.threadId,
+          turnId: scope.turnId,
           runAttemptId: scope.runAttemptId,
           workspaceId: scope.workspaceId,
           root: scope.root,
         }
       : undefined,
   };
+}
+
+function sameWorkspaceScope(
+  left: SecureExecutionWorkspaceScope,
+  right: SecureExecutionWorkspaceScope,
+): boolean {
+  return (
+    left.runId === right.runId &&
+    left.threadId === right.threadId &&
+    left.turnId === right.turnId &&
+    left.runAttemptId === right.runAttemptId &&
+    left.workspaceId === right.workspaceId &&
+    left.root === right.root
+  );
 }
 
 function createFallbackSecureExecutionError(

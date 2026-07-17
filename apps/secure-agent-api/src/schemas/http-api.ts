@@ -15,6 +15,8 @@ import { z } from "zod";
 const WorkspaceScopeSchema = z
   .object({
     runId: z.string().min(1),
+    threadId: z.string().min(1),
+    turnId: z.string().min(1),
     runAttemptId: z.string().min(1),
     workspaceId: z.string().min(1),
     root: z.string().min(1),

@@ -18,6 +18,8 @@ export type RuntimeWorkspaceScopeResponse = z.infer<
 
 export interface SecureExecutionWorkspaceScope {
   runId: string;
+  threadId: string;
+  turnId: string;
   runAttemptId: string;
   workspaceId: string;
   root: string;
@@ -39,11 +41,13 @@ export function toRuntimeWorkspaceScope(
 export function toSecureExecutionWorkspaceScope(
   input: Pick<
     RuntimeWorkspaceScopeResponse,
-    "runId" | "runAttemptId" | "workspaceId" | "root"
+    "runId" | "threadId" | "turnId" | "runAttemptId" | "workspaceId" | "root"
   >,
 ): SecureExecutionWorkspaceScope {
   return {
     runId: input.runId,
+    threadId: input.threadId,
+    turnId: input.turnId,
     runAttemptId: input.runAttemptId,
     workspaceId: input.workspaceId,
     root: input.root,

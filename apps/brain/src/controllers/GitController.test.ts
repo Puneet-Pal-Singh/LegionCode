@@ -73,6 +73,8 @@ describe("GitController", () => {
       repoPath: ".",
       workspaceScope: {
         runId: "run_git_01",
+        threadId: "thr_git_test",
+        turnId: "trn_git_test",
         runAttemptId: "attempt_git_test",
         workspaceId: "00000000-0000-0000-0000-000000000001",
         root: "/home/sandbox/runs/run_git_01",
@@ -95,6 +97,8 @@ describe("GitController", () => {
         runId: "run_git_01",
         workspaceScope: {
           runId: "run_git_01",
+          threadId: "thr_git_test",
+          turnId: "trn_git_test",
           runAttemptId: "attempt_git_test",
           workspaceId: "00000000-0000-0000-0000-000000000001",
           root: "/home/sandbox/runs/run_git_01",

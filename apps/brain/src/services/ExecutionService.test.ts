@@ -73,6 +73,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-123",
       "run-456",
+      undefined,
+      scopeFor("run-456"),
     );
 
     const first = await service.execute("filesystem", "read_file", {
@@ -105,6 +107,7 @@ describe("ExecutionService", () => {
       runId: "run-456",
       taskId: "brain-session-session-123",
       repoPath: ".",
+      workspaceScope: scopeFor("run-456"),
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
@@ -122,9 +125,22 @@ describe("ExecutionService", () => {
         action: "read_file",
         runId: "run-456",
         path: "src/index.ts",
+        workspaceScope: scopeFor("run-456"),
       },
       timeout: 120000,
     });
+  });
+
+  it("rejects a secure execution request before transport when scope is absent", async () => {
+    const fetchMock = vi.fn();
+    expect(() => new ExecutionService(
+      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      "session-unscoped",
+      "run-unscoped",
+    )).toThrow(
+      "workspaceScope is required for secure execution",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("retries secure session creation while the local shadowbox-api worker is still registering", async () => {
@@ -171,6 +187,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-retry",
       "run-retry",
+      undefined,
+      scopeFor("run-retry"),
     );
 
     const result = await service.execute("filesystem", "read_file", {
@@ -226,6 +244,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-abc",
       "run-def",
+      undefined,
+      scopeFor("run-def"),
     );
 
     await expect(
@@ -298,6 +318,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-timeout",
       "run-timeout",
+      undefined,
+      scopeFor("run-timeout"),
     );
 
     await expect(
@@ -365,6 +387,8 @@ describe("ExecutionService", () => {
       { SECURE_API: { fetch: fetchMock } } as unknown as Env,
       "session-sandbox",
       "run-sandbox",
+      undefined,
+      scopeFor("run-sandbox"),
     );
 
     const result = await service.execute(
@@ -374,9 +398,11 @@ describe("ExecutionService", () => {
       {
         scope: {
           runId: "run-sandbox",
-          runAttemptId: "attempt-sandbox",
-          workspaceId: "workspace-sandbox",
-          root: "/workspace",
+          threadId: "thread-run-sandbox",
+          turnId: "turn-run-sandbox",
+          runAttemptId: "attempt-run-sandbox",
+          workspaceId: "workspace-run-sandbox",
+          root: "/home/sandbox/runs/run-sandbox",
         },
       },
     );
@@ -396,8 +422,10 @@ describe("ExecutionService", () => {
             taskId: "task-sandbox",
             leaseId: "lease-sandbox",
             workspaceScope: {
-              runAttemptId: "attempt-sandbox",
-              workspaceId: "workspace-sandbox",
+              threadId: "thread-run-sandbox",
+              turnId: "turn-run-sandbox",
+              runAttemptId: "attempt-run-sandbox",
+              workspaceId: "workspace-run-sandbox",
             },
           },
         },
@@ -439,6 +467,8 @@ describe("ExecutionService", () => {
       { SECURE_API: { fetch: fetchMock } } as unknown as Env,
       "session-contract",
       "run-contract",
+      undefined,
+      scopeFor("run-contract"),
     );
 
     await expect(
@@ -499,6 +529,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-git",
       "run-git",
+      undefined,
+      scopeFor("run-git"),
     );
 
     await service.execute("git", "status", {});
@@ -568,6 +600,7 @@ describe("ExecutionService", () => {
       "session-commit",
       "run-commit",
       "user-123",
+      scopeFor("run-commit"),
     );
 
     await service.execute("git", "git_commit", {
@@ -641,6 +674,7 @@ describe("ExecutionService", () => {
       "session-commit-oauth",
       "run-commit-oauth",
       "user-commit-oauth",
+      scopeFor("run-commit-oauth"),
     );
 
     await service.execute("git", "git_commit", {
@@ -716,6 +750,7 @@ describe("ExecutionService", () => {
       "session-github",
       "run-github",
       "user-456",
+      scopeFor("run-github"),
     );
 
     await service.execute("github", "pr_get", {
@@ -799,6 +834,7 @@ describe("ExecutionService", () => {
       "session-github-cli",
       "run-github-cli",
       "user-789",
+      scopeFor("run-github-cli"),
     );
 
     await service.execute("github_cli", "actions_job_logs_get", {
@@ -855,6 +891,7 @@ describe("ExecutionService", () => {
       "session-github-cli-scope",
       "run-github-cli-scope",
       "user-790",
+      scopeFor("run-github-cli-scope"),
     );
 
     await expect(
@@ -908,6 +945,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-node",
       "run-owned-by-service",
+      undefined,
+      scopeFor("run-owned-by-service"),
     );
 
     await service.execute("node", "run", {
@@ -969,6 +1008,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-failure",
       "run-failure",
+      undefined,
+      scopeFor("run-failure"),
     );
 
     await expect(
@@ -1047,6 +1088,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-status",
       "run-status",
+      undefined,
+      scopeFor("run-status"),
     );
 
     await expect(
@@ -1103,6 +1146,8 @@ describe("ExecutionService", () => {
       } as unknown as Env,
       "session-status-local-dev",
       "run-status-local-dev",
+      undefined,
+      scopeFor("run-status-local-dev"),
     );
 
     await expect(service.execute("git", "git_status", {})).rejects.toThrow(
@@ -1195,6 +1240,7 @@ describe("ExecutionService", () => {
       "session-pr",
       "run-pr",
       "user-pr",
+      scopeFor("run-pr"),
     );
 
     const result = await service.execute("git", "git_create_pull_request", {
@@ -1297,6 +1343,7 @@ describe("ExecutionService", () => {
       "session-pr",
       "run-pr",
       "user-pr",
+      scopeFor("run-pr"),
     );
 
     await expect(
@@ -1312,3 +1359,14 @@ describe("ExecutionService", () => {
     });
   });
 });
+
+function scopeFor(runId: string) {
+  return {
+    runId,
+    threadId: `thread-${runId}`,
+    turnId: `turn-${runId}`,
+    runAttemptId: `attempt-${runId}`,
+    workspaceId: `workspace-${runId}`,
+    root: `/home/sandbox/runs/${runId}`,
+  };
+}
