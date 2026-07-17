@@ -17,7 +17,7 @@ import {
 } from "./EditArtifactPatchParser";
 import { SecureGitArtifactClient } from "./SecureGitArtifactClient";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
-import type { CompositeEditArtifactStorageResult } from "./CompositeEditArtifactStorageBackend";
+import type { StoredEditArtifact } from "./EditArtifactStorageBackend";
 
 const EDIT_ARTIFACT_RETENTION_DAYS = 30;
 
@@ -307,9 +307,9 @@ export class EditArtifactCaptureService {
     input: CaptureAfterRunInput;
     patch: string;
     r2ObjectKey: string;
-  }): Promise<CompositeEditArtifactStorageResult> {
+  }): Promise<StoredEditArtifact> {
     const storageBackend = createEditArtifactStorageBackend(this.env);
-    const storedArtifact = (await storageBackend.writeArtifact({
+    const storedArtifact = await storageBackend.writeArtifact({
       artifactId: input.artifactId,
       userId: input.input.userId,
       workspaceId: input.input.workspaceId,
@@ -318,7 +318,7 @@ export class EditArtifactCaptureService {
       objectKey: input.r2ObjectKey,
       patch: input.patch,
       metadata: buildPatchMetadata(input, await sha256Hex(input.patch)),
-    })) as CompositeEditArtifactStorageResult;
+    });
     await input.repository.appendEvent({
       id: crypto.randomUUID(),
       artifactId: input.artifactId,
@@ -327,29 +327,6 @@ export class EditArtifactCaptureService {
       message: "Edit artifact patch written to R2",
       metadata: { patchSha256: storedArtifact.patchSha256 },
     });
-    if (storedArtifact.secondaryError) {
-      await input.repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: input.artifactId,
-        runId: input.input.runId,
-        eventType: "cf_artifacts_write_failed",
-        message: "Cloudflare Artifacts secondary write failed",
-        metadata: { error: storedArtifact.secondaryError },
-      });
-    } else if (storedArtifact.secondary) {
-      await input.repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: input.artifactId,
-        runId: input.input.runId,
-        eventType: "cf_artifacts_write_succeeded",
-        message: "Cloudflare Artifacts secondary write succeeded",
-        metadata: {
-          cfArtifactRepo: storedArtifact.secondary.cfRepo ?? null,
-          cfArtifactCommitSha: storedArtifact.secondary.cfCommitSha ?? null,
-          cfArtifactPath: storedArtifact.secondary.cfPath ?? null,
-        },
-      });
-    }
     return storedArtifact;
   }
 
@@ -361,16 +338,12 @@ export class EditArtifactCaptureService {
     changedFileCount: number,
     patchSha256: string,
     patchSizeBytes: number,
-    storedArtifact: CompositeEditArtifactStorageResult,
+    storedArtifact: StoredEditArtifact,
   ): Promise<void> {
     await repository.updateStatus({
       artifactId,
       userId,
-      status: storedArtifact.secondaryError
-        ? "secondary_write_failed"
-        : storedArtifact.secondary
-          ? "stored_with_secondary"
-          : "stored",
+      status: "stored",
       contentType: "text/x-patch",
       sizeBytes: patchSizeBytes,
       sha256: patchSha256,
@@ -383,7 +356,6 @@ export class EditArtifactCaptureService {
       message: "Edit artifact metadata committed",
       metadata: {
         changedFileCount,
-        secondaryBackend: storedArtifact.secondary?.backend ?? null,
       },
     });
   }
@@ -395,7 +367,7 @@ export class EditArtifactCaptureService {
     patchSha256: string,
     patch: string,
     changedFiles: EditArtifactChangedFile[],
-    storedArtifact: CompositeEditArtifactStorageResult,
+    storedArtifact: StoredEditArtifact,
   ): Promise<void> {
     const parseStatus = resolvePatchParseStatus(patch, changedFiles);
     await repository.updateReviewMetadata({
@@ -407,12 +379,10 @@ export class EditArtifactCaptureService {
       captureSequence: input.captureSequence ?? 0,
       patchParseStatus: parseStatus,
       patchSha256,
-      storageBackend: storedArtifact.secondary
-        ? "cloudflare_artifacts"
-        : "r2_postgres",
-      cfArtifactRepo: storedArtifact.secondary?.cfRepo ?? null,
-      cfArtifactCommitSha: storedArtifact.secondary?.cfCommitSha ?? null,
-      cfArtifactPath: storedArtifact.secondary?.cfPath ?? null,
+      storageBackend: "r2_postgres",
+      cfArtifactRepo: null,
+      cfArtifactCommitSha: null,
+      cfArtifactPath: null,
     });
     await repository.appendEvent({
       id: crypto.randomUUID(),

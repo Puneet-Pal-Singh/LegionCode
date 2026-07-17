@@ -30,10 +30,6 @@
         "class_name": "RunEngineRuntime",
       },
       {
-        "name": "RUN_ENGINE_AGENT",
-        "class_name": "RunEngineAgent",
-      },
-      {
         "name": "RUN_ADMISSION_LIMITER",
         "class_name": "RunAdmissionLimiter",
       },
@@ -56,6 +52,10 @@
     {
       "tag": "v5-delete-session-memory-runtime",
       "deleted_classes": ["SessionMemoryRuntime"],
+    },
+    {
+      "tag": "v6-quarantine-run-engine-agent",
+      "deleted_classes": ["RunEngineAgent"],
     },
   ],
 
@@ -87,6 +87,7 @@
   // ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX=1
   // ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX=2
   // ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX=3
+  // CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS=2 (must not exceed secure-api max_instances)
   // ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX=1
   // ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS=900
   "vars": {

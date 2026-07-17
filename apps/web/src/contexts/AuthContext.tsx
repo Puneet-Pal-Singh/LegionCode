@@ -29,7 +29,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   user: GitHubUser | null;
   isLoading: boolean;
-  login: () => void;
+  login: (reauthorize?: boolean) => void;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
 }
@@ -75,7 +75,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void checkSession();
   }, [checkSession]);
 
-  const login = useCallback(() => {
+  const login = useCallback((reauthorize = false) => {
+    if (reauthorize) {
+      GitHubService.initiateGitHubReauthorization();
+      return;
+    }
     GitHubService.initiateGitHubLogin();
   }, []);
 

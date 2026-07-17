@@ -18,6 +18,7 @@ const AcquireDecisionSchema = AdmissionDecisionSchema.extend({
       "concurrent_expensive_run_session",
       "concurrent_expensive_run_user",
       "concurrent_expensive_run_workspace",
+      "cloudflare_sandbox_capacity",
     ])
     .optional(),
 });

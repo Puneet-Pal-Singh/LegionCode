@@ -226,7 +226,7 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.authMode).toBe("api_key");
   });
 
-  it("fails fast when cloudflare_agents is requested without the feature flag", async () => {
+  it("fails fast when the quarantined cloudflare_agents route is requested", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
     const requestWithOverrides = await createChatRequest(env, {
@@ -241,53 +241,8 @@ describe("ChatController DO runtime migration", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: string; code: string };
     expect(body.code).toBe("CLOUDFLARE_AGENTS_BACKEND_DISABLED");
-    expect(body.error).toContain("cloudflare_agents backend is not enabled");
+    expect(body.error).toContain("cloudflare_agents is quarantined");
     expect(runtime.fetch).not.toHaveBeenCalled();
-  });
-
-  it("routes cloudflare_agents requests through the SDK-backed agent binding", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const agentNamespace = {} as Env["RUN_ENGINE_AGENT"];
-    const env = createEnv(runtime.namespace, {
-      runEngineAgent: agentNamespace,
-      cloudflareAgentsEnabled: "true",
-    });
-    const requestWithOverrides = await createChatRequest(env, {
-      mode: "plan",
-      orchestratorBackend: "cloudflare_agents",
-      executionBackend: "e2b",
-      harnessMode: "delegated",
-      authMode: "oauth",
-    });
-
-    const response = await ChatController.handle(requestWithOverrides, env);
-
-    expect(response.status).toBe(200);
-    expect(runtime.fetch).not.toHaveBeenCalled();
-    expect(mockCloudflareAgentExecute).toHaveBeenCalledTimes(1);
-    const payload = mockCloudflareAgentExecute.mock.calls[0]?.[0] as {
-      runId: string;
-      payload: {
-        input: {
-          mode: string;
-          orchestratorBackend: string;
-          executionBackend: string;
-          harnessMode: string;
-          authMode: string;
-        };
-      };
-    };
-
-    expect(agentNamespace).toBeDefined();
-    expect(payload.runId).toBe(VALID_RUN_ID);
-    expect(payload.payload.input.mode).toBe("plan");
-    expect(payload.payload.input.orchestratorBackend).toBe("cloudflare_agents");
-    expect(payload.payload.input.executionBackend).toBe("e2b");
-    expect(payload.payload.input.harnessMode).toBe("delegated");
-    expect(payload.payload.input.authMode).toBe("oauth");
-    expect(response.headers.get("X-Run-Engine-Runtime")).toBe(
-      "cloudflare_agents",
-    );
   });
 
   it("forwards repository context fields to runtime payload", async () => {
