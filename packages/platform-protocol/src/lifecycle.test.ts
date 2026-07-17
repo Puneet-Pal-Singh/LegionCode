@@ -33,9 +33,14 @@ const LEGAL_TURN_TRANSITIONS: ReadonlyArray<readonly [TurnStatus, TurnStatus]> =
     ["queued", "interrupted"],
     ["queued", "failed"],
     ["in_progress", "in_progress"],
+    ["in_progress", "awaiting_approval"],
     ["in_progress", "completed"],
     ["in_progress", "interrupted"],
     ["in_progress", "failed"],
+    ["awaiting_approval", "in_progress"],
+    ["awaiting_approval", "completed"],
+    ["awaiting_approval", "interrupted"],
+    ["awaiting_approval", "failed"],
   ];
 
 const LEGAL_RUN_ATTEMPT_TRANSITIONS: ReadonlyArray<

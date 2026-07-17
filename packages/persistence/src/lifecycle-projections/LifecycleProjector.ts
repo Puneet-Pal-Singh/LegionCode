@@ -73,8 +73,15 @@ function applyTurn(state: MutableProjection, event: LifecycleEvent): void {
     state.status = transitionTurnStatus(state.status, "in_progress");
   } else if (event.type === "turn.blocking_changed") {
     const value = event.payload.blockingState;
-    state.blockingState =
+    const blockingState =
       LifecycleProjectionSnapshotSchema.shape.blockingState.parse(value);
+    state.blockingState = blockingState;
+    state.status =
+      blockingState.kind === "waiting_for_approval"
+        ? transitionTurnStatus(state.status, "awaiting_approval")
+        : state.status === "awaiting_approval"
+          ? transitionTurnStatus(state.status, "in_progress")
+          : state.status;
   } else if (
     ["turn.completed", "turn.failed", "turn.interrupted"].includes(event.type)
   ) {

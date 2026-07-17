@@ -1,15 +1,13 @@
 /**
  * Session API Handlers
- * HTTP endpoints for CloudSandboxExecutor integration
+ * HTTP endpoints for the canonical Brain-to-secure-runtime boundary.
  */
 
 import {
   SessionCreateRequestSchema,
   ExecuteTaskRequestSchema,
   ExecuteTaskResponseSchema,
-  LogStreamQuerySchema,
   validateRequestBody,
-  validateQueryParams,
   jsonResponse,
   errorResponse,
   type ExecuteTaskRequest,
@@ -26,6 +24,10 @@ import {
   createSandboxLease,
   type SandboxExecutionLease,
 } from "../ports/SandboxExecutionLease";
+import {
+  sanitizeLogText,
+  sanitizeUnknownError,
+} from "../core/security/LogSanitizer";
 
 type RuntimeStub = Record<string, unknown>;
 
@@ -240,7 +242,7 @@ async function recordLog(
     taskId,
     timestamp: Date.now(),
     level,
-    message,
+    message: sanitizeLogText(message),
     source,
   });
 }
@@ -456,7 +458,9 @@ export async function handleCreateSession(
       SessionCreateRequestSchema,
     );
     if (!validation.valid) {
-      console.warn(`[api/session] Validation failed: ${validation.error}`);
+      console.warn(
+        `[api/session] Validation failed: ${sanitizeLogText(validation.error)}`,
+      );
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
 
@@ -489,8 +493,8 @@ export async function handleCreateSession(
     );
     return jsonResponse(response, 201);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/session] Unexpected error: ${msg}`);
+    const msg = sanitizeUnknownError(error);
+    console.error(`[api/session] Unexpected error: ${sanitizeLogText(msg)}`);
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
 }
@@ -511,7 +515,7 @@ export async function handleExecuteTask(
     );
     if (!validation.valid) {
       console.warn(
-        `[api/execute] requestId=${requestId} status=validation-failed error=${JSON.stringify(validation.error)} elapsedMs=${Date.now() - startedAt}`,
+        `[api/execute] requestId=${requestId} status=validation-failed error=${sanitizeLogText(validation.error)} elapsedMs=${Date.now() - startedAt}`,
       );
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
@@ -616,7 +620,7 @@ export async function handleExecuteTask(
     );
     return jsonResponse(executionResult, getExecutionHttpStatus(executionResult));
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
+    const msg = sanitizeUnknownError(error);
     console.error(
       `[api/execute] requestId=${requestId} status=error elapsedMs=${Date.now() - startedAt} error=${JSON.stringify(msg)}`,
     );
@@ -685,61 +689,6 @@ function buildTaskEventPayload(input: RuntimeTaskEventInput): JsonValue {
   return payload;
 }
 
-export async function handleStreamLogs(
-  request: Request,
-  runtime: RuntimeStub,
-  corsHeaders: Record<string, string> = {},
-): Promise<Response> {
-  console.log("[api/logs] Handling log stream request");
-
-  try {
-    const url = new URL(request.url);
-    const validation = validateQueryParams(url, LogStreamQuerySchema);
-    if (!validation.valid) {
-      console.warn(`[api/logs] Validation failed: ${validation.error}`);
-      return errorResponse(validation.error, "INVALID_REQUEST", 400);
-    }
-
-    const sessionStore = getRuntimeSessionStore(runtime);
-    if (!sessionStore) {
-      return errorResponse(
-        "Session storage unavailable",
-        "SESSION_STORAGE_UNAVAILABLE",
-        503,
-      );
-    }
-
-    const { sessionId, since, taskId } = validation.data;
-    const auth = await authorizeSessionRequest(request, runtime, sessionId);
-    if (!auth.ok) {
-      return auth.response;
-    }
-
-    const logs = await sessionStore.getExecutionLogs(sessionId, since, taskId);
-    console.log(
-      `[api/logs] Streaming ${logs.length} logs for session: ${sessionId.substring(0, 8)}...`,
-    );
-
-    const sseContent = logs
-      .map((log) => `data: ${JSON.stringify(log)}\n\n`)
-      .join("");
-
-    return new Response(sseContent, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        ...corsHeaders,
-      },
-    });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/logs] Unexpected error: ${msg}`);
-    return errorResponse(msg, "INTERNAL_ERROR", 500);
-  }
-}
-
 export async function handleDeleteSession(
   request: Request,
   runtime: RuntimeStub,
@@ -785,8 +734,10 @@ export async function handleDeleteSession(
       200,
     );
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/delete-session] Unexpected error: ${msg}`);
+    const msg = sanitizeUnknownError(error);
+    console.error(
+      `[api/delete-session] Unexpected error: ${sanitizeLogText(msg)}`,
+    );
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
 }

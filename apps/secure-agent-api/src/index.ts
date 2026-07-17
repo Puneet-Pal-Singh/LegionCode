@@ -129,7 +129,6 @@ import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
   handleExecuteTask,
-  handleStreamLogs,
   handleDeleteSession,
 } from "./api/SessionAPI";
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
@@ -240,7 +239,7 @@ export default {
         url.pathname === "/api/v1/session" &&
         request.method === "POST"
       ) {
-        // NEW: HTTP API Routes for CloudSandboxExecutor Integration
+        // Canonical Brain-to-secure-runtime session boundary.
         const safetyResponse = await enforceLaunchSafetyForRoute(
           request,
           env,
@@ -269,12 +268,6 @@ export default {
             createRuntimeEventClient(env),
           );
         }
-      } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
-        response = await handleStreamLogs(
-          request,
-          stub,
-          getCorsHeaders(request, env),
-        );
       } else if (
         url.pathname.startsWith("/api/v1/session/") &&
         request.method === "DELETE"

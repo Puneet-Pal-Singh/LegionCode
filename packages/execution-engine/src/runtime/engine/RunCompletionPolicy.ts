@@ -27,6 +27,7 @@ import { settleTerminalRun } from "./TerminalFinalizationCoordinator.js";
 import { createStreamResponse } from "./CompletionResponseWriter.js";
 import { persistSynthesisArtifacts } from "./CompletionSynthesisArtifacts.js";
 import { settleFinalizationContract } from "./TurnSettlementContract.js";
+import type { RuntimeFinalText } from "./FinalAssistantMessageService.js";
 export { createStreamResponse } from "./CompletionResponseWriter.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -57,7 +58,7 @@ export interface RunCompletionDependencies {
 
 interface RunAssistantFinalizationParams {
   run: Run;
-  runtimeText?: string;
+  runtimeFinal?: RuntimeFinalText;
   modelParts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
   deps: RunCompletionDependencies;
@@ -110,7 +111,7 @@ export async function pauseRunForApprovalWithAssistantMessage(
 async function persistFinalAssistantRun(
   params: PersistFinalAssistantRunParams,
 ): Promise<Response> {
-  const { run, runtimeText, metadata, deps } = params;
+  const { run, runtimeFinal, metadata, deps } = params;
   const previousStatus = run.status;
   if (await isRunCancelledInStore(run, deps)) {
     console.log(
@@ -137,10 +138,10 @@ async function persistFinalAssistantRun(
   const finalMessage = buildFinalAssistantMessage({
     run,
     modelParts: params.modelParts,
-    runtimeText:
+    runtimeFinal:
       settlement.outcomeCode === "FINALIZATION_MISSING_EVIDENCE"
         ? undefined
-        : runtimeText,
+        : runtimeFinal,
     metadata: finalMetadata,
     settlement,
   });
@@ -207,7 +208,7 @@ async function persistFinalAssistantRun(
 
 export async function completeRunWithRecoveredAssistantMessage(params: {
   run: Run;
-  runtimeText: string;
+  runtimeFinal: RuntimeFinalText;
   plannerError?: unknown;
   metadata?: Record<string, unknown>;
   errorMetadata?: string;
@@ -216,7 +217,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
 }): Promise<Response> {
   const {
     run,
-    runtimeText,
+    runtimeFinal,
     plannerError,
     metadata,
     errorMetadata,
@@ -252,7 +253,7 @@ export async function completeRunWithRecoveredAssistantMessage(params: {
   });
   const finalMessage = buildFinalAssistantMessage({
     run,
-    runtimeText,
+    runtimeFinal,
     metadata: finalMetadata,
     settlement,
   });
@@ -410,7 +411,7 @@ export async function tryHandlePlanningError(params: {
 
   return completeRunWithRecoveredAssistantMessage({
     run,
-    runtimeText: userMessage,
+    runtimeFinal: { kind: "runtime_final", text: userMessage },
     plannerError: error,
     deps,
   });

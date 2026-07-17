@@ -239,7 +239,7 @@ export function ChatInterface({
   const recoveryAdvice = getProviderRecoveryAdvice(error);
   const openProviderRecoverySurface = useCallback(() => {
     if (recoveryAdvice.recoveryTarget === "auth") {
-      login();
+      login(true);
       return;
     }
     dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);

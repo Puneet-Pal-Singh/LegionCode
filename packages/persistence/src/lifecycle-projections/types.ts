@@ -51,6 +51,7 @@ export interface LifecycleProjectionSnapshot {
   readonly status:
     | "queued"
     | "in_progress"
+    | "awaiting_approval"
     | "completed"
     | "interrupted"
     | "failed";
@@ -92,6 +93,7 @@ export const LifecycleProjectionSnapshotSchema = z.object({
   status: z.enum([
     "queued",
     "in_progress",
+    "awaiting_approval",
     "completed",
     "interrupted",
     "failed",

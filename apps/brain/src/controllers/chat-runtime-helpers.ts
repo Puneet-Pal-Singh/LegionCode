@@ -4,11 +4,6 @@ import {
   type TurnScopeBootstrap,
 } from "@repo/platform-protocol";
 import type { RunMode } from "@repo/shared-types";
-import {
-  CloudflareAgentsRunRuntimeClient,
-  parseCloudflareAgentsFeatureFlag,
-  shouldActivateCloudflareAgentsAdapter,
-} from "@shadowbox/orchestrator-adapters-cloudflare-agents";
 import type {
   AgentType,
   RepositoryContext,
@@ -31,7 +26,7 @@ type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
 type RuntimeHarnessMode = "platform_owned" | "delegated";
 type RuntimeAuthMode = "api_key" | "oauth";
-export type RuntimeExecutionTarget = "do" | "cloudflare_agents";
+export type RuntimeExecutionTarget = "do";
 
 export interface ExecutionScope {
   userId: string;
@@ -241,9 +236,6 @@ export async function fetchRunRuntimeRoute(
   },
 ): Promise<Response> {
   const runtimeTarget = resolveRuntimeTarget(env, requestedBackend);
-  if (runtimeTarget === "cloudflare_agents") {
-    return fetchViaCloudflareAgentsRuntime(env, runId, requestInit);
-  }
   return fetchViaRunEngineDurableObject(env, runId, requestInit);
 }
 
@@ -251,25 +243,9 @@ export function resolveRuntimeTarget(
   env: Env,
   requestedBackend: RuntimeOrchestratorBackend,
 ): RuntimeExecutionTarget {
-  const featureFlagEnabled = parseCloudflareAgentsFeatureFlag(
-    env.FEATURE_FLAG_CLOUDFLARE_AGENTS_V1,
-  );
-
-  if (
-    shouldActivateCloudflareAgentsAdapter({
-      requestedBackend,
-      featureFlagEnabled,
-    })
-  ) {
-    if (!env.RUN_ENGINE_AGENT) {
-      throw new Error("RUN_ENGINE_AGENT binding is unavailable");
-    }
-    return "cloudflare_agents";
-  }
-
   if (requestedBackend === "cloudflare_agents") {
     throw new PolicyError(
-      "cloudflare_agents backend is not enabled. Set FEATURE_FLAG_CLOUDFLARE_AGENTS_V1 and configure RUN_ENGINE_AGENT.",
+      "cloudflare_agents is quarantined; use the canonical RunEngineRuntime Durable Object.",
       "CLOUDFLARE_AGENTS_BACKEND_DISABLED",
     );
   }
@@ -302,45 +278,4 @@ async function fetchViaRunEngineDurableObject(
     },
   );
   return runtimeResponse as unknown as Response;
-}
-
-async function fetchViaCloudflareAgentsRuntime(
-  env: Env,
-  runId: string,
-  requestInit: {
-    method: "GET" | "POST";
-    path: string;
-    body?: string;
-    headers?: Record<string, string>;
-  },
-): Promise<Response> {
-  if (!env.RUN_ENGINE_AGENT) {
-    throw new Error("RUN_ENGINE_AGENT binding is unavailable");
-  }
-
-  const client = new CloudflareAgentsRunRuntimeClient({
-    namespace: env.RUN_ENGINE_AGENT,
-  });
-
-  if (requestInit.path === "/execute") {
-    return client.execute({
-      runId,
-      payload: requestInit.body ? JSON.parse(requestInit.body) : {},
-    });
-  }
-
-  if (requestInit.path.startsWith("/summary")) {
-    return client.getSummary({ runId });
-  }
-
-  if (requestInit.path === "/interrupt") {
-    return client.interrupt({
-      runId,
-      payload: requestInit.body ? JSON.parse(requestInit.body) : {},
-    });
-  }
-
-  throw new Error(
-    `Unsupported Cloudflare Agents runtime route: ${requestInit.path}`,
-  );
 }

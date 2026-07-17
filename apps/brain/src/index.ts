@@ -15,7 +15,6 @@ import { TurnController } from "./controllers/TurnController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
-import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArtifactRetentionService";
@@ -26,7 +25,7 @@ import {
   withObservabilityHeaders,
 } from "./core/observability/BrainErrorReporter";
 
-export { RunEngineRuntime, RunEngineAgent, RunAdmissionLimiter };
+export { RunEngineRuntime, RunAdmissionLimiter };
 
 /**
  * Route configuration type with HTTP method support
@@ -96,6 +95,7 @@ function createRouter(): Router {
 
   // Auth routes - OAuth flow
   router.add(/\/auth\/github\/login/, AuthController.handleLogin);
+  router.add(/\/auth\/github\/reauthorize/, AuthController.handleLogin);
   router.add(/\/auth\/github\/callback/, AuthController.handleCallback);
   router.add(/\/auth\/session/, AuthController.handleGetSession);
   router.add(/\/auth\/logout/, AuthController.handleLogout);

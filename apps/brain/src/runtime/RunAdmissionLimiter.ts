@@ -16,6 +16,7 @@ const ConcurrencyConstraintSchema = z.object({
     "concurrent_expensive_run_session",
     "concurrent_expensive_run_user",
     "concurrent_expensive_run_workspace",
+    "cloudflare_sandbox_capacity",
   ]),
   scopeKey: z.string().min(1).max(256),
   limit: z.number().int().positive(),

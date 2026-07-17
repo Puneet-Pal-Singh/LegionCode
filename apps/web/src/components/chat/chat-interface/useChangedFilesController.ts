@@ -11,7 +11,7 @@ import { isTerminalRunStatus } from "../../../lib/run-status.js";
 import { getGitDiff } from "../../../lib/git-client.js";
 import {
   getEditArtifactDiff,
-  getEditArtifactReviewSourceByMessage,
+  getEditArtifactReviewSourceByMessageWithStatus,
 } from "../../../lib/edit-artifacts-client.js";
 import { buildConversationTurns } from "../messageMetadata";
 import {
@@ -135,12 +135,14 @@ function useChangedFilesRefs() {
   const diffCache = useRef<Record<string, DiffContent>>({});
   const inflightArtifacts = useRef<Set<string>>(new Set());
   const artifactAttempts = useRef<Map<string, number>>(new Map());
+  const terminalNoArtifactMessageIds = useRef<Set<string>>(new Set());
   const artifactRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   return useMemo(
     () => ({
       diffCache,
       inflightArtifacts,
       artifactAttempts,
+      terminalNoArtifactMessageIds,
       artifactRetryTimer,
     }),
     [],
@@ -282,6 +284,7 @@ function useResetChangedFiles(
     refs.diffCache.current = {};
     refs.inflightArtifacts.current = new Set();
     refs.artifactAttempts.current = new Map();
+    refs.terminalNoArtifactMessageIds.current = new Set();
     if (refs.artifactRetryTimer.current) {
       clearTimeout(refs.artifactRetryTimer.current);
       refs.artifactRetryTimer.current = null;
@@ -351,6 +354,7 @@ function selectArtifactLookupIds(
       return (
         !artifacts[id] &&
         !refs.inflightArtifacts.current.has(id) &&
+        !refs.terminalNoArtifactMessageIds.current.has(id) &&
         (attempts === 0 || canRetry) &&
         attempts < MAX_ARTIFACT_LOOKUP_ATTEMPTS
       );
@@ -376,7 +380,7 @@ function fetchArtifactSources(runId: string, ids: string[]) {
       async (id) =>
         [
           id,
-          await getEditArtifactReviewSourceByMessage({
+          await getEditArtifactReviewSourceByMessageWithStatus({
             runId,
             assistantMessageId: id,
           }),
@@ -427,7 +431,7 @@ function applyArtifactLookupResults(
 
 function shouldRetryArtifactLookup(
   results: PromiseSettledResult<
-    readonly [string, PromptArtifactReviewSource | null]
+    readonly [string, { source: PromptArtifactReviewSource | null; status: number }]
   >[],
   ids: string[],
   input: ArtifactLookupInput,
@@ -439,7 +443,12 @@ function shouldRetryArtifactLookup(
   return results.some((result, index) => {
     const id = ids[index];
     if (!id) return false;
-    const missing = result.status === "rejected" || result.value[1] === null;
+    if (result.status === "fulfilled" && result.value[1].status === 204) {
+      refs.terminalNoArtifactMessageIds.current.add(id);
+      return false;
+    }
+    const missing =
+      result.status === "rejected" || result.value[1].source === null;
     return (
       missing &&
       (refs.artifactAttempts.current.get(id) ?? 0) <
@@ -450,7 +459,10 @@ function shouldRetryArtifactLookup(
 
 function collectArtifactResult(
   result: PromiseSettledResult<
-    readonly [string, PromptArtifactReviewSource | null]
+    readonly [
+      string,
+      { source: PromptArtifactReviewSource | null; status: number },
+    ]
   >,
   id: string | undefined,
   refs: ChangedFilesRefs,
@@ -458,8 +470,8 @@ function collectArtifactResult(
 ): void {
   if (!id) return;
   refs.inflightArtifacts.current.delete(id);
-  if (result.status === "fulfilled" && result.value[1]) {
-    const source = result.value[1];
+  if (result.status === "fulfilled" && result.value[1].source) {
+    const source = result.value[1].source;
     logClientEvent("artifact/hydration", "message-resolved", {
       requestedMessageId: id,
       returnedMessageId: source.assistantMessageId ?? null,
@@ -467,7 +479,7 @@ function collectArtifactResult(
       fileCount: source.files.length,
       attempt: refs.artifactAttempts.current.get(id) ?? 0,
     });
-    entries.push([id, result.value[1]]);
+    entries.push([id, source]);
     return;
   }
   if (result.status === "rejected") {

@@ -451,6 +451,11 @@ export class RuntimeLifecycleCoordinator {
       type: "turn.blocking_changed",
       payload: { blockingState },
     });
+    if (blockingState.kind === "waiting_for_approval") {
+      this.status = transitionTurnStatus(this.status, "awaiting_approval");
+    } else if (this.status === "awaiting_approval") {
+      this.status = transitionTurnStatus(this.status, "in_progress");
+    }
     this.blockingState = blockingState;
   }
 

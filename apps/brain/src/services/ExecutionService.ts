@@ -2,6 +2,7 @@ import { Env } from "../types/ai";
 import { decryptToken, GitHubAPIClient } from "@shadowbox/github-bridge";
 import {
   sanitizeLogPayload,
+  sanitizeLogText,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
@@ -35,7 +36,6 @@ import type { SecureExecutionWorkspaceScope } from "../runtime/RuntimeWorkspaceS
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
 const EXECUTION_SESSION_REPO_PATH = ".";
-const EXECUTION_LOG_POLL_INTERVAL_MS = 250;
 const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
 const LOCAL_DEV_SESSION_RETRY_DELAY_MS = 500;
 
@@ -69,14 +69,6 @@ interface LegacyExecutionResult {
 
 const secureRuntimeFailureMapper = new SecureRuntimeFailureMapper();
 
-interface SecureExecutionLogEntry {
-  taskId?: string;
-  timestamp: number;
-  level: "info" | "warn" | "error" | "debug";
-  message: string;
-  source?: "stdout" | "stderr";
-}
-
 interface GitHubAuthState {
   token: string;
   persistedScopes: string[] | null;
@@ -93,6 +85,7 @@ interface GitHubAuthState {
 export class ExecutionService {
   private executionSessionPromise: Promise<SecureExecutionSession> | null =
     null;
+  private releaseExecutionSessionPromise: Promise<void> | null = null;
 
   constructor(
     private env: Env,
@@ -120,8 +113,6 @@ export class ExecutionService {
       throw new Error("Execution workspace scope does not belong to this run.");
     }
     const executionAction = normalizeExecutionAction(plugin, action);
-    let executionFinished = false;
-    let logForwardingPromise: Promise<void> | null = null;
     console.log(
       formatDiagnosticLogLine("execution/tool", "requested", {
         runId: this.runId,
@@ -149,10 +140,6 @@ export class ExecutionService {
         payload,
         options,
         scope,
-        () => executionFinished,
-        (nextValue) => {
-          executionFinished = nextValue;
-        },
       );
       logExecutionFailure(
         this.runId,
@@ -171,8 +158,6 @@ export class ExecutionService {
         ),
       );
     } catch (error) {
-      executionFinished = true;
-      await logForwardingPromise;
       if (error instanceof SecureExecutionContractViolationError) {
         console.error(
           formatDiagnosticLogLine("execution/tool", "contract-violation", {
@@ -240,6 +225,81 @@ export class ExecutionService {
       // Restore previous userId
       this.userId = previousUserId;
     }
+  }
+
+  /**
+   * Release the secure execution lease exactly once after the runtime has
+   * settled the run. A missing session is observable terminal evidence: the
+   * secure worker may already have expired or released it, but it is not a
+   * reason to hide a release failure behind a catch-all.
+   */
+  async releaseExecutionSession(): Promise<void> {
+    if (!this.releaseExecutionSessionPromise) {
+      this.releaseExecutionSessionPromise = this.releaseExecutionSessionNow();
+    }
+    return await this.releaseExecutionSessionPromise;
+  }
+
+  private async releaseExecutionSessionNow(): Promise<void> {
+    const sessionPromise = this.executionSessionPromise;
+    if (!sessionPromise) {
+      return;
+    }
+
+    let executionSession: SecureExecutionSession;
+    try {
+      executionSession = await sessionPromise;
+    } catch (error) {
+      console.error(
+        formatDiagnosticLogLine("execution/lease", "release-skipped", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          reason: "session-creation-failed",
+          error: sanitizeUnknownError(error),
+        }),
+      );
+      return;
+    }
+
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
+      `http://internal/api/v1/session/${encodeURIComponent(executionSession.sessionId)}?session=${encodeURIComponent(this.sessionId)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${executionSession.token}`,
+        },
+      },
+      DEFAULT_EXECUTION_TIMEOUT_MS,
+    );
+
+    if (response.status === 404) {
+      console.warn(
+        formatDiagnosticLogLine("execution/lease", "release-missing", {
+          runId: this.runId,
+          sessionId: this.sessionId,
+          secureSessionId: executionSession.sessionId,
+          httpStatus: response.status,
+        }),
+      );
+      return;
+    }
+
+    if (!response.ok) {
+      const detail = sanitizeLogText((await response.text()) || "unknown");
+      throw new Error(
+        `Secure execution lease release failed with HTTP ${response.status}: ${detail}`,
+      );
+    }
+
+    console.log(
+      formatDiagnosticLogLine("execution/lease", "released", {
+        runId: this.runId,
+        sessionId: this.sessionId,
+        secureSessionId: executionSession.sessionId,
+        httpStatus: response.status,
+      }),
+    );
   }
 
   /**
@@ -365,7 +425,7 @@ export class ExecutionService {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
-    options:
+    _options:
       | {
           onOutput?: (chunk: {
             message: string;
@@ -375,8 +435,6 @@ export class ExecutionService {
         }
       | undefined,
     scope: SecureExecutionWorkspaceScope | undefined,
-    isFinished: () => boolean,
-    setFinished: (value: boolean) => void,
   ): Promise<SecureExecutionTaskResult> {
     const timeoutMs = resolveExecutionTimeoutMs(plugin, action);
     const executionSession = await this.getExecutionSession(scope);
@@ -393,17 +451,6 @@ export class ExecutionService {
         timeoutMs,
       }),
     );
-    const logForwardingPromise = options?.onOutput
-      ? this.forwardExecutionLogs({
-          sessionId: executionSession.sessionId,
-          taskId,
-          token: executionSession.token,
-          timeoutMs,
-          onOutput: options.onOutput,
-          isFinished,
-        })
-      : null;
-
     try {
       const res = await fetchWithTimeout(
         this.env.SECURE_API,
@@ -429,11 +476,8 @@ export class ExecutionService {
         },
         timeoutMs,
       );
-      setFinished(true);
-
       const executionResult = await parseSecureExecutionResponse(res);
       if (!res.ok) {
-        await logForwardingPromise;
         console.error(
           formatDiagnosticLogLine("execution/tool", "http-failed", {
             runId: this.runId,
@@ -467,7 +511,6 @@ export class ExecutionService {
           res.status,
         );
       }
-      await logForwardingPromise;
       console.log(
         formatDiagnosticLogLine("execution/tool", "completed", {
           runId: this.runId,
@@ -484,8 +527,6 @@ export class ExecutionService {
       );
       return { outcome: executionResult, httpStatus: res.status };
     } catch (error) {
-      setFinished(true);
-      await logForwardingPromise;
       console.error(
         formatDiagnosticLogLine("execution/tool", "failed", {
           runId: this.runId,
@@ -653,90 +694,6 @@ export class ExecutionService {
     throw new Error("Failed to create secure execution session");
   }
 
-  private async forwardExecutionLogs(input: {
-    sessionId: string;
-    taskId: string;
-    token: string;
-    timeoutMs: number;
-    onOutput: (chunk: {
-      message: string;
-      source?: "stdout" | "stderr";
-      timestamp?: number;
-    }) => Promise<void> | void;
-    isFinished: () => boolean;
-  }): Promise<void> {
-    let lastTimestamp: number | undefined;
-
-    while (!input.isFinished()) {
-      lastTimestamp = await this.pollExecutionLogs(
-        input.sessionId,
-        input.taskId,
-        input.token,
-        input.timeoutMs,
-        lastTimestamp,
-        input.onOutput,
-      );
-      await sleep(EXECUTION_LOG_POLL_INTERVAL_MS);
-    }
-
-    await this.pollExecutionLogs(
-      input.sessionId,
-      input.taskId,
-      input.token,
-      input.timeoutMs,
-      lastTimestamp,
-      input.onOutput,
-    );
-  }
-
-  private async pollExecutionLogs(
-    sessionId: string,
-    taskId: string,
-    token: string,
-    timeoutMs: number,
-    since: number | undefined,
-    onOutput: (chunk: {
-      message: string;
-      source?: "stdout" | "stderr";
-      timestamp?: number;
-    }) => Promise<void> | void,
-  ): Promise<number | undefined> {
-    const query = new URLSearchParams({ sessionId, taskId });
-    if (since !== undefined && since > 0) {
-      query.set("since", String(since));
-    }
-
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/api/v1/logs?${query.toString()}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-      timeoutMs,
-    );
-
-    if (!response.ok) {
-      return since;
-    }
-
-    const entries = parseExecutionLogStream(await response.text());
-    let nextTimestamp = since;
-    for (const entry of entries) {
-      nextTimestamp = Math.max(nextTimestamp ?? 0, entry.timestamp);
-      if (!entry.source) {
-        continue;
-      }
-      await onOutput({
-        message: entry.message,
-        source: entry.source,
-        timestamp: entry.timestamp,
-      });
-    }
-
-    return nextTimestamp;
-  }
 }
 
 function normalizeExecutionAction(plugin: string, action: string): string {
@@ -764,37 +721,6 @@ function createSessionTaskId(sessionId: string): string {
 
 function createExecutionTaskId(plugin: string, action: string): string {
   return `${plugin}-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function parseExecutionLogStream(body: string): SecureExecutionLogEntry[] {
-  if (!body.trim()) {
-    return [];
-  }
-
-  const entries: SecureExecutionLogEntry[] = [];
-  for (const block of body.split("\n\n")) {
-    const line = block
-      .split("\n")
-      .map((value) => value.trim())
-      .find((value) => value.startsWith("data: "));
-    if (!line) {
-      continue;
-    }
-
-    try {
-      entries.push(
-        JSON.parse(line.slice("data: ".length)) as SecureExecutionLogEntry,
-      );
-    } catch (error) {
-      console.warn(
-        formatDiagnosticLogLine("execution/logs", "parse-failed", {
-          error: sanitizeUnknownError(error),
-        }),
-      );
-    }
-  }
-
-  return entries;
 }
 
 async function parseJsonResponse<T>(

@@ -7,6 +7,7 @@ export const RUN_ADMISSION_BUCKETS = {
   session: "concurrent_expensive_run_session",
   user: "concurrent_expensive_run_user",
   workspace: "concurrent_expensive_run_workspace",
+  cloudflareSandbox: "cloudflare_sandbox_capacity",
 } as const;
 
 export type RunAdmissionBucket =
@@ -14,7 +15,8 @@ export type RunAdmissionBucket =
 export type ConcurrencyBucket =
   | typeof RUN_ADMISSION_BUCKETS.session
   | typeof RUN_ADMISSION_BUCKETS.user
-  | typeof RUN_ADMISSION_BUCKETS.workspace;
+  | typeof RUN_ADMISSION_BUCKETS.workspace
+  | typeof RUN_ADMISSION_BUCKETS.cloudflareSandbox;
 
 export interface RunAdmissionIdentity {
   userId: string;
@@ -51,6 +53,7 @@ const DEFAULT_MUTATION_RUN_SUBMISSION_WINDOW_SECONDS = 600;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX = 1;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX = 2;
 const DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX = 3;
+const DEFAULT_CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS = 2;
 const DEFAULT_ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS = 900;
 
 export function buildAdmissionPolicy(
@@ -63,6 +66,7 @@ export function buildAdmissionPolicy(
     ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX?: string;
     ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX?: string;
     ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX?: string;
+    CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS?: string;
     ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS?: string;
   },
 ): AdmissionPolicy {
@@ -114,6 +118,14 @@ export function buildAdmissionPolicy(
         limit: readPositiveInt(
           env.ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX,
           DEFAULT_ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX,
+        ),
+      },
+      {
+        bucket: RUN_ADMISSION_BUCKETS.cloudflareSandbox,
+        scopeKey: "platform:cloudflare-sandbox",
+        limit: readPositiveInt(
+          env.CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS,
+          DEFAULT_CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS,
         ),
       },
     ],

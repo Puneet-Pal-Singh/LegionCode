@@ -22,28 +22,12 @@ export interface HyperdriveBinding {
   connectionString: string;
 }
 
-type FeatureFlagValue =
-  | "true"
-  | "false"
-  | "TRUE"
-  | "FALSE"
-  | "yes"
-  | "no"
-  | "YES"
-  | "NO"
-  | "1"
-  | "0";
-
 export interface Env {
   // Existing bindings
   AI: Ai;
   SECURE_API: Fetcher;
 
   EDIT_ARTIFACTS?: R2Bucket;
-  ARTIFACTS?: unknown;
-  EDIT_ARTIFACTS_CF_ARTIFACTS_WRITE?: FeatureFlagValue;
-  EDIT_ARTIFACTS_CF_ARTIFACTS_READ?: FeatureFlagValue;
-  EDIT_ARTIFACTS_CF_ARTIFACTS_RECONCILE?: FeatureFlagValue;
   HYPERDRIVE?: HyperdriveBinding;
   DATABASE_MIGRATIONS_MODE?: "auto" | "manual";
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
@@ -113,6 +97,7 @@ export interface Env {
   ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX?: string;
   ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX?: string;
   ACTIVE_EXPENSIVE_RUNS_ANONYMOUS_MAX?: string;
+  CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS?: string;
   ACTIVE_EXPENSIVE_RUN_LEASE_TTL_SECONDS?: string;
 
   // Service URLs (environment-driven, not hardcoded)

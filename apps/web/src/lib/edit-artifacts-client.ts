@@ -25,6 +25,17 @@ export async function getEditArtifactReviewSourceByMessage(input: {
   runId: string;
   assistantMessageId: string;
 }): Promise<PromptArtifactReviewSource | null> {
+  const result = await getEditArtifactReviewSourceByMessageWithStatus(input);
+  return result.source;
+}
+
+export async function getEditArtifactReviewSourceByMessageWithStatus(input: {
+  runId: string;
+  assistantMessageId: string;
+}): Promise<{
+  source: PromptArtifactReviewSource | null;
+  status: number;
+}> {
   logClientEvent("artifact/lookup", "requested", {
     runId: input.runId,
     assistantMessageId: input.assistantMessageId,
@@ -35,9 +46,9 @@ export async function getEditArtifactReviewSourceByMessage(input: {
   const source = await readNullableArtifactResponse(response);
   logArtifactLookupResult(input, response.status, source);
   if (source && source.assistantMessageId !== input.assistantMessageId) {
-    return null;
+    return { source: null, status: response.status };
   }
-  return source;
+  return { source, status: response.status };
 }
 
 export async function getEditArtifactDiff(input: {

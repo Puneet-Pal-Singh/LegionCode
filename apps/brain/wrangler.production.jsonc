@@ -40,10 +40,6 @@
         "class_name": "RunEngineRuntime",
       },
       {
-        "name": "RUN_ENGINE_AGENT",
-        "class_name": "RunEngineAgent",
-      },
-      {
         "name": "RUN_ADMISSION_LIMITER",
         "class_name": "RunAdmissionLimiter",
       },
@@ -66,6 +62,10 @@
       "tag": "v5-delete-session-memory-runtime",
       "deleted_classes": ["SessionMemoryRuntime"],
     },
+    {
+      "tag": "v6-quarantine-run-engine-agent",
+      "deleted_classes": ["RunEngineAgent"],
+    },
   ],
   "vars": {
     "FRONTEND_URL": "https://legioncode.dev/agents",
@@ -81,6 +81,7 @@
     "RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS": "60",
     "MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX": "8",
     "MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS": "60",
+    "CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS": "2",
   },
   "kv_namespaces": [
     {

@@ -14,6 +14,7 @@ import {
   type SandboxExecutionLease,
   type SandboxExecutionLeaseRequest,
 } from "../ports/SandboxExecutionLease";
+import { sanitizeLogText } from "../core/security/LogSanitizer";
 
 interface TaskActionMapping {
   pluginName: string;
@@ -375,8 +376,12 @@ function getTaskActionMapping(action: string): TaskActionMapping | null {
 }
 
 function normalizeLogEntry(entry: string | { message: string; source?: "stdout" | "stderr" }): { message: string; source?: "stdout" | "stderr" } | null {
-  if (typeof entry === "string") return entry.length > 0 ? { message: entry } : null;
-  return entry.message.length > 0 ? entry : null;
+  if (typeof entry === "string") {
+    return entry.length > 0 ? { message: sanitizeLogText(entry) } : null;
+  }
+  return entry.message.length > 0
+    ? { ...entry, message: sanitizeLogText(entry.message) }
+    : null;
 }
 
 function normalizeError(error: unknown): { code: string; message: string; details?: unknown } {
