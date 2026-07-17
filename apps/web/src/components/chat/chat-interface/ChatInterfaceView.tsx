@@ -11,7 +11,7 @@ import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
-import { LifecycleWorkflow } from "./LifecycleWorkflow.js";
+import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
 import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,
@@ -65,9 +65,9 @@ export const ChatInterfaceView = forwardRef<
       className="flex h-full flex-col bg-black"
       data-thread-surface={props.threadId ?? undefined}
     >
-      {props.lifecycleProjection?.terminal ? (
+      {props.lifecycleProjection ? (
         <span data-testid="lifecycle-terminal-settled" className="sr-only">
-          {props.lifecycleProjection.terminal.state}
+          {lifecyclePhaseLabel(props.lifecycleProjection.phase)}
         </span>
       ) : null}
       {props.completedTurnReview.error ? (
@@ -163,14 +163,6 @@ function TurnSurface({
   const hasTool = Boolean(
     turn?.rows.some((row) => row.kind === "tool" || row.kind === "group"),
   );
-  const hasApproval = Boolean(
-    turn?.rows.some((row) => row.kind === "approval") ||
-    (isCurrentTurn && props.lifecycleProjection?.pendingApproval),
-  );
-  const isActive = Boolean(
-    turn?.isActiveTurn ||
-    (isCurrentTurn && !props.lifecycleProjection?.terminal),
-  );
   const terminal = isCurrentTurn ? props.lifecycleProjection?.terminal : null;
   const hasFinalPart = Boolean(
     assistantMessage ||
@@ -226,45 +218,23 @@ function TurnSurface({
           Tool activity
         </span>
       ) : null}
-      {isCurrentTurn ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-workflow` : undefined}
-        >
-          <LifecycleWorkflow projection={props.lifecycleProjection} />
-        </div>
-      ) : null}
-      {hasApproval ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-approval` : undefined}
-          className="text-xs font-medium text-orange-200"
-        >
-          Approval required
-        </div>
-      ) : null}
-      {isActive ? (
+      {isCurrentTurn && props.lifecycleProjection ? (
         <div
           data-testid={surfaceId ? `${surfaceId}-spinner` : undefined}
           role="status"
+          data-phase={props.lifecycleProjection.phase}
           className="text-sm text-zinc-500"
         >
-          Working
+          {lifecyclePhaseLabel(props.lifecycleProjection.phase)}
         </div>
       ) : null}
-      {terminal ? (
+      {terminal?.errorCode ? (
         <div
-          data-testid={surfaceId ? `${surfaceId}-terminal` : undefined}
-          data-status={terminal.state}
+          data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}
+          data-error-code={terminal.errorCode}
           className="text-sm text-zinc-400"
         >
-          {terminal.state}
-          {terminal.errorCode === "SANDBOX_UNAVAILABLE" ? (
-            <span
-              data-testid={surfaceId ? `${surfaceId}-sandbox-error` : undefined}
-              data-error-code={terminal.errorCode}
-            >
-              Sandbox unavailable
-            </span>
-          ) : null}
+          {lifecyclePhaseLabel("failed")}
         </div>
       ) : null}
       {assistantMessage ? (

@@ -192,6 +192,7 @@ function buildTerminalProjection(turnId: string): LifecycleProjection {
   const typedTurnId = turnId as LifecycleProjection["turnId"];
   return {
     turnId: typedTurnId,
+    phase: "completed",
     lastSequence: 3,
     items: [],
     pendingApproval: null,
@@ -265,6 +266,7 @@ function buildApprovalProjection(input: {
   const typedTurnId = input.turnId as LifecycleProjection["turnId"];
   return {
     turnId: typedTurnId,
+    phase: "waiting_for_approval",
     lastSequence: 1,
     items: [],
     pendingApproval: {
