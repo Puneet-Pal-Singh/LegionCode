@@ -114,7 +114,11 @@ import {
   resolveNextStepFromSummaryText,
   resolveSummaryReason,
 } from "./FinalSummaryBuilder.js";
-import { FinalAssistantMessageService } from "./FinalAssistantMessageService.js";
+import {
+  FinalAssistantMessageService,
+  createRuntimeFinalText,
+  type RuntimeFinalText,
+} from "./FinalAssistantMessageService.js";
 import {
   resolveLoopTerminalState,
   shouldUseDeterministicTerminalSummary,
@@ -341,7 +345,7 @@ export class RunEngine implements IRunEngine {
           : buildApprovalDecisionMessage(decisionResult);
         return await this.completeRunWithAssistantMessage(
           run,
-          decisionMessage,
+          createRuntimeFinalText(decisionMessage),
           {
             code: "APPROVAL_DECISION_RECORDED",
             requestId: decisionResult.request.requestId,
@@ -375,7 +379,7 @@ export class RunEngine implements IRunEngine {
           );
           return await this.completeRunWithAssistantMessage(
             run,
-            approvalDirectiveMessage,
+            createRuntimeFinalText(approvalDirectiveMessage),
           );
         }
       } else {
@@ -410,9 +414,13 @@ export class RunEngine implements IRunEngine {
                   "Choose an approval action to continue, or deny to stop this path.",
               })
             : permissionMessage;
-          return await this.completeRunWithAssistantMessage(run, message, {
+          return await this.completeRunWithAssistantMessage(
+            run,
+            createRuntimeFinalText(message),
+            {
             terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
-          });
+            },
+          );
         }
       } else {
         console.log(
@@ -461,7 +469,7 @@ export class RunEngine implements IRunEngine {
           );
           return await this.completeRunWithAssistantMessage(
             run,
-            bootstrapEvaluation.message,
+            createRuntimeFinalText(bootstrapEvaluation.message),
           );
         }
       }
@@ -522,7 +530,7 @@ export class RunEngine implements IRunEngine {
 
         return await this.completeRunWithAssistantMessage(
           run,
-          buildPlanModeResponse(planArtifact),
+          createRuntimeFinalText(buildPlanModeResponse(planArtifact)),
         );
       } catch (planError) {
         const recoveryResponse = await this.tryHandlePlanningError(
@@ -672,7 +680,9 @@ export class RunEngine implements IRunEngine {
       const modelParts = resolveAssistantFinalParts(finalOutput, finalMessage);
       return this.completeRunWithAssistantMessage(
         run,
-        modelParts?.length ? undefined : finalOutput,
+        finalMessage.source === "runtime"
+          ? createRuntimeFinalText(finalOutput)
+          : undefined,
         mergedMetadata,
         modelParts,
       );
@@ -688,11 +698,15 @@ export class RunEngine implements IRunEngine {
                   "Choose an approval action to continue, or deny to stop this path.",
               })
             : error.message;
-          return this.completeRunWithAssistantMessage(run, message, {
+          return this.completeRunWithAssistantMessage(
+            run,
+            createRuntimeFinalText(message),
+            {
             code: "APPROVAL_REQUIRED",
             approvalRequest: gateResult.request,
             terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
-          });
+            },
+          );
         }
         const currentRun = await this.runRepo.getById(run.id);
         if (currentRun?.status === "CANCELLED") {
@@ -711,11 +725,15 @@ export class RunEngine implements IRunEngine {
                 "If you want to proceed, allow the action in a new approval decision.",
             })
           : error.message;
-        return this.completeRunWithAssistantMessage(run, message, {
+        return this.completeRunWithAssistantMessage(
+          run,
+          createRuntimeFinalText(message),
+          {
           code: "PERMISSION_DENIED",
           reason: denialReason,
           terminalState: RUN_TERMINAL_STATES.APPROVAL_DENIED,
-        });
+          },
+        );
       }
       const recoveryResponse = await this.tryHandleTaskExecutionError(
         run,
@@ -944,13 +962,13 @@ export class RunEngine implements IRunEngine {
 
   private async completeRunWithAssistantMessage(
     run: Run,
-    runtimeText: string | undefined,
+    runtimeFinal: RuntimeFinalText | undefined,
     metadata?: Record<string, unknown>,
     modelParts?: import("@repo/platform-protocol").TranscriptPart[],
   ): Promise<Response> {
     return finalizeRunWithAssistantMessagePolicy({
       run,
-      runtimeText,
+      runtimeFinal,
       modelParts,
       metadata,
       deps: this.getRunCompletionDependencies(),
@@ -966,7 +984,7 @@ export class RunEngine implements IRunEngine {
   ): Promise<Response> {
     return completeRunWithRecoveredAssistantMessagePolicy({
       run,
-      runtimeText,
+      runtimeFinal: createRuntimeFinalText(runtimeText),
       metadata,
       errorMetadata,
       terminalStatus,

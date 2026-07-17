@@ -14,6 +14,7 @@ import {
   pauseRunForApprovalWithAssistantMessage,
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
+import { createRuntimeFinalText } from "./FinalAssistantMessageService.js";
 
 describe("RunCompletionPolicy", () => {
   it("does not overwrite a run cancelled while assistant completion was in flight", async () => {
@@ -23,7 +24,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      runtimeText: "late answer",
+      runtimeFinal: createRuntimeFinalText("late answer"),
       deps,
     });
 
@@ -40,7 +41,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithRecoveredAssistantMessage({
       run,
-      runtimeText: "late timeout recovery",
+      runtimeFinal: createRuntimeFinalText("late timeout recovery"),
       deps,
     });
 
@@ -56,8 +57,9 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithRecoveredAssistantMessage({
       run,
-      runtimeText:
+      runtimeFinal: createRuntimeFinalText(
         "The selected model stopped responding, so I paused this run.",
+      ),
       metadata: {
         code: "PROVIDER_UNAVAILABLE",
         terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
@@ -92,7 +94,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await finalizeRunWithAssistantMessage({
       run,
-      runtimeText: "I need your approval before I can continue.",
+      runtimeFinal: createRuntimeFinalText("I need your approval before I can continue."),
       metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
       deps,
     });
@@ -118,7 +120,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await pauseRunForApprovalWithAssistantMessage({
       run,
-      runtimeText: "Approval is required.",
+      runtimeFinal: createRuntimeFinalText("Approval is required."),
       deps,
     });
 
@@ -139,7 +141,7 @@ describe("RunCompletionPolicy", () => {
     await expect(
       completeRunWithAssistantMessage({
         run,
-        runtimeText: "Approval is required.",
+        runtimeFinal: createRuntimeFinalText("Approval is required."),
         metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
         deps,
       }),
@@ -154,7 +156,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      runtimeText: "late answer",
+        runtimeFinal: createRuntimeFinalText("late answer"),
       deps,
     });
 
@@ -174,7 +176,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      runtimeText: "",
+        runtimeFinal: createRuntimeFinalText(""),
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
@@ -203,7 +205,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeText: "Done. I changed the requested files.",
+        runtimeFinal: createRuntimeFinalText("Done. I changed the requested files."),
       modelParts: [
         {
           id: "model-final-part",
@@ -298,7 +300,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeText: "Tests failed after the edit.",
+      runtimeFinal: createRuntimeFinalText("Tests failed after the edit."),
       metadata: {
         terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
         resumeHint: "Fix the failing test and retry.",
@@ -334,7 +336,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      runtimeText: "The file looks correct.",
+      runtimeFinal: createRuntimeFinalText("The file looks correct."),
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_read_or_search"],
@@ -385,7 +387,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeText: "The file looks correct.",
+      runtimeFinal: createRuntimeFinalText("The file looks correct."),
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_read_or_search"],
@@ -431,7 +433,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeText: "I changed the file.",
+      runtimeFinal: createRuntimeFinalText("I changed the file."),
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_edit_or_diff"],
@@ -471,7 +473,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeText: "I changed the file.",
+      runtimeFinal: createRuntimeFinalText("I changed the file."),
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_edit_or_diff"],
@@ -498,7 +500,7 @@ describe("RunCompletionPolicy", () => {
     await expect(
       completeRunWithAssistantMessage({
         run,
-        runtimeText: "Done.",
+        runtimeFinal: createRuntimeFinalText("Done."),
         deps,
       }),
     ).rejects.toThrow("transcript unavailable");

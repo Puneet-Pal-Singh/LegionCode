@@ -20,13 +20,20 @@ export interface AssistantTurnOutput {
   text: string;
   parts?: TranscriptPart[];
   metadata?: Record<string, unknown>;
+  source?: "model" | "runtime";
 }
 
 export function resolveAssistantFinalParts(
   finalOutput: string,
   finalMessage: AssistantTurnOutput,
 ): TranscriptPart[] | undefined {
-  return finalOutput === finalMessage.text ? finalMessage.parts : undefined;
+  if (finalMessage.source !== "model" || finalOutput !== finalMessage.text) {
+    return undefined;
+  }
+  const explicitFinalParts = (finalMessage.parts ?? []).filter(
+    (part) => part.type === "final",
+  );
+  return explicitFinalParts.length > 0 ? explicitFinalParts : undefined;
 }
 
 export function resolveAgenticLoopTools(
@@ -135,9 +142,10 @@ export function buildAgenticLoopFinalMessage(
         return {
           text: groundedMutationSummary,
           metadata: buildToolExecutionFailedMetadata(result.toolLifecycle),
+          source: "runtime",
         };
       }
-      return { text: groundedMutationSummary };
+      return { text: groundedMutationSummary, source: "runtime" };
     }
   }
 
@@ -145,11 +153,12 @@ export function buildAgenticLoopFinalMessage(
     return {
       text: buildFallbackLoopSummary(result),
       metadata: buildToolExecutionFailedMetadata(result.toolLifecycle),
+      source: "runtime",
     };
   }
 
   if (result.stopReason !== "llm_stop") {
-    return { text: buildFallbackLoopSummary(result) };
+    return { text: buildFallbackLoopSummary(result), source: "runtime" };
   }
 
   if (
@@ -157,20 +166,25 @@ export function buildAgenticLoopFinalMessage(
     result.completedMutatingToolCount === 0 &&
     shouldPreserveNoMutationAssistantText(assistantText)
   ) {
-    return { text: assistantText! };
+    return { text: assistantText!, source: "model" };
   }
 
   if (mutationScopedTurn && result.completedMutatingToolCount === 0) {
-    return { text: buildNoMutationEvidenceSummary(result) };
+    return { text: buildNoMutationEvidenceSummary(result), source: "runtime" };
   }
 
   if (assistantText) {
-    return { text: assistantText, parts: result.finalTranscriptParts ?? [] };
+    return {
+      text: assistantText,
+      parts: result.finalTranscriptParts ?? [],
+      source: "model",
+    };
   }
 
   return {
     text: buildMissingAssistantSynthesisSummary(result),
     metadata: buildTaskModelNoActionMetadata(),
+    source: "runtime",
   };
 }
 

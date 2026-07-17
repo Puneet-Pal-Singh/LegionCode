@@ -3,11 +3,20 @@ import type { RunTerminalState } from "@repo/shared-types";
 import type { TerminalOutcomeCode } from "./TerminalSettlementProjector.js";
 import { projectExplicitFinalText } from "./FinalPartValidator.js";
 
+export interface RuntimeFinalText {
+  readonly kind: "runtime_final";
+  readonly text: string;
+}
+
+export function createRuntimeFinalText(text: string): RuntimeFinalText {
+  return { kind: "runtime_final", text };
+}
+
 export interface FinalAssistantMessageInput {
   terminalState: RunTerminalState;
   outcomeCode: TerminalOutcomeCode;
   modelParts?: readonly TranscriptPart[];
-  runtimeText?: string;
+  runtimeFinal?: RuntimeFinalText;
   detail?: string;
   nextStep?: string;
   metadata?: Record<string, unknown>;
@@ -26,7 +35,8 @@ export class FinalAssistantMessageService {
     const typedModelText = projectExplicitFinalText(input.modelParts ?? []);
     const modelText = typedModelText || "";
     const source = modelText ? "model" : "runtime";
-    const text = modelText || input.runtimeText || buildRuntimeFinalText(input);
+    const text =
+      modelText || input.runtimeFinal?.text || buildRuntimeFinalText(input);
     const finalPart = { type: "final" as const, text };
     const metadata = {
       ...(input.metadata ?? {}),
