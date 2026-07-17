@@ -927,13 +927,11 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to load provider models";
-      const fallbackModels = this.state.providerModels[providerId] ?? [];
+      const providerModels = { ...this.state.providerModels };
+      delete providerModels[providerId];
 
       this.setState({
-        providerModels: {
-          ...this.state.providerModels,
-          [providerId]: fallbackModels,
-        },
+        providerModels,
         providerModelsPage: {
           ...this.state.providerModelsPage,
           [providerId]: {
@@ -946,9 +944,10 @@ export class ProviderStore {
           ...this.state.providerModelsMetadata,
           [providerId]: {
             fetchedAt: new Date().toISOString(),
-            stale: true,
+            stale: false,
             source: "cache",
-            staleReason: "provider_api_unavailable",
+            status: "unavailable",
+            statusReason: "cache_unavailable",
           },
         },
         error: message,

@@ -42,9 +42,11 @@ is marked closed.
   the selected provider, bounded to 5 seconds, and returns typed unavailable
   metadata without inventing models. Static registry defaults preserve normal
   chat resolution, stale cache responses remain usable, and Web bootstrap no
-  longer preloads every connected provider. Focused catalog tests and the
-  provider-store bootstrap isolation test are added; authenticated target-cloud
-  proof remains required.
+  longer preloads every connected provider. The legacy unpaginated model route
+  and duplicate preload/fallback owners are removed; explicit refresh is bounded
+  by the same catalog timeout. Focused catalog, controller, provider-store, and
+  bootstrap-isolation tests pass; authenticated target-cloud proof remains
+  required.
 
 ## 2026-07-17 post-PR-406 recovery evidence
 

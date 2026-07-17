@@ -221,29 +221,22 @@ export class RunEngineRuntime extends DurableObject {
           ProviderIdSchema,
           correlationId,
         );
-        const isDiscoveryQuery =
-          url.searchParams.has("view") ||
-          url.searchParams.has("limit") ||
-          url.searchParams.has("cursor");
-        if (isDiscoveryQuery) {
-          const discoveryQuery =
-            validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
-              {
-                view: url.searchParams.get("view") ?? undefined,
-                limit: url.searchParams.get("limit") ?? undefined,
-                cursor: url.searchParams.get("cursor") ?? undefined,
-              },
-              BYOKDiscoveredProviderModelsQuerySchema,
-              correlationId,
-            );
-          const discovered = await configService.getDiscoveredModels(
-            providerId,
-            discoveryQuery,
+        const discoveryQuery =
+          validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
+            {
+              view: url.searchParams.get("view") ?? undefined,
+              surface: url.searchParams.get("surface") ?? undefined,
+              limit: url.searchParams.get("limit") ?? undefined,
+              cursor: url.searchParams.get("cursor") ?? undefined,
+            },
+            BYOKDiscoveredProviderModelsQuerySchema,
+            correlationId,
           );
-          return jsonResponse(request, env, discovered);
-        }
-        const response = await configService.getModels(providerId);
-        return jsonResponse(request, env, response);
+        const discovered = await configService.getDiscoveredModels(
+          providerId,
+          discoveryQuery,
+        );
+        return jsonResponse(request, env, discovered);
       }
 
       if (url.pathname === "/providers/models/refresh") {

@@ -12,7 +12,6 @@ import type {
   ProviderCatalogResponse,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import type { ModelsListResponse } from "../../schemas/provider";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import {
@@ -26,12 +25,6 @@ import {
   getAxisCatalogModels,
   getAxisDiscoveredModels,
 } from "./axis";
-
-const MODELS_DISCOVERY_QUERY: BYOKDiscoveredProviderModelsQuery = {
-  view: "all",
-  surface: "picker",
-  limit: 200,
-};
 
 const MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 
@@ -70,14 +63,6 @@ export class ProviderCatalogService {
       providers,
       generatedAt: new Date().toISOString(),
     };
-  }
-
-  async getModels(providerId: string): Promise<ModelsListResponse> {
-    const discovered = await this.getDiscoveredModels(
-      providerId,
-      MODELS_DISCOVERY_QUERY,
-    );
-    return toModelsListResponse(discovered);
   }
 
   async getDiscoveredModels(
@@ -157,7 +142,10 @@ export class ProviderCatalogService {
         modelsCount: getAxisDiscoveredModels().length,
       };
     }
-    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
+    return withTimeout(
+      this.modelDiscoveryService.refreshDiscoveredModels(providerId),
+      MODEL_DISCOVERY_TIMEOUT_MS,
+    );
   }
 
   private async isProviderVisible(providerId: string): Promise<boolean> {
@@ -184,22 +172,6 @@ export class ProviderCatalogService {
       return false;
     }
   }
-}
-
-function toModelsListResponse(
-  discovered: BYOKDiscoveredProviderModelsResponse,
-): ModelsListResponse {
-  return {
-    providerId: discovered.providerId,
-    models: discovered.models.map((model) => ({
-      id: model.id,
-      name: model.name,
-      provider: discovered.providerId,
-      contextWindow: model.contextWindow,
-      description: model.description,
-    })),
-    lastFetchedAt: discovered.metadata.fetchedAt,
-  };
 }
 
 function createRegistryResponse(
@@ -243,9 +215,8 @@ function createUnavailableResponse(
     },
     metadata: {
       fetchedAt: new Date().toISOString(),
-      stale: true,
+      stale: false,
       source: "cache",
-      staleReason: "provider_api_unavailable",
       status: "unavailable",
       statusReason,
     },

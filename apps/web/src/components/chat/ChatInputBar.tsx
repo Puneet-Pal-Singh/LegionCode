@@ -206,12 +206,10 @@ export function ChatInputBar({
     () =>
       isProviderModelBootstrapLoading({
         status,
-        catalog,
-        credentials,
         providerModels,
         selectedProviderId,
       }),
-    [status, catalog, credentials, providerModels, selectedProviderId],
+    [status, providerModels, selectedProviderId],
   );
   const isSelectedProviderModelHydrationPending = useMemo(
     () =>

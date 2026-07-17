@@ -41,9 +41,3 @@ export interface SessionModelConfig {
   providerId: ProviderId;
   modelId: string;
 }
-
-export interface ModelsListResponse {
-  providerId: ProviderId;
-  models: ModelDescriptor[];
-  lastFetchedAt: string;
-}

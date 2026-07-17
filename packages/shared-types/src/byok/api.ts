@@ -5,7 +5,6 @@ import {
   BYOKValidateRequestSchema,
   BYOKValidateResponseSchema,
   ProviderConnectionConfigSchema,
-  ModelDescriptorSchema,
 } from "../provider.js";
 import {
   BYOKDiscoveredProviderModelSchema,
@@ -111,18 +110,6 @@ export const BYOKCredentialValidateResponseSchema = z.object({
 });
 export type BYOKCredentialValidateResponse = z.infer<
   typeof BYOKCredentialValidateResponseSchema
->;
-
-/**
- * GET /api/byok/providers/:providerId/models
- */
-export const BYOKProviderModelsResponseSchema = z.object({
-  providerId: z.string().min(1).max(64),
-  models: z.array(ModelDescriptorSchema),
-  lastFetchedAt: z.string().datetime(),
-});
-export type BYOKProviderModelsResponse = z.infer<
-  typeof BYOKProviderModelsResponseSchema
 >;
 
 /**

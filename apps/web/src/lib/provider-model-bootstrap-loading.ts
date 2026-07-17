@@ -1,17 +1,7 @@
-import {
-  canPreloadProvider,
-  type BYOKCredential,
-  type ProviderRegistryEntry,
-} from "@repo/shared-types";
 import type { ProviderModelOption } from "../services/api/providerClient.js";
-import { resolveWebProviderProductPolicy } from "./provider-product-policy";
-
-const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface ProviderModelBootstrapLoadingArgs {
   status: "idle" | "loading" | "ready" | "error";
-  catalog: ProviderRegistryEntry[];
-  credentials: BYOKCredential[];
   providerModels: Record<string, ProviderModelOption[]>;
   selectedProviderId?: string | null;
 }
@@ -25,8 +15,6 @@ interface ProviderVisibleModelHydrationArgs {
 
 export function isProviderModelBootstrapLoading({
   status,
-  catalog,
-  credentials,
   providerModels,
   selectedProviderId,
 }: ProviderModelBootstrapLoadingArgs): boolean {
@@ -38,16 +26,13 @@ export function isProviderModelBootstrapLoading({
     return false;
   }
 
-  const pendingProviderIds = selectedProviderId
-    ? [selectedProviderId]
-    : collectBootstrapModelPreloadProviderIds(catalog, credentials);
-  if (pendingProviderIds.length === 0) {
+  if (!selectedProviderId) {
     return false;
   }
 
-  return pendingProviderIds.some(
-    (providerId) =>
-      !Object.prototype.hasOwnProperty.call(providerModels, providerId),
+  return !Object.prototype.hasOwnProperty.call(
+    providerModels,
+    selectedProviderId,
   );
 }
 
@@ -66,7 +51,9 @@ export function isProviderVisibleModelHydrationPending({
     return false;
   }
 
-  if (!Object.prototype.hasOwnProperty.call(providerModels, selectedProviderId)) {
+  if (
+    !Object.prototype.hasOwnProperty.call(providerModels, selectedProviderId)
+  ) {
     return false;
   }
 
@@ -85,32 +72,4 @@ export function isProviderVisibleModelHydrationPending({
     manageProviderModels,
     selectedProviderId,
   );
-}
-
-function collectBootstrapModelPreloadProviderIds(
-  catalog: ProviderRegistryEntry[],
-  credentials: BYOKCredential[],
-): string[] {
-  const providerIds = new Set<string>();
-  const catalogProviderIds = new Set(
-    catalog.map((entry) => entry.providerId),
-  );
-
-  if (
-    catalogProviderIds.has("axis") &&
-    canPreloadProvider(WEB_PROVIDER_POLICY, "axis")
-  ) {
-    providerIds.add("axis");
-  }
-
-  for (const credential of credentials) {
-    if (
-      catalogProviderIds.has(credential.providerId) &&
-      canPreloadProvider(WEB_PROVIDER_POLICY, credential.providerId)
-    ) {
-      providerIds.add(credential.providerId);
-    }
-  }
-
-  return Array.from(providerIds);
 }

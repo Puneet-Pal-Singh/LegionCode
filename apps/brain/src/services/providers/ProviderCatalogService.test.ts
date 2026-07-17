@@ -131,7 +131,7 @@ describe("ProviderCatalogService", () => {
         metadata: {
           status: "unavailable",
           statusReason: "timeout",
-          stale: true,
+          stale: false,
         },
       });
     } finally {
@@ -160,5 +160,27 @@ describe("ProviderCatalogService", () => {
     expect(response.models).toEqual([]);
     expect(response.metadata.status).toBe("unavailable");
     expect(response.metadata.statusReason).toBe("timeout");
+  });
+
+  it("bounds explicit selected-provider refreshes", async () => {
+    vi.useFakeTimers();
+    try {
+      const discovery = createDiscoveryStub();
+      discovery.refreshDiscoveredModels.mockReturnValue(new Promise(() => {}));
+      const service = new ProviderCatalogService(
+        new ProviderRegistryService(),
+        discovery as never,
+      );
+
+      const refresh = service.refreshDiscoveredModels("google");
+      const refreshExpectation = expect(refresh).rejects.toMatchObject({
+        status: 504,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await refreshExpectation;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

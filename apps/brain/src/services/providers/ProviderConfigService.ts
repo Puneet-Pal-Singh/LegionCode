@@ -29,7 +29,6 @@ import type {
   ProviderId,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import type { ModelsListResponse } from "../../schemas/provider";
 import type { CredentialStore } from "./stores/CredentialStore";
 import type { PreferenceStore } from "./stores/PreferenceStore";
 import type { ProviderModelCacheStore } from "./stores/ProviderModelCacheStore";
@@ -225,11 +224,6 @@ export class ProviderConfigService {
   async getStatus(): Promise<ProviderConnection[]> {
     await this.ensureStorageReady();
     return this.connectionService.getStatus();
-  }
-
-  async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    await this.ensureStorageReady();
-    return this.getCatalogService().getModels(providerId);
   }
 
   async getDiscoveredModels(

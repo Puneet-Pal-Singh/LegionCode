@@ -118,12 +118,10 @@ export function AgentSetup({
     () =>
       isProviderModelBootstrapLoading({
         status,
-        catalog,
-        credentials,
         providerModels,
         selectedProviderId,
       }),
-    [status, catalog, credentials, providerModels, selectedProviderId],
+    [status, providerModels, selectedProviderId],
   );
   const { isSelectedProviderModelHydrationPending } =
     useSelectedProviderModelHydration({

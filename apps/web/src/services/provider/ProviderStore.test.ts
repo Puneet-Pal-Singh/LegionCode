@@ -395,7 +395,7 @@ describe("ProviderStore", () => {
       );
     });
 
-    it("marks provider model list as loaded when discovery request fails", async () => {
+    it("does not retain a client-side model fallback when discovery request fails", async () => {
       vi.mocked(mockApiClient.getProviderModels).mockRejectedValueOnce(
         new Error("Internal server error"),
       );
@@ -411,17 +411,19 @@ describe("ProviderStore", () => {
           state.providerModels,
           "openrouter",
         ),
-      ).toBe(true);
-      expect(state.providerModels.openrouter).toEqual([]);
+      ).toBe(false);
       expect(state.providerModelsPage.openrouter).toEqual({
         view: "popular",
         hasMore: false,
         nextCursor: null,
       });
-      expect(state.providerModelsMetadata.openrouter?.stale).toBe(true);
+      expect(state.providerModelsMetadata.openrouter?.stale).toBe(false);
       expect(state.providerModelsMetadata.openrouter?.source).toBe("cache");
-      expect(state.providerModelsMetadata.openrouter?.staleReason).toBe(
-        "provider_api_unavailable",
+      expect(state.providerModelsMetadata.openrouter?.status).toBe(
+        "unavailable",
+      );
+      expect(state.providerModelsMetadata.openrouter?.statusReason).toBe(
+        "cache_unavailable",
       );
     });
 
