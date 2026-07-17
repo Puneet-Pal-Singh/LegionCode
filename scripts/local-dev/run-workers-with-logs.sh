@@ -43,6 +43,13 @@ filter_worker_logs() {
 
 trap cleanup EXIT INT TERM
 
+if ! (
+  cd "${ROOT_DIR}/apps/brain"
+  node ./scripts/validate-local-wrangler-config.mjs
+); then
+  exit 1
+fi
+
 echo "[local-dev] Writing Brain logs to ${BRAIN_LOG}"
 echo "[local-dev] Writing secure-agent-api logs to ${SECURE_API_LOG}"
 echo "[local-dev] Also writing Brain logs to ${BRAIN_ALIAS_LOG}"
