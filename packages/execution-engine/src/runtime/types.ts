@@ -181,6 +181,7 @@ export interface AgenticLoopToolLifecycleEvent {
   mutating: boolean;
   recordedAt: string;
   detail?: string;
+  failureCode?: string;
   metadata?: ToolActivityMetadata;
 }
 

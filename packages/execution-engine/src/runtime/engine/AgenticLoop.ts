@@ -17,6 +17,7 @@ import {
   type ILLMGateway,
   type LLMTextResponse,
 } from "../llm/index.js";
+import { finalizeTranscriptParts } from "../llm/TranscriptPartNormalizer.js";
 import {
   projectVisibleTranscriptText,
   type TranscriptPart,
@@ -353,6 +354,7 @@ export class AgenticLoop {
 
       // Check if LLM requested tool calls
       if (!response.toolCalls || response.toolCalls.length === 0) {
+        finalTranscriptParts = finalizeTranscriptParts(responseParts);
         console.log(
           `[agentic-loop] LLM finished (no tool calls) at step ${step}`,
         );
@@ -518,6 +520,7 @@ export class AgenticLoop {
               "failed",
               toolError,
               activityMetadata,
+              readTaskFailureCode(result),
             );
             await context.onToolFailed?.(toolCall, toolError, executionTimeMs);
             toolResults.push({
@@ -771,6 +774,7 @@ export class AgenticLoop {
     status: AgenticLoopToolLifecycleEvent["status"],
     detail?: string,
     metadata?: ToolActivityMetadata,
+    failureCode?: string,
   ): void {
     this.toolLifecycle.push({
       toolCallId: toolCall.id,
@@ -779,6 +783,7 @@ export class AgenticLoop {
       mutating: isMutatingCodingToolId(toolCall.toolName),
       recordedAt: new Date().toISOString(),
       detail,
+      ...(failureCode ? { failureCode } : {}),
       metadata,
     });
   }
@@ -966,6 +971,19 @@ function extractToolActivityMetadata(
   const activity = (metadata as Record<string, unknown>).activity;
   const parsed = safeParseToolActivityMetadata(activity);
   return parsed.success ? parsed.data : undefined;
+}
+
+function readTaskFailureCode(result: TaskResult): string | undefined {
+  const runtimeFailure = result.output?.metadata?.runtimeFailure;
+  if (
+    runtimeFailure &&
+    typeof runtimeFailure === "object" &&
+    !Array.isArray(runtimeFailure) &&
+    typeof (runtimeFailure as Record<string, unknown>).code === "string"
+  ) {
+    return (runtimeFailure as Record<string, string>).code;
+  }
+  return result.error?.code;
 }
 
 function summarizeMessageRoles(messages: CoreMessage[]): string {

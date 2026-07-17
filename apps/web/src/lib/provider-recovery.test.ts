@@ -37,6 +37,13 @@ describe("provider recovery advice", () => {
     expect(advice.remediation).toContain("concrete file path or command");
   });
 
+  it("does not route runtime failures to provider setup", () => {
+    const advice = getProviderRecoveryAdvice("SANDBOX_UNAVAILABLE");
+    expect(advice.actionLabel).toBe("Retry Request");
+    expect(advice.recoveryTarget).toBe("general");
+    expect(advice.remediation).toContain("changing provider settings");
+  });
+
   it("maps auth scope persistence issues to re-auth guidance", () => {
     const advice = getProviderRecoveryAdvice(
       "Unauthorized: missing or invalid authentication.",

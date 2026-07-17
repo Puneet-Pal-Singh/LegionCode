@@ -12,6 +12,16 @@ export function getProviderRecoveryAdvice(
 ): ProviderRecoveryAdvice {
   const message = (rawMessage ?? "").trim();
 
+  if (containsRuntimeFailure(message)) {
+    return {
+      message,
+      actionLabel: "Retry Request",
+      remediation:
+        "This is a runtime or workspace failure. Retry the request or narrow the task; changing provider settings will not repair it.",
+      recoveryTarget: "general",
+    };
+  }
+
   if (containsActiveRunSelectionConflict(message)) {
     return {
       message:
@@ -84,6 +94,18 @@ export function getProviderRecoveryAdvice(
       "Review provider status, reconnect credentials if needed, and retry.",
     recoveryTarget: "connect",
   };
+}
+
+function containsRuntimeFailure(message: string): boolean {
+  return (
+    message.includes("SANDBOX_UNAVAILABLE") ||
+    message.includes("WORKSPACE_SCOPE_INVALID") ||
+    message.includes("EXECUTION_TIMEOUT") ||
+    message.includes("EXECUTION_CANCELLED") ||
+    message.includes("RUNTIME_EXECUTION_FAILED") ||
+    message.includes("Sandbox execution is unavailable") ||
+    message.includes("Sandbox execution timed out")
+  );
 }
 
 function containsMissingProviderConfiguration(message: string): boolean {

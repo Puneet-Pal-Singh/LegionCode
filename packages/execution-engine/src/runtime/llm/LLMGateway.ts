@@ -228,6 +228,7 @@ export class LLMGateway implements ILLMGateway {
         toolCalls,
         usage,
         finishReason: result.finishReason,
+        outputIntent: req.context.phase === "synthesis" ? "final" : "intermediate",
       }),
       usage,
       finishReason: result.finishReason,
