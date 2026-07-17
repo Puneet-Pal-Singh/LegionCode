@@ -20,6 +20,8 @@ const TEST_LEASE: SandboxExecutionLease = {
   sandboxId: "workspace:workspace-1:attempt:attempt-1",
   workspaceScope: {
     runId: TEST_RUN_ID,
+    threadId: "thread-1",
+    turnId: "turn-1",
     runAttemptId: "attempt-1",
     workspaceId: "workspace-1",
     root: "/workspace-1",
@@ -657,6 +659,8 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         correlationId: "corr-workspace-two",
         workspaceScope: {
           runId: TEST_RUN_ID,
+          threadId: "thread-2",
+          turnId: "turn-2",
           runAttemptId: "attempt-1",
           workspaceId: "workspace-2",
           root: "/workspace-2",
@@ -712,6 +716,8 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         correlationId: "corr-sibling",
         workspaceScope: {
           runId: TEST_RUN_ID,
+          threadId: "thread-2",
+          turnId: "turn-2",
           runAttemptId: "attempt-1",
           workspaceId: "workspace-2",
           root: "/workspace-2",
@@ -791,6 +797,8 @@ describe("CloudflareSandboxExecutionAdapter", () => {
         leaseId: "lease:workspace-2:attempt-1",
         workspaceScope: {
           runId: TEST_RUN_ID,
+          threadId: "thread-2",
+          turnId: "turn-2",
           runAttemptId: "attempt-1",
           workspaceId: "workspace-2",
           root: "/workspace-2",

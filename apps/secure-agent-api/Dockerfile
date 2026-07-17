@@ -157,6 +157,4 @@ RUN python3 -m pip install --no-cache-dir redis requests
 COPY --from=go-builder /app/redis-binary /usr/local/bin/my-redis-server
 RUN chmod +x /usr/local/bin/my-redis-server && mkdir -p /data
 
-EXPOSE 3000
-
 WORKDIR /root
