@@ -635,7 +635,7 @@ describe("ChatInterface", () => {
     );
   });
 
-  it("caches missing artifact sources for assistant messages before terminal status", async () => {
+  it("does not retry missing artifact sources before terminal status", async () => {
     const messages: Message[] = [
       {
         id: "assistant-no-artifact",
@@ -643,6 +643,14 @@ describe("ChatInterface", () => {
         content: "Plain response.",
       },
     ];
+    const conversationScope = {
+      workspaceId: "workspace-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      runAttemptId: "attempt-1",
+      sessionId: "session-1",
+      runId: "run-active",
+    };
     vi.mocked(useRunSummary).mockReturnValue({
       summary: {
         runId: "run-active",
@@ -667,6 +675,7 @@ describe("ChatInterface", () => {
           hasHydrated: true,
           error: null,
           debugEvents: [],
+          conversationScope,
         }}
         sessionId="session-1"
         mode="build"
@@ -691,6 +700,7 @@ describe("ChatInterface", () => {
           hasHydrated: true,
           error: null,
           debugEvents: [],
+          conversationScope,
         }}
         sessionId="session-1"
         mode="build"

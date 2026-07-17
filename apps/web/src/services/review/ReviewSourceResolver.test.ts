@@ -79,6 +79,12 @@ describe("resolveReviewSource", () => {
       kind: "prompt_artifact",
       artifactId: "artifact-1",
       assistantMessageId: "assistant-1",
+      identity: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runAttemptId: "attempt-1",
+        workspaceId: "workspace-1",
+      },
       reason: "explicit",
     });
   });
@@ -156,6 +162,9 @@ function buildArtifactSource(): PromptArtifactReviewSource {
     runId: "run-1",
     sessionId: "session-1",
     workspaceId: "workspace-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runAttemptId: "attempt-1",
     assistantMessageId: "assistant-1",
     status: "stored",
     files: [

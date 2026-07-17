@@ -49,12 +49,24 @@ export const EditArtifactChangedFileSchema = z.object({
   isStaged: z.boolean().optional().nullable(),
 });
 
+export const EditArtifactIdentitySchema = z
+  .object({
+    threadId: z.string().trim().min(1),
+    turnId: z.string().trim().min(1),
+    runAttemptId: z.string().trim().min(1),
+    workspaceId: z.string().trim().min(1),
+  })
+  .strict();
+
 export const EditArtifactRecordSchema = z.object({
   id: z.string().min(1),
   userId: z.string().min(1),
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   workspaceId: z.string().min(1),
+  threadId: z.string().min(1).nullable(),
+  turnId: z.string().min(1).nullable(),
+  runAttemptId: z.string().min(1).nullable(),
   repoOwner: z.string().min(1).nullable(),
   repoName: z.string().min(1).nullable(),
   repoUrl: z.string().url().nullable(),
@@ -68,13 +80,10 @@ export const EditArtifactRecordSchema = z.object({
   sha256: z.string().min(1).nullable(),
   userMessageId: z.string().min(1).nullable().optional(),
   assistantMessageId: z.string().min(1).nullable().optional(),
-  sourceTurnId: z.string().min(1).nullable().optional(),
   captureSequence: z.number().int().nonnegative().optional(),
   patchParseStatus: z.string().min(1).optional(),
   patchSha256: z.string().min(1).nullable().optional(),
-  storageBackend: z
-    .enum(["r2_postgres", "cloudflare_artifacts"])
-    .optional(),
+  storageBackend: z.enum(["r2_postgres", "cloudflare_artifacts"]).optional(),
   cfArtifactRepo: z.string().min(1).nullable().optional(),
   cfArtifactCommitSha: z.string().min(1).nullable().optional(),
   cfArtifactPath: z.string().min(1).nullable().optional(),
@@ -103,6 +112,9 @@ export const CreateEditArtifactInputSchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   workspaceId: z.string().min(1),
+  threadId: z.string().min(1),
+  turnId: z.string().min(1),
+  runAttemptId: z.string().min(1),
   repoOwner: z.string().min(1).nullable(),
   repoName: z.string().min(1).nullable(),
   repoUrl: z.string().url().nullable(),
@@ -113,13 +125,10 @@ export const CreateEditArtifactInputSchema = z.object({
   changedFiles: z.array(EditArtifactChangedFileSchema),
   userMessageId: z.string().min(1).optional().nullable(),
   assistantMessageId: z.string().min(1).optional().nullable(),
-  sourceTurnId: z.string().min(1).optional().nullable(),
   captureSequence: z.number().int().nonnegative().optional(),
   patchParseStatus: z.string().min(1).optional(),
   patchSha256: z.string().min(1).optional().nullable(),
-  storageBackend: z
-    .enum(["r2_postgres", "cloudflare_artifacts"])
-    .optional(),
+  storageBackend: z.enum(["r2_postgres", "cloudflare_artifacts"]).optional(),
   cfArtifactRepo: z.string().min(1).optional().nullable(),
   cfArtifactCommitSha: z.string().min(1).optional().nullable(),
   cfArtifactPath: z.string().min(1).optional().nullable(),
@@ -134,6 +143,9 @@ export const EditArtifactPatchObjectMetadataSchema = z.object({
   runId: z.string().min(1),
   sessionId: z.string().min(1),
   workspaceId: z.string().min(1),
+  threadId: z.string().min(1),
+  turnId: z.string().min(1),
+  runAttemptId: z.string().min(1),
   repoOwner: z.string().min(1).nullable(),
   repoName: z.string().min(1).nullable(),
   branch: z.string().min(1).nullable(),
@@ -141,12 +153,9 @@ export const EditArtifactPatchObjectMetadataSchema = z.object({
   patchSha256: z.string().min(1),
   userMessageId: z.string().min(1).optional().nullable(),
   assistantMessageId: z.string().min(1).optional().nullable(),
-  sourceTurnId: z.string().min(1).optional().nullable(),
   captureSequence: z.number().int().nonnegative().optional(),
   patchParseStatus: z.string().min(1).optional(),
-  storageBackend: z
-    .enum(["r2_postgres", "cloudflare_artifacts"])
-    .optional(),
+  storageBackend: z.enum(["r2_postgres", "cloudflare_artifacts"]).optional(),
   changedFiles: z.array(EditArtifactChangedFileSchema),
   capturedAt: z.string().min(1),
 });
@@ -157,6 +166,7 @@ export type EditArtifactEventType = z.infer<typeof EditArtifactEventTypeSchema>;
 export type EditArtifactChangedFile = z.infer<
   typeof EditArtifactChangedFileSchema
 >;
+export type EditArtifactIdentity = z.infer<typeof EditArtifactIdentitySchema>;
 export type EditArtifactRecord = z.infer<typeof EditArtifactRecordSchema>;
 export type EditArtifactEvent = z.infer<typeof EditArtifactEventSchema>;
 export type CreateEditArtifactInput = z.infer<

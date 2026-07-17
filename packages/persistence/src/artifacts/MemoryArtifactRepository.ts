@@ -38,6 +38,9 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     const record = EditArtifactRecordSchema.parse({
       ...parsed,
       changedFileCount: parsed.changedFiles.length,
+      threadId: parsed.threadId,
+      turnId: parsed.turnId,
+      runAttemptId: parsed.runAttemptId,
       headCommitSha: existing?.headCommitSha ?? null,
       contentType: existing?.contentType ?? null,
       sizeBytes: existing?.sizeBytes ?? null,
@@ -45,7 +48,6 @@ export class MemoryArtifactRepository implements ArtifactRepository {
       userMessageId: parsed.userMessageId ?? existing?.userMessageId ?? null,
       assistantMessageId:
         parsed.assistantMessageId ?? existing?.assistantMessageId ?? null,
-      sourceTurnId: parsed.sourceTurnId ?? existing?.sourceTurnId ?? null,
       captureSequence: parsed.captureSequence ?? existing?.captureSequence ?? 0,
       patchParseStatus:
         parsed.patchParseStatus ?? existing?.patchParseStatus ?? "unknown",
@@ -158,12 +160,14 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     runId: string;
     userId: string;
     sessionId?: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     return this.findLatestReviewArtifact((artifact) => {
       return (
         artifact.runId === input.runId &&
         artifact.userId === input.userId &&
-        (!input.sessionId || artifact.sessionId === input.sessionId)
+        (!input.sessionId || artifact.sessionId === input.sessionId) &&
+        hasIdentity(artifact, input.identity)
       );
     });
   }
@@ -171,11 +175,13 @@ export class MemoryArtifactRepository implements ArtifactRepository {
   async getLatestReviewArtifactForRun(input: {
     runId: string;
     sessionId?: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     return this.findLatestReviewArtifact((artifact) => {
       return (
         artifact.runId === input.runId &&
-        (!input.sessionId || artifact.sessionId === input.sessionId)
+        (!input.sessionId || artifact.sessionId === input.sessionId) &&
+        hasIdentity(artifact, input.identity)
       );
     });
   }
@@ -184,12 +190,14 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     runId: string;
     userId: string;
     assistantMessageId: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     return this.findLatestReviewArtifact((artifact) => {
       return (
         artifact.runId === input.runId &&
         artifact.userId === input.userId &&
-        artifact.assistantMessageId === input.assistantMessageId
+        artifact.assistantMessageId === input.assistantMessageId &&
+        hasIdentity(artifact, input.identity)
       );
     });
   }
@@ -197,11 +205,13 @@ export class MemoryArtifactRepository implements ArtifactRepository {
   async getReviewArtifactByMessageForRun(input: {
     runId: string;
     assistantMessageId: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     return this.findLatestReviewArtifact((artifact) => {
       return (
         artifact.runId === input.runId &&
-        artifact.assistantMessageId === input.assistantMessageId
+        artifact.assistantMessageId === input.assistantMessageId &&
+        hasIdentity(artifact, input.identity)
       );
     });
   }
@@ -211,7 +221,6 @@ export class MemoryArtifactRepository implements ArtifactRepository {
     userId: string;
     userMessageId?: string | null;
     assistantMessageId?: string | null;
-    sourceTurnId?: string | null;
     captureSequence?: number;
     patchParseStatus?: string;
     patchSha256?: string | null;
@@ -234,7 +243,6 @@ export class MemoryArtifactRepository implements ArtifactRepository {
         "assistantMessageId",
         existing,
       ),
-      sourceTurnId: readReviewMetadataField(input, "sourceTurnId", existing),
       captureSequence:
         readReviewMetadataField(input, "captureSequence", existing) ?? 0,
       patchParseStatus:
@@ -379,6 +387,18 @@ function compareRestoreOrder(
 
 function hasChangedFiles(changedFiles: EditArtifactChangedFile[]): boolean {
   return changedFiles.length > 0;
+}
+
+function hasIdentity(
+  artifact: EditArtifactRecord,
+  identity: import("@repo/shared-types").EditArtifactIdentity,
+): boolean {
+  return (
+    artifact.threadId === identity.threadId &&
+    artifact.turnId === identity.turnId &&
+    artifact.runAttemptId === identity.runAttemptId &&
+    artifact.workspaceId === identity.workspaceId
+  );
 }
 
 function isReviewable(artifact: EditArtifactRecord): boolean {

@@ -8,6 +8,7 @@ import type {
 import type { ChatMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
@@ -23,6 +24,7 @@ import type { ComposerLayout } from "./ChatComposerControls";
 interface ChatInterfaceViewProps {
   threadId: string | null;
   runAttemptId: string | null;
+  artifactIdentity?: EditArtifactIdentity | null;
   showHeroComposer: boolean;
   showSessionPlaceholder: boolean;
   renderComposer: (layout: ComposerLayout) => ReactNode;
@@ -41,7 +43,11 @@ interface ChatInterfaceViewProps {
     messageId: string,
     file: FileStatus,
   ) => Promise<DiffContent>;
-  openPromptArtifactReview: (artifactId: string, messageId?: string) => void;
+  openPromptArtifactReview: (
+    artifactId: string,
+    messageId?: string,
+    identity?: EditArtifactIdentity,
+  ) => void;
   terminalViewModel: LifecycleTerminalViewModel | null;
   terminalReviewFiles: FileStatus[];
   terminalTurnDiff: TurnDiffPayload | null;
@@ -204,9 +210,7 @@ function TurnSurface({
       ) : null}
 
       {turn && (hasTool || turn.rows.length > 0) ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-tool-surface` : undefined}
-        >
+        <div data-testid={surfaceId ? `${surfaceId}-tool-surface` : undefined}>
           {props.renderActivityTurn(turn)}
         </div>
       ) : null}
@@ -284,7 +288,11 @@ function resolveMessageChangedFilesSummary(
     artifacts: props.artifacts,
     loadFileDiff: (file) => props.loadChangedFileDiff(messageId, file),
     onPromptArtifactReview: (artifactId) => {
-      props.openPromptArtifactReview(artifactId, messageId);
+      props.openPromptArtifactReview(
+        artifactId,
+        messageId,
+        props.artifactIdentity ?? undefined,
+      );
       props.onReviewOpen?.();
     },
   });
@@ -307,7 +315,11 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
         loadArtifactFileDiff: (_artifactId, file) =>
           props.loadCompletedTurnFileDiff(file),
         onPromptArtifactReview: (artifactId) => {
-          props.openPromptArtifactReview(artifactId);
+          props.openPromptArtifactReview(
+            artifactId,
+            undefined,
+            props.artifactIdentity ?? undefined,
+          );
           props.onReviewOpen?.();
         },
         onReviewOpen: props.onReviewOpen,

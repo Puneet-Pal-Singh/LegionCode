@@ -85,6 +85,7 @@ export class RunEngineRuntime extends DurableObject {
           result.runId,
           result.correlationId,
           result.response,
+          result.identity,
         );
       });
     }

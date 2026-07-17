@@ -15,6 +15,9 @@ describe("getEditArtifactReviewSourceByMessage", () => {
           runId: "run-1",
           sessionId: "session-1",
           workspaceId: "workspace-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          runAttemptId: "attempt-1",
           assistantMessageId: "message-b",
           status: "stored",
           files: [],
@@ -28,6 +31,12 @@ describe("getEditArtifactReviewSourceByMessage", () => {
     const source = await getEditArtifactReviewSourceByMessage({
       runId: "run-1",
       assistantMessageId: "message-a",
+      identity: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runAttemptId: "attempt-1",
+        workspaceId: "workspace-1",
+      },
     });
 
     expect(source).toBeNull();

@@ -2,6 +2,7 @@ import type {
   CreateEditArtifactInput,
   EditArtifactEvent,
   EditArtifactEventType,
+  EditArtifactIdentity,
   EditArtifactRecord,
   EditArtifactStatus,
 } from "@repo/shared-types";
@@ -31,7 +32,6 @@ export interface UpdateArtifactReviewMetadataInput {
   userId: string;
   userMessageId?: string | null;
   assistantMessageId?: string | null;
-  sourceTurnId?: string | null;
   captureSequence?: number;
   patchParseStatus?: string;
   patchSha256?: string | null;
@@ -71,19 +71,23 @@ export interface ArtifactRepository {
     runId: string;
     userId: string;
     sessionId?: string;
+    identity: EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null>;
   getLatestReviewArtifactForRun(input: {
     runId: string;
     sessionId?: string;
+    identity: EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null>;
   getReviewArtifactByMessage(input: {
     runId: string;
     userId: string;
     assistantMessageId: string;
+    identity: EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null>;
   getReviewArtifactByMessageForRun(input: {
     runId: string;
     assistantMessageId: string;
+    identity: EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null>;
   updateReviewMetadata(
     input: UpdateArtifactReviewMetadataInput,

@@ -72,6 +72,9 @@ const metadata: EditArtifactPatchObjectMetadata = {
   userId: "user-1",
   runId: "run-1",
   sessionId: "session-1",
+  threadId: "thread-1",
+  turnId: "turn-1",
+  runAttemptId: "attempt-1",
   workspaceId: "workspace-1",
   repoOwner: "owner",
   repoName: "repo",
@@ -97,7 +100,9 @@ describe("EditArtifactObjectStore", () => {
         runId: "run/1",
         artifactId: "artifact#1",
       }),
-    ).toBe("edit-artifacts/user%201/workspace%201/run%2F1/artifact%231/diff.patch");
+    ).toBe(
+      "edit-artifacts/user%201/workspace%201/run%2F1/artifact%231/diff.patch",
+    );
   });
 
   it("rejects old pre-user-owned edit artifact keys", async () => {
