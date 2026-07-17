@@ -114,7 +114,6 @@ import {
 import {
   FinalAssistantMessageService,
   createRuntimeFinalText,
-  type RuntimeFinalText,
 } from "./FinalAssistantMessageService.js";
 import { RunEngineFinalizationService } from "./RunEngineFinalizationService.js";
 import {
