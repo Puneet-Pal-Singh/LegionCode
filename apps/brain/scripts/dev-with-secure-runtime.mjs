@@ -2,6 +2,10 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import {
+  LOCAL_WRANGLER_CONFIG_REMEDIATION,
+  validateLocalWranglerConfig,
+} from "./validate-local-wrangler-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const brainDir = path.resolve(__dirname, "..");
@@ -18,9 +22,19 @@ main().catch((error) => {
 });
 
 async function main() {
-  await runCommand("pnpm", ["--filter", "@shadowbox/execution-engine", "build"], {
-    cwd: repoRoot,
-  });
+  if (!validateLocalWranglerConfig()) {
+    console.error(LOCAL_WRANGLER_CONFIG_REMEDIATION);
+    process.exitCode = 1;
+    return;
+  }
+
+  await runCommand(
+    "pnpm",
+    ["--filter", "@shadowbox/execution-engine", "build"],
+    {
+      cwd: repoRoot,
+    },
+  );
 
   const secureRuntimeAlreadyRunning = await isPortOpen(secureRuntimePort);
   if (!secureRuntimeAlreadyRunning) {

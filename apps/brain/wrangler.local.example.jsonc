@@ -1,0 +1,70 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shadowbox-brain",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "limits": {
+    "cpu_ms": 20000,
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true,
+  },
+  "services": [
+    {
+      "binding": "SECURE_API",
+      "service": "shadowbox-api",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUN_ENGINE_RUNTIME",
+        "class_name": "RunEngineRuntime",
+      },
+      {
+        "name": "RUN_ADMISSION_LIMITER",
+        "class_name": "RunAdmissionLimiter",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1-run-engine-runtime",
+      "new_classes": ["RunEngineRuntime"],
+    },
+    {
+      "tag": "v3-run-engine-agent",
+      "new_sqlite_classes": ["RunEngineAgent"],
+    },
+    {
+      "tag": "v4-run-admission-limiter",
+      "new_sqlite_classes": ["RunAdmissionLimiter"],
+    },
+    {
+      "tag": "v5-delete-session-memory-runtime",
+      "deleted_classes": ["SessionMemoryRuntime"],
+    },
+    {
+      "tag": "v6-quarantine-run-engine-agent",
+      "deleted_classes": ["RunEngineAgent"],
+    },
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "ca477f3e873a47a7bbfd58734cc460c2",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "EDIT_ARTIFACTS",
+      "bucket_name": "shadowbox-artifacts",
+      "remote": true,
+    },
+  ],
+  "triggers": {
+    "crons": ["0 3 * * *"],
+  },
+}

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node ./scripts/dev-with-secure-runtime.mjs --config wrangler.local.jsonc",
+    "dev": "node ./scripts/dev-with-secure-runtime.mjs",
     "deploy": "wrangler deploy",
     "check-types": "tsc --noEmit",
     "lint": "eslint .",
