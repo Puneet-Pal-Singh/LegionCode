@@ -7,14 +7,18 @@ const brainDir = path.resolve(
   "..",
 );
 
+/** @typedef {{ canonical: string, local: string }} LocalWranglerConfigPaths */
+
 export const LOCAL_WRANGLER_CONFIG_REMEDIATION =
   "Brain local development is blocked: copy apps/brain/wrangler.local.example.jsonc to apps/brain/wrangler.local.jsonc and keep its Durable Object bindings and migrations unchanged.";
 
+/** @type {LocalWranglerConfigPaths} */
 export const defaultLocalWranglerConfigPaths = {
   canonical: path.join(brainDir, "wrangler.jsonc"),
   local: path.join(brainDir, "wrangler.local.jsonc"),
 };
 
+/** @param {string} source */
 function stripJsonCommentsAndTrailingCommas(source) {
   let withoutComments = "";
   let inString = false;
@@ -103,12 +107,14 @@ function stripJsonCommentsAndTrailingCommas(source) {
   return withoutTrailingCommas;
 }
 
+/** @param {string} filePath */
 function readJsonc(filePath) {
   return JSON.parse(
     stripJsonCommentsAndTrailingCommas(readFileSync(filePath, "utf8")),
   );
 }
 
+/** @param {unknown} value */
 function sortObjectKeys(value) {
   if (Array.isArray(value)) {
     return value.map(sortObjectKeys);
@@ -123,13 +129,20 @@ function sortObjectKeys(value) {
   return value;
 }
 
+/** @param {unknown} config */
 export function durableObjectConfiguration(config) {
+  const root =
+    config !== null && typeof config === "object" && !Array.isArray(config)
+      ? config
+      : {};
+
   return sortObjectKeys({
-    bindings: config.durable_objects?.bindings ?? [],
-    migrations: config.migrations ?? [],
+    bindings: root.durable_objects?.bindings ?? [],
+    migrations: root.migrations ?? [],
   });
 }
 
+/** @param {LocalWranglerConfigPaths} paths */
 export function validateLocalWranglerConfig(
   paths = defaultLocalWranglerConfigPaths,
 ) {

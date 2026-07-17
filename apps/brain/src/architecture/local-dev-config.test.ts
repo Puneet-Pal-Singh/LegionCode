@@ -1,8 +1,12 @@
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { validateLocalWranglerConfig } from "../../scripts/validate-local-wrangler-config.mjs";
+import {
+  LOCAL_WRANGLER_CONFIG_REMEDIATION,
+  validateLocalWranglerConfig,
+} from "../../scripts/validate-local-wrangler-config.mjs";
 
 const APP_ROOT = join(process.cwd());
 
@@ -16,7 +20,23 @@ describe("local development configuration", () => {
       scripts?: Record<string, string>;
     };
 
-    expect(packageJson.scripts?.dev).toContain("--config wrangler.local.jsonc");
+    expect(packageJson.scripts?.dev).toBe(
+      "node ./scripts/dev-with-secure-runtime.mjs",
+    );
+  });
+
+  it("guards the standalone local worker launcher before either worker starts", () => {
+    const launcher = readFileSync(
+      join(APP_ROOT, "..", "..", "scripts/local-dev/run-workers-with-logs.sh"),
+      "utf8",
+    );
+    const preflightIndex = launcher.indexOf(
+      "node ./scripts/validate-local-wrangler-config.mjs",
+    );
+    const brainWranglerIndex = launcher.indexOf("pnpm exec wrangler dev");
+
+    expect(preflightIndex).toBeGreaterThan(-1);
+    expect(brainWranglerIndex).toBeGreaterThan(preflightIndex);
   });
 
   it("keeps the tracked local template aligned with canonical runtime config", () => {
@@ -72,5 +92,17 @@ describe("local development configuration", () => {
     } finally {
       rmSync(temporaryDirectory, { recursive: true, force: true });
     }
+  });
+
+  it("emits only the fixed remediation when run as a startup preflight", () => {
+    const result = spawnSync(
+      process.execPath,
+      [join(APP_ROOT, "scripts/validate-local-wrangler-config.mjs")],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(`${LOCAL_WRANGLER_CONFIG_REMEDIATION}\n`);
   });
 });

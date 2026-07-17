@@ -41,9 +41,9 @@ is marked closed.
   ignored Wrangler config's Durable Object bindings and migrations against the
   checked-in canonical config before building or launching Wrangler. A tracked,
   secret-free template carries the canonical v6 deletion migration, and drift
-  fails with one fixed remediation message. Focused local-config tests (3/3),
-  Brain typecheck, and formatting checks pass; real local OAuth startup proof
-  remains required.
+  fails with one fixed remediation message. Focused local-config tests (5/5),
+  Brain typecheck, standalone launcher shell validation, and formatting checks
+  pass; real local OAuth startup proof remains required.
 
 ## 2026-07-17 post-PR-406 recovery evidence
 
