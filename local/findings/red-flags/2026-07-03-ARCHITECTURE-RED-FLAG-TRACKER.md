@@ -178,18 +178,22 @@ presentation remains required before closing these red flags.
   governance gates pass. It remains pending until target proof demonstrates
   five distinct snapshots, roots, Git indexes, sandboxes, leases, streams,
   artifacts, finals, and independent conflicting diffs.
-- **RF-031 — OPEN, P0 crash/resume checkout continuity gap**: Secure session
-  bearer tokens remain process-memory-only while the persisted `TaskCheckout`
-  stores lease and sandbox identity but no resumable secure-session capability.
-  After a Brain/DO restart, issuance for the same run attempt can collide with
-  the existing checkout, but Brain cannot reattach to or deliberately replace
-  that exact lease; creating another checkout would violate immutable
-  provenance and sibling isolation. The canonical fix must define a
-  server-owned resumable session reference or an atomic replacement generation
-  protocol that preserves snapshot/checkout provenance, invalidates only the
-  prior matching lease, and survives retry, cancellation, reload, and container
-  loss. Proof requires restart/resume and replacement tests plus authenticated
-  target evidence; tokens must never enter lifecycle events, logs, or Web.
+- **RF-031 — FIXED_PENDING_TARGET_PROOF, P0 crash/resume checkout continuity
+  gap**: `TaskCheckout` now persists only the opaque Secure API session
+  reference, never its bearer. An internal-secret-gated resume endpoint checks
+  the complete workspace plus expected lease identity, rotates the bearer, and
+  either reattaches the exact lease or returns exactly one next-generation
+  replacement. Brain compare-and-sets that replacement onto the same checkout
+  before another tool can use it; snapshot, checkout, filesystem root, Git
+  identity, artifact namespace, and sibling leases remain unchanged. Expired
+  sessions release their matching lease before deletion. Focused Secure API
+  bearer-rotation/scope/loss tests, persistence generation tests, Brain
+  restart/adoption tests, and active tool-loop synchronization tests pass.
+  Migration `0028_task_checkout_secure_session` deliberately fails if legacy
+  checkout rows lack recoverable provenance instead of inventing it. This
+  remains pending until authenticated target evidence proves Brain/DO restart,
+  container loss, one-checkout replacement, sibling continuity, and absence of
+  tokens from lifecycle/log/Web payloads.
 - **RF-032 — OPEN, P1 legacy runtime-root authority remains outside the active
   native path**: the active Brain/native-kernel path no longer derives
   `/home/sandbox/runs/{runId}`, but the legacy `RunEngineKernelAdapter`,
@@ -219,15 +223,20 @@ presentation remains required before closing these red flags.
   New turns are protected at ingress, but existing stored rows need an explicit
   retention/migration decision; this repair does not rewrite append-only
   history.
-- **RF-027 — OPEN, P1 hook audit projection gap**: `HookRunner` can append
-  typed `HookInvocationAuditEvent` records through its internal `HookAuditSink`,
-  but no Brain read/continuation contract projects those events into the
-  platform client SDK or authenticated Settings data. Web therefore cannot
-  truthfully render hook activity or Settings -> Coding -> Hooks from replay.
-  A typed, payload-free disclosure renderer exists, but it remains intentionally
-  disconnected until the runtime append path exposes a canonical live/replay
-  event and a scoped settings read model. Proof must show server-authored hook
-  events surviving reload without browser-owned hook state or hidden payloads.
+- **RF-027 — OPEN, P1 hook production-wiring gap**: the hook audit projection
+  boundary is now implemented locally: `CanonicalHookAuditSink` validates
+  authenticated `(runId, threadId)` scope, `RuntimeLifecycleCoordinator` owns
+  event identity/sequence, `RunEngineKernelLifecycleEventStore` persists and
+  emits the same sanitized envelope, the platform client SDK applies one
+  replay/live reducer, and Web renders the resulting compact disclosure from
+  `LifecycleProjection`. The SDK also exposes an observed-audit Settings read
+  model without inventing enablement or configuration state. The remaining
+  blocker is a production `HookDefinition` repository/API plus a trusted
+  executor and explicit lifecycle trigger wiring; without those owners,
+  Settings toggles/configuration and a real target-cloud hook invocation would
+  be UI theater. Keep this flag OPEN until authenticated cloud proof shows a
+  server-run hook surviving replay/reload with no browser-owned state, hidden
+  payload, cross-task scope, lifecycle authority, or final-text mutation.
 - **RF-028 — FIXED_PENDING_RELEASE_PROOF, P1 title projection schema drift**:
   `ThreadTitleSourceSchema` added the deterministic `preview` source while the
   committed fresh-database SQL constraint still rejected it and existing
