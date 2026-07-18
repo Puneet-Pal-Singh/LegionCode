@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS canonical_thread_projections (
   CONSTRAINT canonical_thread_projections_status_check
     CHECK (status IN ('active', 'archived')),
   CONSTRAINT canonical_thread_projections_title_source_check
-    CHECK (title_source IN ('user', 'generated', 'imported', 'none')),
+    CHECK (title_source IN ('user', 'preview', 'generated', 'imported', 'none')),
   CONSTRAINT canonical_thread_projections_title_status_check
     CHECK (title_status IN ('pending', 'ready', 'failed')),
   CONSTRAINT canonical_thread_projections_last_event_sequence_check
