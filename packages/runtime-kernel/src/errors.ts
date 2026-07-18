@@ -8,6 +8,7 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "invalid_turn_identity",
   "workspace_not_found",
   "workspace_not_executable",
+  "model_final_missing",
   "tool_loop_limit_exceeded",
   "worker_failed",
   "tool_not_registered",
@@ -107,6 +108,7 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
     case "tool_not_registered":
       return "not_found";
     case "invalid_tool_input":
+    case "model_final_missing":
       return "validation_failed";
     case "tool_policy_denied":
     case "approval_denied":

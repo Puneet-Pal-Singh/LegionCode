@@ -129,6 +129,7 @@ import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
+import { RuntimeKernelProviderTranscript } from "./RuntimeKernelProviderTranscript.js";
 
 const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
@@ -751,6 +752,13 @@ export class RuntimeKernelNativeRunner {
 }
 
 function resolveNativeKernelTerminalState(error: unknown) {
+  if (
+    error instanceof RuntimeKernelError &&
+    error.code === "model_final_missing"
+  ) {
+    return RUN_TERMINAL_STATES.FAILED_VALIDATION;
+  }
+
   if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
     return RUN_TERMINAL_STATES.APPROVAL_DENIED;
   }
@@ -770,6 +778,13 @@ function buildNativeKernelTerminalMessage(
     return [
       "The selected model/provider failed while deciding the next action.",
       "No sandbox tool failure was reported. Retry the task or switch to a faster, tool-capable model.",
+    ].join("\n");
+  }
+
+  if (terminalState === RUN_TERMINAL_STATES.FAILED_VALIDATION) {
+    return [
+      "The model stopped before returning a final answer.",
+      "Retry the request or choose another model.",
     ].join("\n");
   }
 
@@ -808,6 +823,7 @@ class KernelAgenticProvider implements ProviderPort {
   private completedReadOnlyToolCount = 0;
   private stopReason: StopReason = "llm_stop";
   private readonly toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
+  private readonly transcript = new RuntimeKernelProviderTranscript();
   private readonly requiresMutation: boolean;
 
   constructor(
@@ -884,16 +900,18 @@ class KernelAgenticProvider implements ProviderPort {
     this.stepsExecuted += 1;
     await this.recordModelStepCompleted(input);
     const toolCalls = this.repairToolCalls(response.toolCalls ?? []);
-    const visibleText = projectVisibleTranscriptText(response.parts ?? []);
+    const responseParts = response.parts ?? [];
+    const visibleText = projectVisibleTranscriptText(responseParts);
     this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
+      const terminal = this.transcript.complete(responseParts);
       this.stopReason = "llm_stop";
       return {
         kind: "complete",
         itemId: ItemIdSchema.parse(
           toProtocolId("itm", `${input.run.id}-final`),
         ),
-        output: visibleText,
+        output: terminal.text,
       };
     }
     if (visibleText.trim()) {
@@ -994,6 +1012,7 @@ class KernelAgenticProvider implements ProviderPort {
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       toolLifecycle: [...this.toolLifecycle],
+      finalTranscriptParts: this.transcript.readFinalParts(),
     };
   }
 
