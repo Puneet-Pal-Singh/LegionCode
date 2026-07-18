@@ -46,6 +46,7 @@ export {
 } from "./migrations/0001-runtime-event-inbox.js";
 export { PostgresMigrationLedger } from "./migrations/PostgresMigrationLedger.js";
 export { PostgresMigrationRunner } from "./migrations/PostgresMigrationRunner.js";
+export { runWorkerPersistenceMigrations } from "./migrations/runWorkerPersistenceMigrations.js";
 export type {
   MigrationLedger,
   MigrationRunResult,
