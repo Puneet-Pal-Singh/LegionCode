@@ -15,6 +15,7 @@ import { agentStore } from "../store/agentStore";
 import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
 import { createRunId } from "../lib/run-id";
+import { mergeServerSessionProjection } from "./session-title-ordering";
 
 export type { AgentSession } from "../types/session";
 export type SessionHydrationStatus = "idle" | "loading" | "ready" | "failed";
@@ -73,7 +74,9 @@ function replaceSessionById(
   updatedSession: AgentSession,
 ): AgentSession[] {
   return sessions.map((session) =>
-    session.id === updatedSession.id ? updatedSession : session,
+    session.id === updatedSession.id
+      ? mergeServerSessionProjection(session, updatedSession)
+      : session,
   );
 }
 
@@ -84,9 +87,15 @@ function mergeHydratedSessions(
   const merged = new Map<string, AgentSession>();
   serverSessions.forEach((session) => merged.set(session.id, session));
   currentSessions.forEach((session) => {
-    if (!merged.has(session.id)) {
+    const serverSession = merged.get(session.id);
+    if (!serverSession) {
       merged.set(session.id, session);
+      return;
     }
+    merged.set(
+      session.id,
+      mergeServerSessionProjection(session, serverSession),
+    );
   });
   return sortSessions(Array.from(merged.values()));
 }
