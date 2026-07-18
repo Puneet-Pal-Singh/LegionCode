@@ -39,6 +39,7 @@ export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
 export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-workspace-manifests-artifact-metadata.js";
 export { artifactProvenanceMigration } from "./migrations/0024-artifact-provenance.js";
 export { taskWorkspacesMigration } from "./migrations/0025-task-workspaces.js";
+export { sessionTitleVersionMigration } from "./migrations/0026-session-title-version.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -62,6 +63,12 @@ export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepositor
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
+export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
+export { PostgresThreadTitleRepository } from "./thread-titles/PostgresThreadTitleRepository.js";
+export type {
+  PersistAutomatedThreadTitleInput,
+  ThreadTitleRepository,
+} from "./thread-titles/types.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";

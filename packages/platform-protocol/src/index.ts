@@ -62,6 +62,14 @@ export {
   type TurnScopeBootstrap,
 } from "./turn-scope-bootstrap.js";
 export {
+  GeneratedThreadTitleSchema,
+  ThreadTitleUpdatedPayloadSchema,
+  ThreadTitleUpdateSourceSchema,
+  type GeneratedThreadTitle,
+  type ThreadTitleUpdatedPayload,
+  type ThreadTitleUpdateSource,
+} from "./thread-title.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,

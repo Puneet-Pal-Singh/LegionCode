@@ -67,6 +67,9 @@ export const sessions = pgTable(
       .references(() => tasks.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     titleSource: text("title_source").notNull().default("generated"),
+    titleVersion: bigint("title_version", { mode: "number" })
+      .notNull()
+      .default(1),
     repository: text("repository"),
     activeRunId: text("active_run_id"),
     mode: text("mode").notNull().default("build"),

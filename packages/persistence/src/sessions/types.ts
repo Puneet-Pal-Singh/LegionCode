@@ -71,6 +71,7 @@ export interface SessionRecord {
   taskId: string;
   title: string;
   titleSource: ChatTitleSource;
+  titleVersion?: number;
   repository: string | null;
   activeRunId: string | null;
   mode: string;
@@ -163,11 +164,13 @@ export interface TranscriptRepository {
     sessionId: string;
     status: SessionStatus;
   }): Promise<SessionRecord | null>;
-  updateGeneratedSessionTitle(input: {
+  updateAutomatedSessionTitle(input: {
     userId: string;
     sessionId: string;
     title: string;
-    titleSource: "generated";
+    titleSource: "preview" | "generated";
+    expectedTitleVersion?: number;
+    initialOnly?: boolean;
   }): Promise<SessionRecord | null>;
   renameSessionTitle(input: {
     userId: string;

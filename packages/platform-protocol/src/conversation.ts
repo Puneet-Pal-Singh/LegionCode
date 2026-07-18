@@ -31,6 +31,7 @@ export type ThreadStatus = z.infer<typeof ThreadStatusSchema>;
 
 export const ThreadTitleSourceSchema = z.enum([
   "user",
+  "preview",
   "generated",
   "imported",
   "none",
