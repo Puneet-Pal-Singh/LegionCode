@@ -268,6 +268,17 @@ presentation remains required before closing these red flags.
   binding validation pass. Keep this pending until an explicitly approved
   target migration records the exact applied/skipped IDs and schema inspection
   proves the required columns and constraints before deployment.
+- **RF-034 — OPEN, P1 Sandbox RPC compatibility rollout**: the checked-in
+  Secure Worker used Sandbox SDK and base image `0.7.0`, below the documented
+  `0.9.1` minimum for RPC. Phase one now pins the SDK and matching container
+  image to `0.12.3` plus the latest Wrangler-compatible Workers Types v4;
+  Secure API typecheck and all 204 source tests pass, and the published image
+  manifest exists. `SANDBOX_TRANSPORT=rpc` deliberately remains absent because
+  Cloudflare requires the compatible image to deploy first. Keep this OPEN
+  until an explicitly approved phase-one target deployment proves normal HTTP
+  tool/stream/cancellation/concurrency behavior, then a separate RPC enablement
+  deployment records before/after latency, subrequests, startup failures,
+  cancellation, reconnect, and concurrent-run success.
 
 Focused evidence: Web activity/chat tests `52/52`, Brain controller/runtime/
 execution tests `43/43`, execution-engine final/privacy tests `12/12`, protocol
