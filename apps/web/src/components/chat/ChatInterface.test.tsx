@@ -254,6 +254,8 @@ index 3333333..4444444 100644
     },
     activeThinking: false,
     assistantText: "",
+    startedAt: "2026-03-24T10:00:00.000Z",
+    settledAt: "2026-03-24T10:00:03.000Z",
   };
 }
 
@@ -286,6 +288,8 @@ function buildApprovalProjection(input: {
     turnDiff: null,
     activeThinking: false,
     assistantText: "",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    settledAt: null,
   };
 }
 

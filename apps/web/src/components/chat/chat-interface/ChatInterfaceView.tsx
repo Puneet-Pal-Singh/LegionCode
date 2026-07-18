@@ -13,6 +13,7 @@ import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleP
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
+import { TurnLifecycleStatus } from "./TurnLifecycleStatus.js";
 import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,
@@ -57,7 +58,6 @@ interface ChatInterfaceViewProps {
   ) => Promise<DiffContent>;
   loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   completedTurnReview: CompletedTurnReview;
-  showThinking: boolean;
   lifecycleProjection: LifecycleProjection | null;
   workflowDebug: ReactNode;
 }
@@ -100,7 +100,6 @@ export const ChatInterfaceView = forwardRef<
             ) ? (
               <TurnSurface props={props} turn={null} />
             ) : null}
-            {props.showThinking ? <ThinkingIndicator /> : null}
             {props.workflowDebug}
           </div>
         )}
@@ -214,14 +213,10 @@ function TurnSurface({
         </span>
       ) : null}
       {isCurrentTurn && props.lifecycleProjection ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-spinner` : undefined}
-          role="status"
-          data-phase={props.lifecycleProjection.phase}
-          className="text-sm text-zinc-500"
-        >
-          {lifecyclePhaseLabel(props.lifecycleProjection.phase)}
-        </div>
+        <TurnLifecycleStatus
+          projection={props.lifecycleProjection}
+          testId={surfaceId ? `${surfaceId}-spinner` : undefined}
+        />
       ) : null}
       {terminal?.errorCode ? (
         <span
@@ -388,16 +383,6 @@ function ChatDebugPanel({ events }: { events: ChatDebugEvent[] }) {
           ))
         )}
       </div>
-    </div>
-  );
-}
-
-function ThinkingIndicator() {
-  return (
-    <div className="py-2 text-sm font-medium text-zinc-500">
-      <span className="animate-shimmer bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent">
-        Thinking
-      </span>
     </div>
   );
 }

@@ -48,5 +48,7 @@ function failedProjection(): LifecycleProjection {
     turnDiff: null,
     activeThinking: false,
     assistantText: "",
+    startedAt: "2026-07-18T09:59:59.000Z",
+    settledAt: "2026-07-18T10:00:00.000Z",
   };
 }

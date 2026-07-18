@@ -240,9 +240,6 @@ export function ChatInterface({
     }
     void refreshSession();
   }, [recoveryAdvice.recoveryTarget, refreshSession]);
-  const activeInlineTurn = activityViewModel.turns.find(
-    (turn) => turn.isActiveTurn && turn.hasVisibleRows,
-  );
   const {
     chatEntries,
     terminalViewModel,
@@ -264,9 +261,6 @@ export function ChatInterface({
     hasStartedSession,
     lifecycleProjection,
   });
-  const showThinking = Boolean(
-    lifecycleProjection?.activeThinking && !activeInlineTurn,
-  );
   const renderActivityTurn = (turn: ActivityTurnViewModel) => (
     <ActivityTurn
       key={`activity:${turn.key}`}
@@ -381,7 +375,6 @@ export function ChatInterface({
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
       completedTurnReview={completedTurnReview}
-      showThinking={showThinking}
       lifecycleProjection={lifecycleProjection}
       workflowDebug={
         SHOW_WORKFLOW_DEBUG_PANEL ? (

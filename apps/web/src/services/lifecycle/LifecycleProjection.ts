@@ -63,6 +63,8 @@ export interface LifecycleProjection {
   readonly activeThinking: boolean;
   readonly assistantText: string;
   readonly phase: LifecycleProjectionPhase;
+  readonly startedAt: string | null;
+  readonly settledAt: string | null;
 }
 
 type ItemEvent = LifecycleEvent & {
@@ -89,6 +91,8 @@ export function createLifecycleProjection(turnId: TurnId): LifecycleProjection {
     activeThinking: false,
     assistantText: "",
     phase: "starting",
+    startedAt: null,
+    settledAt: null,
   };
 }
 
@@ -121,8 +125,17 @@ function applyKnownEvent(
 ): LifecycleProjection {
   switch (event.type) {
     case "turn.started":
+      return {
+        ...projection,
+        phase: "starting",
+        startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
+      };
     case "run_attempt.started":
-      return { ...projection, phase: "starting" };
+      return {
+        ...projection,
+        phase: "working",
+        startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
+      };
     case "item.started":
       return { ...upsertItem(projection, createStartedItem(event)), phase: "working" };
     case "assistant_message.delta":
@@ -269,13 +282,14 @@ function settleTurn(
       occurredAt: event.createdAt,
     },
     phase: state === "completed" ? "completed" : "failed",
+    settledAt: event.createdAt,
   };
 }
 
 export function lifecyclePhaseLabel(phase: LifecycleProjectionPhase): string {
   switch (phase) {
     case "starting":
-      return "Thinking";
+      return "Starting";
     case "working":
       return "Working";
     case "waiting_for_approval":
@@ -285,6 +299,13 @@ export function lifecyclePhaseLabel(phase: LifecycleProjectionPhase): string {
     case "failed":
       return "Failed";
   }
+}
+
+function earlierTimestamp(current: string | null, candidate: string): string {
+  if (!current) {
+    return candidate;
+  }
+  return Date.parse(candidate) < Date.parse(current) ? candidate : current;
 }
 
 function updateItem(

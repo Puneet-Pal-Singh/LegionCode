@@ -74,6 +74,14 @@ export interface ActivityToolRowViewModel {
   status: "requested" | "running" | "completed" | "failed";
   defaultCollapsed: boolean;
   details: string[];
+  shell?: ActivityShellDisclosureViewModel;
+}
+
+export interface ActivityShellDisclosureViewModel {
+  command: string;
+  cwd?: string;
+  output: string;
+  sourceTruncated: boolean;
 }
 
 export interface ActivityChangedFileStatus extends FileStatus {
@@ -683,6 +691,21 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
       item.metadata.family !== TOOL_ACTIVITY_FAMILIES.EDIT &&
       item.status === "completed",
     details: getToolDetails(item),
+    shell: buildShellDisclosure(item),
+  };
+}
+
+function buildShellDisclosure(
+  item: ToolActivityPart,
+): ActivityShellDisclosureViewModel | undefined {
+  if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.SHELL) {
+    return undefined;
+  }
+  return {
+    command: item.metadata.command,
+    cwd: item.metadata.cwd,
+    output: item.metadata.outputTail ?? "",
+    sourceTruncated: item.metadata.truncated,
   };
 }
 

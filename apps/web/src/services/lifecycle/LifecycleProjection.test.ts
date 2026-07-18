@@ -14,6 +14,7 @@ import {
   createLifecycleProjection,
   replayLifecycleProjection,
   applyLifecycleEvent,
+  lifecyclePhaseLabel,
 } from "./LifecycleProjection";
 
 const THREAD_ID = "thr_life01" as ThreadId;
@@ -147,6 +148,24 @@ describe("LifecycleProjection", () => {
 
     expect(projection.turnDiff?.turnId).toBe(TURN_ID);
     expect(projection.turnDiff?.files).toEqual([]);
+  });
+
+  it("anchors elapsed time to canonical start and terminal timestamps", () => {
+    const projection = replayLifecycleProjection(TURN_ID, [
+      lifecycleEvent(1, "turn.started", {}),
+      lifecycleEvent(2, "run_attempt.started", {}),
+      lifecycleEvent(3, "item.started", {
+        itemId: ASSISTANT_ITEM_ID,
+        payload: { kind: "assistant_message" },
+      }),
+      lifecycleEvent(4, "turn.completed", {
+        payload: { outcome: { status: "completed" } },
+      }),
+    ]);
+
+    expect(projection.startedAt).toBe("2026-06-23T00:00:01.000Z");
+    expect(projection.settledAt).toBe("2026-06-23T00:00:04.000Z");
+    expect(lifecyclePhaseLabel("starting")).toBe("Starting");
   });
 });
 

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ActivityRow } from "./ActivityRow.js";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
@@ -106,6 +106,32 @@ describe("ActivityRow", () => {
 
     expect(screen.getByText("Creating git commit")).toBeInTheDocument();
     expect(screen.getByText("GitHub")).toBeInTheDocument();
+  });
+
+  it("toggles a shell disclosure and exposes bounded runtime output", () => {
+    const onToggle = vi.fn();
+    render(
+      <ActivityRow
+        row={createToolRow({
+          toolName: "shell",
+          family: "shell",
+          title: "pnpm test",
+          status: "completed",
+          details: ["$ pnpm test"],
+          shell: {
+            command: "pnpm test",
+            output: "passed\n".repeat(800),
+            sourceTruncated: true,
+          },
+        })}
+        expanded={false}
+        onToggle={onToggle}
+        displayMode="transcript"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Ran pnpm test/i }));
+    expect(onToggle).toHaveBeenCalledWith(true);
   });
 });
 

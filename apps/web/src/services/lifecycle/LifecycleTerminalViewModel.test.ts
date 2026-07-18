@@ -85,5 +85,7 @@ function emptyProjection(): LifecycleProjection {
     turnDiff: null,
     activeThinking: false,
     assistantText: "",
+    startedAt: null,
+    settledAt: null,
   };
 }
