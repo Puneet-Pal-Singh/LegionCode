@@ -240,13 +240,17 @@ presentation remains required before closing these red flags.
   emits the same sanitized envelope, the platform client SDK applies one
   replay/live reducer, and Web renders the resulting compact disclosure from
   `LifecycleProjection`. The SDK also exposes an observed-audit Settings read
-  model without inventing enablement or configuration state. The remaining
-  blocker is a production `HookDefinition` repository/API plus a trusted
-  executor and explicit lifecycle trigger wiring; without those owners,
-  Settings toggles/configuration and a real target-cloud hook invocation would
-  be UI theater. Keep this flag OPEN until authenticated cloud proof shows a
-  server-run hook surviving replay/reload with no browser-owned state, hidden
-  payload, cross-task scope, lifecycle authority, or final-text mutation.
+  model without inventing enablement or configuration state. Brain now owns a
+  validated, authenticated `HookDefinition` repository/API backed by migration
+  `0029_hook_definitions`; the composite workspace-owner foreign key prevents
+  cross-user attachment, public writes are limited to `source=user`, and source
+  provenance cannot be changed by an upsert. The remaining blocker is a trusted
+  executor plus explicit `SessionStart`, `UserPromptSubmit`,
+  `PermissionRequest`, and `Stop` trigger wiring. Settings must consume this
+  server API before it exposes configuration controls. Keep this flag OPEN
+  until authenticated cloud proof shows a server-run hook surviving
+  replay/reload with no browser-owned state, hidden payload, cross-task scope,
+  lifecycle authority, or final-text mutation.
 - **RF-028 — FIXED_PENDING_RELEASE_PROOF, P1 title projection schema drift**:
   `ThreadTitleSourceSchema` added the deterministic `preview` source while the
   committed fresh-database SQL constraint still rejected it and existing
@@ -287,6 +291,22 @@ presentation remains required before closing these red flags.
   tool/stream/cancellation/concurrency behavior, then a separate RPC enablement
   deployment records before/after latency, subrequests, startup failures,
   cancellation, reconnect, and concurrent-run success.
+- **RF-035 — FIXED_PENDING_TARGET_PROOF, P0 title event-store corruption**:
+  `ThreadTitleService` atomically updated the transcript title projection but
+  appended its custom `thread.title.updated` payload through the legacy
+  `RunRepository`. `/api/run/events` parses every record there as a run event,
+  so a title update could poison replay while the sidebar still looked
+  successful. The platform contract also defined the same event with an
+  incompatible full-thread payload, and the first-prompt path scheduled a title
+  before the user message was durably persisted. The repair makes one explicit
+  thread-title patch schema canonical, appends it through the thread-scoped
+  `EventStore`, projects it only after `thread.created`, persists the
+  server-issued thread identity with migration `0030_session_thread_identity`,
+  and starts preview/generation only for the actual first persisted user
+  message. User rename uses the same event; legacy/incomplete scope returns
+  typed `TITLE_SCOPE_UNAVAILABLE` instead of mutating a competing projection
+  path. Keep this pending until target replay proves preview, generated title,
+  user rename precedence, reload, and continued run-event parsing.
 
 Focused evidence: Web activity/chat tests `52/52`, Brain controller/runtime/
 execution tests `43/43`, execution-engine final/privacy tests `12/12`, protocol
