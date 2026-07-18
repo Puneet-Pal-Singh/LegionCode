@@ -17,13 +17,26 @@ is marked closed.
 - **INC-009 — FIXED_PENDING_PROOF**: turn bootstrap is idempotent for the
   server-owned `(threadId, turnId, runAttemptId)` tuple and execution rejects
   mismatched identities before mutation. Focused bootstrap/lifecycle tests pass.
-- **INC-001 — QUARANTINED**: the Cloudflare Agents Durable Object route is no
-  longer deployed or exported; the canonical RunEngine Durable Object owns the
-  live stream. The old class is retired by the v6 migration. No cross-owner
-  stream object is passed on the active route.
-- **INC-002 — FIXED_PENDING_PROOF**: production and local Secure API container
-  capacity are explicitly `max_instances: 2`; Brain admission is capped at the
-  same value and `gate:cloudflare-capacity` verifies the contract.
+- **INC-001 — FIXED_PENDING_TARGET_PROOF**: checked-in configuration no longer
+  exports or binds the Cloudflare Agents Durable Object route, and the
+  canonical RunEngine Durable Object is the intended live-stream owner. The
+  inactive `RunEngineAgent`, its feature flag/binding surface, and the
+  Cloudflare Agents adapter package were deleted in commit `77cae9f3`; the
+  historical Wrangler deleted-class migration remains.
+  Authenticated target inspection on 2026-07-18 contradicts the prior
+  deployment claim: active Brain version
+  `26053e9d-4b23-4297-84e0-f288a1a533fa` still binds `RUN_ENGINE_AGENT`.
+  Redeployment plus active-version inspection must prove that binding absent
+  before this can close.
+- **INC-002 — OPEN, P0 target-capacity mismatch**: authenticated
+  `wrangler containers list` evidence on 2026-07-18 reports live
+  `shadowbox-api-sandbox` physical capacity as `max_instances: 1`, while the
+  active Brain version exposes neither
+  `CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS` nor
+  `ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX`. Checked-in HEAD remains the older `2/2`
+  admission/capacity proposal. The shared local worktree's `5` admitted / `6`
+  physical-capacity edits and passing static parity gate are uncommitted and
+  undeployed; they are not authenticated target proof.
 - **INC-003 — FIXED_PENDING_PROOF**: Web Git probing/bootstrap is gated on the
   canonical run scope and readiness state. Target-cloud proof remains required.
 - **INC-004 — FIXED_PENDING_PROOF**: terminal 204 artifact misses are treated
@@ -141,11 +154,32 @@ presentation remains required before closing these red flags.
   replayed an expandable `Ran pwd` disclosure with command, cwd, sanitized
   output, and `Success`. The row expansion state contract was also corrected
   after the disclosure test exposed a double inversion.
-- **INC-002 / Plan 045 — FIXED_PENDING_TARGET_PROOF**: scope remained limited
-  to release-blocking admission wiring. `gate:cloudflare-capacity` proves Brain
-  admission and deployed container `max_instances` are both `2`; capacity
-  exhaustion is typed as `RUN_CAPACITY_EXHAUSTED`. No Sandbox SDK RPC migration
-  or unrelated Plan 045 feature work was started.
+- **INC-002 / Plan 045 — OPEN, P0 target-capacity mismatch**: capacity
+  exhaustion is typed as `RUN_CAPACITY_EXHAUSTED`, but authenticated target
+  evidence shows live physical `max_instances: 1` and no explicit active Brain
+  admission variables. Checked-in HEAD's `2/2` values and the shared local
+  `5/6` proposal are configuration-source evidence only. The latter is
+  undeployed, and its static gate cannot prove deployed capacity or admission
+  behavior.
+- **RF-025 — OPEN, P0 isolated task-checkout issuer blocker**: canonical
+  `WorkspaceSnapshot` and `TaskCheckout` protocol types, immutable persistence,
+  scoped claim orchestration, and Secure checkout-root enforcement now exist
+  locally (`9af58fdf`, `f5b79d3a`, `745c46d5`, `6411a278`, `7efa9698`).
+  They are intentionally not wired into admission: no authoritative port
+  resolves an authorized repository ref to an immutable commit/tree before
+  bootstrap; Secure creates a lease only after receiving a root while checkout
+  identity requires the lease; and persistence has no atomic snapshot+checkout
+  issuance/compensation transaction. Five-task admission remains disabled
+  until that issuer exists and each run proves a distinct checkout, Git index,
+  lease, tool/artifact namespace, and replayable provenance.
+- **RF-026 — FIXED_PENDING_TARGET_PROOF, P0 lifecycle approval settlement
+  gap**: the lifecycle approval route no longer writes then polls replay for a
+  decision. It resolves the matching active runtime coordinator directly,
+  appends exactly one durable `approval.decided` event, wakes only the matching
+  `(turnId, approvalId)` waiter, handles same-decision retries idempotently, and
+  fails closed after resolver loss (`11797ba4`). Runtime, permission-store, and
+  request-handler boundary tests pass. Authenticated browser/cloud approval
+  resume and reload proof is still required before closing.
 - **RF-023 — OPEN, P1 local-dev migration blocker**: a fresh local Brain state
   cannot apply the canonical v5 deleted-class migration because Wrangler
   reports `Cannot apply deleted_classes migration to non-existent class
@@ -157,6 +191,15 @@ presentation remains required before closing these red flags.
   New turns are protected at ingress, but existing stored rows need an explicit
   retention/migration decision; this repair does not rewrite append-only
   history.
+- **RF-027 — OPEN, P1 hook audit projection gap**: `HookRunner` can append
+  typed `HookInvocationAuditEvent` records through its internal `HookAuditSink`,
+  but no Brain read/continuation contract projects those events into the
+  platform client SDK or authenticated Settings data. Web therefore cannot
+  truthfully render hook activity or Settings -> Coding -> Hooks from replay.
+  A typed, payload-free disclosure renderer exists, but it remains intentionally
+  disconnected until the runtime append path exposes a canonical live/replay
+  event and a scoped settings read model. Proof must show server-authored hook
+  events surviving reload without browser-owned hook state or hidden payloads.
 
 Focused evidence: Web activity/chat tests `52/52`, Brain controller/runtime/
 execution tests `43/43`, execution-engine final/privacy tests `12/12`, protocol
@@ -167,7 +210,20 @@ search/read activity, approval, shell disclosure, and completed replay.
 
 ### Required release proof
 
-Run the authenticated target-dev product gate for greeting/read, edit approval,
-reload/follow-up, concurrent isolated chats, terminal lease release, and
-credential-safe logs. Do not change the statuses above to `CLOSED` until that
-gate produces sanitized evidence for each flow.
+Deploy compatible Secure API capacity first, then Brain admission, and verify
+the active Secure API container has deliberate physical headroom above the
+explicit global admission limit. Inspect the active Brain version to prove both
+admission variables are present and `RUN_ENGINE_AGENT` is absent; local JSONC
+parity output is not target proof.
+
+Run five simultaneous tasks from one user against the same repository and prove
+distinct snapshots, task checkouts, sandboxes, leases, tool streams, artifacts,
+and final messages. Make conflicting edits in two tasks and prove neither
+changes the main repository or sibling checkout. Prove the sixth task receives
+the typed capacity failure, release one matching lease, and prove the next run
+is admitted without displacing a sibling.
+
+Then run the authenticated target-dev product gate for greeting/read, edit
+approval, reload/follow-up, terminal lease release, and credential-safe logs.
+Do not change the statuses above to `CLOSED` until that gate produces sanitized
+evidence for each flow.
