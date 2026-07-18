@@ -1749,7 +1749,7 @@ describe("ChatInterface", () => {
     );
 
     expect(useRunActivityFeed).toHaveBeenCalledWith("run-event-open", true);
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
   });
 
   it("does not render active run-event approvals without canonical projection", () => {
@@ -2120,7 +2120,7 @@ describe("ChatInterface", () => {
     fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
 
     expect(screen.queryByText("Workflow overview")).not.toBeInTheDocument();
-    expect(screen.getByText("Preparing handoff")).toBeInTheDocument();
+    expect(screen.queryByText("Preparing handoff")).not.toBeInTheDocument();
     expect(screen.getByText("Build Handoff")).toBeInTheDocument();
   });
 
@@ -2705,7 +2705,7 @@ describe("ChatInterface", () => {
         "I updated the workflow UI to match the compact design.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
     expect(screen.queryByText(/Thinking \d+:\d{2}/)).not.toBeInTheDocument();
   });
 

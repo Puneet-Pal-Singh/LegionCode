@@ -29,7 +29,7 @@ describe("useActivityPresentation", () => {
     expect(result.current.viewModel.turns).toEqual([]);
   });
 
-  it("projects elapsed time while keeping canonical reasoning audit-only", () => {
+  it("projects active thinking and elapsed time from canonical event timestamps", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-27T09:00:05.000Z"));
     const { result } = renderHook(() =>

@@ -53,7 +53,6 @@ function useCanonicalElapsedClock(projection: LifecycleProjection): number {
     if (!active) {
       return;
     }
-    setNowMs(Date.now());
     const interval = window.setInterval(() => setNowMs(Date.now()), 1_000);
     return () => window.clearInterval(interval);
   }, [active, projection.startedAt]);
