@@ -85,6 +85,36 @@ describe("RunAdmissionService", () => {
       },
     });
   });
+
+  it("classifies deployed sandbox exhaustion as a typed capacity failure", async () => {
+    const service = new RunAdmissionService(
+      createEnv({
+        RUN_ADMISSION_LIMITER: createLimiterNamespace((url) =>
+          url.pathname === "/acquire-concurrency"
+            ? {
+                allowed: false,
+                retryAfterSeconds: 9,
+                blockedBucket: "cloudflare_sandbox_capacity",
+              }
+            : { allowed: true, retryAfterSeconds: 0 },
+        ),
+      }),
+    );
+
+    await expect(
+      service.enforce(canonicalInput(), "corr-capacity"),
+    ).rejects.toMatchObject({
+      code: "RUN_CAPACITY_EXHAUSTED",
+      status: 429,
+      retryable: true,
+      metadata: {
+        admissionState: "blocked",
+        failureKind: "capacity_exhausted",
+        blockedBucket: "cloudflare_sandbox_capacity",
+        retryAfterSeconds: 9,
+      },
+    });
+  });
 });
 
 function canonicalInput() {
