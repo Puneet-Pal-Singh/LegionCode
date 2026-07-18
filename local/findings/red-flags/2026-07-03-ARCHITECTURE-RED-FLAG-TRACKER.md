@@ -200,19 +200,19 @@ presentation remains required before closing these red flags.
   disconnected until the runtime append path exposes a canonical live/replay
   event and a scoped settings read model. Proof must show server-authored hook
   events surviving reload without browser-owned hook state or hidden payloads.
-- **RF-028 — FIXED_PENDING_CI_PROOF, P1 title projection schema drift**:
+- **RF-028 — FIXED_PENDING_RELEASE_PROOF, P1 title projection schema drift**:
   `ThreadTitleSourceSchema` added the deterministic `preview` source while the
   committed fresh-database SQL constraint still rejected it and existing
   canonical projection tables had no forward migration. Rebuild governance
   caught the mismatch. Migration `0027_thread_title_preview_source` now replaces
   the existing constraint from the protocol registry, the `0017` fresh schema
   is aligned, and focused fresh/forward migration tests pass (`17bdfc2c`).
-- **RF-029 — FIXED_PENDING_CI_PROOF, P1 golden worker contract drift**: the
+- **RF-029 — FIXED_PENDING_RELEASE_PROOF, P1 golden worker contract drift**: the
   canonical failed worker result gained a required recoverable/terminal
   disposition, but the hermetic prompt-to-PR fixture still constructed the old
   shape. The golden gate caught it; the fixture now declares terminal
   authorization failure and its typecheck/lifecycle test pass (`acc37585`).
-- **RF-030 — FIXED_PENDING_CI_PROOF, P1 Web SDK ownership bypass**: initial
+- **RF-030 — FIXED_PENDING_RELEASE_PROOF, P1 Web SDK ownership bypass**: initial
   hook disclosure components imported `platform-client-sdk` directly, bypassing
   Web's API-facade ownership rule. Boundary CI caught both imports. Hook types
   and schemas now enter Web through `services/api/lifecycleClient`, and the
