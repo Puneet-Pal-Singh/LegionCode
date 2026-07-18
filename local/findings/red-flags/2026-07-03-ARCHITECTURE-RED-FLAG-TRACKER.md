@@ -154,24 +154,52 @@ presentation remains required before closing these red flags.
   replayed an expandable `Ran pwd` disclosure with command, cwd, sanitized
   output, and `Success`. The row expansion state contract was also corrected
   after the disclosure test exposed a double inversion.
-- **INC-002 / Plan 045 — OPEN, P0 target-capacity mismatch**: capacity
-  exhaustion is typed as `RUN_CAPACITY_EXHAUSTED`, but authenticated target
-  evidence shows live physical `max_instances: 1` and no explicit active Brain
-  admission variables. Checked-in HEAD's `2/2` values and the shared local
-  `5/6` proposal are configuration-source evidence only. The latter is
-  undeployed, and its static gate cannot prove deployed capacity or admission
-  behavior.
-- **RF-025 — OPEN, P0 isolated task-checkout issuer blocker**: canonical
-  `WorkspaceSnapshot` and `TaskCheckout` protocol types, immutable persistence,
-  scoped claim orchestration, and Secure checkout-root enforcement now exist
-  locally (`9af58fdf`, `f5b79d3a`, `745c46d5`, `6411a278`, `7efa9698`).
-  They are intentionally not wired into admission: no authoritative port
-  resolves an authorized repository ref to an immutable commit/tree before
-  bootstrap; Secure creates a lease only after receiving a root while checkout
-  identity requires the lease; and persistence has no atomic snapshot+checkout
-  issuance/compensation transaction. Five-task admission remains disabled
-  until that issuer exists and each run proves a distinct checkout, Git index,
-  lease, tool/artifact namespace, and replayable provenance.
+- **INC-002 / Plan 045 — FIXED_PENDING_TARGET_PROOF, P0 target-capacity
+  mismatch**: checked-in default and production configuration now admits
+  exactly five active runs globally, per authenticated user, and per workspace,
+  while Secure API declares six physical containers for recovery headroom. The
+  capacity gate rejects missing limits, any value other than the initial-alpha
+  five-task contract, and physical capacity less than or equal to admission.
+  This is configuration-source proof only. Authenticated target evidence must
+  still confirm the active Brain variables, Secure `max_instances: 6`, five
+  admitted sibling tasks, a typed sixth-task rejection, isolated release, and
+  subsequent admission without displacement.
+- **RF-025 — FIXED_PENDING_TARGET_PROOF, P0 isolated task-checkout issuer
+  blocker**: Brain now captures an authenticated immutable repository
+  commit/tree, creates one canonical checkout root, acquires the matching
+  Secure sandbox lease, and atomically persists the snapshot plus checkout with
+  compensation on issuance failure. Runtime claim validates the complete
+  workspace/thread/turn/run-attempt tuple; Git bootstrap creates the task branch
+  from the authorized immutable commit; the native kernel manifest, capability
+  policy, secure tools, Git scope, and artifact namespace all use the persisted
+  checkout; and terminal/post-run failures settle the checkout before lease
+  release. Focused protocol, persistence, issuer, bootstrap, Git, Secure scope,
+  Brain runtime, typecheck, runtime-conformance, capability-preservation, and
+  governance gates pass. It remains pending until target proof demonstrates
+  five distinct snapshots, roots, Git indexes, sandboxes, leases, streams,
+  artifacts, finals, and independent conflicting diffs.
+- **RF-031 — OPEN, P0 crash/resume checkout continuity gap**: Secure session
+  bearer tokens remain process-memory-only while the persisted `TaskCheckout`
+  stores lease and sandbox identity but no resumable secure-session capability.
+  After a Brain/DO restart, issuance for the same run attempt can collide with
+  the existing checkout, but Brain cannot reattach to or deliberately replace
+  that exact lease; creating another checkout would violate immutable
+  provenance and sibling isolation. The canonical fix must define a
+  server-owned resumable session reference or an atomic replacement generation
+  protocol that preserves snapshot/checkout provenance, invalidates only the
+  prior matching lease, and survives retry, cancellation, reload, and container
+  loss. Proof requires restart/resume and replacement tests plus authenticated
+  target evidence; tokens must never enter lifecycle events, logs, or Web.
+- **RF-032 — OPEN, P1 legacy runtime-root authority remains outside the active
+  native path**: the active Brain/native-kernel path no longer derives
+  `/home/sandbox/runs/{runId}`, but the legacy `RunEngineKernelAdapter`,
+  `AgenticLoop` capability fallback, runtime Cloudflare worker adapter, and
+  several contract fixtures still support run-derived roots. They are not the
+  current production owner, but Plan 045's direct-executor/duplicate-path
+  deletion is incomplete while those paths can construct execution manifests
+  without a persisted checkout. Remove or explicitly quarantine them behind a
+  non-production conformance boundary; proof must show no production import or
+  request route can reach them.
 - **RF-026 — FIXED_PENDING_TARGET_PROOF, P0 lifecycle approval settlement
   gap**: the lifecycle approval route no longer writes then polls replay for a
   decision. It resolves the matching active runtime coordinator directly,
