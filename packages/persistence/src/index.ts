@@ -40,6 +40,7 @@ export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-w
 export { artifactProvenanceMigration } from "./migrations/0024-artifact-provenance.js";
 export { taskWorkspacesMigration } from "./migrations/0025-task-workspaces.js";
 export { sessionTitleVersionMigration } from "./migrations/0026-session-title-version.js";
+export { hookDefinitionsMigration } from "./migrations/0029-hook-definitions.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,

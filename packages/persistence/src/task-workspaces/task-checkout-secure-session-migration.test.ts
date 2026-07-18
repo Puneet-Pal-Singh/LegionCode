@@ -4,9 +4,7 @@ import { taskCheckoutSecureSessionMigration } from "../migrations/0028-task-chec
 
 describe("task checkout secure session migration", () => {
   it("makes the opaque resume reference mandatory without persisting a bearer", () => {
-    expect(persistenceMigrations.at(-1)).toBe(
-      taskCheckoutSecureSessionMigration,
-    );
+    expect(persistenceMigrations).toContain(taskCheckoutSecureSessionMigration);
     const sql = taskCheckoutSecureSessionMigration.statements.join("\n");
     expect(sql).toContain("secure_session_id");
     expect(sql).toContain("SET NOT NULL");

@@ -19,6 +19,7 @@ import type {
   LifecycleEventStore,
   TaskWorkspaceRepository,
 } from "@repo/persistence";
+import type { HookDefinitionRepository } from "../services/hooks/HookDefinitionRepository";
 
 export interface HyperdriveBinding {
   connectionString: string;
@@ -43,6 +44,7 @@ export interface Env {
   AUTH_ARTIFACT_REPOSITORY?: ArtifactRepository;
   AUTH_LIFECYCLE_EVENT_STORE?: LifecycleEventStore;
   AUTH_TASK_WORKSPACE_REPOSITORY?: TaskWorkspaceRepository;
+  AUTH_HOOK_DEFINITION_REPOSITORY?: HookDefinitionRepository;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK

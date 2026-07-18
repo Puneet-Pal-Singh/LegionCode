@@ -12,6 +12,7 @@ import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
 import { TurnController } from "./controllers/TurnController";
+import { HookDefinitionController } from "./controllers/HookDefinitionController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -126,6 +127,21 @@ function createRouter(): Router {
     /^\/api\/workspaces\/selection$/,
     WorkspaceController.selectWorkspace,
     "POST",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks$/,
+    HookDefinitionController.list,
+    "GET",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
+    HookDefinitionController.upsert,
+    "PUT",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
+    HookDefinitionController.delete,
+    "DELETE",
   );
   router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
   router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
