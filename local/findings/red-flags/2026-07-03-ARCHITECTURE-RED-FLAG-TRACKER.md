@@ -104,13 +104,66 @@ PR #406 was merged to `dev`, but the following failures were reproduced on
   session deletion, and sandbox readiness failures reporting the container port
   was not found or readiness was aborted.
 
-Status: **IN_REPAIR** in the follow-up repair PR from latest `origin/dev`.
-The implementation proof covers typed finalization, canonical thread/turn/
-run-attempt/workspace/root scope, direct Sandbox lifecycle destruction, terminal release, and
-the image/readiness port contract. Authenticated target-dev acceptance proof
-for greeting/read, Working state, scope logs, no DataCloneError, successful
-DELETE, and canonical failure presentation remains required before closing
-these red flags.
+Status: **FIXED_PENDING_TARGET_PROOF** in the follow-up repair PR from latest
+`origin/dev`. The implementation proof covers typed finalization, canonical
+thread/turn/run-attempt/workspace/root scope, direct Sandbox lifecycle
+destruction, terminal release, and the image/readiness port contract.
+Authenticated target-dev acceptance proof for greeting/read, Working state,
+scope logs, no DataCloneError, successful DELETE, and canonical failure
+presentation remains required before closing these red flags.
+
+## 2026-07-18 canonical chat activity and final-settlement proof
+
+- **INC-013 — FIXED_PENDING_TARGET_PROOF**: the runtime now rejects
+  `COMPLETED` settlement without an explicit typed model `final`; it never
+  manufactures generic successful copy. A local authenticated browser run
+  displayed `Starting`, produced the model-written final `OK`, and preserved
+  that final after replay.
+- **INC-009 — FIXED_PENDING_TARGET_PROOF**: each submitted client message now
+  bootstraps one server-owned turn and run-attempt identity. Retrying the same
+  client message remains idempotent, while a follow-up message receives a new
+  tuple. This removes the static turn tuple that caused second-message
+  lifecycle conflicts.
+- **RUNTIME-WORKSPACE-IDENTITY — FIXED_PENDING_TARGET_PROOF**: Brain and the
+  runtime kernel now derive the same branded workspace id from the external
+  workspace identity. Before the repair, the first real tool call failed with
+  `Execution workspace scope must match the server-owned run scope`; after the
+  repair, a real `package.json` search/read completed and replay preserved the
+  typed `Finding` and `Reading` activity.
+- **ACTIVITY-PRIVACY — FIXED_PENDING_TARGET_PROOF**: persisted/live reasoning
+  parts are audit-only and Web renders only lifecycle, typed commentary,
+  approval, and tool activity. Legacy providers that prefix terminal output
+  with third-person user narration or internal planning are quarantined as
+  reasoning, which produces typed `MODEL_FINAL_MISSING` rather than exposing
+  deliberation.
+- **TOOL-DISCLOSURE — FIXED_PENDING_TARGET_PROOF**: a local browser run showed
+  `Waiting for approval`, resumed after `Allow once`, completed `pwd`, and
+  replayed an expandable `Ran pwd` disclosure with command, cwd, sanitized
+  output, and `Success`. The row expansion state contract was also corrected
+  after the disclosure test exposed a double inversion.
+- **INC-002 / Plan 045 — FIXED_PENDING_TARGET_PROOF**: scope remained limited
+  to release-blocking admission wiring. `gate:cloudflare-capacity` proves Brain
+  admission and deployed container `max_instances` are both `2`; capacity
+  exhaustion is typed as `RUN_CAPACITY_EXHAUSTED`. No Sandbox SDK RPC migration
+  or unrelated Plan 045 feature work was started.
+- **RF-023 — OPEN, P1 local-dev migration blocker**: a fresh local Brain state
+  cannot apply the canonical v5 deleted-class migration because Wrangler
+  reports `Cannot apply deleted_classes migration to non-existent class
+  SessionMemoryRuntime`. Existing ignored local state can boot without that
+  migration, but the checked-in canonical local-start validation still needs a
+  fresh-state-safe migration sequence before release.
+- **RF-024 — OPEN, P1 historical privacy debt**: transcript rows persisted as
+  visible finals before the new provider quarantine remain visible on replay.
+  New turns are protected at ingress, but existing stored rows need an explicit
+  retention/migration decision; this repair does not rewrite append-only
+  history.
+
+Focused evidence: Web activity/chat tests `52/52`, Brain controller/runtime/
+execution tests `43/43`, execution-engine final/privacy tests `12/12`, protocol
+identity tests `3/3`, Web/Brain/execution-engine typechecks,
+`gate:cloudflare-capacity`, `gate:runtime-conformance`, architecture boundaries,
+and `git diff --check` pass. Browser proof covered greeting final, filesystem
+search/read activity, approval, shell disclosure, and completed replay.
 
 ### Required release proof
 
