@@ -66,6 +66,7 @@ export class RuntimeKernel {
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
   private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
+  private readonly approvalCoordinators = new Map<string, ApprovalCoordinator>();
   private readonly artifactSettlements = new Map<
     string,
     TurnArtifactSettlementCoordinator
@@ -108,6 +109,7 @@ export class RuntimeKernel {
       this.dependencies.approvals,
       lifecycle,
     );
+    this.approvalCoordinators.set(turn.id, approvals);
     const tools = new ToolExecutionCoordinator(
       this.dependencies.worker,
       this.dependencies.toolAuthorization,
@@ -166,6 +168,8 @@ export class RuntimeKernel {
         }
       }
       throw error;
+    } finally {
+      this.approvalCoordinators.delete(turn.id);
     }
   }
 
@@ -187,6 +191,21 @@ export class RuntimeKernel {
       }
     }
     await lifecycle.interrupt(reason);
+  }
+
+  async resolveApproval(
+    turnId: Turn["id"],
+    approvalId: Parameters<ApprovalCoordinator["resolve"]>[0],
+    resolution: Parameters<ApprovalCoordinator["resolve"]>[1],
+  ): Promise<void> {
+    const approvals = this.approvalCoordinators.get(turnId);
+    if (!approvals) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime kernel`,
+      );
+    }
+    await approvals.resolve(approvalId, resolution);
   }
 
   private async executeLoop(

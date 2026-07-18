@@ -126,6 +126,39 @@ describe("PermissionApprovalStore", () => {
     });
   });
 
+  it("returns the same resolved approval on retry and rejects a conflicting retry", async () => {
+    const state = new MockRuntimeState();
+    const store = new PermissionApprovalStore(state, "run-approval-idempotent");
+    await store.setPendingRequest({
+      requestId: "req-idempotent",
+      runId: "run-approval-idempotent",
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const first = await store.resolveDecision(
+      { kind: "allow_once", requestId: "req-idempotent" },
+      "user-1",
+    );
+    const retried = await store.resolveDecision(
+      { kind: "allow_once", requestId: "req-idempotent" },
+      "user-1",
+    );
+
+    expect(retried).toEqual(first);
+    await expect(
+      store.resolveDecision(
+        { kind: "deny", requestId: "req-idempotent" },
+        "user-1",
+      ),
+    ).rejects.toThrow("already resolved differently");
+  });
+
   it("rejects broad unsafe persistent shell rules", async () => {
     const state = new MockRuntimeState();
     const store = new PermissionApprovalStore(state, "run-approval-4");

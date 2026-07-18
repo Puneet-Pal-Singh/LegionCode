@@ -65,6 +65,10 @@ import {
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
 import {
+  InMemoryRunApprovalResolutionRegistry,
+  type RunApprovalResolutionRegistry,
+} from "./RunApprovalResolutionRegistry";
+import {
   BrainWorkspaceIdSchema,
   RunInterruptIdentitySchema,
   type RunInterruptIdentity,
@@ -123,6 +127,7 @@ export interface RunEngineRequestHandlerDependencies {
   lifecycleEventStore?: LifecycleEventStore;
   lifecycleEventStream?: LifecycleEventStreamPort;
   interruptRegistry?: RunInterruptRegistry;
+  approvalResolutionRegistry?: RunApprovalResolutionRegistry;
 }
 
 type TurnRuntimeIdentity = RunInterruptIdentity;
@@ -137,6 +142,7 @@ export class RunEngineRequestHandler {
     TurnRuntimeIdentity
   >();
   private readonly interruptRegistry: RunInterruptRegistry;
+  private readonly approvalResolutionRegistry: RunApprovalResolutionRegistry;
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
@@ -151,6 +157,9 @@ export class RunEngineRequestHandler {
   ) {
     this.interruptRegistry =
       dependencies.interruptRegistry ?? new InMemoryRunInterruptRegistry();
+    this.approvalResolutionRegistry =
+      dependencies.approvalResolutionRegistry ??
+      new InMemoryRunApprovalResolutionRegistry();
   }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
@@ -591,6 +600,36 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, "Run not found", 404);
     }
 
+    const lifecycleStore = this.createLifecycleEventStore();
+    const existing = await findLifecycleApprovalDecisionEvent(
+      {
+        store: lifecycleStore,
+        turnId: payload.turnId,
+        approvalId: payload.approvalId,
+      },
+      null,
+    );
+    if (existing.event) {
+      if (!isMatchingLifecycleApprovalDecision(existing.event, payload.decision)) {
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          "Approval request was already resolved differently.",
+          409,
+        );
+      }
+      return runEngineJsonResponse(request, this.env, existing.event);
+    }
+
+    if (!this.approvalResolutionRegistry.has(payload.turnId)) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Approval cannot be resolved because its runtime turn is no longer active.",
+        409,
+      );
+    }
+
     const approvalStore = new PermissionApprovalStore(runtimeState, runId);
     try {
       await approvalStore.resolveDecision(
@@ -611,20 +650,55 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const decidedEvent = await waitForLifecycleApprovalDecisionEvent({
-      store: this.createLifecycleEventStore(),
-      turnId: payload.turnId,
-      approvalId: payload.approvalId,
-    });
-    if (!decidedEvent) {
+    let delivered: boolean;
+    try {
+      delivered = await this.approvalResolutionRegistry.resolve(
+        payload.turnId,
+        payload.approvalId,
+        {
+          decision: payload.decision,
+          decidedBy: null,
+          reason: payload.reason ?? null,
+        },
+      );
+    } catch (error) {
+      await approvalStore.discardResolvedDecision(payload.approvalId);
       return runEngineErrorResponse(
         request,
         this.env,
-        "Approval decision was recorded but the lifecycle decision event was not observed.",
-        504,
+        error instanceof Error
+          ? error.message
+          : "Approval decision could not be delivered to the active runtime turn.",
+        409,
       );
     }
-    return runEngineJsonResponse(request, this.env, decidedEvent);
+    if (!delivered) {
+      await approvalStore.discardResolvedDecision(payload.approvalId);
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Approval decision could not be delivered to the active runtime turn.",
+        409,
+      );
+    }
+
+    const decided = await findLifecycleApprovalDecisionEvent(
+      {
+        store: lifecycleStore,
+        turnId: payload.turnId,
+        approvalId: payload.approvalId,
+      },
+      null,
+    );
+    if (!decided.event) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "The active runtime accepted the approval but did not append its lifecycle decision event.",
+        500,
+      );
+    }
+    return runEngineJsonResponse(request, this.env, decided.event);
   }
 
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
@@ -902,6 +976,12 @@ export class RunEngineRequestHandler {
         this.interruptRegistry.register(turnId, async (reason) => {
           await runtimeRunner.interrupt(turnId, reason);
         });
+        this.approvalResolutionRegistry.register(
+          turnId,
+          async (approvalId, resolution) => {
+            await runtimeRunner.resolveApproval(turnId, approvalId, resolution);
+          },
+        );
         let executionResponse: Response;
         try {
           executionResponse = await runtimeRunner.execute({
@@ -916,6 +996,7 @@ export class RunEngineRequestHandler {
           });
         } finally {
           this.interruptRegistry.unregister(turnId);
+          this.approvalResolutionRegistry.unregister(turnId);
         }
         console.log(
           formatDiagnosticLogLine("run/runtime", "engine-executed", {
@@ -1349,7 +1430,8 @@ function mapApprovalResolutionErrorStatus(error: unknown): number {
   const message = error instanceof Error ? error.message : String(error);
   if (
     message.includes("No pending approval request") ||
-    message.includes("does not match pending request")
+    message.includes("does not match pending request") ||
+    message.includes("already resolved differently")
   ) {
     return 409;
   }
@@ -1361,27 +1443,6 @@ function mapApprovalResolutionErrorStatus(error: unknown): number {
     return 400;
   }
   return 500;
-}
-
-async function waitForLifecycleApprovalDecisionEvent(input: {
-  store: LifecycleEventStore;
-  turnId: string;
-  approvalId: string;
-}): Promise<LifecycleEvent | null> {
-  const deadline = Date.now() + 2_000;
-  let afterSequence: number | null = null;
-  while (Date.now() <= deadline) {
-    const found = await findLifecycleApprovalDecisionEvent(
-      input,
-      afterSequence,
-    );
-    if (found.event) {
-      return found.event;
-    }
-    afterSequence = found.nextSequence;
-    await waitForLifecycleApprovalReplayCycle();
-  }
-  return null;
 }
 
 async function findLifecycleApprovalDecisionEvent(
@@ -1409,8 +1470,13 @@ async function findLifecycleApprovalDecisionEvent(
   };
 }
 
-function waitForLifecycleApprovalReplayCycle(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 50);
-  });
+function isMatchingLifecycleApprovalDecision(
+  event: LifecycleEvent,
+  decision: z.infer<typeof ApprovalDecisionSchema>,
+): boolean {
+  return (
+    event.type === "approval.decided" &&
+    "status" in event.payload &&
+    event.payload.status === decision
+  );
 }

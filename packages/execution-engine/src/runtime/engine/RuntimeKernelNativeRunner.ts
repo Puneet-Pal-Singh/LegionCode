@@ -427,6 +427,28 @@ export class RuntimeKernelNativeRunner {
     await kernel.interruptTurn(turnId, reason);
   }
 
+  async resolveApproval(
+    turnId: Turn["id"],
+    approvalId: ApprovalRequestedPayload["approvalId"],
+    resolution: ApprovalResolution,
+  ): Promise<void> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== turnId) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime runner`,
+      );
+    }
+    const kernel = await activeTurn.kernel;
+    if (!kernel) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} did not reach the runtime kernel`,
+      );
+    }
+    await kernel.resolveApproval(turnId, approvalId, resolution);
+  }
+
   private beginActiveTurn(turnId: Turn["id"]): void {
     let resolveKernel: (kernel: RuntimeKernel | null) => void = () => {};
     const kernel = new Promise<RuntimeKernel | null>((resolve) => {

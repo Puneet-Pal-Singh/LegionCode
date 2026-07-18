@@ -17,6 +17,8 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "approval_denied",
   "approval_retry_required",
   "invalid_approval_item",
+  "approval_not_active",
+  "approval_already_active",
   "turn_not_active",
   "turn_already_owned",
   "turn_artifact_settlement_failed",
@@ -116,6 +118,8 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
     case "approval_retry_required":
       return "approval_required";
     case "invalid_approval_item":
+    case "approval_not_active":
+    case "approval_already_active":
     case "turn_not_active":
     case "turn_already_owned":
       return "conflict";

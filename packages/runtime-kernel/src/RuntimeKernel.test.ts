@@ -212,6 +212,51 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
   });
 
+  it("settles an externally delivered approval once and resumes the waiting turn", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: approvalRequest,
+    }));
+    ports.approvals.waitForDecision = vi.fn(
+      () => new Promise(() => undefined),
+    );
+    const kernel = await createKernel(sink, ports);
+
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await vi.waitFor(() => {
+      expect(eventTypes(sink)).toContain("approval.requested");
+    });
+
+    await kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+      decision: "approved",
+      decidedBy: run.userId,
+      reason: null,
+    });
+
+    await expect(execution).resolves.toMatchObject({ status: "completed" });
+    expect(
+      eventTypes(sink).filter((type) => type === "approval.decided"),
+    ).toHaveLength(1);
+    await expect(
+      kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+        decision: "approved",
+        decidedBy: run.userId,
+        reason: null,
+      }),
+    ).rejects.toMatchObject({ code: "turn_not_active" });
+  });
+
   it("settles typed policy denial without calling the worker", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();

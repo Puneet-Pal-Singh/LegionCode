@@ -20,6 +20,7 @@ import {
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
+import { TurnIdSchema } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import {
@@ -28,6 +29,8 @@ import {
 } from "./RunEngineRequestHandler";
 import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
+import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
+import type { RunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 
 describe("RunEngineRequestHandler", () => {
   it("issues one persisted four-id scope before execution starts", async () => {
@@ -951,6 +954,148 @@ describe("RunEngineRequestHandler", () => {
           event.payload.label === "Approval decision ignored",
       ),
     ).toBe(true);
+  });
+
+  it("delivers a lifecycle approval through the active runtime once and replays that event on retry", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "run_123e4567e89b42d3a456426614174336";
+    const turnId = "trn_123456";
+    const approvalId = "appr_123456";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    const approvals = new PermissionApprovalStore(runtimeState, runId);
+    await approvals.setPendingRequest({
+      requestId: approvalId,
+      runId,
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_once", "deny", "abort"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const events: Array<Record<string, unknown>> = [];
+    const lifecycleEventStore = {
+      replay: vi.fn(async () => ({
+        events,
+        nextSequence: null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
+    const resolve = vi.fn(async () => {
+      events.push({
+        type: "approval.decided",
+        approvalId,
+        payload: { status: "approved" },
+      });
+    });
+    approvalRegistry.register(TurnIdSchema.parse(turnId), resolve);
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore, approvalResolutionRegistry: approvalRegistry },
+    );
+    const submit = (decision: "approved" | "denied") =>
+      handler.handleLifecycleApprovalRequest(
+        new Request("https://brain.local/lifecycle-approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turnId, approvalId, decision }),
+        }),
+      );
+
+    const first = await submit("approved");
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      type: "approval.decided",
+      approvalId,
+    });
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    const retry = await submit("approved");
+    expect(retry.status).toBe(200);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    const conflict = await submit("denied");
+    expect(conflict.status).toBe(409);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed without retaining a permission decision when the active approval resolver disappears", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "run_123e4567e89b42d3a456426614174337";
+    const turnId = "trn_123457";
+    const approvalId = "appr_123457";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    const approvals = new PermissionApprovalStore(runtimeState, runId);
+    await approvals.setPendingRequest({
+      requestId: approvalId,
+      runId,
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const disappearingRegistry: RunApprovalResolutionRegistry = {
+      register() {},
+      has: () => true,
+      resolve: async () => false,
+      unregister() {},
+    };
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      {
+        lifecycleEventStore: {
+          replay: async () => ({ events: [], nextSequence: null }),
+        } as unknown as LifecycleEventStore,
+        approvalResolutionRegistry: disappearingRegistry,
+      },
+    );
+
+    const response = await handler.handleLifecycleApprovalRequest(
+      new Request("https://brain.local/lifecycle-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          turnId,
+          approvalId,
+          decision: "approved",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(approvals.getResolvedDecision(approvalId)).resolves.toBeNull();
+    await expect(approvals.isActionAllowed("shell:pnpm test")).resolves.toBe(
+      false,
+    );
   });
 
   it("keeps approval error mapping when progress telemetry fails", async () => {
