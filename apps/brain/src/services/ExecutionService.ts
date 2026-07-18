@@ -2,7 +2,6 @@ import { Env } from "../types/ai";
 import { decryptToken, GitHubAPIClient } from "@shadowbox/github-bridge";
 import {
   sanitizeLogPayload,
-  sanitizeLogText,
   sanitizeUnknownError,
 } from "../core/security/LogSanitizer";
 import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
@@ -33,20 +32,12 @@ import {
 } from "./secure-execution/SecureExecutionContract";
 import { SecureRuntimeFailureMapper } from "./secure-execution/SecureRuntimeFailureMapper";
 import type { SecureExecutionWorkspaceScope } from "../runtime/RuntimeWorkspaceScope";
+import {
+  SecureExecutionSessionClient,
+  type SecureExecutionSessionPort,
+} from "./secure-execution/SecureExecutionSessionClient";
 
 const DEFAULT_EXECUTION_TIMEOUT_MS = 120_000;
-const EXECUTION_SESSION_REPO_PATH = ".";
-const LOCAL_DEV_SESSION_RETRY_ATTEMPTS = 10;
-const LOCAL_DEV_SESSION_RETRY_DELAY_MS = 500;
-
-interface SecureExecutionSession {
-  sessionId: string;
-  token: string;
-}
-
-interface SecureExecutionSessionResponse extends SecureExecutionSession {
-  expiresAt: number;
-}
 
 type SecureExecutionTaskResponse = SecureExecutionOutcome;
 
@@ -83,10 +74,8 @@ interface GitHubAuthState {
  * - Tokens are passed securely from Brain to Muscle
  */
 export class ExecutionService {
-  private executionSessionPromise: Promise<SecureExecutionSession> | null =
-    null;
-  private releaseExecutionSessionPromise: Promise<void> | null = null;
   private readonly workspaceScope: SecureExecutionWorkspaceScope;
+  private readonly executionSession: SecureExecutionSessionPort;
 
   constructor(
     private env: Env,
@@ -94,11 +83,15 @@ export class ExecutionService {
     private runId: string,
     private userId?: string,
     workspaceScope?: SecureExecutionWorkspaceScope,
+    executionSession?: SecureExecutionSessionPort,
   ) {
     if (!workspaceScope) {
       throw new Error("workspaceScope is required for secure execution");
     }
     this.workspaceScope = workspaceScope;
+    this.executionSession =
+      executionSession ??
+      new SecureExecutionSessionClient(env, sessionId, runId, workspaceScope);
   }
 
   async execute(
@@ -250,75 +243,6 @@ export class ExecutionService {
    * secure worker may already have expired or released it, but it is not a
    * reason to hide a release failure behind a catch-all.
    */
-  async releaseExecutionSession(): Promise<void> {
-    if (!this.releaseExecutionSessionPromise) {
-      this.releaseExecutionSessionPromise = this.releaseExecutionSessionNow();
-    }
-    return await this.releaseExecutionSessionPromise;
-  }
-
-  private async releaseExecutionSessionNow(): Promise<void> {
-    const sessionPromise = this.executionSessionPromise;
-    if (!sessionPromise) {
-      return;
-    }
-
-    let executionSession: SecureExecutionSession;
-    try {
-      executionSession = await sessionPromise;
-    } catch (error) {
-      console.error(
-        formatDiagnosticLogLine("execution/lease", "release-skipped", {
-          runId: this.runId,
-          sessionId: this.sessionId,
-          reason: "session-creation-failed",
-          error: sanitizeUnknownError(error),
-        }),
-      );
-      return;
-    }
-
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      `http://internal/api/v1/session/${encodeURIComponent(executionSession.sessionId)}?session=${encodeURIComponent(this.sessionId)}`,
-      {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${executionSession.token}`,
-        },
-      },
-      DEFAULT_EXECUTION_TIMEOUT_MS,
-    );
-
-    if (response.status === 404) {
-      console.warn(
-        formatDiagnosticLogLine("execution/lease", "release-missing", {
-          runId: this.runId,
-          sessionId: this.sessionId,
-          secureSessionId: executionSession.sessionId,
-          httpStatus: response.status,
-        }),
-      );
-      return;
-    }
-
-    if (!response.ok) {
-      const detail = sanitizeLogText((await response.text()) || "unknown");
-      throw new Error(
-        `Secure execution lease release failed with HTTP ${response.status}: ${detail}`,
-      );
-    }
-
-    console.log(
-      formatDiagnosticLogLine("execution/lease", "released", {
-        runId: this.runId,
-        sessionId: this.sessionId,
-        secureSessionId: executionSession.sessionId,
-        httpStatus: response.status,
-      }),
-    );
-  }
-
   /**
    * Fetch and decrypt GitHub token for a user
    * Tokens are stored encrypted in the canonical identity repository.
@@ -641,76 +565,14 @@ export class ExecutionService {
 
   private async getExecutionSession(
     scope: SecureExecutionWorkspaceScope | undefined,
-  ): Promise<SecureExecutionSession> {
-    if (!this.executionSessionPromise) {
-      this.executionSessionPromise = this.createExecutionSession(scope);
-    }
-
-    try {
-      return await this.executionSessionPromise;
-    } catch (error) {
-      this.executionSessionPromise = null;
-      throw error;
-    }
-  }
-
-  private async createExecutionSession(
-    scope: SecureExecutionWorkspaceScope | undefined,
-  ): Promise<SecureExecutionSession> {
-    for (
-      let attempt = 1;
-      attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
-      attempt += 1
-    ) {
-      const response = await fetchWithTimeout(
-        this.env.SECURE_API,
-        `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            runId: this.runId,
-            taskId: createSessionTaskId(this.sessionId),
-            repoPath: EXECUTION_SESSION_REPO_PATH,
-            workspaceScope: scope,
-          }),
-        },
-        DEFAULT_EXECUTION_TIMEOUT_MS,
+  ) {
+    if (scope && !sameWorkspaceScope(scope, this.workspaceScope)) {
+      throw new Error(
+        "Execution workspace scope must match the server-owned run scope.",
       );
-
-      if (response.ok) {
-        const session =
-          await parseJsonResponse<SecureExecutionSessionResponse>(response);
-        return {
-          sessionId: session.sessionId,
-          token: session.token,
-        };
-      }
-
-      const message =
-        (await response.text()) || "Failed to create secure execution session";
-      if (
-        attempt < LOCAL_DEV_SESSION_RETRY_ATTEMPTS &&
-        isLocalDevSessionProxyMiss(message)
-      ) {
-        console.log(
-          formatDiagnosticLogLine("execution/tool", "session-retry", {
-            runId: this.runId,
-            sessionId: this.sessionId,
-            attempt,
-            maxAttempts: LOCAL_DEV_SESSION_RETRY_ATTEMPTS,
-          }),
-        );
-        await sleep(LOCAL_DEV_SESSION_RETRY_DELAY_MS);
-        continue;
-      }
-
-      throw new Error(message);
     }
-
-    throw new Error("Failed to create secure execution session");
+    return await this.executionSession.acquire();
   }
-
 }
 
 function normalizeExecutionAction(plugin: string, action: string): string {
@@ -732,27 +594,8 @@ function resolveExecutionTimeoutMs(plugin: string, action: string): number {
   return GIT_MUTATION_TIMEOUT_MS;
 }
 
-function createSessionTaskId(sessionId: string): string {
-  return `brain-session-${sessionId}`;
-}
-
 function createExecutionTaskId(plugin: string, action: string): string {
   return `${plugin}-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function parseJsonResponse<T>(
-  response: Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>,
-): Promise<T> {
-  const text = await response.text();
-  try {
-    return JSON.parse(text) as T;
-  } catch (error) {
-    throw new Error(
-      `Expected JSON response from secure execution API: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
 }
 
 async function parseSecureExecutionResponse(
@@ -994,13 +837,6 @@ function isExpectedGitStatusMessage(message: string): boolean {
   );
 }
 
-function isLocalDevSessionProxyMiss(message: string): boolean {
-  return (
-    /couldn't find a local dev session/i.test(message) ||
-    /entrypoint of service .* to proxy to/i.test(message)
-  );
-}
-
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -1089,8 +925,4 @@ async function fetchWithTimeout(
       clearTimeout(timeoutId);
     }
   }
-}
-
-async function sleep(durationMs: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, durationMs));
 }

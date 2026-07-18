@@ -332,6 +332,7 @@ describe("DefaultGitService", () => {
     await service.createBranch({
       workspace: WORKSPACE,
       branchName: "feat/canonical-git",
+      startPoint: "a".repeat(40),
     });
     await service.switchBranch({
       workspace: WORKSPACE,
@@ -344,7 +345,7 @@ describe("DefaultGitService", () => {
     expect(executor.calls.map((call) => call.args)).toEqual([
       ["pull", "--ff-only", "origin", "main"],
       ["fetch", "origin"],
-      ["checkout", "-b", "feat/canonical-git"],
+      ["checkout", "-b", "feat/canonical-git", "a".repeat(40)],
       ["checkout", "main"],
       ["branch", "-a"],
     ]);

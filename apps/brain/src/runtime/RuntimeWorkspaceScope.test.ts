@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  canonicalRuntimeWorkspaceRoot,
-  toRuntimeWorkspaceScope,
-  toSecureExecutionWorkspaceScope,
-} from "./RuntimeWorkspaceScope";
+import { toSecureExecutionWorkspaceScope } from "./RuntimeWorkspaceScope";
 
 const identity = {
   runId: "run_scope_test",
@@ -15,23 +11,11 @@ const identity = {
 };
 
 describe("RuntimeWorkspaceScope", () => {
-  it("derives the canonical run workspace root", () => {
-    expect(canonicalRuntimeWorkspaceRoot(identity.runId)).toBe(
-      "/home/sandbox/runs/run_scope_test",
-    );
-  });
-
-  it("projects server-issued turn identity with the canonical root", () => {
-    expect(toRuntimeWorkspaceScope(identity)).toMatchObject({
-      ...identity,
-      root: "/home/sandbox/runs/run_scope_test",
-    });
-  });
-
-  it("projects the canonical secure execution scope", () => {
+  it("projects the persisted checkout root into the secure execution scope", () => {
     expect(
       toSecureExecutionWorkspaceScope({
-        ...toRuntimeWorkspaceScope(identity),
+        ...identity,
+        root: "/home/sandbox/checkouts/checkout_123456",
       }),
     ).toEqual({
       runId: identity.runId,
@@ -39,7 +23,7 @@ describe("RuntimeWorkspaceScope", () => {
       turnId: identity.turnId,
       runAttemptId: identity.runAttemptId,
       workspaceId: "wrk_00000000-0000-4000-8000-000000000001",
-      root: "/home/sandbox/runs/run_scope_test",
+      root: "/home/sandbox/checkouts/checkout_123456",
     });
   });
 });

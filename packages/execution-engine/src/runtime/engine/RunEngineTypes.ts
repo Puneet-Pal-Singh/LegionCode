@@ -70,9 +70,4 @@ export interface RunEngineDependencies {
   hasGitHubAuth?: GitHubAuthAvailabilityChecker;
   prepareMutationCapture?: () => Promise<void>;
   runEventListener?: (event: RunEvent) => Promise<void> | void;
-  /**
-   * Releases the run-attempt execution lease after terminal settlement.
-   * Runtime owns when this is called; adapters own how it is transported.
-   */
-  releaseExecutionSession?: () => Promise<void>;
 }

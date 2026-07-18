@@ -1,12 +1,7 @@
 import { z } from "zod";
-import {
-  RunInterruptIdentitySchema,
-  type RunInterruptIdentity,
-} from "./RunInterruptContract";
+import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { workspaceIdFromExternalId } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
-
-const RUNTIME_WORKSPACE_ROOT_PREFIX = "/home/sandbox/runs";
 
 export const RuntimeWorkspaceScopeResponseSchema =
   RunInterruptIdentitySchema.extend({
@@ -24,19 +19,6 @@ export interface SecureExecutionWorkspaceScope {
   runAttemptId: string;
   workspaceId: string;
   root: string;
-}
-
-export function canonicalRuntimeWorkspaceRoot(runId: string): string {
-  return `${RUNTIME_WORKSPACE_ROOT_PREFIX}/${runId}`;
-}
-
-export function toRuntimeWorkspaceScope(
-  identity: RunInterruptIdentity,
-): RuntimeWorkspaceScopeResponse {
-  return RuntimeWorkspaceScopeResponseSchema.parse({
-    ...identity,
-    root: canonicalRuntimeWorkspaceRoot(identity.runId),
-  });
 }
 
 export function toSecureExecutionWorkspaceScope(

@@ -41,7 +41,11 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
+import {
+  DomainError,
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
@@ -79,7 +83,13 @@ import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
-import { toRuntimeWorkspaceScope } from "./RuntimeWorkspaceScope";
+import { RuntimeWorkspaceScopeResponseSchema } from "./RuntimeWorkspaceScope";
+import { TaskCheckoutIssuer } from "./task-workspaces/TaskCheckoutIssuer";
+import {
+  TaskCheckoutExecutionOrchestrator,
+  type TaskCheckoutScopeResolutionPort,
+} from "./task-workspaces/TaskCheckoutExecutionOrchestrator";
+import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
 
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
@@ -128,6 +138,7 @@ export interface RunEngineRequestHandlerDependencies {
   lifecycleEventStream?: LifecycleEventStreamPort;
   interruptRegistry?: RunInterruptRegistry;
   approvalResolutionRegistry?: RunApprovalResolutionRegistry;
+  taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
 }
 
 type TurnRuntimeIdentity = RunInterruptIdentity;
@@ -610,7 +621,9 @@ export class RunEngineRequestHandler {
       null,
     );
     if (existing.event) {
-      if (!isMatchingLifecycleApprovalDecision(existing.event, payload.decision)) {
+      if (
+        !isMatchingLifecycleApprovalDecision(existing.event, payload.decision)
+      ) {
         return runEngineErrorResponse(
           request,
           this.env,
@@ -822,11 +835,33 @@ export class RunEngineRequestHandler {
       );
     }
 
-    return runEngineJsonResponse(
-      request,
-      this.env,
-      toRuntimeWorkspaceScope(identity),
-    );
+    try {
+      const checkout = await (
+        this.dependencies.taskCheckoutScopeResolver ??
+        new TaskCheckoutExecutionOrchestrator(this.env)
+      ).resolveActiveCheckout(identity, `workspace-scope:${runId}`);
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        RuntimeWorkspaceScopeResponseSchema.parse({
+          ...identity,
+          root: checkout.filesystemRoot,
+        }),
+      );
+    } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          message,
+          status,
+          code,
+          metadata,
+        );
+      }
+      throw error;
+    }
   }
 
   async handleExecuteRequest(
@@ -914,77 +949,115 @@ export class RunEngineRequestHandler {
         this.eventStream?.start(payload.runId);
         const { turnId, runAttemptId, threadId } = identity;
         const runtimeState = this.createRuntimeState();
-        const { agent, runEngineDeps } = buildRuntimeDependencies(
-          this.ctx,
+        const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
           this.env,
+        );
+        const issuedTaskCheckout = await new TaskCheckoutIssuer(this.env).issue(
           payload,
-          { strict: true },
         );
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            hasEventStream: Boolean(this.eventStream),
-            toolCount: payload.tools?.length ?? 0,
-          }),
-        );
-        const editArtifactCoordinator = createEditArtifactCoordinator({
-          env: this.env,
-          userId: payload.userId,
-          workspaceId: workspaceId.data,
-          identity,
-          runId: payload.runId,
-          sessionId: payload.sessionId,
-          repositoryContext: payload.input.repositoryContext,
-        });
-        const userMessageId = readLatestUserMessageId(payload.messages);
-        editArtifactCoordinator.setMessageContext({
-          userMessageId: userMessageId ?? undefined,
-        });
-        const runtimeRunner = new RuntimeKernelNativeRunner(
-          runtimeState,
-          {
-            env: this.env,
-            sessionId: payload.sessionId,
-            runId: payload.runId,
-            userId: payload.userId,
-            correlationId: payload.correlationId,
-            requestOrigin: payload.requestOrigin,
-          },
-          agent,
-          {
-            ...runEngineDeps,
-            runEventListener: async (event) => {
-              // Legacy RunEvent records remain a projection for internal
-              // activity/artifact capture only. Kernel lifecycle events are
-              // appended and streamed exclusively by the lifecycle store.
-              editArtifactCoordinator.handleEvent(event);
-            },
-          },
-        );
-
-        const runtimeTools = toRuntimeCoreTools(payload.tools);
-        const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
-          runId: payload.runId,
-          sessionId: payload.sessionId,
-          correlationId: payload.correlationId,
-          store: this.createLifecycleEventStore(),
-          stream: this.createLifecycleEventStream(),
-        });
-        await editArtifactCoordinator.prepare();
-        this.interruptRegistry.register(turnId, async (reason) => {
-          await runtimeRunner.interrupt(turnId, reason);
-        });
-        this.approvalResolutionRegistry.register(
-          turnId,
-          async (approvalId, resolution) => {
-            await runtimeRunner.resolveApproval(turnId, approvalId, resolution);
-          },
-        );
-        let executionResponse: Response;
+        let claimedTaskCheckout;
         try {
-          executionResponse = await runtimeRunner.execute({
+          claimedTaskCheckout =
+            await taskCheckoutOrchestrator.claimForExecution(
+              {
+                workspaceId: identity.workspaceId,
+                threadId,
+                turnId,
+                runAttemptId,
+              },
+              payload.correlationId,
+            );
+        } catch (error) {
+          await issuedTaskCheckout.executionSession.release();
+          throw error;
+        }
+        const taskCheckoutLifecycle = new TaskCheckoutRunLifecycle(
+          claimedTaskCheckout.checkoutId,
+          taskCheckoutOrchestrator,
+          issuedTaskCheckout.executionSession,
+        );
+        try {
+          const { agent, runEngineDeps } = buildRuntimeDependencies(
+            this.ctx,
+            this.env,
+            payload,
+            {
+              strict: true,
+              issuedTaskCheckout: {
+                ...issuedTaskCheckout,
+                checkout: claimedTaskCheckout,
+              },
+            },
+          );
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              hasEventStream: Boolean(this.eventStream),
+              toolCount: payload.tools?.length ?? 0,
+              checkoutId: claimedTaskCheckout.checkoutId,
+              sandboxId: claimedTaskCheckout.sandboxId,
+            }),
+          );
+          const editArtifactCoordinator = createEditArtifactCoordinator({
+            env: this.env,
+            userId: payload.userId,
+            workspaceId: workspaceId.data,
+            identity,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            repositoryContext: payload.input.repositoryContext,
+          });
+          const userMessageId = readLatestUserMessageId(payload.messages);
+          editArtifactCoordinator.setMessageContext({
+            userMessageId: userMessageId ?? undefined,
+          });
+          const runtimeRunner = new RuntimeKernelNativeRunner(
+            runtimeState,
+            {
+              env: this.env,
+              sessionId: payload.sessionId,
+              runId: payload.runId,
+              userId: payload.userId,
+              correlationId: payload.correlationId,
+              requestOrigin: payload.requestOrigin,
+            },
+            agent,
+            {
+              ...runEngineDeps,
+              runEventListener: async (event) => {
+                // Legacy RunEvent records remain a projection for internal
+                // activity/artifact capture only. Kernel lifecycle events are
+                // appended and streamed exclusively by the lifecycle store.
+                editArtifactCoordinator.handleEvent(event);
+              },
+            },
+          );
+
+          const runtimeTools = toRuntimeCoreTools(payload.tools);
+          const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            correlationId: payload.correlationId,
+            store: this.createLifecycleEventStore(),
+            stream: this.createLifecycleEventStream(),
+          });
+          await editArtifactCoordinator.prepare();
+          this.interruptRegistry.register(turnId, async (reason) => {
+            await runtimeRunner.interrupt(turnId, reason);
+          });
+          this.approvalResolutionRegistry.register(
+            turnId,
+            async (approvalId, resolution) => {
+              await runtimeRunner.resolveApproval(
+                turnId,
+                approvalId,
+                resolution,
+              );
+            },
+          );
+          const executionResponse = await runtimeRunner.execute({
             input: payload.input,
             messages: payload.messages as CoreMessage[],
             tools: runtimeTools,
@@ -993,56 +1066,109 @@ export class RunEngineRequestHandler {
             runAttemptId,
             threadId,
             workspaceId: workspaceId.data,
+            workspace: {
+              filesystemRoot: claimedTaskCheckout.filesystemRoot,
+              workingBranch: claimedTaskCheckout.workingBranch,
+              startTreeId: claimedTaskCheckout.startTreeId,
+              artifactNamespace: `task-checkouts/${claimedTaskCheckout.checkoutId}`,
+            },
           });
-        } finally {
-          this.interruptRegistry.unregister(turnId);
-          this.approvalResolutionRegistry.unregister(turnId);
-        }
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "engine-executed", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            responseStatus: executionResponse.status,
-          }),
-        );
-
-        const postExecutionResult = onExecuteResult
-          ? await onExecuteResult({
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "engine-executed", {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
-              response: executionResponse,
-              identity,
-            })
-          : null;
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            assistantMessageId: postExecutionResult?.assistantMessageId ?? null,
-          }),
-        );
-        if (postExecutionResult?.assistantMessageId) {
-          editArtifactCoordinator.setMessageContext({
-            assistantMessageId: postExecutionResult.assistantMessageId,
-          });
-        }
-        await editArtifactCoordinator.waitForPendingCapture();
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-          }),
-        );
+              responseStatus: executionResponse.status,
+            }),
+          );
 
-        return withRunEngineHeaders(request, this.env, executionResponse, {
-          "X-Thread-Id": threadId,
-          "X-Turn-Id": turnId,
-          "X-Run-Attempt-Id": runAttemptId,
-        });
+          const postExecutionResult = onExecuteResult
+            ? await onExecuteResult({
+                correlationId: payload.correlationId,
+                runId: payload.runId,
+                sessionId: payload.sessionId,
+                response: executionResponse,
+                identity,
+              })
+            : null;
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              assistantMessageId:
+                postExecutionResult?.assistantMessageId ?? null,
+            }),
+          );
+          if (postExecutionResult?.assistantMessageId) {
+            editArtifactCoordinator.setMessageContext({
+              assistantMessageId: postExecutionResult.assistantMessageId,
+            });
+          }
+          await editArtifactCoordinator.waitForPendingCapture();
+          await taskCheckoutLifecycle.settle(
+            executionResponse.ok
+              ? { status: "settled" }
+              : {
+                  status: "failed",
+                  failureCode: "RUNTIME_TERMINAL_FAILURE",
+                },
+          );
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+            }),
+          );
+
+          return withRunEngineHeaders(request, this.env, executionResponse, {
+            "X-Thread-Id": threadId,
+            "X-Turn-Id": turnId,
+            "X-Run-Attempt-Id": runAttemptId,
+          });
+        } catch (error) {
+          if (!taskCheckoutLifecycle.isSettled) {
+            try {
+              await taskCheckoutLifecycle.settle({
+                status: "failed",
+                failureCode: "RUN_PIPELINE_FAILED",
+              });
+            } catch {
+              throw new DomainError(
+                "TASK_CHECKOUT_SETTLEMENT_FAILED",
+                "The task failed and its isolated checkout could not be settled. Retry after capacity recovery.",
+                503,
+                true,
+                payload.correlationId,
+                {
+                  checkoutId: claimedTaskCheckout.checkoutId,
+                  runAttemptId,
+                },
+              );
+            }
+          }
+          throw error;
+        } finally {
+          this.interruptRegistry.unregister(turnId);
+          this.approvalResolutionRegistry.unregister(turnId);
+          await taskCheckoutLifecycle
+            .release()
+            .catch((releaseError: unknown) => {
+              console.error(
+                formatDiagnosticLogLine(
+                  "run/runtime",
+                  "checkout-session-release-failed",
+                  {
+                    correlationId: payload.correlationId,
+                    runId: payload.runId,
+                    checkoutId: claimedTaskCheckout.checkoutId,
+                    error: sanitizeUnknownError(releaseError),
+                  },
+                ),
+              );
+            });
+        }
       });
     } catch (error: unknown) {
       const domainError = mapRunExecutionErrorToDomain(

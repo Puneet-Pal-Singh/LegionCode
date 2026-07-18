@@ -20,10 +20,7 @@ import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
 import { WorkspaceBootstrapService } from "../services/WorkspaceBootstrapService";
 import { ExecutionService } from "../../services/ExecutionService";
 import { getUserSessionByUserId } from "../../services/AuthService";
-import {
-  canonicalRuntimeWorkspaceRoot,
-  toSecureExecutionWorkspaceScope,
-} from "../RuntimeWorkspaceScope";
+import type { IssuedTaskCheckout } from "../task-workspaces/TaskCheckoutIssuer";
 
 /**
  * Build complete runtime dependencies for RunEngine execution.
@@ -44,7 +41,10 @@ export function buildRuntimeDependencies(
   ctx: unknown,
   env: Env,
   payload: ExecuteRunPayload,
-  options: { strict?: boolean } = {},
+  options: {
+    strict?: boolean;
+    issuedTaskCheckout: IssuedTaskCheckout;
+  },
 ): {
   agent: IAgent | undefined;
   runEngineDeps: RunEngineDependencies;
@@ -80,14 +80,7 @@ export function buildRuntimeDependencies(
       "A server-issued turn bootstrap is required before execution",
     );
   }
-  const workspaceScope = toSecureExecutionWorkspaceScope({
-    runId: payload.runId,
-    threadId: identity.threadId,
-    turnId: identity.turnId,
-    runAttemptId: identity.runAttemptId,
-    workspaceId: identity.workspaceId,
-    root: canonicalRuntimeWorkspaceRoot(payload.runId),
-  });
+  const workspaceScope = options.issuedTaskCheckout.workspaceScope;
 
   const executionService = new ExecutionService(
     env,
@@ -95,6 +88,7 @@ export function buildRuntimeDependencies(
     payload.runId,
     payload.userId,
     workspaceScope,
+    options.issuedTaskCheckout.executionSession,
   );
 
   const agent = resolveAgent(
@@ -123,6 +117,10 @@ export function buildRuntimeDependencies(
     payload.userId,
     workspaceScope,
     executionService,
+    {
+      authorizedCommitId: options.issuedTaskCheckout.authorizedCommitId,
+      workingBranch: options.issuedTaskCheckout.checkout.workingBranch,
+    },
   );
 
   return {
@@ -139,7 +137,6 @@ export function buildRuntimeDependencies(
       workspaceBootstrapper,
       hasGitHubAuth: async ({ userId }) =>
         hasGitHubTokenForUser(env, userId ?? payload.userId),
-      releaseExecutionSession: () => executionService.releaseExecutionSession(),
     },
   };
 }

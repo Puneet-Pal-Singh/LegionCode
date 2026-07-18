@@ -20,7 +20,7 @@ import {
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TaskCheckoutSchema, TurnIdSchema } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import {
@@ -112,10 +112,37 @@ describe("RunEngineRequestHandler", () => {
 
   it("returns the latest server-issued workspace scope for Git callers", async () => {
     const ctx = new MockDurableObjectState();
+    const resolveActiveCheckout = vi.fn(async () =>
+      TaskCheckoutSchema.parse({
+        kind: "task_checkout",
+        checkoutId: "checkout_123456",
+        snapshotId: "wsnap_123456",
+        workspaceId: "wrk_00000000-0000-4000-8000-000000000001",
+        threadId: "thr_placeholder",
+        turnId: "trn_placeholder",
+        runAttemptId: "attempt_placeholder",
+        leaseId: "lease_123456",
+        sandboxId: "sandbox-123456",
+        filesystemRoot: "/home/sandbox/checkouts/checkout_123456",
+        gitDir: "/home/sandbox/checkouts/checkout_123456/.git",
+        indexFile: "/home/sandbox/checkouts/checkout_123456/.git/index",
+        workingBranch: "task/checkout-123456",
+        startTreeId: "a".repeat(40),
+        generation: 1,
+        status: "active",
+        settledAt: null,
+        failureCode: null,
+        createdAt: "2026-07-18T12:00:00.000Z",
+      }),
+    );
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      {
+        taskCheckoutScopeResolver: { resolveActiveCheckout },
+      },
     );
 
     await handler.handleTurnStartRequest(
@@ -138,8 +165,15 @@ describe("RunEngineRequestHandler", () => {
     await expect(response.json()).resolves.toMatchObject({
       runId: "run_123456",
       workspaceId: "00000000-0000-4000-8000-000000000001",
-      root: "/home/sandbox/runs/run_123456",
+      root: "/home/sandbox/checkouts/checkout_123456",
     });
+    expect(resolveActiveCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run_123456",
+        workspaceId: "00000000-0000-4000-8000-000000000001",
+      }),
+      "workspace-scope:run_123456",
+    );
   });
 
   it("rejects workspace scope resolution before turn bootstrap", async () => {

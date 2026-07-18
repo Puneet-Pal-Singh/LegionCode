@@ -16,6 +16,14 @@ vi.mock("@shadowbox/github-bridge", () => ({
   })),
 }));
 
+function testLease() {
+  return {
+    leaseId: "lease_test001",
+    sandboxId: "sb-test001",
+    generation: 0,
+  };
+}
+
 describe("ExecutionService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -34,6 +42,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-1",
             token: "tok-1",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -133,13 +142,14 @@ describe("ExecutionService", () => {
 
   it("rejects a secure execution request before transport when scope is absent", async () => {
     const fetchMock = vi.fn();
-    expect(() => new ExecutionService(
-      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
-      "session-unscoped",
-      "run-unscoped",
-    )).toThrow(
-      "workspaceScope is required for secure execution",
-    );
+    expect(
+      () =>
+        new ExecutionService(
+          { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+          "session-unscoped",
+          "run-unscoped",
+        ),
+    ).toThrow("workspaceScope is required for secure execution");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -162,6 +172,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-retry",
             token: "tok-retry",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -216,6 +227,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-2",
             token: "tok-2",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -288,6 +300,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-timeout",
             token: "tok-timeout",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -362,6 +375,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-sandbox",
             token: "tok-sandbox",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -446,6 +460,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-contract",
             token: "tok-contract",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -505,6 +520,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-git",
             token: "tok-git",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -559,6 +575,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-commit",
             token: "tok-commit",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -633,6 +650,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-commit-oauth",
             token: "tok-commit-oauth",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -709,6 +727,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-github",
             token: "tok-github",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -793,6 +812,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-github-cli",
             token: "tok-github-cli",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -921,6 +941,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-node",
             token: "tok-node",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -980,6 +1001,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-failure",
             token: "tok-failure",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1060,6 +1082,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-status",
             token: "tok-status",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1189,6 +1212,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-pr",
             token: "tok-pr",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1303,6 +1327,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-pr",
             token: "tok-pr",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),

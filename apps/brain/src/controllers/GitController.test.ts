@@ -76,8 +76,8 @@ describe("GitController", () => {
         threadId: "thr_git_test",
         turnId: "trn_git_test",
         runAttemptId: "attempt_git_test",
-        workspaceId: "00000000-0000-0000-0000-000000000001",
-        root: "/home/sandbox/runs/run_git_01",
+        workspaceId: "wrk_00000000-0000-0000-0000-000000000001",
+        root: "/home/sandbox/checkouts/checkout_run_git_01",
       },
     });
 
@@ -100,8 +100,8 @@ describe("GitController", () => {
           threadId: "thr_git_test",
           turnId: "trn_git_test",
           runAttemptId: "attempt_git_test",
-          workspaceId: "00000000-0000-0000-0000-000000000001",
-          root: "/home/sandbox/runs/run_git_01",
+          workspaceId: "wrk_00000000-0000-0000-0000-000000000001",
+          root: "/home/sandbox/checkouts/checkout_run_git_01",
         },
       },
       timeout: GIT_STATUS_TIMEOUT_MS,
@@ -395,7 +395,7 @@ function createTestEnv(
             threadId: "thr_git_test",
             turnId: "trn_git_test",
             runAttemptId: "attempt_git_test",
-            root: `/home/sandbox/runs/${runId}`,
+            root: `/home/sandbox/checkouts/checkout_${runId}`,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );

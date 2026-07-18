@@ -138,7 +138,6 @@ import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 import { RuntimeKernelProviderTranscript } from "./RuntimeKernelProviderTranscript.js";
 
-const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
   Awaited<
@@ -157,6 +156,12 @@ export interface RuntimeKernelNativeRunnerInput {
   runAttemptId?: string;
   threadId?: string;
   workspaceId?: string;
+  workspace: {
+    filesystemRoot: string;
+    workingBranch: string;
+    startTreeId: string;
+    artifactNamespace: string;
+  };
   now?: () => string;
 }
 
@@ -180,7 +185,6 @@ export class RuntimeKernelNativeRunner {
   private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
   private readonly workspaceBootstrapper;
-  private readonly releaseExecutionSession?: () => Promise<void>;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -239,7 +243,6 @@ export class RuntimeKernelNativeRunner {
       });
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
-    this.releaseExecutionSession = dependencies.releaseExecutionSession;
     this.memoryCoordinator =
       dependencies.memoryCoordinator ??
       new MemoryCoordinator({
@@ -254,9 +257,6 @@ export class RuntimeKernelNativeRunner {
       return await this.executeActiveTurn(input);
     } finally {
       this.endActiveTurn(input.turnId);
-      if (this.releaseExecutionSession) {
-        await this.releaseExecutionSession();
-      }
     }
   }
 
@@ -314,6 +314,7 @@ export class RuntimeKernelNativeRunner {
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
+      workspace: input.workspace,
     });
     const provider = new KernelAgenticProvider({
       run,
@@ -1640,6 +1641,7 @@ function buildProtocolEnvelope(input: {
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
+  workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
   turn: Turn;
@@ -1688,13 +1690,13 @@ function buildProtocolEnvelope(input: {
     ),
     repoUrl: buildRepoUrl(input.input.repositoryContext),
     baseBranch: input.input.repositoryContext?.branch ?? "dev",
-    workingBranch: `run/${input.runId}`,
-    baseSha: DEFAULT_SHA,
-    headSha: DEFAULT_SHA,
+    workingBranch: input.workspace.workingBranch,
+    baseSha: input.workspace.startTreeId,
+    headSha: input.workspace.startTreeId,
     executionLocation: "cloud_sandbox",
     workerId,
-    filesystemRoot: `/home/sandbox/runs/${input.runId}`,
-    artifactNamespace: `runtime-kernel/${input.runId}`,
+    filesystemRoot: input.workspace.filesystemRoot,
+    artifactNamespace: input.workspace.artifactNamespace,
     permissionProfileId,
     state: "ready",
     lastError: null,

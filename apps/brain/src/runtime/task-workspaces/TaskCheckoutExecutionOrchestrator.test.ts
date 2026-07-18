@@ -78,6 +78,43 @@ describe("TaskCheckoutExecutionOrchestrator", () => {
     expect(repository.activate).not.toHaveBeenCalled();
   });
 
+  it("resolves only an active scoped checkout for secure Git and tool callers", async () => {
+    const repository = new MemoryTaskWorkspaceRepository(
+      createCheckout({ status: "active" }),
+    );
+    const orchestrator = new TaskCheckoutExecutionOrchestrator(
+      {} as Env,
+      new SecureTaskCheckoutRootCapability(),
+      repository,
+    );
+
+    await expect(
+      orchestrator.resolveActiveCheckout(identity, "corr-scope"),
+    ).resolves.toMatchObject({
+      checkoutId: "checkout_123456",
+      filesystemRoot: "/home/sandbox/checkouts/checkout_123456",
+      status: "active",
+    });
+    expect(repository.activate).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a ready checkout before runtime claims it", async () => {
+    const repository = new MemoryTaskWorkspaceRepository(createCheckout());
+    const orchestrator = new TaskCheckoutExecutionOrchestrator(
+      {} as Env,
+      new SecureTaskCheckoutRootCapability(),
+      repository,
+    );
+
+    await expect(
+      orchestrator.resolveActiveCheckout(identity, "corr-scope-ready"),
+    ).rejects.toMatchObject({
+      code: "TASK_CHECKOUT_NOT_ACTIVE",
+      status: 409,
+    });
+    expect(repository.activate).not.toHaveBeenCalled();
+  });
+
   it("rejects a checkout bound to another turn before runtime execution", async () => {
     const repository = new MemoryTaskWorkspaceRepository(
       createCheckout({ turnId: "trn_654321" }),
@@ -105,8 +142,12 @@ describe("TaskCheckoutExecutionOrchestrator", () => {
       repository,
     );
 
-    await expect(orchestrator.claimForExecution(identity, "corr-4")).resolves
-      .toMatchObject({ status: "active", filesystemRoot: "/home/sandbox/checkouts/checkout_123456" });
+    await expect(
+      orchestrator.claimForExecution(identity, "corr-4"),
+    ).resolves.toMatchObject({
+      status: "active",
+      filesystemRoot: "/home/sandbox/checkouts/checkout_123456",
+    });
     expect(repository.activate).toHaveBeenCalledOnce();
   });
 
@@ -120,8 +161,12 @@ describe("TaskCheckoutExecutionOrchestrator", () => {
       repository,
     );
 
-    await expect(orchestrator.claimForExecution(identity, "corr-4-invalid"))
-      .rejects.toMatchObject({ code: "TASK_CHECKOUT_SCOPE_INVALID", status: 409 });
+    await expect(
+      orchestrator.claimForExecution(identity, "corr-4-invalid"),
+    ).rejects.toMatchObject({
+      code: "TASK_CHECKOUT_SCOPE_INVALID",
+      status: 409,
+    });
     expect(repository.activate).not.toHaveBeenCalled();
   });
 
@@ -146,6 +191,28 @@ describe("TaskCheckoutExecutionOrchestrator", () => {
     expect(capability.assertCheckoutRootSupported).not.toHaveBeenCalled();
     expect(repository.activate).not.toHaveBeenCalled();
   });
+
+  it("settles only the matching active checkout", async () => {
+    const repository = new MemoryTaskWorkspaceRepository(
+      createCheckout({ status: "active" }),
+    );
+    const orchestrator = new TaskCheckoutExecutionOrchestrator(
+      {} as Env,
+      { assertCheckoutRootSupported: vi.fn() },
+      repository,
+    );
+
+    await expect(
+      orchestrator.settleExecution("checkout_123456", {
+        status: "failed",
+        failureCode: "RUNTIME_EXECUTION_FAILED",
+      }),
+    ).resolves.toMatchObject({
+      checkoutId: "checkout_123456",
+      status: "failed",
+      failureCode: "RUNTIME_EXECUTION_FAILED",
+    });
+  });
 });
 
 class MemoryTaskWorkspaceRepository implements TaskWorkspaceRepository {
@@ -159,6 +226,10 @@ class MemoryTaskWorkspaceRepository implements TaskWorkspaceRepository {
   });
 
   constructor(private checkout: TaskCheckout) {}
+
+  async issueSnapshotCheckout(): Promise<never> {
+    throw new Error("not implemented in this execution-claim fixture");
+  }
 
   async createSnapshot(snapshot: WorkspaceSnapshot) {
     return WorkspaceSnapshotSchema.parse(snapshot);
@@ -185,14 +256,21 @@ class MemoryTaskWorkspaceRepository implements TaskWorkspaceRepository {
     return leaseId === this.checkout.leaseId ? this.checkout : null;
   }
 
-  async settle(_input: SettleTaskCheckoutInput) {
-    throw new Error("not implemented in this execution-claim fixture");
+  async settle(input: SettleTaskCheckoutInput) {
+    if (input.checkoutId !== this.checkout.checkoutId) {
+      throw new Error("not found");
+    }
+    this.checkout = TaskCheckoutSchema.parse({
+      ...this.checkout,
+      status: input.status,
+      settledAt: input.settledAt,
+      failureCode: input.failureCode,
+    });
+    return this.checkout;
   }
 }
 
-function createCheckout(
-  overrides: Partial<TaskCheckout> = {},
-): TaskCheckout {
+function createCheckout(overrides: Partial<TaskCheckout> = {}): TaskCheckout {
   return TaskCheckoutSchema.parse({
     kind: "task_checkout",
     checkoutId: "checkout_123456",
@@ -204,8 +282,8 @@ function createCheckout(
     leaseId: "lease_123456",
     sandboxId: "sandbox-123456",
     filesystemRoot: "/home/sandbox/checkouts/checkout_123456",
-    gitDir: "/home/sandbox/checkouts/checkout_123456.git",
-    indexFile: "/home/sandbox/indexes/checkout_123456.index",
+    gitDir: "/home/sandbox/checkouts/checkout_123456/.git",
+    indexFile: "/home/sandbox/checkouts/checkout_123456/.git/index",
     workingBranch: "task/checkout-123456",
     startTreeId: "a".repeat(40),
     generation: 1,

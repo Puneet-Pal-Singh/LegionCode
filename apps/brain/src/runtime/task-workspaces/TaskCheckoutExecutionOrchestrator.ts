@@ -4,6 +4,7 @@ import {
 } from "@repo/persistence";
 import {
   TaskCheckoutSchema,
+  TaskCheckoutIdSchema,
   RunAttemptIdSchema,
   workspaceIdFromExternalId,
   type TaskCheckout,
@@ -33,21 +34,35 @@ export interface TaskCheckoutExecutionPort {
   ): Promise<TaskCheckout>;
 }
 
+export interface TaskCheckoutScopeResolutionPort {
+  resolveActiveCheckout(
+    identity: TaskCheckoutExecutionIdentity,
+    correlationId: string,
+  ): Promise<TaskCheckout>;
+}
+
+export interface TaskCheckoutSettlementPort {
+  settleExecution(
+    checkoutId: string,
+    outcome:
+      | { readonly status: "settled" }
+      | { readonly status: "failed"; readonly failureCode: string },
+  ): Promise<TaskCheckout>;
+}
+
 /**
  * Secure tools accept only a server-issued workspace scope. This capability
  * verifies that a persisted checkout can be projected to that scope without
  * falling back to a run-derived root.
  */
-export class SecureTaskCheckoutRootCapability
-  implements TaskCheckoutRootCapabilityPort
-{
+export class SecureTaskCheckoutRootCapability implements TaskCheckoutRootCapabilityPort {
   assertCheckoutRootSupported(
     checkout: TaskCheckout,
     correlationId: string,
   ): void {
     const expectedRoot = `/home/sandbox/checkouts/${checkout.checkoutId}`;
-    const expectedGitDir = `${expectedRoot}.git`;
-    const expectedIndexFile = `/home/sandbox/indexes/${checkout.checkoutId}.index`;
+    const expectedGitDir = `${expectedRoot}/.git`;
+    const expectedIndexFile = `${expectedGitDir}/index`;
     if (
       checkout.filesystemRoot === expectedRoot &&
       checkout.gitDir === expectedGitDir &&
@@ -76,12 +91,14 @@ export class SecureTaskCheckoutRootCapability
  * checkout and atomically activates a ready checkout through the repository.
  */
 export class TaskCheckoutExecutionOrchestrator
-  implements TaskCheckoutExecutionPort
+  implements
+    TaskCheckoutExecutionPort,
+    TaskCheckoutScopeResolutionPort,
+    TaskCheckoutSettlementPort
 {
   constructor(
     private readonly env: Env,
-    private readonly rootCapability: TaskCheckoutRootCapabilityPort =
-      new SecureTaskCheckoutRootCapability(),
+    private readonly rootCapability: TaskCheckoutRootCapabilityPort = new SecureTaskCheckoutRootCapability(),
     private readonly repositoryOverride?: TaskWorkspaceRepository,
   ) {}
 
@@ -89,60 +106,131 @@ export class TaskCheckoutExecutionOrchestrator
     identity: TaskCheckoutExecutionIdentity,
     correlationId: string,
   ): Promise<TaskCheckout> {
+    return await this.withRepository(async (repository) => {
+      const checkout = await this.requireScopedCheckout(
+        repository,
+        identity,
+        correlationId,
+      );
+      if (checkout.status === "settled" || checkout.status === "failed") {
+        throw new DomainError(
+          "TASK_CHECKOUT_TERMINAL",
+          "The isolated task checkout has already settled and cannot be reused by another execution.",
+          409,
+          false,
+          correlationId,
+          {
+            checkoutId: checkout.checkoutId,
+            checkoutStatus: checkout.status,
+            runAttemptId: checkout.runAttemptId,
+          },
+        );
+      }
+      this.rootCapability.assertCheckoutRootSupported(checkout, correlationId);
+
+      if (checkout.status === "ready") {
+        return TaskCheckoutSchema.parse(
+          await repository.activate(checkout.checkoutId),
+        );
+      }
+      if (checkout.status === "active") {
+        return checkout;
+      }
+
+      return assertNever(checkout);
+    });
+  }
+
+  async resolveActiveCheckout(
+    identity: TaskCheckoutExecutionIdentity,
+    correlationId: string,
+  ): Promise<TaskCheckout> {
+    return await this.withRepository(async (repository) => {
+      const checkout = await this.requireScopedCheckout(
+        repository,
+        identity,
+        correlationId,
+      );
+      if (checkout.status !== "active") {
+        throw new DomainError(
+          "TASK_CHECKOUT_NOT_ACTIVE",
+          "The isolated task checkout is not active for secure execution.",
+          409,
+          false,
+          correlationId,
+          {
+            checkoutId: checkout.checkoutId,
+            checkoutStatus: checkout.status,
+            runAttemptId: checkout.runAttemptId,
+          },
+        );
+      }
+      this.rootCapability.assertCheckoutRootSupported(checkout, correlationId);
+
+      return checkout;
+    });
+  }
+
+  async settleExecution(
+    checkoutId: string,
+    outcome:
+      | { readonly status: "settled" }
+      | { readonly status: "failed"; readonly failureCode: string },
+  ): Promise<TaskCheckout> {
+    return await this.withRepository(
+      async (repository) =>
+        await repository.settle(
+          outcome.status === "settled"
+            ? {
+                checkoutId: TaskCheckoutIdSchema.parse(checkoutId),
+                status: "settled",
+                settledAt: new Date().toISOString(),
+                failureCode: null,
+              }
+            : {
+                checkoutId: TaskCheckoutIdSchema.parse(checkoutId),
+                status: "failed",
+                settledAt: new Date().toISOString(),
+                failureCode: outcome.failureCode,
+              },
+        ),
+    );
+  }
+
+  private async requireScopedCheckout(
+    repository: TaskWorkspaceRepository,
+    identity: TaskCheckoutExecutionIdentity,
+    correlationId: string,
+  ): Promise<TaskCheckout> {
+    const checkout = await repository.getByRunAttemptId(
+      RunAttemptIdSchema.parse(identity.runAttemptId),
+    );
+    if (!checkout) {
+      throw new DomainError(
+        "TASK_CHECKOUT_REQUIRED",
+        "A server-owned isolated task checkout is required before execution can start.",
+        503,
+        true,
+        correlationId,
+        {
+          failureKind: "task_checkout_missing",
+          runAttemptId: identity.runAttemptId,
+        },
+      );
+    }
+
+    assertCheckoutScope(checkout, identity, correlationId);
+    return TaskCheckoutSchema.parse(checkout);
+  }
+
+  private async withRepository<T>(
+    operation: (repository: TaskWorkspaceRepository) => Promise<T>,
+  ): Promise<T> {
     return await withBrainPersistenceRepository(
       this.env,
       this.repositoryOverride ?? this.env.AUTH_TASK_WORKSPACE_REPOSITORY,
       (client) => new PostgresTaskWorkspaceRepository(client),
-      async (repository) => {
-        const checkout = await repository.getByRunAttemptId(
-          RunAttemptIdSchema.parse(identity.runAttemptId),
-        );
-        if (!checkout) {
-          throw new DomainError(
-            "TASK_CHECKOUT_REQUIRED",
-            "A server-owned isolated task checkout is required before execution can start.",
-            503,
-            true,
-            correlationId,
-            {
-              failureKind: "task_checkout_missing",
-              runAttemptId: identity.runAttemptId,
-            },
-          );
-        }
-
-        assertCheckoutScope(checkout, identity, correlationId);
-        if (checkout.status === "settled" || checkout.status === "failed") {
-          throw new DomainError(
-            "TASK_CHECKOUT_TERMINAL",
-            "The isolated task checkout has already settled and cannot be reused by another execution.",
-            409,
-            false,
-            correlationId,
-            {
-              checkoutId: checkout.checkoutId,
-              checkoutStatus: checkout.status,
-              runAttemptId: checkout.runAttemptId,
-            },
-          );
-        }
-
-        this.rootCapability.assertCheckoutRootSupported(
-          checkout,
-          correlationId,
-        );
-
-        if (checkout.status === "ready") {
-          return TaskCheckoutSchema.parse(
-            await repository.activate(checkout.checkoutId),
-          );
-        }
-        if (checkout.status === "active") {
-          return TaskCheckoutSchema.parse(checkout);
-        }
-
-        return assertNever(checkout);
-      },
+      operation,
     );
   }
 }
