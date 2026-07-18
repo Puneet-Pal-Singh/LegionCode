@@ -12,7 +12,7 @@ export function pluginTestExecutionContext(
       threadId: "thread-test",
       turnId: "turn-test",
       runAttemptId: "attempt-test",
-      root: `/home/sandbox/runs/${runId}`,
+      root: `/home/sandbox/checkouts/${runId}`,
     },
   };
 }

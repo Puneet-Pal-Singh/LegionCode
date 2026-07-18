@@ -302,7 +302,7 @@ describe("secure-agent-api plugin hardening", () => {
       if (command.includes("'wc'")) {
         return {
           exitCode: 0,
-          stdout: "4 /home/sandbox/runs/run-safe-read/a.txt\n",
+          stdout: "4 /home/sandbox/checkouts/run-safe-read/a.txt\n",
           stderr: "",
         };
       }
@@ -350,7 +350,7 @@ describe("secure-agent-api plugin hardening", () => {
       if (command.includes("'wc'")) {
         return {
           exitCode: 0,
-          stdout: "3 /home/sandbox/runs/run-safe-empty/a.txt\n",
+          stdout: "3 /home/sandbox/checkouts/run-safe-empty/a.txt\n",
           stderr: "",
         };
       }

@@ -175,7 +175,7 @@ describe("GitPlugin", () => {
     const statusCommand = runSafeCommandMock.mock.calls.find(([, spec]) =>
       spec.args?.includes("--porcelain=v2"),
     )?.[1] as { args?: string[]; cwd?: string } | undefined;
-    expect(statusCommand?.cwd).toBe("/home/sandbox/runs/run_git_status_1");
+    expect(statusCommand?.cwd).toBe("/home/sandbox/checkouts/run_git_status_1");
     expect(statusCommand?.args).toEqual(
       expect.arrayContaining([
         "--no-optional-locks",
@@ -356,7 +356,7 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(true);
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/home/sandbox/runs/run_patch_apply_1/.shadowbox/edit-artifact-",
+        "/home/sandbox/checkouts/run_patch_apply_1/.shadowbox/edit-artifact-",
       ),
       "diff --git a/src/app.ts b/src/app.ts\n",
     );
@@ -520,7 +520,7 @@ describe("GitPlugin", () => {
         return {
           exitCode: 0,
           stdout:
-            "/home/sandbox/runs/run_snapshot/.git/index.legioncode-turn\n",
+            "/home/sandbox/checkouts/run_snapshot/.git/index.legioncode-turn\n",
           stderr: "",
         };
       }

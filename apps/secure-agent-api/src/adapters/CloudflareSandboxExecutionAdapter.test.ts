@@ -28,7 +28,7 @@ const TEST_LEASE: SandboxExecutionLease = {
     turnId: "turn-1",
     runAttemptId: "attempt-1",
     workspaceId: "workspace-1",
-    root: "/home/sandbox/runs/run-1",
+    root: "/home/sandbox/checkouts/run-1",
   },
   owner: "test-session",
   correlationId: "corr-1",
@@ -421,7 +421,7 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       });
 
       expect(roots).toEqual([
-        "/home/sandbox/runs/run-1",
+        "/home/sandbox/checkouts/run-1",
         "/home/sandbox/checkouts/attempt-2",
       ]);
     });

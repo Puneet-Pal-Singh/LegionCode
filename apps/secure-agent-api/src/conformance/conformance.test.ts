@@ -35,7 +35,7 @@ const CONFORMANCE_LEASE: SandboxExecutionLease = {
     turnId: "turn-1",
     runAttemptId: "attempt-1",
     workspaceId: "conformance",
-    root: "/home/sandbox/runs/run-1",
+    root: "/home/sandbox/checkouts/run-1",
   },
   owner: "conformance",
   correlationId: "conformance-correlation",

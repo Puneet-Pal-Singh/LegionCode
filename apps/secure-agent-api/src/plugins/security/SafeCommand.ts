@@ -87,5 +87,5 @@ function findWorkspacePathInArgs(args: string[] | undefined): string | null {
     return args[cwdIndex + 1] ?? null;
   }
 
-  return args.find((arg) => arg.startsWith("/home/sandbox/runs/")) ?? null;
+  return args.find((arg) => arg.startsWith("/home/sandbox/checkouts/")) ?? null;
 }

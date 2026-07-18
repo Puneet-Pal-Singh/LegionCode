@@ -1,10 +1,7 @@
 import path from "node:path";
 import type { PluginExecutionContext } from "../../interfaces/types";
 
-const SANDBOX_WORKSPACE_ROOT_PREFIXES = [
-  "/home/sandbox/runs/",
-  "/home/sandbox/checkouts/",
-] as const;
+const SANDBOX_WORKSPACE_ROOT_PREFIX = "/home/sandbox/checkouts/";
 
 /** Resolves a plugin filesystem root from the server-issued execution scope. */
 export function resolveScopedWorkspaceRoot(
@@ -27,7 +24,7 @@ export function resolveScopedWorkspaceRoot(
     root.includes("\n") ||
     !path.posix.isAbsolute(root) ||
     path.posix.normalize(root) !== root ||
-    !SANDBOX_WORKSPACE_ROOT_PREFIXES.some((prefix) => root.startsWith(prefix))
+    !root.startsWith(SANDBOX_WORKSPACE_ROOT_PREFIX)
   ) {
     throw new Error("Invalid server-issued workspace root");
   }

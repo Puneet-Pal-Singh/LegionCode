@@ -64,7 +64,7 @@ function testExecutionContext(runId: string): PluginExecutionContext {
       threadId: "thread-test",
       turnId: "turn-test",
       runAttemptId: "attempt-test",
-      root: `/home/sandbox/runs/${runId}`,
+      root: `/home/sandbox/checkouts/${runId}`,
     },
   };
 }
@@ -89,15 +89,15 @@ describe("RustPlugin", () => {
 
     expect(result.success).toBe(true);
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(
-      "/home/sandbox/runs/run_rust_1/main.rs",
+      "/home/sandbox/checkouts/run_rust_1/main.rs",
     );
     expect(sandbox.execCalls[1]).toBe("'rustc' 'main.rs' '-o' 'main_bin'");
     expect(sandbox.execOptions[1]?.cwd).toBe(
-      "/home/sandbox/runs/run_rust_1",
+      "/home/sandbox/checkouts/run_rust_1",
     );
     expect(sandbox.execCalls[2]).toBe("'./main_bin'");
     expect(sandbox.execOptions[2]?.cwd).toBe(
-      "/home/sandbox/runs/run_rust_1",
+      "/home/sandbox/checkouts/run_rust_1",
     );
   });
 });

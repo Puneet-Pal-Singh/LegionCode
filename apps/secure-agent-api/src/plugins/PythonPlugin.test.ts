@@ -64,7 +64,7 @@ function testExecutionContext(runId = "default"): PluginExecutionContext {
       threadId: "thread-test",
       turnId: "turn-test",
       runAttemptId: "attempt-test",
-      root: `/home/sandbox/runs/${runId}`,
+      root: `/home/sandbox/checkouts/${runId}`,
     },
   };
 }
@@ -122,9 +122,9 @@ describe("PythonPlugin", () => {
 
     expect(result.success).toBe(true);
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(
-      "/home/sandbox/runs/run_py_2/main.py",
+      "/home/sandbox/checkouts/run_py_2/main.py",
     );
     expect(sandbox.execCalls[1]).toBe("'python3' 'main.py'");
-    expect(sandbox.execOptions[1]?.cwd).toBe("/home/sandbox/runs/run_py_2");
+    expect(sandbox.execOptions[1]?.cwd).toBe("/home/sandbox/checkouts/run_py_2");
   });
 });

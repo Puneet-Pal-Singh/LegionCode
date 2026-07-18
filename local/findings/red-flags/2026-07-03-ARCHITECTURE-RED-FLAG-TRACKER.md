@@ -198,14 +198,18 @@ presentation remains required before closing these red flags.
   tokens from lifecycle/log/Web payloads.
 - **RF-032 — OPEN, P1 legacy runtime-root authority remains outside the active
   native path**: the active Brain/native-kernel path no longer derives
-  `/home/sandbox/runs/{runId}`, but the legacy `RunEngineKernelAdapter`,
-  `AgenticLoop` capability fallback, runtime Cloudflare worker adapter, and
-  several contract fixtures still support run-derived roots. They are not the
-  current production owner, but Plan 045's direct-executor/duplicate-path
-  deletion is incomplete while those paths can construct execution manifests
-  without a persisted checkout. Remove or explicitly quarantine them behind a
-  non-production conformance boundary; proof must show no production import or
-  request route can reach them.
+  `/home/sandbox/runs/{runId}`. The unreferenced `RunEngineKernelAdapter` and
+  its characterization test are now deleted, as is the unused
+  `@repo/runtime-cloudflare-worker` package and its duplicate workspace,
+  transport, Git, artifact, and cleanup ownership. Secure tool execution now
+  rejects legacy `/home/sandbox/runs/*` roots and accepts only a server-issued
+  `/home/sandbox/checkouts/*` scope; focused Secure tests and typecheck pass,
+  and a native-path boundary test prevents either deleted adapter from
+  returning. The remaining gap is the quarantined `AgenticLoop` capability
+  fallback plus historical contract fixtures. Plan 045's duplicate-path
+  deletion is incomplete until that fallback requires a persisted checkout or
+  the legacy loop is removed. Target proof must still show no production
+  request route can reach any run-derived execution root.
 - **RF-026 — FIXED_PENDING_TARGET_PROOF, P0 lifecycle approval settlement
   gap**: the lifecycle approval route no longer writes then polls replay for a
   decision. It resolves the matching active runtime coordinator directly,

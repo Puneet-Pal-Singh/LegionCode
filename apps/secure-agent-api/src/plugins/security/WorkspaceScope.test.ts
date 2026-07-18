@@ -37,9 +37,18 @@ describe("resolveScopedWorkspaceRoot", () => {
   it("rejects a run id outside the server-issued scope", () => {
     expect(() =>
       resolveScopedWorkspaceRoot(
-        context("/home/sandbox/runs/run-1"),
+        context("/home/sandbox/checkouts/run-1"),
         "run-2",
       ),
     ).toThrow(/does not match/);
+  });
+
+  it("rejects the removed legacy run-derived root", () => {
+    expect(() =>
+      resolveScopedWorkspaceRoot(
+        context("/home/sandbox/runs/run-1"),
+        "run-1",
+      ),
+    ).toThrow(/Invalid server-issued workspace root/);
   });
 });

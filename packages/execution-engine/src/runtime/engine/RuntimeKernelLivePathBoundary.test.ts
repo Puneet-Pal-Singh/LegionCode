@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,14 @@ const ENGINE_BARREL = join(
 const NATIVE_RUNNER = join(
   REPO_ROOT,
   "packages/execution-engine/src/runtime/engine/RuntimeKernelNativeRunner.ts",
+);
+const DELETED_LEGACY_ADAPTER = join(
+  REPO_ROOT,
+  "packages/execution-engine/src/runtime/engine/RunEngineKernelAdapter.ts",
+);
+const DELETED_CLOUDFLARE_WORKER_PACKAGE = join(
+  REPO_ROOT,
+  "packages/runtime-cloudflare-worker/package.json",
 );
 
 describe("RuntimeKernel live path boundary", () => {
@@ -38,6 +46,11 @@ describe("RuntimeKernel live path boundary", () => {
     expect(source).not.toContain("type IRunEngine");
     expect(source).not.toContain("executeRunEngineThroughRuntimeKernel");
     expect(source).not.toContain("RunEngineKernelAdapterInput");
+  });
+
+  it("keeps deleted run-root executor adapters out of the product tree", () => {
+    expect(existsSync(DELETED_LEGACY_ADAPTER)).toBe(false);
+    expect(existsSync(DELETED_CLOUDFLARE_WORKER_PACKAGE)).toBe(false);
   });
 
   it("keeps native kernel execution wired to run reset, status, and cancel settlement", () => {
