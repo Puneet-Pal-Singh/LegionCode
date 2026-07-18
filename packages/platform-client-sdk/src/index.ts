@@ -19,6 +19,16 @@ export {
   type HookInvocationAuditEvent,
 } from "@repo/hook-protocol";
 export {
+  HookAuditProjectionError,
+  applyHookAuditLifecycleEvent,
+  buildHookSettingsAuditReadModel,
+  createHookAuditProjection,
+  projectHookAuditLifecycleEvent,
+  replayHookAuditLifecycleEvents,
+  type HookAuditProjectionState,
+  type HookSettingsAuditReadModel,
+} from "./platform/hook-audit-projection.js";
+export {
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,

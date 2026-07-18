@@ -150,6 +150,26 @@ export type HookAuditAppendInput = z.infer<
   typeof HookAuditAppendInputSchema
 >;
 
+const HookInvocationLifecycleEventTypeSchema =
+  HookAuditEventTypeSchema.exclude(["hook.outcome.applied"]);
+
+/**
+ * Safe lifecycle payloads are observational invocation audits only. Applying a
+ * hook outcome remains a separate policy decision and can never be smuggled
+ * through the runtime event stream.
+ */
+export const HookInvocationLifecycleAuditSchema =
+  HookAuditAppendInputSchema.and(
+    z
+      .object({
+        eventType: HookInvocationLifecycleEventTypeSchema,
+      })
+      .passthrough(),
+  );
+export type HookInvocationLifecycleAudit = z.infer<
+  typeof HookInvocationLifecycleAuditSchema
+>;
+
 export const HookInvocationAuditEventSchema = z
   .object({
     auditEventId: EventIdSchema,

@@ -37,6 +37,7 @@ function failedProjection(): LifecycleProjection {
     phase: "failed",
     lastSequence: 3,
     items: [],
+    hookAudits: [],
     pendingApproval: null,
     terminal: {
       state: "failed",

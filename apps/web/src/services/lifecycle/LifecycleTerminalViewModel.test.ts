@@ -80,6 +80,7 @@ function emptyProjection(): LifecycleProjection {
     phase: "starting",
     lastSequence: 0,
     items: [],
+    hookAudits: [],
     pendingApproval: null,
     terminal: null,
     turnDiff: null,

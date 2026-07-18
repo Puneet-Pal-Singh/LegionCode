@@ -14,6 +14,7 @@ import {
   buildConversationTurns,
 } from "./messageMetadata";
 import { ActivityTurn } from "./activity/ActivityTurn.js";
+import { HookAuditDisclosure } from "./activity/HookAuditDisclosure.js";
 import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
 import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
 import { useGitReview } from "../git/useGitReview";
@@ -282,6 +283,24 @@ export function ChatInterface({
       onUsePlanInBuild={planHandoffAction}
     />
   );
+  const renderHookAudit = (
+    event: NonNullable<typeof lifecycleProjection>["hookAudits"][number],
+  ) => {
+    const rowKey = `hook:${event.invocation.invocationId}`;
+    return (
+      <HookAuditDisclosure
+        key={rowKey}
+        event={event}
+        expanded={expandedActivityRows[rowKey] ?? false}
+        onToggle={(expanded) =>
+          setExpandedActivityRows((current) => ({
+            ...current,
+            [rowKey]: expanded,
+          }))
+        }
+      />
+    );
+  };
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
@@ -357,6 +376,7 @@ export function ChatInterface({
       artifactIdentity={conversationScope}
       messageMetadataById={messageMetadataById}
       renderActivityTurn={renderActivityTurn}
+      renderHookAudit={renderHookAudit}
       onArtifactOpen={onArtifactOpen}
       onReviewOpen={onReviewOpen}
       snapshots={changedFileSnapshotsByAssistantMessageId}

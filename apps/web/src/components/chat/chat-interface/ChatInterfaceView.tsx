@@ -7,7 +7,10 @@ import type {
 } from "@repo/shared-types";
 import type { ChatMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
-import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type {
+  HookInvocationAuditEvent,
+  TurnDiffPayload,
+} from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
@@ -36,6 +39,7 @@ interface ChatInterfaceViewProps {
   renderActivityTurn: (
     entry: Extract<ChatInterfaceEntry, { kind: "turn" }>["turn"],
   ) => ReactNode;
+  renderHookAudit: (event: HookInvocationAuditEvent) => ReactNode;
   onArtifactOpen?: (path: string, content: string) => void;
   onReviewOpen?: () => void;
   snapshots: Record<string, FileStatus[]>;
@@ -231,6 +235,17 @@ function TurnSurface({
         >
           Tool activity
         </span>
+      ) : null}
+      {isCurrentTurn &&
+      (props.lifecycleProjection?.hookAudits?.length ?? 0) > 0 ? (
+        <div
+          className="space-y-2"
+          data-testid={surfaceId ? `${surfaceId}-hook-audits` : undefined}
+        >
+          {(props.lifecycleProjection?.hookAudits ?? []).map(
+            props.renderHookAudit,
+          )}
+        </div>
       ) : null}
       {isCurrentTurn &&
       props.lifecycleProjection &&

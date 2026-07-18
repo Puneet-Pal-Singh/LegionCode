@@ -61,6 +61,23 @@ interface EventFields {
   readonly payload: JsonRecord;
 }
 
+type RuntimeHookAuditEventType = Extract<
+  LifecycleEventType,
+  | "hook.invocation.started"
+  | "hook.invocation.completed"
+  | "hook.invocation.failed"
+  | "hook.invocation.timed_out"
+  | "hook.invocation.cancelled"
+>;
+
+const RUNTIME_HOOK_AUDIT_EVENT_TYPES = new Set<LifecycleEventType>([
+  "hook.invocation.started",
+  "hook.invocation.completed",
+  "hook.invocation.failed",
+  "hook.invocation.timed_out",
+  "hook.invocation.cancelled",
+]);
+
 export class RuntimeLifecycleCoordinator {
   private status: TurnStatus = "queued";
   private blockingState: TurnBlockingState = { kind: "none" };
@@ -178,6 +195,26 @@ export class RuntimeLifecycleCoordinator {
         payload: { snapshot: JsonRecordSchema.parse(snapshot) },
       }),
     );
+  }
+
+  /**
+   * Appends a sanitized hook invocation through the same serialized sequence
+   * owner as every other runtime event. Hook execution and outcome application
+   * remain outside this coordinator.
+   */
+  async appendHookAudit(
+    eventType: RuntimeHookAuditEventType,
+    payload: JsonRecord,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      if (!RUNTIME_HOOK_AUDIT_EVENT_TYPES.has(eventType)) {
+        throw new Error("Unsupported runtime hook audit event type.");
+      }
+      await this.emit({
+        type: eventType,
+        payload: JsonRecordSchema.parse(payload),
+      });
+    });
   }
 
   async createTurnArtifact(artifact: unknown): Promise<void> {

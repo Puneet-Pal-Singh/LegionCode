@@ -167,7 +167,64 @@ describe("LifecycleProjection", () => {
     expect(projection.settledAt).toBe("2026-06-23T00:00:04.000Z");
     expect(lifecyclePhaseLabel("starting")).toBe("Starting");
   });
+
+  it("projects persisted and live hook audits into one stable activity row", () => {
+    const started = applyLifecycleEvent(
+      createLifecycleProjection(TURN_ID),
+      lifecycleEvent(1, "hook.invocation.started", {
+        payload: hookAuditPayload("hook.invocation.started", "running"),
+      }),
+    );
+    const completed = applyLifecycleEvent(
+      started,
+      lifecycleEvent(2, "hook.invocation.completed", {
+        payload: hookAuditPayload("hook.invocation.completed", "completed"),
+      }),
+    );
+
+    expect(completed.hookAudits).toHaveLength(1);
+    expect(completed.hookAudits[0]?.invocation.status).toBe("completed");
+    expect(completed.hookAudits[0]?.auditEventId).toBe("evt_life002");
+  });
 });
+
+function hookAuditPayload(
+  eventType: "hook.invocation.started" | "hook.invocation.completed",
+  status: "running" | "completed",
+) {
+  const completed = status === "completed";
+  return {
+    eventType,
+    invocation: {
+      invocationId: "hki_webhook01",
+      eventId: "evt_trigger01",
+      runId: "run_webhook01",
+      threadId: THREAD_ID,
+      handlerId: "project.audit",
+      source: "project",
+      order: 0,
+      eventName: "UserPromptSubmit",
+      startedAt: "2026-06-23T00:00:00.000Z",
+      completedAt: completed ? "2026-06-23T00:00:00.025Z" : null,
+      status,
+      inputHash: "a".repeat(64),
+      outputHash: completed ? "b".repeat(64) : null,
+      errorCode: null,
+      errorMessage: null,
+    },
+    outcomeSummary: completed
+      ? {
+          eventName: "UserPromptSubmit",
+          status: "continue",
+          cleanupStatus: null,
+          addedContextCount: 0,
+          hasUserVisibleMessage: false,
+        }
+      : null,
+    metadata: { durationMs: completed ? 25 : null, cleanupStatus: null },
+    emittedAt: "2026-06-23T00:00:00.025Z",
+  };
+}
 
 function lifecycleEvent(
   sequence: number,

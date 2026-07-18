@@ -90,6 +90,30 @@ describe("RunEngineKernelLifecycleEventStore", () => {
       events: [{ type: "turn.completed", sequence: 1 }],
     });
   });
+
+  it("persists and emits the same sanitized hook audit envelope", async () => {
+    const backingStore = new MemoryLifecycleEventStore();
+    const stream = new CapturingLifecycleStream();
+    const store = new RunEngineKernelLifecycleEventStore({
+      runId: "run_123e4567e89b42d3a456426614174999",
+      sessionId: "session-kernel",
+      correlationId: "corr-kernel",
+      store: backingStore,
+      stream,
+    });
+    const hookEvent = createHookLifecycleEvent();
+
+    await store.append(hookEvent);
+
+    const replay = await backingStore.replay({
+      turnId: hookEvent.turnId,
+      afterSequence: null,
+      limit: 10,
+    });
+    expect(stream.events).toEqual([hookEvent]);
+    expect(replay.events).toEqual([hookEvent]);
+    expect(JSON.stringify(replay.events)).not.toContain("PRIVATE_INPUT");
+  });
 });
 
 class CapturingLifecycleStream implements LifecycleEventStreamPort {
@@ -145,5 +169,49 @@ function createLifecycleEvent(
     type,
     payload:
       type === "turn.completed" ? { outcome: { status: "completed" } } : {},
+  });
+}
+
+function createHookLifecycleEvent(): LifecycleEvent {
+  return LifecycleEventSchema.parse({
+    eventId: "evt_hookaudit01",
+    threadId: "thr_kernel1",
+    turnId: "trn_kernelturn1",
+    runAttemptId: "attempt_kernel1",
+    sequence: 1,
+    idempotencyKey: "trn_kernelturn1:1:hook.invocation.completed",
+    producer: { kind: "runtime_kernel", id: "runtime-kernel-test" },
+    schemaVersion: 1,
+    createdAt: "2026-07-01T10:00:00.000Z",
+    type: "hook.invocation.completed",
+    payload: {
+      eventType: "hook.invocation.completed",
+      invocation: {
+        invocationId: "hki_bridge01",
+        eventId: "evt_trigger01",
+        runId: "run_kernel1",
+        threadId: "thr_kernel1",
+        handlerId: "project.audit",
+        source: "project",
+        order: 0,
+        eventName: "UserPromptSubmit",
+        startedAt: "2026-07-01T10:00:00.000Z",
+        completedAt: "2026-07-01T10:00:00.025Z",
+        status: "completed",
+        inputHash: "a".repeat(64),
+        outputHash: "b".repeat(64),
+        errorCode: null,
+        errorMessage: null,
+      },
+      outcomeSummary: {
+        eventName: "UserPromptSubmit",
+        status: "continue",
+        cleanupStatus: null,
+        addedContextCount: 0,
+        hasUserVisibleMessage: false,
+      },
+      metadata: { durationMs: 25, cleanupStatus: null },
+      emittedAt: "2026-07-01T10:00:00.025Z",
+    },
   });
 }

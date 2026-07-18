@@ -1,6 +1,9 @@
 import {
+  applyHookAuditLifecycleEvent,
+  buildHookSettingsAuditReadModel,
   createPlatformClient,
   createPlatformHttpTransport,
+  createHookAuditProjection,
   HookInvocationAuditEventSchema,
   LifecycleEventSchema,
   type ApprovalId,
@@ -9,6 +12,8 @@ import {
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
   type HookInvocationAuditEvent,
+  type HookAuditProjectionState,
+  type HookSettingsAuditReadModel,
   type ItemId,
   type ItemKind,
   type LifecycleEvent,
@@ -25,12 +30,17 @@ import {
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 
 export {
+  applyHookAuditLifecycleEvent,
+  buildHookSettingsAuditReadModel,
+  createHookAuditProjection,
   HookInvocationAuditEventSchema,
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
   type HookInvocationAuditEvent,
+  type HookAuditProjectionState,
+  type HookSettingsAuditReadModel,
   type ItemId,
   type ItemKind,
   type LifecycleEvent,

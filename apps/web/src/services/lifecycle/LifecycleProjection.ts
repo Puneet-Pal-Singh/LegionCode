@@ -1,10 +1,15 @@
 import type {
   ApprovalId,
+  HookInvocationAuditEvent,
   ItemId,
   ItemKind,
   LifecycleEvent,
   TurnDiffPayload,
   TurnId,
+} from "../api/lifecycleClient";
+import {
+  applyHookAuditLifecycleEvent,
+  createHookAuditProjection,
 } from "../api/lifecycleClient";
 
 export type LifecycleProjectionTerminalState =
@@ -57,6 +62,7 @@ export interface LifecycleProjection {
   readonly turnId: TurnId;
   readonly lastSequence: number;
   readonly items: readonly LifecycleProjectionItem[];
+  readonly hookAudits: readonly HookInvocationAuditEvent[];
   readonly pendingApproval: LifecycleProjectionApproval | null;
   readonly terminal: LifecycleProjectionTerminal | null;
   readonly turnDiff: TurnDiffPayload | null;
@@ -85,6 +91,7 @@ export function createLifecycleProjection(turnId: TurnId): LifecycleProjection {
     turnId,
     lastSequence: 0,
     items: [],
+    hookAudits: createHookAuditProjection().events,
     pendingApproval: null,
     terminal: null,
     turnDiff: null,
@@ -103,7 +110,14 @@ export function applyLifecycleEvent(
   if (event.turnId !== projection.turnId) {
     return projection;
   }
-  const next = applyKnownEvent(projection, event);
+  const hookAudits = applyHookAuditLifecycleEvent(
+    { events: projection.hookAudits },
+    event,
+  );
+  const next = applyKnownEvent(
+    { ...projection, hookAudits: hookAudits.events },
+    event,
+  );
   return {
     ...next,
     lastSequence: Math.max(next.lastSequence, event.sequence),
