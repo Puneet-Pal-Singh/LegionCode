@@ -79,11 +79,48 @@ class TaskWorkspaceSqlClient implements SqlClient {
   async transaction<T>(
     callback: (client: SqlClient) => Promise<T>,
   ): Promise<T> {
-    return await callback(this);
+    const snapshotsBefore = new Map(this.snapshots);
+    const checkoutsBefore = new Map(this.checkouts);
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.snapshots.clear();
+      this.checkouts.clear();
+      for (const [key, value] of snapshotsBefore)
+        this.snapshots.set(key, value);
+      for (const [key, value] of checkoutsBefore)
+        this.checkouts.set(key, value);
+      throw error;
+    }
   }
 }
 
 describe("PostgresTaskWorkspaceRepository", () => {
+  it("atomically issues snapshot and checkout provenance", async () => {
+    const client = new TaskWorkspaceSqlClient();
+    const repository = new PostgresTaskWorkspaceRepository(client);
+
+    await expect(
+      repository.issueSnapshotCheckout(snapshot(), checkout()),
+    ).resolves.toEqual({
+      snapshot: snapshot(),
+      checkout: checkout(),
+    });
+
+    const conflictingCheckout = checkout({
+      checkoutId: "checkout_other01",
+      snapshotId: "wsnap_snapshot2",
+      sandboxId: "sb-other",
+    });
+    await expect(
+      repository.issueSnapshotCheckout(
+        snapshot({ snapshotId: "wsnap_snapshot2" }),
+        conflictingCheckout,
+      ),
+    ).rejects.toMatchObject({ code: "task_checkout_conflict" });
+    expect(client.snapshots.has("wsnap_snapshot2")).toBe(false);
+  });
+
   it("idempotently persists an immutable snapshot and rejects replacement", async () => {
     const repository = createRepository();
     const first = await repository.createSnapshot(snapshot());

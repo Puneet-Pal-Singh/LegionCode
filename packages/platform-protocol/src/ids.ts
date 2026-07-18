@@ -228,3 +228,11 @@ export function createThreadId(): ThreadId {
 export function createRunAttemptId(): RunAttemptId {
   return RunAttemptIdSchema.parse(`attempt_${randomPlatformSuffix()}`);
 }
+
+export function createWorkspaceSnapshotId(): WorkspaceSnapshotId {
+  return WorkspaceSnapshotIdSchema.parse(`wsnap_${randomPlatformSuffix()}`);
+}
+
+export function createTaskCheckoutId(): TaskCheckoutId {
+  return TaskCheckoutIdSchema.parse(`checkout_${randomPlatformSuffix()}`);
+}

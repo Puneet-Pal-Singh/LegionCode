@@ -9,6 +9,13 @@ import {
 } from "@repo/platform-protocol";
 
 export interface WorkspaceSnapshotRepository {
+  issueSnapshotCheckout(
+    snapshot: WorkspaceSnapshot,
+    checkout: TaskCheckout,
+  ): Promise<{
+    readonly snapshot: WorkspaceSnapshot;
+    readonly checkout: TaskCheckout;
+  }>;
   createSnapshot(snapshot: WorkspaceSnapshot): Promise<WorkspaceSnapshot>;
   getBySnapshotId(
     snapshotId: WorkspaceSnapshotId,

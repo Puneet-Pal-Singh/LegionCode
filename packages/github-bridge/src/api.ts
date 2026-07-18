@@ -32,6 +32,14 @@ export interface Branch {
   protected: boolean;
 }
 
+export interface GitCommit {
+  sha: string;
+  tree: {
+    sha: string;
+    url: string;
+  };
+}
+
 export interface FileContent {
   name: string;
   path: string;
@@ -249,6 +257,22 @@ export class GitHubAPIClient {
       `/repos/${owner}/${repo}/git/refs/heads/${encodedBranch}`,
     );
     return response.object.sha;
+  }
+
+  /**
+   * Resolve an immutable commit and its root tree. Callers must first
+   * authenticate the repository lookup with this same client so a user cannot
+   * capture provenance for a repository they are not authorized to access.
+   */
+  async getCommit(
+    owner: string,
+    repo: string,
+    commitSha: string,
+  ): Promise<GitCommit> {
+    const encodedSha = encodeURIComponent(commitSha);
+    return await this.request<GitCommit>(
+      `/repos/${owner}/${repo}/git/commits/${encodedSha}`,
+    );
   }
 
   /**

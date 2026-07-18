@@ -67,6 +67,28 @@ interface TaskCheckoutRow extends SqlRow {
 export class PostgresTaskWorkspaceRepository implements TaskWorkspaceRepository {
   constructor(private readonly client: SqlClient) {}
 
+  async issueSnapshotCheckout(
+    snapshot: WorkspaceSnapshot,
+    checkout: TaskCheckout,
+  ): Promise<{
+    readonly snapshot: WorkspaceSnapshot;
+    readonly checkout: TaskCheckout;
+  }> {
+    const parsedSnapshot = WorkspaceSnapshotSchema.parse(snapshot);
+    const parsedCheckout = TaskCheckoutSchema.parse(checkout);
+    assertReadyCheckoutMatchesSnapshot(parsedSnapshot, parsedCheckout);
+
+    return await this.client.transaction(async (transaction) => {
+      const repository = new PostgresTaskWorkspaceRepository(transaction);
+      const persistedSnapshot = await repository.createSnapshot(parsedSnapshot);
+      const persistedCheckout = await repository.createCheckout(parsedCheckout);
+      return {
+        snapshot: persistedSnapshot,
+        checkout: persistedCheckout,
+      };
+    });
+  }
+
   async createSnapshot(
     snapshot: WorkspaceSnapshot,
   ): Promise<WorkspaceSnapshot> {
@@ -115,17 +137,7 @@ export class PostgresTaskWorkspaceRepository implements TaskWorkspaceRepository 
         { snapshotId: parsed.snapshotId },
       );
     }
-    if (snapshot.workspaceId !== parsed.workspaceId) {
-      throw new TaskWorkspacePersistenceError(
-        "task_checkout_scope_mismatch",
-        "Task checkout workspace must match its immutable snapshot workspace",
-        {
-          checkoutId: parsed.checkoutId,
-          snapshotId: parsed.snapshotId,
-          workspaceId: parsed.workspaceId,
-        },
-      );
-    }
+    assertReadyCheckoutMatchesSnapshot(snapshot, parsed);
 
     try {
       return await writeCheckout(this.client, INSERT_CHECKOUT_SQL, parsed);
@@ -254,6 +266,36 @@ export class PostgresTaskWorkspaceRepository implements TaskWorkspaceRepository 
       );
     });
   }
+}
+
+function assertReadyCheckoutMatchesSnapshot(
+  snapshot: WorkspaceSnapshot,
+  checkout: TaskCheckout,
+): void {
+  if (checkout.status !== "ready") {
+    throw new TaskWorkspacePersistenceError(
+      "task_checkout_transition_invalid",
+      "Task checkouts must be issued in the ready state",
+      { checkoutId: checkout.checkoutId, status: checkout.status },
+    );
+  }
+  if (
+    snapshot.snapshotId === checkout.snapshotId &&
+    snapshot.workspaceId === checkout.workspaceId &&
+    snapshot.authorizedTreeId === checkout.startTreeId
+  ) {
+    return;
+  }
+
+  throw new TaskWorkspacePersistenceError(
+    "task_checkout_scope_mismatch",
+    "Task checkout must match its immutable snapshot workspace and start tree",
+    {
+      checkoutId: checkout.checkoutId,
+      snapshotId: checkout.snapshotId,
+      workspaceId: checkout.workspaceId,
+    },
+  );
 }
 
 function snapshotParams(snapshot: WorkspaceSnapshot): readonly SqlValue[] {

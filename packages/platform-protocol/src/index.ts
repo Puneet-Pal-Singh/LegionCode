@@ -255,8 +255,15 @@ export {
   type WorkspaceManifestId,
   type WorkspaceSnapshotId,
 } from "./ids.js";
-export { createTurnId, createThreadId, createRunAttemptId } from "./ids.js";
+export {
+  createTurnId,
+  createThreadId,
+  createRunAttemptId,
+  createWorkspaceSnapshotId,
+  createTaskCheckoutId,
+} from "./ids.js";
 export { workspaceIdFromExternalId } from "./workspace-id.js";
+export { userIdFromExternalId } from "./user-id.js";
 export {
   ApprovalStatusSchema,
   ApprovalLifecycleSchema,
