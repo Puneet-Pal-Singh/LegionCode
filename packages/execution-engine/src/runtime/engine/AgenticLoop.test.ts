@@ -36,6 +36,8 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       maxSteps: 5,
       runId: "run-123",
       sessionId: "session-123",
+      workspaceRoot: "/home/sandbox/checkouts/run-123",
+      artifactRoot: "/home/sandbox/checkouts/run-123/artifacts",
     };
 
     llmGateway = {
@@ -62,7 +64,13 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
     it("should reject maxSteps < 1", () => {
       expect(() => {
         new AgenticLoop(
-          { maxSteps: 0, runId: "run-1", sessionId: "session-1" },
+          {
+            maxSteps: 0,
+            runId: "run-1",
+            sessionId: "session-1",
+            workspaceRoot: "/home/sandbox/checkouts/run-1",
+            artifactRoot: "/home/sandbox/checkouts/run-1/artifacts",
+          },
           llmGateway as ILLMGateway,
           executor as TaskExecutor,
         );
@@ -1128,6 +1136,8 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
           maxSteps: 2,
           runId: "run-123",
           sessionId: "session-123",
+          workspaceRoot: "/home/sandbox/checkouts/run-123",
+          artifactRoot: "/home/sandbox/checkouts/run-123/artifacts",
         },
         llmGateway as ILLMGateway,
         executor as TaskExecutor,
@@ -1242,6 +1252,8 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
           maxSteps: 6,
           runId: "run-123",
           sessionId: "session-123",
+          workspaceRoot: "/home/sandbox/checkouts/run-123",
+          artifactRoot: "/home/sandbox/checkouts/run-123/artifacts",
         },
         llmGateway as ILLMGateway,
         executor as TaskExecutor,

@@ -34,6 +34,12 @@ export interface RunEngineOptions {
   userId?: string;
   correlationId: string;
   requestOrigin?: string;
+  /**
+   * Required only by the quarantined direct RunEngine path. The native kernel
+   * receives its checkout root through RuntimeKernelNativeRunnerInput.
+   */
+  workspaceRoot?: string;
+  artifactRoot?: string;
 }
 
 export interface RunEngineEnv {

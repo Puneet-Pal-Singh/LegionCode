@@ -196,8 +196,8 @@ presentation remains required before closing these red flags.
   remains pending until authenticated target evidence proves Brain/DO restart,
   container loss, one-checkout replacement, sibling continuity, and absence of
   tokens from lifecycle/log/Web payloads.
-- **RF-032 — OPEN, P1 legacy runtime-root authority remains outside the active
-  native path**: the active Brain/native-kernel path no longer derives
+- **RF-032 — FIXED_PENDING_TARGET_PROOF, P1 legacy runtime-root authority
+  removed from executable paths**: the active Brain/native-kernel path no longer derives
   `/home/sandbox/runs/{runId}`. The unreferenced `RunEngineKernelAdapter` and
   its characterization test are now deleted, as is the unused
   `@repo/runtime-cloudflare-worker` package and its duplicate workspace,
@@ -205,11 +205,15 @@ presentation remains required before closing these red flags.
   rejects legacy `/home/sandbox/runs/*` roots and accepts only a server-issued
   `/home/sandbox/checkouts/*` scope; focused Secure tests and typecheck pass,
   and a native-path boundary test prevents either deleted adapter from
-  returning. The remaining gap is the quarantined `AgenticLoop` capability
-  fallback plus historical contract fixtures. Plan 045's duplicate-path
-  deletion is incomplete until that fallback requires a persisted checkout or
-  the legacy loop is removed. Target proof must still show no production
-  request route can reach any run-derived execution root.
+  returning. The canonical capability manifest now requires an injected
+  workspace root instead of synthesizing one from `runId`; the quarantined
+  direct `RunEngine`/`AgenticLoop` path fails closed unless it receives a
+  normalized `/home/sandbox/checkouts/*` root plus a matching nested artifact
+  root. Focused capability, AgenticLoop, legacy registry, isolation, scope, and
+  boundary coverage pass. Historical fixtures may retain old paths solely as
+  redaction/compatibility inputs, but no executable source constructs or
+  accepts them. Target proof must still show no production request route can
+  reach a run-derived execution root before this red flag can close.
 - **RF-026 — FIXED_PENDING_TARGET_PROOF, P0 lifecycle approval settlement
   gap**: the lifecycle approval route no longer writes then polls replay for a
   decision. It resolves the matching active runtime coordinator directly,

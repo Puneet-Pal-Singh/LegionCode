@@ -330,6 +330,7 @@ export class RuntimeKernelNativeRunner {
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: protocol.run.id,
       workspaceRoot: protocol.manifest.filesystemRoot,
+      artifactRoot: `${protocol.manifest.filesystemRoot}/artifacts`,
       availableToolIds: Object.keys(runtimeTools),
       providerId: input.input.providerId,
       modelId: input.input.runtimeModelId ?? input.input.modelId,
