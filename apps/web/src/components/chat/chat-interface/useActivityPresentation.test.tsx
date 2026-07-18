@@ -29,7 +29,7 @@ describe("useActivityPresentation", () => {
     expect(result.current.viewModel.turns).toEqual([]);
   });
 
-  it("projects active thinking and elapsed time from canonical event timestamps", () => {
+  it("projects elapsed time while keeping canonical reasoning audit-only", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-27T09:00:05.000Z"));
     const { result } = renderHook(() =>
@@ -60,13 +60,7 @@ describe("useActivityPresentation", () => {
       userPrompt: "Update footer",
       elapsedLabel: "Working for 5s",
       isActiveTurn: true,
-      rows: [
-        {
-          kind: "reasoning",
-          label: "Thinking",
-          status: "active",
-        },
-      ],
+      rows: [],
     });
   });
 
@@ -100,13 +94,7 @@ describe("useActivityPresentation", () => {
       key: "user-message-1",
       elapsedLabel: "Working for 5s",
       isActiveTurn: true,
-      rows: [
-        {
-          kind: "reasoning",
-          label: "Thinking",
-          status: "active",
-        },
-      ],
+      rows: [],
     });
   });
 });

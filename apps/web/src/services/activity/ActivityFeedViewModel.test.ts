@@ -10,24 +10,17 @@ describe("ActivityFeedViewModel", () => {
   it("groups low-noise exploration actions and builds collapsed turn summaries", () => {
     const viewModel = buildActivityFeedViewModel(createFeedSnapshot());
     expect(viewModel.turns).toHaveLength(1);
-    expect(viewModel.turns[0]?.summaryLabel).toBe(
-      "3 tool calls · 1 progress update",
-    );
+    expect(viewModel.turns[0]?.summaryLabel).toBe("3 tool calls");
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(false);
     expect(viewModel.turns[0]?.isActiveTurn).toBe(true);
     expect(viewModel.turns[0]?.rows[0]).toMatchObject({
-      kind: "reasoning",
-      label: "Analyzing request",
-    });
-    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("group");
-    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
       title: "Explored",
       summary: "1 list, 1 file",
     });
-    expect(viewModel.turns[0]?.rows[2]?.kind).toBe("tool");
-    if (viewModel.turns[0]?.rows[2]?.kind === "tool") {
-      expect(viewModel.turns[0].rows[2].family).toBe(
+    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("tool");
+    if (viewModel.turns[0]?.rows[1]?.kind === "tool") {
+      expect(viewModel.turns[0].rows[1].family).toBe(
         TOOL_ACTIVITY_FAMILIES.SHELL,
       );
     }
@@ -92,7 +85,7 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
+    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
       kind: "group",
       title: "Exploring",
       summary: "1 list, 1 file",
@@ -312,7 +305,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.rows).toEqual([]);
   });
 
-  it("renders thinking only while it remains the latest unresolved state", () => {
+  it("keeps all provider reasoning audit-only while preserving typed tools", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-active-thinking",
       sessionId: "session-active-thinking",
@@ -383,13 +376,13 @@ describe("ActivityFeedViewModel", () => {
     });
 
     expect(
-      viewModel.turns[0]?.rows.filter(
-        (row) => row.kind === "reasoning" && row.label === "Thinking",
-      ),
-    ).toHaveLength(1);
+      viewModel.turns[0]?.rows.some((row) => row.kind === "reasoning"),
+    ).toBe(false);
+    expect(viewModel.turns[0]?.rows).toHaveLength(1);
+    expect(viewModel.turns[0]?.rows[0]?.kind).toBe("tool");
   });
 
-  it("keeps meaningful active thinking summaries visible during later work", () => {
+  it("does not expose meaningful-looking provider reasoning during later work", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-active-thinking-summary",
       sessionId: "session-active-thinking-summary",
@@ -445,13 +438,8 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
-      kind: "reasoning",
-      label: "Thinking",
-      summary: "Thinking about architecture",
-      status: "active",
-    });
-    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("tool");
+    expect(viewModel.turns[0]?.rows).toHaveLength(1);
+    expect(viewModel.turns[0]?.rows[0]?.kind).toBe("tool");
   });
 
   it("removes completed thinking rows even when they contain a summary", () => {
@@ -812,7 +800,7 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(false);
   });
 
-  it("preserves authored labels when generic reasoning summaries collapse away", () => {
+  it("keeps authored reasoning labels audit-only", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-authored-reasoning",
       sessionId: "session-authored-reasoning",
@@ -862,21 +850,7 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "reasoning",
-          label: "Checking footer copy",
-          summary: "",
-        }),
-        expect.objectContaining({
-          kind: "reasoning",
-          label: "Reporting what changed",
-          summary:
-            "Preparing the final user-facing response from the observed results.",
-        }),
-      ]),
-    );
+    expect(viewModel.turns[0]?.rows).toEqual([]);
   });
 
   it("keeps plain assistant transcript messages out of the activity feed", () => {
