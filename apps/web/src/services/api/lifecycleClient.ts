@@ -1,12 +1,14 @@
 import {
   createPlatformClient,
   createPlatformHttpTransport,
+  HookInvocationAuditEventSchema,
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
+  type HookInvocationAuditEvent,
   type ItemId,
   type ItemKind,
   type LifecycleEvent,
@@ -23,10 +25,12 @@ import {
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 
 export {
+  HookInvocationAuditEventSchema,
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
+  type HookInvocationAuditEvent,
   type ItemId,
   type ItemKind,
   type LifecycleEvent,

@@ -1,4 +1,4 @@
-import type { HookInvocationAuditEvent } from "@repo/platform-client-sdk";
+import type { HookInvocationAuditEvent } from "../api/lifecycleClient.js";
 
 export type HookAuditTone = "running" | "completed" | "failed" | "muted";
 

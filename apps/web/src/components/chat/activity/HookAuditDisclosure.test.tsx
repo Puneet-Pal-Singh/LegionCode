@@ -1,6 +1,6 @@
-import { HookInvocationAuditEventSchema } from "@repo/platform-client-sdk";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { HookInvocationAuditEventSchema } from "../../../services/api/lifecycleClient.js";
 import { HookAuditDisclosure } from "./HookAuditDisclosure.js";
 
 const HASH = "b".repeat(64);

@@ -1,5 +1,5 @@
-import { HookInvocationAuditEventSchema } from "@repo/platform-client-sdk";
 import { describe, expect, it } from "vitest";
+import { HookInvocationAuditEventSchema } from "../api/lifecycleClient.js";
 import { buildHookAuditDisclosureViewModel } from "./HookAuditViewModel.js";
 
 const HASH = "a".repeat(64);
