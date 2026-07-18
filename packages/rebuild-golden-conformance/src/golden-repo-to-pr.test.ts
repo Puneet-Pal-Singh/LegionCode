@@ -611,6 +611,7 @@ class GoldenWorker implements WorkerProtocolPort {
     if (!input.approval || input.approval.decision !== "approved") {
       return {
         kind: "failed",
+        disposition: "terminal",
         failure: {
           code: "unauthorized",
           message: "approval missing",
