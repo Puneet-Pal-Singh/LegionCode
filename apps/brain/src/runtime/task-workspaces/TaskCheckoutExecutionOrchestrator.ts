@@ -34,28 +34,35 @@ export interface TaskCheckoutExecutionPort {
 }
 
 /**
- * The current secure plugins derive `/home/sandbox/runs/{runId}` themselves
- * and ignore the server-issued workspace scope root. Until that data-plane
- * boundary accepts the TaskCheckout root, Brain must not admit an apparently
- * isolated checkout into execution.
+ * Secure tools accept only a server-issued workspace scope. This capability
+ * verifies that a persisted checkout can be projected to that scope without
+ * falling back to a run-derived root.
  */
-export class RunScopedSecureRuntimeCapability
+export class SecureTaskCheckoutRootCapability
   implements TaskCheckoutRootCapabilityPort
 {
   assertCheckoutRootSupported(
-    _checkout: TaskCheckout,
+    checkout: TaskCheckout,
     correlationId: string,
   ): void {
+    const expectedRoot = `/home/sandbox/checkouts/${checkout.checkoutId}`;
+    const expectedGitDir = `${expectedRoot}.git`;
+    const expectedIndexFile = `/home/sandbox/indexes/${checkout.checkoutId}.index`;
+    if (
+      checkout.filesystemRoot === expectedRoot &&
+      checkout.gitDir === expectedGitDir &&
+      checkout.indexFile === expectedIndexFile
+    ) {
+      return;
+    }
+
     throw new DomainError(
-      "TASK_CHECKOUT_RUNTIME_UNAVAILABLE",
-      "This task cannot start because the secure runtime does not yet honor its isolated checkout root.",
-      503,
-      true,
+      "TASK_CHECKOUT_SCOPE_INVALID",
+      "The task checkout does not have the canonical isolated secure-runtime paths.",
+      409,
+      false,
       correlationId,
-      {
-        failureKind: "checkout_root_unsupported",
-        retryable: true,
-      },
+      { checkoutId: checkout.checkoutId },
     );
   }
 }
@@ -74,7 +81,7 @@ export class TaskCheckoutExecutionOrchestrator
   constructor(
     private readonly env: Env,
     private readonly rootCapability: TaskCheckoutRootCapabilityPort =
-      new RunScopedSecureRuntimeCapability(),
+      new SecureTaskCheckoutRootCapability(),
     private readonly repositoryOverride?: TaskWorkspaceRepository,
   ) {}
 

@@ -11,7 +11,7 @@ import {
 } from "@repo/platform-protocol";
 import type { Env } from "../../types/ai";
 import {
-  RunScopedSecureRuntimeCapability,
+  SecureTaskCheckoutRootCapability,
   TaskCheckoutExecutionOrchestrator,
   type TaskCheckoutRootCapabilityPort,
 } from "./TaskCheckoutExecutionOrchestrator";
@@ -97,20 +97,31 @@ describe("TaskCheckoutExecutionOrchestrator", () => {
     expect(repository.activate).not.toHaveBeenCalled();
   });
 
-  it("fails closed while secure tools still derive roots from run ids", async () => {
+  it("accepts the persisted canonical checkout root now honored by secure tools", async () => {
     const repository = new MemoryTaskWorkspaceRepository(createCheckout());
     const orchestrator = new TaskCheckoutExecutionOrchestrator(
       {} as Env,
-      new RunScopedSecureRuntimeCapability(),
+      new SecureTaskCheckoutRootCapability(),
       repository,
     );
 
-    await expect(
-      orchestrator.claimForExecution(identity, "corr-4"),
-    ).rejects.toMatchObject({
-      code: "TASK_CHECKOUT_RUNTIME_UNAVAILABLE",
-      status: 503,
-    });
+    await expect(orchestrator.claimForExecution(identity, "corr-4")).resolves
+      .toMatchObject({ status: "active", filesystemRoot: "/home/sandbox/checkouts/checkout_123456" });
+    expect(repository.activate).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a persisted checkout whose filesystem paths cannot be safely projected", async () => {
+    const repository = new MemoryTaskWorkspaceRepository(
+      createCheckout({ filesystemRoot: "/home/sandbox/runs/attempt_123456" }),
+    );
+    const orchestrator = new TaskCheckoutExecutionOrchestrator(
+      {} as Env,
+      new SecureTaskCheckoutRootCapability(),
+      repository,
+    );
+
+    await expect(orchestrator.claimForExecution(identity, "corr-4-invalid"))
+      .rejects.toMatchObject({ code: "TASK_CHECKOUT_SCOPE_INVALID", status: 409 });
     expect(repository.activate).not.toHaveBeenCalled();
   });
 
