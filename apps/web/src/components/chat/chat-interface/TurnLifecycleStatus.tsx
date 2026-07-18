@@ -14,7 +14,10 @@ export function TurnLifecycleStatus({
   testId,
 }: TurnLifecycleStatusProps) {
   const nowMs = useCanonicalElapsedClock(projection);
-  const label = lifecyclePhaseLabel(projection.phase);
+  const label =
+    projection.phase === "starting"
+      ? "Thinking"
+      : lifecyclePhaseLabel(projection.phase);
   const elapsed = formatElapsed(
     projection.startedAt,
     projection.settledAt,

@@ -903,11 +903,13 @@ function hasEquivalentLatestUserMessage(
   pending: Message,
 ): boolean {
   const pendingContent = pending.content.trim();
+  if (messages.some((message) => message.id === pending.id)) {
+    return true;
+  }
   const latest = messages.at(-1);
   return (
     latest?.role === "user" &&
-    (latest.id === pending.id ||
-      extractMessageText(latest.content).trim() === pendingContent)
+    extractMessageText(latest.content).trim() === pendingContent
   );
 }
 

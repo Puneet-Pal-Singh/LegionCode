@@ -783,6 +783,17 @@ function isGenericSynthesisReasoningSummary(
 }
 
 function getToolTitle(item: ToolActivityPart): string {
+  if (item.status === "failed") {
+    switch (item.metadata.family) {
+      case TOOL_ACTIVITY_FAMILIES.SHELL:
+        return "Command failed";
+      case TOOL_ACTIVITY_FAMILIES.READ:
+        return "Read failed";
+      case TOOL_ACTIVITY_FAMILIES.SEARCH:
+        return "Search failed";
+    }
+  }
+
   if (item.metadata.displayText) {
     return item.metadata.displayText;
   }

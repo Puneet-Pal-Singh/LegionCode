@@ -3,6 +3,7 @@ import {
   ACTIVITY_PART_KINDS,
   TOOL_ACTIVITY_FAMILIES,
   type ActivityFeedSnapshot,
+  type ToolActivityPart,
 } from "@repo/shared-types";
 import { buildActivityFeedViewModel } from "./ActivityFeedViewModel.js";
 
@@ -200,7 +201,6 @@ describe("ActivityFeedViewModel", () => {
     ]);
   });
 
-
   it("turns generic execution progress into a compact thinking row and suppresses generic synthesis rows", () => {
     const snapshot = createFeedSnapshot();
     const viewModel = buildActivityFeedViewModel({
@@ -295,7 +295,8 @@ describe("ActivityFeedViewModel", () => {
           updatedAt: "2026-03-24T10:00:02.000Z",
           source: "brain",
           label: "Summarizing the change",
-          summary: "Preparing the final user-facing answer from the observed results.",
+          summary:
+            "Preparing the final user-facing answer from the observed results.",
           phase: "synthesis",
           status: "completed",
         },
@@ -674,8 +675,7 @@ describe("ActivityFeedViewModel", () => {
       viewModel.turns[0]?.rows.some(
         (row) =>
           row.kind === "reasoning" &&
-          row.summary ===
-            "Inspecting the workspace before answering.",
+          row.summary === "Inspecting the workspace before answering.",
       ),
     ).toBe(false);
     expect(
@@ -1096,6 +1096,52 @@ describe("ActivityFeedViewModel", () => {
     if (gitRow?.kind === "tool") {
       expect(gitRow.details[0]).toContain('"oops":true');
     }
+  });
+
+  it("labels recoverable tool failures at the affected activity row", () => {
+    const snapshot = createFeedSnapshot();
+    const prompt = snapshot.items[0]!;
+    const read = snapshot.items[2]!;
+    const shell = snapshot.items[4]!;
+    if (
+      read.kind !== ACTIVITY_PART_KINDS.TOOL ||
+      shell.kind !== ACTIVITY_PART_KINDS.TOOL
+    ) {
+      throw new Error("Expected read and shell tool fixtures.");
+    }
+
+    const failedRead: ToolActivityPart = { ...read, status: "failed" };
+    const failedShell: ToolActivityPart = { ...shell, status: "failed" };
+    const search: ToolActivityPart = {
+      ...read,
+      id: "tool-search-failed",
+      toolId: "tool-search-failed",
+      toolName: "search",
+      status: "failed",
+      metadata: {
+        family: TOOL_ACTIVITY_FAMILIES.SEARCH,
+        pattern: "TODO",
+        path: "src",
+        count: 0,
+        truncated: false,
+        loadedPaths: [],
+      },
+    };
+    const viewModel = buildActivityFeedViewModel({
+      ...snapshot,
+      items: [prompt, failedRead, search, failedShell],
+    });
+    const rows = viewModel.turns[0]?.rows.flatMap((row) =>
+      row.kind === "group" ? row.rows : [row],
+    );
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "tool", title: "Read failed" }),
+        expect.objectContaining({ kind: "tool", title: "Search failed" }),
+        expect.objectContaining({ kind: "tool", title: "Command failed" }),
+      ]),
+    );
   });
 });
 

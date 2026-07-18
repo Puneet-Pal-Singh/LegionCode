@@ -97,6 +97,10 @@ export const ChatInterfaceView = forwardRef<
               (entry) =>
                 entry.kind === "turn" &&
                 entry.turn.key === props.lifecycleProjection?.turnId,
+            ) &&
+            !(
+              props.lifecycleProjection.terminal &&
+              hasAssistantAfterLatestUser(props.chatEntries)
             ) ? (
               <TurnSurface props={props} turn={null} />
             ) : null}
@@ -114,6 +118,22 @@ export const ChatInterfaceView = forwardRef<
     </div>
   );
 });
+
+function hasAssistantAfterLatestUser(
+  entries: ChatInterfaceEntry[],
+): boolean {
+  let hasAssistant = false;
+  for (const entry of entries) {
+    if (entry.kind === "message") {
+      if (entry.message.role === "user") hasAssistant = false;
+      if (entry.message.role === "assistant") hasAssistant = true;
+      continue;
+    }
+    if (entry.userMessage) hasAssistant = false;
+    if (entry.assistantMessage) hasAssistant = true;
+  }
+  return hasAssistant;
+}
 
 function Transcript(props: ChatInterfaceViewProps) {
   return (
@@ -212,7 +232,9 @@ function TurnSurface({
           Tool activity
         </span>
       ) : null}
-      {isCurrentTurn && props.lifecycleProjection ? (
+      {isCurrentTurn &&
+      props.lifecycleProjection &&
+      !props.lifecycleProjection.terminal ? (
         <TurnLifecycleStatus
           projection={props.lifecycleProjection}
           testId={surfaceId ? `${surfaceId}-spinner` : undefined}
@@ -285,12 +307,12 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
     return (
       <div
         role="alert"
-        className="rounded-2xl border border-red-900/50 bg-red-950/20 px-4 py-3"
+        className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
       >
-        <div className="text-sm font-medium text-red-100">
-          {terminal.state === "interrupted" ? "Run stopped" : "Run failed"}
-        </div>
-        <p className="mt-1 text-sm leading-6 text-zinc-300">
+        <span className="mt-0.5 text-zinc-500" aria-hidden="true">
+          {terminal.state === "interrupted" ? "■" : "!"}
+        </span>
+        <p className="leading-5 text-zinc-300">
           {terminal.content ||
             "The run ended before it could return an answer. Retry the request."}
         </p>

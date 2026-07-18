@@ -64,4 +64,36 @@ describe("messageMetadata", () => {
     expect(turns[0]?.userMessage?.id).toBe("user-1");
     expect(turns[0]?.assistantMessage?.id).toBe("assistant-final");
   });
+
+  it("projects replayed message ids once and keeps their latest payload", () => {
+    const turns = buildConversationTurns([
+      {
+        id: "client_msg_same",
+        role: "user",
+        content: "hello",
+      },
+      {
+        id: "assistant-same",
+        role: "assistant",
+        content: "partial",
+      },
+      {
+        id: "client_msg_same",
+        role: "user",
+        content: "hello",
+      },
+      {
+        id: "assistant-same",
+        role: "assistant",
+        content: "Hello! How can I help?",
+      },
+    ] satisfies Message[]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.userMessage?.id).toBe("client_msg_same");
+    expect(turns[0]?.assistantMessage).toMatchObject({
+      id: "assistant-same",
+      content: "Hello! How can I help?",
+    });
+  });
 });

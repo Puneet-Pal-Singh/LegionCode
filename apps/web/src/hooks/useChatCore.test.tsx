@@ -588,6 +588,68 @@ describe("useChatCore", () => {
     });
   });
 
+  it("does not append the pending echo after the stream has projected the same prompt", async () => {
+    let resolveAppend: (() => void) | null = null;
+    let streamMessages: Array<{
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+    }> = [];
+    appendSpy.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAppend = resolve;
+        }),
+    );
+    mockUseChat.mockImplementation(() => ({
+      messages: streamMessages,
+      input: "",
+      handleInputChange: vi.fn(),
+      isLoading: true,
+      stop: stopStreamSpy,
+      setMessages: setMessagesSpy,
+      append: appendSpy,
+    }));
+    const { result, rerender } = renderHook(() =>
+      useChatCore("session-1"),
+    );
+
+    await waitFor(() => expect(result.current.scope).not.toBeNull());
+    act(() => {
+      void result.current.append({
+        role: "user",
+        content: "Keep this prompt singular",
+      });
+    });
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+    const pendingId = result.current.messages[0]?.id;
+    expect(pendingId).toMatch(/^client_msg_/);
+
+    streamMessages = [
+      {
+        id: pendingId!,
+        role: "user",
+        content: "Keep this prompt singular",
+      },
+      {
+        id: "assistant-failure",
+        role: "assistant",
+        content: "The request failed.",
+      },
+    ];
+    rerender();
+
+    expect(result.current.messages).toEqual(streamMessages);
+    expect(
+      result.current.messages.filter((message) => message.id === pendingId),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      resolveAppend?.();
+      await Promise.resolve();
+    });
+  });
+
   it("marks chat loading immediately while append setup is in flight", async () => {
     let resolveAppend: (() => void) | null = null;
     appendSpy.mockImplementation(

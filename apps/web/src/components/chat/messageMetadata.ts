@@ -41,7 +41,7 @@ export function buildConversationTurns(
 ): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   let turnIndex = 0;
-  for (const message of messages) {
+  for (const message of collapseRepeatedMessageIds(messages)) {
     const messageAtMs = resolveMessageTimestamp(message);
     if (message.role === "user") {
       turnIndex += 1;
@@ -69,6 +69,24 @@ export function buildConversationTurns(
     });
   }
   return turns;
+}
+
+function collapseRepeatedMessageIds(messages: Message[]): Message[] {
+  const latestById = new Map<string, Message>();
+  for (const message of messages) {
+    latestById.set(message.id, message);
+  }
+
+  const emittedIds = new Set<string>();
+  const collapsed: Message[] = [];
+  for (const message of messages) {
+    if (emittedIds.has(message.id)) {
+      continue;
+    }
+    emittedIds.add(message.id);
+    collapsed.push(latestById.get(message.id) ?? message);
+  }
+  return collapsed;
 }
 
 function findLatestUserConversationTurn(

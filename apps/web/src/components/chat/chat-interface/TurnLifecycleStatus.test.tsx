@@ -11,6 +11,16 @@ afterEach(() => {
 });
 
 describe("TurnLifecycleStatus", () => {
+  it("uses the existing shimmer for the pre-admission thinking state", () => {
+    const projection = createLifecycleProjection(
+      "trn_status02" as LifecycleProjection["turnId"],
+    );
+
+    render(<TurnLifecycleStatus projection={projection} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Thinking");
+    expect(screen.getByText("Thinking")).toHaveClass("turn-lifecycle-shimmer");
+  });
+
   it("shows an animated working duration anchored to the lifecycle event", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-18T10:00:05.000Z"));
