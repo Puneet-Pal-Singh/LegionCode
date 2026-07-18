@@ -2,7 +2,6 @@ import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import type { ZodSchema } from "zod";
 import type { ProviderModelTransport } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
@@ -30,6 +29,7 @@ import {
   resolveStructuredBaseURLOverride,
   resolveStructuredRuntimeProvider,
 } from "./ai/ProviderRouteMetadata";
+import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -125,18 +125,7 @@ export class AIService {
     temperature = 0.2,
     maxTokens,
     abortSignal,
-  }: {
-    messages: CoreMessage[];
-    schema: ZodSchema<T>;
-    model?: string;
-    providerId?: string;
-    runtimeModelId?: string;
-    providerTransport?: ProviderModelTransport;
-    providerEndpoint?: string;
-    temperature?: number;
-    maxTokens?: number;
-    abortSignal?: AbortSignal;
-  }): Promise<GenerateStructuredResult<T>> {
+  }: StructuredGenerationInput<T>): Promise<GenerateStructuredResult<T>> {
     const selection = await resolveSelectionWithPreferences({
       providerId,
       modelId: model,
