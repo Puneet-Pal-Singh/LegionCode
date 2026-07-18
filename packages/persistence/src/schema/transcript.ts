@@ -32,6 +32,7 @@ export const tasks = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id, {
       onDelete: "set null",
     }),
+    threadId: text("thread_id"),
     title: text("title").notNull(),
     status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true })

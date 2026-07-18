@@ -18,16 +18,7 @@ describe("ThreadProjectionProjector", () => {
     const snapshot = projectThreadEvents(threadId, [
       projectionInput(createThreadEvent("thread.created", thread, 1), 1),
       projectionInput(
-        createThreadEvent(
-          "thread.title.updated",
-          {
-            ...thread,
-            title: "Renamed thread",
-            titleSource: "user",
-            updatedAt: "2026-06-09T12:01:00.000Z",
-          },
-          2,
-        ),
+        createTitleEvent("Renamed thread", "user", 2),
         2,
       ),
       projectionInput(
@@ -94,17 +85,7 @@ describe("ThreadProjectionProjector", () => {
       projectionInput(createThreadEvent("thread.created", thread, 1), 1),
       projectionInput(createTurnEvent("turn.completed", firstTurn, 2), 2),
       projectionInput(
-        createThreadEvent(
-          "thread.title.updated",
-          {
-            ...thread,
-            title: "Durable title",
-            titleVersion: 2,
-            titleStatus: "ready",
-            lastTerminalTurnId: firstTurn.id,
-          },
-          3,
-        ),
+        createTitleEvent("Durable title", "generated", 3),
         3,
       ),
       projectionInput(createTurnEvent("turn.completed", secondTurn, 4), 4),
@@ -163,7 +144,6 @@ function projectionInput(event: PlatformEvent, projectionSequence: number) {
 function createThreadEvent(
   type:
     | "thread.created"
-    | "thread.title.updated"
     | "thread.pinned"
     | "thread.archived",
   threadPayload: typeof thread,
@@ -176,6 +156,28 @@ function createThreadEvent(
     scopeId: threadPayload.id,
     type,
     payload: { thread: threadPayload },
+  });
+}
+
+function createTitleEvent(
+  title: string,
+  source: "preview" | "generated" | "user",
+  sequence: number,
+): PlatformEvent {
+  return PlatformEventSchema.parse({
+    ...baseEnvelope("thread.title.updated", threadId, sequence),
+    runId: null,
+    scopeType: "thread",
+    scopeId: threadId,
+    type: "thread.title.updated",
+    payload: {
+      threadId,
+      firstMessageId: "msg_first_user",
+      title,
+      titleVersion: sequence - 1,
+      source,
+      timestamp: `2026-06-09T12:0${sequence}:00.000Z`,
+    },
   });
 }
 

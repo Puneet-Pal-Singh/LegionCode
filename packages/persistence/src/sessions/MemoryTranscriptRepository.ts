@@ -55,6 +55,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
         input.workspaceId,
         existing?.workspaceId ?? null,
       ),
+      threadId: readNullableInput(input.threadId, existing?.threadId ?? null),
       taskId: task.id,
       title: existing?.title ?? input.title ?? task.title,
       titleSource,

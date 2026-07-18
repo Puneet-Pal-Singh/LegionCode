@@ -68,14 +68,14 @@ export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
 export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
 export { PostgresThreadTitleRepository } from "./thread-titles/PostgresThreadTitleRepository.js";
 export type {
-  PersistAutomatedThreadTitleInput,
+  PersistThreadTitleInput,
   ThreadTitleRepository,
 } from "./thread-titles/types.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
-export { MemoryLifecycleEventStore } from "@repo/event-store";
+export { MemoryEventStore, MemoryLifecycleEventStore } from "@repo/event-store";
 export type {
   LifecycleEventStore,
   ReplayLifecycleEventsInput,

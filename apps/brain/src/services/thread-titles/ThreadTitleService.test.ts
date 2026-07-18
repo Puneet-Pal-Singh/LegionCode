@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  MemoryEventStore,
   MemoryThreadTitleRepository,
-  MemoryRunRepository,
   MemoryTranscriptRepository,
-  type AppendRunEventInput,
 } from "@repo/persistence";
 import type { Env } from "../../types/ai";
 import { ThreadTitleGenerationCoordinator } from "./ThreadTitleGenerationCoordinator";
@@ -13,15 +12,22 @@ const USER_ID = "550e8400-e29b-41d4-a716-446655440000";
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440001";
 const RUN_ID = "run_threadtitle";
 const THREAD_ID = "thr_titleabc";
+const WORKSPACE_ID = "550e8400-e29b-41d4-a716-446655440002";
 const FIRST_MESSAGE_ID = "msg-first-user";
 
 describe("ThreadTitleService", () => {
-  it("persists a deterministic preview immediately and records a safe title event", async () => {
-    const { service, runs, transcripts } = await createHarness();
+  it("replays preview then generated title through canonical thread events", async () => {
+    const { events, service } = await createHarness();
 
     const preview = await service.persistPreview({
       ...titleIdentity(),
       prompt: "Please inspect /private/repo and fix API_KEY=secret-value",
+    });
+    const generated = await service.persist({
+      ...titleIdentity(),
+      title: "Inspect Secure Repository",
+      source: "generated",
+      expectedTitleVersion: preview?.titleVersion,
     });
 
     expect(preview).toMatchObject({
@@ -29,50 +35,73 @@ describe("ThreadTitleService", () => {
       titleSource: "preview",
       titleVersion: 2,
     });
-    await expect(runs.listRunEvents(RUN_ID)).resolves.toEqual([
-      expect.objectContaining({
-        eventType: "thread.title.updated",
-        payload: expect.objectContaining({
-          threadId: THREAD_ID,
-          firstMessageId: FIRST_MESSAGE_ID,
-          title: "Inspect Fix",
-          titleVersion: 2,
-          source: "preview",
-        }),
-      }),
-    ]);
-    await expect(transcripts.listSessions(USER_ID)).resolves.toMatchObject({
-      sessions: [{ id: SESSION_ID, title: "Inspect Fix" }],
-    });
-  });
-
-  it("accepts generated copy only for the matching initial preview version", async () => {
-    const { service, runs } = await createHarness();
-    const preview = await service.persistPreview({
-      ...titleIdentity(),
-      prompt: "Review isolated cloud task checkout",
-    });
-
-    const generated = await service.persist({
-      ...titleIdentity(),
-      title: "Review Cloud Task Checkout",
-      source: "generated",
-      expectedTitleVersion: preview?.titleVersion,
-    });
-    const stale = await service.persist({
-      ...titleIdentity(),
-      title: "Stale Generated Title",
-      source: "generated",
-      expectedTitleVersion: preview?.titleVersion,
-    });
-
     expect(generated).toMatchObject({
-      title: "Review Cloud Task Checkout",
+      title: "Inspect Secure Repository",
       titleSource: "generated",
       titleVersion: 3,
     });
-    expect(stale).toBeNull();
-    await expect(runs.listRunEvents(RUN_ID)).resolves.toHaveLength(2);
+    await expect(
+      events.replay({
+        scope: { scopeType: "thread", scopeId: THREAD_ID },
+        afterCursor: null,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [
+        {
+          type: "thread.title.updated",
+          runId: RUN_ID,
+          threadId: THREAD_ID,
+          payload: {
+            firstMessageId: FIRST_MESSAGE_ID,
+            title: "Inspect Fix",
+            titleVersion: 2,
+            source: "preview",
+          },
+        },
+        {
+          type: "thread.title.updated",
+          payload: {
+            title: "Inspect Secure Repository",
+            titleVersion: 3,
+            source: "generated",
+          },
+        },
+      ],
+    });
+  });
+
+  it("replays a user rename as the same canonical title event", async () => {
+    const { events, service } = await createHarness();
+
+    const renamed = await service.rename({
+      ...titleIdentity(),
+      title: "My Task Name",
+    });
+
+    expect(renamed).toMatchObject({
+      title: "My Task Name",
+      titleSource: "user",
+      titleVersion: 2,
+    });
+    await expect(
+      events.replay({
+        scope: { scopeType: "thread", scopeId: THREAD_ID },
+        afterCursor: null,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [
+        {
+          type: "thread.title.updated",
+          payload: {
+            title: "My Task Name",
+            titleVersion: 2,
+            source: "user",
+          },
+        },
+      ],
+    });
   });
 
   it("never lets a late generated title overwrite a user rename", async () => {
@@ -81,12 +110,7 @@ describe("ThreadTitleService", () => {
       ...titleIdentity(),
       prompt: "Review isolated cloud task checkout",
     });
-    await transcripts.renameSessionTitle({
-      userId: USER_ID,
-      sessionId: SESSION_ID,
-      title: "My Task Name",
-      titleSource: "user",
-    });
+    await service.rename({ ...titleIdentity(), title: "My Task Name" });
 
     const lateGenerated = await service.persist({
       ...titleIdentity(),
@@ -108,8 +132,8 @@ describe("ThreadTitleService", () => {
     });
   });
 
-  it("rolls the title projection back when its canonical event cannot append", async () => {
-    const { service, runs, transcripts } = await createHarness({
+  it("rolls the title projection back when the canonical event cannot append", async () => {
+    const { service, transcripts } = await createHarness({
       failEventAppend: true,
     });
 
@@ -130,7 +154,6 @@ describe("ThreadTitleService", () => {
         },
       ],
     });
-    await expect(runs.listRunEvents(RUN_ID)).resolves.toEqual([]);
   });
 
   it("uses the selected model for a bounded background title request", async () => {
@@ -185,40 +208,30 @@ async function createHarness(options: { failEventAppend?: boolean } = {}) {
   const transcripts = new MemoryTranscriptRepository({
     now: () => new Date("2026-07-18T00:00:00.000Z"),
   });
-  const runs = options.failEventAppend
-    ? new FailingRunRepository({
-        now: () => new Date("2026-07-18T00:00:00.000Z"),
-      })
-    : new MemoryRunRepository({
-    now: () => new Date("2026-07-18T00:00:00.000Z"),
-  });
+  const events = options.failEventAppend
+    ? new FailingEventStore()
+    : new MemoryEventStore({ now: () => "2026-07-18T00:00:00.000Z" });
   await transcripts.ensureSession({
     sessionId: SESSION_ID,
     userId: USER_ID,
+    workspaceId: WORKSPACE_ID,
     title: "New task",
-  });
-  await runs.ensureRun({
-    id: RUN_ID,
-    userId: USER_ID,
-    sessionId: SESSION_ID,
-    taskId: SESSION_ID,
   });
   return {
     service: new ThreadTitleService({
       AUTH_TRANSCRIPT_REPOSITORY: transcripts,
-      AUTH_RUN_REPOSITORY: runs,
       AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
         transcripts,
-        runs,
+        events,
       ),
     } as Env),
-    runs,
+    events,
     transcripts,
   };
 }
 
-class FailingRunRepository extends MemoryRunRepository {
-  override async appendEvent(_input: AppendRunEventInput) {
+class FailingEventStore extends MemoryEventStore {
+  override async append() {
     throw new Error("event append failed");
   }
 }
@@ -228,6 +241,7 @@ function titleIdentity() {
     sessionId: SESSION_ID,
     threadId: THREAD_ID,
     runId: RUN_ID,
+    workspaceId: WORKSPACE_ID,
     userId: USER_ID,
     firstMessageId: FIRST_MESSAGE_ID,
   };

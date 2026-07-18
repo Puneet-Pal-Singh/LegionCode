@@ -182,6 +182,7 @@ export class HandleChatRequest {
             sessionId,
             userId,
             workspaceId,
+            threadId: identity.threadId,
             taskId,
             repository: repositorySlug,
           });
@@ -197,34 +198,6 @@ export class HandleChatRequest {
             modelId: input.modelId ?? null,
             branch: repositoryBranch ?? null,
           });
-          const firstMessageId = readMessageId(lastUserMessage);
-          if (firstMessageId) {
-            const titleService = new ThreadTitleService(this.env);
-            const preview = await titleService.persistPreview({
-              sessionId,
-              threadId: identity.threadId,
-              runId,
-              userId,
-              firstMessageId,
-              prompt,
-            });
-            if (preview && input.backgroundTaskOwner) {
-              new ThreadTitleGenerationCoordinator(this.env).schedule(
-                input.backgroundTaskOwner,
-                {
-                  sessionId,
-                  threadId: identity.threadId,
-                  runId,
-                  userId,
-                  firstMessageId,
-                  prompt,
-                  previewVersion: preview.titleVersion ?? 1,
-                  providerId: input.providerId,
-                  modelId: input.modelId,
-                },
-              );
-            }
-          }
           console.log(
             formatDiagnosticLogLine("chat/persistence", "run-ensured", {
               correlationId,
@@ -257,7 +230,7 @@ export class HandleChatRequest {
           messageCount: messages.length,
         }),
       );
-      await this.persistenceService.persistUserMessage(
+      const persistedUserMessage = await this.persistenceService.persistUserMessage(
         sessionId,
         runId,
         lastUserMessage,
@@ -275,6 +248,43 @@ export class HandleChatRequest {
           messageId: readMessageId(lastUserMessage),
         }),
       );
+
+      if (userId) {
+        const firstPersistedUserMessage =
+          await this.persistenceService.findFirstPersistedUserMessage({
+            sessionId,
+            userId,
+          });
+        if (firstPersistedUserMessage?.id === persistedUserMessage.id) {
+          const titleService = new ThreadTitleService(this.env);
+          const preview = await titleService.persistPreview({
+            sessionId,
+            threadId: identity.threadId,
+            runId,
+            workspaceId: identity.workspaceId,
+            userId,
+            firstMessageId: firstPersistedUserMessage.id,
+            prompt,
+          });
+          if (preview && input.backgroundTaskOwner) {
+            new ThreadTitleGenerationCoordinator(this.env).schedule(
+              input.backgroundTaskOwner,
+              {
+                sessionId,
+                threadId: identity.threadId,
+                runId,
+                workspaceId: identity.workspaceId,
+                userId,
+                firstMessageId: firstPersistedUserMessage.id,
+                prompt,
+                previewVersion: preview.titleVersion ?? 1,
+                providerId: input.providerId,
+                modelId: input.modelId,
+              },
+            );
+          }
+        }
+      }
 
       // Build execution payload with repository context
       const executionPayload = {

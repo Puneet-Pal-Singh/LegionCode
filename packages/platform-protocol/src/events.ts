@@ -13,6 +13,7 @@ import {
   TurnSchema,
 } from "./conversation.js";
 import { ProtocolErrorSchema } from "./errors.js";
+import { ThreadTitleUpdatedPayloadSchema } from "./thread-title.js";
 import {
   ApprovalIdSchema,
   ArtifactIdSchema,
@@ -466,7 +467,7 @@ const ThreadCreatedEventSchema = createEventSchema(
 );
 const ThreadTitleUpdatedEventSchema = createEventSchema(
   "thread.title.updated",
-  ThreadPayloadSchema,
+  ThreadTitleUpdatedPayloadSchema,
   RunIdSchema.nullable(),
   "thread",
   ThreadIdSchema,
@@ -917,6 +918,17 @@ function validateThreadIdentity(
   event: ThreadProjectionEvent,
   context: z.RefinementCtx,
 ): void {
+  if (event.type === "thread.title.updated") {
+    if (event.threadId !== event.payload.threadId) {
+      addIdentityMismatch(
+        context,
+        ["payload", "threadId"],
+        "Thread title payload ID must match the event thread ID",
+      );
+    }
+    return;
+  }
+
   if (event.threadId !== event.payload.thread.id) {
     addIdentityMismatch(
       context,

@@ -38,6 +38,7 @@ interface TranscriptRow extends SqlRow {
   session_id?: string;
   session_user_id?: string;
   session_workspace_id?: string | null;
+  session_thread_id?: string | null;
   session_task_id?: string;
   session_title?: string;
   title_source?: string;
@@ -276,6 +277,7 @@ async function ensureSessionWithClient(
 ): Promise<SessionRecord> {
   const task = await upsertTask(client, input, now);
   const workspaceProvided = input.workspaceId !== undefined;
+  const threadIdProvided = input.threadId !== undefined;
   const taskIdProvided = input.taskId !== undefined && input.taskId !== null;
   const repositoryProvided = input.repository !== undefined;
   const activeRunIdProvided = input.activeRunId !== undefined;
@@ -284,6 +286,7 @@ async function ensureSessionWithClient(
     input.sessionId,
     input.userId,
     input.workspaceId ?? null,
+    input.threadId ?? null,
     task.id,
     input.title ?? task.title,
     input.repository ?? null,
@@ -293,6 +296,7 @@ async function ensureSessionWithClient(
     titleSource,
     now,
     workspaceProvided,
+    threadIdProvided,
     taskIdProvided,
     repositoryProvided,
     activeRunIdProvided,
@@ -522,6 +526,7 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     id: requireString(row.session_id, "session_id"),
     userId: requireString(row.session_user_id, "session_user_id"),
     workspaceId: row.session_workspace_id ?? null,
+    threadId: row.session_thread_id ?? null,
     taskId: requireString(row.session_task_id, "session_task_id"),
     title: requireString(row.session_title, "session_title"),
     titleSource: mapChatTitleSource(
@@ -701,6 +706,7 @@ const SESSION_COLUMNS = `
   id AS session_id,
   user_id AS session_user_id,
   workspace_id AS session_workspace_id,
+  thread_id AS session_thread_id,
   task_id AS session_task_id,
   title AS session_title,
   title_source,
@@ -755,6 +761,7 @@ const UPSERT_SESSION_SQL = `
     id,
     user_id,
     workspace_id,
+    thread_id,
     task_id,
     title,
     title_source,
@@ -766,23 +773,27 @@ const UPSERT_SESSION_SQL = `
     created_at,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5, $10, 1, $6, $7, $8, $9, $11, $11)
+  VALUES ($1, $2, $3, $4, $5, $6, $11, 1, $7, $8, $9, $10, $12, $12)
   ON CONFLICT (id)
   DO UPDATE SET
     workspace_id = CASE
-      WHEN $12::boolean THEN EXCLUDED.workspace_id
+      WHEN $13::boolean THEN EXCLUDED.workspace_id
       ELSE sessions.workspace_id
     END,
+    thread_id = CASE
+      WHEN $14::boolean THEN EXCLUDED.thread_id
+      ELSE sessions.thread_id
+    END,
     task_id = CASE
-      WHEN $13::boolean THEN EXCLUDED.task_id
+      WHEN $15::boolean THEN EXCLUDED.task_id
       ELSE sessions.task_id
     END,
     repository = CASE
-      WHEN $14::boolean THEN EXCLUDED.repository
+      WHEN $16::boolean THEN EXCLUDED.repository
       ELSE sessions.repository
     END,
     active_run_id = CASE
-      WHEN $15::boolean THEN EXCLUDED.active_run_id
+      WHEN $17::boolean THEN EXCLUDED.active_run_id
       ELSE sessions.active_run_id
     END,
     mode = EXCLUDED.mode,

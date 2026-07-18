@@ -182,15 +182,17 @@ describe("platform event schemas", () => {
       scopeId: "thr_abc123",
       type: "thread.title.updated",
       payload: {
-        thread: {
-          ...thread,
-          title: "Renamed thread",
-          titleSource: "user",
-          updatedAt: "2026-06-08T16:00:00.000Z",
-          lastEventSequence: 2,
-        },
+        threadId: "thr_abc123",
+        firstMessageId: "msg_first_user",
+        title: "Renamed thread",
+        titleVersion: 2,
+        source: "user",
+        timestamp: "2026-06-08T16:00:00.000Z",
       },
     });
+    if (titleEvent.type !== "thread.title.updated") {
+      throw new Error("Expected a thread title update event");
+    }
     const pinnedEvent = ThreadEventSchema.parse({
       ...envelope,
       eventId: "evt_def456",
@@ -202,13 +204,18 @@ describe("platform event schemas", () => {
       type: "thread.pinned",
       payload: {
         thread: {
-          ...titleEvent.payload.thread,
+          ...thread,
+          title: titleEvent.payload.title,
+          titleSource: titleEvent.payload.source,
           pinnedAt: "2026-06-08T17:00:00.000Z",
           updatedAt: "2026-06-08T17:00:00.000Z",
           lastEventSequence: 3,
         },
       },
     });
+    if (pinnedEvent.type !== "thread.pinned") {
+      throw new Error("Expected a thread pinned event");
+    }
     const archivedEvent = ThreadEventSchema.parse({
       ...envelope,
       eventId: "evt_ghi789",
@@ -228,8 +235,11 @@ describe("platform event schemas", () => {
         },
       },
     });
+    if (archivedEvent.type !== "thread.archived") {
+      throw new Error("Expected a thread archived event");
+    }
 
-    expect(titleEvent.payload.thread.title).toBe("Renamed thread");
+    expect(titleEvent.payload.title).toBe("Renamed thread");
     expect(pinnedEvent.payload.thread.pinnedAt).toBe(
       "2026-06-08T17:00:00.000Z",
     );

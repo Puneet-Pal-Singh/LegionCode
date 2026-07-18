@@ -68,6 +68,7 @@ export interface SessionRecord {
   id: string;
   userId: string;
   workspaceId: string | null;
+  threadId: string | null;
   taskId: string;
   title: string;
   titleSource: ChatTitleSource;
@@ -107,6 +108,7 @@ export interface EnsureTranscriptSessionInput {
   sessionId: string;
   userId: string;
   workspaceId?: string | null;
+  threadId?: string | null;
   taskId?: string | null;
   title?: string | null;
   titleSource?: ChatTitleSource | null;

@@ -9,3 +9,7 @@ export {
   type PersistThreadTitleInput,
 } from "./ThreadTitleService";
 export { withThreadTitleRepository } from "./ThreadTitlePersistenceFactory";
+export {
+  readPersistedThreadTitleScope,
+  type PersistedThreadTitleScope,
+} from "./PersistedThreadTitleScope";

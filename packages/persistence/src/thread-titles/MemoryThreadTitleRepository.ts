@@ -1,37 +1,43 @@
-import type { RunRepository } from "../runs/types.js";
+import type { EventStore } from "@repo/event-store";
 import type { SessionRecord, TranscriptRepository } from "../sessions/types.js";
 import type {
-  PersistAutomatedThreadTitleInput,
+  PersistThreadTitleInput,
   ThreadTitleRepository,
 } from "./types.js";
 
-/** Memory implementation mirrors the database transaction for boundary tests. */
+/** Memory implementation keeps the same canonical event contract as Postgres. */
 export class MemoryThreadTitleRepository implements ThreadTitleRepository {
   constructor(
     private readonly transcripts: TranscriptRepository,
-    private readonly runs: RunRepository,
+    private readonly events: EventStore,
   ) {}
 
-  async persistAutomatedTitle(
-    input: PersistAutomatedThreadTitleInput,
+  async persistTitle(
+    input: PersistThreadTitleInput,
   ): Promise<SessionRecord | null> {
-    return await this.transcripts.transaction(async (transcripts) =>
-      this.runs.transaction(async (runs) => {
-        const session = await transcripts.updateAutomatedSessionTitle({
-          userId: input.userId,
-          sessionId: input.sessionId,
-          title: input.title,
-          titleSource: input.titleSource,
-          expectedTitleVersion: input.expectedTitleVersion,
-          initialOnly: input.initialOnly,
-        });
-        if (!session) {
-          return null;
-        }
+    return await this.transcripts.transaction(async (transcripts) => {
+      const session =
+        input.titleSource === "user"
+          ? await transcripts.renameSessionTitle({
+              userId: input.userId,
+              sessionId: input.sessionId,
+              title: input.title,
+              titleSource: "user",
+            })
+          : await transcripts.updateAutomatedSessionTitle({
+              userId: input.userId,
+              sessionId: input.sessionId,
+              title: input.title,
+              titleSource: input.titleSource,
+              expectedTitleVersion: input.expectedTitleVersion,
+              initialOnly: input.initialOnly,
+            });
+      if (!session) {
+        return null;
+      }
 
-        await runs.appendEvent(input.buildEvent(session));
-        return session;
-      }),
-    );
+      await this.events.append(input.buildEvent(session));
+      return session;
+    });
   }
 }
