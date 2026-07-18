@@ -79,6 +79,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-123",
       "run-456",
@@ -145,7 +146,10 @@ describe("ExecutionService", () => {
     expect(
       () =>
         new ExecutionService(
-          { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+          {
+            SECURE_API: { fetch: fetchMock },
+            INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+          } as unknown as Env,
           "session-unscoped",
           "run-unscoped",
         ),
@@ -195,6 +199,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-retry",
       "run-retry",
@@ -253,6 +258,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-abc",
       "run-def",
@@ -328,6 +334,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-timeout",
       "run-timeout",
@@ -396,9 +403,28 @@ describe("ExecutionService", () => {
           }),
           { status: 503, headers: { "Content-Type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-sandbox",
+            token: "tok-sandbox",
+            expiresAt: Date.now() + 60_000,
+            lease: {
+              leaseId: "lease_replacement01",
+              sandboxId: "sb-replacement01",
+              generation: 1,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
     const service = new ExecutionService(
-      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
       "session-sandbox",
       "run-sandbox",
       undefined,
@@ -445,6 +471,9 @@ describe("ExecutionService", () => {
         },
       },
     });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
+      "/api/v1/session/sess-sandbox/resume",
+    );
   });
 
   it("rejects a 2xx secure failure payload as a typed contract violation", async () => {
@@ -479,7 +508,11 @@ describe("ExecutionService", () => {
         ),
       );
     const service = new ExecutionService(
-      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
       "session-contract",
       "run-contract",
       undefined,
@@ -542,6 +575,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-git",
       "run-git",
@@ -597,6 +631,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-123"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -672,6 +707,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-commit-oauth"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -749,6 +785,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-456"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -834,6 +871,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-789"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -887,6 +925,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-790", [
           "read:user",
           "user:email",
@@ -963,6 +1002,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-node",
       "run-owned-by-service",
@@ -1027,6 +1067,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-failure",
       "run-failure",
@@ -1108,6 +1149,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-status",
       "run-status",
@@ -1166,6 +1208,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-status-local-dev",
       "run-status-local-dev",
@@ -1243,6 +1286,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -1349,6 +1393,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async () =>

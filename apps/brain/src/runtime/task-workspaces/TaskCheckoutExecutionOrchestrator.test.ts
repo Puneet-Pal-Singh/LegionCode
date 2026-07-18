@@ -256,6 +256,10 @@ class MemoryTaskWorkspaceRepository implements TaskWorkspaceRepository {
     return leaseId === this.checkout.leaseId ? this.checkout : null;
   }
 
+  async replaceLease(): Promise<TaskCheckout> {
+    throw new Error("not implemented in this execution-claim fixture");
+  }
+
   async settle(input: SettleTaskCheckoutInput) {
     if (input.checkoutId !== this.checkout.checkoutId) {
       throw new Error("not found");
@@ -279,6 +283,7 @@ function createCheckout(overrides: Partial<TaskCheckout> = {}): TaskCheckout {
     threadId: identity.threadId,
     turnId: identity.turnId,
     runAttemptId: identity.runAttemptId,
+    secureSessionId: "sess_secure001",
     leaseId: "lease_123456",
     sandboxId: "sandbox-123456",
     filesystemRoot: "/home/sandbox/checkouts/checkout_123456",

@@ -5,6 +5,7 @@
 
 import {
   SessionCreateRequestSchema,
+  SessionResumeRequestSchema,
   ExecuteTaskRequestSchema,
   ExecuteTaskResponseSchema,
   validateRequestBody,
@@ -220,6 +221,10 @@ async function getActiveSession(
   }
 
   if (Date.now() > session.expiresAt) {
+    const releaseLease = (runtime as LeaseRuntime).releaseLease;
+    if (typeof releaseLease === "function") {
+      await releaseLease(session.lease.leaseId);
+    }
     await sessionStore.deleteExecutionSession(sessionId);
     return null;
   }
@@ -327,6 +332,11 @@ function extractSessionIdFromPath(pathname: string): string | null {
   return match?.[1] ?? null;
 }
 
+function extractResumedSessionIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/v1\/session\/([^/]+)\/resume$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 function parseExecutionResponse(result: unknown): ExecuteTaskResponse | null {
   const parsed = ExecuteTaskResponseSchema.safeParse(result);
   return parsed.success ? parsed.data : null;
@@ -366,13 +376,20 @@ function hasMatchingWorkspaceScope(
   if (!isWorkspaceScope(candidate)) {
     return false;
   }
+  return workspaceScopesEqual(session.workspaceScope, candidate);
+}
+
+function workspaceScopesEqual(
+  left: WorkspaceScope,
+  right: WorkspaceScope,
+): boolean {
   return (
-    candidate.runId === session.workspaceScope.runId &&
-    candidate.threadId === session.workspaceScope.threadId &&
-    candidate.turnId === session.workspaceScope.turnId &&
-    candidate.runAttemptId === session.workspaceScope.runAttemptId &&
-    candidate.workspaceId === session.workspaceScope.workspaceId &&
-    candidate.root === session.workspaceScope.root
+    left.runId === right.runId &&
+    left.threadId === right.threadId &&
+    left.turnId === right.turnId &&
+    left.runAttemptId === right.runAttemptId &&
+    left.workspaceId === right.workspaceId &&
+    left.root === right.root
   );
 }
 
@@ -381,14 +398,14 @@ async function replaceDeadLease(
   sessionId: string,
   session: SessionRecord,
 ): Promise<void> {
-  if (session.lease.generation >= 1) return;
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) return;
+  const nextGeneration = session.lease.generation + 1;
   const replacement = await createSandboxLease({
     workspaceScope: session.workspaceScope,
     owner: sessionId,
-    correlationId: `${session.lease.correlationId}:replacement-1`,
-    generation: session.lease.generation + 1,
+    correlationId: `${session.lease.correlationId}:replacement-${nextGeneration}`,
+    generation: nextGeneration,
   });
   await sessionStore.storeExecutionSession(sessionId, {
     ...session,
@@ -500,6 +517,132 @@ export async function handleCreateSession(
     const msg = sanitizeUnknownError(error);
     console.error(`[api/session] Unexpected error: ${sanitizeLogText(msg)}`);
     return errorResponse(msg, "INTERNAL_ERROR", 500);
+  }
+}
+
+/**
+ * Rotates the short-lived bearer for one exact persisted checkout session.
+ *
+ * Routing must authenticate this handler as an internal Brain service-binding
+ * request before invocation. The caller must also prove the complete persisted
+ * workspace and lease identity; no session, lease, or checkout is guessed or
+ * replaced here.
+ */
+export async function handleResumeSession(
+  request: Request,
+  runtime: RuntimeStub,
+): Promise<Response> {
+  try {
+    const sessionId = extractResumedSessionIdFromPath(
+      new URL(request.url).pathname,
+    );
+    if (!sessionId) {
+      return errorResponse("Invalid session ID", "INVALID_REQUEST", 400);
+    }
+    const validation = await validateRequestBody(
+      request,
+      SessionResumeRequestSchema,
+    );
+    if (!validation.valid) {
+      return errorResponse(validation.error, "INVALID_REQUEST", 400);
+    }
+    const session = await getActiveSession(runtime, sessionId);
+    if (!session) {
+      const sessionStore = getRuntimeSessionStore(runtime);
+      if (!sessionStore) {
+        return errorResponse(
+          "Session storage unavailable",
+          "SESSION_STORAGE_UNAVAILABLE",
+          503,
+        );
+      }
+      const token = generateToken();
+      const now = Date.now();
+      const lease = await createSandboxLease({
+        workspaceScope: validation.data.workspaceScope,
+        owner: sessionId,
+        correlationId: `secure-api:${sessionId}:recovery-${validation.data.lease.generation + 1}`,
+        generation: validation.data.lease.generation + 1,
+        now,
+      });
+      const recovered: SessionRecord = {
+        runId: validation.data.workspaceScope.runId,
+        taskId: `recovered-${validation.data.workspaceScope.runAttemptId}`,
+        repoPath: ".",
+        expiresAt: now + SESSION_TTL_MS,
+        token,
+        createdAt: now,
+        workspaceScope: validation.data.workspaceScope,
+        lease,
+      };
+      await sessionStore.storeExecutionSession(sessionId, recovered);
+      return jsonResponse(
+        {
+          sessionId,
+          token,
+          expiresAt: recovered.expiresAt,
+          lease,
+          replaced: true,
+        },
+        200,
+      );
+    }
+    if (
+      !workspaceScopesEqual(
+        session.workspaceScope,
+        validation.data.workspaceScope,
+      )
+    ) {
+      return errorResponse(
+        "Persisted checkout identity does not match the secure session",
+        "SESSION_SCOPE_MISMATCH",
+        409,
+      );
+    }
+    const exactLease =
+      session.lease.leaseId === validation.data.lease.leaseId &&
+      session.lease.sandboxId === validation.data.lease.sandboxId &&
+      session.lease.generation === validation.data.lease.generation;
+    const pendingReplacement =
+      session.lease.generation === validation.data.lease.generation + 1;
+    if (!exactLease && !pendingReplacement) {
+      return errorResponse(
+        "Persisted checkout lease generation does not match the secure session",
+        "SESSION_SCOPE_MISMATCH",
+        409,
+      );
+    }
+    const sessionStore = getRuntimeSessionStore(runtime);
+    if (!sessionStore) {
+      return errorResponse(
+        "Session storage unavailable",
+        "SESSION_STORAGE_UNAVAILABLE",
+        503,
+      );
+    }
+    const token = generateToken();
+    const resumed: SessionRecord = {
+      ...session,
+      token,
+      expiresAt: Date.now() + SESSION_TTL_MS,
+    };
+    await sessionStore.storeExecutionSession(sessionId, resumed);
+    return jsonResponse(
+      {
+        sessionId,
+        token,
+        expiresAt: resumed.expiresAt,
+        lease: resumed.lease,
+        replaced: pendingReplacement,
+      },
+      200,
+    );
+  } catch (error) {
+    const message = sanitizeUnknownError(error);
+    console.error(
+      `[api/resume-session] status=failed error=${sanitizeLogText(message)}`,
+    );
+    return errorResponse(message, "INTERNAL_ERROR", 500);
   }
 }
 

@@ -32,8 +32,27 @@ describe("SandboxExecutionLease", () => {
       await createSandboxId(
         workspaceScope.workspaceId,
         workspaceScope.runAttemptId,
+        0,
       ),
     );
+  });
+
+  it("uses a distinct sandbox for each replacement generation", async () => {
+    const initial = await createSandboxLease({
+      workspaceScope,
+      owner: "session-1",
+      correlationId: "correlation-1",
+      generation: 0,
+    });
+    const replacement = await createSandboxLease({
+      workspaceScope,
+      owner: "session-1",
+      correlationId: "correlation-2",
+      generation: 1,
+    });
+
+    expect(replacement.sandboxId).not.toBe(initial.sandboxId);
+    expect(replacement.generation).toBe(initial.generation + 1);
   });
 
   it("keeps distinct run attempts in separate sandboxes", async () => {

@@ -72,6 +72,21 @@ export const SessionCreateResponseSchema = z.object({
 
 export type SessionCreateResponse = z.infer<typeof SessionCreateResponseSchema>;
 
+export const SessionResumeRequestSchema = z
+  .object({
+    workspaceScope: WorkspaceScopeSchema,
+    lease: z
+      .object({
+        leaseId: z.string().min(1),
+        sandboxId: z.string().min(1),
+        generation: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type SessionResumeRequest = z.infer<typeof SessionResumeRequestSchema>;
+
 /**
  * Task Execution Schemas
  */

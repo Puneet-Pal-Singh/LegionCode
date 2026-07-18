@@ -3,6 +3,7 @@ import {
   handleCreateSession,
   handleDeleteSession,
   handleExecuteTask,
+  handleResumeSession,
 } from "./SessionAPI";
 
 interface SessionRecord {
@@ -13,7 +14,11 @@ interface SessionRecord {
   token: string;
   createdAt: number;
   workspaceScope: WorkspaceScope;
-  lease: { generation: number };
+  lease: {
+    leaseId: string;
+    sandboxId: string;
+    generation: number;
+  };
 }
 
 interface WorkspaceScope {
@@ -190,6 +195,35 @@ function createDeleteRequest(sessionId: string, authHeader?: string): Request {
   });
 }
 
+function createResumeRequest(
+  sessionId: string,
+  lease: SessionRecord["lease"],
+  workspaceScope: WorkspaceScope = {
+    runId: "run-auth-1",
+    threadId: "thread-auth-1",
+    turnId: "turn-auth-1",
+    runAttemptId: "attempt-auth-1",
+    workspaceId: "workspace-auth-1",
+    root: "/runs/auth-1",
+  },
+): Request {
+  return new Request(
+    `http://localhost/api/v1/session/${encodeURIComponent(sessionId)}/resume`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceScope,
+        lease: {
+          leaseId: lease.leaseId,
+          sandboxId: lease.sandboxId,
+          generation: lease.generation,
+        },
+      }),
+    },
+  );
+}
+
 function createExecuteRequest(sessionId: string, authHeader?: string): Request {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -350,7 +384,7 @@ describe("session auth hardening", () => {
     ]);
   });
 
-  it("returns 503 and stores one explicit replacement lease after sandbox loss", async () => {
+  it("advances exactly one lease generation after each sandbox loss", async () => {
     const runtime = createRuntimeStoreMock();
     const stored: SessionRecord[] = [];
     const originalStore = runtime.storeExecutionSession;
@@ -380,6 +414,30 @@ describe("session auth hardening", () => {
     expect(response.status).toBe(503);
     expect(stored).toHaveLength(2);
     expect(stored[1]?.lease.generation).toBe(1);
+    expect(stored[1]?.lease.sandboxId).not.toBe(stored[0]?.lease.sandboxId);
+
+    const resume = await handleResumeSession(
+      createResumeRequest(sessionId, stored[0]!.lease),
+      runtime,
+    );
+    expect(resume.status).toBe(200);
+    const resumed = (await resume.json()) as {
+      token: string;
+      lease: SessionRecord["lease"];
+      replaced: boolean;
+    };
+    expect(resumed.replaced).toBe(true);
+    expect(resumed.lease).toMatchObject(stored[1]!.lease);
+
+    const secondResponse = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${resumed.token}`),
+      runtime,
+    );
+    expect(secondResponse.status).toBe(503);
+    const activeSession = await runtime.getExecutionSession(sessionId);
+    expect(activeSession?.lease.generation).toBe(2);
+    expect(activeSession?.lease.leaseId).not.toBe(resumed.lease.leaseId);
+    expect(activeSession?.lease.sandboxId).not.toBe(resumed.lease.sandboxId);
   });
 
   it("rejects delete without authorization header", async () => {
@@ -423,5 +481,99 @@ describe("session auth hardening", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as DeleteBody;
     expect(body.success).toBe(true);
+  });
+
+  it("rotates a bearer only for the exact persisted session and lease scope", async () => {
+    const runtime = createRuntimeStoreMock();
+    const createdResponse = await handleCreateSession(
+      createSessionRequest(),
+      runtime,
+    );
+    const created = (await createdResponse.json()) as {
+      sessionId: string;
+      token: string;
+      lease: SessionRecord["lease"];
+    };
+
+    const resumedResponse = await handleResumeSession(
+      createResumeRequest(created.sessionId, created.lease),
+      runtime,
+    );
+    expect(resumedResponse.status).toBe(200);
+    const resumed = (await resumedResponse.json()) as {
+      sessionId: string;
+      token: string;
+      lease: SessionRecord["lease"];
+    };
+    expect(resumed.sessionId).toBe(created.sessionId);
+    expect(resumed.token).not.toBe(created.token);
+    expect(resumed.lease).toMatchObject(created.lease);
+
+    const oldToken = await handleExecuteTask(
+      createExecuteRequest(created.sessionId, `Bearer ${created.token}`),
+      runtime,
+    );
+    expect(oldToken.status).toBe(401);
+    const newToken = await handleExecuteTask(
+      createExecuteRequest(created.sessionId, `Bearer ${resumed.token}`),
+      runtime,
+    );
+    expect(newToken.status).toBe(200);
+  });
+
+  it("rejects resume when persisted checkout identity mismatches", async () => {
+    const runtime = createRuntimeStoreMock();
+    const createdResponse = await handleCreateSession(
+      createSessionRequest(),
+      runtime,
+    );
+    const created = (await createdResponse.json()) as {
+      sessionId: string;
+      lease: SessionRecord["lease"];
+    };
+
+    const response = await handleResumeSession(
+      createResumeRequest(created.sessionId, {
+        ...created.lease,
+        leaseId: "lease_wrong",
+      }),
+      runtime,
+    );
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as ErrorBody).code).toBe(
+      "SESSION_SCOPE_MISMATCH",
+    );
+  });
+
+  it("creates exactly one next-generation lease when the persisted secure session is gone", async () => {
+    const runtime = createRuntimeStoreMock();
+    const createdResponse = await handleCreateSession(
+      createSessionRequest(),
+      runtime,
+    );
+    const created = (await createdResponse.json()) as {
+      sessionId: string;
+      token: string;
+      lease: SessionRecord["lease"];
+    };
+    await handleDeleteSession(
+      createDeleteRequest(created.sessionId, `Bearer ${created.token}`),
+      runtime,
+    );
+
+    const resumedResponse = await handleResumeSession(
+      createResumeRequest(created.sessionId, created.lease),
+      runtime,
+    );
+    expect(resumedResponse.status).toBe(200);
+    const resumed = (await resumedResponse.json()) as {
+      sessionId: string;
+      lease: SessionRecord["lease"];
+      replaced: boolean;
+    };
+    expect(resumed.sessionId).toBe(created.sessionId);
+    expect(resumed.replaced).toBe(true);
+    expect(resumed.lease.generation).toBe(created.lease.generation + 1);
+    expect(resumed.lease.leaseId).not.toBe(created.lease.leaseId);
   });
 });

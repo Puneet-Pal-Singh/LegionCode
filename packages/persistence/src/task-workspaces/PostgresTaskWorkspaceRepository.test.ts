@@ -41,7 +41,8 @@ class TaskWorkspaceSqlClient implements SqlClient {
         [...this.checkouts.values()].some(
           (candidate) =>
             candidate.run_attempt_id === params[5] ||
-            candidate.lease_id === params[6],
+            candidate.secure_session_id === params[6] ||
+            candidate.lease_id === params[7],
         )
       ) {
         throw { code: "23505", constraint: "task_checkouts_identity" };
@@ -51,6 +52,24 @@ class TaskWorkspaceSqlClient implements SqlClient {
     }
     if (statement.startsWith("UPDATE task_checkouts")) {
       const row = this.checkouts.get(String(params[0]));
+      if (statement.includes("SET lease_id=$4")) {
+        if (
+          !row ||
+          row.lease_id !== params[1] ||
+          row.generation !== params[2] ||
+          !["ready", "active"].includes(String(row.status))
+        ) {
+          return rows<Row>([]);
+        }
+        const next = {
+          ...row,
+          lease_id: params[3],
+          sandbox_id: params[4],
+          generation: params[5],
+        };
+        this.checkouts.set(String(params[0]), next);
+        return rows<Row>([next]);
+      }
       if (!row || row.status !== params[1]) return rows<Row>([]);
       const next = {
         ...row,
@@ -206,6 +225,42 @@ describe("PostgresTaskWorkspaceRepository", () => {
       "WHERE checkout_id=$1 AND status=$2",
     );
   });
+
+  it("atomically advances only the matching active lease by one generation", async () => {
+    const repository = createRepository();
+    await repository.createSnapshot(snapshot());
+    const created = await repository.createCheckout(checkout());
+    const active = await repository.activate(created.checkoutId);
+
+    const replaced = await repository.replaceLease({
+      checkoutId: active.checkoutId,
+      expectedLeaseId: active.leaseId,
+      expectedGeneration: active.generation,
+      nextLeaseId: "lease_lease002",
+      nextSandboxId: "sb-e5f6g7h8",
+      nextGeneration: active.generation + 1,
+    });
+
+    expect(replaced).toMatchObject({
+      checkoutId: active.checkoutId,
+      snapshotId: active.snapshotId,
+      secureSessionId: active.secureSessionId,
+      leaseId: "lease_lease002",
+      sandboxId: "sb-e5f6g7h8",
+      generation: active.generation + 1,
+      status: "active",
+    });
+    await expect(
+      repository.replaceLease({
+        checkoutId: active.checkoutId,
+        expectedLeaseId: active.leaseId,
+        expectedGeneration: active.generation,
+        nextLeaseId: "lease_lease003",
+        nextSandboxId: "sb-rejected",
+        nextGeneration: active.generation + 2,
+      }),
+    ).rejects.toMatchObject({ code: "task_checkout_transition_invalid" });
+  });
 });
 
 function createRepository(): PostgresTaskWorkspaceRepository {
@@ -250,6 +305,7 @@ function checkout(overrides: Partial<TaskCheckout> = {}): TaskCheckout {
     threadId: "thr_thread01",
     turnId: "trn_turn0001",
     runAttemptId: "attempt_attempt1",
+    secureSessionId: "sess_secure001",
     leaseId: "lease_lease001",
     sandboxId: "sb-a1b2c3d4",
     filesystemRoot: "/workspace/checkouts/checkout_task01",
@@ -291,18 +347,19 @@ function checkoutRow(params: readonly SqlValue[]): SqlRow {
     thread_id: params[3],
     turn_id: params[4],
     run_attempt_id: params[5],
-    lease_id: params[6],
-    sandbox_id: params[7],
-    filesystem_root: params[8],
-    git_dir: params[9],
-    index_file: params[10],
-    working_branch: params[11],
-    start_tree_id: params[12],
-    generation: params[13],
-    status: params[14],
-    settled_at: params[15],
-    failure_code: params[16],
-    created_at: params[17],
+    secure_session_id: params[6],
+    lease_id: params[7],
+    sandbox_id: params[8],
+    filesystem_root: params[9],
+    git_dir: params[10],
+    index_file: params[11],
+    working_branch: params[12],
+    start_tree_id: params[13],
+    generation: params[14],
+    status: params[15],
+    settled_at: params[16],
+    failure_code: params[17],
+    created_at: params[18],
   };
 }
 

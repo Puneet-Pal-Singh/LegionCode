@@ -17,6 +17,7 @@ import { parseJsonColumn, stringifyJsonColumn } from "../providers/json.js";
 import type { SqlClient, SqlRow, SqlValue } from "../sql.js";
 import {
   TaskWorkspacePersistenceError,
+  type ReplaceTaskCheckoutLeaseInput,
   type SettleTaskCheckoutInput,
   type TaskWorkspaceRepository,
 } from "./types.js";
@@ -45,6 +46,7 @@ interface TaskCheckoutRow extends SqlRow {
   thread_id?: string;
   turn_id?: string;
   run_attempt_id?: string;
+  secure_session_id?: string;
   lease_id?: string;
   sandbox_id?: string;
   filesystem_root?: string;
@@ -200,6 +202,53 @@ export class PostgresTaskWorkspaceRepository implements TaskWorkspaceRepository 
     });
   }
 
+  async replaceLease(
+    input: ReplaceTaskCheckoutLeaseInput,
+  ): Promise<TaskCheckout> {
+    const checkoutId = TaskCheckoutIdSchema.parse(input.checkoutId);
+    const expectedLeaseId = LeaseIdSchema.parse(input.expectedLeaseId);
+    const nextLeaseId = LeaseIdSchema.parse(input.nextLeaseId);
+    if (
+      !Number.isSafeInteger(input.expectedGeneration) ||
+      !Number.isSafeInteger(input.nextGeneration) ||
+      input.expectedGeneration < 0 ||
+      input.nextGeneration !== input.expectedGeneration + 1
+    ) {
+      throw new TaskWorkspacePersistenceError(
+        "task_checkout_transition_invalid",
+        "Task checkout lease replacement must advance exactly one generation",
+        {
+          checkoutId,
+          expectedGeneration: String(input.expectedGeneration),
+          nextGeneration: String(input.nextGeneration),
+        },
+      );
+    }
+    const result = await this.client.query<TaskCheckoutRow>(
+      REPLACE_CHECKOUT_LEASE_SQL,
+      [
+        checkoutId,
+        expectedLeaseId,
+        input.expectedGeneration,
+        nextLeaseId,
+        input.nextSandboxId,
+        input.nextGeneration,
+      ],
+    );
+    const persisted = mapOptionalCheckout(result.rows[0]);
+    if (persisted) return persisted;
+
+    throw new TaskWorkspacePersistenceError(
+      "task_checkout_transition_conflict",
+      "Task checkout lease changed before replacement could be persisted",
+      {
+        checkoutId,
+        expectedLeaseId,
+        expectedGeneration: String(input.expectedGeneration),
+      },
+    );
+  }
+
   async settle(input: SettleTaskCheckoutInput): Promise<TaskCheckout> {
     const settledAt = ProtocolTimestampSchema.parse(input.settledAt);
     const next =
@@ -323,6 +372,7 @@ function checkoutParams(checkout: TaskCheckout): readonly SqlValue[] {
     checkout.threadId,
     checkout.turnId,
     checkout.runAttemptId,
+    checkout.secureSessionId,
     checkout.leaseId,
     checkout.sandboxId,
     checkout.filesystemRoot,
@@ -427,6 +477,10 @@ function mapOptionalCheckout(
     threadId: requireString(row.thread_id, "thread_id"),
     turnId: requireString(row.turn_id, "turn_id"),
     runAttemptId: requireString(row.run_attempt_id, "run_attempt_id"),
+    secureSessionId: requireString(
+      row.secure_session_id,
+      "secure_session_id",
+    ),
     leaseId: requireString(row.lease_id, "lease_id"),
     sandboxId: requireString(row.sandbox_id, "sandbox_id"),
     filesystemRoot: requireString(row.filesystem_root, "filesystem_root"),
@@ -483,9 +537,9 @@ const SNAPSHOT_COLUMNS = `snapshot_id, workspace_id, repository_provider,
   authorized_tree_id, manifest_digest, config_digest, captured_at, provenance_json`;
 
 const CHECKOUT_COLUMNS = `checkout_id, snapshot_id, workspace_id, thread_id,
-  turn_id, run_attempt_id, lease_id, sandbox_id, filesystem_root, git_dir,
-  index_file, working_branch, start_tree_id, generation, status, settled_at,
-  failure_code, created_at`;
+  turn_id, run_attempt_id, secure_session_id, lease_id, sandbox_id,
+  filesystem_root, git_dir, index_file, working_branch, start_tree_id,
+  generation, status, settled_at, failure_code, created_at`;
 
 const INSERT_SNAPSHOT_SQL = `INSERT INTO workspace_snapshots (${SNAPSHOT_COLUMNS})
   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
@@ -494,7 +548,7 @@ const SELECT_SNAPSHOT_BY_ID_SQL = `SELECT ${SNAPSHOT_COLUMNS}
   FROM workspace_snapshots WHERE snapshot_id=$1`;
 
 const INSERT_CHECKOUT_SQL = `INSERT INTO task_checkouts (${CHECKOUT_COLUMNS})
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
   RETURNING ${CHECKOUT_COLUMNS}`;
 const SELECT_CHECKOUT_BY_ID_SQL = `SELECT ${CHECKOUT_COLUMNS}
   FROM task_checkouts WHERE checkout_id=$1`;
@@ -506,4 +560,9 @@ const SELECT_CHECKOUT_BY_LEASE_SQL = `SELECT ${CHECKOUT_COLUMNS}
 const TRANSITION_CHECKOUT_SQL = `UPDATE task_checkouts
   SET status=$3, settled_at=$4, failure_code=$5
   WHERE checkout_id=$1 AND status=$2
+  RETURNING ${CHECKOUT_COLUMNS}`;
+const REPLACE_CHECKOUT_LEASE_SQL = `UPDATE task_checkouts
+  SET lease_id=$4, sandbox_id=$5, generation=$6
+  WHERE checkout_id=$1 AND lease_id=$2 AND generation=$3
+    AND status IN ('ready', 'active')
   RETURNING ${CHECKOUT_COLUMNS}`;

@@ -16,6 +16,7 @@ const GIT_OBJECT_ID_PATTERN = /^[a-f0-9]{40,64}$/u;
 const SAFE_GIT_REF_PATTERN =
   /^(?!\/)(?!.*(?:\/\.|\/\/|@\{|\\|\.\.))(?!.*[/.]$)[A-Za-z0-9._/-]{1,240}$/u;
 const SANDBOX_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/u;
+const SECURE_SESSION_ID_PATTERN = /^sess_[A-Za-z0-9_-]{8,160}$/u;
 // A checkout path is server-owned, but it still crosses a persistence boundary.
 // Do not permit traversal components to become durable task identity.
 const ABSOLUTE_PATH_PATTERN =
@@ -107,6 +108,7 @@ const TaskCheckoutBindingShape = {
   threadId: ThreadIdSchema,
   turnId: TurnIdSchema,
   runAttemptId: RunAttemptIdSchema,
+  secureSessionId: z.string().regex(SECURE_SESSION_ID_PATTERN),
   leaseId: LeaseIdSchema,
   sandboxId: z.string().regex(SANDBOX_ID_PATTERN),
   filesystemRoot: z.string().max(2_048).regex(ABSOLUTE_PATH_PATTERN),
@@ -114,7 +116,7 @@ const TaskCheckoutBindingShape = {
   indexFile: z.string().max(2_048).regex(ABSOLUTE_PATH_PATTERN),
   workingBranch: z.string().regex(SAFE_GIT_REF_PATTERN),
   startTreeId: GitObjectIdSchema,
-  generation: z.number().int().safe().positive(),
+  generation: z.number().int().safe().nonnegative(),
   createdAt: ProtocolTimestampSchema,
 } as const;
 

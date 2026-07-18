@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TaskWorkspaceRepository } from "@repo/persistence";
 import {
+  TaskCheckoutSchema,
   WorkspaceSnapshotSchema,
   type TaskCheckout,
   type WorkspaceSnapshot,
 } from "@repo/platform-protocol";
 import type { ExecuteRunPayload } from "../parsing/ExecuteRunPayloadSchema";
 import type { Env } from "../../types/ai";
-import { TaskCheckoutIssuer } from "./TaskCheckoutIssuer";
+import {
+  TaskCheckoutIssuer,
+  type SecureExecutionSessionFactory,
+} from "./TaskCheckoutIssuer";
 
 const snapshot = WorkspaceSnapshotSchema.parse({
   kind: "workspace_snapshot",
@@ -43,7 +47,7 @@ describe("TaskCheckoutIssuer", () => {
       repository,
       ({ workspaceScope }) => ({
         acquire: vi.fn(async () => ({
-          sessionId: "sess-secure",
+          sessionId: "sess_secure001",
           token: "secret-test-token",
           expiresAt: Date.now() + 60_000,
           lease: {
@@ -52,6 +56,9 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        recoverAfterSandboxLoss: vi.fn(async () => {
+          throw new Error("not expected");
+        }),
         release,
         workspaceScope,
       }),
@@ -62,10 +69,11 @@ describe("TaskCheckoutIssuer", () => {
     expect(issued.checkout).toMatchObject({
       snapshotId: snapshot.snapshotId,
       workspaceId: snapshot.workspaceId,
+      secureSessionId: "sess_secure001",
       leaseId: "lease_secure01",
       sandboxId: "sb-secure01",
       startTreeId: snapshot.authorizedTreeId,
-      generation: 1,
+      generation: 0,
       status: "ready",
     });
     expect(issued.checkout.filesystemRoot).toBe(
@@ -77,6 +85,120 @@ describe("TaskCheckoutIssuer", () => {
       issued.checkout,
     );
     expect(release).not.toHaveBeenCalled();
+  });
+
+  it("rotates a bearer and reuses the exact persisted checkout after restart", async () => {
+    const repository = createRepository();
+    const capture = vi.fn(async () => snapshot);
+    const sessionFactory = vi.fn(
+      (input: Parameters<SecureExecutionSessionFactory>[0]) => ({
+        acquire: vi.fn(async () => ({
+          sessionId: "sess_secure001",
+          token: "rotated-token",
+          expiresAt: Date.now() + 60_000,
+          lease: {
+            leaseId: "lease_secure01",
+            sandboxId: "sb-secure01",
+            generation: 0,
+          },
+        })),
+        recoverAfterSandboxLoss: vi.fn(async () => {
+          throw new Error("not expected");
+        }),
+        release: vi.fn(async () => undefined),
+        persistedReference: input.persistedReference,
+      }),
+    );
+    const issuer = new TaskCheckoutIssuer(
+      {} as Env,
+      { capture },
+      repository,
+      sessionFactory,
+    );
+    const first = await issuer.issue(payload());
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+
+    const resumed = await issuer.issue(payload());
+
+    expect(resumed.checkout).toEqual(first.checkout);
+    expect(capture).toHaveBeenCalledOnce();
+    expect(repository.issueSnapshotCheckout).toHaveBeenCalledOnce();
+    expect(sessionFactory).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        persistedReference: {
+          secureSessionId: first.checkout.secureSessionId,
+          leaseId: first.checkout.leaseId,
+          sandboxId: first.checkout.sandboxId,
+          generation: first.checkout.generation,
+        },
+      }),
+    );
+  });
+
+  it("atomically adopts one secure replacement generation without changing checkout provenance", async () => {
+    const repository = createRepository();
+    const acquire = vi
+      .fn()
+      .mockResolvedValueOnce({
+        sessionId: "sess_secure001",
+        token: "initial-token",
+        expiresAt: Date.now() + 60_000,
+        lease: {
+          leaseId: "lease_secure01",
+          sandboxId: "sb-secure01",
+          generation: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        sessionId: "sess_secure001",
+        token: "replacement-token",
+        expiresAt: Date.now() + 60_000,
+        lease: {
+          leaseId: "lease_secure02",
+          sandboxId: "sb-secure02",
+          generation: 1,
+        },
+      });
+    const issuer = new TaskCheckoutIssuer(
+      {} as Env,
+      { capture: vi.fn(async () => snapshot) },
+      repository,
+      () => ({
+        acquire,
+        recoverAfterSandboxLoss: vi.fn(async () => {
+          throw new Error("not expected");
+        }),
+        release: vi.fn(async () => undefined),
+      }),
+    );
+    const first = await issuer.issue(payload());
+    repository.getByRunAttemptId.mockResolvedValueOnce(first.checkout);
+    repository.getBySnapshotId.mockResolvedValueOnce(snapshot);
+    const replacedCheckout = TaskCheckoutSchema.parse({
+      ...first.checkout,
+      leaseId: "lease_secure02",
+      sandboxId: "sb-secure02",
+      generation: 1,
+    });
+    repository.replaceLease.mockResolvedValueOnce(replacedCheckout);
+
+    const resumed = await issuer.issue(payload());
+
+    expect(resumed.checkout).toEqual(replacedCheckout);
+    expect(resumed.checkout.checkoutId).toBe(first.checkout.checkoutId);
+    expect(resumed.checkout.snapshotId).toBe(first.checkout.snapshotId);
+    expect(resumed.checkout.filesystemRoot).toBe(
+      first.checkout.filesystemRoot,
+    );
+    expect(repository.replaceLease).toHaveBeenCalledWith({
+      checkoutId: first.checkout.checkoutId,
+      expectedLeaseId: "lease_secure01",
+      expectedGeneration: 0,
+      nextLeaseId: "lease_secure02",
+      nextSandboxId: "sb-secure02",
+      nextGeneration: 1,
+    });
   });
 
   it("releases only the acquired secure session when atomic issuance fails", async () => {
@@ -91,7 +213,7 @@ describe("TaskCheckoutIssuer", () => {
       repository,
       () => ({
         acquire: vi.fn(async () => ({
-          sessionId: "sess-secure",
+          sessionId: "sess_secure001",
           token: "secret-test-token",
           expiresAt: Date.now() + 60_000,
           lease: {
@@ -100,6 +222,9 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        recoverAfterSandboxLoss: vi.fn(async () => {
+          throw new Error("not expected");
+        }),
         release,
       }),
     );
@@ -121,7 +246,7 @@ describe("TaskCheckoutIssuer", () => {
       repository,
       () => ({
         acquire: vi.fn(async () => ({
-          sessionId: "sess-secure",
+          sessionId: "sess_secure001",
           token: "secret-test-token",
           expiresAt: Date.now() + 60_000,
           lease: {
@@ -130,6 +255,9 @@ describe("TaskCheckoutIssuer", () => {
             generation: 0,
           },
         })),
+        recoverAfterSandboxLoss: vi.fn(async () => {
+          throw new Error("not expected");
+        }),
         release: vi.fn(async () => {
           throw new Error("secure delete failed");
         }),
@@ -193,6 +321,7 @@ function createRepository() {
     getByRunAttemptId: vi.fn(),
     getByLeaseId: vi.fn(),
     activate: vi.fn(),
+    replaceLease: vi.fn(),
     settle: vi.fn(),
   } satisfies TaskWorkspaceRepository;
 }

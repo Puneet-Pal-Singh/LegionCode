@@ -53,14 +53,15 @@ export async function createSandboxLease(
     MAX_SANDBOX_LEASE_TTL_MS,
   );
   const { workspaceId, runAttemptId } = input.workspaceScope;
+  const generation = input.generation ?? 0;
   return {
     leaseId: `lease_${crypto.randomUUID()}`,
-    sandboxId: await createSandboxId(workspaceId, runAttemptId),
+    sandboxId: await createSandboxId(workspaceId, runAttemptId, generation),
     workspaceScope: input.workspaceScope,
     owner: input.owner,
     correlationId: input.correlationId,
     expiresAt: now + ttlMs,
-    generation: input.generation ?? 0,
+    generation,
     mutationMode: input.mutationMode ?? "serialized",
   };
 }
@@ -73,8 +74,9 @@ export async function createSandboxLease(
 export async function createSandboxId(
   workspaceId: string,
   runAttemptId: string,
+  generation = 0,
 ): Promise<string> {
-  const source = `${workspaceId}\u0000${runAttemptId}`;
+  const source = `${workspaceId}\u0000${runAttemptId}\u0000${generation}`;
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(source),

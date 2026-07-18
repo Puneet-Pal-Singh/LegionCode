@@ -28,6 +28,7 @@ export interface TaskCheckoutRepository {
   getByRunAttemptId(runAttemptId: RunAttemptId): Promise<TaskCheckout | null>;
   getByLeaseId(leaseId: LeaseId): Promise<TaskCheckout | null>;
   activate(checkoutId: TaskCheckoutId): Promise<TaskCheckout>;
+  replaceLease(input: ReplaceTaskCheckoutLeaseInput): Promise<TaskCheckout>;
   settle(input: SettleTaskCheckoutInput): Promise<TaskCheckout>;
 }
 
@@ -47,6 +48,15 @@ export type SettleTaskCheckoutInput =
       readonly settledAt: string;
       readonly failureCode: string;
     };
+
+export interface ReplaceTaskCheckoutLeaseInput {
+  readonly checkoutId: TaskCheckoutId;
+  readonly expectedLeaseId: LeaseId;
+  readonly expectedGeneration: number;
+  readonly nextLeaseId: LeaseId;
+  readonly nextSandboxId: string;
+  readonly nextGeneration: number;
+}
 
 export class TaskWorkspacePersistenceError extends Error {
   constructor(

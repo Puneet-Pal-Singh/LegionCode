@@ -121,6 +121,7 @@ describe("RunEngineRequestHandler", () => {
         threadId: "thr_placeholder",
         turnId: "trn_placeholder",
         runAttemptId: "attempt_placeholder",
+        secureSessionId: "sess_secure001",
         leaseId: "lease_123456",
         sandboxId: "sandbox-123456",
         filesystemRoot: "/home/sandbox/checkouts/checkout_123456",

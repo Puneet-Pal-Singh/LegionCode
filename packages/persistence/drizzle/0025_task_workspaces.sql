@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS "task_checkouts" (
   CONSTRAINT "task_checkouts_snapshot_workspace_fk" FOREIGN KEY ("snapshot_id", "workspace_id") REFERENCES "workspace_snapshots"("snapshot_id", "workspace_id") ON DELETE RESTRICT,
   CONSTRAINT "task_checkouts_run_attempt_unique" UNIQUE("run_attempt_id"),
   CONSTRAINT "task_checkouts_lease_unique" UNIQUE("lease_id"),
-  CONSTRAINT "task_checkouts_generation_check" CHECK ("generation" > 0),
+  CONSTRAINT "task_checkouts_generation_check" CHECK ("generation" >= 0),
   CONSTRAINT "task_checkouts_status_check" CHECK ("status" IN ('ready', 'active', 'settled', 'failed')),
   CONSTRAINT "task_checkouts_start_tree_check" CHECK ("start_tree_id" ~ '^[a-f0-9]{40,64}$'),
   CONSTRAINT "task_checkouts_paths_distinct_check" CHECK ("filesystem_root" <> "git_dir" AND "filesystem_root" <> "index_file" AND "git_dir" <> "index_file"),
@@ -72,16 +72,25 @@ BEGIN
      NEW.thread_id IS DISTINCT FROM OLD.thread_id OR
      NEW.turn_id IS DISTINCT FROM OLD.turn_id OR
      NEW.run_attempt_id IS DISTINCT FROM OLD.run_attempt_id OR
-     NEW.lease_id IS DISTINCT FROM OLD.lease_id OR
-     NEW.sandbox_id IS DISTINCT FROM OLD.sandbox_id OR
      NEW.filesystem_root IS DISTINCT FROM OLD.filesystem_root OR
      NEW.git_dir IS DISTINCT FROM OLD.git_dir OR
      NEW.index_file IS DISTINCT FROM OLD.index_file OR
      NEW.working_branch IS DISTINCT FROM OLD.working_branch OR
      NEW.start_tree_id IS DISTINCT FROM OLD.start_tree_id OR
-     NEW.generation IS DISTINCT FROM OLD.generation OR
      NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'task checkout binding is immutable';
+  END IF;
+  IF OLD.status IN ('ready', 'active') AND NEW.status = OLD.status AND
+     NEW.settled_at IS NULL AND NEW.failure_code IS NULL AND
+     NEW.generation = OLD.generation + 1 AND
+     NEW.lease_id IS DISTINCT FROM OLD.lease_id AND
+     NEW.sandbox_id IS DISTINCT FROM OLD.sandbox_id THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.lease_id IS DISTINCT FROM OLD.lease_id OR
+     NEW.sandbox_id IS DISTINCT FROM OLD.sandbox_id OR
+     NEW.generation IS DISTINCT FROM OLD.generation THEN
+    RAISE EXCEPTION 'task checkout lease replacement is invalid';
   END IF;
   IF OLD.status = 'ready' AND NEW.status = 'active' AND NEW.settled_at IS NULL AND NEW.failure_code IS NULL THEN
     RETURN NEW;

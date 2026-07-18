@@ -61,6 +61,7 @@ const checkout = TaskCheckoutSchema.parse({
   threadId: "thr_123456",
   turnId: "trn_123456",
   runAttemptId: "attempt_123456",
+  secureSessionId: "sess_secure001",
   leaseId: "lease_123456",
   sandboxId: "sandbox-123456",
   filesystemRoot: "/home/sandbox/checkouts/checkout_123456",
@@ -78,6 +79,7 @@ const checkout = TaskCheckoutSchema.parse({
 function executionSession(): SecureExecutionSessionPort {
   return {
     acquire: vi.fn(),
+    recoverAfterSandboxLoss: vi.fn(),
     release: vi.fn(async () => undefined),
   };
 }

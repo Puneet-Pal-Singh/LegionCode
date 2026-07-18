@@ -432,6 +432,37 @@ export class ExecutionService {
           }),
         );
         if (executionResult) {
+          if (executionResult.status === "sandbox_unavailable") {
+            try {
+              await this.executionSession.recoverAfterSandboxLoss();
+            } catch (recoveryError) {
+              console.error(
+                formatDiagnosticLogLine(
+                  "execution/lease",
+                  "replacement-failed",
+                  {
+                    runId: this.runId,
+                    sessionId: this.sessionId,
+                    secureSessionId: executionSession.sessionId,
+                    taskId,
+                    error: sanitizeUnknownError(recoveryError),
+                  },
+                ),
+              );
+              return {
+                outcome: {
+                  ...executionResult,
+                  retryable: true,
+                  error: {
+                    code: "SANDBOX_RECOVERY_FAILED",
+                    message:
+                      "The task sandbox was lost and its isolated replacement could not be secured yet.",
+                  },
+                },
+                httpStatus: 503,
+              };
+            }
+          }
           return { outcome: executionResult, httpStatus: res.status };
         }
         throw new SecureExecutionContractViolationError(

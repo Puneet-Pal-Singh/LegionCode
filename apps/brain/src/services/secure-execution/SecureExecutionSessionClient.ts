@@ -46,7 +46,15 @@ export interface SecureExecutionSessionHandle {
 
 export interface SecureExecutionSessionPort {
   acquire(): Promise<SecureExecutionSessionHandle>;
+  recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle>;
   release(): Promise<void>;
+}
+
+export interface PersistedSecureExecutionSessionReference {
+  readonly secureSessionId: string;
+  readonly leaseId: LeaseId;
+  readonly sandboxId: string;
+  readonly generation: number;
 }
 
 /**
@@ -57,24 +65,48 @@ export interface SecureExecutionSessionPort {
 export class SecureExecutionSessionClient implements SecureExecutionSessionPort {
   private sessionPromise: Promise<SecureExecutionSessionHandle> | null = null;
   private releasePromise: Promise<void> | null = null;
+  private reference: PersistedSecureExecutionSessionReference | undefined;
 
   constructor(
     private readonly env: Env,
     private readonly brainSessionId: string,
     private readonly runId: string,
     private readonly workspaceScope: SecureExecutionWorkspaceScope,
-  ) {}
+    persistedReference?: PersistedSecureExecutionSessionReference,
+  ) {
+    this.reference = persistedReference;
+  }
 
   async acquire(): Promise<SecureExecutionSessionHandle> {
     if (!this.sessionPromise) {
       this.sessionPromise = this.create();
     }
     try {
-      return await this.sessionPromise;
+      const session = await this.sessionPromise;
+      this.reference = toPersistedReference(session);
+      return session;
     } catch (error) {
       this.sessionPromise = null;
       throw error;
     }
+  }
+
+  async recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle> {
+    const reference = this.reference;
+    if (!reference) {
+      await this.acquire();
+    }
+    const recoverableReference = this.reference;
+    if (!recoverableReference) {
+      throw new Error(
+        "Secure execution session cannot recover without persisted lease identity",
+      );
+    }
+    const recovered = await this.resume(recoverableReference);
+    this.reference = toPersistedReference(recovered);
+    this.sessionPromise = Promise.resolve(recovered);
+    this.releasePromise = null;
+    return recovered;
   }
 
   async release(): Promise<void> {
@@ -85,6 +117,10 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
   }
 
   private async create(): Promise<SecureExecutionSessionHandle> {
+    if (this.reference) {
+      return await this.resume(this.reference);
+    }
+    const internalSecret = this.requireInternalSecret();
     for (
       let attempt = 1;
       attempt <= LOCAL_DEV_SESSION_RETRY_ATTEMPTS;
@@ -95,7 +131,10 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
         `http://internal/api/v1/session?session=${encodeURIComponent(this.brainSessionId)}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Internal-Runtime-Secret": internalSecret,
+          },
           body: JSON.stringify({
             runId: this.runId,
             taskId: `brain-session-${this.brainSessionId}`,
@@ -131,6 +170,69 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       throw new Error(sanitizeLogText(message));
     }
     throw new Error("Failed to create secure execution session");
+  }
+
+  private async resume(
+    reference: PersistedSecureExecutionSessionReference,
+  ): Promise<SecureExecutionSessionHandle> {
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
+      `http://internal/api/v1/session/${encodeURIComponent(reference.secureSessionId)}/resume?session=${encodeURIComponent(this.brainSessionId)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Runtime-Secret": this.requireInternalSecret(),
+        },
+        body: JSON.stringify({
+          workspaceScope: this.workspaceScope,
+          lease: {
+            leaseId: reference.leaseId,
+            sandboxId: reference.sandboxId,
+            generation: reference.generation,
+          },
+        }),
+      },
+      DEFAULT_EXECUTION_TIMEOUT_MS,
+    );
+    if (!response.ok) {
+      const detail = sanitizeLogText(
+        (await response.text()) || "Failed to resume secure execution session",
+      );
+      throw new Error(
+        `Secure execution session resume failed with HTTP ${response.status}: ${detail}`,
+      );
+    }
+    const handle = SecureExecutionSessionResponseSchema.parse(
+      await parseJsonResponse(response),
+    );
+    const exactLease =
+      handle.lease.leaseId === reference.leaseId &&
+      handle.lease.sandboxId === reference.sandboxId &&
+      handle.lease.generation === reference.generation;
+    const replacementLease =
+      handle.lease.generation === reference.generation + 1 &&
+      handle.lease.leaseId !== reference.leaseId &&
+      handle.lease.sandboxId !== reference.sandboxId;
+    if (
+      handle.sessionId !== reference.secureSessionId ||
+      (!exactLease && !replacementLease)
+    ) {
+      throw new Error(
+        "Secure execution session resume returned mismatched checkout identity",
+      );
+    }
+    return handle;
+  }
+
+  private requireInternalSecret(): string {
+    const secret = this.env.INTERNAL_RUNTIME_EVENT_SECRET?.trim();
+    if (!secret) {
+      throw new Error(
+        "Internal runtime authentication is required for secure execution sessions",
+      );
+    }
+    return secret;
   }
 
   private async releaseNow(): Promise<void> {
@@ -189,6 +291,17 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       }),
     );
   }
+}
+
+function toPersistedReference(
+  session: SecureExecutionSessionHandle,
+): PersistedSecureExecutionSessionReference {
+  return {
+    secureSessionId: session.sessionId,
+    leaseId: session.lease.leaseId,
+    sandboxId: session.lease.sandboxId,
+    generation: session.lease.generation,
+  };
 }
 
 export function canonicalTaskCheckoutRoot(checkoutId: TaskCheckoutId): string {

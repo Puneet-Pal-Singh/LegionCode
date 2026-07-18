@@ -41,6 +41,7 @@ const checkoutInput = {
   threadId: "thr_thread01",
   turnId: "trn_turn0001",
   runAttemptId: "attempt_attempt1",
+  secureSessionId: "sess_secure001",
   leaseId: "lease_lease001",
   sandboxId: "sb-a1b2c3d4",
   filesystemRoot: "/workspace/checkouts/checkout_task01",
@@ -134,7 +135,7 @@ describe("isolated task workspace protocol", () => {
     expect(() =>
       TaskCheckoutSchema.parse({
         ...checkoutInput,
-        generation: 0,
+        generation: -1,
       }),
     ).toThrow();
     expect(() =>
