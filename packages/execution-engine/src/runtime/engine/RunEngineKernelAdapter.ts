@@ -231,6 +231,7 @@ function createTurnArtifactPort(): RuntimeTurnArtifactPort {
 function createKernelAdapterWorkerFailure(): WorkerToolResult {
   return {
     kind: "failed",
+    disposition: "terminal",
     failure: {
       code: "validation_failed",
       message:

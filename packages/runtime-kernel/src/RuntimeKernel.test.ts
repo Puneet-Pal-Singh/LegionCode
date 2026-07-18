@@ -64,6 +64,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ports.worker.executeTool = vi.fn(async () => ({
       kind: "failed" as const,
       failure: protocolFailure("Write failed"),
+      disposition: "terminal" as const,
     }));
     const kernel = await createKernel(sink, ports);
 
@@ -91,6 +92,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ports.provider.generateNext = vi.fn(async () => toolStep());
     ports.worker.executeTool = vi.fn(async () => ({
       kind: "failed" as const,
+      disposition: "terminal" as const,
       failure: {
         code: "worker_unavailable" as const,
         message: "Sandbox container became unavailable during execution",
@@ -128,6 +130,55 @@ describe("RuntimeKernel canonical lifecycle", () => {
       },
     });
     expect(JSON.stringify(sink.events)).not.toContain("provider_unavailable");
+  });
+
+  it("returns a recoverable tool failure to the provider loop before completing", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockImplementationOnce(async ({ toolResults }) => {
+        expect(toolResults).toEqual([
+          expect.objectContaining({
+            toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+            failure: expect.objectContaining({
+              code: "not_found",
+              message: "README.missing was not found",
+            }),
+          }),
+        ]);
+        return {
+          kind: "complete" as const,
+          itemId: finalItemId,
+          output: "I could not read that path, but the turn continued.",
+        };
+      });
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "failed" as const,
+      disposition: "recoverable" as const,
+      failure: {
+        code: "not_found" as const,
+        message: "README.missing was not found",
+        retryable: false,
+        correlationId: null,
+        details: null,
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      output: "I could not read that path, but the turn continued.",
+      toolCallCount: 1,
+    });
+
+    expect(eventTypes(sink)).toContain("tool_call.failed");
+    expect(eventTypes(sink)).toContain("item.failed");
+    expect(sink.events.at(-1)?.type).toBe("turn.completed");
+    expect(terminalEvents(sink)).toHaveLength(1);
   });
 
   it("emits approval lifecycle events before policy-gated execution", async () => {

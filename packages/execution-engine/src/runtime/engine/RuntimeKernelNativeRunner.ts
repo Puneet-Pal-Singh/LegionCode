@@ -61,7 +61,11 @@ import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { TaskRepository } from "../task/index.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 import { MemoryCoordinator, MemoryRepository } from "../memory/index.js";
-import { LLMGateway, type ILLMGateway } from "../llm/index.js";
+import {
+  LLMGateway,
+  type ILLMGateway,
+  type LLMTextResponse,
+} from "../llm/index.js";
 import { PlannerService } from "../planner/index.js";
 import {
   BudgetManager,
@@ -89,6 +93,7 @@ import {
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
+import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import {
@@ -104,6 +109,7 @@ import {
   recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
+import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildPlanModeResponse,
   persistPlanArtifact,
@@ -858,49 +864,72 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    await this.recordModelStepStarted(input);
-    const response = await runWithNativeCancellationPolling(
-      this.options.llmGateway.generateText({
-        context: {
-          runId: this.options.run.id,
-          sessionId: this.options.run.sessionId,
-          agentType: this.options.run.agentType,
-          phase: "task",
-          idempotencyKey: `runtime-kernel-native:${this.options.run.id}:step:${this.stepsExecuted + 1}`,
-        },
-        messages: this.messages,
-        system: buildAgenticLoopSystemPrompt({
-          workspaceContext: buildAgenticLoopWorkspaceContext({
-            repositoryContext: this.options.input.repositoryContext,
-            prompt: this.options.input.prompt,
-            continuation: this.options.run.metadata.continuation,
-            workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
-            gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+    let finalOnlyRecovery = false;
+    let responseParts: LLMTextResponse["parts"];
+    let toolCalls: AgenticLoopToolCall[];
+    let visibleText: string;
+
+    do {
+      await this.recordModelStepStarted(input);
+      const response = await runWithNativeCancellationPolling(
+        this.options.llmGateway.generateText({
+          context: {
+            runId: this.options.run.id,
+            sessionId: this.options.run.sessionId,
+            agentType: this.options.run.agentType,
+            phase: finalOnlyRecovery ? "synthesis" : "task",
+            idempotencyKey: `runtime-kernel-native:${this.options.run.id}:step:${this.stepsExecuted + 1}:${finalOnlyRecovery ? "final" : "task"}`,
+          },
+          messages: this.messages,
+          system: buildAgenticLoopSystemPrompt({
+            workspaceContext: buildAgenticLoopWorkspaceContext({
+              repositoryContext: this.options.input.repositoryContext,
+              prompt: this.options.input.prompt,
+              continuation: this.options.run.metadata.continuation,
+              workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
+              gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+            }),
+            finalSynthesisOnly: finalOnlyRecovery,
+            requiresMutation: this.requiresMutation,
+            completedMutatingToolCount: this.completedMutatingToolCount,
+            completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+            explicitCiLogRequest: false,
+            encounteredCiLogsAuthorizationBoundary: false,
+            attemptedCiLogsCliFallback: false,
           }),
-          finalSynthesisOnly: false,
-          requiresMutation: this.requiresMutation,
-          completedMutatingToolCount: this.completedMutatingToolCount,
-          completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-          explicitCiLogRequest: false,
-          encounteredCiLogsAuthorizationBoundary: false,
-          attemptedCiLogsCliFallback: false,
+          tools: finalOnlyRecovery ? {} : this.options.tools,
+          model: this.options.input.modelId,
+          providerId: this.options.input.providerId,
+          runtimeModelId: this.options.input.runtimeModelId,
+          providerTransport: this.options.input.providerTransport,
+          providerEndpoint: this.options.input.providerEndpoint,
+          temperature: 0.2,
         }),
-        tools: this.options.tools,
-        model: this.options.input.modelId,
-        providerId: this.options.input.providerId,
-        runtimeModelId: this.options.input.runtimeModelId,
-        providerTransport: this.options.input.providerTransport,
-        providerEndpoint: this.options.input.providerEndpoint,
-        temperature: 0.2,
-      }),
-      this.options.isRunCancelled,
-    );
-    await assertNativeRunNotCancelled(this.options.isRunCancelled);
-    this.stepsExecuted += 1;
-    await this.recordModelStepCompleted(input);
-    const toolCalls = this.repairToolCalls(response.toolCalls ?? []);
-    const responseParts = response.parts ?? [];
-    const visibleText = projectVisibleTranscriptText(responseParts);
+        this.options.isRunCancelled,
+      );
+      await assertNativeRunNotCancelled(this.options.isRunCancelled);
+      this.stepsExecuted += 1;
+      await this.recordModelStepCompleted(input);
+      toolCalls = finalOnlyRecovery
+        ? []
+        : this.repairToolCalls(response.toolCalls ?? []);
+      responseParts = response.parts ?? [];
+      visibleText = projectVisibleTranscriptText(responseParts);
+
+      if (
+        shouldRetryNativeFinalOnlyResponse({
+          recoveryAlreadyAttempted: finalOnlyRecovery,
+          toolCallCount: toolCalls.length,
+          responseParts,
+        })
+      ) {
+        finalOnlyRecovery = true;
+        continue;
+      }
+
+      break;
+    } while (true);
+
     this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
       const terminal = this.transcript.complete(responseParts);
@@ -1087,7 +1116,7 @@ class KernelAgenticProvider implements ProviderPort {
         toolId: result.toolCallId,
         toolName: this.findToolName(result.toolCallId),
         result: result.output,
-        error: undefined,
+        error: result.failure?.message,
         terminalError: false,
       });
     }
@@ -1274,7 +1303,12 @@ class KernelToolWorker implements WorkerProtocolPort {
     const toolName = input.toolCall.toolName;
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (!isCodingToolId(toolName)) {
-      return failed("validation_failed", `Unsupported tool: ${toolName}`);
+      return failed(
+        "validation_failed",
+        `Unsupported tool: ${toolName}`,
+        false,
+        "terminal",
+      );
     }
     this.options.tracker.recordToolStarted(input.toolCall);
     console.log(
@@ -1319,14 +1353,26 @@ class KernelToolWorker implements WorkerProtocolPort {
       if (gatewayResult.kind === "failed") {
         const message =
           gatewayResult.result.error?.message ?? "Tool execution failed";
-        this.options.tracker.recordToolFailed(input.toolCall, message, true);
+        const disposition = toolFailureDisposition(toolName, message);
+        this.options.tracker.recordToolFailed(
+          input.toolCall,
+          message,
+          disposition === "terminal",
+        );
         await this.options.runEventRecorder.recordToolFailed(
           { id: input.toolCall.toolCallId, type: toolName },
           message,
           0,
         );
         if (gatewayResult.failure) {
-          return { kind: "failed", failure: gatewayResult.failure };
+          return {
+            kind: "failed",
+            failure: gatewayResult.failure,
+            disposition:
+              gatewayResult.failure.code === "worker_unavailable"
+                ? "terminal"
+                : disposition,
+          };
         }
         return failed(
           gatewayResult.code === "executor_failed"
@@ -1338,6 +1384,7 @@ class KernelToolWorker implements WorkerProtocolPort {
                 : "validation_failed",
           message,
           gatewayResult.retryable,
+          disposition,
         );
       }
       result = gatewayResult.result;
@@ -1345,7 +1392,12 @@ class KernelToolWorker implements WorkerProtocolPort {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
       const message =
         error instanceof Error ? error.message : "Tool execution failed";
-      this.options.tracker.recordToolFailed(input.toolCall, message, true);
+      const disposition = toolFailureDisposition(toolName, message);
+      this.options.tracker.recordToolFailed(
+        input.toolCall,
+        message,
+        disposition === "terminal",
+      );
       await this.options.runEventRecorder.recordToolFailed(
         { id: input.toolCall.toolCallId, type: toolName },
         message,
@@ -1359,7 +1411,7 @@ class KernelToolWorker implements WorkerProtocolPort {
           errorMessage: message,
         }),
       );
-      return failed("command_failed", message);
+      return failed("command_failed", message, false, disposition);
     }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (result.status === "DONE") {
@@ -1389,7 +1441,16 @@ class KernelToolWorker implements WorkerProtocolPort {
       };
     }
     const message = result.error?.message ?? "Tool execution failed";
-    this.options.tracker.recordToolFailed(input.toolCall, message, true);
+    const disposition = toolFailureDisposition(
+      toolName,
+      message,
+      result.output?.metadata,
+    );
+    this.options.tracker.recordToolFailed(
+      input.toolCall,
+      message,
+      disposition === "terminal",
+    );
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
       message,
@@ -1403,7 +1464,7 @@ class KernelToolWorker implements WorkerProtocolPort {
         errorMessage: message,
       }),
     );
-    return failed("command_failed", message);
+    return failed("command_failed", message, false, disposition);
   }
 }
 
@@ -1701,9 +1762,11 @@ function failed(
   code: "validation_failed" | "command_failed" | "not_found" | "policy_denied",
   message: string,
   retryable = false,
+  disposition: "recoverable" | "terminal" = "terminal",
 ): WorkerToolResult {
   return {
     kind: "failed",
+    disposition,
     failure: {
       code,
       message,
@@ -1712,6 +1775,16 @@ function failed(
       correlationId: null,
     },
   };
+}
+
+function toolFailureDisposition(
+  toolName: string,
+  message: string,
+  metadata?: unknown,
+): "recoverable" | "terminal" {
+  return isTerminalToolFailure({ toolName, error: message, metadata })
+    ? "terminal"
+    : "recoverable";
 }
 
 function normalizeModelId(value: string | undefined): string {
