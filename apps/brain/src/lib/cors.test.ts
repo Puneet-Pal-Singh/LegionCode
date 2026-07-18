@@ -16,8 +16,32 @@ describe("brain cors policy", () => {
       "https://app.shadowbox.dev",
     );
     expect(headers["Access-Control-Allow-Credentials"]).toBe("true");
+    expect(headers["Access-Control-Allow-Headers"]).toContain(
+      "X-Correlation-Id",
+    );
     expect(headers["Access-Control-Allow-Headers"]).toContain("X-Run-Id");
     expect(headers["Access-Control-Allow-Methods"]).toContain("PATCH");
+  });
+
+  it("allows the correlation header required to bootstrap a browser turn", () => {
+    const request = new Request("http://localhost:8788/turn/start", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5174",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type,x-correlation-id",
+      },
+    });
+
+    const response = handleOptions(request);
+
+    expect(response?.status).toBe(204);
+    expect(response?.headers.get("Access-Control-Allow-Origin")).toBe(
+      "http://localhost:5174",
+    );
+    expect(response?.headers.get("Access-Control-Allow-Headers")).toContain(
+      "X-Correlation-Id",
+    );
   });
 
   it("silently blocks non-allowlisted origin on preflight", async () => {

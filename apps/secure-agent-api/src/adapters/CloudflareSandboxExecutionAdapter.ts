@@ -83,7 +83,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   async acquireLease(
     request: SandboxExecutionLeaseRequest,
   ): Promise<SandboxExecutionLease> {
-    const lease = createSandboxLease(request);
+    const lease = await createSandboxLease(request);
     this.registerLease(lease);
     return lease;
   }

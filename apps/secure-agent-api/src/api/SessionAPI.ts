@@ -186,7 +186,7 @@ async function storeSession(
 
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
-  const lease = createSandboxLease({
+  const lease = await createSandboxLease({
     workspaceScope,
     owner: sessionId,
     correlationId: `secure-api:${sessionId}`,
@@ -384,7 +384,7 @@ async function replaceDeadLease(
   if (session.lease.generation >= 1) return;
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) return;
-  const replacement = createSandboxLease({
+  const replacement = await createSandboxLease({
     workspaceScope: session.workspaceScope,
     owner: sessionId,
     correlationId: `${session.lease.correlationId}:replacement-1`,

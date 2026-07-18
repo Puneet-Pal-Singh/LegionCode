@@ -336,6 +336,8 @@ export class RuntimeKernelNativeRunner {
         manifest: capabilityManifest,
         scope: new RuntimeWorkspaceScope({
           runId: protocol.run.id,
+          threadId: protocol.turn.threadId,
+          turnId: protocol.turn.id,
           runAttemptId: protocol.runAttemptId,
           workspaceId: protocol.manifest.workspaceId,
           root: protocol.manifest.filesystemRoot,

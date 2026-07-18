@@ -67,11 +67,25 @@ describe("RuntimeToolGateway", () => {
     expect(secondResult.kind).toBe("completed");
     expect(firstCalls[0]).toMatchObject({
       payload: { path: "src/a.ts" },
-      options: { scope: { root: "/runs/one", runId: "run_one" } },
+      options: {
+        scope: {
+          root: "/runs/one",
+          runId: "run_one",
+          threadId: "thr_run_one",
+          turnId: "trn_run_one",
+        },
+      },
     });
     expect(secondCalls[0]).toMatchObject({
       payload: { command: "pwd", cwd: "src" },
-      options: { scope: { root: "/runs/two", runId: "run_two" } },
+      options: {
+        scope: {
+          root: "/runs/two",
+          runId: "run_two",
+          threadId: "thr_run_two",
+          turnId: "trn_run_two",
+        },
+      },
     });
   });
 
@@ -135,6 +149,8 @@ describe("RuntimeToolGateway", () => {
       }),
       scope: new RuntimeWorkspaceScope({
         runId: "run_one",
+        threadId: "thr_run_one",
+        turnId: "trn_run_one",
         runAttemptId: RunAttemptIdSchema.parse("attempt_run_one_000001"),
         workspaceId: WorkspaceIdSchema.parse("wrk_run_one_000001"),
         root: "/runs/one",
@@ -191,6 +207,8 @@ describe("RuntimeToolGateway", () => {
       }),
       scope: new RuntimeWorkspaceScope({
         runId: "run_one",
+        threadId: "thr_run_one",
+        turnId: "trn_run_one",
         runAttemptId: RunAttemptIdSchema.parse("attempt_run_one_000001"),
         workspaceId: WorkspaceIdSchema.parse("wrk_run_one_000001"),
         root: "/runs/one",
@@ -240,6 +258,8 @@ function createGateway(
     }),
     scope: new RuntimeWorkspaceScope({
       runId,
+      threadId: `thr_${runId}`,
+      turnId: `trn_${runId}`,
       runAttemptId: RunAttemptIdSchema.parse(`attempt_${runId}_000001`),
       workspaceId: WorkspaceIdSchema.parse(`wrk_${runId}_000001`),
       root,

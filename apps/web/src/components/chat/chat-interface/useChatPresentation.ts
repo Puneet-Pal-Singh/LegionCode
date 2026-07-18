@@ -41,15 +41,7 @@ export function useChatPresentation(input: ChatPresentationInput) {
     [input.activityTurns, input.conversationTurns, input.runId],
   );
   const terminalViewModel = useMemo(
-    () => {
-      const terminal = buildLifecycleTerminalViewModel(
-        input.lifecycleProjection ?? null,
-      );
-      if (terminal && terminal.state !== "completed") {
-        return null;
-      }
-      return terminal;
-    },
+    () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
     [input.lifecycleProjection],
   );
   const hasUserMessage = input.messages.some(

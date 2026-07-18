@@ -275,7 +275,7 @@ function settleTurn(
 export function lifecyclePhaseLabel(phase: LifecycleProjectionPhase): string {
   switch (phase) {
     case "starting":
-      return "Starting";
+      return "Thinking";
     case "working":
       return "Working";
     case "waiting_for_approval":

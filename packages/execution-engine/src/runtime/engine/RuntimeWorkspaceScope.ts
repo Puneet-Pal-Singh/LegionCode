@@ -3,6 +3,8 @@ import type { RunAttemptId, WorkspaceId } from "@repo/platform-protocol";
 
 export interface RuntimeWorkspaceScopeInput {
   readonly runId: string;
+  readonly threadId: string;
+  readonly turnId: string;
   readonly runAttemptId: RunAttemptId;
   readonly workspaceId: WorkspaceId;
   readonly root: string;
@@ -10,6 +12,8 @@ export interface RuntimeWorkspaceScopeInput {
 
 export interface RuntimeWorkspaceExecutionScope {
   readonly runId: string;
+  readonly threadId: string;
+  readonly turnId: string;
   readonly runAttemptId: RunAttemptId;
   readonly workspaceId: WorkspaceId;
   readonly root: string;

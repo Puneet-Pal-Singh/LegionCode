@@ -170,15 +170,6 @@ function TurnSurface({
     turn?.rows.some((row) => row.kind === "tool" || row.kind === "group"),
   );
   const terminal = isCurrentTurn ? props.lifecycleProjection?.terminal : null;
-  const hasFinalPart = Boolean(
-    assistantMessage ||
-    (isCurrentTurn && props.terminalViewModel) ||
-    terminal ||
-    turn?.rows.some(
-      (row) => row.kind === "commentary" && row.phase === "final_answer",
-    ),
-  );
-
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -233,13 +224,13 @@ function TurnSurface({
         </div>
       ) : null}
       {terminal?.errorCode ? (
-        <div
+        <span
           data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}
           data-error-code={terminal.errorCode}
-          className="text-sm text-zinc-400"
+          className="sr-only"
         >
-          {lifecyclePhaseLabel("failed")}
-        </div>
+          {terminal.errorCode}
+        </span>
       ) : null}
       {assistantMessage ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
@@ -257,13 +248,6 @@ function TurnSurface({
       ) : props.terminalViewModel && isCurrentTurn ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <TerminalMessage {...props} />
-        </div>
-      ) : hasFinalPart ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-final` : undefined}
-          className="text-sm text-zinc-400"
-        >
-          Final output
         </div>
       ) : null}
     </section>
@@ -301,6 +285,24 @@ function resolveMessageChangedFilesSummary(
 function TerminalMessage(props: ChatInterfaceViewProps) {
   const terminal = props.terminalViewModel;
   if (!terminal) return null;
+
+  if (terminal.state !== "completed") {
+    return (
+      <div
+        role="alert"
+        className="rounded-2xl border border-red-900/50 bg-red-950/20 px-4 py-3"
+      >
+        <div className="text-sm font-medium text-red-100">
+          {terminal.state === "interrupted" ? "Run stopped" : "Run failed"}
+        </div>
+        <p className="mt-1 text-sm leading-6 text-zinc-300">
+          {terminal.content ||
+            "The run ended before it could return an answer. Retry the request."}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <ChatMessage
       message={{
