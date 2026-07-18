@@ -33,6 +33,23 @@ const SecureExecutionSessionResponseSchema = z
   })
   .passthrough();
 
+const SecureExecutionSessionErrorResponseSchema = z
+  .object({
+    code: z.string().min(1),
+    error: z.string().min(1),
+  })
+  .passthrough();
+
+export class SecureExecutionSessionRecoveryError extends Error {
+  readonly code = "SANDBOX_RECOVERY_EXHAUSTED" as const;
+  readonly retryable = false as const;
+
+  constructor() {
+    super("The task sandbox replacement budget is exhausted.");
+    this.name = "SecureExecutionSessionRecoveryError";
+  }
+}
+
 export interface SecureExecutionSessionHandle {
   readonly sessionId: string;
   readonly token: string;
@@ -196,8 +213,19 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       DEFAULT_EXECUTION_TIMEOUT_MS,
     );
     if (!response.ok) {
+      const responseText = await response.text();
+      const errorBody =
+        SecureExecutionSessionErrorResponseSchema.safeParse(
+          parseJsonText(responseText),
+        );
+      if (
+        errorBody.success &&
+        errorBody.data.code === "SANDBOX_RECOVERY_EXHAUSTED"
+      ) {
+        throw new SecureExecutionSessionRecoveryError();
+      }
       const detail = sanitizeLogText(
-        (await response.text()) || "Failed to resume secure execution session",
+        responseText || "Failed to resume secure execution session",
       );
       throw new Error(
         `Secure execution session resume failed with HTTP ${response.status}: ${detail}`,
@@ -350,6 +378,14 @@ function isLocalDevSessionProxyMiss(message: string): boolean {
     /couldn't find a local dev session/iu.test(message) ||
     /entrypoint of service .* to proxy to/iu.test(message)
   );
+}
+
+function parseJsonText(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 async function sleep(durationMs: number): Promise<void> {

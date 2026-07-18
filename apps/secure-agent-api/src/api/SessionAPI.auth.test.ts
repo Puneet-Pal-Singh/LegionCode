@@ -14,6 +14,7 @@ interface SessionRecord {
   token: string;
   createdAt: number;
   workspaceScope: WorkspaceScope;
+  recoveryExhausted?: boolean;
   lease: {
     leaseId: string;
     sandboxId: string;
@@ -384,7 +385,7 @@ describe("session auth hardening", () => {
     ]);
   });
 
-  it("advances exactly one lease generation after each sandbox loss", async () => {
+  it("permits one replacement and then reports recovery exhaustion", async () => {
     const runtime = createRuntimeStoreMock();
     const stored: SessionRecord[] = [];
     const originalStore = runtime.storeExecutionSession;
@@ -435,9 +436,17 @@ describe("session auth hardening", () => {
     );
     expect(secondResponse.status).toBe(503);
     const activeSession = await runtime.getExecutionSession(sessionId);
-    expect(activeSession?.lease.generation).toBe(2);
-    expect(activeSession?.lease.leaseId).not.toBe(resumed.lease.leaseId);
-    expect(activeSession?.lease.sandboxId).not.toBe(resumed.lease.sandboxId);
+    expect(activeSession?.lease).toMatchObject(resumed.lease);
+    expect(activeSession?.recoveryExhausted).toBe(true);
+
+    const exhaustedResume = await handleResumeSession(
+      createResumeRequest(sessionId, resumed.lease),
+      runtime,
+    );
+    expect(exhaustedResume.status).toBe(503);
+    expect(((await exhaustedResume.json()) as ErrorBody).code).toBe(
+      "SANDBOX_RECOVERY_EXHAUSTED",
+    );
   });
 
   it("rejects delete without authorization header", async () => {
@@ -575,5 +584,22 @@ describe("session auth hardening", () => {
     expect(resumed.replaced).toBe(true);
     expect(resumed.lease.generation).toBe(created.lease.generation + 1);
     expect(resumed.lease.leaseId).not.toBe(created.lease.leaseId);
+  });
+
+  it("does not invent a second replacement when a generation-one session is gone", async () => {
+    const runtime = createRuntimeStoreMock();
+    const response = await handleResumeSession(
+      createResumeRequest("sess_missing_generation_one", {
+        leaseId: "lease_generation_one",
+        sandboxId: "sandbox-generation-one",
+        generation: 1,
+      }),
+      runtime,
+    );
+
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as ErrorBody).code).toBe(
+      "SANDBOX_RECOVERY_EXHAUSTED",
+    );
   });
 });

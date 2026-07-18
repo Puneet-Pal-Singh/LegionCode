@@ -34,6 +34,7 @@ import { SecureRuntimeFailureMapper } from "./secure-execution/SecureRuntimeFail
 import type { SecureExecutionWorkspaceScope } from "../runtime/RuntimeWorkspaceScope";
 import {
   SecureExecutionSessionClient,
+  SecureExecutionSessionRecoveryError,
   type SecureExecutionSessionPort,
 } from "./secure-execution/SecureExecutionSessionClient";
 
@@ -436,6 +437,19 @@ export class ExecutionService {
             try {
               await this.executionSession.recoverAfterSandboxLoss();
             } catch (recoveryError) {
+              const recoveryFailure =
+                recoveryError instanceof SecureExecutionSessionRecoveryError
+                  ? {
+                      code: recoveryError.code,
+                      message: recoveryError.message,
+                      retryable: recoveryError.retryable,
+                    }
+                  : {
+                      code: "SANDBOX_RECOVERY_FAILED",
+                      message:
+                        "The task sandbox was lost and its isolated replacement could not be secured yet.",
+                      retryable: true,
+                    };
               console.error(
                 formatDiagnosticLogLine(
                   "execution/lease",
@@ -452,11 +466,10 @@ export class ExecutionService {
               return {
                 outcome: {
                   ...executionResult,
-                  retryable: true,
+                  retryable: recoveryFailure.retryable,
                   error: {
-                    code: "SANDBOX_RECOVERY_FAILED",
-                    message:
-                      "The task sandbox was lost and its isolated replacement could not be secured yet.",
+                    code: recoveryFailure.code,
+                    message: recoveryFailure.message,
                   },
                 },
                 httpStatus: 503,

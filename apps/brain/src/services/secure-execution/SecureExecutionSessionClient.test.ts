@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
-import { SecureExecutionSessionClient } from "./SecureExecutionSessionClient";
+import {
+  SecureExecutionSessionClient,
+  SecureExecutionSessionRecoveryError,
+} from "./SecureExecutionSessionClient";
 
 const workspaceScope = {
   runId: "run_resume01",
@@ -89,5 +92,39 @@ describe("SecureExecutionSessionClient resume", () => {
     await expect(client.acquire()).rejects.toThrow(
       "Internal runtime authentication is required",
     );
+  });
+
+  it("preserves a typed non-retryable recovery exhaustion response", async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      Response.json(
+        {
+          code: "SANDBOX_RECOVERY_EXHAUSTED",
+          error: "internal detail must not become the public failure",
+        },
+        { status: 503 },
+      ),
+    );
+    const client = new SecureExecutionSessionClient(
+      {
+        SECURE_API: { fetch },
+        INTERNAL_RUNTIME_EVENT_SECRET: "internal-test-secret",
+      } as unknown as Env,
+      "brain-session-1",
+      workspaceScope.runId,
+      workspaceScope,
+      {
+        secureSessionId: "sess_resume001",
+        leaseId: "lease_resume001",
+        sandboxId: "sandbox-resume001",
+        generation: 1,
+      },
+    );
+
+    await expect(client.acquire()).rejects.toMatchObject({
+      name: "SecureExecutionSessionRecoveryError",
+      code: "SANDBOX_RECOVERY_EXHAUSTED",
+      retryable: false,
+      message: "The task sandbox replacement budget is exhausted.",
+    } satisfies Partial<SecureExecutionSessionRecoveryError>);
   });
 });

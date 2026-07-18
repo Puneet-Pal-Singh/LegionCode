@@ -44,6 +44,7 @@ interface SessionRecord {
   createdAt: number;
   workspaceScope: WorkspaceScope;
   lease: SandboxExecutionLease;
+  recoveryExhausted?: boolean;
 }
 
 interface PublicSessionRecord {
@@ -400,6 +401,13 @@ async function replaceDeadLease(
 ): Promise<void> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) return;
+  if (session.lease.generation >= 1) {
+    await sessionStore.storeExecutionSession(sessionId, {
+      ...session,
+      recoveryExhausted: true,
+    });
+    return;
+  }
   const nextGeneration = session.lease.generation + 1;
   const replacement = await createSandboxLease({
     workspaceScope: session.workspaceScope,
@@ -410,6 +418,7 @@ async function replaceDeadLease(
   await sessionStore.storeExecutionSession(sessionId, {
     ...session,
     lease: replacement,
+    recoveryExhausted: false,
   });
 }
 
@@ -548,6 +557,13 @@ export async function handleResumeSession(
     }
     const session = await getActiveSession(runtime, sessionId);
     if (!session) {
+      if (validation.data.lease.generation >= 1) {
+        return errorResponse(
+          "The isolated sandbox replacement budget is exhausted",
+          "SANDBOX_RECOVERY_EXHAUSTED",
+          503,
+        );
+      }
       const sessionStore = getRuntimeSessionStore(runtime);
       if (!sessionStore) {
         return errorResponse(
@@ -597,6 +613,13 @@ export async function handleResumeSession(
         "Persisted checkout identity does not match the secure session",
         "SESSION_SCOPE_MISMATCH",
         409,
+      );
+    }
+    if (session.recoveryExhausted) {
+      return errorResponse(
+        "The isolated sandbox replacement budget is exhausted",
+        "SANDBOX_RECOVERY_EXHAUSTED",
+        503,
       );
     }
     const exactLease =

@@ -4,6 +4,10 @@ import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
 import { createIdentityRepository } from "../test-utils/identityTestHelpers";
+import {
+  SecureExecutionSessionRecoveryError,
+  type SecureExecutionSessionPort,
+} from "./secure-execution/SecureExecutionSessionClient";
 
 vi.mock("@shadowbox/github-bridge", () => ({
   decryptToken: vi.fn(async () => "token:encrypted-token"),
@@ -423,7 +427,6 @@ describe("ExecutionService", () => {
       {
         SECURE_API: { fetch: fetchMock },
         INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
-        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-sandbox",
       "run-sandbox",
@@ -474,6 +477,73 @@ describe("ExecutionService", () => {
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
       "/api/v1/session/sess-sandbox/resume",
     );
+  });
+
+  it("preserves non-retryable sandbox recovery exhaustion", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          taskId: "task-sandbox-exhausted",
+          leaseId: "lease-sandbox-exhausted",
+          correlationId: "secure-correlation-sandbox-exhausted",
+          retryable: true,
+          status: "sandbox_unavailable",
+          error: {
+            code: "SANDBOX_UNAVAILABLE",
+            message: "Sandbox container became unavailable during execution",
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const executionSession: SecureExecutionSessionPort = {
+      acquire: vi.fn(async () => ({
+        sessionId: "sess-sandbox-exhausted",
+        token: "tok-sandbox-exhausted",
+        expiresAt: Date.now() + 60_000,
+        lease: {
+          leaseId: "lease_sandbox_exhausted",
+          sandboxId: "sb-sandbox-exhausted",
+          generation: 1,
+        },
+      })),
+      recoverAfterSandboxLoss: vi.fn(async () => {
+        throw new SecureExecutionSessionRecoveryError();
+      }),
+      release: vi.fn(async () => {}),
+    };
+    const service = new ExecutionService(
+      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      "session-sandbox-exhausted",
+      "run-sandbox-exhausted",
+      undefined,
+      scopeFor("run-sandbox-exhausted"),
+      executionSession,
+    );
+
+    const result = await service.execute(
+      "filesystem",
+      "read_file",
+      { path: "src/index.ts" },
+      { scope: scopeFor("run-sandbox-exhausted") },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      status: "sandbox_unavailable",
+      error: {
+        code: "SANDBOX_RECOVERY_EXHAUSTED",
+        message: "The task sandbox replacement budget is exhausted.",
+      },
+      metadata: {
+        runtimeFailure: {
+          retryable: false,
+          details: {
+            secureCode: "SANDBOX_RECOVERY_EXHAUSTED",
+          },
+        },
+      },
+    });
   });
 
   it("rejects a 2xx secure failure payload as a typed contract violation", async () => {
