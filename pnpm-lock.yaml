@@ -42,6 +42,9 @@ importers:
       '@repo/event-store':
         specifier: workspace:*
         version: link:../../packages/event-store
+      '@repo/hook-protocol':
+        specifier: workspace:*
+        version: link:../../packages/hook-protocol
       '@repo/observability':
         specifier: workspace:*
         version: link:../../packages/observability

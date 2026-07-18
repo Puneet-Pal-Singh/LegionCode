@@ -4,6 +4,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
+      "@repo/hook-protocol": ["../../packages/hook-protocol/src/index.ts"],
       "@shadowbox/execution-engine/runtime": [
         "../../packages/execution-engine/src/runtime/index.ts"
       ],
