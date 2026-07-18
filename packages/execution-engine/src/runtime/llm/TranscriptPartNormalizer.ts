@@ -51,16 +51,27 @@ export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNor
     let sequence = 0;
 
     for (const providerPart of input.providerParts ?? []) {
-      const part = buildProviderPart(providerPart, normalizedInput, sequence++, createdAt);
+      const part = buildProviderPart(
+        providerPart,
+        normalizedInput,
+        sequence++,
+        createdAt,
+      );
       if (part) parts.push(part);
     }
 
     if (!input.providerParts?.length && input.providerText?.trim()) {
       for (const parsed of parseLegacyProviderText(input.providerText)) {
-        parts.push(buildTextPart(parsed, normalizedInput, sequence++, createdAt));
+        parts.push(
+          buildTextPart(parsed, normalizedInput, sequence++, createdAt),
+        );
       }
       parts.push({
-        id: stablePartId(normalizedInput.turnId, sequence, "raw-provider-material"),
+        id: stablePartId(
+          normalizedInput.turnId,
+          sequence,
+          "raw-provider-material",
+        ),
         schemaVersion: 1,
         runId: normalizedInput.runId,
         turnId: normalizedInput.turnId,
@@ -123,7 +134,9 @@ export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNor
   }
 }
 
-export function visibleTextFromTranscriptParts(parts: readonly TranscriptPart[]): string {
+export function visibleTextFromTranscriptParts(
+  parts: readonly TranscriptPart[],
+): string {
   return projectVisibleTranscriptText(parts);
 }
 
@@ -144,7 +157,9 @@ export function finalizeTranscriptParts(
           turnId: part.turnId,
           sequence: part.sequence,
           createdAt: part.createdAt,
-          ...(part.providerPartId ? { providerPartId: part.providerPartId } : {}),
+          ...(part.providerPartId
+            ? { providerPartId: part.providerPartId }
+            : {}),
           ...(part.parentPartId ? { parentPartId: part.parentPartId } : {}),
           type: "final" as const,
           visibility: "visible" as const,
@@ -169,19 +184,55 @@ function buildProviderPart(
     sequence,
     createdAt,
   };
-  if (providerPart.type === "file" && providerPart.path && providerPart.change) {
-    return { ...base, type: "file", visibility: "audit_only", path: providerPart.path, change: providerPart.change };
+  if (
+    providerPart.type === "file" &&
+    providerPart.path &&
+    providerPart.change
+  ) {
+    return {
+      ...base,
+      type: "file",
+      visibility: "audit_only",
+      path: providerPart.path,
+      change: providerPart.change,
+    };
   }
   if (providerPart.type === "tool_result") {
-    return { ...base, type: "tool_result", visibility: "audit_only", result: toJsonValue(providerPart.result ?? providerPart.text ?? null), isError: false };
+    return {
+      ...base,
+      type: "tool_result",
+      visibility: "audit_only",
+      result: toJsonValue(providerPart.result ?? providerPart.text ?? null),
+      isError: false,
+    };
   }
   if (providerPart.type === "reasoning" && providerPart.text) {
-    return { ...base, type: "reasoning", visibility: "audit_only", text: providerPart.text, reason: providerPart.reason };
+    return {
+      ...base,
+      type: "reasoning",
+      visibility: "audit_only",
+      text: providerPart.text,
+      reason: providerPart.reason,
+    };
   }
-  if ((providerPart.type === "visible_text" || providerPart.type === "final") && providerPart.text) {
+  if (
+    (providerPart.type === "visible_text" || providerPart.type === "final") &&
+    providerPart.text
+  ) {
     return providerPart.type === "final" && input.outputIntent === "final"
-      ? { ...base, type: "final", visibility: "visible", text: providerPart.text }
-      : { ...base, type: "visible_text", visibility: "visible", text: providerPart.text, finalized: false };
+      ? {
+          ...base,
+          type: "final",
+          visibility: "visible",
+          text: providerPart.text,
+        }
+      : {
+          ...base,
+          type: "visible_text",
+          visibility: "visible",
+          text: providerPart.text,
+          finalized: false,
+        };
   }
   return null;
 }
@@ -201,49 +252,131 @@ function buildTextPart(
     createdAt,
   };
   return parsed.kind === "reasoning"
-    ? { ...base, type: "reasoning", visibility: "audit_only", text: parsed.text, reason: parsed.reason }
+    ? {
+        ...base,
+        type: "reasoning",
+        visibility: "audit_only",
+        text: parsed.text,
+        reason: parsed.reason,
+      }
     : input.outputIntent === "final"
       ? { ...base, type: "final", visibility: "visible", text: parsed.text }
-      : { ...base, type: "visible_text", visibility: "visible", text: parsed.text, finalized: false };
+      : {
+          ...base,
+          type: "visible_text",
+          visibility: "visible",
+          text: parsed.text,
+          finalized: false,
+        };
 }
 
-function parseLegacyProviderText(text: string): Array<{ kind: "visible_text" | "reasoning"; text: string; reason?: string }> {
+function parseLegacyProviderText(
+  text: string,
+): Array<{
+  kind: "visible_text" | "reasoning";
+  text: string;
+  reason?: string;
+}> {
   const normalized = text.replaceAll("\r\n", "\n").trim();
   if (!normalized) return [];
   const toolPayload = parseToolPayload(normalized);
   if (toolPayload) {
-    return [{
-      kind: "reasoning",
-      text: normalized,
-      reason: "legacy_tool_payload_quarantine",
-    }];
+    return [
+      {
+        kind: "reasoning",
+        text: normalized,
+        reason: "legacy_tool_payload_quarantine",
+      },
+    ];
   }
   const tagged = parseTaggedSegments(normalized);
   if (tagged.length > 0) return tagged;
+  if (hasInternalDeliberationPreamble(normalized)) {
+    return [
+      {
+        kind: "reasoning",
+        text: normalized,
+        reason: "legacy_internal_deliberation_quarantine",
+      },
+    ];
+  }
 
-  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
-  const labels = new Set(["user says", "intent", "context", "direct answer", "helpful details"]);
-  const labeled = lines.length >= 3 && lines.every((line) => labels.has(line.slice(0, line.indexOf(":" )).replace(/^[-*•]\s*/, "").trim().toLowerCase()));
-  if (labeled) return [{ kind: "reasoning", text: normalized, reason: "legacy_labeled_outline_quarantine" }];
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const labels = new Set([
+    "user says",
+    "intent",
+    "context",
+    "direct answer",
+    "helpful details",
+  ]);
+  const labeled =
+    lines.length >= 3 &&
+    lines.every((line) =>
+      labels.has(
+        line
+          .slice(0, line.indexOf(":"))
+          .replace(/^[-*•]\s*/, "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+  if (labeled)
+    return [
+      {
+        kind: "reasoning",
+        text: normalized,
+        reason: "legacy_labeled_outline_quarantine",
+      },
+    ];
   return [{ kind: "visible_text", text: normalized }];
+}
+
+function hasInternalDeliberationPreamble(text: string): boolean {
+  const opening = text.slice(0, 500);
+  return (
+    /^(?:the user\b|we need\b|i (?:need|should|must) to\b)/i.test(opening) &&
+    /\b(?:i (?:need|should|must|will)|we (?:need|should|must|will))\b/i.test(
+      opening,
+    )
+  );
 }
 
 function parseToolPayload(text: string): Record<string, unknown> | null {
   if (!text.startsWith("{") || !text.endsWith("}")) return null;
   try {
     const parsed: unknown = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return null;
     const record = parsed as Record<string, unknown>;
-    const toolKeys = new Set(["tool", "toolCall", "tool_call", "arguments", "parameters"]);
+    const toolKeys = new Set([
+      "tool",
+      "toolCall",
+      "tool_call",
+      "arguments",
+      "parameters",
+    ]);
     return Object.keys(record).some((key) => toolKeys.has(key)) ? record : null;
   } catch {
     return null;
   }
 }
 
-function parseTaggedSegments(text: string): Array<{ kind: "visible_text" | "reasoning"; text: string; reason?: string }> {
+function parseTaggedSegments(
+  text: string,
+): Array<{
+  kind: "visible_text" | "reasoning";
+  text: string;
+  reason?: string;
+}> {
   const tags = ["analysis", "thinking", "reasoning", "internal"];
-  const parts: Array<{ kind: "visible_text" | "reasoning"; text: string; reason?: string }> = [];
+  const parts: Array<{
+    kind: "visible_text" | "reasoning";
+    text: string;
+    reason?: string;
+  }> = [];
   let cursor = 0;
   while (cursor < text.length) {
     const start = findOpeningTag(text, cursor, tags);
@@ -254,26 +387,42 @@ function parseTaggedSegments(text: string): Array<{ kind: "visible_text" | "reas
     const end = text.toLowerCase().indexOf(close, start.end);
     if (end < 0) return [];
     const reasoning = text.slice(start.end, end).trim();
-    if (reasoning) parts.push({ kind: "reasoning", text: reasoning, reason: "legacy_provider_tag_quarantine" });
+    if (reasoning)
+      parts.push({
+        kind: "reasoning",
+        text: reasoning,
+        reason: "legacy_provider_tag_quarantine",
+      });
     cursor = end + close.length;
   }
   const tail = text.slice(cursor).trim();
   if (tail) parts.push({ kind: "visible_text", text: tail });
-  return parts.length > 0 && parts.some((part) => part.kind === "reasoning") ? parts : [];
+  return parts.length > 0 && parts.some((part) => part.kind === "reasoning")
+    ? parts
+    : [];
 }
 
-function findOpeningTag(text: string, from: number, tags: readonly string[]): { index: number; end: number; tag: string } | null {
+function findOpeningTag(
+  text: string,
+  from: number,
+  tags: readonly string[],
+): { index: number; end: number; tag: string } | null {
   const lower = text.toLowerCase();
   let best: { index: number; end: number; tag: string } | null = null;
   for (const tag of tags) {
     const marker = `<${tag}>`;
     const index = lower.indexOf(marker, from);
-    if (index >= 0 && (!best || index < best.index)) best = { index, end: index + marker.length, tag };
+    if (index >= 0 && (!best || index < best.index))
+      best = { index, end: index + marker.length, tag };
   }
   return best;
 }
 
-function stablePartId(turnId: string, sequence: number, providerPartId: string): string {
+function stablePartId(
+  turnId: string,
+  sequence: number,
+  providerPartId: string,
+): string {
   return `transcript_${turnId}_${sequence}_${providerPartId}`;
 }
 
