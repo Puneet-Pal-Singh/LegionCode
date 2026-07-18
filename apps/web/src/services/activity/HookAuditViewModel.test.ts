@@ -1,4 +1,4 @@
-import { HookInvocationAuditEventSchema } from "@repo/hook-protocol";
+import { HookInvocationAuditEventSchema } from "@repo/platform-client-sdk";
 import { describe, expect, it } from "vitest";
 import { buildHookAuditDisclosureViewModel } from "./HookAuditViewModel.js";
 

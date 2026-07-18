@@ -15,6 +15,10 @@ export {
   type PlatformHttpTransportOptions,
 } from "./platform/http-transport.js";
 export {
+  HookInvocationAuditEventSchema,
+  type HookInvocationAuditEvent,
+} from "@repo/hook-protocol";
+export {
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,

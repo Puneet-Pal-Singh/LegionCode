@@ -271,9 +271,6 @@ importers:
       '@ai-sdk/react':
         specifier: 1.1.0
         version: 1.1.0(react@19.2.4)(zod@3.25.1)
-      '@repo/hook-protocol':
-        specifier: workspace:*
-        version: link:../../packages/hook-protocol
       '@repo/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -787,6 +784,9 @@ importers:
 
   packages/platform-client-sdk:
     dependencies:
+      '@repo/hook-protocol':
+        specifier: workspace:*
+        version: link:../hook-protocol
       '@repo/platform-protocol':
         specifier: workspace:*
         version: link:../platform-protocol

@@ -60,6 +60,14 @@
       "gate": "corepack pnpm --filter @shadowbox/brain test"
     },
     {
+      "path": "packages/execution-engine/src/runtime/engine/NativeProviderFinalRecoveryPolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "finalization",
+      "disposition": "keep-pure-policy",
+      "purpose": "Allow one bounded final-only provider retry when a response contains no visible final and no tool calls.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/NativeProviderFinalRecoveryPolicy.test.ts"
+    },
+    {
       "path": "packages/execution-engine/src/runtime/engine/ConversationPolicy.ts",
       "owner": "runtime-conversation-boundary",
       "category": "conversation",

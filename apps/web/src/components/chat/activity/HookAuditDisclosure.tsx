@@ -1,4 +1,4 @@
-import type { HookInvocationAuditEvent } from "@repo/hook-protocol";
+import type { HookInvocationAuditEvent } from "@repo/platform-client-sdk";
 import { ChevronDown, Puzzle } from "lucide-react";
 import { cn } from "../../../lib/utils.js";
 import {

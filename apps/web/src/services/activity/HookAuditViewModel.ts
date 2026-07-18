@@ -1,4 +1,4 @@
-import type { HookInvocationAuditEvent } from "@repo/hook-protocol";
+import type { HookInvocationAuditEvent } from "@repo/platform-client-sdk";
 
 export type HookAuditTone = "running" | "completed" | "failed" | "muted";
 

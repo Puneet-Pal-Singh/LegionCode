@@ -28,6 +28,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/hook-protocol": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@repo/shared-types": "workspace:*",

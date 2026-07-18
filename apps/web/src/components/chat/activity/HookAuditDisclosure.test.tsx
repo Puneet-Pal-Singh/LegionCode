@@ -1,4 +1,4 @@
-import { HookInvocationAuditEventSchema } from "@repo/hook-protocol";
+import { HookInvocationAuditEventSchema } from "@repo/platform-client-sdk";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { HookAuditDisclosure } from "./HookAuditDisclosure.js";
