@@ -22,7 +22,9 @@ describe("TurnController public bootstrap contract", () => {
     const env = createEnv(runtime.namespace);
 
     const response = await TurnController.start(
-      createTurnStartRequest({ Cookie: "shadowbox_session=test-session-token" }),
+      createTurnStartRequest({
+        Cookie: "shadowbox_session=test-session-token",
+      }),
       env,
     );
 
@@ -36,6 +38,7 @@ describe("TurnController public bootstrap contract", () => {
     expect(JSON.parse(runtimeInit.body)).toMatchObject({
       runId: TEST_RUN_ID,
       sessionId: "session-1",
+      clientMessageId: "client-message-1",
       userId: TEST_USER_ID,
       workspaceId: TEST_WORKSPACE_ID,
     });
@@ -61,7 +64,11 @@ function createTurnStartRequest(headers?: Record<string, string>): Request {
   return new Request("https://brain.local/turn/start", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify({ sessionId: "session-1", runId: TEST_RUN_ID }),
+    body: JSON.stringify({
+      sessionId: "session-1",
+      runId: TEST_RUN_ID,
+      clientMessageId: "client-message-1",
+    }),
   });
 }
 
@@ -72,11 +79,12 @@ function createMockRuntimeNamespace() {
     turnId: "trn_server1",
     runAttemptId: "attempt_server1",
   };
-  const fetch = vi.fn(async () =>
-    new Response(JSON.stringify(identity), {
-      status: 201,
-      headers: { "Content-Type": "application/json" },
-    }),
+  const fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify(identity), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
   );
   const idFromName = vi.fn(() => ({ toString: () => "mock-do-id" }));
   const namespace = {

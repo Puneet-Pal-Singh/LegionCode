@@ -18,6 +18,7 @@ export const TurnScopeBootstrapRequestSchema = z.object({
   workspaceId: WorkspaceScopeIdSchema,
   userId: z.string().trim().min(1).optional(),
   correlationId: z.string().trim().min(1),
+  clientMessageId: z.string().trim().min(1).optional(),
 });
 
 export const TurnScopeBootstrapSchema = z.object({

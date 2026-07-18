@@ -16,11 +16,13 @@ const testScope = createConversationScope({
   runId: "run-2",
 });
 
-const { mockUseChat, mockResolveForChat, mockBootstrapScope } = vi.hoisted(() => ({
-  mockUseChat: vi.fn(),
-  mockResolveForChat: vi.fn(),
-  mockBootstrapScope: vi.fn(),
-}));
+const { mockUseChat, mockResolveForChat, mockBootstrapScope } = vi.hoisted(
+  () => ({
+    mockUseChat: vi.fn(),
+    mockResolveForChat: vi.fn(),
+    mockBootstrapScope: vi.fn(),
+  }),
+);
 
 vi.mock("@ai-sdk/react", () => ({
   useChat: mockUseChat,
@@ -76,9 +78,15 @@ describe("useChatCore", () => {
     mockResolveForChat.mockReset();
     mockBootstrapScope.mockReset();
     mockBootstrapScope.mockImplementation(
-      async (sessionId: string, runId: string) =>
+      async (sessionId: string, runId: string, clientMessageId?: string) =>
         createConversationScope({
           ...testScope,
+          ...(clientMessageId
+            ? {
+                turnId: `trn_${clientMessageId}`,
+                runAttemptId: `attempt_${clientMessageId}`,
+              }
+            : {}),
           sessionId,
           runId,
         }),
@@ -189,7 +197,9 @@ describe("useChatCore", () => {
       },
     );
 
-    await waitFor(() => expect(result.current.scope?.threadId).toBe("thr_session1001"));
+    await waitFor(() =>
+      expect(result.current.scope?.threadId).toBe("thr_session1001"),
+    );
     const firstScopeKey = conversationScopeKey(result.current.scope!);
 
     const firstOptions = mockUseChat.mock.calls[0]?.[0] as {
@@ -358,8 +368,8 @@ describe("useChatCore", () => {
           identity: {
             workspaceId: testScope.workspaceId,
             threadId: testScope.threadId,
-            turnId: testScope.turnId,
-            runAttemptId: testScope.runAttemptId,
+            turnId: expect.stringMatching(/^trn_client_msg_/),
+            runAttemptId: expect.stringMatching(/^attempt_client_msg_/),
           },
         }),
       }),
@@ -545,6 +555,7 @@ describe("useChatCore", () => {
       });
     });
 
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
     const pendingMessage = result.current.messages[0];
     expect(pendingMessage).toMatchObject({
       id: expect.stringMatching(/^client_msg_/),
@@ -559,6 +570,17 @@ describe("useChatCore", () => {
     ];
     expect(appendedMessage.id).toBe(pendingMessage?.id);
     expect(options.body.clientMessageId).toBe(pendingMessage?.id);
+    expect(options.body).toMatchObject({
+      identity: {
+        turnId: `trn_${pendingMessage?.id}`,
+        runAttemptId: `attempt_${pendingMessage?.id}`,
+      },
+    });
+    expect(mockBootstrapScope).toHaveBeenLastCalledWith(
+      "session-1",
+      result.current.scope?.runId,
+      pendingMessage?.id,
+    );
 
     await act(async () => {
       resolveAppend?.();
@@ -593,6 +615,7 @@ describe("useChatCore", () => {
       }),
     ]);
 
+    await waitFor(() => expect(appendSpy).toHaveBeenCalledTimes(1));
     await act(async () => {
       resolveAppend?.();
       await Promise.resolve();
@@ -620,8 +643,8 @@ describe("useChatCore", () => {
         runId: "run-repeated-prompt",
       }),
       [
-      { id: "user-1", role: "user", content: "try again" },
-      { id: "assistant-1", role: "assistant", content: "First answer" },
+        { id: "user-1", role: "user", content: "try again" },
+        { id: "assistant-1", role: "assistant", content: "First answer" },
       ],
     );
     mockUseChat.mockReturnValue({

@@ -71,6 +71,42 @@ describe("RunEngineRequestHandler", () => {
     );
   });
 
+  it("issues one turn attempt per client message while preserving thread identity", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const start = (clientMessageId: string) =>
+      handler.handleTurnStartRequest(
+        new Request("https://run-engine/turn/start", {
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            correlationId: "corr-1",
+          }),
+        }),
+      );
+
+    const firstResponse = await start("client-message-1");
+    const first = (await firstResponse.json()) as Record<string, string>;
+    const secondResponse = await start("client-message-2");
+    const second = (await secondResponse.json()) as Record<string, string>;
+    const repeatedResponse = await start("client-message-2");
+    const repeated = (await repeatedResponse.json()) as Record<string, string>;
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    expect(repeatedResponse.status).toBe(200);
+    expect(second.threadId).toBe(first.threadId);
+    expect(second.turnId).not.toBe(first.turnId);
+    expect(second.runAttemptId).not.toBe(first.runAttemptId);
+    expect(repeated).toEqual(second);
+  });
+
   it("returns the latest server-issued workspace scope for Git callers", async () => {
     const ctx = new MockDurableObjectState();
     const handler = new RunEngineRequestHandler(

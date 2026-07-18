@@ -19,11 +19,15 @@ describe("ConversationScope", () => {
     expect(conversationScopeKey(base)).not.toBe(
       conversationScopeKey({
         ...base,
-        workspaceId: "123e4567-e89b-42d3-a456-426614174001" as typeof base.workspaceId,
+        workspaceId:
+          "123e4567-e89b-42d3-a456-426614174001" as typeof base.workspaceId,
       }),
     );
     expect(conversationScopeKey(base)).not.toBe(
-      conversationScopeKey({ ...base, turnId: "trn_test-b" as typeof base.turnId }),
+      conversationScopeKey({
+        ...base,
+        turnId: "trn_test-b" as typeof base.turnId,
+      }),
     );
   });
 
@@ -40,7 +44,11 @@ describe("ConversationScope", () => {
       ),
     );
 
-    const scope = await bootstrapConversationScope("session-1", "run-1");
+    const scope = await bootstrapConversationScope(
+      "session-1",
+      "run-1",
+      "client-message-1",
+    );
 
     expect(scope).toMatchObject({
       workspaceId: "123e4567-e89b-42d3-a456-426614174000",
@@ -56,7 +64,11 @@ describe("ConversationScope", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        body: JSON.stringify({ sessionId: "session-1", runId: "run-1" }),
+        body: JSON.stringify({
+          sessionId: "session-1",
+          runId: "run-1",
+          clientMessageId: "client-message-1",
+        }),
       }),
     );
     fetchSpy.mockRestore();

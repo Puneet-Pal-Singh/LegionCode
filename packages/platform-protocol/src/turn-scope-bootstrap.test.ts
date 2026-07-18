@@ -7,6 +7,7 @@ import {
 const REQUEST = {
   runId: "run_123456",
   sessionId: "session-1",
+  clientMessageId: "client-message-1",
   workspaceId: "00000000-0000-4000-8000-000000000001",
   correlationId: "corr-1",
 };
