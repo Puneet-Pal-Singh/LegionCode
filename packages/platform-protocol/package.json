@@ -17,6 +17,7 @@
     "./lifecycle-turn-routing": "./src/lifecycle-turn-routing.ts",
     "./lifecycle": "./src/lifecycle.ts",
     "./permissions": "./src/permissions.ts",
+    "./task-workspaces": "./src/task-workspaces.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {
