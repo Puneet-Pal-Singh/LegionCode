@@ -38,6 +38,7 @@ export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event
 export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
 export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-workspace-manifests-artifact-metadata.js";
 export { artifactProvenanceMigration } from "./migrations/0024-artifact-provenance.js";
+export { taskWorkspacesMigration } from "./migrations/0025-task-workspaces.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
@@ -133,6 +134,15 @@ export { MemoryPermissionRepository } from "./permissions/MemoryPermissionReposi
 export { PostgresPermissionRepository } from "./permissions/PostgresPermissionRepository.js";
 export { MemoryArtifactRepository } from "./artifacts/MemoryArtifactRepository.js";
 export { PostgresArtifactRepository } from "./artifacts/PostgresArtifactRepository.js";
+export { PostgresTaskWorkspaceRepository } from "./task-workspaces/PostgresTaskWorkspaceRepository.js";
+export {
+  TaskWorkspacePersistenceError,
+  type SettleTaskCheckoutInput,
+  type TaskCheckoutBinding,
+  type TaskCheckoutRepository,
+  type TaskWorkspaceRepository,
+  type WorkspaceSnapshotRepository,
+} from "./task-workspaces/types.js";
 export {
   PostgresCredentialStore,
   PostgresPreferenceStore,

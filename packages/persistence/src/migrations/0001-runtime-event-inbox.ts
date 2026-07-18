@@ -18,6 +18,7 @@ import { threadProjectionsMigration } from "./0017-thread-projections.js";
 import { runProjectionsMigration } from "./0018-run-projections.js";
 import { workspaceManifestsArtifactMetadataMigration } from "./0019-workspace-manifests-artifact-metadata.js";
 import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
+import { taskWorkspacesMigration } from "./0025-task-workspaces.js";
 import { lifecycleEventsProjectionsMigration } from "./0020-lifecycle-events-projections.js";
 import { canonicalWorkspaceManifestMigration } from "./0021-canonical-workspace-manifest.js";
 import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
@@ -88,4 +89,5 @@ export const persistenceMigrations = [
   canonicalRunIdTextMigration,
   threadTitleReadReceiptsMigration,
   artifactProvenanceMigration,
+  taskWorkspacesMigration,
 ] as const;
