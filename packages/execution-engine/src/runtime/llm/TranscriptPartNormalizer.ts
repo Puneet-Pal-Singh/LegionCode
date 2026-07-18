@@ -336,8 +336,11 @@ function parseLegacyProviderText(
 
 function hasInternalDeliberationPreamble(text: string): boolean {
   const opening = text.slice(0, 500);
+  if (/^the user\b/i.test(opening)) {
+    return true;
+  }
   return (
-    /^(?:the user\b|we need\b|i (?:need|should|must) to\b)/i.test(opening) &&
+    /^(?:we need\b|i (?:need|should|must) to\b)/i.test(opening) &&
     /\b(?:i (?:need|should|must|will)|we (?:need|should|must|will))\b/i.test(
       opening,
     )

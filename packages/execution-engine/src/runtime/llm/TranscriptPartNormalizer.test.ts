@@ -73,6 +73,21 @@ describe("TranscriptPartNormalizer", () => {
     expect(visibleTextFromTranscriptParts(parts)).toBe("");
   });
 
+  it("quarantines third-person user narration even without an explicit plan", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerText:
+        "The user wants the final directory name. The output was /tmp/example.example",
+    });
+
+    expect(parts[0]).toMatchObject({
+      type: "reasoning",
+      visibility: "audit_only",
+      reason: "legacy_internal_deliberation_quarantine",
+    });
+    expect(visibleTextFromTranscriptParts(parts)).toBe("");
+  });
+
   it("uses structured provider parts and emits typed usage/error parts", () => {
     const parts = normalizer.normalize({
       ...input,
