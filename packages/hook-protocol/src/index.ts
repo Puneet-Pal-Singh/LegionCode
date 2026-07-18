@@ -1,5 +1,6 @@
 export {
   HookAuditEventTypeSchema,
+  HookAuditAppendInputSchema,
   HookAuditMetadataSchema,
   HookInvocationAuditEventSchema,
   HookInvocationIdSchema,

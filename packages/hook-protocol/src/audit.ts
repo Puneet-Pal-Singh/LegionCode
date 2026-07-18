@@ -134,60 +134,76 @@ export const HookAuditMetadataSchema = z
   .strict();
 export type HookAuditMetadata = z.infer<typeof HookAuditMetadataSchema>;
 
+const HookAuditShape = {
+  eventType: HookAuditEventTypeSchema,
+  invocation: HookInvocationSchema,
+  outcomeSummary: HookOutcomeSummarySchema.nullable(),
+  metadata: HookAuditMetadataSchema,
+  emittedAt: ProtocolTimestampSchema,
+} as const;
+
+export const HookAuditAppendInputSchema = z
+  .object(HookAuditShape)
+  .strict()
+  .superRefine(validateHookAuditShape);
+export type HookAuditAppendInput = z.infer<
+  typeof HookAuditAppendInputSchema
+>;
+
 export const HookInvocationAuditEventSchema = z
   .object({
     auditEventId: EventIdSchema,
-    eventType: HookAuditEventTypeSchema,
-    invocation: HookInvocationSchema,
-    outcomeSummary: HookOutcomeSummarySchema.nullable(),
-    metadata: HookAuditMetadataSchema,
-    emittedAt: ProtocolTimestampSchema,
+    ...HookAuditShape,
     eventSequence: EventSequenceSchema,
   })
   .strict()
-  .superRefine((event, context) => {
-    if (
-      event.outcomeSummary !== null &&
-      event.outcomeSummary.eventName !== event.invocation.eventName
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["outcomeSummary", "eventName"],
-        message: "Hook outcome summary must match its invocation event.",
-      });
-    }
-    const expectedStatus = {
-      "hook.invocation.started": "running",
-      "hook.invocation.completed": "completed",
-      "hook.invocation.failed": "failed",
-      "hook.invocation.timed_out": "timed_out",
-      "hook.invocation.cancelled": "cancelled",
-      "hook.outcome.applied": "completed",
-    } as const;
-    if (event.invocation.status !== expectedStatus[event.eventType]) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["invocation", "status"],
-        message: "Hook audit event type must match invocation status.",
-      });
-    }
-    const requiresSummary =
-      event.eventType === "hook.invocation.completed" ||
-      event.eventType === "hook.outcome.applied";
-    if (requiresSummary !== (event.outcomeSummary !== null)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["outcomeSummary"],
-        message:
-          "Only completed or applied hook audit events contain outcome summaries.",
-      });
-    }
-  });
+  .superRefine(validateHookAuditShape);
 export type HookInvocationAuditEvent = z.infer<
   typeof HookInvocationAuditEventSchema
 >;
 
-export type HookAuditAppendInput = Omit<
-  HookInvocationAuditEvent,
-  "auditEventId" | "eventSequence"
->;
+function validateHookAuditShape(
+  event: {
+    eventType: HookAuditEventType;
+    invocation: HookInvocation;
+    outcomeSummary: HookOutcomeSummary | null;
+  },
+  context: z.RefinementCtx,
+): void {
+  if (
+    event.outcomeSummary !== null &&
+    event.outcomeSummary.eventName !== event.invocation.eventName
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["outcomeSummary", "eventName"],
+      message: "Hook outcome summary must match its invocation event.",
+    });
+  }
+  const expectedStatus = {
+    "hook.invocation.started": "running",
+    "hook.invocation.completed": "completed",
+    "hook.invocation.failed": "failed",
+    "hook.invocation.timed_out": "timed_out",
+    "hook.invocation.cancelled": "cancelled",
+    "hook.outcome.applied": "completed",
+  } as const;
+  if (event.invocation.status !== expectedStatus[event.eventType]) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["invocation", "status"],
+      message: "Hook audit event type must match invocation status.",
+    });
+  }
+  const requiresSummary =
+    event.eventType === "hook.invocation.completed" ||
+    event.eventType === "hook.outcome.applied";
+  if (requiresSummary !== (event.outcomeSummary !== null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["outcomeSummary"],
+      message:
+        "Only completed or applied hook audit events contain outcome summaries.",
+    });
+  }
+}
