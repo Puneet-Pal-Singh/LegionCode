@@ -185,10 +185,12 @@ presentation remains required before closing these red flags.
   either reattaches the exact lease or returns exactly one next-generation
   replacement. Brain compare-and-sets that replacement onto the same checkout
   before another tool can use it; snapshot, checkout, filesystem root, Git
-  identity, artifact namespace, and sibling leases remain unchanged. Expired
+  identity, artifact namespace, and sibling leases remain unchanged. A second
+  loss is fenced as typed, non-retryable `SANDBOX_RECOVERY_EXHAUSTED`; Brain
+  preserves that identity instead of promising another replacement. Expired
   sessions release their matching lease before deletion. Focused Secure API
-  bearer-rotation/scope/loss tests, persistence generation tests, Brain
-  restart/adoption tests, and active tool-loop synchronization tests pass.
+  bearer-rotation/scope/loss/exhaustion tests, persistence generation tests,
+  Brain restart/adoption tests, and active tool-loop synchronization tests pass.
   Migration `0028_task_checkout_secure_session` deliberately fails if legacy
   checkout rows lack recoverable provenance instead of inventing it. This
   remains pending until authenticated target evidence proves Brain/DO restart,
@@ -255,6 +257,17 @@ presentation remains required before closing these red flags.
   and schemas now enter Web through `services/api/lifecycleClient`, and the
   provider-SDK boundary plus hook disclosure/view-model tests pass
   (`fc7ce414`).
+- **RF-033 — FIXED_PENDING_TARGET_PROOF, P0 production schema migration
+  operator gap**: production Brain correctly keeps
+  `DATABASE_MIGRATIONS_MODE=manual`, but the repository had no supported
+  operator entrypoint for applying the checkout/title migrations before a
+  deployment. The persistence package now exposes one transactional,
+  advisory-lock-protected Worker runner, and a dedicated scheduled-only Worker
+  invokes it with no `fetch` handler, public route, or live-request side effect.
+  The focused worker test, persistence/Brain typechecks, and Wrangler dry-run
+  binding validation pass. Keep this pending until an explicitly approved
+  target migration records the exact applied/skipped IDs and schema inspection
+  proves the required columns and constraints before deployment.
 
 Focused evidence: Web activity/chat tests `52/52`, Brain controller/runtime/
 execution tests `43/43`, execution-engine final/privacy tests `12/12`, protocol
