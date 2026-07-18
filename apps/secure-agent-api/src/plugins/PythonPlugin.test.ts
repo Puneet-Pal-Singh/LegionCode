@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { PythonPlugin } from "./PythonPlugin";
+import type { PluginExecutionContext } from "../interfaces/types";
 
 interface ExecResult {
   exitCode: number;
@@ -55,6 +56,19 @@ function asSandbox(mock: SandboxMock): Sandbox {
   return mock as unknown as Sandbox;
 }
 
+function testExecutionContext(runId = "default"): PluginExecutionContext {
+  return {
+    workspaceScope: {
+      runId,
+      workspaceId: "workspace-test",
+      threadId: "thread-test",
+      turnId: "turn-test",
+      runAttemptId: "attempt-test",
+      root: `/home/sandbox/runs/${runId}`,
+    },
+  };
+}
+
 describe("PythonPlugin", () => {
   it("rejects unsafe requirement specifiers before execution", async () => {
     const plugin = new PythonPlugin();
@@ -63,7 +77,7 @@ describe("PythonPlugin", () => {
     const result = await plugin.execute(asSandbox(sandbox), {
       code: "print('hello')",
       requirements: ["requests; rm -rf /"],
-    });
+    }, undefined, testExecutionContext());
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Invalid Python requirement/i);
@@ -87,7 +101,7 @@ describe("PythonPlugin", () => {
       code: "print('ok')",
       requirements: ["requests"],
       runId: "run_py_1",
-    });
+    }, undefined, testExecutionContext("run_py_1"));
 
     expect(result.success).toBe(true);
     expect(sandbox.execCalls).toHaveLength(4);
@@ -104,7 +118,7 @@ describe("PythonPlugin", () => {
     const result = await plugin.execute(asSandbox(sandbox), {
       code: "print(42)",
       runId: "run_py_2",
-    });
+    }, undefined, testExecutionContext("run_py_2"));
 
     expect(result.success).toBe(true);
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(

@@ -1,5 +1,6 @@
 // src/interfaces/types.ts
 import { Sandbox } from "@cloudflare/sandbox";
+import type { WorkspaceScope } from "../ports/SandboxExecutionLease";
 
 // Definition for the callback function
 export type LogCallback = (
@@ -19,6 +20,14 @@ export interface PluginResult {
   isBinary?: boolean;
   metadata?: Record<string, unknown>;
   truncated?: boolean;
+}
+
+/**
+ * Server-issued execution identity. Plugins use this scope for all filesystem
+ * authority; tool payloads retain a run id only for audit correlation.
+ */
+export interface PluginExecutionContext {
+  workspaceScope: WorkspaceScope;
 }
 
 // OpenAI Tool Definition Schema
@@ -49,6 +58,7 @@ export interface IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult>;
 }
 

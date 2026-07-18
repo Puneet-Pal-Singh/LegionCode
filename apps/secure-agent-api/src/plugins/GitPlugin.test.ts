@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { GitPlugin } from "./GitPlugin";
 import { runSafeCommand } from "./security/SafeCommand";
+import { pluginTestExecutionContext } from "./test-support/PluginExecutionContext";
 
 vi.mock("./security/SafeCommand", () => ({
   runSafeCommand: vi.fn(),
@@ -20,6 +21,21 @@ function asSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
 describe("GitPlugin", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    const execute = GitPlugin.prototype.execute;
+    vi.spyOn(GitPlugin.prototype, "execute").mockImplementation(function (
+      this: GitPlugin,
+      sandbox,
+      payload,
+      onLog,
+    ) {
+      return execute.call(
+        this,
+        sandbox,
+        payload,
+        onLog,
+        pluginTestExecutionContext(payload),
+      );
+    });
   });
 
   it("rejects non-canonical git action aliases", async () => {

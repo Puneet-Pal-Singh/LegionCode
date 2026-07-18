@@ -1,13 +1,13 @@
 // apps/secure-agent-api/src/plugins/FileSystemPlugin.ts
 import { Sandbox } from "@cloudflare/sandbox";
-import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import { IPlugin, PluginResult, LogCallback, PluginExecutionContext } from "../interfaces/types";
 import { FileSystemTools } from "../schemas/filesystem";
 import { z } from "zod";
 import {
-  getWorkspaceRoot,
   normalizeRunId,
   resolveWorkspacePath,
 } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
@@ -134,16 +134,17 @@ export class FileSystemPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     _onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     const startedAt = Date.now();
     try {
       const toolboxContext = readToolboxCommandContext(payload);
       const parsedPayload = FileSystemPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsedPayload.runId ?? toolboxContext.runId);
-      const workspaceRoot = getWorkspaceRoot(runId);
+      const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
       if (shouldLogSuccessfulFilesystemTools()) {
         console.log(
-          `[filesystem/tool] runId=${runId} action=${parsedPayload.action} status=entered workspaceRoot=${workspaceRoot}`,
+          `[filesystem/tool] runId=${runId} action=${parsedPayload.action} status=entered`,
         );
       }
 

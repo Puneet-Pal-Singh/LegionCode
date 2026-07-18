@@ -10,7 +10,11 @@
 
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { CloudflareSandboxExecutionAdapter } from "./CloudflareSandboxExecutionAdapter";
-import type { IPlugin, ToolDefinition } from "../interfaces/types";
+import type {
+  IPlugin,
+  PluginExecutionContext,
+  ToolDefinition,
+} from "../interfaces/types";
 import type { TaskExecutionHooks } from "../ports/SandboxExecutionPort";
 import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
 
@@ -24,7 +28,7 @@ const TEST_LEASE: SandboxExecutionLease = {
     turnId: "turn-1",
     runAttemptId: "attempt-1",
     workspaceId: "workspace-1",
-    root: "/workspace-1",
+    root: "/home/sandbox/runs/run-1",
   },
   owner: "test-session",
   correlationId: "corr-1",
@@ -371,6 +375,66 @@ describe("CloudflareSandboxExecutionAdapter", () => {
       }));
 
       expect(result.status).toBe("success");
+    });
+
+    it("passes each lease's server-owned workspace root to the plugin", async () => {
+      const roots: string[] = [];
+      class ScopedPlugin implements IPlugin {
+        readonly name = "scoped";
+        readonly tools: ToolDefinition[] = [];
+
+        async execute(
+          _sandbox: unknown,
+          _payload: unknown,
+          _onLog?: unknown,
+          context?: PluginExecutionContext,
+        ): Promise<{ success: boolean; output: string }> {
+          roots.push(context?.workspaceScope.root ?? "missing");
+          return { success: true, output: "ok" };
+        }
+      }
+
+      const secondLease: SandboxExecutionLease = {
+        ...TEST_LEASE,
+        leaseId: "lease:workspace-1:attempt-2",
+        workspaceScope: {
+          ...TEST_LEASE.workspaceScope,
+          runId: "run-2",
+          turnId: "turn-2",
+          runAttemptId: "attempt-2",
+          root: "/home/sandbox/checkouts/attempt-2",
+        },
+      };
+      pluginMap.set("scoped", new ScopedPlugin());
+      adapter.registerLease(secondLease);
+
+      await adapter.executeTask(TEST_LEASE.leaseId, withLease({
+        taskId: "task-scoped-1",
+        action: "scoped.execute",
+        params: { action: "run", runId: TEST_RUN_ID },
+      }));
+      await adapter.executeTask(secondLease.leaseId, {
+        taskId: "task-scoped-2",
+        action: "scoped.execute",
+        params: { action: "run", runId: "run-2" },
+        lease: secondLease,
+      });
+
+      expect(roots).toEqual([
+        "/home/sandbox/runs/run-1",
+        "/home/sandbox/checkouts/attempt-2",
+      ]);
+    });
+
+    it("rejects a caller run id that does not match its active workspace scope", async () => {
+      const result = await adapter.executeTask(TEST_LEASE.leaseId, withLease({
+        taskId: "task-scoped-mismatch",
+        action: "MockPlugin.execute",
+        params: { action: "run", runId: "another-run" },
+      }));
+
+      expect(result.status).toBe("failure");
+      expect(result.error?.code).toBe("WORKSPACE_SCOPE_MISMATCH");
     });
 
     it("trims execute-style params.action before forwarding to plugins", async () => {

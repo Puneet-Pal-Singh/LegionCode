@@ -7,7 +7,7 @@ import {
   type GitStatusResult,
 } from "@repo/git-service";
 import { z } from "zod";
-import type { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import type { IPlugin, PluginResult, LogCallback, PluginExecutionContext } from "../interfaces/types";
 import { GitTools } from "../schemas/git";
 import type {
   GitCommitIdentity,
@@ -17,10 +17,10 @@ import type {
   GitStatusResponse,
 } from "@repo/shared-types";
 import {
-  getWorkspaceRoot,
   normalizeRunId,
   validateRepoRelativePath,
 } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
@@ -85,12 +85,13 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
       const toolboxContext = readToolboxCommandContext(payload);
       const parsed = GitPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-      const worktree = getWorkspaceRoot(runId);
+      const worktree = resolveScopedWorkspaceRoot(context, runId);
 
       await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 

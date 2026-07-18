@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { GitHubCliPlugin } from "./GitHubCliPlugin";
 import { runSafeCommand } from "./security/SafeCommand";
+import { pluginTestExecutionContext } from "./test-support/PluginExecutionContext";
 
 vi.mock("./security/SafeCommand", () => ({
   runSafeCommand: vi.fn(),
@@ -20,6 +21,21 @@ function asSandbox(): Sandbox {
 describe("GitHubCliPlugin", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    const execute = GitHubCliPlugin.prototype.execute;
+    vi.spyOn(GitHubCliPlugin.prototype, "execute").mockImplementation(function (
+      this: GitHubCliPlugin,
+      sandbox,
+      payload,
+      onLog,
+    ) {
+      return execute.call(
+        this,
+        sandbox,
+        payload,
+        onLog,
+        pluginTestExecutionContext(payload),
+      );
+    });
   });
 
   it("requires a GitHub token for github_cli actions", async () => {

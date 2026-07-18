@@ -1,11 +1,9 @@
 import type { Sandbox } from "@cloudflare/sandbox";
 import { z } from "zod";
-import type { IPlugin, LogCallback, PluginResult } from "../interfaces/types";
+import type { IPlugin, LogCallback, PluginExecutionContext, PluginResult } from "../interfaces/types";
 import { GitHubCliTools } from "../schemas/github-cli";
-import {
-  getWorkspaceRoot,
-  normalizeRunId,
-} from "./security/PathGuard";
+import { normalizeRunId } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
@@ -55,6 +53,12 @@ interface GitHubCliFeatureFlags {
   prCommentEnabled: boolean;
 }
 
+interface GitHubCliExecutionContext {
+  runId: string;
+  workspaceRoot: string;
+  toolboxContext: ReturnType<typeof readToolboxCommandContext>;
+}
+
 export class GitHubCliPlugin implements IPlugin {
   name = "github_cli";
   tools = GitHubCliTools;
@@ -63,6 +67,7 @@ export class GitHubCliPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     _onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
       const toolboxContext = readToolboxCommandContext(payload);
@@ -72,7 +77,12 @@ export class GitHubCliPlugin implements IPlugin {
       assertEnabledGitHubCliAction(parsed.action, featureFlags);
       const token = validateCliToken(parsed.token);
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-      await this.ensureWorkspace(sandbox, runId, toolboxContext);
+      const execution: GitHubCliExecutionContext = {
+        runId,
+        workspaceRoot: resolveScopedWorkspaceRoot(context, runId),
+        toolboxContext,
+      };
+      await this.ensureWorkspace(sandbox, execution);
 
       switch (parsed.action) {
         case "pr_checks_get":
@@ -80,32 +90,28 @@ export class GitHubCliPlugin implements IPlugin {
             sandbox,
             parsed,
             token,
-            runId,
-            toolboxContext,
+            execution,
           );
         case "actions_run_get":
           return await this.getActionsRun(
             sandbox,
             parsed,
             token,
-            runId,
-            toolboxContext,
+            execution,
           );
         case "actions_job_logs_get":
           return await this.getActionsJobLogs(
             sandbox,
             parsed,
             token,
-            runId,
-            toolboxContext,
+            execution,
           );
         case "pr_comment":
           return await this.createPullRequestComment(
             sandbox,
             parsed,
             token,
-            runId,
-            toolboxContext,
+            execution,
           );
         default:
           return { success: false, error: "Unsupported github_cli action" };
@@ -123,19 +129,17 @@ export class GitHubCliPlugin implements IPlugin {
 
   private async ensureWorkspace(
     sandbox: Sandbox,
-    runId: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    execution: GitHubCliExecutionContext,
   ): Promise<void> {
-    const workspaceRoot = getWorkspaceRoot(runId);
     const result = await runSafeCommand(
       sandbox,
       withToolboxCommandContext(
         {
           command: "mkdir",
-          args: ["-p", workspaceRoot],
-          runId,
+          args: ["-p", execution.workspaceRoot],
+          runId: execution.runId,
         },
-        toolboxContext,
+        execution.toolboxContext,
         "github_cli.prepare_workspace",
       ),
       ["mkdir"],
@@ -149,8 +153,7 @@ export class GitHubCliPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: GitHubCliPayload,
     token: string,
-    runId: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    execution: GitHubCliExecutionContext,
   ): Promise<PluginResult> {
     const number = requirePositiveInteger(payload.number, "Pull request number");
     const prEndpoint = `/repos/${payload.owner}/${payload.repo}/pulls/${number}`;
@@ -159,8 +162,7 @@ export class GitHubCliPlugin implements IPlugin {
       {
         endpoint: prEndpoint,
         token,
-        runId,
-        toolboxContext,
+        ...execution,
         toolName: "github_cli.pr_checks_get.pull",
       },
     );
@@ -185,8 +187,7 @@ export class GitHubCliPlugin implements IPlugin {
     }>(sandbox, {
       endpoint: checksEndpoint,
       token,
-      runId,
-      toolboxContext,
+      ...execution,
       toolName: "github_cli.pr_checks_get.check_runs",
     });
     if ("error" in checks) {
@@ -226,8 +227,7 @@ export class GitHubCliPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: GitHubCliPayload,
     token: string,
-    runId: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    execution: GitHubCliExecutionContext,
   ): Promise<PluginResult> {
     const actionsRunId = requirePositiveInteger(
       payload.actionsRunId,
@@ -237,8 +237,7 @@ export class GitHubCliPlugin implements IPlugin {
     const run = await this.requestGhJson<Record<string, unknown>>(sandbox, {
       endpoint,
       token,
-      runId,
-      toolboxContext,
+      ...execution,
       toolName: "github_cli.actions_run_get",
     });
     if ("error" in run) {
@@ -267,8 +266,7 @@ export class GitHubCliPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: GitHubCliPayload,
     token: string,
-    runId: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    execution: GitHubCliExecutionContext,
   ): Promise<PluginResult> {
     const actionsJobId = requirePositiveInteger(payload.actionsJobId, "Actions job id");
     const tailLines = normalizeActionsTailLineLimit(payload.tailLines);
@@ -277,8 +275,7 @@ export class GitHubCliPlugin implements IPlugin {
     const logsResult = await this.requestGhText(sandbox, {
       endpoint,
       token,
-      runId,
-      toolboxContext,
+      ...execution,
       toolName: "github_cli.actions_job_logs_get",
     });
     if ("error" in logsResult) {
@@ -310,8 +307,7 @@ export class GitHubCliPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: GitHubCliPayload,
     token: string,
-    runId: string,
-    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    execution: GitHubCliExecutionContext,
   ): Promise<PluginResult> {
     const number = requirePositiveInteger(payload.number, "Pull request number");
     const body = requireCommentBody(payload.body);
@@ -319,8 +315,7 @@ export class GitHubCliPlugin implements IPlugin {
     const comment = await this.requestGhJson<Record<string, unknown>>(sandbox, {
       endpoint,
       token,
-      runId,
-      toolboxContext,
+      ...execution,
       toolName: "github_cli.pr_comment",
       method: "POST",
       fields: {
@@ -351,6 +346,7 @@ export class GitHubCliPlugin implements IPlugin {
       endpoint: string;
       token: string;
       runId: string;
+      workspaceRoot: string;
       toolboxContext: ReturnType<typeof readToolboxCommandContext>;
       toolName: string;
       method?: "GET" | "POST";
@@ -402,6 +398,7 @@ export class GitHubCliPlugin implements IPlugin {
       endpoint: string;
       token: string;
       runId: string;
+      workspaceRoot: string;
       toolboxContext: ReturnType<typeof readToolboxCommandContext>;
       toolName: string;
       method?: "GET" | "POST";
@@ -427,6 +424,7 @@ export class GitHubCliPlugin implements IPlugin {
       endpoint: string;
       token: string;
       runId: string;
+      workspaceRoot: string;
       toolboxContext: ReturnType<typeof readToolboxCommandContext>;
       toolName: string;
       method?: "GET" | "POST";
@@ -439,7 +437,6 @@ export class GitHubCliPlugin implements IPlugin {
       endpoint: input.endpoint,
       method,
     });
-    const workspaceRoot = getWorkspaceRoot(input.runId);
     const ghApiArgs = [
       "api",
       "--method",
@@ -462,7 +459,7 @@ export class GitHubCliPlugin implements IPlugin {
             GH_PROMPT_DISABLED: "1",
             GH_NO_UPDATE_NOTIFIER: "1",
           },
-          cwd: workspaceRoot,
+          cwd: input.workspaceRoot,
           runId: input.runId,
         },
         input.toolboxContext,

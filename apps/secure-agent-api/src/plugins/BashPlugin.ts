@@ -1,13 +1,13 @@
 import { Sandbox } from "@cloudflare/sandbox";
 import { z } from "zod";
 import { BashTool } from "../schemas/bash";
-import { IPlugin, LogCallback, PluginResult } from "../interfaces/types";
+import { IPlugin, LogCallback, PluginExecutionContext, PluginResult } from "../interfaces/types";
 import {
-  getWorkspaceRoot,
   normalizeRunId,
   resolveWorkspacePath,
   validateRepoRelativePath,
 } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
@@ -34,6 +34,7 @@ export class BashPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
       const toolboxContext = readToolboxCommandContext(payload);
@@ -41,7 +42,7 @@ export class BashPlugin implements IPlugin {
       validateBashCommand(parsed.command);
 
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-      const workspaceRoot = getWorkspaceRoot(runId);
+      const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
       const cwd = resolveBashCwd(workspaceRoot, parsed.cwd);
 
       await runSafeCommand(
