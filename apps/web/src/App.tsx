@@ -37,7 +37,6 @@ import { AuthShellLoading } from "./components/startup/AuthShellLoading";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
-import { generateChatTitleFromPrompt } from "./lib/chat-title-generator";
 import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
@@ -1078,22 +1077,9 @@ function AppContent() {
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
                     onStart={(config) => {
-                      const name = generateChatTitleFromPrompt(config.task);
-
                       updateSession(activeSessionId, {
-                        name,
-                        titleSource: "generated",
                         status: "running",
                         mode: config.mode,
-                      });
-                      void SessionStateService.updateGeneratedSessionTitle(
-                        activeSessionId,
-                        name,
-                      ).catch((error) => {
-                        console.warn(
-                          "[App] Failed to persist generated title:",
-                          error,
-                        );
                       });
                       setInitialPromptSubmission({
                         id: crypto.randomUUID(),
@@ -1163,26 +1149,7 @@ function AppContent() {
                     );
                   }}
                   onPromptSubmitted={(prompt) => {
-                    if (activeSession?.name !== "New Task") {
-                      return;
-                    }
-                    const name = generateChatTitleFromPrompt(prompt);
-                    if (name === "New Task") {
-                      return;
-                    }
-                    updateSession(activeSessionId, {
-                      name,
-                      titleSource: "generated",
-                    });
-                    void SessionStateService.updateGeneratedSessionTitle(
-                      activeSessionId,
-                      name,
-                    ).catch((error) => {
-                      console.warn(
-                        "[App] Failed to persist generated title:",
-                        error,
-                      );
-                    });
+                    void prompt;
                   }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(

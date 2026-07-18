@@ -14,6 +14,7 @@ import type {
   PermissionRepository,
   RunRepository,
   TranscriptRepository,
+  ThreadTitleRepository,
   WorkspaceRepository,
   LifecycleEventStore,
   TaskWorkspaceRepository,
@@ -34,6 +35,7 @@ export interface Env {
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
   AUTH_WORKSPACE_REPOSITORY?: WorkspaceRepository;
   AUTH_TRANSCRIPT_REPOSITORY?: TranscriptRepository;
+  AUTH_THREAD_TITLE_REPOSITORY?: ThreadTitleRepository;
   AUTH_RUN_REPOSITORY?: RunRepository;
   AUTH_MEMORY_EVENT_REPOSITORY?: MemoryEventRepository;
   AUTH_CONTEXT_REPOSITORY?: ContextRepository;

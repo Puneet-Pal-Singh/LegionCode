@@ -209,27 +209,6 @@ export class SessionStateService {
     return readMetadataMutationResponse(response, "Session rename");
   }
 
-  static async updateGeneratedSessionTitle(
-    sessionId: string,
-    title: string,
-    metadata?: { expectedTitleVersion?: number; terminalTurnId?: string },
-  ): Promise<AgentSession> {
-    const response = await fetch(sessionTitlePath(sessionId), {
-      method: "PATCH",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        title,
-        titleSource: "generated",
-        ...metadata,
-      }),
-    });
-
-    return readMetadataMutationResponse(response, "Generated session title");
-  }
-
   static async acknowledgeSession(
     sessionId: string,
     terminalTurnId: string,
@@ -503,7 +482,7 @@ export class SessionStateService {
     return {
       id: sessionId,
       name,
-      titleSource: "generated",
+      titleSource: "preview",
       repository,
       activeRunId: runId,
       runIds: [runId],
@@ -592,7 +571,9 @@ export class SessionStateService {
       {
         name: "titleSource",
         pass:
-          session.titleSource === "generated" || session.titleSource === "user",
+          session.titleSource === "preview" ||
+          session.titleSource === "generated" ||
+          session.titleSource === "user",
       },
       {
         name: "activeRunId",
@@ -647,7 +628,7 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
     ...session,
     mode: session.mode ?? DEFAULT_RUN_MODE,
     status: normalizeStoredSessionStatus(session.status),
-    titleSource: session.titleSource ?? "generated",
+    titleSource: session.titleSource ?? "preview",
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
     createdAt: session.createdAt ?? session.updatedAt,
@@ -669,7 +650,7 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
   return {
     id: session.id,
     name: session.title,
-    titleSource: session.titleSource ?? "generated",
+    titleSource: session.titleSource ?? "preview",
     ...mapServerThreadMetadata(session),
     repository: session.repository,
     activeRunId: session.activeRunId,

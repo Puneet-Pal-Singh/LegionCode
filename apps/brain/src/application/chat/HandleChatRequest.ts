@@ -26,6 +26,11 @@ import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
+import {
+  ThreadTitleGenerationCoordinator,
+  ThreadTitleService,
+  type BackgroundTaskOwner,
+} from "../../services/thread-titles";
 import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
@@ -66,6 +71,7 @@ export interface HandleChatRequestInput {
   repositoryBaseUrl?: string;
   tools?: Record<string, SerializableToolDefinition>;
   identity: TurnScopeBootstrap;
+  backgroundTaskOwner?: BackgroundTaskOwner;
 }
 
 export interface HandleChatRequestOutput {
@@ -191,6 +197,34 @@ export class HandleChatRequest {
             modelId: input.modelId ?? null,
             branch: repositoryBranch ?? null,
           });
+          const firstMessageId = readMessageId(lastUserMessage);
+          if (firstMessageId) {
+            const titleService = new ThreadTitleService(this.env);
+            const preview = await titleService.persistPreview({
+              sessionId,
+              threadId: identity.threadId,
+              runId,
+              userId,
+              firstMessageId,
+              prompt,
+            });
+            if (preview && input.backgroundTaskOwner) {
+              new ThreadTitleGenerationCoordinator(this.env).schedule(
+                input.backgroundTaskOwner,
+                {
+                  sessionId,
+                  threadId: identity.threadId,
+                  runId,
+                  userId,
+                  firstMessageId,
+                  prompt,
+                  previewVersion: preview.titleVersion ?? 1,
+                  providerId: input.providerId,
+                  modelId: input.modelId,
+                },
+              );
+            }
+          }
           console.log(
             formatDiagnosticLogLine("chat/persistence", "run-ensured", {
               correlationId,

@@ -140,7 +140,7 @@ describe("TranscriptController", () => {
     });
   });
 
-  it("updates generated titles without converting them to user titles", async () => {
+  it("does not grant generated title authority to browser requests", async () => {
     await TranscriptController.createSession(createSessionRequest(), env);
 
     const response = await TranscriptController.renameSessionTitle(
@@ -159,7 +159,7 @@ describe("TranscriptController", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      session: { title: "Generated from prompt", titleSource: "generated" },
+      session: { title: "Generated from prompt", titleSource: "user" },
     });
   });
 

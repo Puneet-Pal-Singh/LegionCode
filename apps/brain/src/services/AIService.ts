@@ -123,6 +123,8 @@ export class AIService {
     providerTransport,
     providerEndpoint,
     temperature = 0.2,
+    maxTokens,
+    abortSignal,
   }: {
     messages: CoreMessage[];
     schema: ZodSchema<T>;
@@ -132,6 +134,8 @@ export class AIService {
     providerTransport?: ProviderModelTransport;
     providerEndpoint?: string;
     temperature?: number;
+    maxTokens?: number;
+    abortSignal?: AbortSignal;
   }): Promise<GenerateStructuredResult<T>> {
     const selection = await resolveSelectionWithPreferences({
       providerId,
@@ -177,6 +181,8 @@ export class AIService {
       messages,
       schema,
       temperature,
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+      ...(abortSignal ? { abortSignal } : {}),
       mode: getStructuredGenerationMode(selection.runtimeProvider),
     });
 
