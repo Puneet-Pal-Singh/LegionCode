@@ -38,7 +38,7 @@ describe("RuntimeWorkspaceScope", () => {
       threadId: identity.threadId,
       turnId: identity.turnId,
       runAttemptId: identity.runAttemptId,
-      workspaceId: identity.workspaceId,
+      workspaceId: "wrk_00000000-0000-4000-8000-000000000001",
       root: "/home/sandbox/runs/run_scope_test",
     });
   });

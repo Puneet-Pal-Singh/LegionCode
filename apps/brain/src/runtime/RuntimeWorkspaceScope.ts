@@ -3,6 +3,7 @@ import {
   RunInterruptIdentitySchema,
   type RunInterruptIdentity,
 } from "./RunInterruptContract";
+import { workspaceIdFromExternalId } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
 
 const RUNTIME_WORKSPACE_ROOT_PREFIX = "/home/sandbox/runs";
@@ -49,7 +50,7 @@ export function toSecureExecutionWorkspaceScope(
     threadId: input.threadId,
     turnId: input.turnId,
     runAttemptId: input.runAttemptId,
-    workspaceId: input.workspaceId,
+    workspaceId: workspaceIdFromExternalId(input.workspaceId),
     root: input.root,
   };
 }

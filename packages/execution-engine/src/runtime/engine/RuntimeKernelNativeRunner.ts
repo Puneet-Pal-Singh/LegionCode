@@ -17,6 +17,7 @@ import {
   type ToolCallItemContent,
   type Turn,
   projectVisibleTranscriptText,
+  workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import type {
   ApprovalResolution,
@@ -154,13 +155,11 @@ export interface RuntimeKernelNativeRunnerInput {
 }
 
 export class RuntimeKernelNativeRunner {
-  private activeTurn:
-    | {
-        readonly turnId: Turn["id"];
-        readonly kernel: Promise<RuntimeKernel | null>;
-        readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
-      }
-    | null = null;
+  private activeTurn: {
+    readonly turnId: Turn["id"];
+    readonly kernel: Promise<RuntimeKernel | null>;
+    readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
+  } | null = null;
   private readonly interruptedTurns = new Set<Turn["id"]>();
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
@@ -1564,8 +1563,7 @@ function buildProtocolEnvelope(input: {
   runAttemptId: RunAttemptId;
   manifest: KernelWorkspaceManifest;
 } {
-  const workspaceId = toProtocolId(
-    "wrk",
+  const workspaceId = workspaceIdFromExternalId(
     input.canonicalWorkspaceId ?? input.runId,
   );
   const threadId = input.canonicalThreadId
