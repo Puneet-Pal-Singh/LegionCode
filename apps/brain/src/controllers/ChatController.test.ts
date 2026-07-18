@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MemoryRunRepository,
+  MemoryThreadTitleRepository,
   MemoryTranscriptRepository,
 } from "@repo/persistence";
 import { ChatController } from "./ChatController";
@@ -9,45 +10,7 @@ import type { Env } from "../types/ai";
 const VALID_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
 const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
-const mockCloudflareAgentExecute = vi.fn();
-
-vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
-  CloudflareAgent: class MockCloudflareAgent {},
-  CloudflareAgentsRunRuntimeClient: class MockRuntimeClient {
-    execute = mockCloudflareAgentExecute;
-    getSummary = vi.fn();
-    cancel = vi.fn();
-  },
-  parseCloudflareAgentsFeatureFlag: (value: string | undefined) =>
-    value === "true" || value === "1",
-  shouldActivateCloudflareAgentsAdapter: ({
-    requestedBackend,
-    featureFlagEnabled,
-  }: {
-    requestedBackend: string;
-    featureFlagEnabled: boolean;
-  }) => featureFlagEnabled && requestedBackend === "cloudflare_agents",
-}));
-
 describe("ChatController DO runtime migration", () => {
-  beforeEach(() => {
-    mockCloudflareAgentExecute.mockReset();
-    mockCloudflareAgentExecute.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shadowbox-Runtime-Name": "brain-run-engine-do",
-          "X-Shadowbox-Runtime-Git-Sha": "run-engine-sha",
-          "X-Shadowbox-Runtime-Started-At": "2026-03-23T00:00:00.000Z",
-          "X-Shadowbox-Runtime-Boot-Id": "run-engine-boot",
-          "X-Shadowbox-Runtime-Fingerprint":
-            "brain-run-engine-do:run-engine-sha:run-engine-boot",
-        },
-      }),
-    );
-  });
-
   it("routes execution through RUN_ENGINE_RUNTIME and tags response headers", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
@@ -587,12 +550,12 @@ function createMockRuntimeNamespace() {
 function createEnv(
   runEngineRuntime: Env["RUN_ENGINE_RUNTIME"],
   options: {
-    runEngineAgent?: Env["RUN_ENGINE_AGENT"];
-    cloudflareAgentsEnabled?: Env["FEATURE_FLAG_CLOUDFLARE_AGENTS_V1"];
     runAdmissionLimiter?: Env["RUN_ADMISSION_LIMITER"];
   } = {},
 ): Env {
   const oauthState = new Map<string, string>();
+  const transcripts = new MemoryTranscriptRepository();
+  const runs = new MemoryRunRepository();
 
   return {
     AI: {} as Env["AI"],
@@ -605,8 +568,12 @@ function createEnv(
         createIdentitySessionRecord(),
       revokeSession: async () => undefined,
     },
-    AUTH_TRANSCRIPT_REPOSITORY: new MemoryTranscriptRepository(),
-    AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_TRANSCRIPT_REPOSITORY: transcripts,
+    AUTH_RUN_REPOSITORY: runs,
+    AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
+      transcripts,
+      runs,
+    ),
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
@@ -629,9 +596,6 @@ function createEnv(
     RUN_ADMISSION_LIMITER:
       options.runAdmissionLimiter ??
       createMockRunAdmissionLimiterNamespace().namespace,
-    RUN_ENGINE_AGENT: options.runEngineAgent,
-    FEATURE_FLAG_CLOUDFLARE_AGENTS_V1:
-      options.cloudflareAgentsEnabled ?? "false",
   };
 }
 

@@ -88,7 +88,6 @@ export interface Env {
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_CHAT_REVIEWER_PASS_V1?: "true" | "false" | "1" | "0";
-  FEATURE_FLAG_CLOUDFLARE_AGENTS_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_LANE_ENABLED?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_CI_ENABLED?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED?: "true" | "false" | "1" | "0";
@@ -112,7 +111,6 @@ export interface Env {
 
   // Durable Object binding for RunEngine runtime state
   RUN_ENGINE_RUNTIME: DurableObjectNamespace;
-  RUN_ENGINE_AGENT?: DurableObjectNamespace;
   RUN_ADMISSION_LIMITER?: DurableObjectNamespace;
 
   // Environment

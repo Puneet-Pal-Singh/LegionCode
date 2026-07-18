@@ -33,7 +33,6 @@
     "@repo/provider-core": "workspace:*",
     "@shadowbox/context-pruner": "workspace:*",
     "@shadowbox/execution-engine": "workspace:*",
-    "@shadowbox/orchestrator-adapters-cloudflare-agents": "workspace:*",
     "@shadowbox/orchestrator-core": "workspace:*",
     "@shadowbox/github-bridge": "workspace:*",
     "@repo/persistence": "workspace:*",

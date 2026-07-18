@@ -10,12 +10,6 @@ const TEST_USER_ID = "user-1";
 const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_RUN_ID = "run_server1";
 
-vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
-  CloudflareAgentsRunRuntimeClient: class MockRuntimeClient {},
-  parseCloudflareAgentsFeatureFlag: () => false,
-  shouldActivateCloudflareAgentsAdapter: () => false,
-}));
-
 describe("TurnController public bootstrap contract", () => {
   it("authenticates the request and returns the runtime-issued four-id scope", async () => {
     const runtime = createMockRuntimeNamespace();
@@ -116,7 +110,6 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
     RUN_ENGINE_RUNTIME: runEngineRuntime,
-    FEATURE_FLAG_CLOUDFLARE_AGENTS_V1: "false",
   } as Env;
 }
 
