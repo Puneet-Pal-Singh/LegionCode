@@ -3,6 +3,7 @@ import {
   type HookRuntimeContext,
 } from "@repo/hook-protocol";
 import {
+  WorkspaceManifestIdSchema,
   workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import type {
@@ -177,7 +178,7 @@ export class ProductionHookOrchestrator
       modelId: input.run.modelId,
       providerId: input.run.providerId,
       permissionMode: "ask",
-      capabilityManifestId: input.workspace.manifestId,
+      capabilityManifestId: capabilityManifestIdFromRun(input.run.id),
       transcriptRef: null,
     });
   }
@@ -205,4 +206,9 @@ export class HookRuntimeScopeError extends Error {
 
 function buildCapabilityManifestRef(manifestId: string): string {
   return `runtime-capabilities/${manifestId}`;
+}
+
+function capabilityManifestIdFromRun(runId: string) {
+  const suffix = runId.replace(/^run_/, "");
+  return WorkspaceManifestIdSchema.parse(`wsm_${suffix}`);
 }

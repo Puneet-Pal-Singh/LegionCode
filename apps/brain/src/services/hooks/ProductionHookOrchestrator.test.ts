@@ -180,7 +180,6 @@ function triggerInput(
     workspace: {
       runId: run.id,
       workspaceId: run.workspaceId,
-      manifestId: "wsm_hookrun001",
       repoOwner: "legion",
       repoName: "hook-test",
       repoUrl: "https://github.com/legion/hook-test",
