@@ -41,6 +41,7 @@ export { artifactProvenanceMigration } from "./migrations/0024-artifact-provenan
 export { taskWorkspacesMigration } from "./migrations/0025-task-workspaces.js";
 export { sessionTitleVersionMigration } from "./migrations/0026-session-title-version.js";
 export { hookDefinitionsMigration } from "./migrations/0029-hook-definitions.js";
+export { sessionTitleSourceRepairMigration } from "./migrations/0031-session-title-source-repair.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
