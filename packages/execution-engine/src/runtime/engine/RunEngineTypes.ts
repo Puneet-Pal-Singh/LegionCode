@@ -34,6 +34,12 @@ export interface RunEngineOptions {
   userId?: string;
   correlationId: string;
   requestOrigin?: string;
+  /**
+   * Required only by the quarantined direct RunEngine path. The native kernel
+   * receives its checkout root through RuntimeKernelNativeRunnerInput.
+   */
+  workspaceRoot?: string;
+  artifactRoot?: string;
 }
 
 export interface RunEngineEnv {
@@ -70,9 +76,4 @@ export interface RunEngineDependencies {
   hasGitHubAuth?: GitHubAuthAvailabilityChecker;
   prepareMutationCapture?: () => Promise<void>;
   runEventListener?: (event: RunEvent) => Promise<void> | void;
-  /**
-   * Releases the run-attempt execution lease after terminal settlement.
-   * Runtime owns when this is called; adapters own how it is transported.
-   */
-  releaseExecutionSession?: () => Promise<void>;
 }

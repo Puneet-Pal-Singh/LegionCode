@@ -1,10 +1,15 @@
 import type {
   ApprovalId,
+  HookInvocationAuditEvent,
   ItemId,
   ItemKind,
   LifecycleEvent,
   TurnDiffPayload,
   TurnId,
+} from "../api/lifecycleClient";
+import {
+  applyHookAuditLifecycleEvent,
+  createHookAuditProjection,
 } from "../api/lifecycleClient";
 
 export type LifecycleProjectionTerminalState =
@@ -57,12 +62,15 @@ export interface LifecycleProjection {
   readonly turnId: TurnId;
   readonly lastSequence: number;
   readonly items: readonly LifecycleProjectionItem[];
+  readonly hookAudits: readonly HookInvocationAuditEvent[];
   readonly pendingApproval: LifecycleProjectionApproval | null;
   readonly terminal: LifecycleProjectionTerminal | null;
   readonly turnDiff: TurnDiffPayload | null;
   readonly activeThinking: boolean;
   readonly assistantText: string;
   readonly phase: LifecycleProjectionPhase;
+  readonly startedAt: string | null;
+  readonly settledAt: string | null;
 }
 
 type ItemEvent = LifecycleEvent & {
@@ -83,12 +91,15 @@ export function createLifecycleProjection(turnId: TurnId): LifecycleProjection {
     turnId,
     lastSequence: 0,
     items: [],
+    hookAudits: createHookAuditProjection().events,
     pendingApproval: null,
     terminal: null,
     turnDiff: null,
     activeThinking: false,
     assistantText: "",
     phase: "starting",
+    startedAt: null,
+    settledAt: null,
   };
 }
 
@@ -99,7 +110,14 @@ export function applyLifecycleEvent(
   if (event.turnId !== projection.turnId) {
     return projection;
   }
-  const next = applyKnownEvent(projection, event);
+  const hookAudits = applyHookAuditLifecycleEvent(
+    { events: projection.hookAudits },
+    event,
+  );
+  const next = applyKnownEvent(
+    { ...projection, hookAudits: hookAudits.events },
+    event,
+  );
   return {
     ...next,
     lastSequence: Math.max(next.lastSequence, event.sequence),
@@ -121,8 +139,17 @@ function applyKnownEvent(
 ): LifecycleProjection {
   switch (event.type) {
     case "turn.started":
+      return {
+        ...projection,
+        phase: "starting",
+        startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
+      };
     case "run_attempt.started":
-      return { ...projection, phase: "starting" };
+      return {
+        ...projection,
+        phase: "working",
+        startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
+      };
     case "item.started":
       return { ...upsertItem(projection, createStartedItem(event)), phase: "working" };
     case "assistant_message.delta":
@@ -269,6 +296,7 @@ function settleTurn(
       occurredAt: event.createdAt,
     },
     phase: state === "completed" ? "completed" : "failed",
+    settledAt: event.createdAt,
   };
 }
 
@@ -285,6 +313,13 @@ export function lifecyclePhaseLabel(phase: LifecycleProjectionPhase): string {
     case "failed":
       return "Failed";
   }
+}
+
+function earlierTimestamp(current: string | null, candidate: string): string {
+  if (!current) {
+    return candidate;
+  }
+  return Date.parse(candidate) < Date.parse(current) ? candidate : current;
 }
 
 function updateItem(

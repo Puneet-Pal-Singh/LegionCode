@@ -1,4 +1,4 @@
-export const CHAT_TITLE_SOURCES = ["generated", "user"] as const;
+export const CHAT_TITLE_SOURCES = ["preview", "generated", "user"] as const;
 
 export type ChatTitleSource = (typeof CHAT_TITLE_SOURCES)[number];
 

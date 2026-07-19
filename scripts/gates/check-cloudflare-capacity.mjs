@@ -12,19 +12,33 @@ const admission = positiveInt(
   brain.vars?.CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS,
   "Brain CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS",
 );
+const perUser = positiveInt(
+  brain.vars?.ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX,
+  "Brain ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX",
+);
+const perWorkspace = positiveInt(
+  brain.vars?.ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX,
+  "Brain ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX",
+);
 const physical = positiveInt(
   secureApi.containers?.[0]?.max_instances,
   "Secure API containers[0].max_instances",
 );
 
-if (admission > physical) {
+if (admission !== 5 || perUser !== 5 || perWorkspace !== 5) {
   throw new Error(
-    `Cloudflare admission (${admission}) exceeds deployed sandbox capacity (${physical}).`,
+    `Initial alpha admission must be exactly five globally, per user, and per workspace; received global=${admission}, user=${perUser}, workspace=${perWorkspace}.`,
+  );
+}
+
+if (admission >= physical) {
+  throw new Error(
+    `Cloudflare admission (${admission}) must remain below deployed sandbox capacity (${physical}) to preserve recovery headroom.`,
   );
 }
 
 console.log(
-  `Cloudflare capacity contract: admission=${admission}, max_instances=${physical}`,
+  `Cloudflare capacity contract: admission=${admission}, per_user=${perUser}, per_workspace=${perWorkspace}, max_instances=${physical}`,
 );
 
 async function readJsonc(relativePath) {

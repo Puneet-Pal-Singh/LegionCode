@@ -76,6 +76,7 @@ export class PersistenceService {
     sessionId: string;
     userId: string;
     workspaceId?: string | null;
+    threadId?: string | null;
     taskId?: string | null;
     title?: string | null;
     repository?: string | null;
@@ -85,6 +86,7 @@ export class PersistenceService {
         sessionId: input.sessionId,
         userId: input.userId,
         workspaceId: input.workspaceId,
+        threadId: input.threadId,
         taskId: input.taskId ?? input.sessionId,
         title: input.title,
         repository: input.repository,
@@ -242,6 +244,33 @@ export class PersistenceService {
       );
       throw new TranscriptPersistenceError("persistUserMessage", error);
     }
+  }
+
+  async findFirstPersistedUserMessage(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<TranscriptMessageRecord | null> {
+    let cursor: number | null = 0;
+
+    while (cursor !== null) {
+      const page = await withTranscriptRepository(this.env, (repository) =>
+        repository.listTranscript({
+          sessionId: input.sessionId,
+          userId: input.userId,
+          cursor,
+          limit: 100,
+        }),
+      );
+      const firstUserMessage = page.messages.find(
+        (message) => message.role === "user",
+      );
+      if (firstUserMessage) {
+        return firstUserMessage;
+      }
+      cursor = page.nextCursor;
+    }
+
+    return null;
   }
 
   async persistConversation(

@@ -55,6 +55,8 @@ export interface AgenticLoopConfig {
   maxSteps: number;
   runId: string;
   sessionId: string;
+  workspaceRoot: string;
+  artifactRoot: string;
   budget?: IBudgetManager;
   executionNonce?: string;
 }
@@ -197,6 +199,8 @@ export class AgenticLoop {
       latestTurnRequestsCiLogs(initialMessages);
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: this.config.runId,
+      workspaceRoot: this.config.workspaceRoot,
+      artifactRoot: this.config.artifactRoot,
       availableToolIds: Object.keys(tools),
       providerId: context.providerId,
       modelId: context.runtimeModelId ?? context.modelId,

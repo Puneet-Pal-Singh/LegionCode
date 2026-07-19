@@ -108,6 +108,23 @@ export class ToolExecutionCoordinator {
       authorization.toolCall,
       approval,
     );
+    if (result.kind === "failed") {
+      if (result.disposition === "terminal") {
+        throw this.workerFailure(result.failure);
+      }
+      await this.lifecycle.failToolCall(toolCall.toolCallId, result.failure);
+      return {
+        toolCallId: toolCall.toolCallId,
+        output: {
+          error: {
+            code: result.failure.code,
+            message: result.failure.message,
+            retryable: result.failure.retryable,
+          },
+        },
+        failure: result.failure,
+      };
+    }
     await this.emitWorkerResultEvents(
       run,
       itemId,
@@ -126,7 +143,9 @@ export class ToolExecutionCoordinator {
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
-  ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
+  ): Promise<
+    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
+  > {
     const initial = await this.callWorker(
       run,
       runAttemptId,
@@ -139,7 +158,7 @@ export class ToolExecutionCoordinator {
       return initial;
     }
     if (initial.kind === "failed") {
-      throw this.workerFailure(initial.failure);
+      return initial;
     }
     if (initial.kind === "cancelled") {
       throw new RuntimeKernelError("turn_cancelled", initial.reason);
@@ -174,7 +193,9 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution,
-  ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
+  ): Promise<
+    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
+  > {
     const result = await this.callWorker(
       run,
       runAttemptId,
@@ -190,7 +211,7 @@ export class ToolExecutionCoordinator {
       );
     }
     if (result.kind === "failed") {
-      throw this.workerFailure(result.failure);
+      return result;
     }
     if (result.kind === "cancelled") {
       throw new RuntimeKernelError("turn_cancelled", result.reason);

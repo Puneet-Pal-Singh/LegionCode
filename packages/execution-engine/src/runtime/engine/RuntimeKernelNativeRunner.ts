@@ -17,6 +17,7 @@ import {
   type ToolCallItemContent,
   type Turn,
   projectVisibleTranscriptText,
+  workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
 import type {
   ApprovalResolution,
@@ -28,6 +29,7 @@ import type {
   RuntimeGitSnapshotPort,
   RuntimeKernelDependencies,
   RuntimeLifecycleEventStore,
+  RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
   ToolResult,
   WorkerProtocolPort,
@@ -60,7 +62,11 @@ import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { TaskRepository } from "../task/index.js";
 import { RunEventRecorder, RunEventRepository } from "../events/index.js";
 import { MemoryCoordinator, MemoryRepository } from "../memory/index.js";
-import { LLMGateway, type ILLMGateway } from "../llm/index.js";
+import {
+  LLMGateway,
+  type ILLMGateway,
+  type LLMTextResponse,
+} from "../llm/index.js";
 import { PlannerService } from "../planner/index.js";
 import {
   BudgetManager,
@@ -88,6 +94,7 @@ import {
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
+import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import {
@@ -103,6 +110,7 @@ import {
   recordTurnModeDecision,
 } from "./RunMetadataPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
+import { isTerminalToolFailure } from "./ToolFailureTerminalPolicy.js";
 import {
   buildPlanModeResponse,
   persistPlanArtifact,
@@ -129,8 +137,8 @@ import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
+import { RuntimeKernelProviderTranscript } from "./RuntimeKernelProviderTranscript.js";
 
-const DEFAULT_SHA = "0".repeat(40);
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
   Awaited<
@@ -145,21 +153,26 @@ export interface RuntimeKernelNativeRunnerInput {
   messages: CoreMessage[];
   tools: Record<string, CoreTool>;
   lifecycleEvents: RuntimeLifecycleEventStore;
+  hookOrchestration?: RuntimeHookOrchestrationPort;
   turnId: Turn["id"];
   runAttemptId?: string;
   threadId?: string;
   workspaceId?: string;
+  workspace: {
+    filesystemRoot: string;
+    workingBranch: string;
+    startTreeId: string;
+    artifactNamespace: string;
+  };
   now?: () => string;
 }
 
 export class RuntimeKernelNativeRunner {
-  private activeTurn:
-    | {
-        readonly turnId: Turn["id"];
-        readonly kernel: Promise<RuntimeKernel | null>;
-        readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
-      }
-    | null = null;
+  private activeTurn: {
+    readonly turnId: Turn["id"];
+    readonly kernel: Promise<RuntimeKernel | null>;
+    readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
+  } | null = null;
   private readonly interruptedTurns = new Set<Turn["id"]>();
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
@@ -174,7 +187,6 @@ export class RuntimeKernelNativeRunner {
   private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
   private readonly workspaceBootstrapper;
-  private readonly releaseExecutionSession?: () => Promise<void>;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -233,7 +245,6 @@ export class RuntimeKernelNativeRunner {
       });
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
-    this.releaseExecutionSession = dependencies.releaseExecutionSession;
     this.memoryCoordinator =
       dependencies.memoryCoordinator ??
       new MemoryCoordinator({
@@ -248,9 +259,6 @@ export class RuntimeKernelNativeRunner {
       return await this.executeActiveTurn(input);
     } finally {
       this.endActiveTurn(input.turnId);
-      if (this.releaseExecutionSession) {
-        await this.releaseExecutionSession();
-      }
     }
   }
 
@@ -308,6 +316,7 @@ export class RuntimeKernelNativeRunner {
       canonicalRunAttemptId: input.runAttemptId,
       canonicalThreadId: input.threadId,
       canonicalWorkspaceId: input.workspaceId,
+      workspace: input.workspace,
     });
     const provider = new KernelAgenticProvider({
       run,
@@ -323,6 +332,7 @@ export class RuntimeKernelNativeRunner {
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: protocol.run.id,
       workspaceRoot: protocol.manifest.filesystemRoot,
+      artifactRoot: `${protocol.manifest.filesystemRoot}/artifacts`,
       availableToolIds: Object.keys(runtimeTools),
       providerId: input.input.providerId,
       modelId: input.input.runtimeModelId ?? input.input.modelId,
@@ -336,6 +346,8 @@ export class RuntimeKernelNativeRunner {
         manifest: capabilityManifest,
         scope: new RuntimeWorkspaceScope({
           runId: protocol.run.id,
+          threadId: protocol.turn.threadId,
+          turnId: protocol.turn.id,
           runAttemptId: protocol.runAttemptId,
           workspaceId: protocol.manifest.workspaceId,
           root: protocol.manifest.filesystemRoot,
@@ -362,6 +374,7 @@ export class RuntimeKernelNativeRunner {
         runEventRecorder: this.runEventRecorder,
         permissionApprovalStore: this.permissionApprovalStore,
       }),
+      hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
       maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
       clock: { now },
@@ -417,6 +430,28 @@ export class RuntimeKernelNativeRunner {
     }
     this.interruptedTurns.add(turnId);
     await kernel.interruptTurn(turnId, reason);
+  }
+
+  async resolveApproval(
+    turnId: Turn["id"],
+    approvalId: ApprovalRequestedPayload["approvalId"],
+    resolution: ApprovalResolution,
+  ): Promise<void> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== turnId) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime runner`,
+      );
+    }
+    const kernel = await activeTurn.kernel;
+    if (!kernel) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} did not reach the runtime kernel`,
+      );
+    }
+    await kernel.resolveApproval(turnId, approvalId, resolution);
   }
 
   private beginActiveTurn(turnId: Turn["id"]): void {
@@ -749,6 +784,13 @@ export class RuntimeKernelNativeRunner {
 }
 
 function resolveNativeKernelTerminalState(error: unknown) {
+  if (
+    error instanceof RuntimeKernelError &&
+    error.code === "model_final_missing"
+  ) {
+    return RUN_TERMINAL_STATES.FAILED_VALIDATION;
+  }
+
   if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
     return RUN_TERMINAL_STATES.APPROVAL_DENIED;
   }
@@ -768,6 +810,13 @@ function buildNativeKernelTerminalMessage(
     return [
       "The selected model/provider failed while deciding the next action.",
       "No sandbox tool failure was reported. Retry the task or switch to a faster, tool-capable model.",
+    ].join("\n");
+  }
+
+  if (terminalState === RUN_TERMINAL_STATES.FAILED_VALIDATION) {
+    return [
+      "The model stopped before returning a final answer.",
+      "Retry the request or choose another model.",
     ].join("\n");
   }
 
@@ -806,6 +855,7 @@ class KernelAgenticProvider implements ProviderPort {
   private completedReadOnlyToolCount = 0;
   private stopReason: StopReason = "llm_stop";
   private readonly toolLifecycle: AgenticLoopToolLifecycleEvent[] = [];
+  private readonly transcript = new RuntimeKernelProviderTranscript();
   private readonly requiresMutation: boolean;
 
   constructor(
@@ -841,57 +891,82 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    await this.recordModelStepStarted(input);
-    const response = await runWithNativeCancellationPolling(
-      this.options.llmGateway.generateText({
-        context: {
-          runId: this.options.run.id,
-          sessionId: this.options.run.sessionId,
-          agentType: this.options.run.agentType,
-          phase: "task",
-          idempotencyKey: `runtime-kernel-native:${this.options.run.id}:step:${this.stepsExecuted + 1}`,
-        },
-        messages: this.messages,
-        system: buildAgenticLoopSystemPrompt({
-          workspaceContext: buildAgenticLoopWorkspaceContext({
-            repositoryContext: this.options.input.repositoryContext,
-            prompt: this.options.input.prompt,
-            continuation: this.options.run.metadata.continuation,
-            workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
-            gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+    let finalOnlyRecovery = false;
+    let responseParts: LLMTextResponse["parts"];
+    let toolCalls: AgenticLoopToolCall[];
+    let visibleText: string;
+
+    do {
+      await this.recordModelStepStarted(input);
+      const response = await runWithNativeCancellationPolling(
+        this.options.llmGateway.generateText({
+          context: {
+            runId: this.options.run.id,
+            sessionId: this.options.run.sessionId,
+            agentType: this.options.run.agentType,
+            phase: finalOnlyRecovery ? "synthesis" : "task",
+            idempotencyKey: `runtime-kernel-native:${this.options.run.id}:step:${this.stepsExecuted + 1}:${finalOnlyRecovery ? "final" : "task"}`,
+          },
+          messages: this.messages,
+          system: buildAgenticLoopSystemPrompt({
+            workspaceContext: buildAgenticLoopWorkspaceContext({
+              repositoryContext: this.options.input.repositoryContext,
+              prompt: this.options.input.prompt,
+              continuation: this.options.run.metadata.continuation,
+              workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
+              gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+            }),
+            finalSynthesisOnly: finalOnlyRecovery,
+            requiresMutation: this.requiresMutation,
+            completedMutatingToolCount: this.completedMutatingToolCount,
+            completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+            explicitCiLogRequest: false,
+            encounteredCiLogsAuthorizationBoundary: false,
+            attemptedCiLogsCliFallback: false,
           }),
-          finalSynthesisOnly: false,
-          requiresMutation: this.requiresMutation,
-          completedMutatingToolCount: this.completedMutatingToolCount,
-          completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-          explicitCiLogRequest: false,
-          encounteredCiLogsAuthorizationBoundary: false,
-          attemptedCiLogsCliFallback: false,
+          tools: finalOnlyRecovery ? {} : this.options.tools,
+          model: this.options.input.modelId,
+          providerId: this.options.input.providerId,
+          runtimeModelId: this.options.input.runtimeModelId,
+          providerTransport: this.options.input.providerTransport,
+          providerEndpoint: this.options.input.providerEndpoint,
+          temperature: 0.2,
         }),
-        tools: this.options.tools,
-        model: this.options.input.modelId,
-        providerId: this.options.input.providerId,
-        runtimeModelId: this.options.input.runtimeModelId,
-        providerTransport: this.options.input.providerTransport,
-        providerEndpoint: this.options.input.providerEndpoint,
-        temperature: 0.2,
-      }),
-      this.options.isRunCancelled,
-    );
-    await assertNativeRunNotCancelled(this.options.isRunCancelled);
-    this.stepsExecuted += 1;
-    await this.recordModelStepCompleted(input);
-    const toolCalls = this.repairToolCalls(response.toolCalls ?? []);
-    const visibleText = projectVisibleTranscriptText(response.parts ?? []);
+        this.options.isRunCancelled,
+      );
+      await assertNativeRunNotCancelled(this.options.isRunCancelled);
+      this.stepsExecuted += 1;
+      await this.recordModelStepCompleted(input);
+      toolCalls = finalOnlyRecovery
+        ? []
+        : this.repairToolCalls(response.toolCalls ?? []);
+      responseParts = response.parts ?? [];
+      visibleText = projectVisibleTranscriptText(responseParts);
+
+      if (
+        shouldRetryNativeFinalOnlyResponse({
+          recoveryAlreadyAttempted: finalOnlyRecovery,
+          toolCallCount: toolCalls.length,
+          responseParts,
+        })
+      ) {
+        finalOnlyRecovery = true;
+        continue;
+      }
+
+      break;
+    } while (true);
+
     this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
+      const terminal = this.transcript.complete(responseParts);
       this.stopReason = "llm_stop";
       return {
         kind: "complete",
         itemId: ItemIdSchema.parse(
           toProtocolId("itm", `${input.run.id}-final`),
         ),
-        output: visibleText,
+        output: terminal.text,
       };
     }
     if (visibleText.trim()) {
@@ -992,6 +1067,7 @@ class KernelAgenticProvider implements ProviderPort {
       completedMutatingToolCount: this.completedMutatingToolCount,
       completedReadOnlyToolCount: this.completedReadOnlyToolCount,
       toolLifecycle: [...this.toolLifecycle],
+      finalTranscriptParts: this.transcript.readFinalParts(),
     };
   }
 
@@ -1067,7 +1143,7 @@ class KernelAgenticProvider implements ProviderPort {
         toolId: result.toolCallId,
         toolName: this.findToolName(result.toolCallId),
         result: result.output,
-        error: undefined,
+        error: result.failure?.message,
         terminalError: false,
       });
     }
@@ -1254,7 +1330,12 @@ class KernelToolWorker implements WorkerProtocolPort {
     const toolName = input.toolCall.toolName;
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (!isCodingToolId(toolName)) {
-      return failed("validation_failed", `Unsupported tool: ${toolName}`);
+      return failed(
+        "validation_failed",
+        `Unsupported tool: ${toolName}`,
+        false,
+        "terminal",
+      );
     }
     this.options.tracker.recordToolStarted(input.toolCall);
     console.log(
@@ -1299,14 +1380,26 @@ class KernelToolWorker implements WorkerProtocolPort {
       if (gatewayResult.kind === "failed") {
         const message =
           gatewayResult.result.error?.message ?? "Tool execution failed";
-        this.options.tracker.recordToolFailed(input.toolCall, message, true);
+        const disposition = toolFailureDisposition(toolName, message);
+        this.options.tracker.recordToolFailed(
+          input.toolCall,
+          message,
+          disposition === "terminal",
+        );
         await this.options.runEventRecorder.recordToolFailed(
           { id: input.toolCall.toolCallId, type: toolName },
           message,
           0,
         );
         if (gatewayResult.failure) {
-          return { kind: "failed", failure: gatewayResult.failure };
+          return {
+            kind: "failed",
+            failure: gatewayResult.failure,
+            disposition:
+              gatewayResult.failure.code === "worker_unavailable"
+                ? "terminal"
+                : disposition,
+          };
         }
         return failed(
           gatewayResult.code === "executor_failed"
@@ -1318,6 +1411,7 @@ class KernelToolWorker implements WorkerProtocolPort {
                 : "validation_failed",
           message,
           gatewayResult.retryable,
+          disposition,
         );
       }
       result = gatewayResult.result;
@@ -1325,7 +1419,12 @@ class KernelToolWorker implements WorkerProtocolPort {
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
       const message =
         error instanceof Error ? error.message : "Tool execution failed";
-      this.options.tracker.recordToolFailed(input.toolCall, message, true);
+      const disposition = toolFailureDisposition(toolName, message);
+      this.options.tracker.recordToolFailed(
+        input.toolCall,
+        message,
+        disposition === "terminal",
+      );
       await this.options.runEventRecorder.recordToolFailed(
         { id: input.toolCall.toolCallId, type: toolName },
         message,
@@ -1339,7 +1438,7 @@ class KernelToolWorker implements WorkerProtocolPort {
           errorMessage: message,
         }),
       );
-      return failed("command_failed", message);
+      return failed("command_failed", message, false, disposition);
     }
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     if (result.status === "DONE") {
@@ -1369,7 +1468,16 @@ class KernelToolWorker implements WorkerProtocolPort {
       };
     }
     const message = result.error?.message ?? "Tool execution failed";
-    this.options.tracker.recordToolFailed(input.toolCall, message, true);
+    const disposition = toolFailureDisposition(
+      toolName,
+      message,
+      result.output?.metadata,
+    );
+    this.options.tracker.recordToolFailed(
+      input.toolCall,
+      message,
+      disposition === "terminal",
+    );
     await this.options.runEventRecorder.recordToolFailed(
       { id: input.toolCall.toolCallId, type: toolName },
       message,
@@ -1383,7 +1491,7 @@ class KernelToolWorker implements WorkerProtocolPort {
         errorMessage: message,
       }),
     );
-    return failed("command_failed", message);
+    return failed("command_failed", message, false, disposition);
   }
 }
 
@@ -1537,14 +1645,14 @@ function buildProtocolEnvelope(input: {
   canonicalRunAttemptId?: string;
   canonicalThreadId?: string;
   canonicalWorkspaceId?: string;
+  workspace: RuntimeKernelNativeRunnerInput["workspace"];
 }): {
   run: ProtocolRun;
   turn: Turn;
   runAttemptId: RunAttemptId;
   manifest: KernelWorkspaceManifest;
 } {
-  const workspaceId = toProtocolId(
-    "wrk",
+  const workspaceId = workspaceIdFromExternalId(
     input.canonicalWorkspaceId ?? input.runId,
   );
   const threadId = input.canonicalThreadId
@@ -1586,13 +1694,13 @@ function buildProtocolEnvelope(input: {
     ),
     repoUrl: buildRepoUrl(input.input.repositoryContext),
     baseBranch: input.input.repositoryContext?.branch ?? "dev",
-    workingBranch: `run/${input.runId}`,
-    baseSha: DEFAULT_SHA,
-    headSha: DEFAULT_SHA,
+    workingBranch: input.workspace.workingBranch,
+    baseSha: input.workspace.startTreeId,
+    headSha: input.workspace.startTreeId,
     executionLocation: "cloud_sandbox",
     workerId,
-    filesystemRoot: `/home/sandbox/runs/${input.runId}`,
-    artifactNamespace: `runtime-kernel/${input.runId}`,
+    filesystemRoot: input.workspace.filesystemRoot,
+    artifactNamespace: input.workspace.artifactNamespace,
     permissionProfileId,
     state: "ready",
     lastError: null,
@@ -1682,9 +1790,11 @@ function failed(
   code: "validation_failed" | "command_failed" | "not_found" | "policy_denied",
   message: string,
   retryable = false,
+  disposition: "recoverable" | "terminal" = "terminal",
 ): WorkerToolResult {
   return {
     kind: "failed",
+    disposition,
     failure: {
       code,
       message,
@@ -1693,6 +1803,16 @@ function failed(
       correlationId: null,
     },
   };
+}
+
+function toolFailureDisposition(
+  toolName: string,
+  message: string,
+  metadata?: unknown,
+): "recoverable" | "terminal" {
+  return isTerminalToolFailure({ toolName, error: message, metadata })
+    ? "terminal"
+    : "recoverable";
 }
 
 function normalizeModelId(value: string | undefined): string {

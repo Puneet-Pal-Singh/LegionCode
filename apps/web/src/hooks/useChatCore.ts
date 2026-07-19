@@ -131,25 +131,38 @@ export function useChatCore(
   const scopeKey = activeConversationScope
     ? conversationScopeKey(activeConversationScope)
     : null;
+  const runScopeKey = `${encodeURIComponent(sessionId)}:${encodeURIComponent(runId)}`;
   const activeScopeKeyRef = useRef(scopeKey);
+  const activeRunScopeKeyRef = useRef(runScopeKey);
+  const activeConversationScopeRef = useRef(activeConversationScope);
   const isActiveScope = useCallback(
     (candidateScopeKey: string | null) =>
       activeScopeKeyRef.current === candidateScopeKey,
     [],
   );
+  const isActiveRunScope = useCallback(
+    (candidateRunScopeKey: string) =>
+      activeRunScopeKeyRef.current === candidateRunScopeKey,
+    [],
+  );
 
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
-    setError(null);
-    setIsSubmitting(false);
-    setIsStopping(false);
+    activeConversationScopeRef.current = activeConversationScope;
     setServerTurnId(activeConversationScope?.turnId ?? null);
-    setDebugEvents([]);
     setPendingUserMessage((current) =>
       current?.scopeKey === scopeKey ? current : null,
     );
+  }, [activeConversationScope, scopeKey]);
+
+  useEffect(() => {
+    activeRunScopeKeyRef.current = runScopeKey;
+    setError(null);
+    setIsSubmitting(false);
+    setIsStopping(false);
+    setDebugEvents([]);
     lastLoggedStreamErrorRef.current = null;
-  }, [activeConversationScope?.turnId, scopeKey]);
+  }, [runScopeKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,7 +214,7 @@ export function useChatCore(
 
   // Vercel owns the stream instance. Its identity must include every
   // transcript boundary, never only the run attempt.
-  const instanceKey = scopeKey ?? undefined;
+  const instanceKey = runScopeKey;
   const {
     status,
     credentials,
@@ -252,15 +265,16 @@ export function useChatCore(
     initialMessages: [],
     id: instanceKey,
     onResponse: (response: Response) => {
-      if (!isActiveScope(scopeKey)) {
+      if (!isActiveRunScope(runScopeKey)) {
         return;
       }
+      const currentScope = activeConversationScopeRef.current;
       const responseTurnId = response.headers.get("X-Turn-Id")?.trim() ?? null;
-      if (responseTurnId && responseTurnId !== activeConversationScope?.turnId) {
+      if (responseTurnId && responseTurnId !== currentScope?.turnId) {
         logClientWarning("chat/stream", "scope-mismatch", {
           runId,
           sessionId,
-          expectedTurnId: activeConversationScope?.turnId ?? null,
+          expectedTurnId: currentScope?.turnId ?? null,
           responseTurnId,
         });
         return;
@@ -269,7 +283,7 @@ export function useChatCore(
       logClientEvent("chat/stream", "response", {
         runId,
         sessionId,
-        turnId: activeConversationScope?.turnId ?? null,
+        turnId: currentScope?.turnId ?? null,
         status: response.status,
       });
       pushDebugEvent({
@@ -283,7 +297,7 @@ export function useChatCore(
       });
     },
     onFinish: (message, details) => {
-      if (!isActiveScope(scopeKey)) {
+      if (!isActiveRunScope(runScopeKey)) {
         return;
       }
       dispatchRunSummaryRefresh(runId);
@@ -302,7 +316,7 @@ export function useChatCore(
       });
     },
     onError: (error: Error) => {
-      if (!isActiveScope(scopeKey)) {
+      if (!isActiveRunScope(runScopeKey)) {
         return;
       }
       dispatchRunSummaryRefresh(runId);
@@ -495,14 +509,14 @@ export function useChatCore(
 
   const appendWithResolution = useCallback(
     async (message: ChatAppendMessage): Promise<void> => {
-      const requestScopeKey = scopeKey;
+      const bootstrapScopeKey = scopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
       if (
         (!content && !hasImages) ||
         status !== "ready" ||
         !activeConversationScope ||
-        !requestScopeKey
+        !bootstrapScopeKey
       ) {
         throw new Error(
           "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
@@ -513,20 +527,20 @@ export function useChatCore(
       setIsSubmitting(true);
       setIsStopping(false);
       setPendingUserMessage({
-        scopeKey: requestScopeKey,
+        scopeKey: bootstrapScopeKey,
         message: buildPendingUserMessage(submittedMessage),
       });
       logClientEvent("chat/pending-user", "projected", {
         runId,
         sessionId,
-        scopeKey: requestScopeKey,
+        scopeKey: bootstrapScopeKey,
         clientMessageId: submittedMessage.id,
         userContentHash: hashLogString(content),
       });
       logClientEvent("chat/submit", "started", {
         runId,
         sessionId,
-        scopeKey: requestScopeKey,
+        scopeKey: bootstrapScopeKey,
         clientMessageId: submittedMessage.id,
         userContentHash: hashLogString(content),
         hasText: Boolean(content),
@@ -537,30 +551,48 @@ export function useChatCore(
       try {
         const providerConfig =
           resolveSelectedProviderConfigForRequest() ??
-          (await resolveProviderConfigFromApi(requestScopeKey));
+          (await resolveProviderConfigFromApi(bootstrapScopeKey));
         if (!providerConfig) {
           logClientWarning("chat/submit", "aborted", {
             runId,
             sessionId,
-            scopeKey: requestScopeKey,
+            scopeKey: bootstrapScopeKey,
             reason: "provider-resolution-unavailable",
           });
           return;
         }
-        if (!isActiveScope(requestScopeKey)) {
+        if (!isActiveScope(bootstrapScopeKey)) {
           logClientWarning("chat/submit", "aborted", {
             runId,
             sessionId,
-            scopeKey: requestScopeKey,
+            scopeKey: bootstrapScopeKey,
             reason: "inactive-scope-after-provider-resolution",
           });
           return;
         }
 
+        const requestScope = await bootstrapConversationScope(
+          sessionId,
+          runId,
+          submittedMessage.id,
+        );
+        if (!isActiveRunScope(runScopeKey)) {
+          return;
+        }
+        const requestScopeKey = conversationScopeKey(requestScope);
+        activeScopeKeyRef.current = requestScopeKey;
+        activeConversationScopeRef.current = requestScope;
+        setConversationScope(requestScope);
+        publishConversationScopeReady(requestScope);
+        setPendingUserMessage({
+          scopeKey: requestScopeKey,
+          message: buildPendingUserMessage(submittedMessage),
+        });
+
         const requestBody = buildChatRequestBody(
           providerConfig,
           submittedMessage.id,
-          activeConversationScope,
+          requestScope,
         );
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
@@ -579,21 +611,20 @@ export function useChatCore(
         dispatchRunSummaryRefresh(runId);
         await submitResolvedMessage(submittedMessage, requestBody);
       } finally {
-        if (isActiveScope(requestScopeKey)) {
-          setPendingUserMessage((current) =>
-            current?.scopeKey === requestScopeKey ? null : current,
-          );
+        if (isActiveRunScope(runScopeKey)) {
+          const settledScopeKey = activeScopeKeyRef.current;
+          setPendingUserMessage(null);
           setIsSubmitting(false);
           logClientEvent("chat/pending-user", "cleared", {
             runId,
             sessionId,
-            scopeKey: requestScopeKey,
+            scopeKey: settledScopeKey,
             clientMessageId: submittedMessage.id,
           });
           logClientEvent("chat/submit", "settled", {
             runId,
             sessionId,
-            scopeKey: requestScopeKey,
+            scopeKey: settledScopeKey,
             clientMessageId: submittedMessage.id,
           });
         }
@@ -602,11 +633,13 @@ export function useChatCore(
     [
       buildChatRequestBody,
       isActiveScope,
+      isActiveRunScope,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
       activeConversationScope,
       runId,
+      runScopeKey,
       sessionId,
       scopeKey,
       status,
@@ -870,11 +903,13 @@ function hasEquivalentLatestUserMessage(
   pending: Message,
 ): boolean {
   const pendingContent = pending.content.trim();
+  if (messages.some((message) => message.id === pending.id)) {
+    return true;
+  }
   const latest = messages.at(-1);
   return (
     latest?.role === "user" &&
-    (latest.id === pending.id ||
-      extractMessageText(latest.content).trim() === pendingContent)
+    extractMessageText(latest.content).trim() === pendingContent
   );
 }
 

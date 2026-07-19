@@ -1,4 +1,9 @@
-export type SettingsSection = "general" | "connect" | "models" | "archived";
+export type SettingsSection =
+  | "general"
+  | "connect"
+  | "models"
+  | "archived"
+  | "hooks";
 
 const OPEN_SETTINGS_EVENT = "shadowbox:open-settings";
 

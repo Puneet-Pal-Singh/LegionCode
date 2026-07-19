@@ -12,6 +12,7 @@ export type TerminalOutcomeCode =
   | "POLICY_BLOCKED"
   | "INTERRUPTED"
   | "RUNTIME_FAILED"
+  | "MODEL_FINAL_MISSING"
   | "FINALIZATION_MISSING_EVIDENCE";
 
 export interface TerminalSettlement {

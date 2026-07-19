@@ -43,12 +43,7 @@ export function createConversationScope(input: {
 }
 
 export function conversationScopeKey(scope: ConversationScope): string {
-  return [
-    scope.workspaceId,
-    scope.threadId,
-    scope.turnId,
-    scope.runAttemptId,
-  ]
+  return [scope.workspaceId, scope.threadId, scope.turnId, scope.runAttemptId]
     .map(encodeURIComponent)
     .join("/");
 }
@@ -56,6 +51,7 @@ export function conversationScopeKey(scope: ConversationScope): string {
 export async function bootstrapConversationScope(
   sessionId: string,
   runId: string,
+  clientMessageId?: string,
 ): Promise<ConversationScope> {
   const response = await fetch(`${getBrainHttpBase()}/turn/start`, {
     method: "POST",
@@ -64,13 +60,11 @@ export async function bootstrapConversationScope(
       "Content-Type": "application/json",
       "X-Correlation-Id": crypto.randomUUID(),
     },
-    body: JSON.stringify({ sessionId, runId }),
+    body: JSON.stringify({ sessionId, runId, clientMessageId }),
   });
 
   if (!response.ok) {
-    throw new Error(
-      `Turn scope bootstrap failed with HTTP ${response.status}`,
-    );
+    throw new Error(`Turn scope bootstrap failed with HTTP ${response.status}`);
   }
 
   const identity: TurnScopeBootstrap = TurnScopeBootstrapSchema.parse(

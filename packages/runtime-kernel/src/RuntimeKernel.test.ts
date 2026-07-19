@@ -9,7 +9,10 @@ import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
 } from "./errors.js";
-import type { RuntimeLifecycleEventStore } from "./ports.js";
+import type {
+  RuntimeHookOrchestrationPort,
+  RuntimeLifecycleEventStore,
+} from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   MemoryLifecycleEventSink,
@@ -27,6 +30,56 @@ import {
 } from "./test-fixtures.js";
 
 describe("RuntimeKernel canonical lifecycle", () => {
+  it("runs distinct session and prompt hooks through the canonical audit appender before the provider", async () => {
+    const sink = createLifecycleSink();
+    const order: string[] = [];
+    const triggerIds: string[] = [];
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      order.push("provider");
+      return {
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      };
+    });
+    const hooks: RuntimeHookOrchestrationPort = {
+      async runSessionStart(input): Promise<void> {
+        order.push("session");
+        triggerIds.push(input.triggerEventId);
+        await input.auditAppender.appendHookAudit(
+          "hook.invocation.started",
+          { eventName: "SessionStart" },
+        );
+      },
+      async runUserPromptSubmit(input): Promise<void> {
+        order.push("prompt");
+        triggerIds.push(input.triggerEventId);
+        await input.auditAppender.appendHookAudit(
+          "hook.invocation.completed",
+          { eventName: "UserPromptSubmit" },
+        );
+      },
+    };
+    const kernel = await createKernel(sink, ports, createArtifactPorts(), hooks);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(order).toEqual(["session", "prompt", "provider"]);
+    expect(triggerIds).toEqual([
+      sink.events.find((event) => event.type === "turn.started")?.eventId,
+      sink.events.find((event) => event.type === "run_attempt.started")?.eventId,
+    ]);
+    expect(eventTypes(sink).slice(0, 6)).toEqual([
+      "turn.queued",
+      "turn.started",
+      "run_attempt.started",
+      "workspace.snapshot_captured",
+      "hook.invocation.started",
+      "hook.invocation.completed",
+    ]);
+  });
+
   it("settles a provider-only turn exactly once with the terminal event last", async () => {
     const sink = createLifecycleSink();
     const kernel = await createKernel(sink);
@@ -64,6 +117,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ports.worker.executeTool = vi.fn(async () => ({
       kind: "failed" as const,
       failure: protocolFailure("Write failed"),
+      disposition: "terminal" as const,
     }));
     const kernel = await createKernel(sink, ports);
 
@@ -91,6 +145,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ports.provider.generateNext = vi.fn(async () => toolStep());
     ports.worker.executeTool = vi.fn(async () => ({
       kind: "failed" as const,
+      disposition: "terminal" as const,
       failure: {
         code: "worker_unavailable" as const,
         message: "Sandbox container became unavailable during execution",
@@ -130,6 +185,55 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(JSON.stringify(sink.events)).not.toContain("provider_unavailable");
   });
 
+  it("returns a recoverable tool failure to the provider loop before completing", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockImplementationOnce(async ({ toolResults }) => {
+        expect(toolResults).toEqual([
+          expect.objectContaining({
+            toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+            failure: expect.objectContaining({
+              code: "not_found",
+              message: "README.missing was not found",
+            }),
+          }),
+        ]);
+        return {
+          kind: "complete" as const,
+          itemId: finalItemId,
+          output: "I could not read that path, but the turn continued.",
+        };
+      });
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "failed" as const,
+      disposition: "recoverable" as const,
+      failure: {
+        code: "not_found" as const,
+        message: "README.missing was not found",
+        retryable: false,
+        correlationId: null,
+        details: null,
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      output: "I could not read that path, but the turn continued.",
+      toolCallCount: 1,
+    });
+
+    expect(eventTypes(sink)).toContain("tool_call.failed");
+    expect(eventTypes(sink)).toContain("item.failed");
+    expect(sink.events.at(-1)?.type).toBe("turn.completed");
+    expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
   it("emits approval lifecycle events before policy-gated execution", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
@@ -159,6 +263,51 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(eventTypes(sink)).toContain("approval.requested");
     expect(eventTypes(sink)).toContain("approval.decided");
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
+  });
+
+  it("settles an externally delivered approval once and resumes the waiting turn", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: approvalRequest,
+    }));
+    ports.approvals.waitForDecision = vi.fn(
+      () => new Promise(() => undefined),
+    );
+    const kernel = await createKernel(sink, ports);
+
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await vi.waitFor(() => {
+      expect(eventTypes(sink)).toContain("approval.requested");
+    });
+
+    await kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+      decision: "approved",
+      decidedBy: run.userId,
+      reason: null,
+    });
+
+    await expect(execution).resolves.toMatchObject({ status: "completed" });
+    expect(
+      eventTypes(sink).filter((type) => type === "approval.decided"),
+    ).toHaveLength(1);
+    await expect(
+      kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+        decision: "approved",
+        decidedBy: run.userId,
+        reason: null,
+      }),
+    ).rejects.toMatchObject({ code: "turn_not_active" });
   });
 
   it("settles typed policy denial without calling the worker", async () => {
@@ -458,12 +607,14 @@ async function createKernel(
   lifecycleEvents: RuntimeLifecycleEventStore,
   ports = createPorts(),
   artifactPorts = createArtifactPorts(),
+  hooks?: RuntimeHookOrchestrationPort,
 ): Promise<RuntimeKernel> {
   return new RuntimeKernel({
     lifecycleEvents,
     ...artifactPorts,
     workspaceManifests: await createManifestRepository(),
     ...ports,
+    hooks,
     producerId: "runtime-kernel-test",
     clock: { now: () => timestamp },
   });

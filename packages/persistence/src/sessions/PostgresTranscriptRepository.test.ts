@@ -57,7 +57,8 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([false, false]);
-    expect(client.queries[1]?.params.slice(11, 15)).toEqual([
+    expect(client.queries[1]?.params.slice(12, 17)).toEqual([
+      false,
       false,
       false,
       false,
@@ -74,8 +75,9 @@ describe("PostgresTranscriptRepository", () => {
     });
 
     expect(client.queries[0]?.params.slice(5, 7)).toEqual([true, false]);
-    expect(client.queries[1]?.params.slice(11, 15)).toEqual([
+    expect(client.queries[1]?.params.slice(12, 17)).toEqual([
       true,
+      false,
       false,
       true,
       true,
@@ -115,8 +117,7 @@ describe("PostgresTranscriptRepository", () => {
     const statement = client.queries[1]?.statement ?? "";
     expect(statement).not.toContain("title = EXCLUDED.title");
     expect(statement).not.toContain("title_source = EXCLUDED.title_source");
-    expect(statement).not.toContain("$16");
-    expect(client.queries[1]?.params).toHaveLength(15);
+    expect(client.queries[1]?.params).toHaveLength(17);
   });
 
   it("persists session status updates", async () => {
@@ -175,17 +176,18 @@ function createSessionRow(params: readonly SqlValue[]): SqlRow {
     session_id: params[0],
     session_user_id: params[1],
     session_workspace_id: params[2],
-    session_task_id: params[3],
-    session_title: params[4],
-    title_source: params[9] ?? "generated",
-    repository: params[5],
-    active_run_id: params[6],
-    mode: params[7],
-    session_status: params[8],
+    session_thread_id: params[3],
+    session_task_id: params[4],
+    session_title: params[5],
+    title_source: params[10] ?? "generated",
+    repository: params[6],
+    active_run_id: params[7],
+    mode: params[8],
+    session_status: params[9],
     pinned_at: null,
     archived_at: null,
-    session_created_at: params[10],
-    session_updated_at: params[10],
+    session_created_at: params[11],
+    session_updated_at: params[11],
   };
 }
 

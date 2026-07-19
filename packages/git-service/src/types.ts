@@ -145,6 +145,7 @@ export interface GitFetchInput {
 export interface GitBranchInput {
   readonly workspace: GitFilesystemContext;
   readonly branchName: string;
+  readonly startPoint?: string;
 }
 
 export interface GitBranchResult {

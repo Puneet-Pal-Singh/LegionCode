@@ -1,6 +1,5 @@
 import { z } from "zod";
 import {
-  CHAT_TITLE_SOURCES,
   isTurnActivityTranscriptPart,
   type JsonValue,
   type TurnActivityTranscriptPart,
@@ -19,13 +18,16 @@ import {
 } from "../services/AuthService";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
+import {
+  readPersistedThreadTitleScope,
+  ThreadTitleService,
+} from "../services/thread-titles";
 
 const SessionCreateRequestSchema = z.object({
   sessionId: z.string().uuid(),
   runId: RunIdSchema.optional(),
   workspaceId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160).optional(),
-  titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
   repository: z.string().trim().min(1).max(240).optional(),
   mode: z.string().trim().min(1).max(64).optional(),
 });
@@ -43,7 +45,6 @@ const ArchiveSessionParamsSchema = z.object({
 
 const RenameSessionRequestSchema = z.object({
   title: z.string().trim().min(1).max(80),
-  titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
 });
 
 export class TranscriptController {
@@ -93,21 +94,28 @@ export class TranscriptController {
         readSessionParams(request.url),
       );
       const body = RenameSessionRequestSchema.parse(await request.json());
-      const session = await withTranscriptRepository(env, (repository) => {
-        if (body.titleSource === "generated") {
-          return repository.updateGeneratedSessionTitle({
-            userId: auth.userId,
-            sessionId,
-            title: body.title,
-            titleSource: "generated",
-          });
-        }
-        return repository.renameSessionTitle({
-          userId: auth.userId,
-          sessionId,
-          title: body.title,
-          titleSource: "user",
-        });
+      const titleScope = await readPersistedThreadTitleScope(
+        env,
+        auth.userId,
+        sessionId,
+      );
+      if (!titleScope) {
+        return errorResponse(
+          request,
+          env,
+          "This task has no canonical title scope yet.",
+          409,
+          "TITLE_SCOPE_UNAVAILABLE",
+        );
+      }
+      const session = await new ThreadTitleService(env).rename({
+        sessionId,
+        threadId: titleScope.threadId,
+        runId: titleScope.runId,
+        workspaceId: titleScope.workspaceId,
+        userId: auth.userId,
+        firstMessageId: titleScope.firstMessageId,
+        title: body.title,
       });
 
       if (!session) {
@@ -115,7 +123,7 @@ export class TranscriptController {
       }
 
       console.log(
-        `[chat/title] updated sessionId=${sessionId} source=${body.titleSource ?? "user"} titleLength=${body.title.length}`,
+        `[chat/title] updated sessionId=${sessionId} source=user titleLength=${body.title.length}`,
       );
       return jsonResponse(request, env, { session });
     } catch (error) {
@@ -280,7 +288,7 @@ async function ensureTranscriptSession(
       userId,
       workspaceId: body.workspaceId ?? null,
       title: body.title ?? "Untitled task",
-      titleSource: body.titleSource ?? "generated",
+      titleSource: "preview",
       repository: body.repository ?? null,
       activeRunId,
       mode: body.mode ?? "build",
@@ -307,6 +315,7 @@ async function ensureSessionRun(
     });
   });
 }
+
 
 const SessionParamsSchema = z.object({
   sessionId: z.string().uuid(),

@@ -113,6 +113,12 @@ const outcomeCopy: Record<
     detail: "The runtime recorded the terminal failure.",
     nextStep: "Retry the request or send a narrower follow-up.",
   },
+  MODEL_FINAL_MISSING: {
+    title: "The model stopped before returning a final answer.",
+    detail:
+      "No model-written final response was recorded, so this run was marked failed.",
+    nextStep: "Retry the request or choose another model.",
+  },
   FINALIZATION_MISSING_EVIDENCE: {
     title:
       "I cannot finalize that answer yet because required evidence is missing.",

@@ -94,6 +94,7 @@ import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
 } from "./RunEngineConfigPolicy.js";
+import { requireLegacyRunExecutionScope } from "./LegacyRunExecutionScope.js";
 import {
   handleExecutionErrorPolicy,
   safeMemoryOperation as safeMemoryOperationPolicy,
@@ -581,11 +582,14 @@ export class RunEngine implements IRunEngine {
     );
     await this.runRepo.update(run);
 
+    const executionScope = requireLegacyRunExecutionScope(this.options);
     const loop = new AgenticLoop(
       {
         maxSteps: getAgenticLoopMaxSteps(run.input.metadata),
         runId: run.id,
         sessionId: run.sessionId,
+        workspaceRoot: executionScope.workspaceRoot,
+        artifactRoot: executionScope.artifactRoot,
         budget: this.budgetManager,
         executionNonce: run.createdAt.toISOString(),
       },

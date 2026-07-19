@@ -90,7 +90,7 @@ function ActivityFeedContent({
             onToggleRow={(rowKey, expanded) =>
               setExpandedRows((current) => ({
                 ...current,
-                [rowKey]: !expanded,
+                [rowKey]: expanded,
               }))
             }
             onUsePlanInBuild={onUsePlanInBuild}

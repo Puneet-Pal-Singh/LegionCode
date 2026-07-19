@@ -103,7 +103,7 @@
 # ==========================================
 ARG GO_VERSION=1.23-bookworm
 ARG REDIS_REPO_URL=https://github.com/Puneet-Pal-Singh/go-redis.git
-ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.7.0
+ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.12.3
 ARG SANDBOX_IMAGE_PLATFORM=linux/amd64
 
 # ==========================================

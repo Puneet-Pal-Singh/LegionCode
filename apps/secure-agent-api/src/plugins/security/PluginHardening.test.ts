@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
+import type { IPlugin } from "../../interfaces/types";
 import { BashPlugin } from "../BashPlugin";
 import { NodePlugin } from "../NodePlugin";
 import { FileSystemPlugin } from "../FileSystemPlugin";
 import { GitPlugin } from "../GitPlugin";
 import { BashTool } from "../../schemas/bash";
+import { pluginTestExecutionContext } from "../test-support/PluginExecutionContext";
 
 interface ExecResult {
   exitCode: number;
@@ -53,6 +55,13 @@ function asSandbox(mock: SandboxMock): Sandbox {
 }
 
 describe("secure-agent-api plugin hardening", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    installScopedExecutionFixture(NodePlugin);
+    installScopedExecutionFixture(BashPlugin);
+    installScopedExecutionFixture(FileSystemPlugin);
+    installScopedExecutionFixture(GitPlugin);
+  });
   it("rejects command injection tokens in node command", async () => {
     const plugin = new NodePlugin();
     const sandbox = createSandboxMock();
@@ -293,7 +302,7 @@ describe("secure-agent-api plugin hardening", () => {
       if (command.includes("'wc'")) {
         return {
           exitCode: 0,
-          stdout: "4 /home/sandbox/runs/run-safe-read/a.txt\n",
+          stdout: "4 /home/sandbox/checkouts/run-safe-read/a.txt\n",
           stderr: "",
         };
       }
@@ -341,7 +350,7 @@ describe("secure-agent-api plugin hardening", () => {
       if (command.includes("'wc'")) {
         return {
           exitCode: 0,
-          stdout: "3 /home/sandbox/runs/run-safe-empty/a.txt\n",
+          stdout: "3 /home/sandbox/checkouts/run-safe-empty/a.txt\n",
           stderr: "",
         };
       }
@@ -475,3 +484,23 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.error).toMatch(/git commit author is not configured/i);
   });
 });
+
+function installScopedExecutionFixture<T extends { prototype: IPlugin }>(
+  Plugin: T,
+): void {
+  const execute = Plugin.prototype.execute;
+  vi.spyOn(Plugin.prototype, "execute").mockImplementation(function (
+    this: IPlugin,
+    sandbox,
+    payload,
+    onLog,
+  ) {
+    return execute.call(
+      this,
+      sandbox,
+      payload,
+      onLog,
+      pluginTestExecutionContext(payload),
+    );
+  });
+}

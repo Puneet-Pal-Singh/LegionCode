@@ -10,19 +10,15 @@ const TEST_USER_ID = "user-1";
 const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_RUN_ID = "run_server1";
 
-vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
-  CloudflareAgentsRunRuntimeClient: class MockRuntimeClient {},
-  parseCloudflareAgentsFeatureFlag: () => false,
-  shouldActivateCloudflareAgentsAdapter: () => false,
-}));
-
 describe("TurnController public bootstrap contract", () => {
   it("authenticates the request and returns the runtime-issued four-id scope", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
 
     const response = await TurnController.start(
-      createTurnStartRequest({ Cookie: "shadowbox_session=test-session-token" }),
+      createTurnStartRequest({
+        Cookie: "shadowbox_session=test-session-token",
+      }),
       env,
     );
 
@@ -36,6 +32,7 @@ describe("TurnController public bootstrap contract", () => {
     expect(JSON.parse(runtimeInit.body)).toMatchObject({
       runId: TEST_RUN_ID,
       sessionId: "session-1",
+      clientMessageId: "client-message-1",
       userId: TEST_USER_ID,
       workspaceId: TEST_WORKSPACE_ID,
     });
@@ -61,7 +58,11 @@ function createTurnStartRequest(headers?: Record<string, string>): Request {
   return new Request("https://brain.local/turn/start", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify({ sessionId: "session-1", runId: TEST_RUN_ID }),
+    body: JSON.stringify({
+      sessionId: "session-1",
+      runId: TEST_RUN_ID,
+      clientMessageId: "client-message-1",
+    }),
   });
 }
 
@@ -72,11 +73,12 @@ function createMockRuntimeNamespace() {
     turnId: "trn_server1",
     runAttemptId: "attempt_server1",
   };
-  const fetch = vi.fn(async () =>
-    new Response(JSON.stringify(identity), {
-      status: 201,
-      headers: { "Content-Type": "application/json" },
-    }),
+  const fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify(identity), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
   );
   const idFromName = vi.fn(() => ({ toString: () => "mock-do-id" }));
   const namespace = {
@@ -108,7 +110,6 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
     SESSION_SECRET: "x",
     FRONTEND_URL: "x",
     RUN_ENGINE_RUNTIME: runEngineRuntime,
-    FEATURE_FLAG_CLOUDFLARE_AGENTS_V1: "false",
   } as Env;
 }
 

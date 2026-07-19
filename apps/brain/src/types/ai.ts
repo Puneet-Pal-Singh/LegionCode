@@ -14,9 +14,12 @@ import type {
   PermissionRepository,
   RunRepository,
   TranscriptRepository,
+  ThreadTitleRepository,
   WorkspaceRepository,
   LifecycleEventStore,
+  TaskWorkspaceRepository,
 } from "@repo/persistence";
+import type { HookDefinitionRepository } from "../services/hooks/HookDefinitionRepository";
 
 export interface HyperdriveBinding {
   connectionString: string;
@@ -33,12 +36,15 @@ export interface Env {
   AUTH_IDENTITY_REPOSITORY?: IdentitySessionRepository;
   AUTH_WORKSPACE_REPOSITORY?: WorkspaceRepository;
   AUTH_TRANSCRIPT_REPOSITORY?: TranscriptRepository;
+  AUTH_THREAD_TITLE_REPOSITORY?: ThreadTitleRepository;
   AUTH_RUN_REPOSITORY?: RunRepository;
   AUTH_MEMORY_EVENT_REPOSITORY?: MemoryEventRepository;
   AUTH_CONTEXT_REPOSITORY?: ContextRepository;
   AUTH_PERMISSION_REPOSITORY?: PermissionRepository;
   AUTH_ARTIFACT_REPOSITORY?: ArtifactRepository;
   AUTH_LIFECYCLE_EVENT_STORE?: LifecycleEventStore;
+  AUTH_TASK_WORKSPACE_REPOSITORY?: TaskWorkspaceRepository;
+  AUTH_HOOK_DEFINITION_REPOSITORY?: HookDefinitionRepository;
   INTERNAL_RUNTIME_EVENT_SECRET?: string;
 
   // ✅ New Keys required for Vercel AI SDK
@@ -84,7 +90,6 @@ export interface Env {
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   FEATURE_FLAG_CHAT_AGENTIC_LOOP_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_CHAT_REVIEWER_PASS_V1?: "true" | "false" | "1" | "0";
-  FEATURE_FLAG_CLOUDFLARE_AGENTS_V1?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_LANE_ENABLED?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_CI_ENABLED?: "true" | "false" | "1" | "0";
   FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED?: "true" | "false" | "1" | "0";
@@ -108,7 +113,6 @@ export interface Env {
 
   // Durable Object binding for RunEngine runtime state
   RUN_ENGINE_RUNTIME: DurableObjectNamespace;
-  RUN_ENGINE_AGENT?: DurableObjectNamespace;
   RUN_ADMISSION_LIMITER?: DurableObjectNamespace;
 
   // Environment

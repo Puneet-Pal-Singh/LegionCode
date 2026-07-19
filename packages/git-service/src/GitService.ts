@@ -332,7 +332,17 @@ export class DefaultGitService {
 
   async createBranch(input: GitBranchInput): Promise<GitBranchResult> {
     const branchName = validateBranchNamePolicy(input.branchName);
-    await this.executeRequired(input.workspace, ["checkout", "-b", branchName]);
+    const args = ["checkout", "-b", branchName];
+    if (input.startPoint) {
+      if (!GIT_OBJECT_ID_PATTERN.test(input.startPoint)) {
+        throw new GitServiceError(
+          "invalid_git_input",
+          "Git branch start point must be an immutable object id",
+        );
+      }
+      args.push(input.startPoint);
+    }
+    await this.executeRequired(input.workspace, args);
     return {
       branchName,
       message: `Created and switched to branch: ${branchName}`,

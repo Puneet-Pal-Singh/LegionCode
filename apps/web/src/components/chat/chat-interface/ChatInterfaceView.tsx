@@ -7,12 +7,16 @@ import type {
 } from "@repo/shared-types";
 import type { ChatMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
-import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type {
+  HookInvocationAuditEvent,
+  TurnDiffPayload,
+} from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
+import { TurnLifecycleStatus } from "./TurnLifecycleStatus.js";
 import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,
@@ -35,6 +39,7 @@ interface ChatInterfaceViewProps {
   renderActivityTurn: (
     entry: Extract<ChatInterfaceEntry, { kind: "turn" }>["turn"],
   ) => ReactNode;
+  renderHookAudit: (event: HookInvocationAuditEvent) => ReactNode;
   onArtifactOpen?: (path: string, content: string) => void;
   onReviewOpen?: () => void;
   snapshots: Record<string, FileStatus[]>;
@@ -57,7 +62,6 @@ interface ChatInterfaceViewProps {
   ) => Promise<DiffContent>;
   loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   completedTurnReview: CompletedTurnReview;
-  showThinking: boolean;
   lifecycleProjection: LifecycleProjection | null;
   workflowDebug: ReactNode;
 }
@@ -97,10 +101,13 @@ export const ChatInterfaceView = forwardRef<
               (entry) =>
                 entry.kind === "turn" &&
                 entry.turn.key === props.lifecycleProjection?.turnId,
+            ) &&
+            !(
+              props.lifecycleProjection.terminal &&
+              hasAssistantAfterLatestUser(props.chatEntries)
             ) ? (
               <TurnSurface props={props} turn={null} />
             ) : null}
-            {props.showThinking ? <ThinkingIndicator /> : null}
             {props.workflowDebug}
           </div>
         )}
@@ -115,6 +122,22 @@ export const ChatInterfaceView = forwardRef<
     </div>
   );
 });
+
+function hasAssistantAfterLatestUser(
+  entries: ChatInterfaceEntry[],
+): boolean {
+  let hasAssistant = false;
+  for (const entry of entries) {
+    if (entry.kind === "message") {
+      if (entry.message.role === "user") hasAssistant = false;
+      if (entry.message.role === "assistant") hasAssistant = true;
+      continue;
+    }
+    if (entry.userMessage) hasAssistant = false;
+    if (entry.assistantMessage) hasAssistant = true;
+  }
+  return hasAssistant;
+}
 
 function Transcript(props: ChatInterfaceViewProps) {
   return (
@@ -170,15 +193,6 @@ function TurnSurface({
     turn?.rows.some((row) => row.kind === "tool" || row.kind === "group"),
   );
   const terminal = isCurrentTurn ? props.lifecycleProjection?.terminal : null;
-  const hasFinalPart = Boolean(
-    assistantMessage ||
-    (isCurrentTurn && props.terminalViewModel) ||
-    terminal ||
-    turn?.rows.some(
-      (row) => row.kind === "commentary" && row.phase === "final_answer",
-    ),
-  );
-
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -222,24 +236,33 @@ function TurnSurface({
           Tool activity
         </span>
       ) : null}
-      {isCurrentTurn && props.lifecycleProjection ? (
+      {isCurrentTurn &&
+      (props.lifecycleProjection?.hookAudits?.length ?? 0) > 0 ? (
         <div
-          data-testid={surfaceId ? `${surfaceId}-spinner` : undefined}
-          role="status"
-          data-phase={props.lifecycleProjection.phase}
-          className="text-sm text-zinc-500"
+          className="space-y-2"
+          data-testid={surfaceId ? `${surfaceId}-hook-audits` : undefined}
         >
-          {lifecyclePhaseLabel(props.lifecycleProjection.phase)}
+          {(props.lifecycleProjection?.hookAudits ?? []).map(
+            props.renderHookAudit,
+          )}
         </div>
       ) : null}
+      {isCurrentTurn &&
+      props.lifecycleProjection &&
+      !props.lifecycleProjection.terminal ? (
+        <TurnLifecycleStatus
+          projection={props.lifecycleProjection}
+          testId={surfaceId ? `${surfaceId}-spinner` : undefined}
+        />
+      ) : null}
       {terminal?.errorCode ? (
-        <div
+        <span
           data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}
           data-error-code={terminal.errorCode}
-          className="text-sm text-zinc-400"
+          className="sr-only"
         >
-          {lifecyclePhaseLabel("failed")}
-        </div>
+          {terminal.errorCode}
+        </span>
       ) : null}
       {assistantMessage ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
@@ -257,13 +280,6 @@ function TurnSurface({
       ) : props.terminalViewModel && isCurrentTurn ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <TerminalMessage {...props} />
-        </div>
-      ) : hasFinalPart ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-final` : undefined}
-          className="text-sm text-zinc-400"
-        >
-          Final output
         </div>
       ) : null}
     </section>
@@ -301,6 +317,24 @@ function resolveMessageChangedFilesSummary(
 function TerminalMessage(props: ChatInterfaceViewProps) {
   const terminal = props.terminalViewModel;
   if (!terminal) return null;
+
+  if (terminal.state !== "completed") {
+    return (
+      <div
+        role="alert"
+        className="flex items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2 text-sm"
+      >
+        <span className="mt-0.5 text-zinc-500" aria-hidden="true">
+          {terminal.state === "interrupted" ? "■" : "!"}
+        </span>
+        <p className="leading-5 text-zinc-300">
+          {terminal.content ||
+            "The run ended before it could return an answer. Retry the request."}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <ChatMessage
       message={{
@@ -386,16 +420,6 @@ function ChatDebugPanel({ events }: { events: ChatDebugEvent[] }) {
           ))
         )}
       </div>
-    </div>
-  );
-}
-
-function ThinkingIndicator() {
-  return (
-    <div className="py-2 text-sm font-medium text-zinc-500">
-      <span className="animate-shimmer bg-[linear-gradient(90deg,rgba(113,113,122,0.9)_0%,rgba(228,228,231,0.95)_45%,rgba(113,113,122,0.9)_100%)] bg-[length:220%_100%] bg-clip-text text-transparent">
-        Thinking
-      </span>
     </div>
   );
 }

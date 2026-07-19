@@ -62,4 +62,39 @@ describe("RunEventRecorder", () => {
       }),
     );
   });
+
+  it("sanitizes tool arguments, output, results, and failures before append", async () => {
+    const repository = {
+      append: vi.fn(async () => undefined),
+    } as unknown as RunEventRepository;
+    const recorder = new RunEventRecorder(repository, "run-1", "session-1");
+    const task = { id: "tool-1", type: "shell" };
+
+    await recorder.recordToolRequested({
+      ...task,
+      input: {
+        command: "curl -H 'Authorization: Bearer provider-secret-value'",
+        githubToken: "ghp_1234567890abcdef",
+      },
+    });
+    await recorder.recordToolOutputAppended(task, {
+      stdoutDelta: "token=provider-secret-value",
+    });
+    await recorder.recordToolCompleted(
+      task,
+      { password: "provider-secret-value", exitCode: 0 },
+      10,
+    );
+    await recorder.recordToolFailed(
+      task,
+      "Authorization: Bearer provider-secret-value",
+      10,
+    );
+
+    const persisted = JSON.stringify(repository.append.mock.calls);
+    expect(persisted).not.toContain("provider-secret-value");
+    expect(persisted).not.toContain("ghp_1234567890abcdef");
+    expect(persisted).toContain("[REDACTED]");
+    expect(persisted).toContain("exitCode");
+  });
 });

@@ -570,6 +570,11 @@ export const LifecycleEventTypeSchema = z.enum([
   "workspace.state_changed",
   "artifact.created",
   "artifact.finalized",
+  "hook.invocation.started",
+  "hook.invocation.completed",
+  "hook.invocation.failed",
+  "hook.invocation.timed_out",
+  "hook.invocation.cancelled",
 ]);
 export type LifecycleEventType = z.infer<typeof LifecycleEventTypeSchema>;
 

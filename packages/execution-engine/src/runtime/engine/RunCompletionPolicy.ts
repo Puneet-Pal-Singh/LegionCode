@@ -28,6 +28,7 @@ import { createStreamResponse } from "./CompletionResponseWriter.js";
 import { persistSynthesisArtifacts } from "./CompletionSynthesisArtifacts.js";
 import { settleFinalizationContract } from "./TurnSettlementContract.js";
 import type { RuntimeFinalText } from "./FinalAssistantMessageService.js";
+import { enforceTerminalFinalEvidence } from "./TerminalFinalEvidencePolicy.js";
 export { createStreamResponse } from "./CompletionResponseWriter.js";
 
 const PLANNER_DIAGNOSTIC_MAX_LENGTH = 160;
@@ -124,9 +125,12 @@ async function persistFinalAssistantRun(
     events: canonicalEvents,
     metadata,
   });
-  const settlement = projectTerminalSettlement({
-    terminalState: params.terminalState,
-    contract: finalization.contract,
+  const settlement = enforceTerminalFinalEvidence({
+    settlement: projectTerminalSettlement({
+      terminalState: params.terminalState,
+      contract: finalization.contract,
+    }),
+    modelParts: params.modelParts,
   });
   const terminalState = settlement.terminalState;
   const terminalStatus = settlement.terminalStatus;

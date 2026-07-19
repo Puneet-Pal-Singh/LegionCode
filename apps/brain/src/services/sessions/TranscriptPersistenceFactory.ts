@@ -24,12 +24,22 @@ export async function withTranscriptRepository<T>(
     return await callback(env.AUTH_TRANSCRIPT_REPOSITORY);
   }
 
+  return await withSharedPersistenceClient(env, async (client) =>
+    callback(new PostgresTranscriptRepository(client)),
+  );
+}
+
+/** Provides one migration-ready database connection to a composed persistence owner. */
+export async function withSharedPersistenceClient<T>(
+  env: Env,
+  callback: (client: SqlClient) => Promise<T>,
+): Promise<T> {
   const databaseConfig = readBrainDatabaseConfig(env);
   return await withPostgresSqlClient(
     databaseConfig.connectionString,
     async (client) => {
       await runAutomaticMigrations(databaseConfig.migrationsMode, client);
-      return await callback(new PostgresTranscriptRepository(client));
+      return await callback(client);
     },
   );
 }

@@ -12,6 +12,7 @@ import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
 import { LifecycleController } from "./controllers/LifecycleController";
 import { TurnController } from "./controllers/TurnController";
+import { HookDefinitionController } from "./controllers/HookDefinitionController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
@@ -33,7 +34,11 @@ export { RunEngineRuntime, RunAdmissionLimiter };
 interface RouteConfig {
   pattern: RegExp;
   method: string;
-  handler: (request: Request, env: Env) => Promise<Response>;
+  handler: (
+    request: Request,
+    env: Env,
+    context?: ExecutionContext,
+  ) => Promise<Response>;
 }
 
 /**
@@ -52,13 +57,17 @@ class Router {
     this.routes.push({ pattern, method: method.toUpperCase(), handler });
   }
 
-  async match(request: Request, env: Env): Promise<Response | null> {
+  async match(
+    request: Request,
+    env: Env,
+    context?: ExecutionContext,
+  ): Promise<Response | null> {
     const url = new URL(request.url);
     const requestMethod = request.method.toUpperCase();
 
     for (const route of this.routes) {
       if (route.pattern.test(url.pathname) && route.method === requestMethod) {
-        return await route.handler(request, env);
+        return await route.handler(request, env, context);
       }
     }
 
@@ -89,7 +98,8 @@ function createRouter(): Router {
   );
   router.add(
     /^\/internal\/runtime\/events$/,
-    RuntimeEventController.acceptInternalRuntimeEvent,
+    (request, env) =>
+      RuntimeEventController.acceptInternalRuntimeEvent(request, env),
     "POST",
   );
 
@@ -117,6 +127,21 @@ function createRouter(): Router {
     /^\/api\/workspaces\/selection$/,
     WorkspaceController.selectWorkspace,
     "POST",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks$/,
+    HookDefinitionController.list,
+    "GET",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
+    HookDefinitionController.upsert,
+    "PUT",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
+    HookDefinitionController.delete,
+    "DELETE",
   );
   router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
   router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
@@ -272,7 +297,11 @@ function createRouter(): Router {
  * Delegates to controllers - follows Dependency Inversion Principle
  */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    context: ExecutionContext,
+  ): Promise<Response> {
     const correlationId = getOrCreateCorrelationId(request);
     const correlatedRequest = withCorrelationId(request, correlationId);
     const optionsResponse = handleOptions(correlatedRequest, env);
@@ -281,7 +310,7 @@ export default {
     const router = createRouter();
 
     try {
-      const response = await router.match(correlatedRequest, env);
+      const response = await router.match(correlatedRequest, env, context);
 
       if (response) {
         return withObservabilityHeaders(response, correlationId);

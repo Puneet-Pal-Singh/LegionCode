@@ -25,13 +25,18 @@ import {
   parseAuthenticatedChatRequest,
   type AuthenticatedChatRequest,
 } from "./ChatRequestBoundary";
+import type { BackgroundTaskOwner } from "../services/thread-titles";
 
 /**
  * ChatController
  * Single Responsibility: validate request and route chat execution through RunEngine.
  */
 export class ChatController {
-  static async handle(req: Request, env: Env): Promise<Response> {
+  static async handle(
+    req: Request,
+    env: Env,
+    backgroundTaskOwner?: BackgroundTaskOwner,
+  ): Promise<Response> {
     const correlationId =
       req.headers.get("X-Correlation-Id") ?? crypto.randomUUID();
     const requestStartedAt = Date.now();
@@ -67,6 +72,7 @@ export class ChatController {
         req,
         chatRequest,
         env,
+        backgroundTaskOwner,
       );
       console.log(
         `[chat/timing] ${correlationId} totalMs=${Date.now() - requestStartedAt} status=${response.status}`,
@@ -150,6 +156,7 @@ export class ChatController {
     req: Request,
     chatRequest: AuthenticatedChatRequest,
     env: Env,
+    backgroundTaskOwner?: BackgroundTaskOwner,
   ): Promise<Response> {
     const {
       body,
@@ -230,6 +237,7 @@ export class ChatController {
           repositoryBaseUrl: body.repositoryBaseUrl,
           tools: body.tools,
           identity,
+          backgroundTaskOwner,
         },
         req.headers.get("Origin") || undefined,
       );

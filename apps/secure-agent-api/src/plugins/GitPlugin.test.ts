@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { GitPlugin } from "./GitPlugin";
 import { runSafeCommand } from "./security/SafeCommand";
+import { pluginTestExecutionContext } from "./test-support/PluginExecutionContext";
 
 vi.mock("./security/SafeCommand", () => ({
   runSafeCommand: vi.fn(),
@@ -20,6 +21,21 @@ function asSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
 describe("GitPlugin", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    const execute = GitPlugin.prototype.execute;
+    vi.spyOn(GitPlugin.prototype, "execute").mockImplementation(function (
+      this: GitPlugin,
+      sandbox,
+      payload,
+      onLog,
+    ) {
+      return execute.call(
+        this,
+        sandbox,
+        payload,
+        onLog,
+        pluginTestExecutionContext(payload),
+      );
+    });
   });
 
   it("rejects non-canonical git action aliases", async () => {
@@ -159,7 +175,7 @@ describe("GitPlugin", () => {
     const statusCommand = runSafeCommandMock.mock.calls.find(([, spec]) =>
       spec.args?.includes("--porcelain=v2"),
     )?.[1] as { args?: string[]; cwd?: string } | undefined;
-    expect(statusCommand?.cwd).toBe("/home/sandbox/runs/run_git_status_1");
+    expect(statusCommand?.cwd).toBe("/home/sandbox/checkouts/run_git_status_1");
     expect(statusCommand?.args).toEqual(
       expect.arrayContaining([
         "--no-optional-locks",
@@ -340,7 +356,7 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(true);
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/home/sandbox/runs/run_patch_apply_1/.shadowbox/edit-artifact-",
+        "/home/sandbox/checkouts/run_patch_apply_1/.shadowbox/edit-artifact-",
       ),
       "diff --git a/src/app.ts b/src/app.ts\n",
     );
@@ -504,7 +520,7 @@ describe("GitPlugin", () => {
         return {
           exitCode: 0,
           stdout:
-            "/home/sandbox/runs/run_snapshot/.git/index.legioncode-turn\n",
+            "/home/sandbox/checkouts/run_snapshot/.git/index.legioncode-turn\n",
           stderr: "",
         };
       }

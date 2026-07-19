@@ -8,6 +8,7 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "invalid_turn_identity",
   "workspace_not_found",
   "workspace_not_executable",
+  "model_final_missing",
   "tool_loop_limit_exceeded",
   "worker_failed",
   "tool_not_registered",
@@ -16,6 +17,8 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "approval_denied",
   "approval_retry_required",
   "invalid_approval_item",
+  "approval_not_active",
+  "approval_already_active",
   "turn_not_active",
   "turn_already_owned",
   "turn_artifact_settlement_failed",
@@ -107,6 +110,7 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
     case "tool_not_registered":
       return "not_found";
     case "invalid_tool_input":
+    case "model_final_missing":
       return "validation_failed";
     case "tool_policy_denied":
     case "approval_denied":
@@ -114,6 +118,8 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
     case "approval_retry_required":
       return "approval_required";
     case "invalid_approval_item":
+    case "approval_not_active":
+    case "approval_already_active":
     case "turn_not_active":
     case "turn_already_owned":
       return "conflict";

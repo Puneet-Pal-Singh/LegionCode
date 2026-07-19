@@ -6,6 +6,7 @@ import { cn } from "../../../lib/utils.js";
 import type { ActivityFeedRowViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 import { toCompactExplorationTitle } from "../workflow/explorationCopy.js";
 import { ProviderInterruptionRow } from "./ProviderInterruptionRow.js";
+import { BoundedToolOutput } from "./BoundedToolOutput.js";
 
 interface ActivityRowProps {
   row: ActivityFeedRowViewModel;
@@ -620,7 +621,12 @@ function ToolRow({
   if (displayMode === "transcript") {
     return (
       <CompactTranscriptRow
-        label={row.title}
+        label={
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <ToolActivityIcon family={row.family} />
+            <span className="truncate">{row.title}</span>
+          </span>
+        }
         badge={row.pluginLabel}
         detail={getCompactToolDetail(row)}
         subtle
@@ -670,7 +676,11 @@ function ShellTranscriptRow({
   collapsible: boolean;
 }) {
   const details = row.details.filter(Boolean);
-  const isExpandable = collapsible && details.length > 0;
+  const isExpandable =
+    collapsible &&
+    (details.length > 0 ||
+      Boolean(row.shell?.output) ||
+      Boolean(row.shell?.sourceTruncated));
 
   if (!isExpandable) {
     return (
@@ -687,9 +697,10 @@ function ShellTranscriptRow({
     <div className="space-y-2 py-1">
       <button
         type="button"
-        onClick={() => onToggle(expanded)}
+        onClick={() => onToggle(!expanded)}
         className="flex w-full items-start gap-2 text-left"
       >
+        <ToolActivityIcon family={row.family} />
         <span className="mt-0.5">
           <ChevronIcon expanded={expanded} muted />
         </span>
@@ -710,15 +721,30 @@ function ShellTranscriptRow({
               {getShellStatusLabel(row.status)}
             </div>
           </div>
-          <div className="mt-3 space-y-2">
-            {details.map((detail, index) => (
-              <pre
-                key={`${row.key}-detail-${index}`}
-                className="overflow-x-auto whitespace-pre-wrap break-words rounded-xl bg-transparent text-xs leading-6 text-zinc-100"
-              >
-                {detail}
+          <div className="mt-3 space-y-3">
+            {row.shell?.command ? (
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-zinc-100">
+                $ {row.shell.command}
               </pre>
-            ))}
+            ) : null}
+            {row.shell?.cwd ? (
+              <div className="text-xs text-zinc-500">cwd: {row.shell.cwd}</div>
+            ) : null}
+            {row.shell ? (
+              <BoundedToolOutput
+                output={row.shell.output}
+                sourceTruncated={row.shell.sourceTruncated}
+              />
+            ) : (
+              details.map((detail, index) => (
+                <pre
+                  key={`${row.key}-detail-${index}`}
+                  className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-zinc-100"
+                >
+                  {detail}
+                </pre>
+              ))
+            )}
           </div>
         </div>
       ) : null}
@@ -779,7 +805,7 @@ function ExpandableRow({
       <div className="space-y-1 py-1">
         <button
           type="button"
-          onClick={() => onToggle(expanded)}
+          onClick={() => onToggle(!expanded)}
           className="flex w-full items-start gap-2 text-left"
         >
           {hasChildren ? (
@@ -817,7 +843,7 @@ function ExpandableRow({
     <div className="rounded-2xl border border-zinc-800/80 bg-black/30 px-4 py-3">
       <button
         type="button"
-        onClick={() => onToggle(expanded)}
+        onClick={() => onToggle(!expanded)}
         className="flex w-full items-start justify-between gap-4 text-left"
       >
         <div>
@@ -1011,11 +1037,41 @@ function getCompactExplorationTitle(
 function getShellTranscriptLabel(
   row: Extract<ActivityFeedRowViewModel, { kind: "tool" }>,
 ): string {
-  const command = extractCommandLabel(row.details[0] ?? "");
+  const command = row.shell?.command
+    ? truncateTranscriptCommandLabel(row.shell.command)
+    : extractCommandLabel(row.details[0] ?? "");
   const prefix =
     row.status === "requested" || row.status === "running" ? "Running" : "Ran";
 
   return command ? `${prefix} ${command}` : `${prefix} command`;
+}
+
+function ToolActivityIcon({
+  family,
+}: {
+  family: Extract<ActivityFeedRowViewModel, { kind: "tool" }>["family"];
+}) {
+  const path =
+    family === TOOL_ACTIVITY_FAMILIES.SEARCH
+      ? "M11 11l4 4m-2-9.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Z"
+      : family === TOOL_ACTIVITY_FAMILIES.READ
+        ? "M2 3.5A2.5 2.5 0 0 1 4.5 1H8v14H4.5A2.5 2.5 0 0 0 2 17.5v-14Zm12 0A2.5 2.5 0 0 0 11.5 1H8v14h3.5a2.5 2.5 0 0 1 2.5 2.5v-14Z"
+        : family === TOOL_ACTIVITY_FAMILIES.EDIT
+          ? "m3 13 1 3 3-1 8-8-3-3-8 8Z"
+          : "M3 4h12v10H3V4Zm3 3 2 2-2 2m4 0h3";
+
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 18 18"
+      className="mt-0.5 h-4 w-4 shrink-0 fill-none stroke-zinc-500"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={path} />
+    </svg>
+  );
 }
 
 function extractCommandLabel(detail: string): string {

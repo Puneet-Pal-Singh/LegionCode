@@ -108,6 +108,10 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     private executionClient: GitExecutionClient,
     private syncTtlMs: number = DEFAULT_SYNC_TTL_MS,
     private readonly workspaceScope: SecureExecutionWorkspaceScope,
+    private readonly pinnedCheckout?: {
+      readonly authorizedCommitId: string;
+      readonly workingBranch: string;
+    },
   ) {}
 
   static fromEnv(
@@ -117,6 +121,10 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
     userId?: string,
     workspaceScope?: SecureExecutionWorkspaceScope,
     executionService?: ExecutionService,
+    pinnedCheckout?: {
+      readonly authorizedCommitId: string;
+      readonly workingBranch: string;
+    },
   ): WorkspaceBootstrapService {
     if (!workspaceScope) {
       throw new Error("workspaceScope is required for workspace bootstrap");
@@ -128,6 +136,7 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
       resolvedExecutionService,
       DEFAULT_SYNC_TTL_MS,
       workspaceScope,
+      pinnedCheckout,
     );
   }
 
@@ -229,6 +238,29 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
         const cloneError =
           cloneResult.error ?? "Failed to clone repository into workspace.";
         bootstrapResult = mapGitFailure(cloneError);
+        this.logBootstrapTiming(
+          request.runId,
+          bootstrapResult,
+          bootstrapStartedAt,
+        );
+        return bootstrapResult;
+      }
+
+      if (this.pinnedCheckout) {
+        const pinnedResult = await this.executeGit(
+          "git_branch_create",
+          {
+            branch: this.pinnedCheckout.workingBranch,
+            startPoint: this.pinnedCheckout.authorizedCommitId,
+          },
+          request.runId,
+        );
+        bootstrapResult = pinnedResult.success
+          ? { status: "ready", clonedDuringBootstrap: true }
+          : mapGitFailure(
+              pinnedResult.error ??
+                "Failed to create the isolated task branch from its authorized snapshot.",
+            );
         this.logBootstrapTiming(
           request.runId,
           bootstrapResult,
@@ -458,9 +490,14 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<GitPluginResult> {
     const startedAt = Date.now();
     try {
-      const result = await this.executionClient.execute("git", action, payload, {
-        scope: this.workspaceScope,
-      });
+      const result = await this.executionClient.execute(
+        "git",
+        action,
+        payload,
+        {
+          scope: this.workspaceScope,
+        },
+      );
       const parsedResult = toGitPluginResult(result);
       console.log(
         `[workspace/bootstrap/timing] run=${runId} action=${action} success=${parsedResult.success} elapsedMs=${Date.now() - startedAt}`,

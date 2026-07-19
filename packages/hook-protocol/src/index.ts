@@ -1,17 +1,31 @@
 export {
   HookAuditEventTypeSchema,
-  HookHandlerIdSchema,
+  HookAuditAppendInputSchema,
+  HookAuditMetadataSchema,
   HookInvocationAuditEventSchema,
+  HookInvocationLifecycleAuditSchema,
   HookInvocationIdSchema,
   HookInvocationSchema,
   HookInvocationStatusSchema,
+  HookOutcomeSummarySchema,
+  type HookAuditAppendInput,
   type HookAuditEventType,
-  type HookHandlerId,
+  type HookAuditMetadata,
   type HookInvocation,
   type HookInvocationAuditEvent,
+  type HookInvocationLifecycleAudit,
   type HookInvocationId,
   type HookInvocationStatus,
+  type HookOutcomeSummary,
 } from "./audit.js";
+export {
+  HookDefinitionSchema,
+  HookHandlerIdSchema,
+  HookSourceSchema,
+  type HookDefinition,
+  type HookHandlerId,
+  type HookSource,
+} from "./definitions.js";
 export {
   HookPermissionModeSchema,
   HookRuntimeContextSchema,

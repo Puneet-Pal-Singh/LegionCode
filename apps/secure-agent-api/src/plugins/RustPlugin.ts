@@ -1,8 +1,9 @@
 import { Sandbox } from "@cloudflare/sandbox";
-import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import { IPlugin, PluginExecutionContext, PluginResult, LogCallback } from "../interfaces/types";
 import { RustTool } from "../schemas/rust";
 import { runSafeCommand } from "./security/SafeCommand";
-import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
+import { normalizeRunId } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import {
   readToolboxCommandContext,
   withToolboxCommandContext,
@@ -16,10 +17,11 @@ export class RustPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: { code: string },
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     const toolboxContext = readToolboxCommandContext(payload);
     const runId = normalizeRunId(toolboxContext.runId);
-    const workspaceRoot = getWorkspaceRoot(runId);
+    const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
     const fileName = "main.rs";
     const binaryName = "main_bin";
 

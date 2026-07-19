@@ -195,6 +195,7 @@ function buildTerminalProjection(turnId: string): LifecycleProjection {
     phase: "completed",
     lastSequence: 3,
     items: [],
+    hookAudits: [],
     pendingApproval: null,
     terminal: {
       state: "completed",
@@ -254,6 +255,8 @@ index 3333333..4444444 100644
     },
     activeThinking: false,
     assistantText: "",
+    startedAt: "2026-03-24T10:00:00.000Z",
+    settledAt: "2026-03-24T10:00:03.000Z",
   };
 }
 
@@ -269,6 +272,7 @@ function buildApprovalProjection(input: {
     phase: "waiting_for_approval",
     lastSequence: 1,
     items: [],
+    hookAudits: [],
     pendingApproval: {
       approvalId: (input.approvalId ?? "appr_test001") as NonNullable<
         LifecycleProjection["pendingApproval"]
@@ -286,6 +290,8 @@ function buildApprovalProjection(input: {
     turnDiff: null,
     activeThinking: false,
     assistantText: "",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    settledAt: null,
   };
 }
 
@@ -890,6 +896,44 @@ describe("ChatInterface", () => {
       "run-lifecycle-active",
       false,
     );
+  });
+
+  it("renders hook activity only from the canonical lifecycle projection", () => {
+    const turnId = "trn_hookactivity01";
+    mockTurnLifecycleProjection.projection = {
+      ...buildTerminalProjection(turnId),
+      phase: "working",
+      terminal: null,
+      turnDiff: null,
+      settledAt: null,
+      hookAudits: [hookAuditEvent()],
+    };
+
+    render(
+      <ChatInterface
+        chatProps={{
+          messages: [{ id: turnId, role: "user", content: "Run hooks" }],
+          runId: "run-hook-activity",
+          input: "",
+          handleInputChange: vi.fn(),
+          handleSubmit: vi.fn(),
+          append: vi.fn(),
+          stop: vi.fn(),
+          isLoading: false,
+          error: null,
+          debugEvents: [],
+          serverTurnId: turnId,
+        }}
+        sessionId="session-1"
+        hasStartedSession
+        mode="build"
+      />,
+    );
+
+    expect(
+      screen.getByText("Ran User Prompt Submit hook"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("PRIVATE_HOOK_OUTPUT")).not.toBeInTheDocument();
   });
 
   it("shows terminal state when lifecycle projection is settled, ignoring run-summary RUNNING status", () => {
@@ -1745,7 +1789,7 @@ describe("ChatInterface", () => {
     );
 
     expect(useRunActivityFeed).toHaveBeenCalledWith("run-event-open", true);
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
   });
 
   it("does not render active run-event approvals without canonical projection", () => {
@@ -2116,7 +2160,7 @@ describe("ChatInterface", () => {
     fireEvent.click(screen.getByRole("button", { name: /worked for 1s/i }));
 
     expect(screen.queryByText("Workflow overview")).not.toBeInTheDocument();
-    expect(screen.getByText("Preparing handoff")).toBeInTheDocument();
+    expect(screen.queryByText("Preparing handoff")).not.toBeInTheDocument();
     expect(screen.getByText("Build Handoff")).toBeInTheDocument();
   });
 
@@ -2701,7 +2745,7 @@ describe("ChatInterface", () => {
         "I updated the workflow UI to match the compact design.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
     expect(screen.queryByText(/Thinking \d+:\d{2}/)).not.toBeInTheDocument();
   });
 
@@ -3189,6 +3233,40 @@ describe("ChatInterface", () => {
     expect(text).toContain("Hello! I'm here to help you with your project.");
   });
 });
+
+function hookAuditEvent() {
+  return {
+    auditEventId: "evt_webhook01",
+    eventSequence: 4,
+    eventType: "hook.invocation.completed",
+    invocation: {
+      invocationId: "hki_webhook01",
+      eventId: "evt_trigger01",
+      runId: "run_webhook01",
+      threadId: "thr_webhook01",
+      handlerId: "project.audit",
+      source: "project",
+      order: 0,
+      eventName: "UserPromptSubmit",
+      startedAt: "2026-07-18T10:00:00.000Z",
+      completedAt: "2026-07-18T10:00:00.025Z",
+      status: "completed",
+      inputHash: "a".repeat(64),
+      outputHash: "b".repeat(64),
+      errorCode: null,
+      errorMessage: null,
+    },
+    outcomeSummary: {
+      eventName: "UserPromptSubmit",
+      status: "continue",
+      cleanupStatus: null,
+      addedContextCount: 0,
+      hasUserVisibleMessage: false,
+    },
+    metadata: { durationMs: 25, cleanupStatus: null },
+    emittedAt: "2026-07-18T10:00:00.025Z",
+  } as LifecycleProjection["hookAudits"][number];
+}
 
 function latestChatInputBarProps(): {
   onSubmit: () => boolean | void | Promise<boolean | void>;

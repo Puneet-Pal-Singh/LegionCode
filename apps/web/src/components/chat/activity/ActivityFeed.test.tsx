@@ -71,10 +71,10 @@ describe("ActivityFeed", () => {
       screen.queryByRole("button", { name: /worked for/i }),
     ).not.toBeInTheDocument();
     expect(screen.getByText(/working for/i)).toBeInTheDocument();
-    expect(screen.getByText("Analyzing repository")).toBeInTheDocument();
+    expect(screen.queryByText("Analyzing repository")).not.toBeInTheDocument();
     expect(
-      screen.getByText("Inspecting the repository before the next tool call."),
-    ).toBeInTheDocument();
+      screen.queryByText("Inspecting the repository before the next tool call."),
+    ).not.toBeInTheDocument();
   });
 
   it("resets expansion state when the feed switches to a new run", () => {

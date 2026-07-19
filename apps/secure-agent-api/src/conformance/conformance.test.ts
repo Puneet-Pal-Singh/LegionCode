@@ -35,7 +35,7 @@ const CONFORMANCE_LEASE: SandboxExecutionLease = {
     turnId: "turn-1",
     runAttemptId: "attempt-1",
     workspaceId: "conformance",
-    root: "/conformance",
+    root: "/home/sandbox/checkouts/run-1",
   },
   owner: "conformance",
   correlationId: "conformance-correlation",
@@ -418,7 +418,7 @@ describe("Portability Conformance", () => {
         params: {
           action: "mock",
           command: "echo backend",
-          runId: "run-default",
+          runId: "run-1",
         },
         lease: CONFORMANCE_LEASE,
       });

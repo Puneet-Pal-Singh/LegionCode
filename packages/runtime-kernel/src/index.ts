@@ -15,6 +15,10 @@ export {
   type ContextAssemblyPort,
   type ProviderPort,
   type RuntimeKernelClock,
+  type RuntimeHookAuditAppender,
+  type RuntimeHookAuditEventType,
+  type RuntimeHookOrchestrationPort,
+  type RuntimeHookTriggerInput,
   type ToolAuthorizationPort,
   type WorkerProtocolPort,
 } from "./ports.js";

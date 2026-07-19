@@ -232,6 +232,7 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
   it("projects the golden-flow registry into a runtime capability manifest", () => {
     const manifest = getGoldenFlowRunCapabilityManifest({
       runId: "run-1",
+      workspaceRoot: "/home/sandbox/checkouts/run-1",
       availableToolIds: ["read_file", "bash", "git_status"],
     });
 
@@ -256,6 +257,7 @@ describe("LegacyGoldenFlowToolRegistryAdapter", () => {
   it("builds a prompt-facing tool catalog snapshot from the manifest", () => {
     const snapshot = getGoldenFlowToolCatalogSnapshot({
       runId: "run-1",
+      workspaceRoot: "/home/sandbox/checkouts/run-1",
       availableToolIds: ["read_file", "grep"],
     });
 

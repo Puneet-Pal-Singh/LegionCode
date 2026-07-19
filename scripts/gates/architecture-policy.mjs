@@ -2,6 +2,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
   "@repo/artifact-store": ["@repo/platform-protocol"],
   "@repo/event-store": ["@repo/platform-protocol"],
   "@repo/git-service": ["@repo/platform-protocol"],
+  "@repo/hook-protocol": ["@repo/platform-protocol"],
   "@repo/permission-policy": ["@repo/platform-protocol"],
   "@repo/persistence": [
     "@repo/event-store",
@@ -10,6 +11,7 @@ export const PACKAGE_DEPENDENCY_POLICY = {
     "@repo/workspace-core",
   ],
   "@repo/platform-client-sdk": [
+    "@repo/hook-protocol",
     "@repo/platform-protocol",
     "@repo/provider-core",
     "@repo/shared-types",
@@ -20,18 +22,13 @@ export const PACKAGE_DEPENDENCY_POLICY = {
     "@repo/platform-protocol",
     "@repo/workspace-core",
   ],
-  "@repo/runtime-cloudflare-worker": [
-    "@repo/artifact-store",
-    "@repo/git-service",
-    "@repo/platform-protocol",
-    "@repo/worker-protocol",
-  ],
   "@repo/worker-protocol": ["@repo/artifact-store", "@repo/platform-protocol"],
   "@repo/workspace-core": ["@repo/platform-protocol"],
 };
 
 export const APP_IMPORT_POLICY = {
   "@shadowbox/brain": [
+    "@repo/hook-protocol",
     "@repo/observability",
     "@repo/persistence",
     "@repo/platform-protocol",

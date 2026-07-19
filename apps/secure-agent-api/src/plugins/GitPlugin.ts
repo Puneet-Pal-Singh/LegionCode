@@ -7,7 +7,12 @@ import {
   type GitStatusResult,
 } from "@repo/git-service";
 import { z } from "zod";
-import type { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import type {
+  IPlugin,
+  PluginResult,
+  LogCallback,
+  PluginExecutionContext,
+} from "../interfaces/types";
 import { GitTools } from "../schemas/git";
 import type {
   GitCommitIdentity,
@@ -16,11 +21,8 @@ import type {
   FileStatus,
   GitStatusResponse,
 } from "@repo/shared-types";
-import {
-  getWorkspaceRoot,
-  normalizeRunId,
-  validateRepoRelativePath,
-} from "./security/PathGuard";
+import { normalizeRunId, validateRepoRelativePath } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
@@ -57,6 +59,10 @@ const GitPayloadSchema = z.object({
   authorName: z.string().optional(),
   authorEmail: z.string().optional(),
   branch: z.string().optional(),
+  startPoint: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/u)
+    .optional(),
   path: z.string().optional(),
   files: z.array(z.string()).optional(),
   remote: z.string().optional(),
@@ -85,12 +91,13 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
       const toolboxContext = readToolboxCommandContext(payload);
       const parsed = GitPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-      const worktree = getWorkspaceRoot(runId);
+      const worktree = resolveScopedWorkspaceRoot(context, runId);
 
       await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 
@@ -203,6 +210,7 @@ export class GitPlugin implements IPlugin {
             sandbox,
             worktree,
             parsed.branch,
+            parsed.startPoint,
             toolboxContext,
             runId,
           );
@@ -1142,6 +1150,7 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     worktree: string,
     branch: string | undefined,
+    startPoint: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
@@ -1157,6 +1166,7 @@ export class GitPlugin implements IPlugin {
     const result = await gitService.createBranch({
       workspace: { runId, filesystemRoot: worktree },
       branchName: safeBranch,
+      startPoint,
     });
     return { success: true, output: result.message };
   }

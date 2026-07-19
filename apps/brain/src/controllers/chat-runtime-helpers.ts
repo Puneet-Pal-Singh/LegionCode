@@ -200,7 +200,9 @@ export async function startRunTurn(
   payload: Pick<
     RunEngineExecutionPayload,
     "sessionId" | "workspaceId" | "userId" | "correlationId"
-  >,
+  > & {
+    clientMessageId?: string;
+  },
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<TurnScopeBootstrap> {
   const response = await fetchRunRuntimeRoute(env, runId, requestedBackend, {

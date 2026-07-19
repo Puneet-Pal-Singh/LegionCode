@@ -60,13 +60,7 @@ describe("useActivityPresentation", () => {
       userPrompt: "Update footer",
       elapsedLabel: "Working for 5s",
       isActiveTurn: true,
-      rows: [
-        {
-          kind: "reasoning",
-          label: "Thinking",
-          status: "active",
-        },
-      ],
+      rows: [],
     });
   });
 
@@ -100,13 +94,7 @@ describe("useActivityPresentation", () => {
       key: "user-message-1",
       elapsedLabel: "Working for 5s",
       isActiveTurn: true,
-      rows: [
-        {
-          kind: "reasoning",
-          label: "Thinking",
-          status: "active",
-        },
-      ],
+      rows: [],
     });
   });
 });

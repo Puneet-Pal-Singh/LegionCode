@@ -20,6 +20,7 @@ import {
 } from "@shadowbox/execution-engine/runtime";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
+import { TaskCheckoutSchema, TurnIdSchema } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
 import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import {
@@ -28,6 +29,8 @@ import {
 } from "./RunEngineRequestHandler";
 import { RunInterruptIdentitySchema } from "./RunInterruptContract";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
+import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
+import type { RunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
 
 describe("RunEngineRequestHandler", () => {
   it("issues one persisted four-id scope before execution starts", async () => {
@@ -71,12 +74,76 @@ describe("RunEngineRequestHandler", () => {
     );
   });
 
+  it("issues one turn attempt per client message while preserving thread identity", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const start = (clientMessageId: string) =>
+      handler.handleTurnStartRequest(
+        new Request("https://run-engine/turn/start", {
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            correlationId: "corr-1",
+          }),
+        }),
+      );
+
+    const firstResponse = await start("client-message-1");
+    const first = (await firstResponse.json()) as Record<string, string>;
+    const secondResponse = await start("client-message-2");
+    const second = (await secondResponse.json()) as Record<string, string>;
+    const repeatedResponse = await start("client-message-2");
+    const repeated = (await repeatedResponse.json()) as Record<string, string>;
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    expect(repeatedResponse.status).toBe(200);
+    expect(second.threadId).toBe(first.threadId);
+    expect(second.turnId).not.toBe(first.turnId);
+    expect(second.runAttemptId).not.toBe(first.runAttemptId);
+    expect(repeated).toEqual(second);
+  });
+
   it("returns the latest server-issued workspace scope for Git callers", async () => {
     const ctx = new MockDurableObjectState();
+    const resolveActiveCheckout = vi.fn(async () =>
+      TaskCheckoutSchema.parse({
+        kind: "task_checkout",
+        checkoutId: "checkout_123456",
+        snapshotId: "wsnap_123456",
+        workspaceId: "wrk_00000000-0000-4000-8000-000000000001",
+        threadId: "thr_placeholder",
+        turnId: "trn_placeholder",
+        runAttemptId: "attempt_placeholder",
+        secureSessionId: "sess_secure001",
+        leaseId: "lease_123456",
+        sandboxId: "sandbox-123456",
+        filesystemRoot: "/home/sandbox/checkouts/checkout_123456",
+        gitDir: "/home/sandbox/checkouts/checkout_123456/.git",
+        indexFile: "/home/sandbox/checkouts/checkout_123456/.git/index",
+        workingBranch: "task/checkout-123456",
+        startTreeId: "a".repeat(40),
+        generation: 1,
+        status: "active",
+        settledAt: null,
+        failureCode: null,
+        createdAt: "2026-07-18T12:00:00.000Z",
+      }),
+    );
     const handler = new RunEngineRequestHandler(
       ctx as unknown as DurableObjectState,
       {} as Env,
       runImmediately,
+      undefined,
+      {
+        taskCheckoutScopeResolver: { resolveActiveCheckout },
+      },
     );
 
     await handler.handleTurnStartRequest(
@@ -99,8 +166,15 @@ describe("RunEngineRequestHandler", () => {
     await expect(response.json()).resolves.toMatchObject({
       runId: "run_123456",
       workspaceId: "00000000-0000-4000-8000-000000000001",
-      root: "/home/sandbox/runs/run_123456",
+      root: "/home/sandbox/checkouts/checkout_123456",
     });
+    expect(resolveActiveCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run_123456",
+        workspaceId: "00000000-0000-4000-8000-000000000001",
+      }),
+      "workspace-scope:run_123456",
+    );
   });
 
   it("rejects workspace scope resolution before turn bootstrap", async () => {
@@ -915,6 +989,148 @@ describe("RunEngineRequestHandler", () => {
           event.payload.label === "Approval decision ignored",
       ),
     ).toBe(true);
+  });
+
+  it("delivers a lifecycle approval through the active runtime once and replays that event on retry", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "run_123e4567e89b42d3a456426614174336";
+    const turnId = "trn_123456";
+    const approvalId = "appr_123456";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    const approvals = new PermissionApprovalStore(runtimeState, runId);
+    await approvals.setPendingRequest({
+      requestId: approvalId,
+      runId,
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_once", "deny", "abort"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    const events: Array<Record<string, unknown>> = [];
+    const lifecycleEventStore = {
+      replay: vi.fn(async () => ({
+        events,
+        nextSequence: null,
+      })),
+    } as unknown as LifecycleEventStore;
+    const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
+    const resolve = vi.fn(async () => {
+      events.push({
+        type: "approval.decided",
+        approvalId,
+        payload: { status: "approved" },
+      });
+    });
+    approvalRegistry.register(TurnIdSchema.parse(turnId), resolve);
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      { lifecycleEventStore, approvalResolutionRegistry: approvalRegistry },
+    );
+    const submit = (decision: "approved" | "denied") =>
+      handler.handleLifecycleApprovalRequest(
+        new Request("https://brain.local/lifecycle-approval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ turnId, approvalId, decision }),
+        }),
+      );
+
+    const first = await submit("approved");
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      type: "approval.decided",
+      approvalId,
+    });
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    const retry = await submit("approved");
+    expect(retry.status).toBe(200);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    const conflict = await submit("denied");
+    expect(conflict.status).toBe(409);
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed without retaining a permission decision when the active approval resolver disappears", async () => {
+    const ctx = new MockDurableObjectState();
+    const runtimeState = tagRuntimeStateSemantics(ctx, "do");
+    const runRepo = new RunRepository(runtimeState);
+    const runId = "run_123e4567e89b42d3a456426614174337";
+    const turnId = "trn_123457";
+    const approvalId = "appr_123457";
+    await runRepo.create(
+      new Run(runId, "session-1", "RUNNING", "coding", {
+        agentType: "coding",
+        prompt: "run tests",
+        sessionId: "session-1",
+      }),
+    );
+    await ctx.storage.put("turnToRunMap", { [turnId]: runId });
+    const approvals = new PermissionApprovalStore(runtimeState, runId);
+    await approvals.setPendingRequest({
+      requestId: approvalId,
+      runId,
+      origin: "agent",
+      category: "shell_command",
+      title: "Run tests",
+      reason: "Shell command can mutate state.",
+      actionFingerprint: "shell:pnpm test",
+      availableDecisions: ["allow_once", "deny"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const disappearingRegistry: RunApprovalResolutionRegistry = {
+      register() {},
+      has: () => true,
+      resolve: async () => false,
+      unregister() {},
+    };
+    const handler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+      undefined,
+      {
+        lifecycleEventStore: {
+          replay: async () => ({ events: [], nextSequence: null }),
+        } as unknown as LifecycleEventStore,
+        approvalResolutionRegistry: disappearingRegistry,
+      },
+    );
+
+    const response = await handler.handleLifecycleApprovalRequest(
+      new Request("https://brain.local/lifecycle-approval", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          turnId,
+          approvalId,
+          decision: "approved",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(approvals.getResolvedDecision(approvalId)).resolves.toBeNull();
+    await expect(approvals.isActionAllowed("shell:pnpm test")).resolves.toBe(
+      false,
+    );
   });
 
   it("keeps approval error mapping when progress telemetry fails", async () => {

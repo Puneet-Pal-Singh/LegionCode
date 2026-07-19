@@ -350,7 +350,7 @@ Documentation rules:
 - `local/` is for private findings, audits, handoffs, and scratch material.
 - `plans/` is for planning. Many plan files may be intentionally ignored.
 - If closing an architecture red flag, update:
-  `local/findings/2026-07-03-ARCHITECTURE-RED-FLAG-TRACKER.md`.
+  `local/findings/red-flags/2026-07-03-ARCHITECTURE-RED-FLAG-TRACKER.md`.
 
 ---
 

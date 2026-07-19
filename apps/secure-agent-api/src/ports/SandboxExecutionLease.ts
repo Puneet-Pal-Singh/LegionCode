@@ -1,6 +1,9 @@
 export const DEFAULT_SANDBOX_LEASE_TTL_MS = 15 * 60 * 1000;
 export const MAX_SANDBOX_LEASE_TTL_MS = 60 * 60 * 1000;
 
+const MAX_SANDBOX_ID_LENGTH = 63;
+const SANDBOX_ID_DIGEST_LENGTH = MAX_SANDBOX_ID_LENGTH - "sb-".length;
+
 export interface WorkspaceScope {
   runId: string;
   threadId: string;
@@ -41,25 +44,52 @@ export function workspaceLeaseKey(
   ].join(":");
 }
 
-export function createSandboxLease(
+export async function createSandboxLease(
   input: SandboxExecutionLeaseRequest & { now?: number },
-): SandboxExecutionLease {
+): Promise<SandboxExecutionLease> {
   const now = input.now ?? Date.now();
   const ttlMs = Math.min(
     Math.max(input.ttlMs ?? DEFAULT_SANDBOX_LEASE_TTL_MS, 1_000),
     MAX_SANDBOX_LEASE_TTL_MS,
   );
   const { workspaceId, runAttemptId } = input.workspaceScope;
+  const generation = input.generation ?? 0;
   return {
     leaseId: `lease_${crypto.randomUUID()}`,
-    sandboxId: `workspace:${workspaceId}:attempt:${runAttemptId}`,
+    sandboxId: await createSandboxId(workspaceId, runAttemptId, generation),
     workspaceScope: input.workspaceScope,
     owner: input.owner,
     correlationId: input.correlationId,
     expiresAt: now + ttlMs,
-    generation: input.generation ?? 0,
+    generation,
     mutationMode: input.mutationMode ?? "serialized",
   };
+}
+
+/**
+ * Returns the physical Cloudflare Sandbox identifier for a server-issued scope.
+ * The full scope remains on the lease for authorization; this is only the
+ * provider-constrained Durable Object name.
+ */
+export async function createSandboxId(
+  workspaceId: string,
+  runAttemptId: string,
+  generation = 0,
+): Promise<string> {
+  const source = `${workspaceId}\u0000${runAttemptId}\u0000${generation}`;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(source),
+  );
+  const encodedDigest = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const sandboxId = `sb-${encodedDigest.slice(0, SANDBOX_ID_DIGEST_LENGTH)}`;
+
+  if (sandboxId.length > MAX_SANDBOX_ID_LENGTH) {
+    throw new Error("Sandbox ID exceeds the Cloudflare Sandbox length limit");
+  }
+  return sandboxId;
 }
 
 export function isLeaseExpired(

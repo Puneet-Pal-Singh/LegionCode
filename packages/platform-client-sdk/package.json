@@ -10,6 +10,7 @@
     "./platform/client": "./src/platform/client.ts",
     "./platform/errors": "./src/platform/errors.ts",
     "./platform/http-transport": "./src/platform/http-transport.ts",
+    "./platform/hook-audit-projection": "./src/platform/hook-audit-projection.ts",
     "./platform/lifecycle-continuation": "./src/platform/lifecycle-continuation.ts",
     "./platform/lifecycle-ordering": "./src/platform/lifecycle-ordering.ts",
     "./platform/lifecycle-types": "./src/platform/lifecycle-types.ts",
@@ -28,6 +29,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@repo/hook-protocol": "workspace:*",
     "@repo/platform-protocol": "workspace:*",
     "@repo/provider-core": "workspace:*",
     "@repo/shared-types": "workspace:*",

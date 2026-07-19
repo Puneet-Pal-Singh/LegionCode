@@ -26,6 +26,11 @@ import {
   toToolEventInput,
 } from "./RunEventFactory.js";
 import { RunEventRepository } from "./RunEventRepository.js";
+import {
+  sanitizeRuntimeEventRecord,
+  sanitizeRuntimeEventText,
+  sanitizeRuntimeEventValue,
+} from "./RuntimeEventSanitizer.js";
 
 export class RunEventRecorder {
   constructor(
@@ -168,7 +173,15 @@ export class RunEventRecorder {
     await this.append(
       createToolOutputAppendedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
-        chunk,
+        {
+          ...chunk,
+          stdoutDelta: chunk.stdoutDelta
+            ? sanitizeRuntimeEventText(chunk.stdoutDelta)
+            : undefined,
+          stderrDelta: chunk.stderrDelta
+            ? sanitizeRuntimeEventText(chunk.stderrDelta)
+            : undefined,
+        },
       ),
     );
   }
@@ -181,7 +194,7 @@ export class RunEventRecorder {
     await this.append(
       createToolCompletedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
-        result,
+        sanitizeRuntimeEventValue(result),
         executionTimeMs,
       ),
     );
@@ -195,7 +208,7 @@ export class RunEventRecorder {
     await this.append(
       createToolFailedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
-        error,
+        sanitizeRuntimeEventText(error),
         executionTimeMs,
       ),
     );
@@ -289,7 +302,7 @@ function sanitizeEventArguments(
     return {};
   }
 
-  const args: Record<string, unknown> = { ...input };
+  const args = sanitizeRuntimeEventRecord(input);
   delete args.description;
   delete args.expectedOutput;
   delete args.displayText;
@@ -316,5 +329,12 @@ function extractToolRequestedPresentation(
     return undefined;
   }
 
-  return { description, displayText };
+  return {
+    description: description
+      ? sanitizeRuntimeEventText(description)
+      : undefined,
+    displayText: displayText
+      ? sanitizeRuntimeEventText(displayText)
+      : undefined,
+  };
 }

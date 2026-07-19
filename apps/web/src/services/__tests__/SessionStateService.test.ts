@@ -201,27 +201,6 @@ describe("SessionStateService", () => {
       });
     });
 
-    it("persists generated titles through the title endpoint", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({ session: createServerSession("Generated title") }),
-          { status: 200 },
-        ),
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      await SessionStateService.updateGeneratedSessionTitle(
-        "550e8400-e29b-41d4-a716-446655440000",
-        "Generated title",
-      );
-
-      const [, requestInit] = fetchMock.mock.calls[0] ?? [];
-      expect(JSON.parse(String(requestInit?.body))).toEqual({
-        title: "Generated title",
-        titleSource: "generated",
-      });
-    });
-
     it("archives sessions through Brain", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ session: createServerSession("Task") }), {
@@ -467,7 +446,7 @@ describe("SessionStateService", () => {
       const { mode, titleSource, pinnedAt, archivedAt, ...storedSession } =
         session;
       expect(mode).toBe("build");
-      expect(titleSource).toBe("generated");
+      expect(titleSource).toBe("preview");
       expect(pinnedAt).toBeNull();
       expect(archivedAt).toBeNull();
 
@@ -483,7 +462,7 @@ describe("SessionStateService", () => {
 
       const loaded = SessionStateService.loadSessions();
       expect(loaded[session.id]?.mode).toBe("build");
-      expect(loaded[session.id]?.titleSource).toBe("generated");
+      expect(loaded[session.id]?.titleSource).toBe("preview");
       expect(loaded[session.id]?.pinnedAt).toBeNull();
       expect(loaded[session.id]?.archivedAt).toBeNull();
     });

@@ -42,7 +42,6 @@ export type PermissionRequestOutcome = z.infer<
 
 export const StopOutcomeSchema = HookOutcomeBaseSchema.extend({
   status: z.literal("continue"),
-  finalMessagePatch: z.string().min(1).max(20_000).nullable(),
   cleanupResult: HookCleanupResultSchema.nullable(),
 });
 export type StopOutcome = z.infer<typeof StopOutcomeSchema>;

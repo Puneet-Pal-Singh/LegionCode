@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updated": "2026-07-04",
+  "updated": "2026-07-18",
   "purpose": "Machine-readable inventory for LegionCode harness policy files. New *Policy.ts files must be classified here before they can enter apps/ or packages/.",
   "entries": [
     {
@@ -58,6 +58,14 @@
       "disposition": "keep-pure-policy",
       "purpose": "Normalize submitted client chat messages at the request boundary.",
       "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/NativeProviderFinalRecoveryPolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "finalization",
+      "disposition": "keep-pure-policy",
+      "purpose": "Allow one bounded final-only provider retry when a response contains no visible final and no tool calls.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/NativeProviderFinalRecoveryPolicy.test.ts"
     },
     {
       "path": "packages/execution-engine/src/runtime/engine/ConversationPolicy.ts",
@@ -265,6 +273,14 @@
       "purpose": "Large recovery handler mixing task failures, copy, terminal state, and continuation hints.",
       "deletionTrigger": "Split into typed tool error classifier and terminal settlement paths in slices 035.3 and 036.4.",
       "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/TerminalFinalEvidencePolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "finalization",
+      "disposition": "keep-pure-policy",
+      "purpose": "Reject successful terminal settlement unless the canonical provider transcript contains an explicit typed model final.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/TerminalFinalEvidencePolicy.test.ts"
     },
     {
       "path": "packages/execution-engine/src/runtime/engine/ToolFailureTerminalPolicy.ts",

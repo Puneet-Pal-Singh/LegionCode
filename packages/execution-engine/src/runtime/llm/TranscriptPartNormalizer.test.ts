@@ -19,10 +19,17 @@ describe("TranscriptPartNormalizer", () => {
     const parts = normalizer.normalize({
       ...input,
       providerText: "<thinking>private plan</thinking>Done.",
-      toolCalls: [{ id: "call_1", toolName: "read_file", args: { path: "README.md" } }],
+      toolCalls: [
+        { id: "call_1", toolName: "read_file", args: { path: "README.md" } },
+      ],
     });
 
-    expect(parts.map((part) => part.type)).toEqual(["reasoning", "visible_text", "raw_provider_material", "tool_call"]);
+    expect(parts.map((part) => part.type)).toEqual([
+      "reasoning",
+      "visible_text",
+      "raw_provider_material",
+      "tool_call",
+    ]);
     expect(visibleTextFromTranscriptParts(parts)).toBe("Done.");
   });
 
@@ -52,6 +59,35 @@ describe("TranscriptPartNormalizer", () => {
     expect(visibleTextFromTranscriptParts(parts)).toBe("");
   });
 
+  it("quarantines high-confidence legacy internal deliberation", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerText: "The user wants a greeting. I should answer briefly.Hello!",
+    });
+
+    expect(parts[0]).toMatchObject({
+      type: "reasoning",
+      visibility: "audit_only",
+      reason: "legacy_internal_deliberation_quarantine",
+    });
+    expect(visibleTextFromTranscriptParts(parts)).toBe("");
+  });
+
+  it("quarantines third-person user narration even without an explicit plan", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerText:
+        "The user wants the final directory name. The output was /tmp/example.example",
+    });
+
+    expect(parts[0]).toMatchObject({
+      type: "reasoning",
+      visibility: "audit_only",
+      reason: "legacy_internal_deliberation_quarantine",
+    });
+    expect(visibleTextFromTranscriptParts(parts)).toBe("");
+  });
+
   it("uses structured provider parts and emits typed usage/error parts", () => {
     const parts = normalizer.normalize({
       ...input,
@@ -76,7 +112,9 @@ describe("TranscriptPartNormalizer", () => {
     const parts = normalizer.normalize({
       ...input,
       providerParts: [{ type: "final", text: "Intermediate." }],
-      toolCalls: [{ id: "call_1", toolName: "read_file", args: { path: "README.md" } }],
+      toolCalls: [
+        { id: "call_1", toolName: "read_file", args: { path: "README.md" } },
+      ],
     });
 
     expect(parts[0]).toMatchObject({
@@ -116,7 +154,9 @@ describe("TranscriptPartNormalizer", () => {
     const request = {
       ...input,
       providerText: "Done.",
-      toolCalls: [{ id: "call_1", toolName: "read_file", args: { path: "README.md" } }],
+      toolCalls: [
+        { id: "call_1", toolName: "read_file", args: { path: "README.md" } },
+      ],
     };
     const first = normalizer.normalize(request).map((part) => part.id);
     const second = normalizer.normalize(request).map((part) => part.id);

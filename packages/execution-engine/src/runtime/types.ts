@@ -441,6 +441,8 @@ export interface RuntimeExecutionService {
       onOutput?: (chunk: ExecutionOutputChunk) => Promise<void> | void;
       scope?: {
         runId: string;
+        threadId: string;
+        turnId: string;
         runAttemptId: string;
         workspaceId: string;
         root: string;

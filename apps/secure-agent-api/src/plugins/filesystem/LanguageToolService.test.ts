@@ -7,7 +7,7 @@ vi.mock("../security/SafeCommand", () => ({
   runSafeCommand: vi.fn(),
 }));
 
-const WORKSPACE_ROOT = "/home/sandbox/runs/run-language";
+const WORKSPACE_ROOT = "/home/sandbox/checkouts/run-language";
 
 describe("LanguageToolService", () => {
   beforeEach(() => {

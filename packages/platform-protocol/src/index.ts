@@ -62,6 +62,14 @@ export {
   type TurnScopeBootstrap,
 } from "./turn-scope-bootstrap.js";
 export {
+  GeneratedThreadTitleSchema,
+  ThreadTitleUpdatedPayloadSchema,
+  ThreadTitleUpdateSourceSchema,
+  type GeneratedThreadTitle,
+  type ThreadTitleUpdatedPayload,
+  type ThreadTitleUpdateSource,
+} from "./thread-title.js";
+export {
   ArtifactReferenceItemContentSchema,
   RunItemSchema,
   RunModeSchema,
@@ -209,8 +217,10 @@ export {
   PermissionProfileIdSchema,
   PlatformIdSchemas,
   ProviderIdSchema,
+  LeaseIdSchema,
   RunIdSchema,
   RunAttemptIdSchema,
+  TaskCheckoutIdSchema,
   ThreadIdSchema,
   ToolCallIdSchema,
   TurnIdSchema,
@@ -218,6 +228,7 @@ export {
   WorkerIdSchema,
   WorkspaceIdSchema,
   WorkspaceManifestIdSchema,
+  WorkspaceSnapshotIdSchema,
   PLATFORM_ID_PREFIXES,
   PLATFORM_SLUG_LIMITS,
   type ApprovalId,
@@ -231,8 +242,10 @@ export {
   type PlatformId,
   type PlatformIdSchemaName,
   type ProviderId,
+  type LeaseId,
   type RunId,
   type RunAttemptId,
+  type TaskCheckoutId,
   type ThreadId,
   type ToolCallId,
   type TurnId,
@@ -240,12 +253,17 @@ export {
   type WorkerId,
   type WorkspaceId,
   type WorkspaceManifestId,
+  type WorkspaceSnapshotId,
 } from "./ids.js";
 export {
   createTurnId,
   createThreadId,
   createRunAttemptId,
+  createWorkspaceSnapshotId,
+  createTaskCheckoutId,
 } from "./ids.js";
+export { workspaceIdFromExternalId } from "./workspace-id.js";
+export { userIdFromExternalId } from "./user-id.js";
 export {
   ApprovalStatusSchema,
   ApprovalLifecycleSchema,
@@ -304,6 +322,24 @@ export {
   type TurnTerminalOutcome,
   type TurnTerminalStatus,
 } from "./lifecycle.js";
+export {
+  ContentDigestSchema,
+  GitObjectIdSchema,
+  RepositoryIdentitySchema,
+  RepositoryProviderSchema,
+  TaskCheckoutSchema,
+  TaskCheckoutStatusSchema,
+  WorkspaceSnapshotProvenanceSchema,
+  WorkspaceSnapshotSchema,
+  type ContentDigest,
+  type GitObjectId,
+  type RepositoryIdentity,
+  type RepositoryProvider,
+  type TaskCheckout,
+  type TaskCheckoutStatus,
+  type WorkspaceSnapshot,
+  type WorkspaceSnapshotProvenance,
+} from "./task-workspaces.js";
 export {
   GitCommitShaSchema,
   WorkspaceManifestSchema,

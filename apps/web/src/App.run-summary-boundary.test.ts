@@ -12,4 +12,11 @@ describe("App run summary boundary", () => {
     expect(source).not.toContain("fetchRunSummaryStatus");
     expect(source).not.toContain("reconcilableSessions");
   });
+
+  it("does not remount Workspace from a scope emitted by Workspace itself", () => {
+    const source = readFileSync(APP_SOURCE, "utf8");
+
+    expect(source).not.toContain("CONVERSATION_SCOPE_READY_EVENT");
+    expect(source).not.toContain("activeConversationScopeKey");
+  });
 });

@@ -8,7 +8,7 @@ interface CorsEnvConfig {
 const BASE_CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Content-Type, Authorization, X-Run-Id, X-Thread-Id, X-Turn-Id, X-Run-Attempt-Id, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
+    "Content-Type, Authorization, X-Correlation-Id, X-Run-Id, X-Thread-Id, X-Turn-Id, X-Run-Attempt-Id, x-vercel-ai-data-stream, x-ai-sdk-data-stream",
   "Access-Control-Expose-Headers": [
     "x-vercel-ai-data-stream",
     "x-ai-sdk-data-stream",

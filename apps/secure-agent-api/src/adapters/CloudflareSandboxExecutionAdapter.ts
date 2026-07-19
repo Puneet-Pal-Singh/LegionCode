@@ -1,5 +1,5 @@
 import type { Sandbox } from "@cloudflare/sandbox";
-import type { IPlugin } from "../interfaces/types";
+import type { IPlugin, PluginExecutionContext } from "../interfaces/types";
 import type {
   LeaseReleaseResult,
   SandboxExecutionPort,
@@ -83,7 +83,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
   async acquireLease(
     request: SandboxExecutionLeaseRequest,
   ): Promise<SandboxExecutionLease> {
-    const lease = createSandboxLease(request);
+    const lease = await createSandboxLease(request);
     this.registerLease(lease);
     return lease;
   }
@@ -308,6 +308,15 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
       if (typeof runId !== "string" || runId.length === 0) {
         throw { code: "INVALID_INPUT", message: "runId is required for plugin execution" };
       }
+      if (runId !== input.lease.workspaceScope.runId) {
+        throw {
+          code: "WORKSPACE_SCOPE_MISMATCH",
+          message: "Plugin run id does not match the active server-issued workspace scope",
+        };
+      }
+      const pluginContext: PluginExecutionContext = {
+        workspaceScope: input.lease.workspaceScope,
+      };
       let logDrain = Promise.resolve();
       const result = await plugin.execute(
         this.sandbox,
@@ -320,6 +329,7 @@ export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
           const normalized = normalizeLogEntry(entry);
           if (normalized) logDrain = logDrain.then(() => hooks?.onLog?.(normalized));
         },
+        pluginContext,
       );
       await logDrain;
       if (!result.success) throw { code: "PLUGIN_EXECUTION_FAILED", message: result.error ?? `Plugin ${mapping.pluginName} execution failed`, details: result.logs };

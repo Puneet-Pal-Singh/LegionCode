@@ -49,6 +49,8 @@ function createEngine(
       env: { NODE_ENV: "test" } as unknown,
       sessionId,
       runId,
+      workspaceRoot: `/home/sandbox/checkouts/${runId}`,
+      artifactRoot: `/home/sandbox/checkouts/${runId}/artifacts`,
       correlationId: `corr-${runId}`,
     },
     undefined,

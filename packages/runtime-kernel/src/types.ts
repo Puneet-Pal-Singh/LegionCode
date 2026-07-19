@@ -21,6 +21,7 @@ export interface RuntimeContext {
 export interface ToolResult {
   readonly toolCallId: ToolCallItemContent["toolCallId"];
   readonly output: JsonRecord;
+  readonly failure?: ProtocolError;
 }
 
 export type ToolAuthorizationErrorCode =
@@ -65,6 +66,7 @@ export type WorkerToolResult =
   | {
       readonly kind: "failed";
       readonly failure: ProtocolError;
+      readonly disposition: "recoverable" | "terminal";
     }
   | {
       readonly kind: "cancelled";

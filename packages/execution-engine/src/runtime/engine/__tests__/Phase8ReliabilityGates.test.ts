@@ -475,21 +475,4 @@ describe("Phase 8: Golden Scenario Reliability Tests", () => {
     });
   });
 
-  describe("Cloudflare Agents Backend Selection", () => {
-    it("should route to cloudflare agents when feature flag enabled", () => {
-      const FEATURE_FLAG_CLOUDFLARE_AGENTS_V1 = true;
-
-      const shouldUseCloudflareAgents = FEATURE_FLAG_CLOUDFLARE_AGENTS_V1;
-
-      expect(shouldUseCloudflareAgents).toBe(true);
-    });
-
-    it("should route to execution-engine-v1 when feature flag disabled", () => {
-      const FEATURE_FLAG_CLOUDFLARE_AGENTS_V1 = false;
-
-      const shouldUseCloudflareAgents = FEATURE_FLAG_CLOUDFLARE_AGENTS_V1;
-
-      expect(shouldUseCloudflareAgents).toBe(false);
-    });
-  });
 });

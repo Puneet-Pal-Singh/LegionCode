@@ -12,10 +12,6 @@ export function normalizeRunId(input: string | undefined): string {
   return runId;
 }
 
-export function getWorkspaceRoot(runId: string): string {
-  return `/home/sandbox/runs/${runId}`;
-}
-
 export function resolveWorkspacePath(
   workspaceRoot: string,
   inputPath: string,

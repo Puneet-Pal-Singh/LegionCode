@@ -1,8 +1,9 @@
 import { Sandbox } from "@cloudflare/sandbox";
-import { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import { IPlugin, PluginResult, LogCallback, PluginExecutionContext } from "../interfaces/types";
 import { NodeTool } from "../schemas/node";
 import { z } from "zod";
-import { getWorkspaceRoot, normalizeRunId } from "./security/PathGuard";
+import { normalizeRunId } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
@@ -32,6 +33,7 @@ export class NodePlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
       const toolboxContext = readToolboxCommandContext(payload);
@@ -41,6 +43,7 @@ export class NodePlugin implements IPlugin {
           payload,
           toolboxContext,
           onLog,
+          context,
         );
       }
       return await this.executeCodeBlock(
@@ -48,6 +51,7 @@ export class NodePlugin implements IPlugin {
         payload,
         toolboxContext,
         onLog,
+        context,
       );
     } catch (error: unknown) {
       const message =
@@ -61,10 +65,11 @@ export class NodePlugin implements IPlugin {
     payload: unknown,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     const parsed = RunCommandPayloadSchema.parse(payload);
     const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-    const workspaceRoot = getWorkspaceRoot(runId);
+    const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
 
     await runSafeCommand(
       sandbox,
@@ -114,10 +119,11 @@ export class NodePlugin implements IPlugin {
     payload: unknown,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     const parsed = ExecuteCodePayloadSchema.parse(payload);
     const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-    const workspaceRoot = getWorkspaceRoot(runId);
+    const workspaceRoot = resolveScopedWorkspaceRoot(context, runId);
 
     await runSafeCommand(
       sandbox,

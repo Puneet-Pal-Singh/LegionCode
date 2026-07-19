@@ -128,6 +128,7 @@ import { Sandbox } from "@cloudflare/sandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
+  handleResumeSession,
   handleExecuteTask,
   handleDeleteSession,
 } from "./api/SessionAPI";
@@ -240,16 +241,28 @@ export default {
         request.method === "POST"
       ) {
         // Canonical Brain-to-secure-runtime session boundary.
-        const safetyResponse = await enforceLaunchSafetyForRoute(
-          request,
-          env,
-          "session_create",
-        );
-        if (safetyResponse) {
-          response = safetyResponse;
+        const authResponse = enforceInternalServiceBinding(request, env);
+        if (authResponse) {
+          response = authResponse;
         } else {
-          response = await handleCreateSession(request, stub);
+          const safetyResponse = await enforceLaunchSafetyForRoute(
+            request,
+            env,
+            "session_create",
+          );
+          if (safetyResponse) {
+            response = safetyResponse;
+          } else {
+            response = await handleCreateSession(request, stub);
+          }
         }
+      } else if (
+        /^\/api\/v1\/session\/[^/]+\/resume$/u.test(url.pathname) &&
+        request.method === "POST"
+      ) {
+        const authResponse = enforceInternalServiceBinding(request, env);
+        response =
+          authResponse ?? (await handleResumeSession(request, stub));
       } else if (
         url.pathname === "/api/v1/execute" &&
         request.method === "POST"

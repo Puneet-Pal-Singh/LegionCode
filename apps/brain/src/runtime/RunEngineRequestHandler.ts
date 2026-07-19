@@ -41,7 +41,11 @@ import {
   type ExecuteRunPayload,
 } from "./parsing/ExecuteRunPayloadSchema";
 import { buildRuntimeDependencies } from "./factories/ExecutionGatewayFactory";
-import { isDomainError, mapDomainErrorToHttp } from "../domain/errors";
+import {
+  DomainError,
+  isDomainError,
+  mapDomainErrorToHttp,
+} from "../domain/errors";
 import { parseRequestBody, validateWithSchema } from "../http/validation";
 import { mapRunExecutionErrorToDomain } from "./RunExecutionErrorMapper";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
@@ -65,6 +69,10 @@ import {
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
 import {
+  InMemoryRunApprovalResolutionRegistry,
+  type RunApprovalResolutionRegistry,
+} from "./RunApprovalResolutionRegistry";
+import {
   BrainWorkspaceIdSchema,
   RunInterruptIdentitySchema,
   type RunInterruptIdentity,
@@ -75,7 +83,14 @@ import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
 } from "@shadowbox/execution-engine/runtime";
-import { toRuntimeWorkspaceScope } from "./RuntimeWorkspaceScope";
+import { RuntimeWorkspaceScopeResponseSchema } from "./RuntimeWorkspaceScope";
+import { TaskCheckoutIssuer } from "./task-workspaces/TaskCheckoutIssuer";
+import {
+  TaskCheckoutExecutionOrchestrator,
+  type TaskCheckoutScopeResolutionPort,
+} from "./task-workspaces/TaskCheckoutExecutionOrchestrator";
+import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
+import { ProductionHookOrchestrator } from "../services/hooks/ProductionHookOrchestrator";
 
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
@@ -123,6 +138,8 @@ export interface RunEngineRequestHandlerDependencies {
   lifecycleEventStore?: LifecycleEventStore;
   lifecycleEventStream?: LifecycleEventStreamPort;
   interruptRegistry?: RunInterruptRegistry;
+  approvalResolutionRegistry?: RunApprovalResolutionRegistry;
+  taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
 }
 
 type TurnRuntimeIdentity = RunInterruptIdentity;
@@ -137,6 +154,7 @@ export class RunEngineRequestHandler {
     TurnRuntimeIdentity
   >();
   private readonly interruptRegistry: RunInterruptRegistry;
+  private readonly approvalResolutionRegistry: RunApprovalResolutionRegistry;
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
@@ -151,6 +169,9 @@ export class RunEngineRequestHandler {
   ) {
     this.interruptRegistry =
       dependencies.interruptRegistry ?? new InMemoryRunInterruptRegistry();
+    this.approvalResolutionRegistry =
+      dependencies.approvalResolutionRegistry ??
+      new InMemoryRunApprovalResolutionRegistry();
   }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
@@ -591,6 +612,38 @@ export class RunEngineRequestHandler {
       return runEngineErrorResponse(request, this.env, "Run not found", 404);
     }
 
+    const lifecycleStore = this.createLifecycleEventStore();
+    const existing = await findLifecycleApprovalDecisionEvent(
+      {
+        store: lifecycleStore,
+        turnId: payload.turnId,
+        approvalId: payload.approvalId,
+      },
+      null,
+    );
+    if (existing.event) {
+      if (
+        !isMatchingLifecycleApprovalDecision(existing.event, payload.decision)
+      ) {
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          "Approval request was already resolved differently.",
+          409,
+        );
+      }
+      return runEngineJsonResponse(request, this.env, existing.event);
+    }
+
+    if (!this.approvalResolutionRegistry.has(payload.turnId)) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Approval cannot be resolved because its runtime turn is no longer active.",
+        409,
+      );
+    }
+
     const approvalStore = new PermissionApprovalStore(runtimeState, runId);
     try {
       await approvalStore.resolveDecision(
@@ -611,20 +664,55 @@ export class RunEngineRequestHandler {
       );
     }
 
-    const decidedEvent = await waitForLifecycleApprovalDecisionEvent({
-      store: this.createLifecycleEventStore(),
-      turnId: payload.turnId,
-      approvalId: payload.approvalId,
-    });
-    if (!decidedEvent) {
+    let delivered: boolean;
+    try {
+      delivered = await this.approvalResolutionRegistry.resolve(
+        payload.turnId,
+        payload.approvalId,
+        {
+          decision: payload.decision,
+          decidedBy: null,
+          reason: payload.reason ?? null,
+        },
+      );
+    } catch (error) {
+      await approvalStore.discardResolvedDecision(payload.approvalId);
       return runEngineErrorResponse(
         request,
         this.env,
-        "Approval decision was recorded but the lifecycle decision event was not observed.",
-        504,
+        error instanceof Error
+          ? error.message
+          : "Approval decision could not be delivered to the active runtime turn.",
+        409,
       );
     }
-    return runEngineJsonResponse(request, this.env, decidedEvent);
+    if (!delivered) {
+      await approvalStore.discardResolvedDecision(payload.approvalId);
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Approval decision could not be delivered to the active runtime turn.",
+        409,
+      );
+    }
+
+    const decided = await findLifecycleApprovalDecisionEvent(
+      {
+        store: lifecycleStore,
+        turnId: payload.turnId,
+        approvalId: payload.approvalId,
+      },
+      null,
+    );
+    if (!decided.event) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "The active runtime accepted the approval but did not append its lifecycle decision event.",
+        500,
+      );
+    }
+    return runEngineJsonResponse(request, this.env, decided.event);
   }
 
   async handleRuntimeDebugRequest(request: Request): Promise<Response> {
@@ -646,15 +734,18 @@ export class RunEngineRequestHandler {
       return await this.withExecutionLock(input.runId, async () => {
         await this.ensureTurnToRunMapLoaded();
 
-        // Bootstrap is idempotent for the server-owned run. A reload or a
-        // second client must receive the exact tuple that execution already
-        // owns; generating another turn here makes lifecycle routing diverge.
-        const existing = [...this.turnRuntimeIdentities.values()].find(
+        const existingScopes = [...this.turnRuntimeIdentities.values()].filter(
           (candidate) =>
             candidate.runId === input.runId &&
             candidate.sessionId === input.sessionId &&
             candidate.workspaceId === workspaceId,
         );
+        const requestedTurnId = input.clientMessageId
+          ? turnIdFromRunId(input.runId, input.clientMessageId)
+          : null;
+        const existing = requestedTurnId
+          ? this.turnRuntimeIdentities.get(requestedTurnId)
+          : existingScopes.at(-1);
         if (existing) {
           this.createLifecycleEventStream().start(existing.turnId);
           return runEngineJsonResponse(
@@ -672,10 +763,11 @@ export class RunEngineRequestHandler {
 
         const identity = TurnScopeBootstrapSchema.parse({
           workspaceId,
-          threadId: createThreadId(),
+          threadId: existingScopes.at(-1)?.threadId ?? createThreadId(),
           // Public lifecycle routes can recover the owning run only when the
           // server-issued turn carries the canonical run routing segment.
-          turnId: turnIdFromRunId(input.runId, input.sessionId),
+          turnId:
+            requestedTurnId ?? turnIdFromRunId(input.runId, input.sessionId),
           runAttemptId: createRunAttemptId(),
         });
         await this.mapTurnToRun(identity.turnId, input.runId, {
@@ -744,11 +836,33 @@ export class RunEngineRequestHandler {
       );
     }
 
-    return runEngineJsonResponse(
-      request,
-      this.env,
-      toRuntimeWorkspaceScope(identity),
-    );
+    try {
+      const checkout = await (
+        this.dependencies.taskCheckoutScopeResolver ??
+        new TaskCheckoutExecutionOrchestrator(this.env)
+      ).resolveActiveCheckout(identity, `workspace-scope:${runId}`);
+      return runEngineJsonResponse(
+        request,
+        this.env,
+        RuntimeWorkspaceScopeResponseSchema.parse({
+          ...identity,
+          root: checkout.filesystemRoot,
+        }),
+      );
+    } catch (error: unknown) {
+      if (isDomainError(error)) {
+        const { status, code, message, metadata } = mapDomainErrorToHttp(error);
+        return runEngineErrorResponse(
+          request,
+          this.env,
+          message,
+          status,
+          code,
+          metadata,
+        );
+      }
+      throw error;
+    }
   }
 
   async handleExecuteRequest(
@@ -836,128 +950,249 @@ export class RunEngineRequestHandler {
         this.eventStream?.start(payload.runId);
         const { turnId, runAttemptId, threadId } = identity;
         const runtimeState = this.createRuntimeState();
-        const { agent, runEngineDeps } = buildRuntimeDependencies(
-          this.ctx,
+        const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
           this.env,
+        );
+        const issuedTaskCheckout = await new TaskCheckoutIssuer(this.env).issue(
           payload,
-          { strict: true },
         );
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            hasEventStream: Boolean(this.eventStream),
-            toolCount: payload.tools?.length ?? 0,
-          }),
-        );
-        const editArtifactCoordinator = createEditArtifactCoordinator({
-          env: this.env,
-          userId: payload.userId,
-          workspaceId: workspaceId.data,
-          identity,
-          runId: payload.runId,
-          sessionId: payload.sessionId,
-          repositoryContext: payload.input.repositoryContext,
-        });
-        const userMessageId = readLatestUserMessageId(payload.messages);
-        editArtifactCoordinator.setMessageContext({
-          userMessageId: userMessageId ?? undefined,
-        });
-        const runtimeRunner = new RuntimeKernelNativeRunner(
-          runtimeState,
-          {
-            env: this.env,
-            sessionId: payload.sessionId,
-            runId: payload.runId,
-            userId: payload.userId,
-            correlationId: payload.correlationId,
-            requestOrigin: payload.requestOrigin,
-          },
-          agent,
-          {
-            ...runEngineDeps,
-            runEventListener: async (event) => {
-              // Legacy RunEvent records remain a projection for internal
-              // activity/artifact capture only. Kernel lifecycle events are
-              // appended and streamed exclusively by the lifecycle store.
-              editArtifactCoordinator.handleEvent(event);
-            },
-          },
-        );
-
-        const runtimeTools = toRuntimeCoreTools(payload.tools);
-        const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
-          runId: payload.runId,
-          sessionId: payload.sessionId,
-          correlationId: payload.correlationId,
-          store: this.createLifecycleEventStore(),
-          stream: this.createLifecycleEventStream(),
-        });
-        await editArtifactCoordinator.prepare();
-        this.interruptRegistry.register(turnId, async (reason) => {
-          await runtimeRunner.interrupt(turnId, reason);
-        });
-        let executionResponse: Response;
+        let claimedTaskCheckout;
         try {
-          executionResponse = await runtimeRunner.execute({
+          claimedTaskCheckout =
+            await taskCheckoutOrchestrator.claimForExecution(
+              {
+                workspaceId: identity.workspaceId,
+                threadId,
+                turnId,
+                runAttemptId,
+              },
+              payload.correlationId,
+            );
+        } catch (error) {
+          await issuedTaskCheckout.executionSession.release();
+          throw error;
+        }
+        const taskCheckoutLifecycle = new TaskCheckoutRunLifecycle(
+          claimedTaskCheckout.checkoutId,
+          taskCheckoutOrchestrator,
+          issuedTaskCheckout.executionSession,
+        );
+        try {
+          const { agent, runEngineDeps } = buildRuntimeDependencies(
+            this.ctx,
+            this.env,
+            payload,
+            {
+              strict: true,
+              issuedTaskCheckout: {
+                ...issuedTaskCheckout,
+                checkout: claimedTaskCheckout,
+              },
+            },
+          );
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "dependencies-ready", {
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              hasEventStream: Boolean(this.eventStream),
+              toolCount: payload.tools?.length ?? 0,
+              checkoutId: claimedTaskCheckout.checkoutId,
+              sandboxId: claimedTaskCheckout.sandboxId,
+            }),
+          );
+          const editArtifactCoordinator = createEditArtifactCoordinator({
+            env: this.env,
+            userId: payload.userId,
+            workspaceId: workspaceId.data,
+            identity,
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            repositoryContext: payload.input.repositoryContext,
+          });
+          const userMessageId = readLatestUserMessageId(payload.messages);
+          editArtifactCoordinator.setMessageContext({
+            userMessageId: userMessageId ?? undefined,
+          });
+          const runtimeRunner = new RuntimeKernelNativeRunner(
+            runtimeState,
+            {
+              env: this.env,
+              sessionId: payload.sessionId,
+              runId: payload.runId,
+              userId: payload.userId,
+              correlationId: payload.correlationId,
+              requestOrigin: payload.requestOrigin,
+            },
+            agent,
+            {
+              ...runEngineDeps,
+              runEventListener: async (event) => {
+                // Legacy RunEvent records remain a projection for internal
+                // activity/artifact capture only. Kernel lifecycle events are
+                // appended and streamed exclusively by the lifecycle store.
+                editArtifactCoordinator.handleEvent(event);
+              },
+            },
+          );
+
+          const runtimeTools = toRuntimeCoreTools(payload.tools);
+          if (!payload.userId) {
+            throw new DomainError(
+              "RUN_SCOPE_MISMATCH",
+              "Authenticated user scope is required for hook execution.",
+              409,
+              false,
+              payload.correlationId,
+            );
+          }
+          const hookOrchestration = new ProductionHookOrchestrator(this.env, {
+            userId: payload.userId,
+            workspaceId: workspaceId.data,
+            runId: payload.runId,
+            threadId,
+            turnId,
+            runAttemptId,
+            workspaceRoot: claimedTaskCheckout.filesystemRoot,
+            prompt: payload.input.prompt,
+            selectedMode:
+              payload.input.mode === "plan" ? "plan" : "auto_edit",
+            backendId: payload.input.executionBackend,
+          });
+          const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
+            runId: payload.runId,
+            sessionId: payload.sessionId,
+            correlationId: payload.correlationId,
+            store: this.createLifecycleEventStore(),
+            stream: this.createLifecycleEventStream(),
+          });
+          await editArtifactCoordinator.prepare();
+          this.interruptRegistry.register(turnId, async (reason) => {
+            await runtimeRunner.interrupt(turnId, reason);
+          });
+          this.approvalResolutionRegistry.register(
+            turnId,
+            async (approvalId, resolution) => {
+              await runtimeRunner.resolveApproval(
+                turnId,
+                approvalId,
+                resolution,
+              );
+            },
+          );
+          const executionResponse = await runtimeRunner.execute({
             input: payload.input,
             messages: payload.messages as CoreMessage[],
             tools: runtimeTools,
             lifecycleEvents: kernelLifecycleEvents,
+            hookOrchestration,
             turnId,
             runAttemptId,
             threadId,
             workspaceId: workspaceId.data,
+            workspace: {
+              filesystemRoot: claimedTaskCheckout.filesystemRoot,
+              workingBranch: claimedTaskCheckout.workingBranch,
+              startTreeId: claimedTaskCheckout.startTreeId,
+              artifactNamespace: `task-checkouts/${claimedTaskCheckout.checkoutId}`,
+            },
           });
-        } finally {
-          this.interruptRegistry.unregister(turnId);
-        }
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "engine-executed", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            responseStatus: executionResponse.status,
-          }),
-        );
-
-        const postExecutionResult = onExecuteResult
-          ? await onExecuteResult({
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "engine-executed", {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
-              response: executionResponse,
-              identity,
-            })
-          : null;
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            assistantMessageId: postExecutionResult?.assistantMessageId ?? null,
-          }),
-        );
-        if (postExecutionResult?.assistantMessageId) {
-          editArtifactCoordinator.setMessageContext({
-            assistantMessageId: postExecutionResult.assistantMessageId,
-          });
-        }
-        await editArtifactCoordinator.waitForPendingCapture();
-        console.log(
-          formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
-            correlationId: payload.correlationId,
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-          }),
-        );
+              responseStatus: executionResponse.status,
+            }),
+          );
 
-        return withRunEngineHeaders(request, this.env, executionResponse, {
-          "X-Thread-Id": threadId,
-          "X-Turn-Id": turnId,
-          "X-Run-Attempt-Id": runAttemptId,
-        });
+          const postExecutionResult = onExecuteResult
+            ? await onExecuteResult({
+                correlationId: payload.correlationId,
+                runId: payload.runId,
+                sessionId: payload.sessionId,
+                response: executionResponse,
+                identity,
+              })
+            : null;
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "post-execution-handled", {
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+              assistantMessageId:
+                postExecutionResult?.assistantMessageId ?? null,
+            }),
+          );
+          if (postExecutionResult?.assistantMessageId) {
+            editArtifactCoordinator.setMessageContext({
+              assistantMessageId: postExecutionResult.assistantMessageId,
+            });
+          }
+          await editArtifactCoordinator.waitForPendingCapture();
+          await taskCheckoutLifecycle.settle(
+            executionResponse.ok
+              ? { status: "settled" }
+              : {
+                  status: "failed",
+                  failureCode: "RUNTIME_TERMINAL_FAILURE",
+                },
+          );
+          console.log(
+            formatDiagnosticLogLine("run/runtime", "artifacts-settled", {
+              correlationId: payload.correlationId,
+              runId: payload.runId,
+              sessionId: payload.sessionId,
+            }),
+          );
+
+          return withRunEngineHeaders(request, this.env, executionResponse, {
+            "X-Thread-Id": threadId,
+            "X-Turn-Id": turnId,
+            "X-Run-Attempt-Id": runAttemptId,
+          });
+        } catch (error) {
+          if (!taskCheckoutLifecycle.isSettled) {
+            try {
+              await taskCheckoutLifecycle.settle({
+                status: "failed",
+                failureCode: "RUN_PIPELINE_FAILED",
+              });
+            } catch {
+              throw new DomainError(
+                "TASK_CHECKOUT_SETTLEMENT_FAILED",
+                "The task failed and its isolated checkout could not be settled. Retry after capacity recovery.",
+                503,
+                true,
+                payload.correlationId,
+                {
+                  checkoutId: claimedTaskCheckout.checkoutId,
+                  runAttemptId,
+                },
+              );
+            }
+          }
+          throw error;
+        } finally {
+          this.interruptRegistry.unregister(turnId);
+          this.approvalResolutionRegistry.unregister(turnId);
+          await taskCheckoutLifecycle
+            .release()
+            .catch((releaseError: unknown) => {
+              console.error(
+                formatDiagnosticLogLine(
+                  "run/runtime",
+                  "checkout-session-release-failed",
+                  {
+                    correlationId: payload.correlationId,
+                    runId: payload.runId,
+                    checkoutId: claimedTaskCheckout.checkoutId,
+                    error: sanitizeUnknownError(releaseError),
+                  },
+                ),
+              );
+            });
+        }
       });
     } catch (error: unknown) {
       const domainError = mapRunExecutionErrorToDomain(
@@ -1345,7 +1580,8 @@ function mapApprovalResolutionErrorStatus(error: unknown): number {
   const message = error instanceof Error ? error.message : String(error);
   if (
     message.includes("No pending approval request") ||
-    message.includes("does not match pending request")
+    message.includes("does not match pending request") ||
+    message.includes("already resolved differently")
   ) {
     return 409;
   }
@@ -1357,27 +1593,6 @@ function mapApprovalResolutionErrorStatus(error: unknown): number {
     return 400;
   }
   return 500;
-}
-
-async function waitForLifecycleApprovalDecisionEvent(input: {
-  store: LifecycleEventStore;
-  turnId: string;
-  approvalId: string;
-}): Promise<LifecycleEvent | null> {
-  const deadline = Date.now() + 2_000;
-  let afterSequence: number | null = null;
-  while (Date.now() <= deadline) {
-    const found = await findLifecycleApprovalDecisionEvent(
-      input,
-      afterSequence,
-    );
-    if (found.event) {
-      return found.event;
-    }
-    afterSequence = found.nextSequence;
-    await waitForLifecycleApprovalReplayCycle();
-  }
-  return null;
 }
 
 async function findLifecycleApprovalDecisionEvent(
@@ -1405,8 +1620,13 @@ async function findLifecycleApprovalDecisionEvent(
   };
 }
 
-function waitForLifecycleApprovalReplayCycle(): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, 50);
-  });
+function isMatchingLifecycleApprovalDecision(
+  event: LifecycleEvent,
+  decision: z.infer<typeof ApprovalDecisionSchema>,
+): boolean {
+  return (
+    event.type === "approval.decided" &&
+    "status" in event.payload &&
+    event.payload.status === decision
+  );
 }

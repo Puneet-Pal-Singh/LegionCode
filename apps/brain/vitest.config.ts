@@ -7,6 +7,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@repo/hook-protocol": path.resolve(
+        __dirname,
+        "../../packages/hook-protocol/src/index.ts",
+      ),
       "@repo/shared-types": path.resolve(
         __dirname,
         "../../packages/shared-types/src/index.ts",

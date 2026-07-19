@@ -74,6 +74,14 @@ export interface ActivityToolRowViewModel {
   status: "requested" | "running" | "completed" | "failed";
   defaultCollapsed: boolean;
   details: string[];
+  shell?: ActivityShellDisclosureViewModel;
+}
+
+export interface ActivityShellDisclosureViewModel {
+  command: string;
+  cwd?: string;
+  output: string;
+  sourceTruncated: boolean;
 }
 
 export interface ActivityChangedFileStatus extends FileStatus {
@@ -155,12 +163,6 @@ const GENERIC_SYNTHESIS_REASONING_SUMMARIES = new Set([
   "Preparing the final user-facing answer from the observed results.",
   "Summarizing execution results for the final response.",
 ]);
-const GENERIC_REASONING_LABELS_BY_PHASE = {
-  planning: "Planning next step",
-  execution: "Preparing next action",
-  synthesis: "Summarizing the change",
-} as const;
-
 export function buildActivityFeedViewModel(
   feed: ActivityFeedSnapshot | null,
   nowMs: number = Date.now(),
@@ -294,14 +296,12 @@ function buildTurnRows(
 ): ActivityFeedRowViewModel[] {
   const rows: ActivityFeedRowViewModel[] = [];
   let pendingExplore: ActivityToolRowViewModel[] = [];
-  let trailingThinkingRow: ActivityReasoningRowViewModel | null = null;
 
   for (const item of items) {
     if (item.kind === ACTIVITY_PART_KINDS.TEXT) {
       if (shouldDisplayTextRow(item)) {
         flushExploreGroup(rows, pendingExplore);
         pendingExplore = [];
-        trailingThinkingRow = null;
         pushActivityRow(rows, createLegacyCommentaryRow(item));
       }
       continue;
@@ -311,32 +311,14 @@ function buildTurnRows(
       if (shouldDisplayCommentaryRow(item)) {
         flushExploreGroup(rows, pendingExplore);
         pendingExplore = [];
-        trailingThinkingRow = null;
         pushActivityRow(rows, createNonToolRow(item));
       }
       continue;
     }
 
-    if (
-      item.kind === ACTIVITY_PART_KINDS.REASONING &&
-      isSuppressedReasoning(item)
-    ) {
-      continue;
-    }
-
     if (item.kind === ACTIVITY_PART_KINDS.REASONING) {
-      const reasoningRow = createNonToolRow(item);
-      if (isTrailingThinkingIndicatorRow(reasoningRow)) {
-        // "Thinking" is only a live trailing state indicator. Once commentary
-        // or concrete work happens after it, we drop it from transcript history.
-        trailingThinkingRow = reasoningRow;
-        continue;
-      }
-
-      flushExploreGroup(rows, pendingExplore);
-      pendingExplore = [];
-      trailingThinkingRow = null;
-      pushActivityRow(rows, reasoningRow);
+      // Provider reasoning is audit-only. The user-visible feed is limited to
+      // lifecycle state, typed commentary, approvals, and tool activity.
       continue;
     }
 
@@ -348,7 +330,6 @@ function buildTurnRows(
       }
       flushExploreGroup(rows, pendingExplore);
       pendingExplore = [];
-      trailingThinkingRow = null;
       rows.push(row);
       continue;
     }
@@ -359,27 +340,11 @@ function buildTurnRows(
 
     flushExploreGroup(rows, pendingExplore);
     pendingExplore = [];
-    trailingThinkingRow = null;
     pushActivityRow(rows, createNonToolRow(item));
   }
 
   flushExploreGroup(rows, pendingExplore);
-  if (shouldRenderTrailingThinkingRow(trailingThinkingRow, isActiveTurn)) {
-    pushActivityRow(rows, trailingThinkingRow);
-  }
   return finalizeTurnRows(rows, isActiveTurn);
-}
-
-function shouldRenderTrailingThinkingRow(
-  row: ActivityReasoningRowViewModel | null,
-  isActiveTurn: boolean,
-): row is ActivityReasoningRowViewModel {
-  return Boolean(
-    row &&
-    isTrailingThinkingIndicatorRow(row) &&
-    isActiveTurn &&
-    row.status === "active",
-  );
 }
 
 function finalizeTurnRows(
@@ -484,12 +449,6 @@ function isThinkingReasoningRow(
   return row?.kind === "reasoning" && row.label === "Thinking";
 }
 
-function isTrailingThinkingIndicatorRow(
-  row: ActivityFeedRowViewModel | undefined,
-): row is ActivityReasoningRowViewModel {
-  return isThinkingReasoningRow(row) && row.summary === "";
-}
-
 function createNonToolRow(item: Exclude<ActivityPart, ToolActivityPart>) {
   switch (item.kind) {
     case ACTIVITY_PART_KINDS.TEXT:
@@ -545,30 +504,6 @@ function readActivityPartMetadata(
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
-}
-
-function isSuppressedReasoning(
-  item: Extract<ActivityPart, { kind: typeof ACTIVITY_PART_KINDS.REASONING }>,
-): boolean {
-  const normalizedSummary = normalizeReasoningSummary(item.summary, item.phase);
-  const authoredLabel = item.label.trim();
-  if (authoredLabel === "RuntimeKernel lifecycle") {
-    return true;
-  }
-  const genericPhaseLabel = item.phase
-    ? GENERIC_REASONING_LABELS_BY_PHASE[item.phase]
-    : undefined;
-  return (
-    (item.status !== "active" &&
-      normalizedSummary === "" &&
-      authoredLabel === genericPhaseLabel) ||
-    (item.phase === "synthesis" &&
-      normalizedSummary === "" &&
-      authoredLabel === "") ||
-    (item.phase === "planning" &&
-      normalizedSummary === "" &&
-      (authoredLabel === "" || authoredLabel === "Planning next step"))
-  );
 }
 
 function normalizeReasoningSummary(
@@ -683,6 +618,21 @@ function createToolRow(item: ToolActivityPart): ActivityToolRowViewModel {
       item.metadata.family !== TOOL_ACTIVITY_FAMILIES.EDIT &&
       item.status === "completed",
     details: getToolDetails(item),
+    shell: buildShellDisclosure(item),
+  };
+}
+
+function buildShellDisclosure(
+  item: ToolActivityPart,
+): ActivityShellDisclosureViewModel | undefined {
+  if (item.metadata.family !== TOOL_ACTIVITY_FAMILIES.SHELL) {
+    return undefined;
+  }
+  return {
+    command: item.metadata.command,
+    cwd: item.metadata.cwd,
+    output: item.metadata.outputTail ?? "",
+    sourceTruncated: item.metadata.truncated,
   };
 }
 
@@ -833,6 +783,17 @@ function isGenericSynthesisReasoningSummary(
 }
 
 function getToolTitle(item: ToolActivityPart): string {
+  if (item.status === "failed") {
+    switch (item.metadata.family) {
+      case TOOL_ACTIVITY_FAMILIES.SHELL:
+        return "Command failed";
+      case TOOL_ACTIVITY_FAMILIES.READ:
+        return "Read failed";
+      case TOOL_ACTIVITY_FAMILIES.SEARCH:
+        return "Search failed";
+    }
+  }
+
   if (item.metadata.displayText) {
     return item.metadata.displayText;
   }

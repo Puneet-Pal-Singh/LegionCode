@@ -2,6 +2,7 @@ import {
   RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
+  type LifecycleEvent,
   type Run,
   type Turn,
 } from "@repo/platform-protocol";
@@ -20,6 +21,7 @@ import type {
   RuntimeLifecycleEventStore,
   RuntimeGitSnapshotPort,
   RuntimeKernelClock,
+  RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
   ToolAuthorizationPort,
   WorkerProtocolPort,
@@ -46,6 +48,7 @@ export interface RuntimeKernelDependencies {
   readonly worker: WorkerProtocolPort;
   readonly toolAuthorization: ToolAuthorizationPort;
   readonly approvals: ApprovalWaitPort;
+  readonly hooks?: RuntimeHookOrchestrationPort;
   readonly producerId: string;
   readonly maxToolCalls?: number;
   readonly clock?: RuntimeKernelClock;
@@ -59,6 +62,10 @@ interface PreparedTurn {
   readonly lifecycle: RuntimeLifecycleCoordinator;
   readonly artifacts: TurnArtifactSettlementCoordinator;
   readonly tools: ToolExecutionCoordinator;
+  readonly hookTriggerEvents: {
+    readonly sessionStart: LifecycleEvent;
+    readonly userPromptSubmit: LifecycleEvent;
+  };
 }
 
 export class RuntimeKernel {
@@ -66,6 +73,7 @@ export class RuntimeKernel {
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
   private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
+  private readonly approvalCoordinators = new Map<string, ApprovalCoordinator>();
   private readonly artifactSettlements = new Map<
     string,
     TurnArtifactSettlementCoordinator
@@ -108,13 +116,14 @@ export class RuntimeKernel {
       this.dependencies.approvals,
       lifecycle,
     );
+    this.approvalCoordinators.set(turn.id, approvals);
     const tools = new ToolExecutionCoordinator(
       this.dependencies.worker,
       this.dependencies.toolAuthorization,
       approvals,
       lifecycle,
     );
-    await lifecycle.start();
+    const lifecycleStart = await lifecycle.start();
     await lifecycle.captureWorkspaceSnapshot(startArtifacts);
     return {
       run,
@@ -124,6 +133,10 @@ export class RuntimeKernel {
       lifecycle,
       artifacts: artifactSettlement,
       tools,
+      hookTriggerEvents: {
+        sessionStart: lifecycleStart.turnStarted,
+        userPromptSubmit: lifecycleStart.runAttemptStarted,
+      },
     };
   }
 
@@ -133,6 +146,7 @@ export class RuntimeKernel {
     const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
       prepared;
     try {
+      await this.runHooks(prepared);
       const context = await this.dependencies.contextAssembly.assemble({
         run,
         turn,
@@ -166,7 +180,30 @@ export class RuntimeKernel {
         }
       }
       throw error;
+    } finally {
+      this.approvalCoordinators.delete(turn.id);
     }
+  }
+
+  private async runHooks(prepared: PreparedTurn): Promise<void> {
+    const hooks = this.dependencies.hooks;
+    if (!hooks) return;
+
+    const base = {
+      run: prepared.run,
+      turn: prepared.turn,
+      runAttemptId: prepared.runAttemptId,
+      workspace: prepared.workspace,
+      auditAppender: prepared.lifecycle,
+    };
+    await hooks.runSessionStart({
+      ...base,
+      triggerEventId: prepared.hookTriggerEvents.sessionStart.eventId,
+    });
+    await hooks.runUserPromptSubmit({
+      ...base,
+      triggerEventId: prepared.hookTriggerEvents.userPromptSubmit.eventId,
+    });
   }
 
   async interruptTurn(turnId: Turn["id"], reason: string): Promise<void> {
@@ -187,6 +224,21 @@ export class RuntimeKernel {
       }
     }
     await lifecycle.interrupt(reason);
+  }
+
+  async resolveApproval(
+    turnId: Turn["id"],
+    approvalId: Parameters<ApprovalCoordinator["resolve"]>[0],
+    resolution: Parameters<ApprovalCoordinator["resolve"]>[1],
+  ): Promise<void> {
+    const approvals = this.approvalCoordinators.get(turnId);
+    if (!approvals) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not owned by this runtime kernel`,
+      );
+    }
+    await approvals.resolve(approvalId, resolution);
   }
 
   private async executeLoop(

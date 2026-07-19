@@ -68,9 +68,11 @@ export interface SessionRecord {
   id: string;
   userId: string;
   workspaceId: string | null;
+  threadId: string | null;
   taskId: string;
   title: string;
   titleSource: ChatTitleSource;
+  titleVersion?: number;
   repository: string | null;
   activeRunId: string | null;
   mode: string;
@@ -106,6 +108,7 @@ export interface EnsureTranscriptSessionInput {
   sessionId: string;
   userId: string;
   workspaceId?: string | null;
+  threadId?: string | null;
   taskId?: string | null;
   title?: string | null;
   titleSource?: ChatTitleSource | null;
@@ -163,11 +166,13 @@ export interface TranscriptRepository {
     sessionId: string;
     status: SessionStatus;
   }): Promise<SessionRecord | null>;
-  updateGeneratedSessionTitle(input: {
+  updateAutomatedSessionTitle(input: {
     userId: string;
     sessionId: string;
     title: string;
-    titleSource: "generated";
+    titleSource: "preview" | "generated";
+    expectedTitleVersion?: number;
+    initialOnly?: boolean;
   }): Promise<SessionRecord | null>;
   renameSessionTitle(input: {
     userId: string;

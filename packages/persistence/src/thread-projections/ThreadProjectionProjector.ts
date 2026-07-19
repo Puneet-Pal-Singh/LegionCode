@@ -59,7 +59,11 @@ function applyProjectionInput(
   state.lastProjectionSequence = input.projectionSequence;
 
   if (isThreadStateEvent(input.event)) {
-    state.thread = projectThreadState(input.event, input.projectionSequence);
+    state.thread = projectThreadState(
+      state.thread,
+      input.event,
+      input.projectionSequence,
+    );
     return;
   }
 
@@ -141,9 +145,29 @@ function isFirstEligibleTitleTurn(
 }
 
 function projectThreadState(
+  current: Thread | null,
   event: Extract<PlatformEvent, { type: `thread.${string}` }>,
   projectionSequence: number,
 ): Thread {
+  if (event.type === "thread.title.updated") {
+    if (!current) {
+      throw new ThreadProjectionError(
+        "missing_thread_created",
+        "Thread title updates require a prior thread.created event",
+      );
+    }
+
+    return ThreadSchema.parse({
+      ...current,
+      title: event.payload.title,
+      titleSource: event.payload.source,
+      titleStatus: "ready",
+      titleVersion: event.payload.titleVersion,
+      updatedAt: event.payload.timestamp,
+      lastEventSequence: projectionSequence,
+    });
+  }
+
   return ThreadSchema.parse({
     ...event.payload.thread,
     lastEventSequence: projectionSequence,

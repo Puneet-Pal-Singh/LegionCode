@@ -170,7 +170,7 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
   });
 
-  it("emits deterministic runtime text when assistant completion text is empty", async () => {
+  it("fails when assistant completion text has no model-written final", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
 
@@ -182,20 +182,29 @@ describe("RunCompletionPolicy", () => {
     });
 
     await expect(response.text()).resolves.toContain(
-      "The run completed without a model-written final response.",
+      "The model stopped before returning a final answer.",
     );
+    expect(run.status).toBe("FAILED");
     expect(run.output?.finalSummary).toContain(
-      "The run completed without a model-written final response.",
+      "The model stopped before returning a final answer.",
     );
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
       expect.stringContaining(
-        "The run completed without a model-written final response.",
+        "The model stopped before returning a final answer.",
       ),
       expect.objectContaining({
-        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        terminalState: RUN_TERMINAL_STATES.FAILED_VALIDATION,
+        outcomeCode: "MODEL_FINAL_MISSING",
         finalMessageSource: "runtime",
       }),
+    );
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "The model stopped before returning a final answer.",
+      ),
+      expect.any(Number),
+      "MODEL_FINAL_MISSING",
     );
   });
 
@@ -259,8 +268,11 @@ describe("RunCompletionPolicy", () => {
     });
 
     const responseText = await response.text();
-    expect(responseText).toContain("without a model-written final response");
+    expect(responseText).toContain(
+      "The model stopped before returning a final answer.",
+    );
     expect(responseText).not.toContain(incidentText);
+    expect(run.status).toBe("FAILED");
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
       expect.not.stringContaining(incidentText),
@@ -387,7 +399,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeFinal: createRuntimeFinalText("The file looks correct."),
+      modelParts: [modelFinalPart(run, "The file looks correct.")],
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_read_or_search"],
@@ -433,7 +445,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeFinal: createRuntimeFinalText("I changed the file."),
+      modelParts: [modelFinalPart(run, "I changed the file.")],
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_edit_or_diff"],
@@ -473,7 +485,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      runtimeFinal: createRuntimeFinalText("I changed the file."),
+      modelParts: [modelFinalPart(run, "I changed the file.")],
       metadata: {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         requiredEvidence: ["file_edit_or_diff"],
@@ -536,6 +548,20 @@ function createRun(status: "RUNNING" | "CANCELLED"): Run {
       },
     },
   );
+}
+
+function modelFinalPart(run: Run, text: string) {
+  return {
+    id: `final-${run.id}`,
+    schemaVersion: 1 as const,
+    runId: run.id,
+    turnId: run.id,
+    sequence: 0,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    type: "final" as const,
+    visibility: "visible" as const,
+    text,
+  };
 }
 
 function createDeps(

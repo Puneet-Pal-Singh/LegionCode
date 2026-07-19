@@ -79,14 +79,23 @@ export class RunAdmissionLimiterClient {
       correlationId,
     );
     if (!decision.allowed) {
+      const capacityExhausted =
+        decision.blockedBucket === "cloudflare_sandbox_capacity";
       throw new DomainError(
-        "RUN_ADMISSION_BLOCKED",
-        `Run admission is blocked by ${decision.blockedBucket ?? "runtime capacity"}. Retry in ${decision.retryAfterSeconds}s.`,
+        capacityExhausted
+          ? "RUN_CAPACITY_EXHAUSTED"
+          : "RUN_ADMISSION_BLOCKED",
+        capacityExhausted
+          ? `Sandbox capacity is currently full. Retry in ${decision.retryAfterSeconds}s.`
+          : `Run admission is blocked by ${decision.blockedBucket ?? "runtime policy"}. Retry in ${decision.retryAfterSeconds}s.`,
         429,
         true,
         correlationId,
         {
           admissionState: "blocked",
+          failureKind: capacityExhausted
+            ? "capacity_exhausted"
+            : "policy_rejected",
           retryAfterSeconds: decision.retryAfterSeconds,
           blockedBucket: decision.blockedBucket ?? null,
           runAttemptId: identity.runAttemptId,

@@ -271,6 +271,7 @@ async function createFixture(context) {
     "event-store": { "@repo/platform-protocol": "workspace:*" },
     "execution-engine": {},
     "git-service": { "@repo/platform-protocol": "workspace:*" },
+    "hook-protocol": { "@repo/platform-protocol": "workspace:*" },
     "permission-policy": { "@repo/platform-protocol": "workspace:*" },
     persistence: {
       "@repo/event-store": "workspace:*",
@@ -278,6 +279,7 @@ async function createFixture(context) {
       "@repo/shared-types": "workspace:*",
     },
     "platform-client-sdk": {
+      "@repo/hook-protocol": "workspace:*",
       "@repo/platform-protocol": "workspace:*",
       "@repo/provider-core": "workspace:*",
       "@repo/shared-types": "workspace:*",
@@ -287,12 +289,6 @@ async function createFixture(context) {
       "@repo/event-store": "workspace:*",
       "@repo/platform-protocol": "workspace:*",
       "@repo/workspace-core": "workspace:*",
-    },
-    "runtime-cloudflare-worker": {
-      "@repo/artifact-store": "workspace:*",
-      "@repo/git-service": "workspace:*",
-      "@repo/platform-protocol": "workspace:*",
-      "@repo/worker-protocol": "workspace:*",
     },
     "worker-protocol": {
       "@repo/artifact-store": "workspace:*",

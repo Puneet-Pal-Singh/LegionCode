@@ -61,6 +61,23 @@ interface EventFields {
   readonly payload: JsonRecord;
 }
 
+type RuntimeHookAuditEventType = Extract<
+  LifecycleEventType,
+  | "hook.invocation.started"
+  | "hook.invocation.completed"
+  | "hook.invocation.failed"
+  | "hook.invocation.timed_out"
+  | "hook.invocation.cancelled"
+>;
+
+const RUNTIME_HOOK_AUDIT_EVENT_TYPES = new Set<LifecycleEventType>([
+  "hook.invocation.started",
+  "hook.invocation.completed",
+  "hook.invocation.failed",
+  "hook.invocation.timed_out",
+  "hook.invocation.cancelled",
+]);
+
 export class RuntimeLifecycleCoordinator {
   private status: TurnStatus = "queued";
   private blockingState: TurnBlockingState = { kind: "none" };
@@ -82,11 +99,29 @@ export class RuntimeLifecycleCoordinator {
     return ["completed", "interrupted", "failed"].includes(this.status);
   }
 
-  async start(): Promise<void> {
-    await this.enqueue(async () => this.startNow());
+  async start(): Promise<{
+    readonly turnStarted: LifecycleEvent;
+    readonly runAttemptStarted: LifecycleEvent;
+  }> {
+    let result:
+      | {
+          readonly turnStarted: LifecycleEvent;
+          readonly runAttemptStarted: LifecycleEvent;
+        }
+      | undefined;
+    await this.enqueue(async () => {
+      result = await this.startNow();
+    });
+    if (!result) {
+      throw new Error("Runtime lifecycle start did not append its events.");
+    }
+    return result;
   }
 
-  private async startNow(): Promise<void> {
+  private async startNow(): Promise<{
+    readonly turnStarted: LifecycleEvent;
+    readonly runAttemptStarted: LifecycleEvent;
+  }> {
     if (this.accepted) {
       throw new LifecycleTransitionError(
         "turn",
@@ -110,6 +145,10 @@ export class RuntimeLifecycleCoordinator {
     this.accepted = true;
     this.status = nextTurn;
     this.runAttemptStatus = nextAttempt;
+    return {
+      turnStarted: events[1] as LifecycleEvent,
+      runAttemptStarted: events[2] as LifecycleEvent,
+    };
   }
 
   async startToolCall(
@@ -178,6 +217,26 @@ export class RuntimeLifecycleCoordinator {
         payload: { snapshot: JsonRecordSchema.parse(snapshot) },
       }),
     );
+  }
+
+  /**
+   * Appends a sanitized hook invocation through the same serialized sequence
+   * owner as every other runtime event. Hook execution and outcome application
+   * remain outside this coordinator.
+   */
+  async appendHookAudit(
+    eventType: RuntimeHookAuditEventType,
+    payload: JsonRecord,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      if (!RUNTIME_HOOK_AUDIT_EVENT_TYPES.has(eventType)) {
+        throw new Error("Unsupported runtime hook audit event type.");
+      }
+      await this.emit({
+        type: eventType,
+        payload: JsonRecordSchema.parse(payload),
+      });
+    });
   }
 
   async createTurnArtifact(artifact: unknown): Promise<void> {

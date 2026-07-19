@@ -32,6 +32,7 @@ export const tasks = pgTable(
     workspaceId: uuid("workspace_id").references(() => workspaces.id, {
       onDelete: "set null",
     }),
+    threadId: text("thread_id"),
     title: text("title").notNull(),
     status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -67,6 +68,9 @@ export const sessions = pgTable(
       .references(() => tasks.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     titleSource: text("title_source").notNull().default("generated"),
+    titleVersion: bigint("title_version", { mode: "number" })
+      .notNull()
+      .default(1),
     repository: text("repository"),
     activeRunId: text("active_run_id"),
     mode: text("mode").notNull().default("build"),

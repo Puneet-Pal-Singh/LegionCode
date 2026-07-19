@@ -3,6 +3,7 @@ import {
   ACTIVITY_PART_KINDS,
   TOOL_ACTIVITY_FAMILIES,
   type ActivityFeedSnapshot,
+  type ToolActivityPart,
 } from "@repo/shared-types";
 import { buildActivityFeedViewModel } from "./ActivityFeedViewModel.js";
 
@@ -10,24 +11,17 @@ describe("ActivityFeedViewModel", () => {
   it("groups low-noise exploration actions and builds collapsed turn summaries", () => {
     const viewModel = buildActivityFeedViewModel(createFeedSnapshot());
     expect(viewModel.turns).toHaveLength(1);
-    expect(viewModel.turns[0]?.summaryLabel).toBe(
-      "3 tool calls · 1 progress update",
-    );
+    expect(viewModel.turns[0]?.summaryLabel).toBe("3 tool calls");
     expect(viewModel.turns[0]?.defaultCollapsed).toBe(false);
     expect(viewModel.turns[0]?.isActiveTurn).toBe(true);
     expect(viewModel.turns[0]?.rows[0]).toMatchObject({
-      kind: "reasoning",
-      label: "Analyzing request",
-    });
-    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("group");
-    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
       kind: "group",
       title: "Explored",
       summary: "1 list, 1 file",
     });
-    expect(viewModel.turns[0]?.rows[2]?.kind).toBe("tool");
-    if (viewModel.turns[0]?.rows[2]?.kind === "tool") {
-      expect(viewModel.turns[0].rows[2].family).toBe(
+    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("tool");
+    if (viewModel.turns[0]?.rows[1]?.kind === "tool") {
+      expect(viewModel.turns[0].rows[1].family).toBe(
         TOOL_ACTIVITY_FAMILIES.SHELL,
       );
     }
@@ -92,7 +86,7 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows[1]).toMatchObject({
+    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
       kind: "group",
       title: "Exploring",
       summary: "1 list, 1 file",
@@ -207,7 +201,6 @@ describe("ActivityFeedViewModel", () => {
     ]);
   });
 
-
   it("turns generic execution progress into a compact thinking row and suppresses generic synthesis rows", () => {
     const snapshot = createFeedSnapshot();
     const viewModel = buildActivityFeedViewModel({
@@ -302,7 +295,8 @@ describe("ActivityFeedViewModel", () => {
           updatedAt: "2026-03-24T10:00:02.000Z",
           source: "brain",
           label: "Summarizing the change",
-          summary: "Preparing the final user-facing answer from the observed results.",
+          summary:
+            "Preparing the final user-facing answer from the observed results.",
           phase: "synthesis",
           status: "completed",
         },
@@ -312,7 +306,7 @@ describe("ActivityFeedViewModel", () => {
     expect(viewModel.turns[0]?.rows).toEqual([]);
   });
 
-  it("renders thinking only while it remains the latest unresolved state", () => {
+  it("keeps all provider reasoning audit-only while preserving typed tools", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-active-thinking",
       sessionId: "session-active-thinking",
@@ -383,13 +377,13 @@ describe("ActivityFeedViewModel", () => {
     });
 
     expect(
-      viewModel.turns[0]?.rows.filter(
-        (row) => row.kind === "reasoning" && row.label === "Thinking",
-      ),
-    ).toHaveLength(1);
+      viewModel.turns[0]?.rows.some((row) => row.kind === "reasoning"),
+    ).toBe(false);
+    expect(viewModel.turns[0]?.rows).toHaveLength(1);
+    expect(viewModel.turns[0]?.rows[0]?.kind).toBe("tool");
   });
 
-  it("keeps meaningful active thinking summaries visible during later work", () => {
+  it("does not expose meaningful-looking provider reasoning during later work", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-active-thinking-summary",
       sessionId: "session-active-thinking-summary",
@@ -445,13 +439,8 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows[0]).toMatchObject({
-      kind: "reasoning",
-      label: "Thinking",
-      summary: "Thinking about architecture",
-      status: "active",
-    });
-    expect(viewModel.turns[0]?.rows[1]?.kind).toBe("tool");
+    expect(viewModel.turns[0]?.rows).toHaveLength(1);
+    expect(viewModel.turns[0]?.rows[0]?.kind).toBe("tool");
   });
 
   it("removes completed thinking rows even when they contain a summary", () => {
@@ -686,8 +675,7 @@ describe("ActivityFeedViewModel", () => {
       viewModel.turns[0]?.rows.some(
         (row) =>
           row.kind === "reasoning" &&
-          row.summary ===
-            "Inspecting the workspace before answering.",
+          row.summary === "Inspecting the workspace before answering.",
       ),
     ).toBe(false);
     expect(
@@ -812,7 +800,7 @@ describe("ActivityFeedViewModel", () => {
     ).toBe(false);
   });
 
-  it("preserves authored labels when generic reasoning summaries collapse away", () => {
+  it("keeps authored reasoning labels audit-only", () => {
     const viewModel = buildActivityFeedViewModel({
       runId: "run-authored-reasoning",
       sessionId: "session-authored-reasoning",
@@ -862,21 +850,7 @@ describe("ActivityFeedViewModel", () => {
       ],
     });
 
-    expect(viewModel.turns[0]?.rows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "reasoning",
-          label: "Checking footer copy",
-          summary: "",
-        }),
-        expect.objectContaining({
-          kind: "reasoning",
-          label: "Reporting what changed",
-          summary:
-            "Preparing the final user-facing response from the observed results.",
-        }),
-      ]),
-    );
+    expect(viewModel.turns[0]?.rows).toEqual([]);
   });
 
   it("keeps plain assistant transcript messages out of the activity feed", () => {
@@ -1122,6 +1096,52 @@ describe("ActivityFeedViewModel", () => {
     if (gitRow?.kind === "tool") {
       expect(gitRow.details[0]).toContain('"oops":true');
     }
+  });
+
+  it("labels recoverable tool failures at the affected activity row", () => {
+    const snapshot = createFeedSnapshot();
+    const prompt = snapshot.items[0]!;
+    const read = snapshot.items[2]!;
+    const shell = snapshot.items[4]!;
+    if (
+      read.kind !== ACTIVITY_PART_KINDS.TOOL ||
+      shell.kind !== ACTIVITY_PART_KINDS.TOOL
+    ) {
+      throw new Error("Expected read and shell tool fixtures.");
+    }
+
+    const failedRead: ToolActivityPart = { ...read, status: "failed" };
+    const failedShell: ToolActivityPart = { ...shell, status: "failed" };
+    const search: ToolActivityPart = {
+      ...read,
+      id: "tool-search-failed",
+      toolId: "tool-search-failed",
+      toolName: "search",
+      status: "failed",
+      metadata: {
+        family: TOOL_ACTIVITY_FAMILIES.SEARCH,
+        pattern: "TODO",
+        path: "src",
+        count: 0,
+        truncated: false,
+        loadedPaths: [],
+      },
+    };
+    const viewModel = buildActivityFeedViewModel({
+      ...snapshot,
+      items: [prompt, failedRead, search, failedShell],
+    });
+    const rows = viewModel.turns[0]?.rows.flatMap((row) =>
+      row.kind === "group" ? row.rows : [row],
+    );
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "tool", title: "Read failed" }),
+        expect.objectContaining({ kind: "tool", title: "Search failed" }),
+        expect.objectContaining({ kind: "tool", title: "Command failed" }),
+      ]),
+    );
   });
 });
 

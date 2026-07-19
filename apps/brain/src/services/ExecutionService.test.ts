@@ -4,6 +4,10 @@ import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
 import { createIdentityRepository } from "../test-utils/identityTestHelpers";
+import {
+  SecureExecutionSessionRecoveryError,
+  type SecureExecutionSessionPort,
+} from "./secure-execution/SecureExecutionSessionClient";
 
 vi.mock("@shadowbox/github-bridge", () => ({
   decryptToken: vi.fn(async () => "token:encrypted-token"),
@@ -15,6 +19,14 @@ vi.mock("@shadowbox/github-bridge", () => ({
     })),
   })),
 }));
+
+function testLease() {
+  return {
+    leaseId: "lease_test001",
+    sandboxId: "sb-test001",
+    generation: 0,
+  };
+}
 
 describe("ExecutionService", () => {
   beforeEach(() => {
@@ -34,6 +46,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-1",
             token: "tok-1",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -70,6 +83,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-123",
       "run-456",
@@ -133,13 +147,17 @@ describe("ExecutionService", () => {
 
   it("rejects a secure execution request before transport when scope is absent", async () => {
     const fetchMock = vi.fn();
-    expect(() => new ExecutionService(
-      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
-      "session-unscoped",
-      "run-unscoped",
-    )).toThrow(
-      "workspaceScope is required for secure execution",
-    );
+    expect(
+      () =>
+        new ExecutionService(
+          {
+            SECURE_API: { fetch: fetchMock },
+            INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+          } as unknown as Env,
+          "session-unscoped",
+          "run-unscoped",
+        ),
+    ).toThrow("workspaceScope is required for secure execution");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -162,6 +180,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-retry",
             token: "tok-retry",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -184,6 +203,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-retry",
       "run-retry",
@@ -216,6 +236,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-2",
             token: "tok-2",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -241,6 +262,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-abc",
       "run-def",
@@ -288,6 +310,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-timeout",
             token: "tok-timeout",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -315,6 +338,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-timeout",
       "run-timeout",
@@ -362,6 +386,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-sandbox",
             token: "tok-sandbox",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -382,9 +407,27 @@ describe("ExecutionService", () => {
           }),
           { status: 503, headers: { "Content-Type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-sandbox",
+            token: "tok-sandbox",
+            expiresAt: Date.now() + 60_000,
+            lease: {
+              leaseId: "lease_replacement01",
+              sandboxId: "sb-replacement01",
+              generation: 1,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
     const service = new ExecutionService(
-      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
       "session-sandbox",
       "run-sandbox",
       undefined,
@@ -431,6 +474,76 @@ describe("ExecutionService", () => {
         },
       },
     });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
+      "/api/v1/session/sess-sandbox/resume",
+    );
+  });
+
+  it("preserves non-retryable sandbox recovery exhaustion", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          taskId: "task-sandbox-exhausted",
+          leaseId: "lease-sandbox-exhausted",
+          correlationId: "secure-correlation-sandbox-exhausted",
+          retryable: true,
+          status: "sandbox_unavailable",
+          error: {
+            code: "SANDBOX_UNAVAILABLE",
+            message: "Sandbox container became unavailable during execution",
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const executionSession: SecureExecutionSessionPort = {
+      acquire: vi.fn(async () => ({
+        sessionId: "sess-sandbox-exhausted",
+        token: "tok-sandbox-exhausted",
+        expiresAt: Date.now() + 60_000,
+        lease: {
+          leaseId: "lease_sandbox_exhausted",
+          sandboxId: "sb-sandbox-exhausted",
+          generation: 1,
+        },
+      })),
+      recoverAfterSandboxLoss: vi.fn(async () => {
+        throw new SecureExecutionSessionRecoveryError();
+      }),
+      release: vi.fn(async () => {}),
+    };
+    const service = new ExecutionService(
+      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      "session-sandbox-exhausted",
+      "run-sandbox-exhausted",
+      undefined,
+      scopeFor("run-sandbox-exhausted"),
+      executionSession,
+    );
+
+    const result = await service.execute(
+      "filesystem",
+      "read_file",
+      { path: "src/index.ts" },
+      { scope: scopeFor("run-sandbox-exhausted") },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      status: "sandbox_unavailable",
+      error: {
+        code: "SANDBOX_RECOVERY_EXHAUSTED",
+        message: "The task sandbox replacement budget is exhausted.",
+      },
+      metadata: {
+        runtimeFailure: {
+          retryable: false,
+          details: {
+            secureCode: "SANDBOX_RECOVERY_EXHAUSTED",
+          },
+        },
+      },
+    });
   });
 
   it("rejects a 2xx secure failure payload as a typed contract violation", async () => {
@@ -446,6 +559,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-contract",
             token: "tok-contract",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -464,7 +578,11 @@ describe("ExecutionService", () => {
         ),
       );
     const service = new ExecutionService(
-      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
       "session-contract",
       "run-contract",
       undefined,
@@ -505,6 +623,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-git",
             token: "tok-git",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -526,6 +645,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-git",
       "run-git",
@@ -559,6 +679,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-commit",
             token: "tok-commit",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -580,6 +701,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-123"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -633,6 +755,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-commit-oauth",
             token: "tok-commit-oauth",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -654,6 +777,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-commit-oauth"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -709,6 +833,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-github",
             token: "tok-github",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -730,6 +855,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-456"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -793,6 +919,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-github-cli",
             token: "tok-github-cli",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -814,6 +941,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-789"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -867,6 +995,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-790", [
           "read:user",
           "user:email",
@@ -921,6 +1050,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-node",
             token: "tok-node",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -942,6 +1072,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-node",
       "run-owned-by-service",
@@ -980,6 +1111,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-failure",
             token: "tok-failure",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1005,6 +1137,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-failure",
       "run-failure",
@@ -1060,6 +1193,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-status",
             token: "tok-status",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1085,6 +1219,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-status",
       "run-status",
@@ -1143,6 +1278,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-status-local-dev",
       "run-status-local-dev",
@@ -1189,6 +1325,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-pr",
             token: "tok-pr",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1219,6 +1356,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -1303,6 +1441,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-pr",
             token: "tok-pr",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1324,6 +1463,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async () =>
