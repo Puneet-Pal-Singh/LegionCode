@@ -57,6 +57,9 @@ importers:
       '@repo/provider-core':
         specifier: workspace:*
         version: link:../../packages/provider-core
+      '@repo/runtime-kernel':
+        specifier: workspace:*
+        version: link:../../packages/runtime-kernel
       '@shadowbox/context-pruner':
         specifier: workspace:*
         version: link:../../packages/context-pruner
