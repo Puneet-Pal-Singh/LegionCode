@@ -25,6 +25,17 @@ describe("local development configuration", () => {
     );
   });
 
+  it("clears only Wrangler's generated temporary bundle before starting", () => {
+    const launcher = readText("scripts/dev-with-secure-runtime.mjs");
+    const cacheResetIndex = launcher.indexOf('path.join(brainDir, ".wrangler", "tmp")');
+    const wranglerIndex = launcher.indexOf('"wrangler"');
+
+    expect(cacheResetIndex).toBeGreaterThan(-1);
+    expect(launcher).toContain("rmSync");
+    expect(launcher).not.toContain('path.join(brainDir, ".wrangler", "state")');
+    expect(wranglerIndex).toBeGreaterThan(cacheResetIndex);
+  });
+
   it("guards the standalone local worker launcher before either worker starts", () => {
     const launcher = readFileSync(
       join(APP_ROOT, "..", "..", "scripts/local-dev/run-workers-with-logs.sh"),

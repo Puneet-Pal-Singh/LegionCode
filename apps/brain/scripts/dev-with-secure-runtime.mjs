@@ -1,4 +1,5 @@
 import net from "node:net";
+import { rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -49,6 +50,14 @@ async function main() {
       `[brain/dev] detected secure runtime on port ${secureRuntimePort}; reusing existing shadowbox-api session`,
     );
   }
+
+  // Wrangler's tmp bundle can outlive source changes and execute an older
+  // parameter mapping. Clear only generated build output; local state and
+  // Durable Object data live under .wrangler/state and remain untouched.
+  rmSync(path.join(brainDir, ".wrangler", "tmp"), {
+    recursive: true,
+    force: true,
+  });
 
   startPersistentProcess(
     "pnpm",
