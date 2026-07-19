@@ -33,7 +33,7 @@ describe("SettingsDialog", () => {
     });
   });
 
-  it("switches between General, Connect, and Models sections", () => {
+  it("switches between General, Connect, Models, and Hooks sections", () => {
     render(<SettingsDialog isOpen={true} onClose={vi.fn()} initialSection="general" />);
 
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
@@ -44,6 +44,12 @@ describe("SettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     expect(screen.getByRole("heading", { name: "Models" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hooks" }));
+    expect(screen.getByRole("heading", { name: "Hooks" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Open a task with a server-owned workspace before managing its hooks."),
+    ).toBeInTheDocument();
   });
 
   it("opens directly to connect-provider flow when initial section is connect", () => {

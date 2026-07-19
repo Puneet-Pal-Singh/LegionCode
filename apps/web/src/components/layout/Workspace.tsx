@@ -41,6 +41,10 @@ import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
 import { useActiveTurnProjection } from "../chat/chat-interface/useActiveTurnProjection.js";
 import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
+import {
+  buildHookSettingsAuditReadModel,
+  type HookSettingsAuditReadModel,
+} from "../../services/api/lifecycleClient.js";
 
 interface WorkspaceProps {
   sessionId: string;
@@ -55,6 +59,10 @@ interface WorkspaceProps {
   initialPromptSubmission?: { id: string; prompt: string } | null;
   onInitialPromptHandled?: (id: string) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
+  onHookSettingsContextChange?: (context: {
+    workspaceId: string;
+    audits: readonly HookSettingsAuditReadModel[];
+  }) => void;
   isRightSidebarOpen?: boolean;
   setIsRightSidebarOpen?: (open: boolean) => void;
   rightSidebarWidth?: number;
@@ -79,6 +87,7 @@ export function Workspace({
   initialPromptSubmission = null,
   onInitialPromptHandled,
   onPendingApprovalStateChange,
+  onHookSettingsContextChange,
   isRightSidebarOpen = false,
   setIsRightSidebarOpen,
   rightSidebarWidth,
@@ -181,6 +190,23 @@ export function Workspace({
     turnId: serverTurnId,
     transportLoading: isLoading,
   });
+  const hookSettingsAudits = useMemo(
+    () =>
+      activeTurn.projection
+        ? buildHookSettingsAuditReadModel({
+            events: activeTurn.projection.hookAudits,
+          })
+        : [],
+    [activeTurn.projection],
+  );
+  useEffect(() => {
+    const workspaceId = conversationScope?.workspaceId;
+    if (!workspaceId) return;
+    onHookSettingsContextChange?.({
+      workspaceId,
+      audits: hookSettingsAudits,
+    });
+  }, [conversationScope?.workspaceId, hookSettingsAudits, onHookSettingsContextChange]);
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {

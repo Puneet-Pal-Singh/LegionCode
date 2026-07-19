@@ -41,6 +41,7 @@ import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
+import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -211,6 +212,11 @@ function AppContent() {
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] =
     useState<SettingsSection>("general");
+  const [hookSettingsContext, setHookSettingsContext] = useState<{
+    sessionId: string;
+    workspaceId: string;
+    audits: readonly HookSettingsAuditReadModel[];
+  } | null>(null);
   const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
     useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
@@ -1157,6 +1163,12 @@ function AppContent() {
                       hasPendingApproval,
                     );
                   }}
+                  onHookSettingsContextChange={(context) => {
+                    setHookSettingsContext({
+                      sessionId: activeSessionId,
+                      ...context,
+                    });
+                  }}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
                   rightSidebarWidth={rightSidebarWidth}
@@ -1227,6 +1239,16 @@ function AppContent() {
           <SettingsDialog
             isOpen={isSettingsDialogOpen}
             runId={isAuthenticated ? providerScopeRunId : undefined}
+            workspaceId={
+              hookSettingsContext?.sessionId === activeSessionId
+                ? hookSettingsContext.workspaceId
+                : null
+            }
+            hookAudits={
+              hookSettingsContext?.sessionId === activeSessionId
+                ? hookSettingsContext.audits
+                : []
+            }
             initialSection={settingsInitialSection}
             onUnarchiveSession={unarchiveSession}
             onClose={() => setIsSettingsDialogOpen(false)}

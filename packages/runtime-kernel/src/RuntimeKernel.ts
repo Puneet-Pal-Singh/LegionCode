@@ -2,6 +2,7 @@ import {
   RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
+  type LifecycleEvent,
   type Run,
   type Turn,
 } from "@repo/platform-protocol";
@@ -20,6 +21,7 @@ import type {
   RuntimeLifecycleEventStore,
   RuntimeGitSnapshotPort,
   RuntimeKernelClock,
+  RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
   ToolAuthorizationPort,
   WorkerProtocolPort,
@@ -46,6 +48,7 @@ export interface RuntimeKernelDependencies {
   readonly worker: WorkerProtocolPort;
   readonly toolAuthorization: ToolAuthorizationPort;
   readonly approvals: ApprovalWaitPort;
+  readonly hooks?: RuntimeHookOrchestrationPort;
   readonly producerId: string;
   readonly maxToolCalls?: number;
   readonly clock?: RuntimeKernelClock;
@@ -59,6 +62,10 @@ interface PreparedTurn {
   readonly lifecycle: RuntimeLifecycleCoordinator;
   readonly artifacts: TurnArtifactSettlementCoordinator;
   readonly tools: ToolExecutionCoordinator;
+  readonly hookTriggerEvents: {
+    readonly sessionStart: LifecycleEvent;
+    readonly userPromptSubmit: LifecycleEvent;
+  };
 }
 
 export class RuntimeKernel {
@@ -116,7 +123,7 @@ export class RuntimeKernel {
       approvals,
       lifecycle,
     );
-    await lifecycle.start();
+    const lifecycleStart = await lifecycle.start();
     await lifecycle.captureWorkspaceSnapshot(startArtifacts);
     return {
       run,
@@ -126,6 +133,10 @@ export class RuntimeKernel {
       lifecycle,
       artifacts: artifactSettlement,
       tools,
+      hookTriggerEvents: {
+        sessionStart: lifecycleStart.turnStarted,
+        userPromptSubmit: lifecycleStart.runAttemptStarted,
+      },
     };
   }
 
@@ -135,6 +146,7 @@ export class RuntimeKernel {
     const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
       prepared;
     try {
+      await this.runHooks(prepared);
       const context = await this.dependencies.contextAssembly.assemble({
         run,
         turn,
@@ -171,6 +183,27 @@ export class RuntimeKernel {
     } finally {
       this.approvalCoordinators.delete(turn.id);
     }
+  }
+
+  private async runHooks(prepared: PreparedTurn): Promise<void> {
+    const hooks = this.dependencies.hooks;
+    if (!hooks) return;
+
+    const base = {
+      run: prepared.run,
+      turn: prepared.turn,
+      runAttemptId: prepared.runAttemptId,
+      workspace: prepared.workspace,
+      auditAppender: prepared.lifecycle,
+    };
+    await hooks.runSessionStart({
+      ...base,
+      triggerEventId: prepared.hookTriggerEvents.sessionStart.eventId,
+    });
+    await hooks.runUserPromptSubmit({
+      ...base,
+      triggerEventId: prepared.hookTriggerEvents.userPromptSubmit.eventId,
+    });
   }
 
   async interruptTurn(turnId: Turn["id"], reason: string): Promise<void> {

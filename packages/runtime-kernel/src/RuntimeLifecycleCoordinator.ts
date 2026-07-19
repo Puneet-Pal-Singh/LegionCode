@@ -99,11 +99,29 @@ export class RuntimeLifecycleCoordinator {
     return ["completed", "interrupted", "failed"].includes(this.status);
   }
 
-  async start(): Promise<void> {
-    await this.enqueue(async () => this.startNow());
+  async start(): Promise<{
+    readonly turnStarted: LifecycleEvent;
+    readonly runAttemptStarted: LifecycleEvent;
+  }> {
+    let result:
+      | {
+          readonly turnStarted: LifecycleEvent;
+          readonly runAttemptStarted: LifecycleEvent;
+        }
+      | undefined;
+    await this.enqueue(async () => {
+      result = await this.startNow();
+    });
+    if (!result) {
+      throw new Error("Runtime lifecycle start did not append its events.");
+    }
+    return result;
   }
 
-  private async startNow(): Promise<void> {
+  private async startNow(): Promise<{
+    readonly turnStarted: LifecycleEvent;
+    readonly runAttemptStarted: LifecycleEvent;
+  }> {
     if (this.accepted) {
       throw new LifecycleTransitionError(
         "turn",
@@ -127,6 +145,10 @@ export class RuntimeLifecycleCoordinator {
     this.accepted = true;
     this.status = nextTurn;
     this.runAttemptStatus = nextAttempt;
+    return {
+      turnStarted: events[1] as LifecycleEvent,
+      runAttemptStarted: events[2] as LifecycleEvent,
+    };
   }
 
   async startToolCall(

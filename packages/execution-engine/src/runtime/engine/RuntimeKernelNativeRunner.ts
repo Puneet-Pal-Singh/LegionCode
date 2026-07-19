@@ -29,6 +29,7 @@ import type {
   RuntimeGitSnapshotPort,
   RuntimeKernelDependencies,
   RuntimeLifecycleEventStore,
+  RuntimeHookOrchestrationPort,
   RuntimeTurnArtifactPort,
   ToolResult,
   WorkerProtocolPort,
@@ -152,6 +153,7 @@ export interface RuntimeKernelNativeRunnerInput {
   messages: CoreMessage[];
   tools: Record<string, CoreTool>;
   lifecycleEvents: RuntimeLifecycleEventStore;
+  hookOrchestration?: RuntimeHookOrchestrationPort;
   turnId: Turn["id"];
   runAttemptId?: string;
   threadId?: string;
@@ -372,6 +374,7 @@ export class RuntimeKernelNativeRunner {
         runEventRecorder: this.runEventRecorder,
         permissionApprovalStore: this.permissionApprovalStore,
       }),
+      hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
       maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
       clock: { now },

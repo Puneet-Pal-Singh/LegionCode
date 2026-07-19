@@ -1,5 +1,8 @@
 import type {
+  EventId,
   ItemId,
+  JsonRecord,
+  LifecycleEventType,
   Run,
   RunAttemptId,
   ToolCallItemContent,
@@ -63,6 +66,41 @@ export interface ApprovalWaitPort {
 
 export interface RuntimeKernelClock {
   now(): string;
+}
+
+export type RuntimeHookAuditEventType = Extract<
+  LifecycleEventType,
+  | "hook.invocation.started"
+  | "hook.invocation.completed"
+  | "hook.invocation.failed"
+  | "hook.invocation.timed_out"
+  | "hook.invocation.cancelled"
+>;
+
+export interface RuntimeHookAuditAppender {
+  appendHookAudit(
+    eventType: RuntimeHookAuditEventType,
+    payload: JsonRecord,
+  ): Promise<void>;
+}
+
+export interface RuntimeHookTriggerInput {
+  readonly run: Run;
+  readonly turn: Turn;
+  readonly runAttemptId: RunAttemptId;
+  readonly workspace: WorkspaceManifest;
+  readonly triggerEventId: EventId;
+  readonly auditAppender: RuntimeHookAuditAppender;
+}
+
+/**
+ * Runtime owns trigger order and lifecycle truth. Implementations may execute
+ * handlers and append sanitized audits, but cannot settle a turn or apply an
+ * outcome.
+ */
+export interface RuntimeHookOrchestrationPort {
+  runSessionStart(input: RuntimeHookTriggerInput): Promise<void>;
+  runUserPromptSubmit(input: RuntimeHookTriggerInput): Promise<void>;
 }
 
 export type RuntimeLifecycleEventStore = LifecycleEventStore;

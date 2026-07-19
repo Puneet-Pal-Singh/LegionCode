@@ -90,6 +90,7 @@ import {
   type TaskCheckoutScopeResolutionPort,
 } from "./task-workspaces/TaskCheckoutExecutionOrchestrator";
 import { TaskCheckoutRunLifecycle } from "./task-workspaces/TaskCheckoutRunLifecycle";
+import { ProductionHookOrchestrator } from "../services/hooks/ProductionHookOrchestrator";
 
 const ApprovalDecisionRequestSchema = z.object({
   runId: RunIdSchema,
@@ -1036,6 +1037,28 @@ export class RunEngineRequestHandler {
           );
 
           const runtimeTools = toRuntimeCoreTools(payload.tools);
+          if (!payload.userId) {
+            throw new DomainError(
+              "RUN_SCOPE_MISMATCH",
+              "Authenticated user scope is required for hook execution.",
+              409,
+              false,
+              payload.correlationId,
+            );
+          }
+          const hookOrchestration = new ProductionHookOrchestrator(this.env, {
+            userId: payload.userId,
+            workspaceId: workspaceId.data,
+            runId: payload.runId,
+            threadId,
+            turnId,
+            runAttemptId,
+            workspaceRoot: claimedTaskCheckout.filesystemRoot,
+            prompt: payload.input.prompt,
+            selectedMode:
+              payload.input.mode === "plan" ? "plan" : "auto_edit",
+            backendId: payload.input.executionBackend,
+          });
           const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
             runId: payload.runId,
             sessionId: payload.sessionId,
@@ -1062,6 +1085,7 @@ export class RunEngineRequestHandler {
             messages: payload.messages as CoreMessage[],
             tools: runtimeTools,
             lifecycleEvents: kernelLifecycleEvents,
+            hookOrchestration,
             turnId,
             runAttemptId,
             threadId,

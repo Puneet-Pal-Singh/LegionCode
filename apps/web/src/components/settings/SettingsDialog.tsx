@@ -9,6 +9,7 @@ import {
 import {
   Archive,
   CheckCircle2,
+  Cable,
   Plus,
   Settings2,
   Sparkles,
@@ -19,7 +20,9 @@ import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
 import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";
+import { HooksSettingsPanel } from "./HooksSettingsPanel.js";
 import type { ProviderModelOption } from "../../services/api/providerClient.js";
+import type { HookSettingsAuditReadModel } from "../../services/api/lifecycleClient.js";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 const DISCONNECT_TOAST_DURATION_MS = 4_000;
@@ -27,6 +30,8 @@ const DISCONNECT_TOAST_DURATION_MS = 4_000;
 interface SettingsDialogProps {
   isOpen: boolean;
   runId?: string;
+  workspaceId?: string | null;
+  hookAudits?: readonly HookSettingsAuditReadModel[];
   initialSection?: SettingsSection;
   onUnarchiveSession?: (sessionId: string) => Promise<void>;
   onClose: () => void;
@@ -48,6 +53,8 @@ interface ConnectedProviderRow {
 export function SettingsDialog({
   isOpen,
   runId,
+  workspaceId = null,
+  hookAudits = [],
   initialSection = "general",
   onUnarchiveSession = async () => undefined,
   onClose,
@@ -331,6 +338,14 @@ export function SettingsDialog({
                 activeSection={activeSection}
                 onSelect={handleSectionSelect}
               />
+              <SettingsNavSection
+                label="Coding"
+                items={[
+                  { id: "hooks", label: "Hooks", icon: <Cable size={16} /> },
+                ]}
+                activeSection={activeSection}
+                onSelect={handleSectionSelect}
+              />
             </nav>
           </aside>
 
@@ -346,7 +361,9 @@ export function SettingsDialog({
                     ? "Archived"
                     : activeSection === "connect"
                       ? "Providers"
-                      : "Models"}
+                      : activeSection === "models"
+                        ? "Models"
+                        : "Hooks"}
               </h2>
               <button
                 type="button"
@@ -403,6 +420,14 @@ export function SettingsDialog({
                   onLoadProviderModels={loadManageProviderModels}
                   onToggleModelVisibility={toggleModelVisibility}
                   onSetProviderVisibleModels={setProviderVisibleModels}
+                />
+              ) : null}
+
+              {activeSection === "hooks" ? (
+                <HooksSettingsPanel
+                  isActive={activeSection === "hooks"}
+                  workspaceId={workspaceId}
+                  audits={hookAudits}
                 />
               ) : null}
             </div>

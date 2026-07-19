@@ -9,7 +9,10 @@ import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
 } from "./errors.js";
-import type { RuntimeLifecycleEventStore } from "./ports.js";
+import type {
+  RuntimeHookOrchestrationPort,
+  RuntimeLifecycleEventStore,
+} from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   MemoryLifecycleEventSink,
@@ -27,6 +30,56 @@ import {
 } from "./test-fixtures.js";
 
 describe("RuntimeKernel canonical lifecycle", () => {
+  it("runs distinct session and prompt hooks through the canonical audit appender before the provider", async () => {
+    const sink = createLifecycleSink();
+    const order: string[] = [];
+    const triggerIds: string[] = [];
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      order.push("provider");
+      return {
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      };
+    });
+    const hooks: RuntimeHookOrchestrationPort = {
+      async runSessionStart(input): Promise<void> {
+        order.push("session");
+        triggerIds.push(input.triggerEventId);
+        await input.auditAppender.appendHookAudit(
+          "hook.invocation.started",
+          { eventName: "SessionStart" },
+        );
+      },
+      async runUserPromptSubmit(input): Promise<void> {
+        order.push("prompt");
+        triggerIds.push(input.triggerEventId);
+        await input.auditAppender.appendHookAudit(
+          "hook.invocation.completed",
+          { eventName: "UserPromptSubmit" },
+        );
+      },
+    };
+    const kernel = await createKernel(sink, ports, createArtifactPorts(), hooks);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(order).toEqual(["session", "prompt", "provider"]);
+    expect(triggerIds).toEqual([
+      sink.events.find((event) => event.type === "turn.started")?.eventId,
+      sink.events.find((event) => event.type === "run_attempt.started")?.eventId,
+    ]);
+    expect(eventTypes(sink).slice(0, 6)).toEqual([
+      "turn.queued",
+      "turn.started",
+      "run_attempt.started",
+      "workspace.snapshot_captured",
+      "hook.invocation.started",
+      "hook.invocation.completed",
+    ]);
+  });
+
   it("settles a provider-only turn exactly once with the terminal event last", async () => {
     const sink = createLifecycleSink();
     const kernel = await createKernel(sink);
@@ -554,12 +607,14 @@ async function createKernel(
   lifecycleEvents: RuntimeLifecycleEventStore,
   ports = createPorts(),
   artifactPorts = createArtifactPorts(),
+  hooks?: RuntimeHookOrchestrationPort,
 ): Promise<RuntimeKernel> {
   return new RuntimeKernel({
     lifecycleEvents,
     ...artifactPorts,
     workspaceManifests: await createManifestRepository(),
     ...ports,
+    hooks,
     producerId: "runtime-kernel-test",
     clock: { now: () => timestamp },
   });
