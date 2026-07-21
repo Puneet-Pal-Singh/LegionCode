@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="apps/web/public/assets/legioncode-wordmark.png" alt="LegionCode" width="360" />
+  <img src="apps/web/public/assets/legioncode-logo.png" alt="LegionCode" width="500" />
 
   <p><strong>An open-source coding-agent workspace for running tasks and reviewing code changes.</strong></p>
 
