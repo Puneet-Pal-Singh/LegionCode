@@ -6,7 +6,7 @@ import LandingHero from "@/components/hero/landing-hero";
 import WorkspacePlayground from "@/components/playground/workspace-playground";
 import FeaturesBento from "@/components/features/features-bento";
 import ByokSection from "@/components/features/byok-section";
-import SurfacesSection from "@/components/features/surfaces-section";
+// import SurfacesSection from "@/components/features/surfaces-section";
 import ExperienceLiftoff from "@/components/features/experience-liftoff";
 import Footer from "@/components/layout/footer";
 import ProductJsonLd from "@/components/seo/product-json-ld";
@@ -41,8 +41,7 @@ export default function Page() {
         {/* BRING YOUR OWN KEY SECTION */}
         <ByokSection />
 
-        {/* CHOOSE YOUR AGENT WORKSPACE SECTION */}
-        <SurfacesSection />
+        {/* <SurfacesSection /> */}
 
         {/* EXPERIENCE LIFTOFF SECTION - 3D Starfield Galaxy Graphics */}
         <ExperienceLiftoff />

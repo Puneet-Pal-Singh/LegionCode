@@ -4,7 +4,6 @@ import {
   ListFilter,
   Pin,
   Search,
-  Settings,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
@@ -19,6 +18,10 @@ import {
   type SidebarTaskItem,
   type SidebarTaskStatus,
 } from "../navigation/sidebar";
+import {
+  SidebarAccountMenu,
+  type SidebarAccountUser,
+} from "./SidebarAccountMenu";
 
 interface AgentSidebarProps {
   sessions: AgentSession[];
@@ -33,6 +36,8 @@ interface AgentSidebarProps {
   onClose?: () => void;
   onAddRepository: () => void;
   onOpenSettings: () => void;
+  accountUser?: SidebarAccountUser | null;
+  onLogout?: () => Promise<void>;
   width?: number;
 }
 
@@ -129,6 +134,8 @@ export function AgentSidebar({
   onClose,
   onAddRepository,
   onOpenSettings,
+  accountUser,
+  onLogout,
   width = 280,
 }: AgentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -337,14 +344,11 @@ export function AgentSidebar({
         <FolderPlus size={15} className="text-zinc-400" />
         Add repository
       </button>
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
-      >
-        <Settings size={15} className="text-zinc-400" />
-        Settings
-      </button>
+      <SidebarAccountMenu
+        user={accountUser}
+        onOpenSettings={onOpenSettings}
+        onLogout={onLogout}
+      />
     </div>
   );
 

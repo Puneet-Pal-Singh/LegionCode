@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { ArrowUpRight } from "lucide-react";
 import AnnouncementBanner from "@/components/layout/announcement-banner";
 import Header from "@/components/layout/header";
@@ -6,6 +7,7 @@ import Footer from "@/components/layout/footer";
 import CloudBackground from "@/components/cloud/cloud-background";
 import LogoAscii from "@/components/logo/logo-ascii";
 import WaitlistForm from "@/components/cloud/waitlist-form";
+import PendingAccessNotice from "@/components/cloud/pending-access-notice";
 
 export default function CloudPage() {
   return (
@@ -41,6 +43,9 @@ export default function CloudPage() {
 
           {/* Private-alpha registration */}
           <div className="w-full max-w-md px-2 sm:px-0">
+            <Suspense fallback={null}>
+              <PendingAccessNotice />
+            </Suspense>
             <WaitlistForm />
 
             <p className="text-[11px] leading-relaxed font-mono text-zinc-500 mt-4 select-none px-4 sm:px-0">

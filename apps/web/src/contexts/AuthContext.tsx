@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
     } catch (error) {
       console.error("Logout failed:", error);
+      throw error;
     }
   }, []);
 

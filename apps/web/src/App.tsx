@@ -183,7 +183,8 @@ function App() {
  * Separated to allow useAuth hook access within AuthProvider
  */
 function AppContent() {
-  const { isAuthenticated, isLoading, login, refreshSession, user } = useAuth();
+  const { isAuthenticated, isLoading, login, logout, refreshSession, user } =
+    useAuth();
   const {
     sessions,
     activeSessionId,
@@ -1094,6 +1095,8 @@ function AppContent() {
             onClose={handleToggleSidebar}
             onAddRepository={handleOpenRepositoryPicker}
             onOpenSettings={() => openSettingsDialog("general")}
+            accountUser={user}
+            onLogout={logout}
             width={sidebarWidth}
           />
           <Resizer
