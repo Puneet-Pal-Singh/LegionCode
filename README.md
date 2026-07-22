@@ -80,21 +80,11 @@ Each execution is identified by a `runId`, which scopes its runtime state and wo
 - Node.js `>=18`
 - pnpm `>=9`
 
-### Setup
-
-```bash
-git clone https://github.com/Puneet-Pal-Singh/LegionCode.git
-cd LegionCode
-corepack enable
-pnpm install
-pnpm dev
-```
-
-See the [local development guide](https://legioncode.dev/docs/local-development/) for environment variables, app-specific commands, and runtime verification.
+Local development is currently being stabilized. See the [local development guide](https://legioncode.dev/docs/local-development/) for required environment variables, Cloudflare bindings, app-specific commands, and verification steps.
 
 ## Contributing
 
-LegionCode is evolving quickly, and contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+LegionCode is evolving quickly. Contributions that improve runtime reliability, lifecycle correctness, and the end-to-end coding workflow are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 - Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
 - Review the project standards in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
