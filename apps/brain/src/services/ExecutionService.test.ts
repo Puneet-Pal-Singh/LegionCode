@@ -64,6 +64,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "internal-test-secret",
       } as unknown as Env,
       "session-123",
       "run-456",
@@ -85,6 +86,9 @@ describe("ExecutionService", () => {
       "http://internal/api/v1/session?session=session-123",
     );
     expect(sessionInit?.method).toBe("POST");
+    expect(sessionInit?.headers).toMatchObject({
+      "X-Internal-Runtime-Secret": "internal-test-secret",
+    });
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-456",
       taskId: "brain-session-session-123",

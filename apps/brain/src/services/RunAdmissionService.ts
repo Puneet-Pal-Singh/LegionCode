@@ -67,14 +67,13 @@ export class RunAdmissionService {
   constructor(private readonly env: Env) {}
 
   async enforce(
-    _input: RunAdmissionInput,
+    input: RunAdmissionInput,
     correlationId: string,
   ): Promise<RunAdmissionGrant> {
     this.enforceEmergencyShutoff(correlationId);
-    // Keep helper methods linked for easy re-enable in a future policy pass.
-    void this.enforceRateLimit;
-    void this.enforceConcurrency;
-    return {};
+    await this.enforceRateLimit(input, correlationId);
+    const leaseId = await this.enforceConcurrency(input, correlationId);
+    return leaseId ? { leaseId } : {};
   }
 
   async release(
