@@ -64,6 +64,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "internal-test-secret",
       } as unknown as Env,
       "session-123",
       "run-456",
@@ -85,6 +86,9 @@ describe("ExecutionService", () => {
       "http://internal/api/v1/session?session=session-123",
     );
     expect(sessionInit?.method).toBe("POST");
+    expect(sessionInit?.headers).toMatchObject({
+      "X-Internal-Runtime-Secret": "internal-test-secret",
+    });
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-456",
       taskId: "brain-session-session-123",
@@ -110,6 +114,55 @@ describe("ExecutionService", () => {
       timeout: 120000,
     });
   });
+
+  it.each([
+    [undefined, null],
+    ["   ", null],
+    ["  internal-trimmed-secret  ", "internal-trimmed-secret"],
+  ])(
+    "normalizes the internal runtime secret before session creation",
+    async (secret, expectedHeader) => {
+      const fetchMock = vi
+        .fn<
+          Parameters<Env["SECURE_API"]["fetch"]>,
+          ReturnType<Env["SECURE_API"]["fetch"]>
+        >()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              sessionId: "sess-secret",
+              token: "tok-secret",
+              expiresAt: Date.now() + 60_000,
+            }),
+            { status: 201, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              taskId: "task-secret",
+              status: "success",
+              output: "ok",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      const service = new ExecutionService(
+        {
+          SECURE_API: { fetch: fetchMock },
+          INTERNAL_RUNTIME_EVENT_SECRET: secret,
+        } as unknown as Env,
+        "session-secret",
+        "run-secret",
+      );
+
+      await service.execute("filesystem", "read_file", { path: "README.md" });
+
+      const [, sessionInit] = fetchMock.mock.calls[0]!;
+      const headers = new Headers(sessionInit?.headers);
+      expect(headers.get("X-Internal-Runtime-Secret")).toBe(expectedHeader);
+    },
+  );
 
   it("maps task failures back into the legacy execution shape", async () => {
     const fetchMock = vi.fn<

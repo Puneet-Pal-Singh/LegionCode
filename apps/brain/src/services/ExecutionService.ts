@@ -427,7 +427,10 @@ export class ExecutionService {
       `http://internal/api/v1/session?session=${encodeURIComponent(this.sessionId)}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...this.internalRuntimeHeaders(),
+        },
         body: JSON.stringify({
           runId: this.runId,
           taskId: createSessionTaskId(this.sessionId),
@@ -449,6 +452,13 @@ export class ExecutionService {
       sessionId: session.sessionId,
       token: session.token,
     };
+  }
+
+  private internalRuntimeHeaders(): Record<string, string> {
+    const secret = this.env.INTERNAL_RUNTIME_EVENT_SECRET?.trim();
+    return secret
+      ? { "X-Internal-Runtime-Secret": secret }
+      : {};
   }
 
   private async forwardExecutionLogs(input: {

@@ -231,16 +231,20 @@ export default {
         url.pathname === "/api/v1/session" &&
         request.method === "POST"
       ) {
-        // NEW: HTTP API Routes for CloudSandboxExecutor Integration
-        const safetyResponse = await enforceLaunchSafetyForRoute(
-          request,
-          env,
-          "session_create",
-        );
-        if (safetyResponse) {
-          response = safetyResponse;
+        const authResponse = enforceInternalServiceBinding(request, env);
+        if (authResponse) {
+          response = authResponse;
         } else {
-          response = await handleCreateSession(request, stub);
+          const safetyResponse = await enforceLaunchSafetyForRoute(
+            request,
+            env,
+            "session_create",
+          );
+          if (safetyResponse) {
+            response = safetyResponse;
+          } else {
+            response = await handleCreateSession(request, stub);
+          }
         }
       } else if (
         url.pathname === "/api/v1/execute" &&

@@ -37,6 +37,7 @@ import { logErrorRateLimited } from "../lib/rate-limited-log";
 import { sanitizeUnknownError } from "../core/security/LogSanitizer";
 import { buildAdmissionScopeFingerprint } from "../services/RunAdmissionScopeFingerprint";
 import { RunAdmissionService } from "../services/RunAdmissionService";
+import { releaseLeaseWhenResponseSettles } from "./AdmissionLeaseResponse";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
 import {
   validateChatImageInput,
@@ -233,6 +234,7 @@ export class ChatController {
     let admissionGrant: Awaited<
       ReturnType<RunAdmissionService["enforce"]>
     > | undefined;
+    let responseOwnsAdmissionLease = false;
 
     const coreMessages = chatRequest.imageInput.messages;
 
@@ -308,7 +310,22 @@ export class ChatController {
         `[chat/timing] ${correlationId} useCaseMs=${useCaseElapsedMs} runEngineMs=${runEngineElapsedMs} handleMs=${Date.now() - executionStartedAt}`,
       );
 
-      return withEngineHeaders(req, env, doResponse, runId, runtimeTarget);
+      const response = withEngineHeaders(
+        req,
+        env,
+        doResponse,
+        runId,
+        runtimeTarget,
+      );
+      if (!admissionGrant) {
+        return response;
+      }
+
+      const leasedResponse = releaseLeaseWhenResponseSettles(response, () =>
+        admissionService.release(admissionGrant, admissionInput, correlationId),
+      );
+      responseOwnsAdmissionLease = true;
+      return leasedResponse;
     } catch (error) {
       console.error(
         `[chat/runtime] ${correlationId}: RunEngine execution failed:`,
@@ -316,7 +333,7 @@ export class ChatController {
       );
       throw error;
     } finally {
-      if (admissionGrant) {
+      if (admissionGrant && !responseOwnsAdmissionLease) {
         await admissionService.release(admissionGrant, admissionInput, correlationId);
       }
     }

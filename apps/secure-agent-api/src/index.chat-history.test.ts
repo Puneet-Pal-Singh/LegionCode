@@ -12,6 +12,36 @@ vi.mock("./runtime/LaunchRateLimiter", () => ({
 import worker, { type Env } from "./index";
 
 describe("secure-agent-api chat history routing", () => {
+  it("rejects public session creation before a sandbox session is allocated", async () => {
+    const runtimeStub = createRuntimeStub();
+    const env = createEnv(runtimeStub);
+    const response = await worker.fetch(
+      new Request("https://secure.local/api/v1/session?session=public-attempt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          runId: "run-public-attempt",
+          taskId: "task-public-attempt",
+          repoPath: ".",
+          workspaceScope: {
+            runId: "run-public-attempt",
+            threadId: "thread-public-attempt",
+            turnId: "turn-public-attempt",
+            runAttemptId: "attempt-public-attempt",
+            workspaceId: "workspace-public-attempt",
+            root: "/workspace",
+          },
+        }),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+  });
+
   it("serves canonical history route from runId path segment", async () => {
     const runtimeStub = createRuntimeStub();
     const env = createEnv(runtimeStub);

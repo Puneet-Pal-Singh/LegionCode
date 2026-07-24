@@ -26,7 +26,7 @@ describe("RunAdmissionService", () => {
     });
   });
 
-  it("allows submissions without rate or concurrency enforcement", async () => {
+  it("rate limits repeated submissions from the same user and workspace", async () => {
     const service = new RunAdmissionService(
       createEnv({
         RUN_SUBMISSION_RATE_LIMIT_MAX: "1",
@@ -34,6 +34,10 @@ describe("RunAdmissionService", () => {
         ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX: "1",
         ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX: "1",
         ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX: "1",
+        RUN_ADMISSION_LIMITER: createAdmissionLimiter([
+          { allowed: true, retryAfterSeconds: 0 },
+          { allowed: false, retryAfterSeconds: 60 },
+        ]),
       }),
     );
 
@@ -48,20 +52,23 @@ describe("RunAdmissionService", () => {
         },
         "corr-2a",
       ),
-    ).resolves.toEqual({});
+    ).resolves.toMatchObject({ leaseId: expect.any(String) });
 
     await expect(
       service.enforce(
         {
           userId: "user-2",
           workspaceId: "workspace-2",
-          sessionId: "session-b",
+          sessionId: "session-a",
           mode: "build",
           workflowIntent: "build",
         },
         "corr-2b",
       ),
-    ).resolves.toEqual({});
+    ).rejects.toMatchObject({
+      code: "RUN_SUBMISSION_RATE_LIMITED",
+      status: 429,
+    });
   });
 });
 
@@ -69,4 +76,38 @@ function createEnv(overrides: Partial<Env>): Env {
   return {
     ...overrides,
   } as Env;
+}
+
+function createAdmissionLimiter(
+  rateLimitDecisions: Array<{ allowed: boolean; retryAfterSeconds: number }>,
+): Env["RUN_ADMISSION_LIMITER"] {
+  let rateLimitCall = 0;
+  return {
+    idFromName: () => ({ toString: () => "run-admission-limiter" }),
+    get: () => ({
+      fetch: async (input: RequestInfo | URL) => {
+        const url =
+          input instanceof URL
+            ? input
+            : typeof input === "string"
+              ? new URL(input)
+              : new URL(input.url);
+        if (url.pathname === "/enforce") {
+          const decision = rateLimitDecisions[rateLimitCall++]!;
+          return Response.json(decision);
+        }
+        if (url.pathname === "/acquire-concurrency") {
+          return Response.json({
+            allowed: true,
+            retryAfterSeconds: 0,
+            leaseId: "lease-1",
+          });
+        }
+        if (url.pathname === "/release-concurrency") {
+          return Response.json({ released: true });
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    }),
+  } as unknown as Env["RUN_ADMISSION_LIMITER"];
 }
