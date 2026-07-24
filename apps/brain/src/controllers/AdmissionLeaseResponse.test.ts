@@ -38,4 +38,22 @@ describe("releaseLeaseWhenResponseSettles", () => {
 
     expect(release).toHaveBeenCalledTimes(1);
   });
+
+  it("releases once when the source stream errors", async () => {
+    const release = vi.fn(async () => undefined);
+    const response = releaseLeaseWhenResponseSettles(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error("stream failed"));
+          },
+        }),
+      ),
+      release,
+    );
+
+    await expect(response.text()).rejects.toThrow("stream failed");
+
+    expect(release).toHaveBeenCalledTimes(1);
+  });
 });
