@@ -1,5 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
+import { TurnIdSchema } from "@repo/platform-protocol";
 
 export interface ChatMessageMetadata {
   modeLabel: string;
@@ -43,11 +44,12 @@ export function buildConversationTurns(
   let turnIndex = 0;
   for (const message of collapseRepeatedMessageIds(messages)) {
     const messageAtMs = resolveMessageTimestamp(message);
+    const canonicalTurnId = readCanonicalTurnId(message);
     if (message.role === "user") {
       turnIndex += 1;
       turns.push({
         key: message.id,
-        turnId: `turn-${turnIndex}`,
+        turnId: canonicalTurnId ?? `turn-${turnIndex}`,
         userMessage: message,
         userAtMs: messageAtMs,
       });
@@ -56,8 +58,16 @@ export function buildConversationTurns(
     if (message.role !== "assistant") {
       continue;
     }
-    const latestUserTurn = findLatestUserConversationTurn(turns);
+    if (readMessagePhase(message) === "commentary") {
+      continue;
+    }
+    const latestUserTurn =
+      findConversationTurnByCanonicalId(turns, canonicalTurnId) ??
+      findLatestUserConversationTurn(turns);
     if (latestUserTurn) {
+      if (canonicalTurnId) {
+        latestUserTurn.turnId = canonicalTurnId;
+      }
       latestUserTurn.assistantMessage = message;
       latestUserTurn.assistantAtMs = messageAtMs;
       continue;
@@ -69,6 +79,40 @@ export function buildConversationTurns(
     });
   }
   return turns;
+}
+
+export function readCanonicalTurnId(message: Message): string | null {
+  const metadata = readMessageMetadata(message);
+  const identity = metadata?.canonicalIdentity;
+  if (!identity || typeof identity !== "object" || Array.isArray(identity)) {
+    return null;
+  }
+  const turnId = (identity as Record<string, unknown>).turnId;
+  const parsed = TurnIdSchema.safeParse(turnId);
+  return parsed.success ? parsed.data : null;
+}
+
+function readMessagePhase(message: Message): string | null {
+  const phase = readMessageMetadata(message)?.phase;
+  return typeof phase === "string" ? phase : null;
+}
+
+function readMessageMetadata(
+  message: Message,
+): Record<string, unknown> | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const metadata = (data as Record<string, unknown>).metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : null;
+}
+
+function findConversationTurnByCanonicalId(
+  turns: ConversationTurn[],
+  turnId: string | null,
+): ConversationTurn | undefined {
+  return turnId ? turns.find((turn) => turn.turnId === turnId) : undefined;
 }
 
 function collapseRepeatedMessageIds(messages: Message[]): Message[] {

@@ -88,5 +88,7 @@ function emptyProjection(): LifecycleProjection {
     assistantText: "",
     startedAt: null,
     settledAt: null,
+    contextBudget: null,
+    usage: null,
   };
 }

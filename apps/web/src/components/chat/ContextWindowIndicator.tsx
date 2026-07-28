@@ -1,0 +1,76 @@
+import type {
+  ContextBudgetSnapshot,
+  UsageCostSnapshot,
+} from "@repo/platform-protocol";
+import { cn } from "../../lib/utils";
+
+interface ContextWindowIndicatorProps {
+  budget: ContextBudgetSnapshot | null;
+  usage: UsageCostSnapshot | null;
+  onCompact?: () => void;
+}
+
+export function ContextWindowIndicator({
+  budget,
+  usage,
+  onCompact,
+}: ContextWindowIndicatorProps) {
+  if (!budget) return null;
+  const percent = Math.round(budget.utilizationPercent);
+  const canCompact =
+    Boolean(onCompact) &&
+    budget.utilizationPercent >= budget.warningThresholdPercent;
+
+  return (
+    <div className="group relative flex items-center">
+      <button
+        type="button"
+        aria-label={`Context window ${percent}% full`}
+        onClick={canCompact ? onCompact : undefined}
+        className={cn(
+          "relative h-5 w-5 rounded-full transition-colors",
+          canCompact
+            ? "cursor-pointer hover:bg-zinc-800"
+            : "cursor-default",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className="absolute inset-[3px] rounded-full"
+          style={{
+            background: `conic-gradient(rgb(161 161 170) ${Math.min(percent, 100)}%, rgb(63 63 70) 0)`,
+          }}
+        />
+        <span
+          aria-hidden="true"
+          className="absolute inset-[6px] rounded-full bg-[#1d1d1f]"
+        />
+      </button>
+      <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-3 hidden w-60 -translate-x-1/2 rounded-2xl border border-zinc-700/70 bg-[#242426] px-4 py-3 text-center shadow-2xl group-hover:block group-focus-within:block">
+        <div className="text-sm text-zinc-400">Context window:</div>
+        <div className="mt-1 text-sm text-zinc-400">{percent}% full</div>
+        <div className="mt-1 text-base text-zinc-100">
+          {formatCount(budget.tokensUsed)} /{" "}
+          {formatCount(budget.contextWindowLimit)} tokens used
+        </div>
+        {usage?.cumulativeThreadCost != null ? (
+          <div className="mt-1 text-xs text-zinc-500">
+            ${usage.cumulativeThreadCost.toFixed(2)} spent
+          </div>
+        ) : null}
+        {canCompact ? (
+          <div className="mt-2 border-t border-zinc-700/70 pt-2 text-xs text-zinc-300">
+            Click to compact context
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function formatCount(value: number): string {
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}k`;
+  }
+  return String(value);
+}

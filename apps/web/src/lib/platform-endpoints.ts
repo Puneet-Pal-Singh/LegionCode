@@ -34,7 +34,7 @@ function stripTrailingSlash(url: string): string {
 /**
  * Get the Brain service base HTTP URL
  * Brain handles logic, prompt assembly, and tool selection
- * Default: http://localhost:8788 (dev only)
+ * Default: same-origin Vite proxy (browser development only)
  */
 export function getBrainHttpBase(): string {
   // Return cached value if available
@@ -44,18 +44,42 @@ export function getBrainHttpBase(): string {
 
   const url = import.meta.env.VITE_BRAIN_BASE_URL;
   if (url) {
-    brainHttpBaseCache = stripTrailingSlash(url);
+    brainHttpBaseCache =
+      typeof window !== "undefined" && isLocalBrainWorkerUrl(url)
+        ? localBrainProxyBase()
+        : stripTrailingSlash(url);
     return brainHttpBaseCache;
   }
 
-  // Safe local default for development
-  const defaultUrl = "http://localhost:8788";
+  // Keep local browser requests same-origin. This avoids browser-local-network
+  // and cross-origin transport races while Vite forwards to the Brain worker.
+  // Non-browser callers retain the direct worker URL.
+  const defaultUrl =
+    typeof window === "undefined"
+      ? "http://localhost:8788"
+      : localBrainProxyBase();
   console.warn(
     "[platform-endpoints] VITE_BRAIN_BASE_URL not set, using default:",
     defaultUrl,
   );
   brainHttpBaseCache = defaultUrl;
   return brainHttpBaseCache;
+}
+
+function localBrainProxyBase(): string {
+  return `${window.location.origin}/__legioncode/brain`;
+}
+
+function isLocalBrainWorkerUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1") &&
+      url.port === "8788"
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -119,33 +143,6 @@ export function getMuscleWsBase(): string {
  */
 export function chatStreamPath(): string {
   return `${getBrainHttpBase()}/chat`;
-}
-
-/**
- * Build the workflow events endpoint URL
- * Used for fetching canonical run events from Brain
- * Path: /api/run/events?runId=<runId>
- */
-export function runEventsPath(runId: string): string {
-  return `${getBrainHttpBase()}/api/run/events?runId=${encodeURIComponent(runId)}`;
-}
-
-/**
- * Build the live run events stream endpoint URL
- * Used for subscribing to canonical runtime events from Brain while a run is active
- * Path: /api/run/events/stream?runId=<runId>
- */
-export function runEventsStreamPath(runId: string): string {
-  return `${getBrainHttpBase()}/api/run/events/stream?runId=${encodeURIComponent(runId)}`;
-}
-
-/**
- * Build the activity feed endpoint URL
- * Used for fetching the structured activity feed snapshot from Brain
- * Path: /api/run/activity?runId=<runId>
- */
-export function runActivityPath(runId: string): string {
-  return `${getBrainHttpBase()}/api/run/activity?runId=${encodeURIComponent(runId)}`;
 }
 
 /**

@@ -6,13 +6,8 @@ interface UseStatusSyncProps {
   canonicalRunStatus: string | null;
   isApprovalWaitingRun: boolean;
   pendingApprovalRequestId: string | null;
-  isStaleCanonicalActiveRun: boolean;
   isEffectiveCanonicalRunActive: boolean;
-  isLoading: boolean;
   chatError: string | null;
-  hasPendingApproval: boolean;
-  isLocallyStoppedRun: boolean;
-  setLocallyStoppedRunId: (runId: string | null) => void;
   stop: () => void;
   refetchGitStatus: (force?: boolean) => Promise<unknown>;
   onSessionStatusChange?: (status: SessionStatus) => void;
@@ -70,18 +65,12 @@ export function useStatusSync({
   canonicalRunStatus,
   isApprovalWaitingRun,
   pendingApprovalRequestId,
-  isStaleCanonicalActiveRun,
   isEffectiveCanonicalRunActive,
-  isLoading,
   chatError,
-  hasPendingApproval,
-  isLocallyStoppedRun,
-  setLocallyStoppedRunId,
   stop,
   refetchGitStatus,
   onSessionStatusChange,
 }: UseStatusSyncProps): UseStatusSyncResult {
-  const previousChatLoadingRef = useRef(false);
   const lastAppliedCanonicalStatusRef = useRef<{
     runId: string;
     status: string;
@@ -91,51 +80,10 @@ export function useStatusSync({
     runId: string;
     error: string;
   } | null>(null);
-  const stateAtStopRef = useRef<{
-    hasPendingApproval: boolean;
-    chatError: string | null;
-  }>({ hasPendingApproval: false, chatError: null });
 
   const handleStopRun = useCallback(() => {
-    setLocallyStoppedRunId(activeRunId);
     stop();
-    onSessionStatusChange?.("running");
-  }, [activeRunId, onSessionStatusChange, setLocallyStoppedRunId, stop]);
-
-  useEffect(() => {
-    stateAtStopRef.current = {
-      hasPendingApproval,
-      chatError,
-    };
-  }, [hasPendingApproval, chatError]);
-
-  useEffect(() => {
-    const wasLoading = previousChatLoadingRef.current;
-    previousChatLoadingRef.current = isLoading;
-    if (!wasLoading && isLoading) {
-      onSessionStatusChange?.("running");
-      return;
-    }
-    if (wasLoading && !isLoading && !isApprovalWaitingRun) {
-      const snapshot = stateAtStopRef.current;
-      const terminal = snapshot.hasPendingApproval
-        ? "waiting_for_approval"
-        : snapshot.chatError
-          ? "failed"
-          : "completed";
-      onSessionStatusChange?.(terminal);
-      void refetchGitStatus(true);
-    }
-  }, [
-    isApprovalWaitingRun,
-    isLoading,
-    onSessionStatusChange,
-    refetchGitStatus,
-  ]);
-
-  useEffect(() => {
-    setLocallyStoppedRunId(null);
-  }, [activeRunId, setLocallyStoppedRunId]);
+  }, [stop]);
 
   useEffect(() => {
     if (!canonicalRunStatus) return;
@@ -152,18 +100,6 @@ export function useStatusSync({
       );
       return;
     }
-    if (isStaleCanonicalActiveRun) {
-      applyCanonicalStatus(
-        lastAppliedCanonicalStatusRef,
-        activeRunId,
-        "LOCAL_COMPLETED",
-        () => {
-          onSessionStatusChange?.("completed");
-          void refetchGitStatus(true);
-        },
-      );
-      return;
-    }
     applyCanonicalStatus(
       lastAppliedCanonicalStatusRef,
       activeRunId,
@@ -171,28 +107,22 @@ export function useStatusSync({
       () =>
         dispatchCanonicalStatus({
           canonicalRunStatus,
-          isLocallyStoppedRun,
           onSessionStatusChange,
           refetchGitStatus,
-          setLocallyStoppedRunId,
         }),
     );
   }, [
     activeRunId,
     canonicalRunStatus,
     isApprovalWaitingRun,
-    isLocallyStoppedRun,
-    isStaleCanonicalActiveRun,
     onSessionStatusChange,
     pendingApprovalRequestId,
     refetchGitStatus,
-    setLocallyStoppedRunId,
   ]);
 
   useEffect(() => {
     if (
       !chatError ||
-      isLoading ||
       isEffectiveCanonicalRunActive ||
       isApprovalWaitingRun
     ) {
@@ -206,7 +136,6 @@ export function useStatusSync({
     chatError,
     isEffectiveCanonicalRunActive,
     isApprovalWaitingRun,
-    isLoading,
     onSessionStatusChange,
   ]);
 
@@ -215,21 +144,17 @@ export function useStatusSync({
 
 interface DispatchCanonicalStatusArgs {
   canonicalRunStatus: string;
-  isLocallyStoppedRun: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   refetchGitStatus: (force?: boolean) => Promise<unknown>;
-  setLocallyStoppedRunId: (runId: string | null) => void;
 }
 
 function dispatchCanonicalStatus({
   canonicalRunStatus,
-  isLocallyStoppedRun,
   onSessionStatusChange,
   refetchGitStatus,
-  setLocallyStoppedRunId,
 }: DispatchCanonicalStatusArgs): void {
   if (canonicalRunStatus === "RUNNING" || canonicalRunStatus === "CREATED") {
-    if (!isLocallyStoppedRun) onSessionStatusChange?.("running");
+    onSessionStatusChange?.("running");
     return;
   }
   if (canonicalRunStatus === "PAUSED") {
@@ -246,7 +171,6 @@ function dispatchCanonicalStatus({
     canonicalRunStatus === "COMPLETED" ||
     canonicalRunStatus === "CANCELLED"
   ) {
-    if (canonicalRunStatus === "CANCELLED") setLocallyStoppedRunId(null);
     onSessionStatusChange?.("completed");
     void refetchGitStatus(true);
   }

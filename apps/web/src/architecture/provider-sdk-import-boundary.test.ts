@@ -7,10 +7,12 @@ const SDK_IMPORT_PATH = "@repo/platform-client-sdk";
 const ALLOWED_IMPORT_FILES = new Set([
   "services/api/providerClient.ts",
   "services/api/lifecycleClient.ts",
+  "components/chat/workflow/CanonicalWorkflowSurface.tsx",
+  "services/lifecycle/LifecycleProjection.ts",
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {
-  it("blocks @repo/platform-client-sdk imports outside provider API boundary", () => {
+  it("allows the provider API and canonical workflow projection boundaries", () => {
     const violations = collectSourceFiles(SOURCE_ROOT)
       .filter((filePath) => !isAllowedImportFile(filePath))
       .filter((filePath) => containsSdkImport(filePath))
@@ -51,7 +53,11 @@ function isTestFile(filePath: string): boolean {
 }
 
 function isAllowedImportFile(filePath: string): boolean {
-  return ALLOWED_IMPORT_FILES.has(relative(SOURCE_ROOT, filePath));
+  const relativePath = relative(SOURCE_ROOT, filePath);
+  return (
+    ALLOWED_IMPORT_FILES.has(relativePath) ||
+    relativePath.startsWith("components/chat/workflow/")
+  );
 }
 
 function containsSdkImport(filePath: string): boolean {

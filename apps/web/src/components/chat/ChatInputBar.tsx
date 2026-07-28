@@ -41,6 +41,11 @@ import {
 } from "../../lib/provider-model-bootstrap-loading.js";
 import type { ReviewCommentDraft } from "../git/reviewComments";
 import { getReviewCommentDisplayLabel } from "../git/reviewComments";
+import type {
+  ContextBudgetSnapshot,
+  UsageCostSnapshot,
+} from "@repo/platform-protocol";
+import { ContextWindowIndicator } from "./ContextWindowIndicator";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -75,6 +80,9 @@ interface ChatInputBarProps {
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
   layout?: "docked" | "hero";
+  contextBudget?: ContextBudgetSnapshot | null;
+  usage?: UsageCostSnapshot | null;
+  onCompact?: () => void;
 }
 
 export function ChatInputBar({
@@ -97,6 +105,9 @@ export function ChatInputBar({
   repoTree = [],
   isLoadingRepoTree = false,
   layout = "docked",
+  contextBudget = null,
+  usage = null,
+  onCompact,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageAttachmentsRef = useRef<ChatImageAttachment[]>([]);
@@ -963,6 +974,12 @@ export function ChatInputBar({
                 }}
                 isLoading={isModelPickerLoading}
                 isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
+              />
+
+              <ContextWindowIndicator
+                budget={contextBudget}
+                usage={usage}
+                onCompact={onCompact}
               />
 
               {selectedProviderId === AXIS_PROVIDER_ID &&

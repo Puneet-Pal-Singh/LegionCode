@@ -103,27 +103,23 @@ const LIFECYCLE_EVENTS = [
 test("SDK replay/live lifecycle projection survives browser refresh", async ({
   page,
 }) => {
-  let releaseLiveStream: () => void = () => {};
   let replayMode: "initial" | "refresh" = "initial";
-  const releaseGate = new Promise<void>((resolve) => {
-    releaseLiveStream = resolve;
+  let releaseLiveReplay: () => void = () => {};
+  const liveReplayGate = new Promise<void>((resolve) => {
+    releaseLiveReplay = resolve;
   });
 
   await page.route("**/turns/**", async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith("/stream")) {
-      await releaseGate;
-      await route.fulfill({
-        contentType: "application/x-ndjson",
-        body: replayMode === "initial" ? ndjson(LIFECYCLE_EVENTS.slice(5)) : "",
-      });
-      return;
+    const afterSequence = Number(url.searchParams.get("afterSequence") ?? 0);
+    if (replayMode === "initial" && afterSequence > 0) {
+      await liveReplayGate;
     }
-
-    const events =
-      replayMode === "initial"
+    const source =
+      replayMode === "initial" && afterSequence === 0
         ? LIFECYCLE_EVENTS.slice(0, 5)
         : LIFECYCLE_EVENTS;
+    const events = source.filter((event) => event.sequence > afterSequence);
     await fulfillReplay(route, events);
   });
 
@@ -133,9 +129,9 @@ test("SDK replay/live lifecycle projection survives browser refresh", async ({
     "Approve deterministic edit",
   );
 
-  releaseLiveStream();
+  releaseLiveReplay();
   await expect(page.getByTestId("terminal")).toHaveText(
-    "completed:Completed.",
+    "completed:completed",
   );
   await assertDiffParity(page);
   const firstTerminal = await page.getByTestId("terminal").textContent();
@@ -169,10 +165,6 @@ async function assertDiffParity(page: Page): Promise<void> {
   await expect(page.getByTestId("artifact-diff")).toHaveText("src/feature.ts");
   await expect(page.getByTestId("review-diff")).toHaveText("src/feature.ts");
   await expect(page.getByTestId("sidebar-diff")).toHaveText("src/feature.ts");
-}
-
-function ndjson(values: readonly unknown[]): string {
-  return values.map((value) => JSON.stringify(value)).join("\n");
 }
 
 function event(

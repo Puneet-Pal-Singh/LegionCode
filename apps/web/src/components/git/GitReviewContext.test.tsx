@@ -390,6 +390,43 @@ describe("GitReviewProvider", () => {
     expect(mockFetchLiveDiff).not.toHaveBeenCalled();
     expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
   });
+
+  it("loads an already-present canonical turn diff without enabling passive Git reads", async () => {
+    const loadFileDiff = vi.fn(async () => ({
+      oldPath: "src/app.ts",
+      newPath: "src/app.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    }));
+
+    render(
+      <GitReviewProvider
+        isReviewOpen={false}
+        isReviewDataEnabled={false}
+        canonicalTurnReview={{
+          turnId: "trn_review001",
+          files: [buildFileStatus("src/app.ts")],
+          loadFileDiff,
+          error: null,
+        }}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    await waitFor(() => {
+      expect(loadFileDiff).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "src/app.ts" }),
+      );
+    });
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+  });
 });
 
 function ReviewCommentSelectionProbe() {

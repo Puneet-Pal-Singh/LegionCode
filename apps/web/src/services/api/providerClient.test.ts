@@ -27,7 +27,8 @@ function createCredentialFixture(overrides?: { credentialId?: string }) {
 }
 
 describe("ProviderApiClient", () => {
-  const providerApiBaseUrl = "http://localhost:8788/api/byok";
+  const providerApiBaseUrl =
+    `${window.location.origin}/__legioncode/brain/api/byok`;
   const testRunId = "run-123";
   let client: ProviderApiClient;
   let fetchSpy: ReturnType<typeof vi.spyOn>;

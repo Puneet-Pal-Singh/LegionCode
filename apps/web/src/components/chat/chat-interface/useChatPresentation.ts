@@ -1,33 +1,21 @@
 import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
-import type {
-  FileStatus,
-  PromptArtifactReviewSource,
-} from "@repo/shared-types";
-import type { ActivityTurnViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 import {
   buildLifecycleTerminalViewModel,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
-import type { useRunEvents } from "../../../hooks/useRunEvents.js";
-import type { useRunSummary } from "../../../hooks/useRunSummary.js";
 import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
 
 interface ChatPresentationInput {
-  runId: string;
   messages: Message[];
   conversationTurns: ReturnType<typeof buildConversationTurns>;
-  activityTurns: ActivityTurnViewModel[];
-  summary: ReturnType<typeof useRunSummary>["summary"];
-  events: ReturnType<typeof useRunEvents>["events"];
-  snapshots: Record<string, FileStatus[]>;
-  artifacts: Record<string, PromptArtifactReviewSource>;
   hasHydrated: boolean;
   isLoading: boolean;
   hasPendingApproval: boolean;
   hasStartedSession: boolean;
   lifecycleProjection?: LifecycleProjection | null;
+  lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
 }
 
 export function useChatPresentation(input: ChatPresentationInput) {
@@ -35,10 +23,9 @@ export function useChatPresentation(input: ChatPresentationInput) {
     () =>
       buildChatEntries(
         input.conversationTurns,
-        input.activityTurns,
-        input.runId,
+        input.lifecycleProjectionsByTurnId,
       ),
-    [input.activityTurns, input.conversationTurns, input.runId],
+    [input.conversationTurns, input.lifecycleProjectionsByTurnId],
   );
   const terminalViewModel = useMemo(
     () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),

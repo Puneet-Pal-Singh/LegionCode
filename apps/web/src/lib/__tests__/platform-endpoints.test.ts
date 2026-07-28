@@ -8,9 +8,6 @@ import {
   getMuscleHttpBase,
   getMuscleWsBase,
   chatStreamPath,
-  runEventsPath,
-  runEventsStreamPath,
-  runActivityPath,
   chatHistoryPath,
   gitStatusPath,
   gitDiffPath,
@@ -57,9 +54,18 @@ describe("Platform Endpoints", () => {
       expect(getBrainHttpBase()).toBe("https://brain.example.com");
     });
 
+    it("routes a configured local Brain worker through the same-origin dev proxy", () => {
+      setEnv("VITE_BRAIN_BASE_URL", "http://127.0.0.1:8788");
+      expect(getBrainHttpBase()).toBe(
+        `${window.location.origin}/__legioncode/brain`,
+      );
+    });
+
     it("should use default when env var not set", () => {
       const base = getBrainHttpBase();
-      expect(base).toBe("http://localhost:8788");
+      expect(base).toBe(
+        `${window.location.origin}/__legioncode/brain`,
+      );
     });
 
     it("should log warning when using default", () => {
@@ -67,7 +73,9 @@ describe("Platform Endpoints", () => {
       getBrainHttpBase();
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining("VITE_BRAIN_BASE_URL not set"),
-        expect.stringContaining("http://localhost:8788"),
+        expect.stringContaining(
+          `${window.location.origin}/__legioncode/brain`,
+        ),
       );
     });
   });
@@ -110,24 +118,6 @@ describe("Platform Endpoints", () => {
     it("should build chat history path with runId", () => {
       expect(chatHistoryPath("run-123")).toBe(
         "https://brain.local/api/chat/history?runId=run-123",
-      );
-    });
-
-    it("should build the canonical run events path through Brain", () => {
-      expect(runEventsPath("run-123")).toBe(
-        "https://brain.local/api/run/events?runId=run-123",
-      );
-    });
-
-    it("should build the live run events stream path through Brain", () => {
-      expect(runEventsStreamPath("run-123")).toBe(
-        "https://brain.local/api/run/events/stream?runId=run-123",
-      );
-    });
-
-    it("should build the canonical run activity path through Brain", () => {
-      expect(runActivityPath("run-123")).toBe(
-        "https://brain.local/api/run/activity?runId=run-123",
       );
     });
 

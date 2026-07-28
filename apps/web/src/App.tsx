@@ -217,6 +217,19 @@ function AppContent() {
     workspaceId: string;
     audits: readonly HookSettingsAuditReadModel[];
   } | null>(null);
+  const handleHookSettingsContextChange = useCallback(
+    (context: {
+      workspaceId: string;
+      audits: readonly HookSettingsAuditReadModel[];
+    }) => {
+      if (!activeSessionId) return;
+      setHookSettingsContext({
+        sessionId: activeSessionId,
+        ...context,
+      });
+    },
+    [activeSessionId],
+  );
   const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
     useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
@@ -1024,11 +1037,8 @@ function AppContent() {
           environmentSummary={
             showWorkspace && activeSessionId && activeSession
               ? {
-                  sessionId: activeSessionId,
-                  runId: activeSession.activeRunId,
                   repo,
                   branch,
-                  enabled: activeSession.status !== "running",
                   onBranchChange: switchBranch,
                   onOpenChanges: () =>
                     setSummaryActionRequest({
@@ -1163,12 +1173,7 @@ function AppContent() {
                       hasPendingApproval,
                     );
                   }}
-                  onHookSettingsContextChange={(context) => {
-                    setHookSettingsContext({
-                      sessionId: activeSessionId,
-                      ...context,
-                    });
-                  }}
+                  onHookSettingsContextChange={handleHookSettingsContextChange}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
                   rightSidebarWidth={rightSidebarWidth}

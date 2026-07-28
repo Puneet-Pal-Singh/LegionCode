@@ -36,6 +36,31 @@ describe("messageMetadata", () => {
     expect(turns[1]?.assistantMessage?.id).toBe("assistant-2");
   });
 
+  it("promotes a live user turn to the canonical assistant turn id", () => {
+    const turns = buildConversationTurns([
+      {
+        id: "client-user",
+        role: "user",
+        content: "Read README",
+      },
+      {
+        id: "server-assistant",
+        role: "assistant",
+        content: "Done",
+        data: {
+          metadata: {
+            canonicalIdentity: {
+              turnId: "trn_liveturn01",
+            },
+          },
+        },
+      },
+    ] as Message[]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.turnId).toBe("trn_liveturn01");
+  });
+
   it("keeps the latest assistant message for a user turn when progress chatter streams first", () => {
     const turns = buildConversationTurns([
       {
@@ -94,6 +119,42 @@ describe("messageMetadata", () => {
     expect(turns[0]?.assistantMessage).toMatchObject({
       id: "assistant-same",
       content: "Hello! How can I help?",
+    });
+  });
+
+  it("uses persisted canonical turn identity and excludes commentary transcript rows", () => {
+    const canonicalIdentity = {
+      workspaceId: "wsp_metadata01",
+      threadId: "thr_metadata01",
+      turnId: "trn_metadata01",
+      runAttemptId: "attempt_metadata01",
+    };
+    const turns = buildConversationTurns([
+      {
+        id: "user-1",
+        role: "user",
+        content: "Read README.md",
+        data: { metadata: { canonicalIdentity } },
+      },
+      {
+        id: "commentary-1",
+        role: "assistant",
+        content: "I’m reading the file.",
+        data: { metadata: { canonicalIdentity, phase: "commentary" } },
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "The README is clear.",
+        data: { metadata: { canonicalIdentity, phase: "final_answer" } },
+      },
+    ] as Message[]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      turnId: "trn_metadata01",
+      userMessage: { id: "user-1" },
+      assistantMessage: { id: "assistant-1" },
     });
   });
 });

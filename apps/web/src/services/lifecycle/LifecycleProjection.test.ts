@@ -34,7 +34,7 @@ describe("LifecycleProjection", () => {
       }),
       lifecycleEvent(2, "reasoning.summary_delta", {
         itemId: REASONING_ITEM_ID,
-        payload: { summary: "private chain summary" },
+        payload: { delta: "private chain summary", displaySafe: true },
       }),
       lifecycleEvent(3, "turn.completed", {
         payload: { outcome: { status: "completed" } },
@@ -54,7 +54,7 @@ describe("LifecycleProjection", () => {
       }),
       lifecycleEvent(2, "reasoning.summary_delta", {
         itemId: REASONING_ITEM_ID,
-        payload: { summary: "hidden reasoning summary" },
+        payload: { delta: "hidden reasoning summary", displaySafe: true },
       }),
       lifecycleEvent(3, "item.started", {
         itemId: ASSISTANT_ITEM_ID,

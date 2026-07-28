@@ -22,6 +22,7 @@ export const ChatRequestBodySchema = z
     repositoryName: z.string().trim().min(1).optional(),
     repositoryBranch: z.string().trim().min(1).optional(),
     repositoryBaseUrl: z.string().url().optional(),
+    contextWindowTokens: z.number().int().positive().optional(),
   })
   .strict();
 

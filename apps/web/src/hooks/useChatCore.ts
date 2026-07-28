@@ -1,5 +1,11 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import {
+  RunAttemptIdSchema,
+  RunIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+} from "@repo/platform-protocol";
+import {
   DEFAULT_RUN_MODE,
   type ProductMode,
   type RunMode,
@@ -13,7 +19,7 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { chatStreamPath } from "../lib/platform-endpoints.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
 import { useProviderStore } from "./useProviderStore.js";
@@ -43,9 +49,14 @@ import { createRunId } from "../lib/run-id";
 import {
   bootstrapConversationScope,
   conversationScopeKey,
+  isEstablishedRunScope,
+  isTurnScopeRecoveryError,
   publishConversationScopeReady,
+  resumeConversationScope,
   type ConversationScope,
 } from "./conversationScope";
+import { createLifecycleClient } from "../services/api/lifecycleClient";
+import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 
 type ChatUserContent =
   | string
@@ -88,6 +99,7 @@ interface UseChatCoreResult {
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
 }
 
@@ -115,6 +127,8 @@ export function useChatCore(
     message: Message;
   } | null>(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
+  const preAdmissionStopKeyRef = useRef<string | null>(null);
+  const stopRequestedRef = useRef(false);
   const lastLoggedStreamErrorRef = useRef<{
     message: string;
     timestamp: number;
@@ -123,6 +137,7 @@ export function useChatCore(
   const apiPath = chatStreamPath();
   const [conversationScope, setConversationScope] =
     useState<ConversationScope | null>(null);
+  const clearNonCanonicalError = useCallback(() => setError(null), []);
   const activeConversationScope =
     conversationScope?.sessionId === sessionId &&
     conversationScope.runId === runId
@@ -157,6 +172,8 @@ export function useChatCore(
 
   useEffect(() => {
     activeRunScopeKeyRef.current = runScopeKey;
+    preAdmissionStopKeyRef.current = null;
+    stopRequestedRef.current = false;
     setError(null);
     setIsSubmitting(false);
     setIsStopping(false);
@@ -165,36 +182,56 @@ export function useChatCore(
   }, [runScopeKey]);
 
   useEffect(() => {
-    let cancelled = false;
-    setConversationScope(null);
-
-    void bootstrapConversationScope(sessionId, runId)
+    const normalizedSessionId = sessionId.trim();
+    const normalizedRunId = externalRunId?.trim() ?? "";
+    if (!normalizedSessionId || !normalizedRunId) {
+      setConversationScope(null);
+      return;
+    }
+    const controller = new AbortController();
+    const requestRunScopeKey = `${encodeURIComponent(normalizedSessionId)}:${encodeURIComponent(normalizedRunId)}`;
+    void resumeConversationScope(
+      normalizedSessionId,
+      normalizedRunId,
+      controller.signal,
+    )
       .then((scope) => {
-        if (!cancelled) {
-          setConversationScope(scope);
-          publishConversationScopeReady(scope);
-        }
-      })
-      .catch((bootstrapError: unknown) => {
-        if (cancelled) {
+        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
           return;
         }
-        const message =
-          bootstrapError instanceof Error
-            ? bootstrapError.message
-            : "Failed to establish the server-owned turn scope.";
+        if (!scope) return;
+        const nextScopeKey = conversationScopeKey(scope);
+        activeScopeKeyRef.current = nextScopeKey;
+        activeConversationScopeRef.current = scope;
+        setConversationScope(scope);
+        setError((current) =>
+          isTurnScopeRecoveryError(current) ? null : current,
+        );
+        publishConversationScopeReady(scope);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+          return;
+        }
+        if (
+          isEstablishedRunScope(
+            activeConversationScopeRef.current,
+            normalizedSessionId,
+            normalizedRunId,
+          )
+        ) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
         setError(message);
-        logClientWarning("chat/bootstrap", "failed", {
-          sessionId,
-          runId,
+        logClientWarning("chat/scope", "reconstruction-failed", {
+          runId: normalizedRunId,
+          sessionId: normalizedSessionId,
           error: message,
         });
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [runId, sessionId]);
+    return () => controller.abort();
+  }, [externalRunId, isActiveRunScope, runId, runScopeKey, sessionId]);
 
   const pushDebugEvent = useCallback(
     (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
@@ -232,8 +269,8 @@ export function useChatCore(
   const hasConnectedCredential = credentials.length > 0;
   const isModelConfigReady =
     status === "ready" &&
-    hasConnectedCredential &&
-    activeConversationScope !== null;
+    hasConnectedCredential;
+  const lifecycleClient = useMemo(() => createLifecycleClient(), []);
 
   const {
     messages,
@@ -321,7 +358,8 @@ export function useChatCore(
       }
       dispatchRunSummaryRefresh(runId);
       const message = normalizeChatErrorMessage(error);
-      setError(message);
+      // The append promise verifies canonical replay before deciding whether
+      // this transport failure is also a product failure.
       logClientWarning("chat/stream", "failed", {
         runId,
         sessionId,
@@ -404,7 +442,7 @@ export function useChatCore(
   const resolveProviderConfigFromApi = useCallback(
     async (requestScopeKey: string): Promise<ResolvedProviderConfig | null> => {
       const resolvedConfig = await resolveForChat();
-      if (!isActiveScope(requestScopeKey)) {
+      if (!isActiveRunScope(requestScopeKey)) {
         return null;
       }
 
@@ -412,10 +450,11 @@ export function useChatCore(
         providerId: resolvedConfig.providerId,
         modelId: resolvedConfig.modelId,
         credentialId: resolvedConfig.credentialId,
+        contextWindow: resolvedConfig.contextWindow,
         source: "provider_resolve_api",
       });
     },
-    [isActiveScope, resolveForChat],
+    [isActiveRunScope, resolveForChat],
   );
 
   const buildChatRequestBody = useCallback(
@@ -433,6 +472,9 @@ export function useChatCore(
         harnessId: resolveRuntimeHarnessId(sessionId),
         providerId: config.providerId,
         modelId: config.modelId,
+        ...(config.contextWindow
+          ? { contextWindowTokens: config.contextWindow }
+          : {}),
         identity: {
           workspaceId: identity.workspaceId,
           threadId: identity.threadId,
@@ -509,14 +551,12 @@ export function useChatCore(
 
   const appendWithResolution = useCallback(
     async (message: ChatAppendMessage): Promise<void> => {
-      const bootstrapScopeKey = scopeKey;
+      const bootstrapScopeKey = runScopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
       if (
         (!content && !hasImages) ||
-        status !== "ready" ||
-        !activeConversationScope ||
-        !bootstrapScopeKey
+        status !== "ready"
       ) {
         throw new Error(
           "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
@@ -526,6 +566,8 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      preAdmissionStopKeyRef.current = null;
+      stopRequestedRef.current = false;
       setPendingUserMessage({
         scopeKey: bootstrapScopeKey,
         message: buildPendingUserMessage(submittedMessage),
@@ -561,7 +603,13 @@ export function useChatCore(
           });
           return;
         }
-        if (!isActiveScope(bootstrapScopeKey)) {
+        if (
+          stopRequestedRef.current &&
+          preAdmissionStopKeyRef.current === bootstrapScopeKey
+        ) {
+          return;
+        }
+        if (!isActiveRunScope(runScopeKey)) {
           logClientWarning("chat/submit", "aborted", {
             runId,
             sessionId,
@@ -583,11 +631,26 @@ export function useChatCore(
         activeScopeKeyRef.current = requestScopeKey;
         activeConversationScopeRef.current = requestScope;
         setConversationScope(requestScope);
+        setError((current) =>
+          isTurnScopeRecoveryError(current) ? null : current,
+        );
         publishConversationScopeReady(requestScope);
         setPendingUserMessage({
           scopeKey: requestScopeKey,
           message: buildPendingUserMessage(submittedMessage),
         });
+
+        if (
+          stopRequestedRef.current &&
+          preAdmissionStopKeyRef.current === bootstrapScopeKey
+        ) {
+          await interruptAndAwaitTerminal(
+            lifecycleClient,
+            requestScope,
+          );
+          stopStream();
+          return;
+        }
 
         const requestBody = buildChatRequestBody(
           providerConfig,
@@ -609,7 +672,28 @@ export function useChatCore(
           providerConfig,
         );
         dispatchRunSummaryRefresh(runId);
-        await submitResolvedMessage(submittedMessage, requestBody);
+        try {
+          await submitResolvedMessage(submittedMessage, requestBody);
+        } catch (transportError) {
+          const canonicalTurnAccepted = await hasCanonicalLifecycleEvidence(
+            lifecycleClient,
+            TurnIdSchema.parse(requestScope.turnId),
+          );
+          if (!canonicalTurnAccepted) {
+            throw transportError;
+          }
+          setError(null);
+          logClientWarning("chat/stream", "transport-detached-after-acceptance", {
+            runId,
+            sessionId,
+            scopeKey: requestScopeKey,
+            clientMessageId: submittedMessage.id,
+            error:
+              transportError instanceof Error
+                ? transportError.message
+                : String(transportError),
+          });
+        }
       } finally {
         if (isActiveRunScope(runScopeKey)) {
           const settledScopeKey = activeScopeKeyRef.current;
@@ -632,16 +716,14 @@ export function useChatCore(
     },
     [
       buildChatRequestBody,
-      isActiveScope,
+      isActiveRunScope,
       isActiveRunScope,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
-      activeConversationScope,
       runId,
       runScopeKey,
       sessionId,
-      scopeKey,
       status,
       submitResolvedMessage,
     ],
@@ -670,7 +752,10 @@ export function useChatCore(
 
   const handleSubmitFailure = useCallback(
     (error: unknown, requestScopeKey: string, originalInput: string) => {
-      if (!isActiveScope(requestScopeKey)) {
+      if (
+        requestScopeKey !== runScopeKey &&
+        !isActiveScope(requestScopeKey)
+      ) {
         return;
       }
       restoreChatInput(originalInput);
@@ -704,7 +789,7 @@ export function useChatCore(
         error: error instanceof Error ? error.message : "Unknown append error",
       });
     },
-    [isActiveScope, pushDebugEvent, restoreChatInput, runId, sessionId],
+    [isActiveScope, pushDebugEvent, restoreChatInput, runId, runScopeKey, sessionId],
   );
 
   const submitPreparedInput = useCallback(
@@ -733,11 +818,7 @@ export function useChatCore(
       const originalInput = input;
       const trimmedInput = input.trim();
       const imageAttachments = attachments?.imageAttachments ?? [];
-      if (
-        !activeConversationScope ||
-        !scopeKey ||
-        shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)
-      ) {
+      if (shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)) {
         logClientWarning("chat/submit", "blocked", {
           runId,
           sessionId,
@@ -750,7 +831,7 @@ export function useChatCore(
         });
         return false;
       }
-      const requestScopeKey = scopeKey;
+      const requestScopeKey = runScopeKey;
       clearChatInput();
       return submitPreparedInput(
         buildChatAppendMessage(trimmedInput, imageAttachments),
@@ -766,53 +847,55 @@ export function useChatCore(
       isStopping,
       isSubmitting,
       runId,
-      activeConversationScope,
-      scopeKey,
+      runScopeKey,
       sessionId,
       shouldBlockSubmit,
       submitPreparedInput,
     ],
   );
 
-  const stop = useCallback(() => {
+const stop = useCallback(() => {
+    if (stopRequestedRef.current) {
+      return;
+    }
     const requestRunId = runId;
-    const requestScopeKey = scopeKey;
+    const requestScope = activeConversationScopeRef.current;
+    stopRequestedRef.current = true;
     setIsSubmitting(false);
     setIsStopping(true);
-    stopStream();
     dispatchRunSummaryRefresh(requestRunId);
 
     const cancelRun = async (): Promise<void> => {
       try {
-        const response = await authenticatedChatFetch(
-          `${getBrainHttpBase()}/api/run/cancel`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ runId: requestRunId }),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(`Cancel failed with HTTP ${response.status}`);
+        if (requestScope) {
+          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
+          stopStream();
+        } else {
+          preAdmissionStopKeyRef.current = runScopeKey;
+          stopStream();
+          setPendingUserMessage(null);
         }
         dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
-        logClientWarning("chat/stop", "cancel-failed", {
+        setError(
+          error instanceof Error
+            ? normalizeChatErrorMessage(error)
+            : "Failed to stop the turn.",
+        );
+        logClientWarning("chat/stop", "interrupt-failed", {
           runId: requestRunId,
-          scopeKey: requestScopeKey,
+          scopeKey: scopeKey,
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {
-        if (isActiveScope(requestScopeKey)) {
+        if (isActiveRunScope(runScopeKey)) {
           setIsStopping(false);
         }
       }
     };
 
     void cancelRun();
-  }, [authenticatedChatFetch, isActiveScope, runId, scopeKey, stopStream]);
+  }, [isActiveScope, lifecycleClient, runId, runScopeKey, scopeKey, stopStream]);
 
   return {
     messages: scopedMessages,
@@ -829,8 +912,47 @@ export function useChatCore(
     resetRun,
     isModelConfigReady,
     error,
+    clearNonCanonicalError,
     debugEvents,
   };
+}
+
+async function interruptAndAwaitTerminal(
+  lifecycleClient: ReturnType<typeof createLifecycleClient>,
+  scope: ConversationScope,
+): Promise<void> {
+  const settlementAbort = new AbortController();
+  const settlementTimeout = window.setTimeout(
+    () =>
+      settlementAbort.abort("Timed out waiting for interrupted terminal event."),
+    15_000,
+  );
+  try {
+    const response = await lifecycleClient.interruptTurn({
+      runId: RunIdSchema.parse(scope.runId),
+      workspaceId: scope.workspaceId,
+      sessionId: scope.sessionId,
+      threadId: ThreadIdSchema.parse(scope.threadId),
+      turnId: TurnIdSchema.parse(scope.turnId),
+      runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
+      reason: "User stopped the turn.",
+    });
+    if (response.terminalEvent) return;
+    for await (const event of lifecycleClient.followTurnLifecycle(
+      { turnId: TurnIdSchema.parse(scope.turnId) },
+      { signal: settlementAbort.signal },
+    )) {
+      if (
+        event.type === "turn.completed" ||
+        event.type === "turn.failed" ||
+        event.type === "turn.interrupted"
+      ) {
+        return;
+      }
+    }
+  } finally {
+    window.clearTimeout(settlementTimeout);
+  }
 }
 
 function buildChatAppendMessage(

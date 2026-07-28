@@ -3,6 +3,9 @@ import {
   bootstrapConversationScope,
   conversationScopeKey,
   createConversationScope,
+  isEstablishedRunScope,
+  isTurnScopeRecoveryError,
+  resumeConversationScope,
 } from "./conversationScope";
 
 describe("ConversationScope", () => {
@@ -72,5 +75,52 @@ describe("ConversationScope", () => {
       }),
     );
     fetchSpy.mockRestore();
+  });
+
+  it("does not request scope until both transport ids are hydrated", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(resumeConversationScope("", "run-1")).resolves.toBeNull();
+    await expect(resumeConversationScope("session-1", " ")).resolves.toBeNull();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("does not request scope for a legacy or placeholder run id", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(
+      resumeConversationScope("session-1", "pending-run"),
+    ).resolves.toBeNull();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("classifies only turn-scope recovery failures for targeted clearing", () => {
+    expect(
+      isTurnScopeRecoveryError(
+        "Turn scope reconstruction failed with HTTP 400",
+      ),
+    ).toBe(true);
+    expect(isTurnScopeRecoveryError("TURN_SCOPE_NOT_FOUND")).toBe(true);
+    expect(isTurnScopeRecoveryError("Provider request failed")).toBe(false);
+    expect(isTurnScopeRecoveryError(null)).toBe(false);
+  });
+
+  it("recognizes when a newer server-issued scope supersedes recovery", () => {
+    const scope = createConversationScope({
+      workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+      threadId: "thr_server001",
+      turnId: "trn_server001",
+      runAttemptId: "attempt_server001",
+      sessionId: "session-1",
+      runId: "run-1",
+    });
+
+    expect(isEstablishedRunScope(scope, "session-1", "run-1")).toBe(true);
+    expect(isEstablishedRunScope(scope, "session-2", "run-1")).toBe(false);
+    expect(isEstablishedRunScope(null, "session-1", "run-1")).toBe(false);
   });
 });

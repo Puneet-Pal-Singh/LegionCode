@@ -35,7 +35,9 @@ export function GitReviewProvider({
 }: GitReviewProviderProps) {
   const { runId, sessionId } = useRunContext();
   const shouldLoadReviewData =
-    isReviewDataEnabled && (isReviewOpen || isReviewActive);
+    canonicalTurnReview !== null ||
+    (isReviewDataEnabled && (isReviewOpen || isReviewActive));
+  const shouldProbeLiveGit = shouldLoadReviewData && !canonicalTurnReview;
   const {
     status,
     gitAvailable,
@@ -45,7 +47,7 @@ export function GitReviewProvider({
   } = useGitStatus(
     runId ?? undefined,
     sessionId ?? undefined,
-    shouldLoadReviewData,
+    shouldProbeLiveGit,
   );
   const {
     diff: liveDiff,

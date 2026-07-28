@@ -15,4 +15,13 @@ export const TurnScopeBootstrapSchema = z
   })
   .strict();
 
+export const TurnScopeReadQuerySchema = z
+  .object({
+    sessionId: z.string().trim().min(1),
+    runId: z
+      .string()
+      .regex(/^run_[a-zA-Z0-9][a-zA-Z0-9_-]{5,127}$/),
+  })
+  .strict();
+
 export type TurnScopeBootstrap = z.infer<typeof TurnScopeBootstrapSchema>;

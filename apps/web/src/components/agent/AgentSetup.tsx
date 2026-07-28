@@ -17,13 +17,11 @@ import { ProviderDialog, ModelPickerPopover } from "../provider";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
 import { useRunContext } from "../../hooks/useRunContext.js";
 import { findCredentialByProviderId } from "../../lib/provider-helpers.js";
-import { bootstrapGitWorkspace } from "../../lib/git-workspace-bootstrap.js";
 import { useWorkspaceState } from "../layout/workspace/useWorkspaceState";
 import { SidebarContent } from "../layout/workspace/SidebarContent";
 import { useGitHubTree } from "../layout/workspace/useGitHubTree";
 import { useFileLoader } from "../layout/workspace/useFileLoader";
 import { Resizer } from "../ui/Resizer";
-import { useGitStatus } from "../../hooks/useGitStatus";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
@@ -134,8 +132,6 @@ export function AgentSetup({
     });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
-  const workspaceBootstrapKeyRef = useRef<string | null>(null);
-  const workspaceBootstrapInFlightRef = useRef<string | null>(null);
   const activeRunId = runId ?? "";
   const {
     activeTab,
@@ -161,10 +157,6 @@ export function AgentSetup({
     branch: githubBranch,
     isGitHubLoaded,
   } = useGitHubTree();
-  const { refetch: refetchGitStatus } = useGitStatus(
-    activeRunId || undefined,
-    sessionId,
-  );
   const handleOpenFileTab = useCallback(
     (file: { path: string; content: string }) => {
       openFileTab(file);
@@ -260,74 +252,6 @@ export function AgentSetup({
     providerModels,
     selectedModelView,
     selectedProviderId,
-  ]);
-
-  useEffect(() => {
-    const owner = repo?.owner?.login?.trim();
-    const name = repo?.name?.trim();
-    const targetBranch = (branch || repo?.default_branch || "main").trim();
-    if (!isGitHubLoaded || !runId || !sessionId || !owner || !name) {
-      return;
-    }
-
-    const bootstrapKey = `${sessionId}:${runId}:${owner}/${name}:${targetBranch}`;
-    if (
-      workspaceBootstrapKeyRef.current === bootstrapKey ||
-      workspaceBootstrapInFlightRef.current === bootstrapKey
-    ) {
-      return;
-    }
-    workspaceBootstrapInFlightRef.current = bootstrapKey;
-
-    const bootstrap = async (): Promise<void> => {
-      let bootstrapReady = false;
-      try {
-        const result = await bootstrapGitWorkspace({
-          runId,
-          sessionId,
-          repositoryOwner: owner,
-          repositoryName: name,
-          repositoryBranch: targetBranch,
-          repositoryBaseUrl: repo?.html_url,
-        });
-        if (result.status === "ready") {
-          bootstrapReady = true;
-          workspaceBootstrapKeyRef.current = bootstrapKey;
-        }
-        if (result.status !== "ready" && result.message) {
-          if (result.status === "sync-failed") {
-            console.debug(
-              `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
-            );
-          } else {
-            console.warn(
-              `[agent-setup/git-bootstrap] ${result.status}: ${result.message}`,
-            );
-          }
-        }
-      } catch (error) {
-        console.warn("[agent-setup/git-bootstrap] failed", error);
-      } finally {
-        if (workspaceBootstrapInFlightRef.current === bootstrapKey) {
-          workspaceBootstrapInFlightRef.current = null;
-        }
-        if (bootstrapReady) {
-          await refetchGitStatus();
-        }
-      }
-    };
-
-    void bootstrap();
-  }, [
-    branch,
-    repo?.default_branch,
-    repo?.html_url,
-    repo?.name,
-    repo?.owner?.login,
-    isGitHubLoaded,
-    refetchGitStatus,
-    runId,
-    sessionId,
   ]);
 
   const handleSidebarDiffSelected = useCallback(() => {
@@ -745,6 +669,7 @@ export function AgentSetup({
       isReviewActive={
         isGitReviewOpen || activeTab === "review" || activeTab === "changes"
       }
+      isReviewDataEnabled={isGitReviewOpen}
       onReviewOpenChange={setIsGitReviewOpen}
     >
       <motion.div
