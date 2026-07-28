@@ -262,7 +262,7 @@ export class GitPlugin implements IPlugin {
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     const safeUrl = validateCloneUrl(url);
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
 
     if (onLog) {
       onLog(`[git/plugin] Cloning repository into ${worktree}\n`);
@@ -270,7 +270,7 @@ export class GitPlugin implements IPlugin {
 
     const result = await this.runCloneCommand(
       sandbox,
-      authArgs,
+      authEnvironment,
       safeUrl,
       worktree,
       toolboxContext,
@@ -281,7 +281,7 @@ export class GitPlugin implements IPlugin {
 
   private async runCloneCommand(
     sandbox: Sandbox,
-    authArgs: string[],
+    authEnvironment: Record<string, string> | undefined,
     safeUrl: string,
     worktree: string,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
@@ -295,7 +295,8 @@ export class GitPlugin implements IPlugin {
       sandbox,
       {
         command: "git",
-        args: [...authArgs, "clone", safeUrl, worktree],
+        args: ["clone", safeUrl, worktree],
+        env: authEnvironment,
         runId,
       },
       ["git"],
@@ -1066,7 +1067,7 @@ export class GitPlugin implements IPlugin {
       };
     }
     const safeBranch = sanitizeRef(branch, "branch");
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -1080,7 +1081,7 @@ export class GitPlugin implements IPlugin {
           workingBranch: safeBranch,
         },
         remoteName: safeRemote,
-        authArgs,
+        authEnvironment,
       });
       return { success: true, output: "Changes pushed" };
     } catch (error) {
@@ -1108,7 +1109,7 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -1118,7 +1119,7 @@ export class GitPlugin implements IPlugin {
       workspace: { runId, filesystemRoot: worktree },
       remoteName: safeRemote,
       branchName: branch?.trim() ? sanitizeRef(branch, "branch") : undefined,
-      authArgs,
+      authEnvironment,
     });
     return { success: true, output: "Changes pulled successfully" };
   }
@@ -1132,7 +1133,7 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -1141,7 +1142,7 @@ export class GitPlugin implements IPlugin {
     await gitService.fetch({
       workspace: { runId, filesystemRoot: worktree },
       remoteName: safeRemote,
-      authArgs,
+      authEnvironment,
     });
     return { success: true, output: "Fetched successfully" };
   }
@@ -1211,9 +1212,11 @@ export class GitPlugin implements IPlugin {
     return { success: true, output: result.output };
   }
 
-  private buildGitAuthArgs(token: string | undefined): string[] {
+  private buildGitAuthEnvironment(
+    token: string | undefined,
+  ): Record<string, string> | undefined {
     if (!token || token.trim().length === 0) {
-      return [];
+      return undefined;
     }
     if (containsIllegalTokenChars(token)) {
       throw new Error("Invalid token format");
@@ -1222,7 +1225,11 @@ export class GitPlugin implements IPlugin {
     const authValue = Buffer.from(`x-access-token:${token}`, "utf8").toString(
       "base64",
     );
-    return ["-c", `http.extraheader=AUTHORIZATION: basic ${authValue}`];
+    return {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.extraHeader",
+      GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${authValue}`,
+    };
   }
 
   private async runToolboxCommand(

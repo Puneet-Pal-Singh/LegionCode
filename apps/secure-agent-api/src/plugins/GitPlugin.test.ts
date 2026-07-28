@@ -52,6 +52,41 @@ describe("GitPlugin", () => {
     expect(runSafeCommandMock).not.toHaveBeenCalled();
   });
 
+  it("keeps authenticated clone material out of command arguments", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const plugin = new GitPlugin();
+
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_clone",
+      runId: "run_git_clone_1",
+      url: "https://github.com/example/repository.git",
+      token: "ghp_exampleSecretToken123456789",
+    });
+
+    expect(result.success).toBe(true);
+    const cloneSpec = runSafeCommandMock.mock.calls.find(([, spec]) =>
+      spec.args?.includes("clone"),
+    )?.[1];
+    expect(cloneSpec?.args).toEqual([
+      "clone",
+      "https://github.com/example/repository.git",
+      "/home/sandbox/checkouts/run_git_clone_1",
+    ]);
+    expect(cloneSpec?.args?.join(" ")).not.toMatch(
+      /authorization|basic|ghp_/i,
+    );
+    expect(cloneSpec?.env).toMatchObject({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.extraHeader",
+      GIT_CONFIG_VALUE_0: expect.stringMatching(/^AUTHORIZATION: basic /),
+    });
+  });
+
   it("routes git_unstage through GitService", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {

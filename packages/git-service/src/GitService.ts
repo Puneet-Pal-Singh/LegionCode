@@ -278,7 +278,6 @@ export class DefaultGitService {
     const branchName = validateBranchNamePolicy(input.workspace.workingBranch);
     const remoteName = validateRemoteName(input.remoteName);
     const args = [
-      ...validateGitAuthArgs(input.authArgs ?? []),
       "push",
       "-u",
       remoteName,
@@ -288,6 +287,7 @@ export class DefaultGitService {
       runId,
       cwd: workspaceRoot,
       args,
+      environment: validateGitAuthEnvironment(input.authEnvironment),
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     if (result.exitCode !== 0) {
@@ -311,7 +311,6 @@ export class DefaultGitService {
   async pull(input: GitPullInput): Promise<void> {
     const remoteName = validateRemoteName(input.remoteName);
     const args = [
-      ...validateGitAuthArgs(input.authArgs ?? []),
       "pull",
       "--ff-only",
       remoteName,
@@ -319,15 +318,19 @@ export class DefaultGitService {
     if (input.branchName && input.branchName.trim().length > 0) {
       args.push(validateBranchNamePolicy(input.branchName));
     }
-    await this.executeRequired(input.workspace, args);
+    await this.executeRequired(
+      input.workspace,
+      args,
+      validateGitAuthEnvironment(input.authEnvironment),
+    );
   }
 
   async fetch(input: GitFetchInput): Promise<void> {
-    await this.executeRequired(input.workspace, [
-      ...validateGitAuthArgs(input.authArgs ?? []),
-      "fetch",
-      validateRemoteName(input.remoteName),
-    ]);
+    await this.executeRequired(
+      input.workspace,
+      ["fetch", validateRemoteName(input.remoteName)],
+      validateGitAuthEnvironment(input.authEnvironment),
+    );
   }
 
   async createBranch(input: GitBranchInput): Promise<GitBranchResult> {
@@ -830,19 +833,26 @@ function normalizeRepoIdentityPath(pathname: string): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function validateGitAuthArgs(authArgs: readonly string[]): readonly string[] {
-  if (authArgs.length === 0) {
-    return [];
+function validateGitAuthEnvironment(
+  environment: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (!environment || Object.keys(environment).length === 0) {
+    return undefined;
   }
+  const keys = Object.keys(environment).sort();
   if (
-    authArgs.length !== 2 ||
-    authArgs[0] !== "-c" ||
-    !authArgs[1]?.toLowerCase().startsWith("http.extraheader=")
+    keys.join(",") !==
+      "GIT_CONFIG_COUNT,GIT_CONFIG_KEY_0,GIT_CONFIG_VALUE_0" ||
+    environment.GIT_CONFIG_COUNT !== "1" ||
+    environment.GIT_CONFIG_KEY_0?.toLowerCase() !== "http.extraheader" ||
+    !environment.GIT_CONFIG_VALUE_0?.toLowerCase().startsWith(
+      "authorization: basic ",
+    )
   ) {
     throw new GitServiceError(
       "invalid_git_input",
-      "Git auth args must be the canonical HTTP extraheader pair",
+      "Git auth environment must be the canonical HTTP extraheader config",
     );
   }
-  return authArgs;
+  return environment;
 }
