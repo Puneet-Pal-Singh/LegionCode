@@ -2,6 +2,8 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ARCHITECTURE_METADATA_FIELDS,
+  ARCHITECTURE_SENSITIVE_PATHS,
   GENERAL_PR_METADATA_FIELDS,
   LIFECYCLE_METADATA_FIELDS,
   LIFECYCLE_SENSITIVE_PATHS,
@@ -74,6 +76,17 @@ export function validatePullRequestMetadata(options, violations) {
   if (missingGeneral.length > 0 && options.metadataMode === "blocking") {
     violations.push(formatMissingMetadata("PR metadata", missingGeneral));
   }
+  if (hasArchitectureSensitiveChange(options.changedFiles ?? [])) {
+    const missingArchitecture = missingFields(
+      body,
+      ARCHITECTURE_METADATA_FIELDS,
+    );
+    if (missingArchitecture.length > 0) {
+      violations.push(
+        formatMissingMetadata("Canonical wiring metadata", missingArchitecture),
+      );
+    }
+  }
   if (!hasLifecycleSensitiveChange(options.changedFiles ?? [])) {
     return;
   }
@@ -99,6 +112,12 @@ export function validateChangedPathGovernance(changedFiles, violations) {
       "Persistence migration changes require a matching migration safety test update.",
     );
   }
+}
+
+export function hasArchitectureSensitiveChange(changedFiles) {
+  return changedFiles.some((file) =>
+    ARCHITECTURE_SENSITIVE_PATHS.some((pattern) => pattern.test(file)),
+  );
 }
 
 export function hasLifecycleSensitiveChange(changedFiles) {

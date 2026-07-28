@@ -33,6 +33,38 @@ Safety:
 
 <!-- If this PR contains breaking changes, describe them here -->
 
+## Canonical wiring and replacement
+
+<!--
+Required for changes to runtime, lifecycle, workflow, tools, approvals, context,
+persistence, Git, execution backends, harnesses, SDKs, or clients. Read
+architecture/RUNTIME-ARCHITECTURE.md and
+architecture/CAPABILITY-OWNERSHIP.md. Write N/A only when the PR is not
+architecture-sensitive.
+-->
+
+Product responsibility:
+
+Current owner(s):
+
+Canonical owner after change:
+
+Active producers migrated:
+
+Active consumers migrated:
+
+Code or path removed:
+
+Replacement for removed behavior:
+
+Remaining duplicate authority:
+
+<!-- If any remains, include owner and deletion trigger. Otherwise write None. -->
+
+Capability ownership ledger update:
+
+<!-- Name the updated row, or explain why ownership is unchanged. -->
+
 ## Rebuild governance
 
 Merge independence:
