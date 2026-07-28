@@ -102,6 +102,15 @@ export const ExecuteTaskRequestSchema = z.object({
 
 export type ExecuteTaskRequest = z.infer<typeof ExecuteTaskRequestSchema>;
 
+export const CancelTaskRequestSchema = z
+  .object({
+    sessionId: z.string().min(1, "sessionId required"),
+    taskId: z.string().min(1, "taskId required"),
+  })
+  .strict();
+
+export type CancelTaskRequest = z.infer<typeof CancelTaskRequestSchema>;
+
 export const ExecuteTaskResponseSchema = z.object({
   taskId: z.string().min(1),
   leaseId: z.string().min(1),

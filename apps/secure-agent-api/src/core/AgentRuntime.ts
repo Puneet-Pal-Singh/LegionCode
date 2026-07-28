@@ -182,6 +182,19 @@ export class AgentRuntime extends DurableObject {
     return result;
   }
 
+  async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
+    for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
+      const cancelled = await runtime.executionPort.cancelTask(leaseId, taskId);
+      if (cancelled) {
+        return true;
+      }
+      if (workspaceKey.includes(leaseId)) {
+        return false;
+      }
+    }
+    return false;
+  }
+
   async releaseLease(leaseId: string): Promise<void> {
     for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
       const release = await runtime.executionPort.releaseLease(leaseId);

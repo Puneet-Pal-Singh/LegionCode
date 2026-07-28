@@ -130,6 +130,7 @@ import {
   handleCreateSession,
   handleResumeSession,
   handleExecuteTask,
+  handleCancelTask,
   handleDeleteSession,
 } from "./api/SessionAPI";
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
@@ -281,6 +282,11 @@ export default {
             createRuntimeEventClient(env),
           );
         }
+      } else if (
+        url.pathname === "/api/v1/cancel" &&
+        request.method === "POST"
+      ) {
+        response = await handleCancelTask(request, stub);
       } else if (
         url.pathname.startsWith("/api/v1/session/") &&
         request.method === "DELETE"

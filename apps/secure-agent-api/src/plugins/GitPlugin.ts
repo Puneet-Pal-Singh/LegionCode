@@ -44,6 +44,7 @@ const GIT_ACTIONS = [
   "git_unstage",
   "git_status",
   "git_worktree_snapshot",
+  "git_snapshot_diff",
   "git_patch_capture",
   "git_patch_apply",
 ] as const;
@@ -69,6 +70,8 @@ const GitPayloadSchema = z.object({
   staged: z.boolean().optional(),
   patch: z.string().optional(),
   baselineTree: z.string().optional(),
+  startTree: z.string().optional(),
+  terminalTree: z.string().optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -119,6 +122,15 @@ export class GitPlugin implements IPlugin {
             worktree,
             toolboxContext,
             runId,
+          );
+        case "git_snapshot_diff":
+          return await this.diffWorktreeSnapshots(
+            sandbox,
+            worktree,
+            toolboxContext,
+            runId,
+            parsed.startTree,
+            parsed.terminalTree,
           );
         case "git_patch_apply":
           return await this.applyPatch(
@@ -571,6 +583,43 @@ export class GitPlugin implements IPlugin {
       success: true,
       output: JSON.stringify({ treeSha: snapshot.treeId }),
     };
+  }
+
+  private async diffWorktreeSnapshots(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    startTree: string | undefined,
+    terminalTree: string | undefined,
+  ): Promise<PluginResult> {
+    if (!startTree || !terminalTree) {
+      return {
+        success: false,
+        error: "startTree and terminalTree are required",
+      };
+    }
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.snapshot_diff",
+    );
+    const diff = await gitService.getSnapshotDiff({
+      workspace: { runId, filesystemRoot: worktree },
+      start: {
+        runId: runId as never,
+        filesystemRoot: worktree,
+        headSha: startTree,
+        treeId: startTree,
+      },
+      terminal: {
+        runId: runId as never,
+        filesystemRoot: worktree,
+        headSha: terminalTree,
+        treeId: terminalTree,
+      },
+    });
+    return { success: true, output: JSON.stringify(diff) };
   }
 
   private async applyPatch(
