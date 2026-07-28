@@ -75,4 +75,27 @@ describe("AdapterSelectionService", () => {
     expect(adapter).toBeInstanceOf(OpenAIResponsesAdapter);
     expect(adapter.provider).toBe("opencode-zen");
   });
+
+  it("preserves the selected provider identity for openai-compatible adapters", async () => {
+    const providerConfigService = {
+      getApiKey: vi.fn(async (providerId: string) =>
+        providerId === "openrouter" ? "sk-or-test-key" : null,
+      ),
+    };
+
+    const adapter = await selectAdapter(
+      {
+        model: "poolside/laguna-s-2.1:free",
+        provider: "openrouter",
+        runtimeProvider: "openai-compatible",
+        fallback: false,
+        providerId: "openrouter",
+      },
+      createDefaultAdapter(),
+      createEnv(),
+      providerConfigService as never,
+    );
+
+    expect(adapter.provider).toBe("openrouter");
+  });
 });

@@ -20,8 +20,6 @@ export type {
   ProviderResolutionPort,
   ModelMetadata,
 } from "./ProviderResolutionPort";
-export type { StreamEvent, RealtimeEventPort } from "./EventStreamPort";
-export type { LifecycleEventStreamPort } from "./LifecycleEventStreamPort";
 export type {
   HarnessId,
   HarnessCapabilities,

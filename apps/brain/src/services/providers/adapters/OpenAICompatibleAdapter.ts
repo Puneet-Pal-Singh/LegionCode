@@ -10,6 +10,8 @@ import type {
   StreamChunk,
 } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import { normalizeProviderGenerationError } from "./ProviderGenerationError";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;
@@ -131,13 +133,24 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
   async generate(params: GenerationParams): Promise<GenerationResult> {
     const model = params.model ?? this.defaultModel;
 
-    const result = await generateText({
-      model: this.client(model),
-      messages: params.messages,
-      system: params.system,
-      tools: params.tools,
-      temperature: params.temperature,
-    });
+    let result: Awaited<ReturnType<typeof generateText>>;
+    try {
+      result = await generateText({
+        model: this.client(model),
+        messages: params.messages,
+        system: params.system,
+        tools: params.tools,
+        temperature: params.temperature,
+        abortSignal: params.signal,
+        maxRetries: PROVIDER_SDK_MAX_RETRIES,
+      });
+    } catch (error) {
+      throw normalizeProviderGenerationError({
+        error,
+        providerId: this.provider,
+        modelId: model,
+      });
+    }
 
     const usage = this.standardizeUsage(result.usage, model);
 
@@ -164,6 +177,8 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     const standardizeUsageCb = (usage: {

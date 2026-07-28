@@ -21,6 +21,7 @@ export function createTransportAdapter(
       env,
       apiKey,
       toOpenAICompatibleBaseURL(route.endpoint),
+      route.providerId,
     );
   }
 

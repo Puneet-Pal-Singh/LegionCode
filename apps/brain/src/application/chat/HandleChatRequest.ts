@@ -27,7 +27,6 @@ import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
 import {
-  ThreadTitleGenerationCoordinator,
   ThreadTitleService,
   type BackgroundTaskOwner,
 } from "../../services/thread-titles";
@@ -69,6 +68,7 @@ export interface HandleChatRequestInput {
   repositoryName?: string;
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
+  contextWindowTokens?: number;
   tools?: Record<string, SerializableToolDefinition>;
   identity: TurnScopeBootstrap;
   backgroundTaskOwner?: BackgroundTaskOwner;
@@ -238,6 +238,7 @@ export class HandleChatRequest {
           userId,
           workspaceId,
           repository: repositorySlug,
+          identity,
         },
       );
       console.log(
@@ -257,7 +258,7 @@ export class HandleChatRequest {
           });
         if (firstPersistedUserMessage?.id === persistedUserMessage.id) {
           const titleService = new ThreadTitleService(this.env);
-          const preview = await titleService.persistPreview({
+          await titleService.persistPreview({
             sessionId,
             threadId: identity.threadId,
             runId,
@@ -266,23 +267,9 @@ export class HandleChatRequest {
             firstMessageId: firstPersistedUserMessage.id,
             prompt,
           });
-          if (preview && input.backgroundTaskOwner) {
-            new ThreadTitleGenerationCoordinator(this.env).schedule(
-              input.backgroundTaskOwner,
-              {
-                sessionId,
-                threadId: identity.threadId,
-                runId,
-                workspaceId: identity.workspaceId,
-                userId,
-                firstMessageId: firstPersistedUserMessage.id,
-                prompt,
-                previewVersion: preview.titleVersion ?? 1,
-                providerId: input.providerId,
-                modelId: input.modelId,
-              },
-            );
-          }
+          // The deterministic preview is the active product title. Starting a
+          // second model request here would compete with the user's run for
+          // provider capacity and is not canonical task execution.
         }
       }
 
@@ -308,6 +295,9 @@ export class HandleChatRequest {
           harnessMode: runtimeSelections.harnessMode,
           authMode: runtimeSelections.authMode,
           metadata: {
+            ...(input.contextWindowTokens
+              ? { contextWindowTokens: input.contextWindowTokens }
+              : {}),
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),

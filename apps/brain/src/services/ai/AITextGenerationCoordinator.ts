@@ -29,6 +29,7 @@ interface TextGenerationInput extends ProviderGenerationInput {
   system?: string;
   tools?: Record<string, CoreTool>;
   temperature: number;
+  signal?: AbortSignal;
 }
 
 interface ChatStreamInput extends TextGenerationInput {
@@ -48,6 +49,7 @@ export async function generateTextWithSelection(
     system: input.system,
     tools: input.tools,
     temperature: input.temperature,
+    signal: input.signal,
     model: input.runtimeModelId ?? input.selection.model,
   });
   return normalizeUsageProvider(result, input.providerId);

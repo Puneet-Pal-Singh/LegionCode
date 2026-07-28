@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  MemoryEventStore,
   MemoryRunRepository,
   MemoryThreadTitleRepository,
   MemoryTranscriptRepository,
@@ -556,6 +557,7 @@ function createEnv(
   const oauthState = new Map<string, string>();
   const transcripts = new MemoryTranscriptRepository();
   const runs = new MemoryRunRepository();
+  const events = new MemoryEventStore();
 
   return {
     AI: {} as Env["AI"],
@@ -572,7 +574,7 @@ function createEnv(
     AUTH_RUN_REPOSITORY: runs,
     AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
       transcripts,
-      runs,
+      events,
     ),
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),

@@ -10,6 +10,8 @@ import type {
 import type { ArtifactRepository } from "@repo/persistence";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
+import type { SecureExecutionWorkspaceScope } from "../../runtime/RuntimeWorkspaceScope";
+import type { SecureExecutionSessionPort } from "../secure-execution/SecureExecutionSessionClient";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 import { createEditArtifactStorageBackend } from "./EditArtifactStorageBackendFactory";
 import {
@@ -30,7 +32,8 @@ interface CaptureAfterRunInput {
   threadId: string;
   turnId: string;
   runAttemptId: string;
-  muscleSession: string;
+  workspaceScope: SecureExecutionWorkspaceScope;
+  executionSession: SecureExecutionSessionPort;
   repoOwner: string | null;
   repoName: string | null;
   repoUrl: string | null;
@@ -108,19 +111,25 @@ export class EditArtifactCaptureService {
   ): SecureGitArtifactClient {
     return new SecureGitArtifactClient(
       this.env,
-      input.muscleSession,
+      input.sessionId,
       input.runId,
+      input.workspaceScope,
+      input.executionSession,
     );
   }
 
   async captureBaseline(input: {
-    muscleSession: string;
+    sessionId: string;
     runId: string;
+    workspaceScope: SecureExecutionWorkspaceScope;
+    executionSession: SecureExecutionSessionPort;
   }): Promise<string> {
     return await new SecureGitArtifactClient(
       this.env,
-      input.muscleSession,
+      input.sessionId,
       input.runId,
+      input.workspaceScope,
+      input.executionSession,
     ).captureWorktreeSnapshot();
   }
 
@@ -440,8 +449,10 @@ export class EditArtifactCaptureService {
 
 interface EditArtifactCapturePort {
   captureBaseline(input: {
-    muscleSession: string;
+    sessionId: string;
     runId: string;
+    workspaceScope: SecureExecutionWorkspaceScope;
+    executionSession: SecureExecutionSessionPort;
   }): Promise<string>;
   captureAfterRunMutation(input: CaptureAfterRunInput): Promise<void>;
 }
@@ -477,7 +488,8 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
       threadId: string;
       turnId: string;
       runAttemptId: string;
-      muscleSession: string;
+      workspaceScope: SecureExecutionWorkspaceScope;
+      executionSession: SecureExecutionSessionPort;
       repoOwner: string | null;
       repoName: string | null;
       repoUrl: string | null;
@@ -487,8 +499,10 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   async prepare(): Promise<void> {
     try {
       this.baselineTree = await this.service.captureBaseline({
-        muscleSession: this.context.muscleSession,
+        sessionId: this.context.sessionId,
         runId: this.context.runId,
+        workspaceScope: this.context.workspaceScope,
+        executionSession: this.context.executionSession,
       });
     } catch (error) {
       this.baselineTree = undefined;
@@ -573,6 +587,8 @@ export function createEditArtifactCoordinator(input: {
     repo?: string;
     baseUrl?: string;
   };
+  executionSession: SecureExecutionSessionPort;
+  workspaceScope: SecureExecutionWorkspaceScope;
 }): EditArtifactCoordinator {
   if (
     !input.env.EDIT_ARTIFACTS ||
@@ -593,7 +609,8 @@ export function createEditArtifactCoordinator(input: {
       threadId: input.identity.threadId,
       turnId: input.identity.turnId,
       runAttemptId: input.identity.runAttemptId,
-      muscleSession: input.runId,
+      workspaceScope: input.workspaceScope,
+      executionSession: input.executionSession,
       repoOwner: input.repositoryContext?.owner ?? null,
       repoName: input.repositoryContext?.repo ?? null,
       repoUrl: input.repositoryContext?.baseUrl ?? null,

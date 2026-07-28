@@ -8,7 +8,7 @@ import type { Env } from "../../types/ai";
 
 const USER_ID = "user-1";
 const SESSION_ID = "session-1";
-const RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+const RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const EVENT_ID = "123e4567-e89b-42d3-a456-426614174001";
 
 describe("SessionMemoryClient", () => {

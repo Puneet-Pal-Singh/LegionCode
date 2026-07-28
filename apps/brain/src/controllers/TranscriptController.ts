@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  isTurnActivityTranscriptPart,
-  type JsonValue,
-  type TurnActivityTranscriptPart,
-} from "@repo/shared-types";
+import type { JsonValue } from "@repo/shared-types";
 import { RunIdSchema } from "@repo/platform-protocol";
 import type {
   SessionRecord,
@@ -383,7 +379,6 @@ function toHydrationMessage(message: TranscriptMessageRecord): {
   content: string | Array<{ type: "text"; text: string } | JsonValue>;
   createdAt: string;
   data?: {
-    activityParts?: TurnActivityTranscriptPart[];
     metadata?: Record<string, unknown>;
   };
 } {
@@ -429,25 +424,17 @@ function readHydrationData(
   parts: TranscriptMessagePartRecord[],
 ):
   | {
-      activityParts?: TurnActivityTranscriptPart[];
       metadata?: Record<string, unknown>;
     }
   | undefined {
-  const activityParts: TurnActivityTranscriptPart[] = [];
-  for (const part of parts) {
-    if (part.type === "activity" && isTurnActivityTranscriptPart(part.content)) {
-      activityParts.push(part.content);
-    }
-  }
   const metadata = parts
     .filter((part) => part.type === "text")
     .map((part) => readPartMetadata(part.content))
     .find((value): value is Record<string, unknown> => value !== null);
-  if (activityParts.length === 0 && !metadata) {
+  if (!metadata) {
     return undefined;
   }
   return {
-    ...(activityParts.length > 0 ? { activityParts } : {}),
     ...(metadata ? { metadata } : {}),
   };
 }

@@ -510,6 +510,7 @@ describe("ExecutionService", () => {
       recoverAfterSandboxLoss: vi.fn(async () => {
         throw new SecureExecutionSessionRecoveryError();
       }),
+      cancelTask: vi.fn(async () => true),
       release: vi.fn(async () => {}),
     };
     const service = new ExecutionService(
@@ -1239,8 +1240,9 @@ describe("ExecutionService", () => {
       },
     });
 
-    expect(errorSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('"event":"execution.tool.result-failed"'),
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.http-warning"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining('"event":"execution.tool.result-warning"'),

@@ -241,7 +241,7 @@ describe("TranscriptController", () => {
     });
   });
 
-  it("hydrates assistant activity parts and terminal metadata", async () => {
+  it("hydrates terminal metadata without reconstructing legacy activity parts", async () => {
     await repository.appendMessage({
       sessionId: TEST_SESSION_ID,
       runId: TEST_RUN_ID,
@@ -308,15 +308,6 @@ describe("TranscriptController", () => {
           role: "assistant",
           data: {
             metadata: { terminalState: "completed" },
-            activityParts: [
-              {
-                type: "turn_activity",
-                events: [],
-                activitySnapshot: {
-                  items: [{ label: "Read files" }],
-                },
-              },
-            ],
           },
         },
       ],

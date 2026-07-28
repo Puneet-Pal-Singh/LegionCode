@@ -91,6 +91,10 @@ export class TaskCheckoutBoundExecutionSession
     return recovered;
   }
 
+  async cancelTask(taskId: string): Promise<boolean> {
+    return await this.delegate.cancelTask(taskId);
+  }
+
   async release(): Promise<void> {
     await this.delegate.release();
   }

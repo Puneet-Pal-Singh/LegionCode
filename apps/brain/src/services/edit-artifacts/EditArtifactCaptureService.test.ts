@@ -11,6 +11,9 @@ import {
   extractChangedFileFromToolResult,
   mergePromptChangedFilesWithGitStats,
 } from "./EditArtifactCaptureService";
+import type { SecureExecutionSessionPort } from "../secure-execution/SecureExecutionSessionClient";
+
+const executionSession = {} as SecureExecutionSessionPort;
 
 describe("EditArtifactCaptureService helpers", () => {
   afterEach(() => {
@@ -113,7 +116,7 @@ describe("EditArtifactCaptureService helpers", () => {
       threadId: "thread-1",
       turnId: "turn-1",
       runAttemptId: "attempt-1",
-      muscleSession: "run-1",
+      executionSession,
       repoOwner: "owner",
       repoName: "repo",
       repoUrl: "https://github.com/owner/repo",
@@ -165,7 +168,7 @@ describe("EditArtifactCaptureService helpers", () => {
         threadId: "thread-1",
         turnId: "turn-1",
         runAttemptId: "attempt-1",
-        muscleSession: "run-1",
+        executionSession,
         repoOwner: "owner",
         repoName: "repo",
         repoUrl: "https://github.com/owner/repo",
@@ -197,7 +200,7 @@ describe("EditArtifactCaptureService helpers", () => {
         threadId: "thread-1",
         turnId: "turn-1",
         runAttemptId: "attempt-1",
-        muscleSession: "run-1",
+        executionSession,
         repoOwner: "owner",
         repoName: "repo",
         repoUrl: "https://github.com/owner/repo",

@@ -64,6 +64,7 @@ export interface SecureExecutionSessionHandle {
 export interface SecureExecutionSessionPort {
   acquire(): Promise<SecureExecutionSessionHandle>;
   recoverAfterSandboxLoss(): Promise<SecureExecutionSessionHandle>;
+  cancelTask(taskId: string): Promise<boolean>;
   release(): Promise<void>;
 }
 
@@ -131,6 +132,33 @@ export class SecureExecutionSessionClient implements SecureExecutionSessionPort 
       this.releasePromise = this.releaseNow();
     }
     return await this.releasePromise;
+  }
+
+  async cancelTask(taskId: string): Promise<boolean> {
+    const session = await this.acquire();
+    const response = await fetchWithTimeout(
+      this.env.SECURE_API,
+      `http://internal/api/v1/cancel?session=${encodeURIComponent(this.brainSessionId)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ sessionId: session.sessionId, taskId }),
+      },
+      DEFAULT_EXECUTION_TIMEOUT_MS,
+    );
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      const error = SecureExecutionSessionErrorResponseSchema.safeParse(body);
+      throw new Error(
+        sanitizeLogText(
+          error.success ? error.data.error : "Failed to cancel secure task",
+        ),
+      );
+    }
+    return z.object({ cancelled: z.boolean() }).parse(body).cancelled;
   }
 
   private async create(): Promise<SecureExecutionSessionHandle> {

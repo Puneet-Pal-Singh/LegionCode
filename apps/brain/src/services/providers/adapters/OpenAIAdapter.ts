@@ -12,10 +12,11 @@ interface OpenAIConfig {
   apiKey: string;
   baseURL?: string;
   defaultModel?: string;
+  providerId?: string;
 }
 
 export class OpenAIAdapter extends OpenAICompatibleAdapter {
-  readonly provider = "openai";
+  readonly provider: string;
   readonly supportedModels: string[];
 
   constructor(config: OpenAIConfig) {
@@ -26,6 +27,7 @@ export class OpenAIAdapter extends OpenAICompatibleAdapter {
       supportedModels: [],
     };
     super(adapterConfig);
+    this.provider = config.providerId ?? "openai";
     this.supportedModels = [];
   }
 

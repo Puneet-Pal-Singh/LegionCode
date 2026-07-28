@@ -235,6 +235,7 @@ export class ChatController {
           repositoryName: body.repositoryName,
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
+          contextWindowTokens: body.contextWindowTokens,
           tools: body.tools,
           identity,
           backgroundTaskOwner,

@@ -87,6 +87,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       endpoint: this.endpoint,
       apiKey: this.apiKey,
       body: buildResponsesRequestBody(params, model),
+      signal: params.signal,
     });
     const usage = normalizeResponsesUsage(payload.usage, this.provider, model);
 
@@ -138,8 +139,11 @@ async function requestResponsesCompletion(input: {
   endpoint: string;
   apiKey: string;
   body: Record<string, unknown>;
+  signal?: AbortSignal;
 }): Promise<ResponsesPayload> {
   const abortController = new AbortController();
+  const abort = () => abortController.abort(input.signal?.reason);
+  input.signal?.addEventListener("abort", abort, { once: true });
   const timeoutId = setTimeout(
     () => abortController.abort(),
     OPENAI_RESPONSES_TIMEOUT_MS,
@@ -172,6 +176,7 @@ async function requestResponsesCompletion(input: {
     );
   } finally {
     clearTimeout(timeoutId);
+    input.signal?.removeEventListener("abort", abort);
   }
 }
 

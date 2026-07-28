@@ -78,34 +78,6 @@ describe("LifecycleController", () => {
     });
   });
 
-  it("proxies live lifecycle continuation to the owning runtime", async () => {
-    const env = {} as Env;
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      new Response('{"type":"turn.started"}\n', {
-        headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
-      }),
-    );
-
-    const response = await LifecycleController.getEventsStream(
-      new Request(
-        `https://brain.local/turns/${TURN_ID}/lifecycle-events/stream?afterSequence=5`,
-      ),
-      env,
-    );
-
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      RUN_ID,
-      "execution-engine-v1",
-      {
-        method: "GET",
-        path: `/lifecycle-events/stream?turnId=${TURN_ID}&afterSequence=5`,
-      },
-    );
-    expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain("turn.started");
-  });
-
   it("rejects lifecycle replay when the user does not own the run", async () => {
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({ getRun: vi.fn().mockResolvedValue(null) }),

@@ -1605,11 +1605,20 @@ function resolveSelection(
     catalog,
     correlationId,
   );
+  const contextWindow =
+    catalog.providers
+      .find((provider) => provider.providerId === selectedCredential.providerId)
+      ?.models.find((model) => model.id === modelId)?.contextWindow ??
+    builtinProviderRegistry.getModel(
+      selectedCredential.providerId,
+      modelId,
+    )?.contextWindow;
 
   return {
     providerId: selectedCredential.providerId,
     credentialId: selectedCredential.credentialId,
     modelId,
+    ...(contextWindow ? { contextWindow } : {}),
     resolvedAt,
     resolvedAtTime: new Date().toISOString(),
   };

@@ -106,6 +106,7 @@ export class ExecutionService {
         timestamp?: number;
       }) => Promise<void> | void;
       scope?: SecureExecutionWorkspaceScope;
+      signal?: AbortSignal;
     },
   ) {
     const scope = options?.scope ?? this.workspaceScope;
@@ -367,13 +368,14 @@ export class ExecutionService {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
-    _options:
+    options:
       | {
           onOutput?: (chunk: {
             message: string;
             source?: "stdout" | "stderr";
             timestamp?: number;
           }) => Promise<void> | void;
+          signal?: AbortSignal;
         }
       | undefined,
     scope: SecureExecutionWorkspaceScope | undefined,
@@ -394,7 +396,7 @@ export class ExecutionService {
       }),
     );
     try {
-      const res = await fetchWithTimeout(
+      const request = fetchWithTimeout(
         this.env.SECURE_API,
         `http://internal/api/v1/execute?session=${encodeURIComponent(this.sessionId)}`,
         {
@@ -418,10 +420,54 @@ export class ExecutionService {
         },
         timeoutMs,
       );
+      let removeCancellationListener = () => {};
+      const signal = options?.signal;
+      const cancellation = signal
+        ? new Promise<never>((_, reject) => {
+            const cancel = async () => {
+              try {
+                await this.executionSession.cancelTask(taskId);
+                reject(new DOMException("Run was cancelled", "AbortError"));
+              } catch (error) {
+                reject(error);
+              }
+            };
+            if (signal.aborted) {
+              void cancel();
+              return;
+            }
+            const onAbort = () => void cancel();
+            signal.addEventListener("abort", onAbort, { once: true });
+            removeCancellationListener = () =>
+              signal.removeEventListener("abort", onAbort);
+          })
+        : null;
+      const res = cancellation
+        ? await (async () => {
+            try {
+              return await Promise.race([request, cancellation]);
+            } finally {
+              removeCancellationListener();
+            }
+          })()
+        : await request;
       const executionResult = await parseSecureExecutionResponse(res);
       if (!res.ok) {
-        console.error(
-          formatDiagnosticLogLine("execution/tool", "http-failed", {
+        const expectedBootstrapMiss =
+          executionResult &&
+          isExpectedGitStatusBootstrapFailure(
+            plugin,
+            action,
+            executionResult,
+          );
+        const logHttpFailure = expectedBootstrapMiss
+          ? console.log
+          : console.error;
+        logHttpFailure(
+          formatDiagnosticLogLine(
+            "execution/tool",
+            expectedBootstrapMiss ? "http-warning" : "http-failed",
+            {
             runId: this.runId,
             sessionId: this.sessionId,
             secureSessionId: executionSession.sessionId,
@@ -430,7 +476,8 @@ export class ExecutionService {
             action,
             httpStatus: res.status,
             elapsedMs: Date.now() - startedAt,
-          }),
+            },
+          ),
         );
         if (executionResult) {
           if (executionResult.status === "sandbox_unavailable") {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
+import { ThreadTitleService } from "../../services/thread-titles";
 import { HandleChatRequest } from "./HandleChatRequest";
 
 describe("HandleChatRequest", () => {
@@ -17,7 +18,11 @@ describe("HandleChatRequest", () => {
   it("builds execution payload and persists the last user message", async () => {
     const persistSpy = vi
       .spyOn(PersistenceService.prototype, "persistUserMessage")
-      .mockResolvedValue();
+      .mockResolvedValue({ id: "message-1" } as Awaited<
+        ReturnType<PersistenceService["persistUserMessage"]>
+      >);
+    vi.spyOn(PersistenceService.prototype, "findFirstPersistedUserMessage")
+      .mockResolvedValue(null);
 
     const useCase = new HandleChatRequest(createEnv());
     const messages: CoreMessage[] = [
@@ -98,7 +103,11 @@ describe("HandleChatRequest", () => {
       .mockResolvedValue({} as Awaited<ReturnType<PersistenceService["ensureRun"]>>);
     const persistSpy = vi
       .spyOn(PersistenceService.prototype, "persistUserMessage")
-      .mockResolvedValue();
+      .mockResolvedValue({ id: "message-1" } as Awaited<
+        ReturnType<PersistenceService["persistUserMessage"]>
+      >);
+    vi.spyOn(PersistenceService.prototype, "findFirstPersistedUserMessage")
+      .mockResolvedValue(null);
 
     const useCase = new HandleChatRequest(createEnv());
 
@@ -115,12 +124,19 @@ describe("HandleChatRequest", () => {
       modelId: "deepseek/deepseek-v4-flash:free",
       repositoryOwner: "Puneet-Pal-Singh",
       repositoryName: "career-crew",
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_order001",
+        turnId: "trn_order001",
+        runAttemptId: "attempt_order001",
+      },
     });
 
     expect(ensureSessionSpy).toHaveBeenCalledWith({
       sessionId: "123e4567-e89b-42d3-a456-426614174001",
       userId: "123e4567-e89b-42d3-a456-426614174002",
       workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      threadId: "thr_order001",
       taskId: "123e4567-e89b-42d3-a456-426614174001",
       repository: "Puneet-Pal-Singh/career-crew",
     });
@@ -142,6 +158,53 @@ describe("HandleChatRequest", () => {
     expect(ensureRunSpy.mock.invocationCallOrder[0]).toBeLessThan(
       persistSpy.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
+  });
+
+  it("persists a deterministic first-message title without starting competing inference", async () => {
+    vi.spyOn(PersistenceService.prototype, "ensureTranscriptSession").mockResolvedValue();
+    vi.spyOn(PersistenceService.prototype, "ensureRun").mockResolvedValue(
+      {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
+    );
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue({
+      id: "message-first",
+    } as Awaited<ReturnType<PersistenceService["persistUserMessage"]>>);
+    vi.spyOn(
+      PersistenceService.prototype,
+      "findFirstPersistedUserMessage",
+    ).mockResolvedValue({
+      id: "message-first",
+    } as Awaited<
+      ReturnType<PersistenceService["findFirstPersistedUserMessage"]>
+    >);
+    const previewSpy = vi
+      .spyOn(ThreadTitleService.prototype, "persistPreview")
+      .mockResolvedValue({ titleVersion: 1 } as Awaited<
+        ReturnType<ThreadTitleService["persistPreview"]>
+      >);
+    const waitUntil = vi.fn();
+
+    await new HandleChatRequest(createEnv()).execute({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      correlationId: "corr-title-preview",
+      agentType: "coding",
+      prompt: "edit the readme",
+      messages: [{ role: "user", content: "edit the readme" }],
+      providerId: "openrouter",
+      modelId: "poolside/laguna-s-2.1:free",
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_title001",
+        turnId: "trn_title001",
+        runAttemptId: "attempt_title001",
+      },
+      backgroundTaskOwner: { waitUntil },
+    });
+
+    expect(previewSpy).toHaveBeenCalledOnce();
+    expect(waitUntil).not.toHaveBeenCalled();
   });
 
   it("honors explicit runtime selection overrides in execution payload", async () => {

@@ -12,6 +12,7 @@ import type {
   ProviderCatalogResponse,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
+import { builtinProviderRegistry } from "@repo/provider-core";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import {
@@ -103,6 +104,10 @@ export class ProviderCatalogService {
                 id: defaultModelId,
                 name: defaultModelId,
                 providerId,
+                contextWindow: builtinProviderRegistry.getModel(
+                  providerId,
+                  defaultModelId,
+                )?.contextWindow,
               },
             ]
           : [],

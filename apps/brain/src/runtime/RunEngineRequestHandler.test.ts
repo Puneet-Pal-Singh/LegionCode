@@ -22,7 +22,6 @@ import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { LifecycleEventStore } from "@repo/persistence";
 import { TaskCheckoutSchema, TurnIdSchema } from "@repo/platform-protocol";
 import type { Env } from "../types/ai";
-import { CloudflareEventStreamAdapter } from "./adapters/CloudflareEventStreamAdapter";
 import {
   RunEngineRequestHandler,
   type CanonicalRunEventSink,
@@ -74,6 +73,41 @@ describe("RunEngineRequestHandler", () => {
     );
   });
 
+  it("reconstructs the persisted turn scope after a runtime instance reload", async () => {
+    const ctx = new MockDurableObjectState();
+    const firstHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const startResponse = await firstHandler.handleTurnStartRequest(
+      new Request("https://run-engine/turn/start", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_123456",
+          sessionId: "session-1",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "corr-1",
+        }),
+      }),
+    );
+    const identity = (await startResponse.json()) as Record<string, string>;
+
+    const reloadedHandler = new RunEngineRequestHandler(
+      ctx as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const scopeResponse = await reloadedHandler.handleTurnScopeRequest(
+      new Request(
+        "https://run-engine/turn/scope?runId=run_123456&sessionId=session-1",
+      ),
+    );
+
+    expect(scopeResponse.status).toBe(200);
+    await expect(scopeResponse.json()).resolves.toEqual(identity);
+  });
+
   it("issues one turn attempt per client message while preserving thread identity", async () => {
     const handler = new RunEngineRequestHandler(
       new MockDurableObjectState() as unknown as DurableObjectState,
@@ -108,6 +142,118 @@ describe("RunEngineRequestHandler", () => {
     expect(second.turnId).not.toBe(first.turnId);
     expect(second.runAttemptId).not.toBe(first.runAttemptId);
     expect(repeated).toEqual(second);
+  });
+
+  it("rejects a clientMessageId reused with a different session", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const start = (sessionId: string, clientMessageId: string) =>
+      handler.handleTurnStartRequest(
+        new Request("https://run-engine/turn/start", {
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId,
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            correlationId: "corr-1",
+          }),
+        }),
+      );
+
+    await start("session-1", "client-message-shared");
+    const conflictResponse = await start("session-2", "client-message-shared");
+
+    expect(conflictResponse.status).toBe(409);
+    await expect(conflictResponse.json()).resolves.toMatchObject({
+      code: "CLIENT_MESSAGE_ID_CONFLICT",
+    });
+  });
+
+  it("produces disjoint scopes for two chats with different session and run ids", async () => {
+    const ctxA = new MockDurableObjectState();
+    const ctxB = new MockDurableObjectState();
+    const handlerA = new RunEngineRequestHandler(
+      ctxA as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const handlerB = new RunEngineRequestHandler(
+      ctxB as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+
+    const responseA = await handlerA.handleTurnStartRequest(
+      new Request("https://run-engine/turn/start", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_chat_a",
+          sessionId: "session-a",
+          clientMessageId: "msg-1-a",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "corr-a",
+        }),
+      }),
+    );
+    const responseB = await handlerB.handleTurnStartRequest(
+      new Request("https://run-engine/turn/start", {
+        method: "POST",
+        body: JSON.stringify({
+          runId: "run_chat_b",
+          sessionId: "session-b",
+          clientMessageId: "msg-1-b",
+          workspaceId: "00000000-0000-4000-8000-000000000001",
+          correlationId: "corr-b",
+        }),
+      }),
+    );
+
+    expect(responseA.status).toBe(201);
+    expect(responseB.status).toBe(201);
+    const scopeA = (await responseA.json()) as Record<string, string>;
+    const scopeB = (await responseB.json()) as Record<string, string>;
+
+    expect(scopeA.turnId).not.toBe(scopeB.turnId);
+    expect(scopeA.threadId).not.toBe(scopeB.threadId);
+    expect(scopeA.runAttemptId).not.toBe(scopeB.runAttemptId);
+  });
+
+  it("allows the same session to continue with a new turn", async () => {
+    const handler = new RunEngineRequestHandler(
+      new MockDurableObjectState() as unknown as DurableObjectState,
+      {} as Env,
+      runImmediately,
+    );
+    const start = (clientMessageId: string) =>
+      handler.handleTurnStartRequest(
+        new Request("https://run-engine/turn/start", {
+          method: "POST",
+          body: JSON.stringify({
+            runId: "run_123456",
+            sessionId: "session-1",
+            clientMessageId,
+            workspaceId: "00000000-0000-4000-8000-000000000001",
+            correlationId: "corr-1",
+          }),
+        }),
+      );
+
+    const first = (await (await start("msg-1")).json()) as Record<
+      string,
+      string
+    >;
+    const second = (await (await start("msg-2")).json()) as Record<
+      string,
+      string
+    >;
+
+    expect(second.threadId).toBe(first.threadId);
+    expect(second.turnId).not.toBe(first.turnId);
+    expect(second.runAttemptId).not.toBe(first.runAttemptId);
   });
 
   it("returns the latest server-issued workspace scope for Git callers", async () => {
@@ -566,38 +712,6 @@ describe("RunEngineRequestHandler", () => {
     expect(secondEvent.runId).toBe(runId);
   });
 
-  it("streams events emitted after the event stream endpoint connects", async () => {
-    const ctx = new MockDurableObjectState();
-    const runId = "run_123e4567e89b42d3a456426614174111";
-    const eventStream = new CloudflareEventStreamAdapter();
-    const handler = new RunEngineRequestHandler(
-      ctx as unknown as DurableObjectState,
-      {} as Env,
-      runImmediately,
-      eventStream,
-      { canonicalEventSink: createNoopCanonicalEventSink() },
-    );
-
-    const response = await handler.handleEventsStreamRequest(
-      new Request(`https://brain.local/events/stream?runId=${runId}`),
-    );
-    eventStream.emit(
-      createToolRequestedEvent(
-        {
-          runId,
-          sessionId: "session-1",
-          taskId: "task-live",
-          toolName: "read_file",
-        },
-        { path: "README.md" },
-      ),
-    );
-    eventStream.complete(runId);
-
-    expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain('"toolName":"read_file"');
-  });
-
   it("rejects an interrupt whose canonical identity is not active", async () => {
     const ctx = new MockDurableObjectState();
     const runtimeState = tagRuntimeStateSemantics(ctx, "do");
@@ -632,6 +746,7 @@ describe("RunEngineRequestHandler", () => {
           threadId: "thr_123456",
           turnId: "trn_123456",
           runAttemptId: "attempt_123456",
+          reason: "User interrupted the turn.",
         }),
       }),
     );
@@ -762,6 +877,7 @@ describe("RunEngineRequestHandler", () => {
           threadId: "thr_123456",
           turnId: "trn_123456",
           runAttemptId: "attempt_123456",
+          reason: "User interrupted the turn.",
         }),
       }),
     );
@@ -1213,7 +1329,10 @@ function interruptRequest(identity: {
   return new Request("https://brain.local/interrupt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(identity),
+    body: JSON.stringify({
+      ...identity,
+      reason: "User interrupted the turn.",
+    }),
   });
 }
 

@@ -9,6 +9,7 @@ import type {
 import { ProviderError } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import { LLMUnusableResponseError } from "@shadowbox/execution-engine/runtime";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 
 // Google documents this sentinel for client-generated/replayed function calls
 // that cannot preserve Gemini 3's encrypted thought signature.
@@ -56,6 +57,8 @@ export class GoogleAdapter implements ProviderAdapter {
         system: params.system,
         tools: params.tools,
         temperature: params.temperature,
+        abortSignal: params.signal,
+        maxRetries: PROVIDER_SDK_MAX_RETRIES,
       });
 
       return {
@@ -96,6 +99,8 @@ export class GoogleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     let fullText = "";
