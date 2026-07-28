@@ -45,6 +45,9 @@ describe("ProviderRegistry", () => {
     expect(
       builtinProviderRegistry.getModel("openai", "gpt-4o")?.supportsTools,
     ).toBe(true);
+    expect(
+      builtinProviderRegistry.getModel("openai", "gpt-4o")?.contextWindow,
+    ).toBe(128_000);
   });
 
   it("rejects duplicate providers and orphaned models", () => {

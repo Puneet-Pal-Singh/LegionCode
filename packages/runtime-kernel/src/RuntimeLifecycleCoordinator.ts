@@ -24,6 +24,10 @@ import {
   validateTerminalSettlement,
   type ApprovalStatus,
   type ItemKind,
+  type LifecycleToolDisplay,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
+  type ContextCompactionPayload,
   type ItemStatus,
   type LifecycleEvent,
   type LifecycleEventType,
@@ -77,6 +81,8 @@ const RUNTIME_HOOK_AUDIT_EVENT_TYPES = new Set<LifecycleEventType>([
   "hook.invocation.timed_out",
   "hook.invocation.cancelled",
 ]);
+
+const MAX_LIFECYCLE_OUTPUT_LENGTH = 4_000;
 
 export class RuntimeLifecycleCoordinator {
   private status: TurnStatus = "queued";
@@ -155,24 +161,40 @@ export class RuntimeLifecycleCoordinator {
     itemId: ItemId,
     toolCallId: ToolCallId,
     input: JsonRecord,
+    display?: LifecycleToolDisplay,
   ): Promise<void> {
     await this.enqueue(async () =>
-      this.startToolCallNow(itemId, toolCallId, input),
+      this.startToolCallNow(itemId, toolCallId, input, display),
     );
+  }
+
+  async appendAssistantCommentary(itemId: ItemId, text: string): Promise<void> {
+    const bounded = text.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH);
+    if (!bounded.trim()) return;
+    await this.enqueue(async () => {
+      await this.startItem(itemId, "commentary", {});
+      await this.emit({
+        type: "assistant_message.delta",
+        itemId,
+        payload: { phase: "commentary", delta: bounded },
+      });
+      await this.settleItem(itemId, "completed", { result: { text: bounded } });
+    });
   }
 
   private async startToolCallNow(
     itemId: ItemId,
     toolCallId: ToolCallId,
     input: JsonRecord,
+    display?: LifecycleToolDisplay,
   ): Promise<void> {
-    await this.startItem(itemId, "tool_call", {});
+    await this.startItem(itemId, "tool_call", display ? { display } : {});
     const next = transitionToolCallStatus("not_started", "active");
     await this.emit({
       type: "tool_call.started",
       itemId,
       toolCallId,
-      payload: {},
+      payload: display ? { display } : {},
     });
     this.toolCallStatuses[toolCallId] = next;
     this.toolCallItems[toolCallId] = itemId;
@@ -202,7 +224,7 @@ export class RuntimeLifecycleCoordinator {
       type: "tool_call.output_delta",
       itemId: this.requireToolCallItem(toolCallId),
       toolCallId,
-      payload: { output },
+      payload: { output: output.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH) },
     });
   }
 
@@ -255,6 +277,65 @@ export class RuntimeLifecycleCoordinator {
         payload: { diff: JsonRecordSchema.parse(diff) },
       }),
     );
+  }
+
+  async updateContextBudget(snapshot: ContextBudgetSnapshot): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "context_budget.updated",
+        payload: { snapshot },
+      }),
+    );
+  }
+
+  async updateUsage(usage: UsageCostSnapshot): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "usage.updated",
+        payload: { usage },
+      }),
+    );
+  }
+
+  async requestContextCompaction(
+    payload: ContextCompactionPayload,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      await this.startItem(payload.itemId, "context_compaction", {
+        kind: "context_compaction",
+        mode: payload.mode,
+      });
+      await this.emit({
+        type: "context_compaction.requested",
+        itemId: payload.itemId,
+        payload: { ...payload, phase: "requested" },
+      });
+      await this.emit({
+        type: "context_compaction.started",
+        itemId: payload.itemId,
+        payload: { ...payload, phase: "compacting" },
+      });
+    });
+  }
+
+  async settleContextCompaction(
+    payload: ContextCompactionPayload,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      const terminal = payload.phase === "failed" ? "failed" : "completed";
+      await this.emit({
+        type: `context_compaction.${terminal}`,
+        itemId: payload.itemId,
+        payload,
+      });
+      await this.settleItem(
+        payload.itemId,
+        terminal,
+        terminal === "failed"
+          ? { reason: payload.error ?? "Context compaction failed" }
+          : { result: { preservedContextReference: payload.preservedContextReference } },
+      );
+    });
   }
 
   private async createArtifactNow(
@@ -372,7 +453,7 @@ export class RuntimeLifecycleCoordinator {
     await this.emit({
       type: "assistant_message.delta",
       itemId,
-      payload: { delta: output },
+      payload: { phase: "final_answer", delta: output },
     });
     await this.settleItem(itemId, "completed", { result: { output } });
     await this.settleTurn({ status: "completed" });

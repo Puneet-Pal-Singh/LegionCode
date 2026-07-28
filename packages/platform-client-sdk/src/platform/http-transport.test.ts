@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { registerPlatformTransportConformance } from "@repo/contract-conformance";
 import { createPlatformClient } from "./client.js";
-import { PlatformClientOperationError } from "./errors.js";
 import { createPlatformHttpTransport } from "./http-transport.js";
 import {
   TEST_IDS,
@@ -17,7 +16,7 @@ import {
   createTurn,
   createTurnDiff,
 } from "./test-fixtures.js";
-import type { LifecycleEvent, RunEvent } from "@repo/platform-protocol";
+import type { LifecycleEvent } from "@repo/platform-protocol";
 
 interface FetchCall {
   url: string;
@@ -29,21 +28,6 @@ function createJsonResponse(payload: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function createNdjsonResponse(...payloads: readonly unknown[]): Response {
-  const encoder = new TextEncoder();
-  return new Response(
-    new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const payload of payloads) {
-          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
-        }
-        controller.close();
-      },
-    }),
-    { headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } },
-  );
 }
 
 function createFetch(
@@ -138,31 +122,6 @@ describe("createPlatformHttpTransport", () => {
     ]);
   });
 
-  it("attaches run streams as typed NDJSON events", async () => {
-    const calls: FetchCall[] = [];
-    const transport = createPlatformHttpTransport({
-      baseUrl: "https://control-plane.test",
-      fetchImpl: createFetch(createNdjsonResponse(createRunEvent()), calls),
-    });
-    const client = createPlatformClient(transport);
-    const events: RunEvent[] = [];
-
-    for await (const event of client.attachRunStream({
-      runId: TEST_IDS.runId,
-      afterCursor: TEST_IDS.cursor,
-    })) {
-      events.push(event);
-    }
-
-    expect(calls[0]?.url).toBe(
-      "https://control-plane.test/runs/run_123456/events/stream?afterCursor=cursor_123456",
-    );
-    expect(calls[0]?.init.headers).toEqual({
-      Accept: "application/x-ndjson",
-    });
-    expect(events).toEqual([createRunEvent()]);
-  });
-
   it("replays run events with cursor and limit query parameters", async () => {
     const calls: FetchCall[] = [];
     const transport = createPlatformHttpTransport({
@@ -192,7 +151,7 @@ describe("createPlatformHttpTransport", () => {
     );
   });
 
-  it("starts turns and consumes lifecycle replay plus stream endpoints", async () => {
+  it("starts turns and consumes lifecycle replay", async () => {
     const calls: FetchCall[] = [];
     const transport = createPlatformHttpTransport({
       baseUrl: "https://control-plane.test",
@@ -201,9 +160,6 @@ describe("createPlatformHttpTransport", () => {
         if (String(input).endsWith("/turns")) {
           return createJsonResponse({ run: createRun(), turn: createTurn() });
         }
-        if (String(input).includes("/stream")) {
-          return createNdjsonResponse(createLifecycleEvent(2));
-        }
         return createJsonResponse({
           events: [createLifecycleEvent(1)],
           nextSequence: 1,
@@ -211,27 +167,16 @@ describe("createPlatformHttpTransport", () => {
       }),
     });
     const client = createPlatformClient(transport);
-    const streamed: LifecycleEvent[] = [];
-
     await client.startTurn(createRunRequest());
     await client.replayLifecycleEvents({
       turnId: TEST_IDS.turnId,
       afterSequence: 4,
       limit: 25,
     });
-    for await (const event of client.attachLifecycleStream({
-      turnId: TEST_IDS.turnId,
-      afterSequence: 5,
-    })) {
-      streamed.push(event);
-    }
-
     expect(calls.map((call) => call.url)).toEqual([
       "https://control-plane.test/turns",
       "https://control-plane.test/turns/trn_123456/lifecycle-events?afterSequence=4&limit=25",
-      "https://control-plane.test/turns/trn_123456/lifecycle-events/stream?afterSequence=5",
     ]);
-    expect(streamed).toEqual([createLifecycleEvent(2)]);
   });
 
   it("maps protocol error envelopes to typed errors", async () => {
@@ -260,23 +205,6 @@ describe("createPlatformHttpTransport", () => {
       statusCode: 404,
       retryable: false,
     });
-  });
-
-  it("fails stream attachment on malformed NDJSON", async () => {
-    const transport = createPlatformHttpTransport({
-      baseUrl: "https://control-plane.test",
-      fetchImpl: createFetch(
-        new Response("{bad-json}\n", {
-          headers: { "Content-Type": "application/x-ndjson" },
-        }),
-      ),
-    });
-    const client = createPlatformClient(transport);
-    const stream = client.attachRunStream({ runId: TEST_IDS.runId });
-
-    await expect(readAll(stream)).rejects.toBeInstanceOf(
-      PlatformClientOperationError,
-    );
   });
 
   it("constructs approval and run resource endpoints", async () => {
@@ -372,11 +300,3 @@ registerPlatformTransportConformance("Platform HTTP transport", (response) => {
       })),
   };
 });
-
-async function readAll<T>(stream: AsyncIterable<T>): Promise<T[]> {
-  const values: T[] = [];
-  for await (const value of stream) {
-    values.push(value);
-  }
-  return values;
-}

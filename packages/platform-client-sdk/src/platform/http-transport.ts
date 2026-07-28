@@ -11,14 +11,14 @@ import {
   parseProtocolErrorEnvelope,
 } from "./errors.js";
 import type {
-  AttachLifecycleStreamRequest,
   GetTurnDiffRequest,
+  InterruptTurnRequest,
+  CompactTurnRequest,
   ReplayLifecycleEventsRequest,
   SubmitLifecycleApprovalRequest,
   SubmitUserInputResponseRequest,
 } from "./lifecycle-types.js";
 import type {
-  AttachRunStreamRequest,
   ListArtifactsRequest,
   ListThreadsRequest,
   PlatformClientOperationOptions,
@@ -56,10 +56,6 @@ export function createPlatformHttpTransport(
       request.json("GET", buildListThreadsPath(payload), undefined, options),
     getRun: (runId, options) =>
       request.json("GET", buildRunPath(runId), undefined, options),
-    attachRunStream: (payload, options) =>
-      request.stream(buildRunEventsStreamPath(payload), options),
-    attachLifecycleStream: (payload, options) =>
-      request.stream(buildLifecycleEventsStreamPath(payload), options),
     replayRunEvents: (payload, options) =>
       request.json(
         "GET",
@@ -74,6 +70,10 @@ export function createPlatformHttpTransport(
         undefined,
         options,
       ),
+    interruptTurn: (payload, options) =>
+      request.json("POST", buildInterruptTurnPath(payload), payload, options),
+    compactTurn: (payload, options) =>
+      request.json("POST", buildCompactTurnPath(payload), payload, options),
     submitApproval: (payload, options) =>
       request.json("POST", buildApprovalPath(payload), payload, options),
     submitLifecycleApproval: (payload, options) =>
@@ -113,10 +113,6 @@ interface TransportRequest {
     payload?: unknown,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
-  stream(
-    path: string,
-    options?: PlatformClientOperationOptions,
-  ): AsyncIterable<unknown>;
 }
 
 function createTransportRequest(
@@ -138,16 +134,6 @@ function createTransportRequest(
         method,
         path,
         payload,
-        requestOptions,
-        headers: options.getHeaders?.(),
-      }),
-    stream: (path, requestOptions) =>
-      streamJsonLines({
-        fetchImpl,
-        credentials,
-        previewLimit,
-        baseUrl,
-        path,
         requestOptions,
         headers: options.getHeaders?.(),
       }),
@@ -180,45 +166,18 @@ async function sendJsonRequest(input: JsonRequestInput): Promise<unknown> {
   );
 }
 
-interface StreamRequestInput {
+interface RequestInput {
   fetchImpl: typeof fetch;
   credentials: RequestCredentials;
   previewLimit: number;
   baseUrl: string;
-  path: string;
-  requestOptions?: PlatformClientOperationOptions;
-  headers?: Record<string, string>;
-}
-
-async function* streamJsonLines(
-  input: StreamRequestInput,
-): AsyncIterable<unknown> {
-  const response = await sendRequest({
-    ...input,
-    method: "GET",
-    payload: undefined,
-    accept: "application/x-ndjson",
-  });
-  if (!response.body) {
-    throw new PlatformClientOperationError(
-      "INVALID_RESPONSE_FORMAT",
-      `Missing stream body for GET ${input.path}`,
-      false,
-      undefined,
-      502,
-    );
-  }
-
-  for await (const line of readNonEmptyLines(response.body)) {
-    yield parseJsonLine(line, input.path);
-  }
-}
-
-interface RequestInput extends StreamRequestInput {
   method: "GET" | "POST";
+  path: string;
   payload: unknown;
+  requestOptions?: PlatformClientOperationOptions;
   accept: string;
   contentType?: string;
+  headers?: Record<string, string>;
 }
 
 async function sendRequest(input: RequestInput): Promise<Response> {
@@ -399,54 +358,6 @@ function readStringField(
   return undefined;
 }
 
-async function* readNonEmptyLines(
-  body: ReadableStream<Uint8Array>,
-): AsyncIterable<string> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) {
-        break;
-      }
-      buffer += decoder.decode(result.value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.length > 0) {
-          yield trimmed;
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  buffer += decoder.decode();
-  const trimmed = buffer.trim();
-  if (trimmed.length > 0) {
-    yield trimmed;
-  }
-}
-
-function parseJsonLine(line: string, path: string): unknown {
-  try {
-    return JSON.parse(line);
-  } catch {
-    throw new PlatformClientOperationError(
-      "INVALID_RESPONSE_FORMAT",
-      `Invalid JSON stream line for GET ${path}`,
-      false,
-      undefined,
-      502,
-    );
-  }
-}
-
 async function readResponsePreview(
   response: Response,
   limit: number,
@@ -521,18 +432,6 @@ function buildListArtifactsPath(request: ListArtifactsRequest): string {
   });
 }
 
-function buildRunEventsStreamPath(request: AttachRunStreamRequest): string {
-  const path = `${buildRunEventsPath(request.runId)}/stream`;
-  return addCursorQuery(path, request.afterCursor ?? null);
-}
-
-function buildLifecycleEventsStreamPath(
-  request: AttachLifecycleStreamRequest,
-): string {
-  const path = `${buildLifecycleEventsPath(request.turnId)}/stream`;
-  return addSequenceQuery(path, request.afterSequence ?? null);
-}
-
 function buildReplayRunEventsPath(request: ReplayRunEventsRequest): string {
   const path = buildRunEventsPath(request.runId);
   const params = new URLSearchParams();
@@ -583,26 +482,20 @@ function buildTurnDiffPath(request: GetTurnDiffRequest): string {
   return `/turns/${encodeURIComponent(TurnIdSchema.parse(request.turnId))}/diff`;
 }
 
+function buildInterruptTurnPath(_request: InterruptTurnRequest): string {
+  return "/api/run/interrupt";
+}
+
+function buildCompactTurnPath(request: CompactTurnRequest): string {
+  return `/turns/${encodeURIComponent(TurnIdSchema.parse(request.turnId))}/compact`;
+}
+
 function buildArtifactPath(artifactId: ArtifactId): string {
   return `/artifacts/${encodeURIComponent(ArtifactIdSchema.parse(artifactId))}`;
 }
 
 function buildWorkspaceManifestPath(runId: string): string {
   return `/runs/${encodeURIComponent(RunIdSchema.parse(runId))}/workspace-manifest`;
-}
-
-function addCursorQuery(path: string, cursor: string | null): string {
-  if (!cursor) {
-    return path;
-  }
-  return `${path}?afterCursor=${encodeURIComponent(cursor)}`;
-}
-
-function addSequenceQuery(path: string, sequence: number | null): string {
-  if (sequence === null) {
-    return path;
-  }
-  return `${path}?afterSequence=${encodeURIComponent(String(sequence))}`;
 }
 
 function addLifecycleReplayQuery(

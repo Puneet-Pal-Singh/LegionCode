@@ -2,6 +2,7 @@ import type {
   ApprovalDecision,
   ApprovalRequestedPayload,
   ArtifactMetadata,
+  ContextBudgetSnapshot,
   ItemId,
   JsonRecord,
   ProtocolError,
@@ -10,12 +11,15 @@ import type {
   ToolCallItemContent,
   Turn,
   UserId,
+  UsageCostSnapshot,
 } from "@repo/platform-protocol";
 import type { WorkspaceManifest } from "@repo/workspace-core";
 
 export interface RuntimeContext {
   readonly instructions: string;
   readonly metadata: JsonRecord;
+  readonly budgetSnapshot?: ContextBudgetSnapshot;
+  readonly usage?: UsageCostSnapshot;
 }
 
 export interface ToolResult {
@@ -50,11 +54,14 @@ export type ProviderStep =
       readonly kind: "complete";
       readonly itemId: ItemId;
       readonly output: string;
+      readonly usage?: UsageCostSnapshot;
     }
   | {
       readonly kind: "tool_call";
       readonly itemId: ItemId;
       readonly content: ToolCallItemContent;
+      readonly commentary?: string;
+      readonly usage?: UsageCostSnapshot;
     };
 
 export type WorkerToolResult =
@@ -113,4 +120,5 @@ export interface ProviderCallInput {
   readonly workspace: WorkspaceManifest;
   readonly context: RuntimeContext;
   readonly toolResults: readonly ToolResult[];
+  readonly signal?: AbortSignal;
 }

@@ -11,6 +11,7 @@ import {
 } from "./errors.js";
 import type {
   RuntimeHookOrchestrationPort,
+  ContextCompactionPort,
   RuntimeLifecycleEventStore,
 } from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
@@ -108,6 +109,65 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "turn.completed",
     ]);
     expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("automatically compacts once at the model-aware threshold and replays its settlement", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.contextAssembly.assemble = vi.fn(async () => ({
+      instructions: "Implement the requested change",
+      metadata: {},
+      budgetSnapshot: {
+        providerId: "openai",
+        modelId: "gpt-5",
+        contextWindowLimit: 100,
+        systemTokens: 10,
+        conversationTokens: 55,
+        toolDefinitionTokens: 5,
+        attachmentTokens: null,
+        repositoryContextTokens: null,
+        reservedOutputTokens: 20,
+        safetyReserveTokens: 10,
+        effectiveInputBudget: 70,
+        tokensUsed: 65,
+        tokensRemaining: 5,
+        utilizationPercent: 92.85,
+        warningThresholdPercent: 70,
+        automaticCompactionThresholdPercent: 80,
+        measurementSource: "tokenizer" as const,
+      },
+    }));
+    const compaction: ContextCompactionPort = {
+      compact: vi.fn(async ({ context }) => ({
+        context: {
+          ...context,
+          budgetSnapshot: {
+            ...context.budgetSnapshot!,
+            tokensUsed: 10,
+            tokensRemaining: 60,
+            utilizationPercent: 14.28,
+          },
+        },
+        preservedContextReference: "context:trn_runtime001:compacted",
+        summary: "Preserved request and tool outcomes.",
+      })),
+    };
+    const kernel = await createKernel(
+      sink,
+      ports,
+      createArtifactPorts(),
+      undefined,
+      compaction,
+    );
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(compaction.compact).toHaveBeenCalledTimes(1);
+    expect(eventTypes(sink)).toContain("context_compaction.requested");
+    expect(eventTypes(sink)).toContain("context_compaction.completed");
+    expect(
+      eventTypes(sink).filter((type) => type === "context_compaction.completed"),
+    ).toHaveLength(1);
   });
 
   it("settles failed tool work before the explicit failed turn outcome", async () => {
@@ -232,6 +292,45 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(eventTypes(sink)).toContain("item.failed");
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
     expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("starts tool lifecycle with the canonical display enriched by authorization", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "authorized" as const,
+      toolCall: {
+        ...toolCall,
+        display: {
+          title: "Edit file",
+          family: "edit" as const,
+          namespace: "write_file",
+          inputSummary: "src/index.ts",
+        },
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(
+      sink.events.find((event) => event.type === "tool_call.started")?.payload,
+    ).toEqual({
+      display: {
+        title: "Edit file",
+        family: "edit",
+        namespace: "write_file",
+        inputSummary: "src/index.ts",
+      },
+    });
   });
 
   it("emits approval lifecycle events before policy-gated execution", async () => {
@@ -483,6 +582,22 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
   });
 
+  it("settles a stop queued before kernel execution through the canonical lifecycle", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    const kernel = await createKernel(sink, ports);
+
+    kernel.requestInterruptBeforeStart(turn.id, "User stopped before execution");
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(ports.provider.generateNext).not.toHaveBeenCalled();
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)).toMatchObject({
+      type: "turn.interrupted",
+      payload: { outcome: { status: "interrupted", reason: "User stopped before execution" } },
+    });
+  });
+
   it("interrupts active tool work and rejects its later completion write", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
@@ -608,6 +723,7 @@ async function createKernel(
   ports = createPorts(),
   artifactPorts = createArtifactPorts(),
   hooks?: RuntimeHookOrchestrationPort,
+  contextCompaction?: ContextCompactionPort,
 ): Promise<RuntimeKernel> {
   return new RuntimeKernel({
     lifecycleEvents,
@@ -615,6 +731,7 @@ async function createKernel(
     workspaceManifests: await createManifestRepository(),
     ...ports,
     hooks,
+    contextCompaction,
     producerId: "runtime-kernel-test",
     clock: { now: () => timestamp },
   });

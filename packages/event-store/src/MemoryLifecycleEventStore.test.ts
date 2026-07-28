@@ -38,7 +38,7 @@ function createConformanceStore() {
       } catch (error) {
         if (
           !(error instanceof EventStoreError) ||
-          error.code !== "sequence_gap"
+          !["sequence_gap", "terminal_stream"].includes(error.code)
         )
           throw error;
         result = events;

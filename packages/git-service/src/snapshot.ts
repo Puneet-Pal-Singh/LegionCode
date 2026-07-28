@@ -66,7 +66,7 @@ export async function diffGitWorkspaceSnapshots(
     executor,
     runId,
     filesystemRoot,
-    ["diff", "--name-status", "-z", "--find-renames", ...range],
+    ["diff", "--name-status", "--find-renames", ...range],
     undefined,
     false,
   );
@@ -74,7 +74,7 @@ export async function diffGitWorkspaceSnapshots(
     executor,
     runId,
     filesystemRoot,
-    ["diff", "--numstat", "-z", "--find-renames", ...range],
+    ["diff", "--numstat", "--find-renames", ...range],
     undefined,
     false,
   );
@@ -159,47 +159,59 @@ function assertSnapshotIdentity(
 function mergeDiffFiles(nameOutput: string, statOutput: string): GitDiffFile[] {
   const files = parseNameStatus(nameOutput);
   const stats = parseNumstat(statOutput);
-  return files.map((file) => ({
+  return files.map((file, index) => ({
     ...file,
-    additions: stats.get(file.path)?.additions ?? 0,
-    deletions: stats.get(file.path)?.deletions ?? 0,
+    additions: stats[index]?.additions ?? 0,
+    deletions: stats[index]?.deletions ?? 0,
   }));
 }
 
 function parseNameStatus(
   output: string,
 ): Omit<GitDiffFile, "additions" | "deletions">[] {
-  const tokens = output.split("\0").filter(Boolean);
+  const records = splitGitRecords(output);
   const files: Omit<GitDiffFile, "additions" | "deletions">[] = [];
-  for (let index = 0; index < tokens.length; ) {
-    const parsed = readStatusToken(tokens, index);
-    files.push(parsed.file);
-    index = parsed.nextIndex;
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index] ?? "";
+    let [statusToken = "", path = "", nextPath] = record.split("\t");
+    if (!path && isStandaloneStatusToken(statusToken)) {
+      path = records[index + 1] ?? "";
+      index += 1;
+      const status = mapStatus(statusToken);
+      if (status === "renamed" || status === "copied") {
+        nextPath = records[index + 1] ?? "";
+        index += 1;
+      }
+    }
+
+      const status = mapStatus(statusToken);
+      if (!path || ((status === "renamed" || status === "copied") && !nextPath)) {
+        throw new GitServiceError(
+          "malformed_status_output",
+          "Git diff omitted a changed file path",
+        );
+      }
+      if (status === "renamed" || status === "copied") {
+        files.push({
+          path: nextPath ?? "",
+          previousPath: path,
+          status,
+        });
+        continue;
+      }
+      files.push({ path, previousPath: null, status });
   }
+
   return files;
 }
 
-function readStatusToken(
-  tokens: readonly string[],
-  index: number,
-): { file: Omit<GitDiffFile, "additions" | "deletions">; nextIndex: number } {
-  const first = tokens[index] ?? "";
-  const [inlineStatus, inlinePath] = first.split("\t", 2);
-  const statusToken = inlinePath === undefined ? first : (inlineStatus ?? "");
-  const status = mapStatus(statusToken);
-  const pathIndex = inlinePath === undefined ? index + 1 : index;
-  const path = inlinePath ?? tokens[pathIndex] ?? "";
-  if (status === "renamed" || status === "copied") {
-    const nextPath = tokens[pathIndex + 1] ?? "";
-    return {
-      file: { path: nextPath, previousPath: path, status },
-      nextIndex: pathIndex + 2,
-    };
-  }
-  return {
-    file: { path, previousPath: null, status },
-    nextIndex: pathIndex + 1,
-  };
+function splitGitRecords(output: string): string[] {
+  return output.split(/\0|\n/u).filter(Boolean);
+}
+
+function isStandaloneStatusToken(value: string): boolean {
+  return /^[ACDMRTU]\d*$/u.test(value);
 }
 
 function mapStatus(token: string): GitChangedFileStatus {
@@ -221,23 +233,16 @@ function mapStatus(token: string): GitChangedFileStatus {
 
 function parseNumstat(
   output: string,
-): Map<string, { additions: number; deletions: number }> {
-  const tokens = output.split("\0").filter(Boolean);
-  const result = new Map<string, { additions: number; deletions: number }>();
-  for (let index = 0; index < tokens.length; index += 1) {
-    const [added, deleted, path] = (tokens[index] ?? "").split("\t");
-    const stats = {
-      additions: parseCount(added),
-      deletions: parseCount(deleted),
-    };
-    if (path) result.set(path, stats);
-    else {
-      const terminalPath = tokens[index + 2];
-      if (terminalPath) result.set(terminalPath, stats);
-      index += 2;
-    }
-  }
-  return result;
+): Array<{ additions: number; deletions: number }> {
+  return splitGitRecords(output)
+    .filter(Boolean)
+    .map((line) => {
+      const [added, deleted] = line.split("\t");
+      return {
+        additions: parseCount(added),
+        deletions: parseCount(deleted),
+      };
+    });
 }
 
 function parseCount(value: string | undefined): number {

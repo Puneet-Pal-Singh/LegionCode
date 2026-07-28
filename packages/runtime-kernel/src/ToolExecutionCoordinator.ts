@@ -1,5 +1,7 @@
+import { LifecycleTransitionError } from "@repo/platform-protocol";
 import type {
   ItemId,
+  LifecycleToolDisplay,
   ProtocolError,
   Run,
   RunAttemptId,
@@ -13,6 +15,7 @@ import type { ToolAuthorizationPort, WorkerProtocolPort } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type {
   ApprovalResolution,
+  ToolAuthorizationResult,
   ToolResult,
   WorkerToolResult,
 } from "./types.js";
@@ -33,11 +36,22 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
+    signal?: AbortSignal,
   ): Promise<ToolResult> {
+    const authorization = await this.authorization.authorize({
+      run,
+      itemId,
+      toolCall,
+    });
+    const canonicalToolCall =
+      authorization.status === "rejected"
+        ? toolCall
+        : authorization.toolCall;
     await this.lifecycle.startToolCall(
       itemId,
-      toolCall.toolCallId,
-      toolCall.input,
+      canonicalToolCall.toolCallId,
+      canonicalToolCall.input,
+      canonicalToolCall.display,
     );
     try {
       return await this.executeAuthorizedTool(
@@ -46,7 +60,9 @@ export class ToolExecutionCoordinator {
         turn,
         workspace,
         itemId,
-        toolCall,
+        canonicalToolCall,
+        authorization,
+        signal,
       );
     } catch (error) {
       if (
@@ -80,12 +96,9 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
+    authorization: ToolAuthorizationResult,
+    signal?: AbortSignal,
   ): Promise<ToolResult> {
-    const authorization = await this.authorization.authorize({
-      run,
-      itemId,
-      toolCall,
-    });
     if (authorization.status === "rejected") {
       throw new RuntimeKernelError(authorization.code, authorization.reason);
     }
@@ -97,6 +110,7 @@ export class ToolExecutionCoordinator {
             turn,
             itemId,
             authorization.request,
+            signal,
           )
         : null;
     const result = await this.executeToCompletion(
@@ -107,6 +121,7 @@ export class ToolExecutionCoordinator {
       itemId,
       authorization.toolCall,
       approval,
+      signal,
     );
     if (result.kind === "failed") {
       if (result.disposition === "terminal") {
@@ -124,6 +139,14 @@ export class ToolExecutionCoordinator {
         },
         failure: result.failure,
       };
+    }
+    if (signal?.aborted || this.lifecycle.isTerminal) {
+      throw new LifecycleTransitionError(
+        "tool_call",
+        "active",
+        "interrupted",
+        "turn was interrupted before tool completion",
+      );
     }
     await this.emitWorkerResultEvents(
       run,
@@ -143,6 +166,7 @@ export class ToolExecutionCoordinator {
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
+    signal?: AbortSignal,
   ): Promise<
     Extract<WorkerToolResult, { kind: "completed" | "failed" }>
   > {
@@ -153,6 +177,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      signal,
     );
     if (initial.kind === "completed") {
       return initial;
@@ -175,6 +200,7 @@ export class ToolExecutionCoordinator {
       turn,
       itemId,
       initial.request,
+      signal,
     );
     return await this.resolveApprovedRetry(
       run,
@@ -183,6 +209,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       workerApproval,
+      signal,
     );
   }
 
@@ -193,6 +220,7 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution,
+    signal?: AbortSignal,
   ): Promise<
     Extract<WorkerToolResult, { kind: "completed" | "failed" }>
   > {
@@ -203,6 +231,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      signal,
     );
     if (result.kind === "approval_required") {
       throw new RuntimeKernelError(
@@ -226,6 +255,7 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
+    signal?: AbortSignal,
   ): Promise<WorkerToolResult> {
     return await this.worker.executeTool({
       runId: run.id,
@@ -234,6 +264,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      signal,
     });
   }
 

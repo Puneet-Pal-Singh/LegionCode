@@ -27,6 +27,7 @@ export class ApprovalCoordinator {
     turn: Turn,
     parentItemId: ItemId,
     request: ApprovalRequestedPayload,
+    signal?: AbortSignal,
   ): Promise<ApprovalResolution> {
     if (request.itemId === null || request.itemId === parentItemId) {
       throw new RuntimeKernelError(
@@ -46,15 +47,16 @@ export class ApprovalCoordinator {
           metadata: request.metadata,
         },
       );
-      const resolution = await Promise.race([
+      const resolution = await raceApprovalResolution([
         this.approvals.waitForDecision({
           runId: run.id,
           runAttemptId,
           turnId: turn.id,
           request,
+          signal,
         }),
         pending.resolution,
-      ]);
+      ], signal);
       await this.settle(request.approvalId, pending, resolution);
       if (resolution.decision !== "approved") {
         throw new RuntimeKernelError(
@@ -133,4 +135,24 @@ interface PendingApprovalResolution {
   readonly resolution: Promise<ApprovalResolution>;
   readonly resolve: (resolution: ApprovalResolution) => void;
   settlement: Promise<void> | null;
+}
+
+function raceApprovalResolution(
+  resolutions: readonly Promise<ApprovalResolution>[],
+  signal?: AbortSignal,
+): Promise<ApprovalResolution> {
+  if (!signal) return Promise.race(resolutions);
+  if (signal.aborted) {
+    return Promise.reject(
+      new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."),
+    );
+  }
+  return new Promise<ApprovalResolution>((resolve, reject) => {
+    const abort = () =>
+      reject(new RuntimeKernelError("turn_cancelled", "Turn cancelled by user."));
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.race(resolutions).then(resolve, reject).finally(() =>
+      signal.removeEventListener("abort", abort),
+    );
+  });
 }

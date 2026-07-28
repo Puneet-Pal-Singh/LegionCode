@@ -1,7 +1,9 @@
 import {
+  ItemIdSchema,
   RunAttemptIdSchema,
   RunSchema,
   TurnSchema,
+  LifecycleTransitionError,
   type LifecycleEvent,
   type Run,
   type Turn,
@@ -17,6 +19,8 @@ import {
 import type {
   ApprovalWaitPort,
   ContextAssemblyPort,
+  ContextCompactionMode,
+  ContextCompactionPort,
   ProviderPort,
   RuntimeLifecycleEventStore,
   RuntimeGitSnapshotPort,
@@ -29,6 +33,7 @@ import type {
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type { StartTurnInput, StartTurnResult, ToolResult } from "./types.js";
 import { ToolExecutionCoordinator } from "./ToolExecutionCoordinator.js";
+import { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
 import {
   TurnArtifactSettlementCoordinator,
   type TurnArtifactSettlementResult,
@@ -44,6 +49,7 @@ export interface RuntimeKernelDependencies {
   readonly turnArtifacts: RuntimeTurnArtifactPort;
   readonly workspaceManifests: WorkspaceManifestRepository;
   readonly contextAssembly: ContextAssemblyPort;
+  readonly contextCompaction?: ContextCompactionPort;
   readonly provider: ProviderPort;
   readonly worker: WorkerProtocolPort;
   readonly toolAuthorization: ToolAuthorizationPort;
@@ -52,6 +58,7 @@ export interface RuntimeKernelDependencies {
   readonly producerId: string;
   readonly maxToolCalls?: number;
   readonly clock?: RuntimeKernelClock;
+  readonly signal?: AbortSignal;
 }
 
 interface PreparedTurn {
@@ -82,15 +89,57 @@ export class RuntimeKernel {
     string,
     Promise<TurnArtifactSettlementResult>
   >();
+  private readonly pendingInterrupts = new Map<string, string>();
+  private readonly executions = new Map<string, Promise<StartTurnResult>>();
+  private readonly preparedTurns = new Map<string, PreparedTurn>();
+  private readonly activeContexts = new Map<string, Awaited<ReturnType<ContextAssemblyPort["assemble"]>>>();
+  private readonly compactedContexts = new Set<string>();
+  private readonly compactions = new Map<string, Promise<void>>();
+  private readonly automaticCompactions = new Set<string>();
+  private readonly interruptController = new AbortController();
+  private readonly executionSignal: AbortSignal;
 
   constructor(private readonly dependencies: RuntimeKernelDependencies) {
     this.workspaces = new WorkspaceCoordinator(dependencies.workspaceManifests);
     this.maxToolCalls = dependencies.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS;
     this.clock = dependencies.clock ?? systemClock;
+    this.executionSignal = this.interruptController.signal;
+    if (dependencies.signal) {
+      if (dependencies.signal.aborted) {
+        this.interruptController.abort(dependencies.signal.reason);
+      } else {
+        dependencies.signal.addEventListener(
+          "abort",
+          () => this.interruptController.abort(dependencies.signal?.reason),
+          { once: true },
+        );
+      }
+    }
   }
 
   async startTurn(input: StartTurnInput): Promise<StartTurnResult> {
-    return await this.executePreparedTurn(await this.prepareTurn(input));
+    const prepared = await this.prepareTurn(input);
+    this.preparedTurns.set(prepared.turn.id, prepared);
+    const pendingReason = this.pendingInterrupts.get(prepared.turn.id);
+    if (pendingReason) {
+      this.pendingInterrupts.delete(prepared.turn.id);
+      await this.interruptPreparedTurn(prepared, pendingReason);
+      this.preparedTurns.delete(prepared.turn.id);
+      return {
+        status: "completed",
+        output: "",
+        toolCallCount: 0,
+        workspace: prepared.workspace,
+      };
+    }
+    const execution = this.executePreparedTurn(prepared);
+    this.executions.set(prepared.turn.id, execution);
+    try {
+      return await execution;
+    } finally {
+      this.executions.delete(prepared.turn.id);
+      this.preparedTurns.delete(prepared.turn.id);
+    }
   }
 
   private async prepareTurn(input: StartTurnInput): Promise<PreparedTurn> {
@@ -146,13 +195,19 @@ export class RuntimeKernel {
     const { run, turn, runAttemptId, workspace, lifecycle, artifacts, tools } =
       prepared;
     try {
+      if (lifecycle.isTerminal) {
+        return {
+          status: "completed",
+          output: "",
+          toolCallCount: 0,
+          workspace,
+        };
+      }
       await this.runHooks(prepared);
-      const context = await this.dependencies.contextAssembly.assemble({
-        run,
-        turn,
-        workspace,
-      });
+      const context = await this.assembleContext(run, turn, workspace, []);
+      this.activeContexts.set(turn.id, context);
       const result = await this.executeLoop(
+        prepared,
         run,
         runAttemptId,
         turn,
@@ -160,6 +215,14 @@ export class RuntimeKernel {
         context,
         tools,
       );
+      if (this.executionSignal.aborted || lifecycle.isTerminal) {
+        throw new LifecycleTransitionError(
+          "turn",
+          "interrupted",
+          "completed",
+          "turn was interrupted before successful settlement",
+        );
+      }
       await this.settleArtifacts(turn.id, lifecycle, artifacts);
       await lifecycle.complete(result.output, result.finalItemId);
       return {
@@ -173,14 +236,21 @@ export class RuntimeKernel {
         if (!isArtifactSettlementError(error)) {
           await this.settleArtifacts(turn.id, lifecycle, artifacts);
         }
-        if (isTurnCancelled(error)) {
-          await lifecycle.interrupt(error.message);
+        if (isTurnCancelled(error) || this.executionSignal.aborted) {
+          await lifecycle.interrupt(
+            this.pendingInterrupts.get(turn.id) ??
+              (error instanceof Error ? error.message : "Run interrupted"),
+          );
         } else {
           await this.recoverFailedTurn(lifecycle, error);
         }
       }
       throw error;
     } finally {
+      this.activeContexts.delete(turn.id);
+      this.compactedContexts.delete(turn.id);
+      this.compactions.delete(turn.id);
+      this.automaticCompactions.delete(turn.id);
       this.approvalCoordinators.delete(turn.id);
     }
   }
@@ -214,16 +284,45 @@ export class RuntimeKernel {
         `Turn ${turnId} is not owned by this runtime kernel`,
       );
     }
-    const artifactSettlement = this.artifactSettlements.get(turnId);
-    if (artifactSettlement) {
+    if (lifecycle.isTerminal) return;
+
+    this.pendingInterrupts.set(turnId, reason);
+    this.interruptController.abort(new DOMException(reason, "AbortError"));
+    const execution = this.executions.get(turnId);
+    if (execution) {
       try {
-        await this.settleArtifacts(turnId, lifecycle, artifactSettlement);
+        await withBoundedCancellationSettlement(execution);
       } catch (error) {
-        await this.recoverFailedTurn(lifecycle, error);
-        throw error;
+        if (!isTurnCancelled(error) && !lifecycle.isTerminal) {
+          throw error;
+        }
       }
     }
-    await lifecycle.interrupt(reason);
+
+    if (!lifecycle.isTerminal) {
+      const prepared = this.preparedTurns.get(turnId);
+      if (!prepared) {
+        throw new RuntimeKernelError(
+          "turn_not_active",
+          `Turn ${turnId} has not reached runtime preparation`,
+        );
+      }
+      this.pendingInterrupts.delete(turnId);
+      await this.interruptPreparedTurn(prepared, reason);
+    }
+  }
+
+  isTurnReady(turnId: Turn["id"]): boolean {
+    return this.lifecycles.has(turnId) && this.executions.has(turnId);
+  }
+
+  /**
+   * Records an interrupt requested after this kernel was constructed but
+   * before startTurn has created its lifecycle coordinator. The request is
+   * consumed by startTurn and settled through the same canonical lifecycle.
+   */
+  requestInterruptBeforeStart(turnId: Turn["id"], reason: string): void {
+    this.pendingInterrupts.set(turnId, reason);
   }
 
   async resolveApproval(
@@ -241,7 +340,28 @@ export class RuntimeKernel {
     await approvals.resolve(approvalId, resolution);
   }
 
+  async compactTurn(
+    turnId: Turn["id"],
+    mode: ContextCompactionMode,
+  ): Promise<void> {
+    const prepared = this.preparedTurns.get(turnId);
+    const context = this.activeContexts.get(turnId);
+    if (!prepared || !context || prepared.lifecycle.isTerminal) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turnId} is not active in the runtime kernel`,
+      );
+    }
+    const existing = this.compactions.get(turnId);
+    if (existing) {
+      await existing;
+      return;
+    }
+    await this.runCompaction(prepared, context, mode);
+  }
+
   private async executeLoop(
+    prepared: PreparedTurn,
     run: Run,
     runAttemptId: StartTurnInput["runAttemptId"],
     turn: Turn,
@@ -257,14 +377,43 @@ export class RuntimeKernel {
       toolCallCount <= this.maxToolCalls;
       toolCallCount += 1
     ) {
+      const currentContext = this.activeContexts.get(turn.id) ?? context;
+      const effectiveContext = this.compactedContexts.has(turn.id)
+        ? currentContext
+        : await this.assembleContext(run, turn, workspace, toolResults);
+      this.activeContexts.set(turn.id, effectiveContext);
+      await this.maybeAutomaticallyCompact(prepared, effectiveContext);
       const step = await this.dependencies.provider.generateNext({
         run,
         runAttemptId,
         turn,
         workspace,
-        context,
+        context: this.activeContexts.get(turn.id) ?? effectiveContext,
         toolResults,
+        signal: this.executionSignal,
       });
+      if (step.usage) {
+        const lifecycle = this.lifecycles.get(turn.id);
+        if (!lifecycle) {
+          throw new RuntimeKernelError(
+            "turn_not_active",
+            `Turn ${turn.id} has no lifecycle coordinator`,
+          );
+        }
+        await lifecycle.updateUsage(step.usage);
+        const providerBudget = reconcileProviderContextBudget(
+          effectiveContext.budgetSnapshot,
+          step.usage,
+        );
+        if (providerBudget) {
+          const measuredContext = {
+            ...effectiveContext,
+            budgetSnapshot: providerBudget,
+          };
+          this.activeContexts.set(turn.id, measuredContext);
+          await lifecycle.updateContextBudget(providerBudget);
+        }
+      }
       if (step.kind === "complete") {
         return {
           status: "completed",
@@ -279,6 +428,21 @@ export class RuntimeKernel {
           `Turn ${turn.id} exceeded ${this.maxToolCalls} tool calls`,
         );
       }
+      if (step.commentary) {
+        const lifecycle = this.lifecycles.get(turn.id);
+        if (!lifecycle) {
+          throw new RuntimeKernelError(
+            "turn_not_active",
+            `Turn ${turn.id} has no lifecycle coordinator`,
+          );
+        }
+        await lifecycle.appendAssistantCommentary(
+          ItemIdSchema.parse(
+            `itm_${turn.id.slice(4)}_commentary_${toolCallCount}`,
+          ),
+          step.commentary,
+        );
+      }
       toolResults.push(
         await tools.execute(
           run,
@@ -287,6 +451,7 @@ export class RuntimeKernel {
           workspace,
           step.itemId,
           step.content,
+          this.dependencies.signal,
         ),
       );
     }
@@ -294,6 +459,138 @@ export class RuntimeKernel {
       "tool_loop_limit_exceeded",
       `Turn ${turn.id} exceeded its tool loop limit`,
     );
+  }
+
+  private async assembleContext(
+    run: Run,
+    turn: Turn,
+    workspace: WorkspaceManifest,
+    toolResults: readonly ToolResult[],
+  ): Promise<Awaited<ReturnType<ContextAssemblyPort["assemble"]>>> {
+    const context = await this.dependencies.contextAssembly.assemble({
+      run,
+      turn,
+      workspace,
+      toolResults,
+      signal: this.executionSignal,
+    });
+    const lifecycle = this.lifecycles.get(turn.id);
+    if (!lifecycle) {
+      throw new RuntimeKernelError(
+        "turn_not_active",
+        `Turn ${turn.id} has no lifecycle coordinator`,
+      );
+    }
+    if (context.budgetSnapshot) {
+      await lifecycle.updateContextBudget(context.budgetSnapshot);
+    }
+    if (context.usage) {
+      await lifecycle.updateUsage(context.usage);
+    }
+    return context;
+  }
+
+  private async maybeAutomaticallyCompact(
+    prepared: PreparedTurn,
+    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+  ): Promise<void> {
+    const budget = context.budgetSnapshot;
+    if (
+      !budget ||
+      budget.utilizationPercent < budget.automaticCompactionThresholdPercent ||
+      this.automaticCompactions.has(prepared.turn.id)
+    ) {
+      return;
+    }
+    this.automaticCompactions.add(prepared.turn.id);
+    await this.runCompaction(prepared, context, "automatic");
+  }
+
+  private async runCompaction(
+    prepared: PreparedTurn,
+    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+    mode: ContextCompactionMode,
+  ): Promise<void> {
+    const existing = this.compactions.get(prepared.turn.id);
+    if (existing) {
+      await existing;
+      return;
+    }
+    const operation = this.compactPreparedTurn(prepared, context, mode);
+    this.compactions.set(prepared.turn.id, operation);
+    try {
+      await operation;
+    } finally {
+      this.compactions.delete(prepared.turn.id);
+    }
+  }
+
+  private async compactPreparedTurn(
+    prepared: PreparedTurn,
+    context: Awaited<ReturnType<ContextAssemblyPort["assemble"]>>,
+    mode: ContextCompactionMode,
+  ): Promise<void> {
+    const compaction = this.dependencies.contextCompaction;
+    if (!compaction) {
+      throw new RuntimeKernelError(
+        "context_compaction_unsupported",
+        "The active runtime does not support context compaction",
+      );
+    }
+    const suffix = mode === "automatic" ? "automatic" : "manual";
+    const itemId = ItemIdSchema.parse(
+      `itm_${prepared.turn.id.slice(4)}_context_compaction_${suffix}`,
+    );
+    const compactionId = `cmp_${prepared.turn.id.slice(4)}_${suffix}`;
+    const base = {
+      compactionId,
+      itemId,
+      mode,
+      phase: "compacting" as const,
+      preservedContextReference: null,
+      summary: null,
+      error: null,
+    };
+    await prepared.lifecycle.requestContextCompaction(base);
+    try {
+      const result = await compaction.compact({
+        run: prepared.run,
+        turn: prepared.turn,
+        context,
+        mode,
+        signal: this.executionSignal,
+      });
+      this.activeContexts.set(prepared.turn.id, result.context);
+      this.compactedContexts.add(prepared.turn.id);
+      if (result.context.budgetSnapshot) {
+        await prepared.lifecycle.updateContextBudget(result.context.budgetSnapshot);
+      }
+      await prepared.lifecycle.settleContextCompaction({
+        ...base,
+        phase: "compacted",
+        preservedContextReference: result.preservedContextReference,
+        summary: result.summary,
+      });
+    } catch (error) {
+      await prepared.lifecycle.settleContextCompaction({
+        ...base,
+        phase: "failed",
+        error: error instanceof Error ? error.message : "Context compaction failed",
+      });
+      throw error;
+    }
+  }
+
+  private async interruptPreparedTurn(
+    prepared: PreparedTurn,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.settleArtifacts(prepared.turn.id, prepared.lifecycle, prepared.artifacts);
+      await prepared.lifecycle.interrupt(reason);
+    } finally {
+      this.approvalCoordinators.delete(prepared.turn.id);
+    }
   }
 
   private assertTurnIdentity(run: Run, turn: Turn): void {
@@ -404,6 +701,33 @@ function isArtifactSettlementError(error: unknown): boolean {
     error instanceof RuntimeKernelError &&
     error.code === "turn_artifact_settlement_failed"
   );
+}
+
+const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 2_000;
+
+async function withBoundedCancellationSettlement<T>(
+  operation: Promise<T>,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new RuntimeKernelError(
+                "turn_cancelled",
+                "Backend cancellation settlement timed out",
+              ),
+            ),
+          CANCELLATION_SETTLEMENT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 type ProviderStepItemId = Extract<

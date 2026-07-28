@@ -23,6 +23,7 @@ export const RUNTIME_KERNEL_ERROR_CODES = [
   "turn_already_owned",
   "turn_artifact_settlement_failed",
   "turn_cancelled",
+  "context_compaction_unsupported",
 ] as const;
 export type RuntimeKernelErrorCode =
   (typeof RUNTIME_KERNEL_ERROR_CODES)[number];
@@ -125,6 +126,7 @@ function mapProtocolErrorCode(code: RuntimeKernelErrorCode): ProtocolErrorCode {
       return "conflict";
     case "tool_loop_limit_exceeded":
     case "turn_artifact_settlement_failed":
+    case "context_compaction_unsupported":
       return "internal_error";
     case "turn_cancelled":
       return "conflict";

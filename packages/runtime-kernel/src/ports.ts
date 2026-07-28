@@ -21,11 +21,29 @@ import type {
   WorkerToolResult,
 } from "./types.js";
 
+export type ContextCompactionMode = "automatic" | "manual";
+
+export interface ContextCompactionPort {
+  compact(input: {
+    run: Run;
+    turn: Turn;
+    context: RuntimeContext;
+    mode: ContextCompactionMode;
+    signal?: AbortSignal;
+  }): Promise<{
+    context: RuntimeContext;
+    preservedContextReference: string;
+    summary: string;
+  }>;
+}
+
 export interface ContextAssemblyPort {
   assemble(input: {
     run: Run;
     turn: Turn;
     workspace: WorkspaceManifest;
+    toolResults?: readonly import("./types.js").ToolResult[];
+    signal?: AbortSignal;
   }): Promise<RuntimeContext>;
 }
 
@@ -49,6 +67,7 @@ export interface WorkerProtocolPort {
     workspace: WorkspaceManifest;
     toolCall: ToolCallItemContent;
     approval: ApprovalResolution | null;
+    signal?: AbortSignal;
   }): Promise<WorkerToolResult>;
 }
 
@@ -61,6 +80,7 @@ export interface ApprovalWaitPort {
       WorkerToolResult,
       { kind: "approval_required" }
     >["request"];
+    signal?: AbortSignal;
   }): Promise<ApprovalResolution>;
 }
 

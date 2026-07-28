@@ -28,7 +28,7 @@ export function registerLifecycleContinuationConformance(
     it("yields replayed events before live continuation events", async () => {
       const fixture = createFixture({
         replayEvents: [lifecycleEvent(1)],
-        liveEvents: [lifecycleEvent(2)],
+        liveEvents: [terminalLifecycleEvent(2)],
       });
 
       await expect(readAll(fixture.follow())).resolves.toMatchObject([
@@ -41,7 +41,7 @@ export function registerLifecycleContinuationConformance(
       const first = lifecycleEvent(1);
       const fixture = createFixture({
         replayEvents: [first],
-        liveEvents: [first, lifecycleEvent(2)],
+        liveEvents: [first, terminalLifecycleEvent(2)],
       });
 
       await expect(readAll(fixture.follow())).resolves.toMatchObject([
@@ -53,7 +53,7 @@ export function registerLifecycleContinuationConformance(
     it("fails explicitly when live continuation skips a sequence", async () => {
       const fixture = createFixture({
         replayEvents: [lifecycleEvent(1)],
-        liveEvents: [lifecycleEvent(3)],
+        liveEvents: [terminalLifecycleEvent(3)],
       });
 
       await expect(readAll(fixture.follow())).rejects.toMatchObject({
@@ -78,6 +78,16 @@ export function lifecycleEvent(sequence: number): LifecycleEvent {
     createdAt: "2026-06-23T00:00:00.000Z",
     type: "turn.started",
     payload: { turnId: "trn_continue" },
+  });
+}
+
+function terminalLifecycleEvent(sequence: number): LifecycleEvent {
+  return LifecycleEventSchema.parse({
+    ...lifecycleEvent(sequence),
+    eventId: `evt_continue_terminal${String(sequence).padStart(3, "0")}` as EventId,
+    idempotencyKey: `turn.completed.${sequence}` as EventIdempotencyKey,
+    type: "turn.completed",
+    payload: { outcome: { status: "completed" } },
   });
 }
 

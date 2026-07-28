@@ -724,7 +724,7 @@ function toolTurnEvents(): readonly LifecycleEvent[] {
     event(3, "run_attempt.started"),
     itemStarted(4, ids.toolItemId, "tool_call"),
     toolEvent(5, "tool_call.started", {}),
-    toolEvent(6, "tool_call.input_delta", { input: "pnpm test" }),
+    toolEvent(6, "tool_call.input_delta", { input: { command: "pnpm test" } }),
     toolEvent(7, "tool_call.output_delta", { output: "ok" }),
     toolEvent(8, "tool_call.completed", { result: {} }),
     itemEvent(9, "item.completed", ids.toolItemId, { result: {} }),

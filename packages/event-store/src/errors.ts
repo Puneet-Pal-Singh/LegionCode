@@ -6,6 +6,7 @@ export const EVENT_STORE_ERROR_CODES = [
   "invalid_replay_limit",
   "sequence_gap",
   "corrupt_event_stream",
+  "terminal_stream",
 ] as const;
 
 export type EventStoreErrorCode = (typeof EVENT_STORE_ERROR_CODES)[number];

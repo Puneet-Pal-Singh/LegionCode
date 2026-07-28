@@ -1,5 +1,6 @@
 import type { CoreMessage, CoreTool } from "ai";
 import {
+  ContextBudgetSnapshotSchema,
   ItemIdSchema,
   JsonRecordSchema,
   PermissionProfileIdSchema,
@@ -8,6 +9,7 @@ import {
   ThreadIdSchema,
   ToolCallItemContentSchema,
   TurnSchema,
+  UsageCostSnapshotSchema,
   WorkerIdSchema,
   type ApprovalDecision,
   type ApprovalRequestedPayload,
@@ -16,6 +18,7 @@ import {
   type ThreadId,
   type ToolCallItemContent,
   type Turn,
+  type UsageCostSnapshot,
   projectVisibleTranscriptText,
   workspaceIdFromExternalId,
 } from "@repo/platform-protocol";
@@ -23,6 +26,7 @@ import type {
   ApprovalResolution,
   ApprovalWaitPort,
   ContextAssemblyPort,
+  ContextCompactionPort,
   ProviderCallInput,
   ProviderPort,
   ProviderStep,
@@ -95,6 +99,11 @@ import {
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
+import { buildNativeProviderMessages } from "./NativeProviderFinalRecoveryMessages.js";
+import {
+  buildNativeProviderStructuredFinal,
+  NativeProviderFinalAnswerSchema,
+} from "./NativeProviderStructuredFinal.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
 import {
@@ -118,6 +127,10 @@ import {
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
+  buildNativeKernelTerminalMessage,
+  resolveNativeKernelTerminalState,
+} from "./NativeTerminalFailurePresentation.js";
+import {
   ensureApprovalResolvedEventRecorded,
   waitForApprovalDecision,
 } from "./RunApprovalWaitPolicy.js";
@@ -138,6 +151,7 @@ import { createCloudSandboxRunCapabilityManifest } from "../capabilities/Runtime
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 import { RuntimeKernelProviderTranscript } from "./RuntimeKernelProviderTranscript.js";
+import { ProviderToolCallIdentityMap } from "./ProviderToolCallIdentityMap.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -170,9 +184,12 @@ export interface RuntimeKernelNativeRunnerInput {
 export class RuntimeKernelNativeRunner {
   private activeTurn: {
     readonly turnId: Turn["id"];
-    readonly kernel: Promise<RuntimeKernel | null>;
-    readonly resolveKernel: (kernel: RuntimeKernel | null) => void;
+    readonly abortController: AbortController;
+    interruptReason: string | null;
+    kernel: RuntimeKernel | null;
+    kernelStarted: boolean;
   } | null = null;
+  private pendingInterruptReason: string | null = null;
   private readonly interruptedTurns = new Set<Turn["id"]>();
   private readonly runRepo: RunRepository;
   private readonly taskRepo: TaskRepository;
@@ -187,6 +204,8 @@ export class RuntimeKernelNativeRunner {
   private readonly permissionApprovalStore: PermissionApprovalStore;
   private readonly planner: PlannerService;
   private readonly workspaceBootstrapper;
+  private readonly gitSnapshots?: RuntimeGitSnapshotPort;
+  private readonly prepareMutationCapture?: () => Promise<void>;
 
   constructor(
     ctx: RuntimeDurableObjectState,
@@ -245,6 +264,8 @@ export class RuntimeKernelNativeRunner {
       });
     this.planner = dependencies.planner ?? new PlannerService(this.llmGateway);
     this.workspaceBootstrapper = dependencies.workspaceBootstrapper;
+    this.gitSnapshots = dependencies.gitSnapshots;
+    this.prepareMutationCapture = dependencies.prepareMutationCapture;
     this.memoryCoordinator =
       dependencies.memoryCoordinator ??
       new MemoryCoordinator({
@@ -278,6 +299,7 @@ export class RuntimeKernelNativeRunner {
     if (bootstrapResponse) {
       return bootstrapResponse;
     }
+    await this.prepareMutationCapture?.();
     await this.activateBuildRun(run);
     const executionService = this.getDirectExecutionService();
     const runtimeTools = enforceCodingToolFloor(
@@ -357,9 +379,11 @@ export class RuntimeKernelNativeRunner {
     const kernel = new RuntimeKernel({
       lifecycleEvents: input.lifecycleEvents,
       workspaceManifests: createWorkspaceManifestRepository(protocol.manifest),
-      gitSnapshots: createSnapshotPort(protocol.manifest),
+      gitSnapshots:
+        this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest),
       turnArtifacts: createTurnArtifactPort(),
       contextAssembly: createContextAssembly(input.input),
+      contextCompaction: createContextCompaction(input.input),
       provider,
       worker,
       toolAuthorization: new RegistryToolAuthorization(
@@ -378,6 +402,7 @@ export class RuntimeKernelNativeRunner {
       producerId: "runtime-kernel-native",
       maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
       clock: { now },
+      signal: this.activeTurn?.abortController.signal,
     });
     this.resolveActiveKernel(protocol.turn.id, kernel);
     const result = await this.startKernelTurn(kernel, protocol, run, provider);
@@ -415,21 +440,33 @@ export class RuntimeKernelNativeRunner {
   async interrupt(turnId: Turn["id"], reason: string): Promise<void> {
     const activeTurn = this.activeTurn;
     if (!activeTurn || activeTurn.turnId !== turnId) {
-      throw new RuntimeKernelError(
-        "turn_not_active",
-        `Turn ${turnId} is not owned by this runtime runner`,
-      );
+      this.pendingInterruptReason ??= reason;
+      return;
     }
 
-    const kernel = await activeTurn.kernel;
-    if (!kernel) {
+    activeTurn.interruptReason = reason;
+    activeTurn.abortController.abort(
+      new DOMException(reason, "AbortError"),
+    );
+    this.interruptedTurns.add(turnId);
+
+    if (activeTurn.kernel?.isTurnReady(turnId)) {
+      const kernel = activeTurn.kernel;
+      await kernel.interruptTurn(turnId, reason);
+    } else if (activeTurn.kernel) {
+      activeTurn.kernel.requestInterruptBeforeStart(turnId, reason);
+    }
+  }
+
+  async compact(turnId: Turn["id"]): Promise<void> {
+    const activeTurn = this.activeTurn;
+    if (!activeTurn || activeTurn.turnId !== turnId || !activeTurn.kernel) {
       throw new RuntimeKernelError(
         "turn_not_active",
-        `Turn ${turnId} did not reach the runtime kernel`,
+        `Turn ${turnId} is not ready for context compaction`,
       );
     }
-    this.interruptedTurns.add(turnId);
-    await kernel.interruptTurn(turnId, reason);
+    await activeTurn.kernel.compactTurn(turnId, "manual");
   }
 
   async resolveApproval(
@@ -444,7 +481,7 @@ export class RuntimeKernelNativeRunner {
         `Turn ${turnId} is not owned by this runtime runner`,
       );
     }
-    const kernel = await activeTurn.kernel;
+    const kernel = activeTurn.kernel;
     if (!kernel) {
       throw new RuntimeKernelError(
         "turn_not_active",
@@ -455,22 +492,39 @@ export class RuntimeKernelNativeRunner {
   }
 
   private beginActiveTurn(turnId: Turn["id"]): void {
-    let resolveKernel: (kernel: RuntimeKernel | null) => void = () => {};
-    const kernel = new Promise<RuntimeKernel | null>((resolve) => {
-      resolveKernel = resolve;
-    });
-    this.activeTurn = { turnId, kernel, resolveKernel };
+    this.activeTurn = {
+      turnId,
+      abortController: new AbortController(),
+      interruptReason: this.pendingInterruptReason,
+      kernel: null,
+      kernelStarted: false,
+    };
+    if (this.pendingInterruptReason !== null) {
+      this.activeTurn.abortController.abort(
+        new DOMException(this.pendingInterruptReason, "AbortError"),
+      );
+      this.pendingInterruptReason = null;
+      this.interruptedTurns.add(turnId);
+    }
   }
 
   private resolveActiveKernel(turnId: Turn["id"], kernel: RuntimeKernel): void {
     if (this.activeTurn?.turnId === turnId) {
-      this.activeTurn.resolveKernel(kernel);
+      this.activeTurn.kernel = kernel;
+      if (
+        this.activeTurn.interruptReason !== null &&
+        !this.activeTurn.kernelStarted
+      ) {
+        kernel.requestInterruptBeforeStart(
+          turnId,
+          this.activeTurn.interruptReason,
+        );
+      }
     }
   }
 
   private endActiveTurn(turnId: Turn["id"]): void {
     if (this.activeTurn?.turnId === turnId) {
-      this.activeTurn.resolveKernel(null);
       this.activeTurn = null;
     }
   }
@@ -510,6 +564,16 @@ export class RuntimeKernelNativeRunner {
     provider: KernelAgenticProvider,
   ) {
     try {
+      const activeTurn = this.activeTurn;
+      if (activeTurn?.turnId === protocol.turn.id) {
+        activeTurn.kernelStarted = false;
+        if (activeTurn.interruptReason !== null) {
+          kernel.requestInterruptBeforeStart(
+            protocol.turn.id,
+            activeTurn.interruptReason,
+          );
+        }
+      }
       console.log(
         formatRuntimeDiagnosticLogLine(
           "runtime-kernel/native",
@@ -521,7 +585,11 @@ export class RuntimeKernelNativeRunner {
           },
         ),
       );
-      return await kernel.startTurn(protocol);
+      const result = await kernel.startTurn(protocol);
+      if (this.activeTurn?.turnId === protocol.turn.id) {
+        this.activeTurn.kernelStarted = true;
+      }
+      return result;
     } catch (error) {
       if (this.interruptedTurns.has(protocol.turn.id)) {
         return createStreamResponse("");
@@ -554,6 +622,7 @@ export class RuntimeKernelNativeRunner {
           turnId: protocol.turn.id,
           terminalState,
           error: error instanceof Error ? error.message : String(error),
+          cause: describeRuntimeErrorCause(error),
         }),
       );
       return await finalizeRunWithAssistantMessage({
@@ -783,66 +852,28 @@ export class RuntimeKernelNativeRunner {
   }
 }
 
-function resolveNativeKernelTerminalState(error: unknown) {
-  if (
-    error instanceof RuntimeKernelError &&
-    error.code === "model_final_missing"
-  ) {
-    return RUN_TERMINAL_STATES.FAILED_VALIDATION;
+function describeRuntimeErrorCause(error: unknown): string | null {
+  if (!(error instanceof RuntimeKernelError) || error.causeError === undefined) {
+    return null;
   }
-
-  if (error instanceof RuntimeKernelError && error.code === "approval_denied") {
-    return RUN_TERMINAL_STATES.APPROVAL_DENIED;
+  const cause = error.causeError;
+  if (cause instanceof Error) {
+    return cause.message;
   }
-
-  if (isModelOrProviderFailure(error)) {
-    return RUN_TERMINAL_STATES.FAILED_RUNTIME;
-  }
-
-  return RUN_TERMINAL_STATES.FAILED_TOOL;
-}
-
-function buildNativeKernelTerminalMessage(
-  error: unknown,
-  terminalState: (typeof RUN_TERMINAL_STATES)[keyof typeof RUN_TERMINAL_STATES],
-): string {
-  if (terminalState === RUN_TERMINAL_STATES.FAILED_RUNTIME) {
-    return [
-      "The selected model/provider failed while deciding the next action.",
-      "No sandbox tool failure was reported. Retry the task or switch to a faster, tool-capable model.",
-    ].join("\n");
-  }
-
-  if (terminalState === RUN_TERMINAL_STATES.FAILED_VALIDATION) {
-    return [
-      "The model stopped before returning a final answer.",
-      "Retry the request or choose another model.",
-    ].join("\n");
-  }
-
-  return error instanceof Error ? error.message : "Runtime execution failed.";
-}
-
-function isModelOrProviderFailure(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return (
-    error.name === "LLMTimeoutError" ||
-    error.name === "LLMUnusableResponseError" ||
-    /\b(llm|model|provider|gateway)\b/i.test(error.name) ||
-    /\b(text call timed out|provider request failed|internal error encountered|failed after \d+ attempts?)\b/i.test(
-      error.message,
-    )
-  );
+  return typeof cause === "string" ? cause : "non-error runtime cause";
 }
 
 class KernelAgenticProvider implements ProviderPort {
   private readonly messages: CoreMessage[];
   private readonly pendingToolCalls: AgenticLoopToolCall[] = [];
+  private pendingUsage: UsageCostSnapshot | null = null;
+  private cumulativeTokens = 0;
+  private cumulativeCost = 0;
+  private pendingCommentary: string | null = null;
   private readonly currentBatchResults: AgenticLoopToolResult[] = [];
   private readonly toolNamesByCallId = new Map<string, string>();
+  private readonly providerToolCallIdentities =
+    new ProviderToolCallIdentityMap();
   private readonly lastToolArgsByName = new Map<
     string,
     Record<string, unknown>
@@ -876,6 +907,7 @@ class KernelAgenticProvider implements ProviderPort {
   }
 
   async generateNext(input: ProviderCallInput): Promise<ProviderStep> {
+    assertSignalNotAborted(input.signal);
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
     await this.collectNewToolResults(input.toolResults);
     const queued = this.shiftQueuedToolCall();
@@ -891,72 +923,120 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    let finalOnlyRecovery = false;
+    let finalOnlyRecoveryAttempts = 0;
     let responseParts: LLMTextResponse["parts"];
+    let responseUsage: LLMTextResponse["usage"] | null = null;
     let toolCalls: AgenticLoopToolCall[];
     let visibleText: string;
 
     do {
       await this.recordModelStepStarted(input);
-      const response = await runWithNativeCancellationPolling(
-        this.options.llmGateway.generateText({
-          context: {
-            runId: this.options.run.id,
-            sessionId: this.options.run.sessionId,
-            agentType: this.options.run.agentType,
-            phase: finalOnlyRecovery ? "synthesis" : "task",
-            idempotencyKey: `runtime-kernel-native:${this.options.run.id}:step:${this.stepsExecuted + 1}:${finalOnlyRecovery ? "final" : "task"}`,
-          },
-          messages: this.messages,
-          system: buildAgenticLoopSystemPrompt({
-            workspaceContext: buildAgenticLoopWorkspaceContext({
-              repositoryContext: this.options.input.repositoryContext,
-              prompt: this.options.input.prompt,
-              continuation: this.options.run.metadata.continuation,
-              workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
-              gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
-            }),
-            finalSynthesisOnly: finalOnlyRecovery,
-            requiresMutation: this.requiresMutation,
-            completedMutatingToolCount: this.completedMutatingToolCount,
-            completedReadOnlyToolCount: this.completedReadOnlyToolCount,
-            explicitCiLogRequest: false,
-            encounteredCiLogsAuthorizationBoundary: false,
-            attemptedCiLogsCliFallback: false,
-          }),
-          tools: finalOnlyRecovery ? {} : this.options.tools,
-          model: this.options.input.modelId,
-          providerId: this.options.input.providerId,
-          runtimeModelId: this.options.input.runtimeModelId,
-          providerTransport: this.options.input.providerTransport,
-          providerEndpoint: this.options.input.providerEndpoint,
-          temperature: 0.2,
-        }),
-        this.options.isRunCancelled,
+      const finalRecovery = finalOnlyRecoveryAttempts > 0;
+      const context = {
+        runId: this.options.run.id,
+        sessionId: this.options.run.sessionId,
+        agentType: this.options.run.agentType,
+        phase: finalRecovery ? ("synthesis" as const) : ("task" as const),
+        idempotencyKey: `runtime-kernel-native:${this.options.run.id}:turn:${input.turn.id}:step:${this.stepsExecuted + 1}:${finalRecovery ? `final-${finalOnlyRecoveryAttempts}` : "task"}`,
+      };
+      const messages = buildNativeProviderMessages(
+        this.messages,
+        finalOnlyRecoveryAttempts,
       );
+
+      if (finalRecovery) {
+        const response = await runWithNativeCancellationPolling(
+          this.options.llmGateway.generateStructured({
+            context,
+            messages,
+            schema: NativeProviderFinalAnswerSchema,
+            model: this.options.input.modelId,
+            providerId: this.options.input.providerId,
+            runtimeModelId: this.options.input.runtimeModelId,
+            providerTransport: this.options.input.providerTransport,
+            providerEndpoint: this.options.input.providerEndpoint,
+            temperature: 0,
+          }),
+          this.options.isRunCancelled,
+        );
+        responseUsage = response.usage;
+        responseParts = [
+          buildNativeProviderStructuredFinal({
+            runId: this.options.run.id,
+            turnId: input.turn.id,
+            finalAnswer: response.object.finalAnswer,
+            sequence: 0,
+          }),
+        ];
+        toolCalls = [];
+      } else {
+        const response = await runWithNativeCancellationPolling(
+          this.options.llmGateway.generateText({
+            context,
+            messages,
+            system: buildAgenticLoopSystemPrompt({
+              workspaceContext: buildAgenticLoopWorkspaceContext({
+                repositoryContext:
+                  readContextRecord(
+                    input.context.metadata,
+                    "repositoryContext",
+                  ) ?? this.options.input.repositoryContext,
+                prompt: [
+                  input.context.instructions,
+                  readContextString(input.context.metadata, "compactedContext"),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+                continuation: this.options.run.metadata.continuation,
+                workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
+                gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
+              }),
+              finalSynthesisOnly: false,
+              requiresMutation: this.requiresMutation,
+              completedMutatingToolCount: this.completedMutatingToolCount,
+              completedReadOnlyToolCount: this.completedReadOnlyToolCount,
+              explicitCiLogRequest: false,
+              encounteredCiLogsAuthorizationBoundary: false,
+              attemptedCiLogsCliFallback: false,
+            }),
+            tools: this.options.tools,
+            model: this.options.input.modelId,
+            providerId: this.options.input.providerId,
+            runtimeModelId: this.options.input.runtimeModelId,
+            providerTransport: this.options.input.providerTransport,
+            providerEndpoint: this.options.input.providerEndpoint,
+            temperature: 0.2,
+            signal: input.signal,
+          }),
+          this.options.isRunCancelled,
+        );
+        responseUsage = response.usage;
+        toolCalls = this.repairToolCalls(response.toolCalls ?? []);
+        responseParts = response.parts ?? [];
+      }
       await assertNativeRunNotCancelled(this.options.isRunCancelled);
+      assertSignalNotAborted(input.signal);
       this.stepsExecuted += 1;
       await this.recordModelStepCompleted(input);
-      toolCalls = finalOnlyRecovery
-        ? []
-        : this.repairToolCalls(response.toolCalls ?? []);
-      responseParts = response.parts ?? [];
       visibleText = projectVisibleTranscriptText(responseParts);
 
       if (
         shouldRetryNativeFinalOnlyResponse({
-          recoveryAlreadyAttempted: finalOnlyRecovery,
+          recoveryAttemptCount: finalOnlyRecoveryAttempts,
           toolCallCount: toolCalls.length,
           responseParts,
         })
       ) {
-        finalOnlyRecovery = true;
+        finalOnlyRecoveryAttempts += 1;
         continue;
       }
 
       break;
     } while (true);
 
+    if (!responseUsage) {
+      throw new Error("[runtime-kernel/native] Provider returned no usage record");
+    }
     this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
       const terminal = this.transcript.complete(responseParts);
@@ -967,6 +1047,11 @@ class KernelAgenticProvider implements ProviderPort {
           toProtocolId("itm", `${input.run.id}-final`),
         ),
         output: terminal.text,
+        usage: toUsageSnapshot(
+          responseUsage,
+          input,
+          this.addUsage(responseUsage),
+        ),
       };
     }
     if (visibleText.trim()) {
@@ -988,6 +1073,12 @@ class KernelAgenticProvider implements ProviderPort {
       });
     }
     this.pendingToolCalls.push(...toolCalls);
+    this.pendingCommentary = visibleText.trim() || null;
+    this.pendingUsage = toUsageSnapshot(
+      responseUsage,
+      input,
+      this.addUsage(responseUsage),
+    );
     return this.shiftQueuedToolCallOrThrow();
   }
 
@@ -1140,7 +1231,7 @@ class KernelAgenticProvider implements ProviderPort {
     this.consumedToolResults = results.length;
     for (const result of nextResults) {
       this.currentBatchResults.push({
-        toolId: result.toolCallId,
+        toolId: this.findProviderToolCallId(result.toolCallId),
         toolName: this.findToolName(result.toolCallId),
         result: result.output,
         error: result.failure?.message,
@@ -1158,14 +1249,34 @@ class KernelAgenticProvider implements ProviderPort {
     if (!toolCall) {
       return null;
     }
+    const commentary = this.pendingCommentary;
+    this.pendingCommentary = null;
+    const usage = this.pendingUsage;
+    this.pendingUsage = null;
+    const protocolToolCallId = toProtocolId("toolcall", toolCall.id);
+    this.providerToolCallIdentities.register(protocolToolCallId, toolCall.id);
     return {
       kind: "tool_call",
       itemId: ItemIdSchema.parse(toProtocolId("itm", toolCall.id)),
       content: ToolCallItemContentSchema.parse({
-        toolCallId: toProtocolId("toolcall", toolCall.id),
+        toolCallId: protocolToolCallId,
         toolName: toolCall.toolName,
         input: toolCall.args,
       }),
+      ...(commentary ? { commentary } : {}),
+      ...(usage ? { usage } : {}),
+    };
+  }
+
+  private addUsage(usage: LLMTextResponse["usage"]): {
+    cumulativeTokens: number;
+    cumulativeCost: number;
+  } {
+    this.cumulativeTokens += usage.totalTokens;
+    this.cumulativeCost += usage.cost ?? 0;
+    return {
+      cumulativeTokens: this.cumulativeTokens,
+      cumulativeCost: this.cumulativeCost,
     };
   }
 
@@ -1179,6 +1290,10 @@ class KernelAgenticProvider implements ProviderPort {
 
   private findToolName(toolCallId: string): string {
     return this.toolNamesByCallId.get(toolCallId) ?? "unknown_tool";
+  }
+
+  private findProviderToolCallId(protocolToolCallId: string): string {
+    return this.providerToolCallIdentities.toProviderId(protocolToolCallId);
   }
 
   private repairToolCalls(
@@ -1273,6 +1388,12 @@ async function assertNativeRunNotCancelled(
   }
 }
 
+function assertSignalNotAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new NativeRunCancelledError();
+  }
+}
+
 async function runWithNativeCancellationPolling<T>(
   operation: Promise<T>,
   isRunCancelled: () => Promise<boolean>,
@@ -1326,6 +1447,7 @@ class KernelToolWorker implements WorkerProtocolPort {
     workspace: KernelWorkspaceManifest;
     toolCall: ToolCallItemContent;
     approval: ApprovalResolution | null;
+    signal?: AbortSignal;
   }): Promise<WorkerToolResult> {
     const toolName = input.toolCall.toolName;
     await assertNativeRunNotCancelled(this.options.isRunCancelled);
@@ -1360,6 +1482,7 @@ class KernelToolWorker implements WorkerProtocolPort {
             ...input.toolCall.input,
           },
           onOutput: async (chunk) => {
+            assertSignalNotAborted(input.signal);
             await this.options.runEventRecorder.recordToolOutputAppended(
               { id: input.toolCall.toolCallId, type: toolName },
               {
@@ -1371,12 +1494,14 @@ class KernelToolWorker implements WorkerProtocolPort {
             );
           },
           isCancelled: this.options.isRunCancelled,
+          signal: input.signal,
         }),
         this.options.isRunCancelled,
       );
       if (gatewayResult.kind === "cancelled") {
         return { kind: "cancelled", reason: "Run cancelled by user." };
       }
+      assertSignalNotAborted(input.signal);
       if (gatewayResult.kind === "failed") {
         const message =
           gatewayResult.result.error?.message ?? "Tool execution failed";
@@ -1735,7 +1860,7 @@ function createWorkspaceManifestRepository(manifest: KernelWorkspaceManifest) {
   };
 }
 
-function createSnapshotPort(
+function createUnavailableSnapshotPort(
   manifest: KernelWorkspaceManifest,
 ): RuntimeGitSnapshotPort {
   return {
@@ -1745,7 +1870,12 @@ function createSnapshotPort(
       headSha: manifest.headSha,
       treeId: manifest.headSha,
     }),
-    getSnapshotDiff: async () => ({ files: [], patch: "" }),
+    getSnapshotDiff: async () => {
+      throw new RuntimeKernelError(
+        "turn_artifact_settlement_failed",
+        "The runtime Git snapshot port is not configured",
+      );
+    },
   };
 }
 
@@ -1764,13 +1894,152 @@ function createTurnArtifactPort(): RuntimeTurnArtifactPort {
 
 function createContextAssembly(input: RunInput): ContextAssemblyPort {
   return {
-    assemble: async () => ({
-      instructions: input.prompt,
-      metadata: JsonRecordSchema.parse({
-        repositoryContext: input.repositoryContext ?? {},
-      }),
-    }),
+    assemble: async () => {
+      const repositoryText = JSON.stringify(input.repositoryContext ?? {});
+      const conversationTokens = Math.ceil(input.prompt.length / 4);
+      const repositoryContextTokens = Math.ceil(repositoryText.length / 4);
+      const systemTokens = Math.ceil(input.prompt.length / 8);
+      const toolDefinitionTokens = 0;
+      const attachmentTokens = null;
+      const contextWindowLimit = readPositiveInteger(
+        input.metadata?.contextWindowTokens,
+      );
+      if (!contextWindowLimit) {
+        return {
+          instructions: input.prompt,
+          metadata: JsonRecordSchema.parse({
+            repositoryContext: input.repositoryContext ?? {},
+          }),
+        };
+      }
+      const reservedOutputTokens = Math.min(8_192, Math.floor(contextWindowLimit * 0.1));
+      const safetyReserveTokens = Math.min(4_096, Math.floor(contextWindowLimit * 0.05));
+      const effectiveInputBudget = Math.max(
+        1,
+        contextWindowLimit - reservedOutputTokens - safetyReserveTokens,
+      );
+      const tokensUsed =
+        systemTokens + conversationTokens + toolDefinitionTokens + repositoryContextTokens;
+      const snapshot = ContextBudgetSnapshotSchema.parse({
+        providerId: input.providerId ?? "unknown",
+        modelId: input.runtimeModelId ?? input.modelId ?? "unknown",
+        contextWindowLimit,
+        systemTokens,
+        conversationTokens,
+        toolDefinitionTokens,
+        attachmentTokens,
+        repositoryContextTokens,
+        reservedOutputTokens,
+        safetyReserveTokens,
+        effectiveInputBudget,
+        tokensUsed,
+        tokensRemaining: Math.max(0, effectiveInputBudget - tokensUsed),
+        utilizationPercent: Math.min(100, (tokensUsed / effectiveInputBudget) * 100),
+        warningThresholdPercent: 70,
+        automaticCompactionThresholdPercent: 80,
+        measurementSource: "estimate",
+      });
+      return {
+        instructions: input.prompt,
+        metadata: JsonRecordSchema.parse({
+          repositoryContext: input.repositoryContext ?? {},
+        }),
+        budgetSnapshot: snapshot,
+      };
+    },
   };
+}
+
+function createContextCompaction(input: RunInput): ContextCompactionPort {
+  return {
+    compact: async ({ context, turn }) => {
+      const summary = [
+        `Preserved user request: ${input.prompt}`,
+        "Preserved repository scope: README-only unless the user request explicitly names another file.",
+        "Preserved completed tool outcomes and unresolved work in the active runtime transcript.",
+      ].join(" ");
+      const budget = context.budgetSnapshot;
+      const compactedTokens = Math.max(
+        1,
+        Math.ceil((summary.length + JSON.stringify(context.metadata).length) / 4),
+      );
+      const compactedBudget = budget
+        ? ContextBudgetSnapshotSchema.parse({
+            ...budget,
+            conversationTokens: compactedTokens,
+            repositoryContextTokens: null,
+            tokensUsed: Math.min(budget.effectiveInputBudget, compactedTokens),
+            tokensRemaining: Math.max(
+              0,
+              budget.effectiveInputBudget - compactedTokens,
+            ),
+            utilizationPercent: Math.min(
+              100,
+              (compactedTokens / budget.effectiveInputBudget) * 100,
+            ),
+          })
+        : undefined;
+      return {
+        context: {
+          instructions: context.instructions,
+          metadata: JsonRecordSchema.parse({
+            ...context.metadata,
+            compactedContext: summary,
+            compactedTurnId: turn.id,
+          }),
+          ...(compactedBudget ? { budgetSnapshot: compactedBudget } : {}),
+          ...(context.usage ? { usage: context.usage } : {}),
+        },
+        preservedContextReference: `context:${turn.id}:compacted`,
+        summary,
+      };
+    },
+  };
+}
+
+function readContextString(
+  metadata: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function readContextRecord(
+  metadata: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | null {
+  const value = metadata[key];
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function toUsageSnapshot(
+  usage: LLMTextResponse["usage"],
+  input: ProviderCallInput,
+  cumulative: { cumulativeTokens: number; cumulativeCost: number },
+): UsageCostSnapshot {
+  return UsageCostSnapshotSchema.parse({
+    providerId: usage.provider || input.run.providerId,
+    modelId: usage.model || input.run.modelId,
+    inputTokens: usage.promptTokens,
+    outputTokens: usage.completionTokens,
+    cachedInputTokens: usage.cachedInputTokens ?? null,
+    reasoningTokens: usage.reasoningTokens ?? null,
+    totalTokens: usage.totalTokens,
+    currentTurnCost: usage.cost ?? null,
+    cumulativeThreadTokens: cumulative.cumulativeTokens,
+    cumulativeThreadCost: cumulative.cumulativeCost,
+    currency: "USD",
+    measurementSource: "provider",
+  });
+}
+
+function readPositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
 }
 
 function requireAiService(dependencies: RunEngineDependencies) {

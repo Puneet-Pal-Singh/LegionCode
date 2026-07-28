@@ -418,6 +418,25 @@ class GoldenPlatformTransport implements PlatformClientTransport {
     return requireValue(this.run, "run was not created");
   }
 
+  async interruptTurn() {
+    return {
+      runId: IDS.runId,
+      accepted: true,
+      status: "settled" as const,
+      terminalEvent: null,
+    };
+  }
+
+  async compactTurn() {
+    return {
+      turnId: IDS.turnId,
+      accepted: false,
+      status: "unsupported" as const,
+      itemId: null,
+      error: "Golden fixture does not exercise manual compaction.",
+    };
+  }
+
   async *attachRunStream(): AsyncIterable<never> {}
 
   attachLifecycleStream(request: {

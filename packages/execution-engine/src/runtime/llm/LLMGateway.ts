@@ -20,6 +20,7 @@ import {
   LegacyProviderTranscriptPartNormalizer,
   type TranscriptPartNormalizer,
 } from "./TranscriptPartNormalizer.js";
+import { describeLLMFailure } from "./LLMFailureDiagnostic.js";
 
 const TOKEN_CHAR_RATIO = 4;
 // Conservative cross-provider placeholder for image/file parts when exact
@@ -154,6 +155,7 @@ export class LLMGateway implements ILLMGateway {
           temperature: req.temperature,
           system: req.system,
           tools: req.tools,
+          signal: req.signal,
         }),
         {
           timeoutMs,
@@ -162,6 +164,18 @@ export class LLMGateway implements ILLMGateway {
         },
       );
     } catch (error) {
+      const failure = describeLLMFailure(error);
+      console.error(
+        formatRuntimeDiagnosticLogLine("llm/gateway", "text-failed", {
+          runId: req.context.runId,
+          sessionId: req.context.sessionId,
+          phase: req.context.phase,
+          providerId: req.providerId ?? null,
+          modelId: req.runtimeModelId ?? req.model ?? null,
+          elapsedMs: Date.now() - startedAt,
+          ...failure,
+        }),
+      );
       if (error instanceof LLMTimeoutError) {
         console.error(
           formatRuntimeDiagnosticLogLine("llm/gateway", "text-timeout", {

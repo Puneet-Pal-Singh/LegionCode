@@ -9,12 +9,12 @@ import {
  * a user-visible answer and never retries a real tool response.
  */
 export function shouldRetryNativeFinalOnlyResponse(input: {
-  readonly recoveryAlreadyAttempted: boolean;
+  readonly recoveryAttemptCount: number;
   readonly toolCallCount: number;
   readonly responseParts: readonly TranscriptPart[];
 }): boolean {
   return (
-    !input.recoveryAlreadyAttempted &&
+    input.recoveryAttemptCount < 2 &&
     input.toolCallCount === 0 &&
     !projectVisibleTranscriptText(input.responseParts).trim()
   );

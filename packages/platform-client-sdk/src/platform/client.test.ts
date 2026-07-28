@@ -20,7 +20,6 @@ import {
   createWorkspaceManifest,
 } from "./test-fixtures.js";
 import type { PlatformClientTransport } from "./types.js";
-import type { RunEvent } from "@repo/platform-protocol";
 
 function createTransport(
   overrides: Partial<PlatformClientTransport> = {},
@@ -35,12 +34,6 @@ function createTransport(
       nextCursor: TEST_IDS.nextCursor,
     })),
     getRun: vi.fn(async () => createRun()),
-    attachRunStream: vi.fn(async function* () {
-      yield createRunEvent();
-    }),
-    attachLifecycleStream: vi.fn(async function* () {
-      yield createLifecycleEvent(2);
-    }),
     replayRunEvents: vi.fn(async () => ({
       events: [createRunEvent()],
       nextCursor: TEST_IDS.nextCursor,
@@ -48,6 +41,17 @@ function createTransport(
     replayLifecycleEvents: vi.fn(async () => ({
       events: [createLifecycleEvent(1)],
       nextSequence: 1,
+    })),
+    interruptTurn: vi.fn(async () => ({
+      runId: TEST_IDS.runId,
+      accepted: true,
+      status: "interrupt_requested",
+    })),
+    compactTurn: vi.fn(async () => ({
+      turnId: TEST_IDS.turnId,
+      accepted: true,
+      status: "completed",
+      itemId: null,
     })),
     submitApproval: vi.fn(async () => createApprovalEvent()),
     submitLifecycleApproval: vi.fn(async () =>
@@ -133,51 +137,6 @@ describe("DefaultPlatformClient", () => {
     expect("appendRunEvent" in client).toBe(false);
   });
 
-  it("parses run events from an attached stream", async () => {
-    const transport = createTransport();
-    const client = new DefaultPlatformClient(transport);
-    const events: RunEvent[] = [];
-
-    for await (const event of client.attachRunStream({
-      runId: TEST_IDS.runId,
-    })) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([createRunEvent()]);
-  });
-
-  it("reconnects retryable streams from the last received cursor", async () => {
-    let attempts = 0;
-    const attachRunStream = vi.fn(async function* () {
-      attempts += 1;
-      if (attempts === 1) {
-        yield createRunEvent();
-        throw new PlatformClientOperationError(
-          "NETWORK_ERROR",
-          "disconnected",
-          true,
-        );
-      }
-      yield { ...createRunEvent(), cursor: TEST_IDS.nextCursor };
-    }) as PlatformClientTransport["attachRunStream"] & ReturnType<typeof vi.fn>;
-    const client = new DefaultPlatformClient(
-      createTransport({ attachRunStream }),
-    );
-
-    const events = await readAll(
-      client.attachRunStream(
-        { runId: TEST_IDS.runId },
-        { streamRetry: { maxAttempts: 2, delayMs: 0 } },
-      ),
-    );
-
-    expect(events).toHaveLength(2);
-    expect(attachRunStream).toHaveBeenLastCalledWith(
-      { runId: TEST_IDS.runId, afterCursor: TEST_IDS.cursor },
-      { streamRetry: { maxAttempts: 2, delayMs: 0 } },
-    );
-  });
 
   it("validates replay envelopes and events", async () => {
     const transport = createTransport();
@@ -193,15 +152,18 @@ describe("DefaultPlatformClient", () => {
     expect(replay.nextCursor).toBe(TEST_IDS.nextCursor);
   });
 
-  it("replays durable lifecycle events before attaching live continuation", async () => {
+  it("replays durable lifecycle events in sequence", async () => {
     const transport = createTransport({
       replayLifecycleEvents: vi.fn(async () => ({
-        events: [createLifecycleEvent(1)],
-        nextSequence: 1,
+        events: [
+          createLifecycleEvent(1),
+          createLifecycleEvent(2, {
+            type: "turn.completed",
+            payload: { outcome: { status: "completed" } },
+          }),
+        ],
+        nextSequence: 2,
       })),
-      attachLifecycleStream: vi.fn(async function* () {
-        yield createLifecycleEvent(2);
-      }),
     });
     const client = new DefaultPlatformClient(transport);
 
@@ -210,23 +172,20 @@ describe("DefaultPlatformClient", () => {
     );
 
     expect(events.map((event) => event.sequence)).toEqual([1, 2]);
-    expect(transport.attachLifecycleStream).toHaveBeenCalledWith(
-      { turnId: TEST_IDS.turnId, afterSequence: 1 },
-      undefined,
-    );
   });
 
-  it("ignores duplicate lifecycle events after replay", async () => {
-    const duplicate = createLifecycleEvent(1);
+  it("ignores duplicate lifecycle events within replay", async () => {
     const transport = createTransport({
       replayLifecycleEvents: vi.fn(async () => ({
-        events: [duplicate],
-        nextSequence: 1,
+        events: [
+          createLifecycleEvent(1),
+          createLifecycleEvent(2, {
+            type: "turn.completed",
+            payload: { outcome: { status: "completed" } },
+          }),
+        ],
+        nextSequence: 2,
       })),
-      attachLifecycleStream: vi.fn(async function* () {
-        yield duplicate;
-        yield createLifecycleEvent(2);
-      }),
     });
     const client = new DefaultPlatformClient(transport);
 
@@ -268,12 +227,12 @@ describe("DefaultPlatformClient", () => {
   it("raises an explicit resync error on lifecycle sequence gaps", async () => {
     const transport = createTransport({
       replayLifecycleEvents: vi.fn(async () => ({
-        events: [createLifecycleEvent(1)],
-        nextSequence: 1,
+        events: [
+          createLifecycleEvent(1),
+          createLifecycleEvent(3),
+        ],
+        nextSequence: 3,
       })),
-      attachLifecycleStream: vi.fn(async function* () {
-        yield createLifecycleEvent(3);
-      }),
     });
     const client = new DefaultPlatformClient(transport);
 

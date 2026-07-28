@@ -8,6 +8,8 @@ import {
   ApprovalIdSchema,
   ItemIdSchema,
   JsonRecordSchema,
+  LifecycleToolDisplaySchema,
+  type LifecycleToolFamily,
   type PermissionProfileId,
   type RunMode,
 } from "@repo/platform-protocol";
@@ -81,8 +83,60 @@ function resolveRegisteredToolCall(
   return {
     status: "registered",
     definition,
-    toolCall: { ...toolCall, input: JsonRecordSchema.parse(parsedInput.data) },
+    toolCall: {
+      ...toolCall,
+      input: JsonRecordSchema.parse(parsedInput.data),
+      display: LifecycleToolDisplaySchema.parse({
+        title: definition.title,
+        family: resolveWorkflowFamily(definition),
+        namespace: definition.route.action,
+        ...buildSafeInputSummary(definition, parsedInput.data),
+      }),
+    },
   };
+}
+
+function resolveWorkflowFamily(definition: ToolDefinition): LifecycleToolFamily {
+  if (definition.evidenceKinds.includes("file_edit")) return "edit";
+  if (definition.evidenceKinds.includes("file_search")) return "search";
+  if (definition.evidenceKinds.includes("file_read")) return "read";
+  if (definition.evidenceKinds.includes("git_diff")) return "git";
+  if (definition.evidenceKinds.includes("git_status")) return "git";
+  if (definition.evidenceKinds.includes("command_run")) return "shell";
+  if (definition.route.plugin === "github" || definition.route.plugin === "github_cli") {
+    return "web";
+  }
+  return "generic";
+}
+
+function buildSafeInputSummary(
+  definition: ToolDefinition,
+  input: unknown,
+): { inputSummary: string } | Record<string, never> {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    return {};
+  }
+  const family = resolveWorkflowFamily(definition);
+  const record = input as Record<string, unknown>;
+  const candidateKeys =
+    family === "read" || family === "edit"
+      ? ["path", "filePath", "file"]
+      : family === "search"
+        ? ["query", "pattern", "path"]
+        : family === "git"
+          ? ["operation", "action"]
+          : [];
+  for (const key of candidateKeys) {
+    const value = record[key];
+    if (
+      typeof value === "string" &&
+      value.trim() &&
+      !value.includes("\n")
+    ) {
+      return { inputSummary: value.trim().slice(0, 280) };
+    }
+  }
+  return {};
 }
 
 function mapPolicyDecision(

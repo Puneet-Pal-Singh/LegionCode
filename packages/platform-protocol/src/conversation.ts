@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LifecycleToolDisplaySchema } from "./lifecycle.js";
 import {
   BranchIdSchema,
   EventSequenceSchema,
@@ -180,6 +181,7 @@ export const ToolCallItemContentSchema = z
     toolCallId: ToolCallIdSchema,
     toolName: z.string().min(1).max(160),
     input: JsonRecordSchema,
+    display: LifecycleToolDisplaySchema.optional(),
   })
   .strict();
 export type ToolCallItemContent = z.infer<
