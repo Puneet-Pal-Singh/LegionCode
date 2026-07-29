@@ -1165,7 +1165,9 @@ function AppContent() {
                     );
                   }}
                   onPromptSubmitted={(prompt) => {
-                    void prompt;
+                    if (prompt.trim()) {
+                      updateSession(activeSessionId, { status: "running" });
+                    }
                   }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(

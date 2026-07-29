@@ -15,12 +15,12 @@ export function WorkflowDisclosure({
   segments,
 }: WorkflowDisclosureProps) {
   return (
-    <div className="ml-1 mt-1 max-w-3xl border-l border-zinc-800/90 pl-4">
+    <div className="mt-1 max-w-3xl py-2">
       <WorkflowPlanDiff projection={projection} />
       {projection.pendingApproval ? (
-        <div className="mb-3 border-l-2 border-amber-500/70 pl-3 text-sm">
-          <div className="font-medium text-amber-200">Approval needed</div>
-          <div className="mt-0.5 text-xs text-amber-100/65">
+        <div className="mb-3 border-l border-zinc-700 pl-3 text-sm">
+          <div className="font-medium text-zinc-300">Approval needed</div>
+          <div className="mt-0.5 text-xs text-zinc-500">
             {projection.pendingApproval.question}
           </div>
         </div>

@@ -139,7 +139,17 @@ export function ChatInterface({
   }, [conversationScope, runId]);
   // The canonical lifecycle projection is the only workflow/activity source.
   // RunEvent and persisted activity backfills are deliberately not rendered.
-  const activeRunLoading = activeTurn.isActive || activeTurn.isTransportPending;
+  const awaitingCanonicalLifecycle = isLoading && !activeTurn.hasReplay;
+  const activeRunLoading =
+    activeTurn.isActive ||
+    activeTurn.isTransportPending ||
+    awaitingCanonicalLifecycle;
+  const pendingWorkflowStartedAtRef = useRef<number | null>(null);
+  if (awaitingCanonicalLifecycle && pendingWorkflowStartedAtRef.current === null) {
+    pendingWorkflowStartedAtRef.current = Date.now();
+  } else if (!awaitingCanonicalLifecycle) {
+    pendingWorkflowStartedAtRef.current = null;
+  }
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {
@@ -435,6 +445,9 @@ export function ChatInterface({
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
       completedTurnReview={completedTurnReview}
       lifecycleProjection={lifecycleProjection}
+      pendingWorkflowStartedAt={
+        awaitingCanonicalLifecycle ? pendingWorkflowStartedAtRef.current : null
+      }
     />
   );
 }

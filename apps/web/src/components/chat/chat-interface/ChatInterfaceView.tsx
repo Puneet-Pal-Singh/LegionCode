@@ -14,6 +14,7 @@ import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
 import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
+import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
 import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,
@@ -58,6 +59,7 @@ interface ChatInterfaceViewProps {
   completedTurnReview: CompletedTurnReview;
   lifecycleProjection: LifecycleProjection | null;
   onCompact?: () => void;
+  pendingWorkflowStartedAt: number | null;
 }
 
 export const ChatInterfaceView = forwardRef<
@@ -131,6 +133,9 @@ function Transcript(props: ChatInterfaceViewProps) {
           />
         );
       })}
+      {props.pendingWorkflowStartedAt ? (
+        <PendingWorkflowSurface startedAt={props.pendingWorkflowStartedAt} />
+      ) : null}
     </>
   );
 }

@@ -34,7 +34,15 @@ describe("mergeLifecycleProjections", () => {
   it("prefers durable replay once it catches up with an observed turn", () => {
     const turnId = TurnIdSchema.parse("trn_replayed001");
     const observed = createLifecycleProjection(turnId);
-    const replayed = { ...createLifecycleProjection(turnId), terminal: true };
+    const replayed = {
+      ...createLifecycleProjection(turnId),
+      terminal: {
+        state: "completed" as const,
+        eventId: "evt-terminal",
+        content: "completed",
+        occurredAt: "2026-07-29T00:00:00.000Z",
+      },
+    };
 
     const result = mergeLifecycleProjections(
       { [turnId]: replayed },

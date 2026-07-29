@@ -385,15 +385,16 @@ export function useChatCore(
     fetch: authenticatedChatFetch,
   });
   const scopedMessagesBase = messages;
+  const presentationScopeKey = scopeKey ?? runScopeKey;
   const scopedMessages = useMemo(
     () =>
       appendPendingUserMessage(
         scopedMessagesBase,
-        pendingUserMessage?.scopeKey === scopeKey
+        pendingUserMessage?.scopeKey === presentationScopeKey
           ? pendingUserMessage.message
           : null,
       ),
-    [pendingUserMessage, scopedMessagesBase, scopeKey],
+    [pendingUserMessage, presentationScopeKey, scopedMessagesBase],
   );
   useEffect(() => {
     logClientEvent("chat/messages", "scoped-derived", {
@@ -401,7 +402,9 @@ export function useChatCore(
       sessionId,
       baseCount: scopedMessagesBase.length,
       finalCount: scopedMessages.length,
-      pendingUser: Boolean(pendingUserMessage?.scopeKey === scopeKey),
+      pendingUser: Boolean(
+        pendingUserMessage?.scopeKey === presentationScopeKey,
+      ),
       baseRoles: summarizeMessageRoles(scopedMessagesBase),
       finalRoles: summarizeMessageRoles(scopedMessages),
       baseIds: summarizeMessageIdentities(scopedMessagesBase),
@@ -412,7 +415,7 @@ export function useChatCore(
     runId,
     scopedMessages,
     scopedMessagesBase,
-    scopeKey,
+    presentationScopeKey,
     sessionId,
   ]);
 

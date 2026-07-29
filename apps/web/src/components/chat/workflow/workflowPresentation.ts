@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  buildSegmentTitle,
   type ToolActivitySegment,
   type TurnWorkflowProjection,
   type WorkflowItem,
@@ -45,21 +44,8 @@ export function resolveWorkflowTitle(
     return `Failed after ${duration}`;
   }
 
-  const activeItem = findLatestActiveItem(projection.items);
-  if (activeItem) {
-    return (
-      activeItem.safeSummary ??
-      activeItem.detail ??
-      (activeItem.text || "Thinking")
-    );
-  }
-
-  const latestSegment = segments.at(-1);
-  if (latestSegment) {
-    return buildSegmentTitle(latestSegment);
-  }
-
-  return projection.phase === "starting" ? "Starting the task…" : "Thinking";
+  void segments;
+  return `Working for ${duration}`;
 }
 
 export function itemDisplayText(item: WorkflowItem): string | null {
@@ -71,15 +57,4 @@ export function itemDisplayText(item: WorkflowItem): string | null {
     item.outputSummary,
   ];
   return candidates.find((candidate) => candidate?.trim()) ?? null;
-}
-
-function findLatestActiveItem(
-  items: readonly WorkflowItem[],
-): WorkflowItem | null {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (items[index]?.status === "active") {
-      return items[index] ?? null;
-    }
-  }
-  return null;
 }

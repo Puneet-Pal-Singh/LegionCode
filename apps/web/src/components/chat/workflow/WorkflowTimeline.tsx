@@ -173,9 +173,9 @@ function WorkflowItemRow({
         className={cn(
           "mt-0.5 h-3.5 w-3.5 text-zinc-600",
           item.status === "active" &&
-            "text-sky-400 motion-safe:animate-pulse motion-reduce:animate-none",
+            "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
           item.status === "completed" && "text-zinc-500",
-          item.status === "failed" && "text-red-400",
+          item.status === "failed" && "text-zinc-400",
           item.status === "interrupted" && "text-zinc-500",
         )}
       />

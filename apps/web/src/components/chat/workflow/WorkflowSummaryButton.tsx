@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, LoaderCircle } from "lucide-react";
 import {
   workflowPhaseLabel,
   type TurnWorkflowProjection,
@@ -18,25 +18,21 @@ export function WorkflowSummaryButton({
   title,
   onToggle,
 }: WorkflowSummaryButtonProps) {
-  const terminal = phase === "completed" || phase === "failed" || phase === "interrupted";
+  const terminal =
+    phase === "completed" || phase === "failed" || phase === "interrupted";
   return (
     <button
       type="button"
-      className="group flex max-w-full items-center gap-2 py-1.5 text-left text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+      className="group flex w-full max-w-full items-center gap-2 border-b border-zinc-800/90 py-2 text-left text-sm text-zinc-400 transition-colors hover:text-zinc-200"
       aria-expanded={expanded}
       onClick={onToggle}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "h-2 w-2 shrink-0 rounded-full border",
-          phase === "failed" && "border-red-400 bg-red-400/60",
-          phase === "interrupted" && "border-zinc-500 bg-zinc-600",
-          phase === "completed" && "border-zinc-500 bg-zinc-500",
-          !terminal &&
-            "border-sky-400 bg-sky-400/70 motion-safe:animate-pulse motion-reduce:animate-none",
-        )}
-      />
+      {!terminal ? (
+        <LoaderCircle
+          aria-hidden="true"
+          className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500"
+        />
+      ) : null}
       <span className="truncate font-medium text-zinc-300">{title}</span>
       <span className="sr-only">{workflowPhaseLabel(phase)}</span>
       <ChevronDown
