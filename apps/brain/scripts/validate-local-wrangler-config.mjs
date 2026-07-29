@@ -10,7 +10,7 @@ const brainDir = path.resolve(
 /** @typedef {{ canonical: string, local: string }} LocalWranglerConfigPaths */
 
 export const LOCAL_WRANGLER_CONFIG_REMEDIATION =
-  "Brain local development is blocked: copy apps/brain/wrangler.local.example.jsonc to apps/brain/wrangler.local.jsonc and keep its Durable Object bindings and migrations unchanged.";
+  "Brain local development is blocked: copy apps/brain/wrangler.local.example.jsonc to apps/brain/wrangler.local.jsonc and keep its Hyperdrive, Durable Object bindings, and migrations unchanged.";
 
 /** @type {LocalWranglerConfigPaths} */
 export const defaultLocalWranglerConfigPaths = {
@@ -142,6 +142,25 @@ export function durableObjectConfiguration(config) {
   });
 }
 
+/** @param {unknown} config */
+export function hasLocalHyperdriveConfiguration(config) {
+  const root =
+    config !== null && typeof config === "object" && !Array.isArray(config)
+      ? config
+      : {};
+  const bindings = Array.isArray(root.hyperdrive) ? root.hyperdrive : [];
+
+  return bindings.some(
+    (entry) =>
+      entry !== null &&
+      typeof entry === "object" &&
+      !Array.isArray(entry) &&
+      entry.binding === "HYPERDRIVE" &&
+      typeof entry.localConnectionString === "string" &&
+      entry.localConnectionString.trim().length > 0,
+  );
+}
+
 /** @param {LocalWranglerConfigPaths} paths */
 export function validateLocalWranglerConfig(
   paths = defaultLocalWranglerConfigPaths,
@@ -151,8 +170,9 @@ export function validateLocalWranglerConfig(
     const localConfig = readJsonc(paths.local);
 
     return (
+      hasLocalHyperdriveConfiguration(localConfig) &&
       JSON.stringify(durableObjectConfiguration(localConfig)) ===
-      JSON.stringify(durableObjectConfiguration(canonicalConfig))
+        JSON.stringify(durableObjectConfiguration(canonicalConfig))
     );
   } catch {
     return false;
@@ -160,7 +180,11 @@ export function validateLocalWranglerConfig(
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (!validateLocalWranglerConfig()) {
+  const explicitPaths =
+    process.argv[2] && process.argv[3]
+      ? { canonical: process.argv[2], local: process.argv[3] }
+      : defaultLocalWranglerConfigPaths;
+  if (!validateLocalWranglerConfig(explicitPaths)) {
     console.error(LOCAL_WRANGLER_CONFIG_REMEDIATION);
     process.exitCode = 1;
   }
