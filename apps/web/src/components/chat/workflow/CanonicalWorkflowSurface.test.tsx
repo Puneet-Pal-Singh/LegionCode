@@ -10,7 +10,7 @@ import { createTurnWorkflowProjection } from "@repo/platform-client-sdk";
 import { CanonicalWorkflowSurface } from "./CanonicalWorkflowSurface.js";
 
 describe("CanonicalWorkflowSurface", () => {
-  it("collapses settled work while keeping ordered tool details outside the disclosure", () => {
+  it("keeps settled workflow history visible without waiting for refresh", () => {
     const projection = {
       ...createTurnWorkflowProjection(TurnIdSchema.parse("trn_surface01")),
       phase: "completed" as const,
@@ -76,12 +76,17 @@ describe("CanonicalWorkflowSurface", () => {
     expect(surface).toHaveAttribute("data-terminal-state", "completed");
     expect(
       screen.getByRole("button", { name: /worked for 2s/i }),
-    ).toHaveAttribute("aria-expanded", "false");
+    ).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByText("Read README.md")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /worked for 2s/i }));
     fireEvent.click(screen.getByRole("button", { name: /read files/i }));
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
+    const toolDetails = screen.getByRole("button", {
+      name: /view details for read/i,
+    });
+    expect(toolDetails).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toolDetails);
+    expect(toolDetails).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("canonical-plan-diff-chip")).toHaveTextContent(
       "1 file changed · +1 -0",
     );

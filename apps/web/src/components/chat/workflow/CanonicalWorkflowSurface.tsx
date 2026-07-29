@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   groupToolActivity,
   type TurnWorkflowProjection,
@@ -19,7 +19,7 @@ export function CanonicalWorkflowSurface({
   projection,
 }: CanonicalWorkflowSurfaceProps) {
   const terminal = projection.terminal;
-  const [expanded, setExpanded] = useState(!terminal);
+  const [expanded, setExpanded] = useState(true);
   const now = useWorkflowClock(Boolean(terminal));
   const segments = useMemo(
     () => groupToolActivity(projection.items),
@@ -31,12 +31,6 @@ export function CanonicalWorkflowSurface({
     now,
   );
   const title = resolveWorkflowTitle(projection, segments, duration);
-
-  useEffect(() => {
-    if (terminal) {
-      setExpanded(false);
-    }
-  }, [terminal]);
 
   return (
     <section

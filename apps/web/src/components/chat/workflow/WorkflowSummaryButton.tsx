@@ -1,4 +1,4 @@
-import { ChevronDown, LoaderCircle } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import {
   workflowPhaseLabel,
   type TurnWorkflowProjection,
@@ -18,8 +18,6 @@ export function WorkflowSummaryButton({
   title,
   onToggle,
 }: WorkflowSummaryButtonProps) {
-  const terminal =
-    phase === "completed" || phase === "failed" || phase === "interrupted";
   return (
     <button
       type="button"
@@ -27,12 +25,6 @@ export function WorkflowSummaryButton({
       aria-expanded={expanded}
       onClick={onToggle}
     >
-      {!terminal ? (
-        <LoaderCircle
-          aria-hidden="true"
-          className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500"
-        />
-      ) : null}
       <span className="truncate font-medium text-zinc-300">{title}</span>
       <span className="sr-only">{workflowPhaseLabel(phase)}</span>
       <ChevronDown

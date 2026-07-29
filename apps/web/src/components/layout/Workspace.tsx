@@ -299,7 +299,9 @@ export function Workspace({
     isGitReviewOpen ||
     (isRightSidebarOpen && (activeTab === "review" || activeTab === "changes"));
   const liveGitReviewEnabled =
-    explicitReviewOpen && !completedTurnReview.turnId;
+    explicitReviewOpen &&
+    isEffectiveCanonicalRunActive &&
+    !completedTurnReview.turnId;
   useEffect(() => {
     logClientEvent("run/ui-state", "derived", {
       runId: activeRunId,
@@ -434,7 +436,7 @@ export function Workspace({
         isReviewActive={
           isGitReviewOpen || activeTab === "review" || activeTab === "changes"
         }
-        isReviewDataEnabled={explicitReviewOpen}
+        isReviewDataEnabled={liveGitReviewEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
         isGitWorkspaceRecovering={false}
         artifactIdentity={conversationScope}

@@ -27,8 +27,11 @@ export function WorkflowDisclosure({
       ) : null}
       <WorkflowTimeline
         segments={segments}
-        showStartingState={
-          segments.length === 0 && !projection.pendingApproval && !projection.terminal
+        showThinkingState={
+          !projection.pendingApproval &&
+          !projection.terminal &&
+          (segments.length === 0 ||
+            !segments.some((segment) => segment.isActive))
         }
       />
     </div>

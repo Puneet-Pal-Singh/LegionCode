@@ -21,29 +21,23 @@ import {
 import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
 import { itemDisplayText } from "./workflowPresentation.js";
+import { ThinkingIndicator } from "./ThinkingIndicator.js";
 
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
-  showStartingState: boolean;
+  showThinkingState: boolean;
 }
 
 export function WorkflowTimeline({
   segments,
-  showStartingState,
+  showThinkingState,
 }: WorkflowTimelineProps) {
-  if (showStartingState) {
-    return (
-      <p className="py-1 text-xs text-zinc-500" role="status">
-        Starting the task…
-      </p>
-    );
-  }
-
   return (
     <div className="space-y-3" data-testid="workflow-tool-viewport">
       {segments.map((segment) => (
         <WorkflowSegment key={segment.key} segment={segment} />
       ))}
+      {showThinkingState ? <ThinkingIndicator /> : null}
     </div>
   );
 }
@@ -65,7 +59,7 @@ function WorkflowSegment({ segment }: { segment: ToolActivitySegment }) {
 
   if (commentary) {
     return (
-      <div className="py-1 text-[15px] leading-7 text-zinc-300">
+      <div className="py-1 text-[15px] leading-7 text-zinc-100">
         <MarkdownMessageContent content={itemDisplayText(commentary) ?? ""} />
       </div>
     );
@@ -74,7 +68,7 @@ function WorkflowSegment({ segment }: { segment: ToolActivitySegment }) {
   return (
     <div className="space-y-2">
       {segment.reasoning ? (
-        <div className="text-[15px] leading-7 text-zinc-300">
+        <div className="text-[15px] leading-7 text-zinc-100">
           <MarkdownMessageContent
             content={itemDisplayText(segment.reasoning) ?? "Thinking"}
           />
@@ -127,7 +121,7 @@ function ActivityDisclosure({
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
-        className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-300"
+        className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-100"
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
         <span className="first-letter:uppercase">{title}</span>
@@ -140,7 +134,7 @@ function ActivityDisclosure({
         />
       </button>
       {expanded ? (
-        <div className="ml-2 mt-1 border-l border-zinc-800 pl-4">
+        <div className="ml-2 mt-1 border-l border-zinc-800 py-1 pl-4">
           {children}
         </div>
       ) : null}
@@ -155,59 +149,98 @@ function WorkflowItemRow({
   item: WorkflowItem;
   reasoning?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
   const isCommentary = item.kind === "commentary";
+  const isInspectable =
+    !isCommentary &&
+    item.kind !== "reasoning" &&
+    item.kind !== "assistant_message" &&
+    item.kind !== "user_message";
   const label = reasoning
     ? (item.safeSummary ?? "Thinking")
     : (item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind));
   const StatusIcon = resolveItemIcon(item);
+  const detailLines = [
+    item.detail,
+    item.inputSummary,
+    item.outputSummary,
+    item.text,
+  ].filter(
+    (value, index, values): value is string =>
+      Boolean(value?.trim()) &&
+      value !== label &&
+      values.indexOf(value) === index,
+  );
+  const preview = detailLines[0] ?? null;
 
   return (
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className="grid grid-cols-[16px_minmax(0,1fr)] gap-2 py-0.5 text-[13px]"
+      className="group py-0.5 text-[13px]"
     >
-      <StatusIcon
-        aria-hidden="true"
-        className={cn(
-          "mt-0.5 h-3.5 w-3.5 text-zinc-600",
-          item.status === "active" &&
-            "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
-          item.status === "completed" && "text-zinc-500",
-          item.status === "failed" && "text-zinc-400",
-          item.status === "interrupted" && "text-zinc-500",
-        )}
-      />
-      <div className="min-w-0 text-zinc-500">
-        <span className="text-zinc-400">{label}</span>
-        {isCommentary && text ? (
-          <div className="mt-1 max-h-24 overflow-hidden text-zinc-300">
-            <MarkdownMessageContent content={text} />
+      <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
+        <StatusIcon
+          aria-hidden="true"
+          className={cn(
+            "mt-0.5 h-3.5 w-3.5 text-zinc-600",
+            item.status === "active" &&
+              "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
+            item.status === "completed" && "text-zinc-500",
+            item.status === "failed" && "text-zinc-400",
+            item.status === "interrupted" && "text-zinc-500",
+          )}
+        />
+        {isInspectable ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`View details for ${label}`}
+            onClick={() => setExpanded((current) => !current)}
+            className="min-w-0 text-left text-zinc-500 transition-colors hover:text-zinc-100"
+          >
+            <span>{label}</span>
+            {preview ? (
+              <span className="ml-2 break-words text-zinc-400">{preview}</span>
+            ) : null}
+            {item.status === "failed" ? (
+              <span className="ml-2 text-zinc-500">failed</span>
+            ) : null}
+            <ChevronDown
+              className={cn(
+                "ml-1 inline h-3 w-3 transition-transform",
+                expanded && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
+          </button>
+        ) : (
+          <div className="min-w-0 text-zinc-100">
+            <span>{label}</span>
+            {isCommentary && text ? (
+              <div className="mt-1 max-h-24 overflow-hidden">
+                <MarkdownMessageContent content={text} />
+              </div>
+            ) : null}
           </div>
-        ) : text && text !== label ? (
-          <span className="ml-2 break-words text-zinc-300">{text}</span>
-        ) : null}
-        {item.inputSummary &&
-        item.inputSummary !== text &&
-        item.inputSummary !== label ? (
-          <span className="ml-2 break-words text-zinc-300">
-            {item.inputSummary}
-          </span>
-        ) : null}
-        {item.outputSummary && item.outputSummary !== text ? (
-          <span className="ml-2 text-zinc-500">{item.outputSummary}</span>
-        ) : null}
-        {item.kind === "plan" && item.planSteps.length > 0 ? (
-          <span className="ml-2 text-zinc-500">
-            {
-              item.planSteps.filter((step) => step.status === "completed")
-                .length
-            }
-            /{item.planSteps.length} steps
-          </span>
-        ) : null}
+        )}
       </div>
+      {expanded && detailLines.length > 0 ? (
+        <div className="ml-6 mt-1 max-h-40 overflow-auto rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2 font-mono text-xs leading-5 text-zinc-400">
+          {detailLines.map((line) => (
+            <div key={line} className="whitespace-pre-wrap break-words">
+              {line}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {item.kind === "plan" && item.planSteps.length > 0 ? (
+        <div className="ml-6 text-zinc-500">
+          {item.planSteps.filter((step) => step.status === "completed").length}/
+          {item.planSteps.length} steps
+        </div>
+      ) : null}
     </div>
   );
 }
