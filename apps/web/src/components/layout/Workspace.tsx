@@ -114,8 +114,10 @@ export function Workspace({
     activeContentTabId,
     selectedFile,
     selectedDiff,
+    selectedContext,
     openFileTab,
     openFilesTab,
+    openContextTab,
     selectContentTab,
     closeContentTab,
     isViewingContent,
@@ -209,7 +211,11 @@ export function Workspace({
       workspaceId,
       audits: hookSettingsAudits,
     });
-  }, [conversationScope?.workspaceId, hookSettingsAudits, onHookSettingsContextChange]);
+  }, [
+    conversationScope?.workspaceId,
+    hookSettingsAudits,
+    onHookSettingsContextChange,
+  ]);
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {
@@ -291,8 +297,7 @@ export function Workspace({
   } = runUiState;
   const explicitReviewOpen =
     isGitReviewOpen ||
-    (isRightSidebarOpen &&
-      (activeTab === "review" || activeTab === "changes"));
+    (isRightSidebarOpen && (activeTab === "review" || activeTab === "changes"));
   const liveGitReviewEnabled =
     explicitReviewOpen && !completedTurnReview.turnId;
   useEffect(() => {
@@ -325,10 +330,11 @@ export function Workspace({
     explicitReviewOpen,
     runUiState.kind,
   ]);
-  const {
-    status,
-    refetch: refetchGitStatus,
-  } = useGitStatus(activeRunId, sessionId, liveGitReviewEnabled);
+  const { status, refetch: refetchGitStatus } = useGitStatus(
+    activeRunId,
+    sessionId,
+    liveGitReviewEnabled,
+  );
 
   const handleOpenFileTab = useCallback(
     (file: { path: string; content: string }) => {
@@ -480,6 +486,11 @@ export function Workspace({
                 setActiveTab("review");
                 setIsViewingContent(false);
               }}
+              onContextOpen={(budget, usage) => {
+                openContextTab(budget, usage);
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("review");
+              }}
             />
           </main>
 
@@ -549,6 +560,7 @@ export function Workspace({
                 contentError={contentError}
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
+                selectedContext={selectedContext}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}

@@ -70,19 +70,17 @@ describe("CanonicalWorkflowSurface", () => {
         patch: "diff --git a/README.md b/README.md",
       }),
     };
-    render(
-      <CanonicalWorkflowSurface projection={projection} />,
-    );
+    render(<CanonicalWorkflowSurface projection={projection} />);
 
     const surface = screen.getByTestId("canonical-workflow");
     expect(surface).toHaveAttribute("data-terminal-state", "completed");
-    expect(screen.getByRole("button", { name: /worked for 2s/i })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
+    expect(
+      screen.getByRole("button", { name: /worked for 2s/i }),
+    ).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Read README.md")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /worked for 2s/i }));
+    fireEvent.click(screen.getByRole("button", { name: /read files/i }));
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
     expect(screen.getByTestId("canonical-plan-diff-chip")).toHaveTextContent(
       "1 file changed · +1 -0",

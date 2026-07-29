@@ -4,7 +4,10 @@ import {
   TurnIdSchema,
   type LifecycleEvent,
 } from "@repo/platform-protocol";
-import { groupToolActivity } from "./tool-activity-grouping.js";
+import {
+  buildSegmentTitle,
+  groupToolActivity,
+} from "./tool-activity-grouping.js";
 import {
   applyLifecycleEvent,
   createTurnWorkflowProjection,
@@ -17,15 +20,12 @@ const ATTEMPT_ID = "attempt_workflow01";
 
 describe("turn workflow projection", () => {
   it("preserves typed tool families and repeated ordered children", () => {
-    const projection = replayTurnWorkflowProjection(
-      TURN_ID,
-      [
-        toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
-        toolCompleted(2, "itm_read01", "toolcall_read01"),
-        toolStarted(3, "itm_edit01", "toolcall_edit01", "read", "Edit README.md"),
-        toolCompleted(4, "itm_edit01", "toolcall_edit01"),
-      ],
-    );
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
+      toolCompleted(2, "itm_read01", "toolcall_read01"),
+      toolStarted(3, "itm_edit01", "toolcall_edit01", "read", "Edit README.md"),
+      toolCompleted(4, "itm_edit01", "toolcall_edit01"),
+    ]);
 
     const segments = groupToolActivity(projection.items);
     expect(projection.items.map((item) => item.toolFamily)).toEqual([
@@ -43,13 +43,20 @@ describe("turn workflow projection", () => {
       "itm_edit01",
     ]);
     expect(segments[0]?.children[0]?.detail).toBe("Read README.md");
+    expect(buildSegmentTitle(segments[0]!)).toBe("read files");
   });
 
   it("does not synthesize item settlement from a terminal event", () => {
     const projection = applyLifecycleEvent(
       applyLifecycleEvent(
         createTurnWorkflowProjection(TURN_ID),
-        toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
+        toolStarted(
+          1,
+          "itm_read01",
+          "toolcall_read01",
+          "read",
+          "Read README.md",
+        ),
       ),
       event(2, "turn.interrupted", {
         payload: {
@@ -162,7 +169,10 @@ describe("turn workflow projection", () => {
       }),
     ];
     const full = replayTurnWorkflowProjection(TURN_ID, events);
-    const incremental = events.reduce(applyLifecycleEvent, createTurnWorkflowProjection(TURN_ID));
+    const incremental = events.reduce(
+      applyLifecycleEvent,
+      createTurnWorkflowProjection(TURN_ID),
+    );
     expect(incremental).toEqual(full);
     expect(full.contextBudget?.tokensUsed).toBe(65);
     expect(full.usage?.cumulativeThreadTokens).toBe(73);
@@ -171,6 +181,8 @@ describe("turn workflow projection", () => {
       compactionPhase: "compacted",
       status: "completed",
     });
+    const compactionSegment = groupToolActivity(full.items).at(-1);
+    expect(buildSegmentTitle(compactionSegment!)).toBe("compacted context");
   });
 });
 
@@ -178,14 +190,31 @@ function toolStarted(
   sequence: number,
   itemId: string,
   toolCallId: string,
-  family: "read" | "search" | "shell" | "edit" | "git" | "web" | "image" | "skill" | "browser" | "mcp" | "dynamic" | "generic",
+  family:
+    | "read"
+    | "search"
+    | "shell"
+    | "edit"
+    | "git"
+    | "web"
+    | "image"
+    | "skill"
+    | "browser"
+    | "mcp"
+    | "dynamic"
+    | "generic",
   detail: string,
 ): LifecycleEvent {
   return event(sequence, "tool_call.started", {
     itemId,
     toolCallId,
     payload: {
-      display: { family, namespace: "filesystem", title: "Read File", inputSummary: detail },
+      display: {
+        family,
+        namespace: "filesystem",
+        title: "Read File",
+        inputSummary: detail,
+      },
     },
   });
 }

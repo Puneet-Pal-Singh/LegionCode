@@ -57,6 +57,7 @@ interface ChatComposerControlsProps {
   contextBudget?: ContextBudgetSnapshot | null;
   usage?: UsageCostSnapshot | null;
   onCompact?: () => void;
+  onContextOpen?: () => void;
 }
 
 export function ChatComposerControls(props: ChatComposerControlsProps) {
@@ -100,6 +101,7 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           contextBudget={props.contextBudget}
           usage={props.usage}
           onCompact={props.onCompact}
+          onContextOpen={props.onContextOpen}
         />
       )}
       <div

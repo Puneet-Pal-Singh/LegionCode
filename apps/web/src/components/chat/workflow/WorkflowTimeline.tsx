@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BookOpen,
   Check,
@@ -10,6 +10,7 @@ import {
   Square,
   Terminal,
   Wrench,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -57,30 +58,92 @@ function WorkflowSegment({ segment }: { segment: ToolActivitySegment }) {
     viewport.scrollTop = viewport.scrollHeight;
   }, [segment.children.length]);
 
+  const commentary =
+    segment.children.length === 1 && segment.children[0]?.kind === "commentary"
+      ? segment.children[0]
+      : null;
+
+  if (commentary) {
+    return (
+      <div className="py-1 text-[15px] leading-7 text-zinc-300">
+        <MarkdownMessageContent content={itemDisplayText(commentary) ?? ""} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {segment.reasoning ? (
+        <div className="text-[15px] leading-7 text-zinc-300">
+          <MarkdownMessageContent
+            content={itemDisplayText(segment.reasoning) ?? "Thinking"}
+          />
+        </div>
+      ) : null}
+      {segment.children.length > 0 ? (
+        <ActivityDisclosure
+          title={buildSegmentTitle(segment)}
+          active={segment.isActive}
+        >
+          <div
+            ref={viewportRef}
+            onScroll={(event) => {
+              const viewport = event.currentTarget;
+              followRef.current =
+                viewport.scrollHeight -
+                  viewport.scrollTop -
+                  viewport.clientHeight <
+                24;
+            }}
+            className="max-h-60 space-y-1 overflow-y-auto pr-2"
+          >
+            {segment.children.map((item) => (
+              <WorkflowItemRow key={item.itemId} item={item} />
+            ))}
+          </div>
+        </ActivityDisclosure>
+      ) : null}
+    </div>
+  );
+}
+
+function ActivityDisclosure({
+  title,
+  active,
+  children,
+}: {
+  title: string;
+  active: boolean;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(active);
+  useEffect(() => {
+    if (active) setExpanded(true);
+  }, [active]);
+
   return (
     <div>
-      <div className="mb-1 text-xs font-medium text-zinc-400">
-        {buildSegmentTitle(segment)}
-      </div>
-      <div
-        ref={viewportRef}
-        onScroll={(event) => {
-          const viewport = event.currentTarget;
-          followRef.current =
-            viewport.scrollHeight -
-              viewport.scrollTop -
-              viewport.clientHeight <
-            24;
-        }}
-        className="max-h-60 space-y-1 overflow-y-auto pr-2"
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+        className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-300"
       >
-        {segment.reasoning ? (
-          <WorkflowItemRow item={segment.reasoning} reasoning />
-        ) : null}
-        {segment.children.map((item) => (
-          <WorkflowItemRow key={item.itemId} item={item} />
-        ))}
-      </div>
+        <Wrench className="h-4 w-4" aria-hidden="true" />
+        <span className="first-letter:uppercase">{title}</span>
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 transition-transform",
+            expanded && "rotate-180",
+          )}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded ? (
+        <div className="ml-2 mt-1 border-l border-zinc-800 pl-4">
+          {children}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -95,15 +158,15 @@ function WorkflowItemRow({
   const text = itemDisplayText(item);
   const isCommentary = item.kind === "commentary";
   const label = reasoning
-    ? item.safeSummary ?? "Thinking"
-    : item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
+    ? (item.safeSummary ?? "Thinking")
+    : (item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind));
   const StatusIcon = resolveItemIcon(item);
 
   return (
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className="grid grid-cols-[16px_minmax(0,1fr)] gap-2 text-xs"
+      className="grid grid-cols-[16px_minmax(0,1fr)] gap-2 py-0.5 text-[13px]"
     >
       <StatusIcon
         aria-hidden="true"
@@ -137,8 +200,11 @@ function WorkflowItemRow({
         ) : null}
         {item.kind === "plan" && item.planSteps.length > 0 ? (
           <span className="ml-2 text-zinc-500">
-            {item.planSteps.filter((step) => step.status === "completed").length}/
-            {item.planSteps.length} steps
+            {
+              item.planSteps.filter((step) => step.status === "completed")
+                .length
+            }
+            /{item.planSteps.length} steps
           </span>
         ) : null}
       </div>

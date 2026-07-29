@@ -1,10 +1,12 @@
-import { useRef, useEffect, useMemo, useCallback } from "react";
+import { useRef, useEffect, useMemo, useCallback, useState } from "react";
 import {
   RunIdSchema,
   RunAttemptIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
   WorkspaceIdSchema,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
 } from "@repo/platform-protocol";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
@@ -42,6 +44,8 @@ import {
   hasChangedFileSnapshot,
 } from "./chat-interface/changedFiles";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
+import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
+import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -72,6 +76,10 @@ interface ChatInterfaceProps {
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
   onArtifactOpen?: (path: string, content: string) => void;
   onReviewOpen?: () => void;
+  onContextOpen?: (
+    budget: ContextBudgetSnapshot,
+    usage: UsageCostSnapshot | null,
+  ) => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
@@ -88,6 +96,7 @@ export function ChatInterface({
   onPendingApprovalChange,
   onArtifactOpen,
   onReviewOpen,
+  onContextOpen,
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
@@ -168,6 +177,32 @@ export function ChatInterface({
     markDispatched: markReviewCommentsDispatched,
     markDispatchFailed: markReviewCommentsDispatchFailed,
   });
+  const submitComposer = useCallback(
+    async (attachments?: ChatSubmitAttachments): Promise<boolean> => {
+      if (input.trim() !== "/compact") {
+        return handleSubmit(undefined, attachments);
+      }
+      const budget = lifecycleProjection?.contextBudget;
+      if (
+        !lifecycleProjection ||
+        lifecycleProjection.terminal ||
+        !budget ||
+        budget.utilizationPercent < budget.warningThresholdPercent
+      ) {
+        return false;
+      }
+      await compactActiveTurn();
+      handleInputChangeWrapper("");
+      return true;
+    },
+    [
+      compactActiveTurn,
+      handleInputChangeWrapper,
+      handleSubmit,
+      input,
+      lifecycleProjection,
+    ],
+  );
   const previousScrollScopeKeyRef = useRef<string | null>(null);
 
   const messageMetadataById = useMemo(() => {
@@ -198,28 +233,36 @@ export function ChatInterface({
     () => buildConversationTurns(messages),
     [messages],
   );
-  const historicalLifecycleProjections =
-    useConversationLifecycleProjections(
-      conversationTurns,
-      lifecycleProjection?.turnId,
-    );
+  const historicalLifecycleProjections = useConversationLifecycleProjections(
+    conversationTurns,
+    lifecycleProjection?.turnId,
+  );
+  const [observedLifecycleProjections, setObservedLifecycleProjections] =
+    useState<Record<string, LifecycleProjection>>({});
+
+  useEffect(() => {
+    setObservedLifecycleProjections({});
+  }, [runId, sessionId]);
+
+  useEffect(() => {
+    if (!lifecycleProjection) return;
+    setObservedLifecycleProjections((current) => ({
+      ...current,
+      [lifecycleProjection.turnId]: lifecycleProjection,
+    }));
+  }, [lifecycleProjection]);
+
   const lifecycleProjectionsByTurnId = useMemo(
-    () => {
-      if (!lifecycleProjection) return historicalLifecycleProjections;
-      const latestTurnId =
-        conversationTurns[conversationTurns.length - 1]?.turnId;
-      return {
-        ...historicalLifecycleProjections,
-        [lifecycleProjection.turnId]: lifecycleProjection,
-        ...(latestTurnId
-          ? { [latestTurnId]: lifecycleProjection }
-          : {}),
-      };
-    },
+    () =>
+      mergeLifecycleProjections(
+        historicalLifecycleProjections,
+        observedLifecycleProjections,
+        lifecycleProjection,
+      ),
     [
-      conversationTurns,
       historicalLifecycleProjections,
       lifecycleProjection,
+      observedLifecycleProjections,
     ],
   );
   const latestLifecycleProjection = useMemo(() => {
@@ -231,11 +274,7 @@ export function ChatInterface({
       }
     }
     return null;
-  }, [
-    conversationTurns,
-    lifecycleProjection,
-    lifecycleProjectionsByTurnId,
-  ]);
+  }, [conversationTurns, lifecycleProjection, lifecycleProjectionsByTurnId]);
   const {
     snapshots: changedFileSnapshotsByAssistantMessageId,
     artifacts: artifactSourcesByAssistantMessageId,
@@ -308,7 +347,7 @@ export function ChatInterface({
       onSubmit={
         selectedReviewComments.length > 0
           ? () => handleSubmitWithReviewComments()
-          : (attachments) => handleSubmit(undefined, attachments)
+          : submitComposer
       }
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}
@@ -331,6 +370,15 @@ export function ChatInterface({
       onCompact={
         lifecycleProjection && !lifecycleProjection.terminal
           ? () => void compactActiveTurn()
+          : undefined
+      }
+      onContextOpen={
+        latestLifecycleProjection?.contextBudget && onContextOpen
+          ? () =>
+              onContextOpen(
+                latestLifecycleProjection.contextBudget!,
+                latestLifecycleProjection.usage,
+              )
           : undefined
       }
     />

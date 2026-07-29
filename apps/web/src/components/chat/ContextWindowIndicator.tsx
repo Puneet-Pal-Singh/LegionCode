@@ -8,12 +8,14 @@ interface ContextWindowIndicatorProps {
   budget: ContextBudgetSnapshot | null;
   usage: UsageCostSnapshot | null;
   onCompact?: () => void;
+  onOpenDetails?: () => void;
 }
 
 export function ContextWindowIndicator({
   budget,
   usage,
   onCompact,
+  onOpenDetails,
 }: ContextWindowIndicatorProps) {
   if (!budget) return null;
   const percent = Math.round(budget.utilizationPercent);
@@ -26,12 +28,10 @@ export function ContextWindowIndicator({
       <button
         type="button"
         aria-label={`Context window ${percent}% full`}
-        onClick={canCompact ? onCompact : undefined}
+        onClick={onOpenDetails}
         className={cn(
           "relative h-5 w-5 rounded-full transition-colors",
-          canCompact
-            ? "cursor-pointer hover:bg-zinc-800"
-            : "cursor-default",
+          onOpenDetails ? "cursor-pointer hover:bg-zinc-800" : "cursor-default",
         )}
       >
         <span
@@ -60,7 +60,7 @@ export function ContextWindowIndicator({
         ) : null}
         {canCompact ? (
           <div className="mt-2 border-t border-zinc-700/70 pt-2 text-xs text-zinc-300">
-            Click to compact context
+            /compact is available
           </div>
         ) : null}
       </div>

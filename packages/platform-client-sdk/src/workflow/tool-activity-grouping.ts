@@ -1,4 +1,7 @@
-import type { WorkflowItem, WorkflowItemKind } from "./turn-workflow-projection.js";
+import type {
+  WorkflowItem,
+  WorkflowItemKind,
+} from "./turn-workflow-projection.js";
 
 export interface ToolActivitySegment {
   readonly key: string;
@@ -36,8 +39,8 @@ export function groupToolActivity(
     if (isToolItem(item)) {
       if (
         !current ||
-        current.children.length > 0 &&
-        !current.children.some((c) => isToolItem(c))
+        (current.children.length > 0 &&
+          !current.children.some((c) => isToolItem(c)))
       ) {
         current = createSegment(item);
         segments.push(current);
@@ -107,17 +110,51 @@ function deriveFamilyLabels(
 }
 
 function getItemFamilyLabel(item: WorkflowItem): string {
+  switch (item.kind) {
+    case "approval_request":
+      return "approval";
+    case "context_compaction":
+      return "context compaction";
+    case "warning":
+      return "warning";
+    default:
+      break;
+  }
   return item.toolFamily ?? "tool calls";
 }
 
-export function buildSegmentTitle(
-  segment: ToolActivitySegment,
-): string {
-  if (segment.reasoning?.text) {
-    return segment.reasoning.text;
-  }
+export function buildSegmentTitle(segment: ToolActivitySegment): string {
   const labels = segment.familyLabels;
-  if (labels.length === 0) return "Working";
-  if (labels.length === 1) return labels[0] ?? "Working";
-  return labels.join(", ");
+  if (labels.length === 0) {
+    return segment.reasoning?.safeSummary?.trim() || "Thinking";
+  }
+  return labels.map(toActivityPhrase).join(", ");
+}
+
+function toActivityPhrase(label: string): string {
+  switch (label.toLowerCase()) {
+    case "read":
+      return "read files";
+    case "search":
+      return "searched files";
+    case "edit":
+      return "edited files";
+    case "shell":
+      return "ran commands";
+    case "git":
+      return "used Git";
+    case "web":
+    case "browser":
+      return "searched the web";
+    case "approval":
+      return "requested approval";
+    case "context compaction":
+      return "compacted context";
+    case "warning":
+      return "reported a warning";
+    case "tool calls":
+      return "used a tool";
+    default:
+      return `used ${label}`;
+  }
 }

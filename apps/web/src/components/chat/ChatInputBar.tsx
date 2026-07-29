@@ -46,6 +46,7 @@ import type {
   UsageCostSnapshot,
 } from "@repo/platform-protocol";
 import { ContextWindowIndicator } from "./ContextWindowIndicator";
+import { useComposerPreferences } from "../../lib/composer-preferences";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -83,6 +84,7 @@ interface ChatInputBarProps {
   contextBudget?: ContextBudgetSnapshot | null;
   usage?: UsageCostSnapshot | null;
   onCompact?: () => void;
+  onContextOpen?: () => void;
 }
 
 export function ChatInputBar({
@@ -108,7 +110,9 @@ export function ChatInputBar({
   contextBudget = null,
   usage = null,
   onCompact,
+  onContextOpen,
 }: ChatInputBarProps) {
+  const composerPreferences = useComposerPreferences();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageAttachmentsRef = useRef<ChatImageAttachment[]>([]);
   const [isFocused, setIsFocused] = useState(false);
@@ -120,16 +124,16 @@ export function ChatInputBar({
   >(null);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
-  const [switchWarningMessage, setSwitchWarningMessage] = useState<string | null>(
-    null,
-  );
+  const [switchWarningMessage, setSwitchWarningMessage] = useState<
+    string | null
+  >(null);
   const [switchWarningTick, setSwitchWarningTick] = useState(0);
   const [dismissedMentionKey, setDismissedMentionKey] = useState<string | null>(
     null,
   );
-  const [mentionNavigationKey, setMentionNavigationKey] = useState<string | null>(
-    null,
-  );
+  const [mentionNavigationKey, setMentionNavigationKey] = useState<
+    string | null
+  >(null);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [expandedReviewCommentId, setExpandedReviewCommentId] = useState<
     string | null
@@ -208,11 +212,23 @@ export function ChatInputBar({
     () =>
       suggestedFiles
         .map((path) => suggestionEntries.find((entry) => entry.path === path))
-        .filter((entry): entry is { path: string; type: string } => entry !== undefined),
+        .filter(
+          (entry): entry is { path: string; type: string } =>
+            entry !== undefined,
+        ),
     [suggestedFiles, suggestionEntries],
   );
   const shouldShowFilePicker =
     activeMention !== null && dismissedMentionKey !== activeMentionKey;
+  const canCompactContext =
+    Boolean(onCompact) &&
+    contextBudget !== null &&
+    contextBudget.utilizationPercent >= contextBudget.warningThresholdPercent;
+  const shouldShowCompactCommand =
+    canCompactContext &&
+    !shouldShowFilePicker &&
+    input.trimStart().startsWith("/") &&
+    "/compact".startsWith(input.trim());
   const isModelPickerLoading = useMemo(
     () =>
       isProviderModelBootstrapLoading({
@@ -244,12 +260,12 @@ export function ChatInputBar({
       ? `${filePickerListId}-option-${highlightedSuggestionIndex}`
       : undefined;
   const selectedModel = selectedProviderId
-    ? providerModels[selectedProviderId]?.find(
+    ? (providerModels[selectedProviderId]?.find(
         (model) => model.id === selectedModelId,
       ) ??
       manageProviderModels?.[selectedProviderId]?.find(
         (model) => model.id === selectedModelId,
-      )
+      ))
     : undefined;
   const selectedModelAllowsImages =
     selectedModel?.inputModalities?.image === true &&
@@ -348,7 +364,9 @@ export function ChatInputBar({
 
   const submitComposer = async () => {
     if (hasImageAttachments && mode !== "build") {
-      setImageAttachmentError("Image attachments are only supported in Build mode.");
+      setImageAttachmentError(
+        "Image attachments are only supported in Build mode.",
+      );
       return;
     }
     if (hasImageAttachments && !selectedModelAllowsImages) {
@@ -449,7 +467,9 @@ export function ChatInputBar({
       return;
     }
     if (nextMode !== "build" && hasImageAttachments) {
-      showSwitchWarning("Remove image attachments before switching to Plan mode.");
+      showSwitchWarning(
+        "Remove image attachments before switching to Plan mode.",
+      );
       return;
     }
     onModeChange?.(nextMode);
@@ -467,12 +487,11 @@ export function ChatInputBar({
     void addImageFiles(files, "paste");
   };
 
-  const addImageFiles = async (
-    files: File[],
-    source: "paste" | "upload",
-  ) => {
+  const addImageFiles = async (files: File[], source: "paste" | "upload") => {
     if (mode !== "build") {
-      setImageAttachmentError("Image attachments are only supported in Build mode.");
+      setImageAttachmentError(
+        "Image attachments are only supported in Build mode.",
+      );
       return;
     }
     if (!selectedModelAllowsImages) {
@@ -508,12 +527,16 @@ export function ChatInputBar({
       setImageAttachments(nextAttachments);
       addedAttachment = true;
     }
-    setImageAttachmentError(firstError ?? (addedAttachment ? null : imageAttachmentError));
+    setImageAttachmentError(
+      firstError ?? (addedAttachment ? null : imageAttachmentError),
+    );
   };
 
   const removeImageAttachment = (attachmentId: string) => {
     setImageAttachments((current) => {
-      const removed = current.find((attachment) => attachment.id === attachmentId);
+      const removed = current.find(
+        (attachment) => attachment.id === attachmentId,
+      );
       if (removed) {
         URL.revokeObjectURL(removed.previewUrl);
       }
@@ -644,13 +667,18 @@ export function ChatInputBar({
                 </div>
               ) : suggestedEntries.length === 0 ? (
                 <div className="px-3 py-4 text-[11px] text-zinc-500">
-                  No files match <span className="font-medium text-zinc-200">@{activeMention?.query ?? ""}</span>
+                  No files match{" "}
+                  <span className="font-medium text-zinc-200">
+                    @{activeMention?.query ?? ""}
+                  </span>
                 </div>
               ) : (
                 suggestedEntries.map((entry, index) => {
                   const lastSlashIndex = entry.path.lastIndexOf("/");
                   const directory =
-                    lastSlashIndex >= 0 ? entry.path.slice(0, lastSlashIndex) : "";
+                    lastSlashIndex >= 0
+                      ? entry.path.slice(0, lastSlashIndex)
+                      : "";
                   const Icon = getSuggestionIcon(entry.path, entry.type);
 
                   return (
@@ -674,7 +702,10 @@ export function ChatInputBar({
                         <Icon
                           size={15}
                           strokeWidth={1.9}
-                          className={getSuggestionIconClass(entry.path, entry.type)}
+                          className={getSuggestionIconClass(
+                            entry.path,
+                            entry.type,
+                          )}
                         />
                       </div>
                       <div className="min-w-0 flex items-baseline gap-1 overflow-hidden">
@@ -694,6 +725,24 @@ export function ChatInputBar({
             </div>
           </div>
         ) : null}
+        {shouldShowCompactCommand ? (
+          <div className="ui-surface-popover absolute inset-x-5 bottom-full z-30 mb-2 p-2">
+            <button
+              type="button"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                onChange("/compact");
+                requestAnimationFrame(() => textareaRef.current?.focus());
+              }}
+              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm text-zinc-200 transition hover:bg-white/[0.05]"
+            >
+              <span className="font-medium">/compact</span>
+              <span className="text-xs text-zinc-500">
+                Summarize older context
+              </span>
+            </button>
+          </div>
+        ) : null}
 
         <div
           className={`
@@ -705,7 +754,10 @@ export function ChatInputBar({
           {hasReviewComments ? (
             <div className="mb-3 space-y-2">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                <span>{reviewComments.length} local review comment{reviewComments.length === 1 ? "" : "s"}</span>
+                <span>
+                  {reviewComments.length} local review comment
+                  {reviewComments.length === 1 ? "" : "s"}
+                </span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {reviewComments.map((comment) => {
@@ -796,7 +848,9 @@ export function ChatInputBar({
             value={input}
             onChange={(e) => {
               onChange(e.target.value);
-              setCursorPosition(e.target.selectionStart ?? e.target.value.length);
+              setCursorPosition(
+                e.target.selectionStart ?? e.target.value.length,
+              );
               setDismissedMentionKey(null);
             }}
             onPaste={handlePaste}
@@ -973,18 +1027,26 @@ export function ChatInputBar({
                   setShowProviderDialog(true);
                 }}
                 isLoading={isModelPickerLoading}
-                isHydratingVisibleModels={isSelectedProviderModelHydrationPending}
+                isHydratingVisibleModels={
+                  isSelectedProviderModelHydrationPending
+                }
               />
 
-              <ContextWindowIndicator
-                budget={contextBudget}
-                usage={usage}
-                onCompact={onCompact}
-              />
+              {composerPreferences.showContextWindowUsage ? (
+                <ContextWindowIndicator
+                  budget={contextBudget}
+                  usage={usage}
+                  onCompact={onCompact}
+                  onOpenDetails={onContextOpen}
+                />
+              ) : null}
 
               {selectedProviderId === AXIS_PROVIDER_ID &&
               axisQuota &&
-              canShowProviderInPrimaryUi(WEB_PROVIDER_POLICY, AXIS_PROVIDER_ID) ? (
+              canShowProviderInPrimaryUi(
+                WEB_PROVIDER_POLICY,
+                AXIS_PROVIDER_ID,
+              ) ? (
                 <span
                   className="rounded border border-emerald-800/60 bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
                   title={`Axis daily usage resets at ${new Date(axisQuota.resetsAt).toLocaleString()}`}
@@ -1042,7 +1104,12 @@ function getSuggestionIcon(path: string, entryType: string) {
     return Folder;
   }
 
-  if (path.endsWith(".tsx") || path.endsWith(".ts") || path.endsWith(".jsx") || path.endsWith(".js")) {
+  if (
+    path.endsWith(".tsx") ||
+    path.endsWith(".ts") ||
+    path.endsWith(".jsx") ||
+    path.endsWith(".js")
+  ) {
     return FileCode2;
   }
 
