@@ -1505,7 +1505,22 @@ class KernelToolWorker implements WorkerProtocolPort {
       if (gatewayResult.kind === "failed") {
         const message =
           gatewayResult.result.error?.message ?? "Tool execution failed";
-        const disposition = toolFailureDisposition(toolName, message);
+        const gatewayFailureCode =
+          gatewayResult.code === "executor_failed"
+            ? "command_failed"
+            : gatewayResult.code === "tool_unavailable"
+              ? "not_found"
+              : gatewayResult.code === "workspace_escape_denied"
+                ? "policy_denied"
+                : "validation_failed";
+        const failureCode =
+          gatewayResult.failure?.code ?? gatewayFailureCode;
+        const disposition = toolFailureDisposition(
+          toolName,
+          message,
+          undefined,
+          failureCode,
+        );
         this.options.tracker.recordToolFailed(
           input.toolCall,
           message,
@@ -1527,13 +1542,7 @@ class KernelToolWorker implements WorkerProtocolPort {
           };
         }
         return failed(
-          gatewayResult.code === "executor_failed"
-            ? "command_failed"
-            : gatewayResult.code === "tool_unavailable"
-              ? "not_found"
-              : gatewayResult.code === "workspace_escape_denied"
-                ? "policy_denied"
-                : "validation_failed",
+          gatewayFailureCode,
           message,
           gatewayResult.retryable,
           disposition,
@@ -2078,8 +2087,14 @@ function toolFailureDisposition(
   toolName: string,
   message: string,
   metadata?: unknown,
+  failureCode?: string,
 ): "recoverable" | "terminal" {
-  return isTerminalToolFailure({ toolName, error: message, metadata })
+  return isTerminalToolFailure({
+    toolName,
+    error: message,
+    failureCode,
+    metadata,
+  })
     ? "terminal"
     : "recoverable";
 }
