@@ -87,6 +87,62 @@ describe("GitPlugin", () => {
     });
   });
 
+  it("fetches only the authorized commit for a pinned checkout", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const plugin = new GitPlugin();
+    const authorizedCommitId = "a".repeat(40);
+
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_clone",
+      runId: "run_git_pinned_clone_1",
+      url: "https://github.com/example/repository.git",
+      token: "ghp_exampleSecretToken123456789",
+      startPoint: authorizedCommitId,
+    });
+
+    expect(result.success).toBe(true);
+    const gitCommands = runSafeCommandMock.mock.calls
+      .map(([, spec]) => spec)
+      .filter((spec) => spec.command === "git");
+    expect(gitCommands.map((spec) => spec.args)).toEqual([
+      ["-C", "/home/sandbox/checkouts/run_git_pinned_clone_1", "init"],
+      [
+        "-C",
+        "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        "config",
+        "remote.origin.url",
+        "https://github.com/example/repository.git",
+      ],
+      [
+        "-C",
+        "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        "fetch",
+        "--depth=1",
+        "--no-tags",
+        "origin",
+        authorizedCommitId,
+      ],
+      [
+        "-C",
+        "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        "checkout",
+        "--detach",
+        authorizedCommitId,
+      ],
+    ]);
+    expect(gitCommands[2]?.env).toMatchObject({
+      GIT_CONFIG_VALUE_0: expect.stringMatching(/^AUTHORIZATION: basic /),
+    });
+    expect(gitCommands.flatMap((spec) => spec.args ?? []).join(" ")).not.toMatch(
+      /authorization|basic|ghp_/i,
+    );
+  });
+
   it("routes git_unstage through GitService", async () => {
     const runSafeCommandMock = vi.mocked(runSafeCommand);
     runSafeCommandMock.mockImplementation(async (_sandbox, spec) => {

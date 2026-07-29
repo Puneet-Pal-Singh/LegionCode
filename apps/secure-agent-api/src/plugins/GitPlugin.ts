@@ -29,6 +29,7 @@ import {
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
 import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
+import { clonePinnedWorkspace } from "./git/SandboxGitWorkspaceCloner";
 
 const GIT_ACTIONS = [
   "git_clone",
@@ -194,6 +195,7 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.url,
             parsed.token,
+            parsed.startPoint,
             toolboxContext,
             runId,
             onLog,
@@ -269,6 +271,7 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     url: string | undefined,
     token: string | undefined,
+    authorizedCommitId: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
     onLog?: LogCallback,
@@ -285,6 +288,7 @@ export class GitPlugin implements IPlugin {
       authEnvironment,
       safeUrl,
       worktree,
+      authorizedCommitId,
       toolboxContext,
       runId,
     );
@@ -296,6 +300,7 @@ export class GitPlugin implements IPlugin {
     authEnvironment: Record<string, string> | undefined,
     safeUrl: string,
     worktree: string,
+    authorizedCommitId: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<{
@@ -303,18 +308,34 @@ export class GitPlugin implements IPlugin {
     stdout: string;
     stderr: string;
   }> {
-    return await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: ["clone", safeUrl, worktree],
-        env: authEnvironment,
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.clone",
-    );
+    const runGit = async (
+      spec: Parameters<typeof withToolboxCommandContext>[0],
+    ) =>
+      await this.runToolboxCommand(
+        sandbox,
+        spec,
+        ["git"],
+        toolboxContext,
+        "git.clone",
+      );
+    if (authorizedCommitId) {
+      return await clonePinnedWorkspace(
+        {
+          url: safeUrl,
+          worktree,
+          authorizedCommitId,
+          authEnvironment,
+          runId,
+        },
+        runGit,
+      );
+    }
+    return await runGit({
+      command: "git",
+      args: ["clone", safeUrl, worktree],
+      env: authEnvironment,
+      runId,
+    });
   }
 
   private async getStatus(
