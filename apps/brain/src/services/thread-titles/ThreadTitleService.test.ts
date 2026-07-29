@@ -31,7 +31,7 @@ describe("ThreadTitleService", () => {
     });
 
     expect(preview).toMatchObject({
-      title: "Inspect Fix",
+      title: "Please inspect and fix…",
       titleSource: "preview",
       titleVersion: 2,
     });
@@ -54,7 +54,7 @@ describe("ThreadTitleService", () => {
           threadId: THREAD_ID,
           payload: {
             firstMessageId: FIRST_MESSAGE_ID,
-            title: "Inspect Fix",
+            title: "Please inspect and fix…",
             titleVersion: 2,
             source: "preview",
           },

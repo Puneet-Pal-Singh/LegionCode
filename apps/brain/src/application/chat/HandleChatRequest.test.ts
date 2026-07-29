@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
-import { ThreadTitleService } from "../../services/thread-titles";
+import {
+  ThreadTitleGenerationCoordinator,
+  ThreadTitleService,
+} from "../../services/thread-titles";
 import { HandleChatRequest } from "./HandleChatRequest";
 
 describe("HandleChatRequest", () => {
@@ -160,7 +163,7 @@ describe("HandleChatRequest", () => {
     );
   });
 
-  it("persists a deterministic first-message title without starting competing inference", async () => {
+  it("persists a deterministic preview and schedules bounded title inference", async () => {
     vi.spyOn(PersistenceService.prototype, "ensureTranscriptSession").mockResolvedValue();
     vi.spyOn(PersistenceService.prototype, "ensureRun").mockResolvedValue(
       {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
@@ -182,6 +185,9 @@ describe("HandleChatRequest", () => {
         ReturnType<ThreadTitleService["persistPreview"]>
       >);
     const waitUntil = vi.fn();
+    const scheduleSpy = vi
+      .spyOn(ThreadTitleGenerationCoordinator.prototype, "schedule")
+      .mockImplementation(() => undefined);
 
     await new HandleChatRequest(createEnv()).execute({
       sessionId: "123e4567-e89b-42d3-a456-426614174001",
@@ -204,7 +210,15 @@ describe("HandleChatRequest", () => {
     });
 
     expect(previewSpy).toHaveBeenCalledOnce();
-    expect(waitUntil).not.toHaveBeenCalled();
+    expect(scheduleSpy).toHaveBeenCalledWith(
+      { waitUntil },
+      expect.objectContaining({
+        prompt: "edit the readme",
+        previewVersion: 1,
+        providerId: "openrouter",
+        modelId: "poolside/laguna-s-2.1:free",
+      }),
+    );
   });
 
   it("honors explicit runtime selection overrides in execution payload", async () => {

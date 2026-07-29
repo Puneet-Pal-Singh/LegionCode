@@ -27,6 +27,7 @@ import { ValidationError } from "../../domain/errors";
 import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
 import {
+  ThreadTitleGenerationCoordinator,
   ThreadTitleService,
   type BackgroundTaskOwner,
 } from "../../services/thread-titles";
@@ -258,7 +259,7 @@ export class HandleChatRequest {
           });
         if (firstPersistedUserMessage?.id === persistedUserMessage.id) {
           const titleService = new ThreadTitleService(this.env);
-          await titleService.persistPreview({
+          const preview = await titleService.persistPreview({
             sessionId,
             threadId: identity.threadId,
             runId,
@@ -267,9 +268,23 @@ export class HandleChatRequest {
             firstMessageId: firstPersistedUserMessage.id,
             prompt,
           });
-          // The deterministic preview is the active product title. Starting a
-          // second model request here would compete with the user's run for
-          // provider capacity and is not canonical task execution.
+          if (preview && input.backgroundTaskOwner) {
+            new ThreadTitleGenerationCoordinator(this.env).schedule(
+              input.backgroundTaskOwner,
+              {
+                sessionId,
+                threadId: identity.threadId,
+                runId,
+                workspaceId: identity.workspaceId,
+                userId,
+                firstMessageId: firstPersistedUserMessage.id,
+                prompt,
+                previewVersion: preview.titleVersion ?? 1,
+                providerId: input.providerId,
+                modelId: input.modelId,
+              },
+            );
+          }
         }
       }
 
