@@ -164,9 +164,9 @@ export function ChatInputBar({
     loadingModelsForProviderId,
     loadingManageModelsForProviderIds,
     refreshingModelsForProviderId,
-    loadProviderModels,
     loadManageProviderModels,
     loadMoreProviderModels,
+    ensureProviderModelsFresh,
     refreshProviderModels,
     setModelView,
     applySessionSelection,
@@ -397,17 +397,12 @@ export function ChatInputBar({
   }, [lastResolvedConfig, onModelSelect]);
 
   useEffect(() => {
-    if (!selectedProviderId || providerModels[selectedProviderId]) {
+    if (!selectedProviderId) {
       return;
     }
-    void loadProviderModels(selectedProviderId, {
-      view: selectedModelView,
-      append: false,
-    });
+    void ensureProviderModelsFresh(selectedProviderId);
   }, [
-    loadProviderModels,
-    providerModels,
-    selectedModelView,
+    ensureProviderModelsFresh,
     selectedProviderId,
   ]);
 
@@ -1008,10 +1003,7 @@ export function ChatInputBar({
                 onSelectModelView={setModelView}
                 onLoadMoreSelectedProviderModels={loadMoreProviderModels}
                 onEnsureSelectedProviderModels={(providerId) =>
-                  loadProviderModels(providerId, {
-                    view: selectedModelView,
-                    append: false,
-                  })
+                  ensureProviderModelsFresh(providerId)
                 }
                 onRefreshSelectedProviderModels={refreshProviderModels}
                 onConnectProvider={() => {

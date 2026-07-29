@@ -82,6 +82,7 @@ describe("ChatInputBar", () => {
       validateCredential: vi.fn(async () => undefined),
       updatePreferences: vi.fn(async () => undefined),
       loadProviderModels: vi.fn(async () => []),
+      ensureProviderModelsFresh: vi.fn(async () => []),
       loadManageProviderModels: vi.fn(async () => []),
       loadMoreProviderModels: vi.fn(async () => []),
       refreshProviderModels: vi.fn(async () => undefined),

@@ -59,6 +59,9 @@ type UseProviderStoreResult = ProviderStoreState & {
   loadMoreProviderModels: (
     providerId: string,
   ) => Promise<ProviderModelOption[]>;
+  ensureProviderModelsFresh: (
+    providerId: string,
+  ) => Promise<ProviderModelOption[]>;
   refreshProviderModels: (providerId: string) => Promise<void>;
   setModelView: (view: ProviderModelDiscoveryView) => Promise<void>;
   updatePreferences: (partial: BYOKPreferencesUpdateRequest) => Promise<void>;
@@ -137,6 +140,10 @@ export function useProviderStore(
     (providerId: string) => store.loadMoreProviderModels(providerId),
     [store],
   );
+  const ensureProviderModelsFresh = useCallback(
+    (providerId: string) => store.ensureProviderModelsFresh(providerId),
+    [store],
+  );
   const refreshProviderModels = useCallback(
     (providerId: string) => store.refreshProviderModels(providerId),
     [store],
@@ -181,6 +188,7 @@ export function useProviderStore(
     loadProviderModels,
     loadManageProviderModels,
     loadMoreProviderModels,
+    ensureProviderModelsFresh,
     refreshProviderModels,
     setModelView,
     updatePreferences,

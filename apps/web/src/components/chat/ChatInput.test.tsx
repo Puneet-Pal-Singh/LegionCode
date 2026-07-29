@@ -68,6 +68,7 @@ describe("ChatInput", () => {
         void providerId;
         return [];
       }),
+      ensureProviderModelsFresh: vi.fn(async () => []),
       loadManageProviderModels: vi.fn(async (providerId: string) => {
         void providerId;
         return [];
