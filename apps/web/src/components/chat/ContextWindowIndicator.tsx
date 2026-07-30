@@ -17,30 +17,41 @@ export function ContextWindowIndicator({
   onCompact,
   onOpenDetails,
 }: ContextWindowIndicatorProps) {
-  if (!budget) return null;
-  const percent = Math.round(budget.utilizationPercent);
+  const percent = budget ? Math.round(budget.utilizationPercent) : null;
   const canCompact =
     Boolean(onCompact) &&
+    budget !== null &&
     budget.utilizationPercent >= budget.warningThresholdPercent;
 
   return (
     <div className="group relative flex items-center">
       <button
         type="button"
-        aria-label={`Context window ${percent}% full`}
+        aria-label={
+          percent === null
+            ? "Context window usage unavailable"
+            : `Context window ${percent}% full`
+        }
         onClick={onOpenDetails}
         className={cn(
           "relative h-5 w-5 rounded-full transition-colors",
           onOpenDetails ? "cursor-pointer hover:bg-zinc-800" : "cursor-default",
         )}
       >
-        <span
-          aria-hidden="true"
-          className="absolute inset-[3px] rounded-full"
-          style={{
-            background: `conic-gradient(rgb(161 161 170) ${Math.min(percent, 100)}%, rgb(63 63 70) 0)`,
-          }}
-        />
+        {percent === null ? (
+          <span
+            aria-hidden="true"
+            className="absolute inset-[3px] rounded-full border border-zinc-600"
+          />
+        ) : (
+          <span
+            aria-hidden="true"
+            className="absolute inset-[3px] rounded-full"
+            style={{
+              background: `conic-gradient(rgb(161 161 170) ${Math.min(percent, 100)}%, rgb(63 63 70) 0)`,
+            }}
+          />
+        )}
         <span
           aria-hidden="true"
           className="absolute inset-[6px] rounded-full bg-[#1d1d1f]"
@@ -48,11 +59,19 @@ export function ContextWindowIndicator({
       </button>
       <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-3 hidden w-60 -translate-x-1/2 rounded-2xl border border-zinc-700/70 bg-[#242426] px-4 py-3 text-center shadow-2xl group-hover:block group-focus-within:block">
         <div className="text-sm text-zinc-400">Context window:</div>
-        <div className="mt-1 text-sm text-zinc-400">{percent}% full</div>
-        <div className="mt-1 text-base text-zinc-100">
-          {formatCount(budget.tokensUsed)} /{" "}
-          {formatCount(budget.contextWindowLimit)} tokens used
+        <div className="mt-1 text-sm text-zinc-400">
+          {percent === null ? "Usage unavailable" : `${percent}% full`}
         </div>
+        {budget ? (
+          <div className="mt-1 text-base text-zinc-100">
+            {formatCount(budget.tokensUsed)} /{" "}
+            {formatCount(budget.contextWindowLimit)} tokens used
+          </div>
+        ) : (
+          <div className="mt-1 text-xs text-zinc-500">
+            Waiting for runtime-reported model context.
+          </div>
+        )}
         {usage?.cumulativeThreadCost != null ? (
           <div className="mt-1 text-xs text-zinc-500">
             ${usage.cumulativeThreadCost.toFixed(2)} spent

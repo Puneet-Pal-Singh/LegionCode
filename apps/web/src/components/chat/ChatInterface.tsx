@@ -145,7 +145,10 @@ export function ChatInterface({
     activeTurn.isTransportPending ||
     awaitingCanonicalLifecycle;
   const pendingWorkflowStartedAtRef = useRef<number | null>(null);
-  if (awaitingCanonicalLifecycle && pendingWorkflowStartedAtRef.current === null) {
+  if (
+    awaitingCanonicalLifecycle &&
+    pendingWorkflowStartedAtRef.current === null
+  ) {
     pendingWorkflowStartedAtRef.current = Date.now();
   } else if (!awaitingCanonicalLifecycle) {
     pendingWorkflowStartedAtRef.current = null;
@@ -394,7 +397,9 @@ export function ChatInterface({
     />
   );
 
-  // Auto-scroll to bottom on new messages and live activity updates.
+  const latestLifecycleSequence = latestLifecycleProjection?.lastSequence ?? 0;
+
+  // Keep the active turn visible as canonical lifecycle activity arrives.
   useEffect(() => {
     const scrollContainer = scrollRef.current;
     if (!scrollContainer) {
@@ -410,7 +415,7 @@ export function ChatInterface({
       top: scrollContainer.scrollHeight,
       behavior: isInitialScopeScroll ? "auto" : "smooth",
     });
-  }, [isLoading, messages, runId, sessionId]);
+  }, [activeRunLoading, latestLifecycleSequence, messages, runId, sessionId]);
 
   return (
     <ChatInterfaceView

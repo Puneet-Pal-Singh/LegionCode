@@ -353,6 +353,10 @@ export function ChatInputBar({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      if (input.trim() === "/compact" && canCompactContext) {
+        void submitComposer();
+        return;
+      }
       if (isComposerActiveRun) {
         return;
       }
@@ -401,10 +405,7 @@ export function ChatInputBar({
       return;
     }
     void ensureProviderModelsFresh(selectedProviderId);
-  }, [
-    ensureProviderModelsFresh,
-    selectedProviderId,
-  ]);
+  }, [ensureProviderModelsFresh, selectedProviderId]);
 
   useEffect(() => {
     if (!selectedProviderId || !isSelectedProviderModelHydrationPending) {
@@ -1024,15 +1025,6 @@ export function ChatInputBar({
                 }
               />
 
-              {composerPreferences.showContextWindowUsage ? (
-                <ContextWindowIndicator
-                  budget={contextBudget}
-                  usage={usage}
-                  onCompact={onCompact}
-                  onOpenDetails={onContextOpen}
-                />
-              ) : null}
-
               {selectedProviderId === AXIS_PROVIDER_ID &&
               axisQuota &&
               canShowProviderInPrimaryUi(
@@ -1050,6 +1042,14 @@ export function ChatInputBar({
 
             {/* Attachment and voice actions stay hidden until they trigger real flows. */}
             <div className="flex items-center gap-1.5">
+              {composerPreferences.showContextWindowUsage ? (
+                <ContextWindowIndicator
+                  budget={contextBudget}
+                  usage={usage}
+                  onCompact={onCompact}
+                  onOpenDetails={onContextOpen}
+                />
+              ) : null}
               <motion.button
                 type="button"
                 onClick={shouldShowStop ? onStop : () => void submitComposer()}
