@@ -1,4 +1,5 @@
 import type { CoreTool } from "ai";
+import { isModelFacingCodingTool } from "./ModelFacingCodingTools.js";
 import { z } from "zod";
 
 const PermissionRiskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
@@ -1286,6 +1287,7 @@ export function enforceCodingToolFloor(
   const modelCapabilities = resolveModelCapabilities(metadata);
   for (const toolName of CODING_TOOL_IDS) {
     if (
+      !isModelFacingCodingTool(toolName) ||
       !isCodingToolEnabledByFlags(toolName, githubCliFlags) ||
       !isToolEnabledByModelCapabilities(toolName, modelCapabilities)
     ) {

@@ -40,16 +40,14 @@ export function isTerminalToolFailure(input: {
   return isMutatingCodingToolId(input.toolName);
 }
 
-function isRecoverableToolFailure(
-  toolName: string,
-  error: string,
-): boolean {
+function isRecoverableToolFailure(toolName: string, error: string): boolean {
   const normalizedError = error.trim().toLowerCase();
 
   if (toolName === "edit_file" || toolName === "multi_edit") {
     return (
       normalizedError.includes("exact edit text was not found") ||
       normalizedError.includes("exact replacement text was not found") ||
+      normalizedError.includes("exact edit is ambiguous") ||
       normalizedError.includes(
         "multi_edit cannot target the same path more than once",
       )
