@@ -112,11 +112,7 @@ function Transcript(props: ChatInterfaceViewProps) {
       {props.chatEntries.map((entry) => {
         if (entry.kind === "workflow") {
           return (
-            <TurnWorkflowEntry
-              key={entry.key}
-              entry={entry}
-              props={props}
-            />
+            <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
           );
         }
         return (
@@ -164,20 +160,10 @@ function TurnWorkflowEntry({
       }
       className="space-y-3"
     >
-      <CanonicalWorkflowSurface projection={entry.projection} />
-      {isCurrentTurn &&
-      terminal?.state === "completed" &&
-      entry.projection.turnDiff &&
-      entry.projection.turnDiff.files.length > 0 ? (
-        <button
-          type="button"
-          className="w-fit rounded-lg border border-emerald-700/50 bg-emerald-950/20 px-3 py-2 text-xs text-emerald-200"
-          data-testid={surfaceId ? `${surfaceId}-review` : undefined}
-          onClick={props.onReviewOpen}
-        >
-          Review finalized changes ({entry.projection.turnDiff.files.length})
-        </button>
-      ) : null}
+      <CanonicalWorkflowSurface
+        projection={entry.projection}
+        onArtifactOpen={props.onArtifactOpen}
+      />
       {terminal?.errorCode ? (
         <span
           data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}
@@ -200,14 +186,6 @@ function resolveMessageChangedFilesSummary(
   props: ChatInterfaceViewProps,
   messageId: string,
 ) {
-  if (props.completedTurnReview.messageId === messageId) {
-    if (props.completedTurnReview.files.length === 0) return undefined;
-    return {
-      files: props.completedTurnReview.files,
-      loadFileDiff: props.completedTurnReview.loadFileDiff,
-    };
-  }
-
   return resolveChangedFilesSummary({
     messageId,
     snapshots: props.snapshots,
