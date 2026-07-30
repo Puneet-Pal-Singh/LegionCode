@@ -55,6 +55,13 @@ export interface WorkflowItem {
   readonly safeSummary: string | null;
   readonly inputSummary: string | null;
   readonly outputSummary: string | null;
+  readonly toolName: string | null;
+  readonly filePath: string | null;
+  readonly command: string | null;
+  readonly outputContent: string | null;
+  readonly diffPreview: string | null;
+  readonly additions: number | null;
+  readonly deletions: number | null;
   readonly planSteps: readonly PlanWorkflowStep[];
   readonly compactionPhase: "compacting" | "compacted" | "failed" | null;
   readonly startedAt: string;
@@ -235,7 +242,8 @@ function applyKnownEvent(
     case "context_compaction.failed":
       return {
         ...upsertCompactionItem(projection, event),
-        phase: event.type === "context_compaction.failed" ? "failed" : "working",
+        phase:
+          event.type === "context_compaction.failed" ? "failed" : "working",
       };
     case "turn.completed":
       return settleTurn(projection, "completed", event);
@@ -249,7 +257,7 @@ function applyKnownEvent(
 }
 
 function readItemId(event: LifecycleEvent): ItemId | null {
-  return "itemId" in event ? event.itemId ?? null : null;
+  return "itemId" in event ? (event.itemId ?? null) : null;
 }
 
 function readPayload(event: LifecycleEvent): Record<string, unknown> {
@@ -289,8 +297,11 @@ function createStartedItem(event: LifecycleEvent): WorkflowItem {
     toolFamily: readToolFamily(payload),
     safeSummary:
       readString(payload, "safeSummary") ?? readDisplayTitle(payload),
-    inputSummary: readString(payload, "inputSummary") ?? readDisplayInput(payload),
-    outputSummary: readString(payload, "outputSummary") ?? readDisplayOutput(payload),
+    inputSummary:
+      readString(payload, "inputSummary") ?? readDisplayInput(payload),
+    outputSummary:
+      readString(payload, "outputSummary") ?? readDisplayOutput(payload),
+    ...readToolDetails(payload),
     planSteps: readPlanSteps(payload),
     compactionPhase: readCompactionPhase(payload),
     startedAt: event.createdAt,
@@ -360,8 +371,11 @@ function updateItemFromPayload(
     detail: readDisplayDetail(payload) ?? item.detail,
     inputSummary: readString(payload, "inputSummary") ?? item.inputSummary,
     outputSummary: readString(payload, "outputSummary") ?? item.outputSummary,
+    ...mergeToolDetails(item, readToolDetails(payload)),
     compactionPhase: readCompactionPhase(payload) ?? item.compactionPhase,
-    planSteps: readPlanSteps(payload).length ? readPlanSteps(payload) : item.planSteps,
+    planSteps: readPlanSteps(payload).length
+      ? readPlanSteps(payload)
+      : item.planSteps,
   }));
 }
 
@@ -370,10 +384,7 @@ function settleItem(
   event: LifecycleEvent,
   eventType: string,
 ): TurnWorkflowProjection {
-  const status = eventType.replace(
-    "item.",
-    "",
-  ) as WorkflowItemStatus;
+  const status = eventType.replace("item.", "") as WorkflowItemStatus;
   const payload = readPayload(event);
   const resultText =
     eventType === "item.completed" ? readTextPayload(payload) : "";
@@ -396,8 +407,8 @@ function handleToolCallEvent(
   const itemId = readItemId(event);
   if (!itemId) return projection;
   if (eventType === "tool_call.started") {
-      return {
-        ...upsertItem(projection, {
+    return {
+      ...upsertItem(projection, {
         itemId,
         sequence: event.sequence,
         kind: "tool_call",
@@ -408,6 +419,7 @@ function handleToolCallEvent(
         safeSummary: readDisplayTitle(payload),
         inputSummary: readDisplayInput(payload),
         outputSummary: readDisplayOutput(payload),
+        ...readToolDetails(payload),
         planSteps: [],
         compactionPhase: null,
         startedAt: event.createdAt,
@@ -417,15 +429,20 @@ function handleToolCallEvent(
     };
   }
   if (eventType === "tool_call.input_delta") {
+    const details = readToolDetails(payload);
     return updateItem(projection, itemId, (item) => ({
       ...item,
       inputSummary: appendBounded(item.inputSummary, readTextPayload(payload)),
+      ...mergeToolDetails(item, details),
     }));
   }
   if (eventType === "tool_call.output_delta") {
     return updateItem(projection, itemId, (item) => ({
       ...item,
-      outputSummary: appendBounded(item.outputSummary, readTextPayload(payload)),
+      outputSummary: appendBounded(
+        item.outputSummary,
+        readTextPayload(payload),
+      ),
     }));
   }
   const statusMap: Record<string, WorkflowItemStatus> = {
@@ -437,10 +454,12 @@ function handleToolCallEvent(
   const status = statusMap[eventType] ?? "completed";
   const resultText =
     eventType === "tool_call.completed" ? readTextPayload(payload) : "";
+  const details = readToolDetails(payload);
   return updateItem(projection, itemId, (item) => ({
     ...item,
     status,
     text: resultText || item.text,
+    ...mergeToolDetails(item, details),
     completedAt: event.createdAt,
   }));
 }
@@ -473,10 +492,7 @@ function decideApproval(
   const approvalId = requireApprovalId(event);
   const decision = readString(payload, "decision");
   const pendingApproval = projection.pendingApproval;
-  if (
-    !pendingApproval ||
-    pendingApproval.approvalId !== approvalId
-  ) {
+  if (!pendingApproval || pendingApproval.approvalId !== approvalId) {
     return projection;
   }
   return {
@@ -521,9 +537,7 @@ function hasActiveThinking(projection: TurnWorkflowProjection): boolean {
   );
 }
 
-function collectAssistantText(
-  items: readonly WorkflowItem[],
-): string {
+function collectAssistantText(items: readonly WorkflowItem[]): string {
   return items
     .filter((item) => item.kind === "assistant_message")
     .map((item) => item.text.trim())
@@ -546,9 +560,7 @@ function readContextBudget(
   return parsed.success ? parsed.data : null;
 }
 
-function readUsage(
-  payload: Record<string, unknown>,
-): UsageCostSnapshot | null {
+function readUsage(payload: Record<string, unknown>): UsageCostSnapshot | null {
   const parsed = UsageCostSnapshotSchema.safeParse(payload.usage);
   return parsed.success ? parsed.data : null;
 }
@@ -579,8 +591,10 @@ function readToolFamily(payload: Record<string, unknown>): string | null {
 
 function readDisplayInput(payload: Record<string, unknown>): string | null {
   const display = readRecord(payload.display);
-  return readBoundedString(payload.inputSummary, 280) ??
-    readBoundedString(display?.inputSummary, 280);
+  return (
+    readBoundedString(payload.inputSummary, 280) ??
+    readBoundedString(display?.inputSummary, 280)
+  );
 }
 
 function readDisplayTitle(payload: Record<string, unknown>): string | null {
@@ -590,8 +604,10 @@ function readDisplayTitle(payload: Record<string, unknown>): string | null {
 
 function readDisplayOutput(payload: Record<string, unknown>): string | null {
   const display = readRecord(payload.display);
-  return readBoundedString(payload.outputSummary, 280) ??
-    readBoundedString(display?.outputSummary, 280);
+  return (
+    readBoundedString(payload.outputSummary, 280) ??
+    readBoundedString(display?.outputSummary, 280)
+  );
 }
 
 function readCompactionPhase(
@@ -623,7 +639,7 @@ function upsertCompactionItem(
           : "active",
     text:
       event.type === "context_compaction.failed"
-        ? readString(payload, "error") ?? "Context compaction failed"
+        ? (readString(payload, "error") ?? "Context compaction failed")
         : phase === "compacted"
           ? "Context compacted"
           : "Context compacting",
@@ -632,6 +648,13 @@ function upsertCompactionItem(
     safeSummary: null,
     inputSummary: null,
     outputSummary: null,
+    toolName: null,
+    filePath: null,
+    command: null,
+    outputContent: null,
+    diffPreview: null,
+    additions: null,
+    deletions: null,
     planSteps: [],
     compactionPhase: phase,
     startedAt: existing?.startedAt ?? event.createdAt,
@@ -643,7 +666,60 @@ function upsertCompactionItem(
   });
 }
 
-function readPlanSteps(payload: Record<string, unknown>): readonly PlanWorkflowStep[] {
+type WorkflowToolDetails = Pick<
+  WorkflowItem,
+  | "toolName"
+  | "filePath"
+  | "command"
+  | "outputContent"
+  | "diffPreview"
+  | "additions"
+  | "deletions"
+>;
+
+function readToolDetails(
+  payload: Record<string, unknown>,
+): WorkflowToolDetails {
+  const display = readRecord(payload.display);
+  const input = readRecord(payload.input);
+  const result = readRecord(payload.result);
+  const metadata = readRecord(result?.metadata);
+  const activity = readRecord(metadata?.activity) ?? metadata;
+  return {
+    toolName: readBoundedString(display?.namespace, 120),
+    filePath:
+      readBoundedString(input?.path, 500) ??
+      readBoundedString(activity?.filePath, 500),
+    command: readBoundedString(input?.command, 4_000),
+    outputContent: readBoundedString(result?.content, 16_000),
+    diffPreview: readBoundedString(activity?.diffPreview, 16_000),
+    additions: readFiniteNumber(activity?.additions),
+    deletions: readFiniteNumber(activity?.deletions),
+  };
+}
+
+function mergeToolDetails(
+  current: WorkflowToolDetails,
+  next: WorkflowToolDetails,
+): WorkflowToolDetails {
+  return {
+    toolName: next.toolName ?? current.toolName,
+    filePath: next.filePath ?? current.filePath,
+    command: next.command ?? current.command,
+    outputContent: next.outputContent ?? current.outputContent,
+    diffPreview: next.diffPreview ?? current.diffPreview,
+    additions: next.additions ?? current.additions,
+    deletions: next.deletions ?? current.deletions,
+  };
+}
+
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readPlanSteps(
+  payload: Record<string, unknown>,
+): readonly PlanWorkflowStep[] {
   const steps = payload.steps;
   if (!Array.isArray(steps)) return [];
   return steps.flatMap((step) => {
@@ -651,7 +727,11 @@ function readPlanSteps(payload: Record<string, unknown>): readonly PlanWorkflowS
     const stepId = record ? readString(record, "stepId") : null;
     const title = record ? readString(record, "title") : null;
     const status = record?.status;
-    if (!stepId || !title || !["pending", "in_progress", "completed"].includes(String(status))) {
+    if (
+      !stepId ||
+      !title ||
+      !["pending", "in_progress", "completed"].includes(String(status))
+    ) {
       return [];
     }
     return [{ stepId, title, status: status as PlanWorkflowStep["status"] }];
@@ -730,10 +810,7 @@ function updateItem(
   };
 }
 
-function earlierTimestamp(
-  current: string | null,
-  candidate: string,
-): string {
+function earlierTimestamp(current: string | null, candidate: string): string {
   if (!current) return candidate;
   return Date.parse(candidate) < Date.parse(current) ? candidate : current;
 }

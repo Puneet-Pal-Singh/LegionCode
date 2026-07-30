@@ -2,6 +2,7 @@ import type {
   WorkflowItem,
   WorkflowItemKind,
 } from "./turn-workflow-projection.js";
+import type { TurnDiffPayload } from "@repo/platform-protocol";
 
 export interface ToolActivitySegment {
   readonly key: string;
@@ -20,11 +21,16 @@ const HARD_BOUNDARY_KINDS: ReadonlySet<WorkflowItemKind> = new Set([
 
 export function groupToolActivity(
   items: readonly WorkflowItem[],
+  turnDiff: TurnDiffPayload | null = null,
 ): readonly ToolActivitySegment[] {
   const segments: ToolActivitySegment[] = [];
   let current: ToolActivitySegment | null = null;
 
-  for (const item of items) {
+  for (const sourceItem of items) {
+    const item = enrichEditFromCanonicalTurnDiff(sourceItem, turnDiff);
+    if (item.toolName === "multi_edit") {
+      continue;
+    }
     if (item.kind === "reasoning" || item.kind === "plan") {
       if (
         (item.safeSummary?.trim() || item.text.trim()) &&
@@ -45,11 +51,12 @@ export function groupToolActivity(
         current = createSegment(item);
         segments.push(current);
       }
+      const children = coalesceRepeatedFileActivity(current.children, item);
       current = {
         key: current.key,
         reasoning: current.reasoning,
-        children: [...current.children, item],
-        familyLabels: deriveFamilyLabels(current.children, item),
+        children,
+        familyLabels: deriveFamilyLabels(children.slice(0, -1), item),
         isActive: current.isActive || item.status === "active",
       };
       segments[segments.length - 1] = current;
@@ -66,6 +73,83 @@ export function groupToolActivity(
   }
 
   return segments;
+}
+
+function enrichEditFromCanonicalTurnDiff(
+  item: WorkflowItem,
+  turnDiff: TurnDiffPayload | null,
+): WorkflowItem {
+  if (
+    item.toolFamily !== "edit" ||
+    !item.filePath ||
+    !turnDiff ||
+    item.diffPreview
+  ) {
+    return item;
+  }
+  const changedFile = turnDiff.files.find(
+    (candidate) =>
+      candidate.path === item.filePath ||
+      candidate.previousPath === item.filePath,
+  );
+  if (!changedFile) return item;
+
+  return {
+    ...item,
+    diffPreview: extractFilePatch(turnDiff, changedFile.path),
+    additions: item.additions ?? changedFile.additions,
+    deletions: item.deletions ?? changedFile.deletions,
+  };
+}
+
+function extractFilePatch(
+  turnDiff: TurnDiffPayload,
+  filePath: string,
+): string | null {
+  const sections = turnDiff.patch.split(/(?=^diff --git )/mu).filter(Boolean);
+  const section =
+    sections.find((candidate) => {
+      const header = candidate.split("\n", 1)[0] ?? "";
+      return (
+        header === `diff --git a/${filePath} b/${filePath}` ||
+        header.endsWith(` b/${filePath}`)
+      );
+    }) ?? (turnDiff.files.length === 1 ? turnDiff.patch : null);
+  return section?.trim().slice(0, 16_000) || null;
+}
+
+function coalesceRepeatedFileActivity(
+  children: readonly WorkflowItem[],
+  item: WorkflowItem,
+): readonly WorkflowItem[] {
+  if (
+    (item.toolFamily !== "read" && item.toolFamily !== "edit") ||
+    !activityTarget(item)
+  ) {
+    return [...children, item];
+  }
+  const matchingIndex = children.findIndex(
+    (candidate) =>
+      candidate.toolFamily === item.toolFamily &&
+      activityTarget(candidate) === activityTarget(item),
+  );
+  if (matchingIndex < 0) {
+    return [...children, item];
+  }
+  return children.map((candidate, index) =>
+    index === matchingIndex
+      ? {
+          ...item,
+          itemId: candidate.itemId,
+          sequence: candidate.sequence,
+          startedAt: candidate.startedAt,
+        }
+      : candidate,
+  );
+}
+
+function activityTarget(item: WorkflowItem): string | null {
+  return item.filePath?.trim() || item.inputSummary?.trim() || null;
 }
 
 function isToolItem(item: WorkflowItem): boolean {

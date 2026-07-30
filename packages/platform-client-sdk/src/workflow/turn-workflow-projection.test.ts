@@ -74,6 +74,166 @@ describe("turn workflow projection", () => {
     });
   });
 
+  it("projects canonical file, diff and shell details for interactive renderers", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "tool_call.started", {
+        itemId: "itm_edit01",
+        toolCallId: "toolcall_edit01",
+        payload: {
+          display: {
+            family: "edit",
+            namespace: "apply_patch",
+            title: "Edit file",
+            inputSummary: "Edit src/Hero.tsx",
+          },
+          input: { path: "src/Hero.tsx" },
+        },
+      }),
+      event(2, "tool_call.completed", {
+        itemId: "itm_edit01",
+        toolCallId: "toolcall_edit01",
+        payload: {
+          result: {
+            content: "Applied patch.",
+            metadata: {
+              activity: {
+                filePath: "src/Hero.tsx",
+                diffPreview: "-old\\n+new",
+                additions: 1,
+                deletions: 1,
+              },
+            },
+          },
+        },
+      }),
+      event(3, "tool_call.started", {
+        itemId: "itm_shell01",
+        toolCallId: "toolcall_shell01",
+        payload: {
+          display: {
+            family: "shell",
+            namespace: "bash",
+            title: "Run command",
+            inputSummary: "pnpm test",
+          },
+          input: { command: "pnpm test" },
+        },
+      }),
+      event(4, "tool_call.completed", {
+        itemId: "itm_shell01",
+        toolCallId: "toolcall_shell01",
+        payload: { result: { content: "2 tests passed" } },
+      }),
+    ]);
+
+    expect(projection.items[0]).toMatchObject({
+      toolName: "apply_patch",
+      filePath: "src/Hero.tsx",
+      diffPreview: "-old\\n+new",
+      additions: 1,
+      deletions: 1,
+    });
+    expect(projection.items[1]).toMatchObject({
+      toolName: "bash",
+      command: "pnpm test",
+      outputContent: "2 tests passed",
+    });
+  });
+
+  it("coalesces repeated reads of one path and hides legacy multi_edit noise", () => {
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      toolStarted(1, "itm_read01", "toolcall_read01", "read", "src/Footer.tsx"),
+      toolCompleted(2, "itm_read01", "toolcall_read01"),
+      toolStarted(3, "itm_read02", "toolcall_read02", "read", "src/Footer.tsx"),
+      toolCompleted(4, "itm_read02", "toolcall_read02"),
+      event(5, "tool_call.started", {
+        itemId: "itm_multi01",
+        toolCallId: "toolcall_multi01",
+        payload: {
+          display: {
+            family: "edit",
+            namespace: "multi_edit",
+            title: "Multi Edit",
+            inputSummary: "src/Footer.tsx",
+          },
+        },
+      }),
+    ]);
+
+    const children = groupToolActivity(projection.items).flatMap(
+      (segment) => segment.children,
+    );
+    expect(children).toHaveLength(1);
+    expect(children[0]?.itemId).toBe("itm_read01");
+  });
+
+  it("enriches an edit row from the canonical turn diff when tool metadata has no patch", () => {
+    const snapshot = {
+      turnId: TURN_ID,
+      snapshotKey: TURN_ID,
+      treeId: "a".repeat(40),
+      headSha: "b".repeat(40),
+      phase: "start" as const,
+      capturedAt: "2026-07-27T10:00:00.000Z",
+    };
+    const projection = replayTurnWorkflowProjection(TURN_ID, [
+      event(1, "tool_call.started", {
+        itemId: "itm_edit01",
+        toolCallId: "toolcall_edit01",
+        payload: {
+          display: {
+            family: "edit",
+            namespace: "apply_patch",
+            title: "Edit file",
+            inputSummary: "Edit src/Hero.tsx",
+          },
+          input: { path: "src/Hero.tsx" },
+        },
+      }),
+      event(2, "tool_call.completed", {
+        itemId: "itm_edit01",
+        toolCallId: "toolcall_edit01",
+        payload: { result: { content: "Applied patch." } },
+      }),
+      event(3, "turn.diff_updated", {
+        payload: {
+          diff: {
+            turnId: TURN_ID,
+            startSnapshot: snapshot,
+            terminalSnapshot: {
+              ...snapshot,
+              phase: "terminal",
+              treeId: "c".repeat(40),
+            },
+            files: [
+              {
+                path: "src/Hero.tsx",
+                status: "modified",
+                additions: 1,
+                deletions: 1,
+                previousPath: null,
+              },
+            ],
+            patch:
+              "diff --git a/src/Hero.tsx b/src/Hero.tsx\\n--- a/src/Hero.tsx\\n+++ b/src/Hero.tsx\\n@@ -1 +1 @@\\n-old\\n+new",
+          },
+        },
+      }),
+    ]);
+
+    const edit = groupToolActivity(
+      projection.items,
+      projection.turnDiff,
+    ).flatMap((segment) => segment.children)[0];
+    expect(edit).toMatchObject({
+      filePath: "src/Hero.tsx",
+      additions: 1,
+      deletions: 1,
+    });
+    expect(edit?.diffPreview).toContain("-old");
+    expect(edit?.diffPreview).toContain("+new");
+  });
+
   it("uses explicit item settlement evidence before the interrupted terminal", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       toolStarted(1, "itm_read01", "toolcall_read01", "read", "Read README.md"),
