@@ -167,6 +167,7 @@ function AppContent() {
     createSession,
     removeSession,
     renameSession,
+    refreshSessionProjection,
     pinSession,
     unpinSession,
     archiveSession,
@@ -1151,9 +1152,12 @@ function AppContent() {
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }
-                  onSessionStatusChange={(status) =>
-                    updateSession(activeSessionId, { status })
-                  }
+                  onSessionStatusChange={(status) => {
+                    updateSession(activeSessionId, { status });
+                    if (status === "completed" || status === "failed") {
+                      void refreshSessionProjection(activeSessionId);
+                    }
+                  }}
                   initialPromptSubmission={
                     initialPromptSubmission?.sessionId === activeSessionId
                       ? initialPromptSubmission

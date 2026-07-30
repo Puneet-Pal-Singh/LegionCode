@@ -36,6 +36,9 @@ function shouldRetainCurrentTitle(
 
   const currentVersion = current.titleVersion;
   const incomingVersion = incoming.titleVersion;
+  if (incomingVersion !== undefined && currentVersion === undefined) {
+    return false;
+  }
   if (currentVersion !== undefined && incomingVersion !== undefined) {
     return currentVersion > incomingVersion;
   }
