@@ -22,6 +22,7 @@ import {
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
+import type { ArtifactOpenHandler } from "../artifactOpen";
 
 interface ChatInterfaceViewProps {
   workspaceId: string | null;
@@ -35,7 +36,7 @@ interface ChatInterfaceViewProps {
   debugEvents: ChatDebugEvent[];
   chatEntries: ChatInterfaceEntry[];
   messageMetadataById: Record<string, ChatMessageMetadata>;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   snapshots: Record<string, FileStatus[]>;
   artifacts: Record<string, PromptArtifactReviewSource>;
@@ -81,7 +82,7 @@ export const ChatInterfaceView = forwardRef<
           {props.completedTurnReview.error}
         </div>
       ) : null}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         {props.showHeroComposer ? (
           <HeroComposer>{props.renderComposer("hero")}</HeroComposer>
         ) : props.showSessionPlaceholder ? (
@@ -96,7 +97,7 @@ export const ChatInterfaceView = forwardRef<
         )}
       </div>
       {props.showHeroComposer ? null : (
-        <div className="px-6 pb-4">
+        <div className="px-3 pb-4 sm:px-6">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}
           </div>

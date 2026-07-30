@@ -12,6 +12,40 @@ describe("useFileLoader", () => {
     vi.unstubAllGlobals();
   });
 
+  it("opens runtime file output without transport metadata or duplicate line numbers", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        json: vi.fn().mockResolvedValue({
+          success: true,
+          output: [
+            "[read_file] path=src/index.ts offset=4 limit=2 returnedLines=2 totalLines=6 truncated=false",
+            "5: const first = true;",
+            "6: const second = true;",
+          ].join("\n"),
+        }),
+      }),
+    );
+    const openFileTab = vi.fn();
+    const { result } = renderHook(() =>
+      useFileLoader({
+        sandboxId: "session-1",
+        runId: "run-1",
+        openFileTab,
+        setIsLoadingContent: vi.fn(),
+        setContentError: vi.fn(),
+      }),
+    );
+
+    await act(() => result.current.handleFileClick("src/index.ts"));
+
+    expect(openFileTab).toHaveBeenCalledWith({
+      path: "src/index.ts",
+      content: "const first = true;\nconst second = true;",
+      startingLineNumber: 5,
+    });
+  });
+
   it("keeps unreadable responses out of file tabs", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(

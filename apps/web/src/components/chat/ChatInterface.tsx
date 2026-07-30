@@ -46,6 +46,7 @@ import {
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
+import type { ArtifactOpenHandler } from "./artifactOpen";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -74,7 +75,7 @@ interface ChatInterfaceProps {
   permissionMode?: ProductMode;
   onPermissionModeChange?: (mode: ProductMode) => void;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   onContextOpen?: (
     budget: ContextBudgetSnapshot,

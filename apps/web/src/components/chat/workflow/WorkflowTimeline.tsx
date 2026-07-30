@@ -22,15 +22,22 @@ import { MarkdownMessageContent } from "../chat-message/MessageContent.js";
 import { cn } from "../../../lib/utils.js";
 import { itemDisplayText } from "./workflowPresentation.js";
 import { ThinkingIndicator } from "./ThinkingIndicator.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import type { ArtifactOpenHandler } from "../artifactOpen.js";
+import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser.js";
+import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
+import { DiffViewer } from "../../diff/DiffViewer.js";
 
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
+  turnDiff: TurnDiffPayload | null;
   showThinkingState: boolean;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
 }
 
 export function WorkflowTimeline({
   segments,
+  turnDiff,
   showThinkingState,
   onArtifactOpen,
 }: WorkflowTimelineProps) {
@@ -40,6 +47,7 @@ export function WorkflowTimeline({
         <WorkflowSegment
           key={segment.key}
           segment={segment}
+          turnDiff={turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
       ))}
@@ -50,10 +58,12 @@ export function WorkflowTimeline({
 
 function WorkflowSegment({
   segment,
+  turnDiff,
   onArtifactOpen,
 }: {
   segment: ToolActivitySegment;
-  onArtifactOpen?: (path: string, content: string) => void;
+  turnDiff: TurnDiffPayload | null;
+  onArtifactOpen?: ArtifactOpenHandler;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -107,6 +117,7 @@ function WorkflowSegment({
               <WorkflowItemRow
                 key={item.itemId}
                 item={item}
+                turnDiff={turnDiff}
                 onArtifactOpen={onArtifactOpen}
               />
             ))}
@@ -128,7 +139,7 @@ function ActivityDisclosure({
 }) {
   const [expanded, setExpanded] = useState(active);
   useEffect(() => {
-    if (active) setExpanded(true);
+    setExpanded(active);
   }, [active]);
 
   return (
@@ -150,7 +161,7 @@ function ActivityDisclosure({
         />
       </button>
       {expanded ? (
-        <div className="ml-2 mt-1 border-l border-zinc-800 py-1 pl-4">
+        <div className="mt-1 min-w-0 border-l border-zinc-800 py-1 pl-3 sm:ml-2 sm:pl-4">
           {children}
         </div>
       ) : null}
@@ -160,12 +171,14 @@ function ActivityDisclosure({
 
 function WorkflowItemRow({
   item,
+  turnDiff,
   reasoning = false,
   onArtifactOpen,
 }: {
   item: WorkflowItem;
+  turnDiff: TurnDiffPayload | null;
   reasoning?: boolean;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
 }) {
   const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
@@ -190,7 +203,10 @@ function WorkflowItemRow({
       value !== label &&
       values.indexOf(value) === index,
   );
-  const preview = detailLines[0] ?? null;
+  const preview =
+    detailLines.find(
+      (line) => line !== item.filePath && line !== item.command,
+    ) ?? null;
 
   return (
     <div
@@ -219,19 +235,37 @@ function WorkflowItemRow({
               if (
                 item.toolFamily === "read" &&
                 item.filePath &&
-                item.outputContent &&
                 onArtifactOpen
               ) {
-                onArtifactOpen(item.filePath, item.outputContent);
+                const parsed = parseReadFileOutput(item.outputContent ?? "");
+                onArtifactOpen(
+                  item.filePath,
+                  parsed?.content ?? item.outputContent ?? "",
+                  {
+                    refreshFromWorkspace:
+                      parsed?.returnedLines === 0 ||
+                      !item.outputContent?.trim(),
+                    startingLineNumber: parsed ? parsed.offset + 1 : 1,
+                  },
+                );
                 return;
               }
               setExpanded((current) => !current);
             }}
-            className="min-w-0 text-left text-zinc-500 transition-colors hover:text-zinc-100"
+            className="min-w-0 text-left text-zinc-500 transition-colors hover:text-white"
           >
             <span>{label}</span>
             {preview ? (
-              <span className="ml-2 break-words text-zinc-400">{preview}</span>
+              <span className="ml-2 break-words text-zinc-400 transition-colors group-hover:text-white">
+                {preview}
+              </span>
+            ) : null}
+            {item.toolFamily === "edit" &&
+            (item.additions != null || item.deletions != null) ? (
+              <span className="ml-2 inline-flex gap-1.5 font-mono">
+                <span className="text-emerald-400">+{item.additions ?? 0}</span>
+                <span className="text-red-400">-{item.deletions ?? 0}</span>
+              </span>
             ) : null}
             {item.status === "failed" ? (
               <span className="ml-2 text-zinc-500">failed</span>
@@ -255,10 +289,12 @@ function WorkflowItemRow({
           </div>
         )}
       </div>
-      {item.toolFamily === "edit" && item.diffPreview ? (
-        <InlineEditPreview item={item} />
+      {expanded && item.toolFamily === "edit" && item.diffPreview ? (
+        <InlineEditPreview item={item} turnDiff={turnDiff} />
       ) : null}
-      {item.toolFamily === "shell" && (item.command || item.outputContent) ? (
+      {expanded &&
+      item.toolFamily === "shell" &&
+      (item.command || item.outputContent) ? (
         <InlineShellOutput item={item} />
       ) : null}
       {expanded &&
@@ -283,9 +319,35 @@ function WorkflowItemRow({
   );
 }
 
-function InlineEditPreview({ item }: { item: WorkflowItem }) {
+function InlineEditPreview({
+  item,
+  turnDiff,
+}: {
+  item: WorkflowItem;
+  turnDiff: TurnDiffPayload | null;
+}) {
+  const diff =
+    turnDiff && item.filePath
+      ? buildDiffContentFromTurnDiff(turnDiff, item.filePath)
+      : null;
+
+  if (diff) {
+    return (
+      <div className="mt-2 min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-black sm:ml-6">
+        <DiffViewer
+          diff={diff}
+          className="max-h-80 min-w-0"
+          layout="stacked"
+          wordWrap={false}
+          showHeader={false}
+          showFileSummary
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="ml-6 mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e]">
+    <div className="mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e] sm:ml-6">
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2 text-xs">
         <span className="truncate font-mono text-zinc-300">
           {item.filePath ?? "Edited file"}
@@ -318,7 +380,7 @@ function InlineEditPreview({ item }: { item: WorkflowItem }) {
 
 function InlineShellOutput({ item }: { item: WorkflowItem }) {
   return (
-    <div className="ml-6 mt-2 max-h-64 overflow-auto rounded-lg border border-zinc-800 bg-[#0c0c0e] px-3 py-2 font-mono text-xs leading-5">
+    <div className="mt-2 max-h-64 overflow-auto rounded-lg border border-zinc-800 bg-[#0c0c0e] px-3 py-2 font-mono text-xs leading-5 sm:ml-6">
       {item.command ? (
         <div className="text-zinc-200">
           <span className="mr-2 text-zinc-600">$</span>

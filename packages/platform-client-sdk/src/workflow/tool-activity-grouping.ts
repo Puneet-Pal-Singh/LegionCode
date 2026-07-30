@@ -140,12 +140,26 @@ function coalesceRepeatedFileActivity(
     index === matchingIndex
       ? {
           ...item,
+          outputContent: selectCoalescedOutputContent(candidate, item),
           itemId: candidate.itemId,
           sequence: candidate.sequence,
           startedAt: candidate.startedAt,
         }
       : candidate,
   );
+}
+
+function selectCoalescedOutputContent(
+  previous: WorkflowItem,
+  current: WorkflowItem,
+): string | null {
+  if (
+    current.toolFamily === "read" &&
+    current.outputContent?.includes("returnedLines=0")
+  ) {
+    return previous.outputContent ?? current.outputContent;
+  }
+  return current.outputContent ?? previous.outputContent;
 }
 
 function activityTarget(item: WorkflowItem): string | null {

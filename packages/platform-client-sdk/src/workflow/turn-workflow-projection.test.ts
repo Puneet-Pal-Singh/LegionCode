@@ -143,9 +143,27 @@ describe("turn workflow projection", () => {
   it("coalesces repeated reads of one path and hides legacy multi_edit noise", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       toolStarted(1, "itm_read01", "toolcall_read01", "read", "src/Footer.tsx"),
-      toolCompleted(2, "itm_read01", "toolcall_read01"),
+      event(2, "tool_call.completed", {
+        itemId: "itm_read01",
+        toolCallId: "toolcall_read01",
+        payload: {
+          result: {
+            content:
+              "[read_file] path=src/Footer.tsx offset=0 limit=200 returnedLines=2 totalLines=2 truncated=false\n1: one\n2: two",
+          },
+        },
+      }),
       toolStarted(3, "itm_read02", "toolcall_read02", "read", "src/Footer.tsx"),
-      toolCompleted(4, "itm_read02", "toolcall_read02"),
+      event(4, "tool_call.completed", {
+        itemId: "itm_read02",
+        toolCallId: "toolcall_read02",
+        payload: {
+          result: {
+            content:
+              "[read_file] path=src/Footer.tsx offset=2 limit=200 returnedLines=0 totalLines=2 truncated=false\n",
+          },
+        },
+      }),
       event(5, "tool_call.started", {
         itemId: "itm_multi01",
         toolCallId: "toolcall_multi01",
@@ -165,6 +183,7 @@ describe("turn workflow projection", () => {
     );
     expect(children).toHaveLength(1);
     expect(children[0]?.itemId).toBe("itm_read01");
+    expect(children[0]?.outputContent).toContain("returnedLines=2");
   });
 
   it("enriches an edit row from the canonical turn diff when tool metadata has no patch", () => {

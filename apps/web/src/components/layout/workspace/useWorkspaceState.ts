@@ -12,6 +12,7 @@ const VALID_TABS: ReadonlySet<string> = new Set(["review", "changes", "files"]);
 export interface SelectedFile {
   path: string;
   content: string;
+  startingLineNumber?: number;
 }
 
 export interface SelectedDiff {

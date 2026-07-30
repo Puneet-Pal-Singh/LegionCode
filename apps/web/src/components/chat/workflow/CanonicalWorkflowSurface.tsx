@@ -10,10 +10,11 @@ import {
   resolveWorkflowTitle,
   useWorkflowClock,
 } from "./workflowPresentation.js";
+import type { ArtifactOpenHandler } from "../artifactOpen.js";
 
 interface CanonicalWorkflowSurfaceProps {
   projection: TurnWorkflowProjection;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
 }
 
 export function CanonicalWorkflowSurface({
@@ -52,6 +53,7 @@ export function CanonicalWorkflowSurface({
         <WorkflowDisclosure
           projection={projection}
           segments={segments}
+          turnDiff={projection.turnDiff}
           onArtifactOpen={onArtifactOpen}
         />
       ) : null}

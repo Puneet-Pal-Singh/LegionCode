@@ -23,7 +23,7 @@ import { useStatusSync } from "./workspace/useStatusSync";
 import { useSidebarOrchestration } from "./workspace/useSidebarOrchestration";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
-import { TabType } from "./workspace/useWorkspaceState";
+import { TabType, type SelectedFile } from "./workspace/useWorkspaceState";
 import {
   loadStoredProductMode,
   persistProductMode,
@@ -339,7 +339,7 @@ export function Workspace({
   );
 
   const handleOpenFileTab = useCallback(
-    (file: { path: string; content: string }) => {
+    (file: SelectedFile) => {
       openFileTab(file);
       setActiveTab("review");
       setIsRightSidebarOpen?.(true);
@@ -480,8 +480,16 @@ export function Workspace({
               onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
-              onArtifactOpen={(path, content) => {
-                handleOpenFileTab({ path, content });
+              onArtifactOpen={(path, content, options) => {
+                if (options?.refreshFromWorkspace) {
+                  void handleFileClick(path);
+                  return;
+                }
+                handleOpenFileTab({
+                  path,
+                  content,
+                  startingLineNumber: options?.startingLineNumber,
+                });
               }}
               onReviewOpen={() => {
                 setIsRightSidebarOpen?.(true);
@@ -534,7 +542,8 @@ export function Workspace({
                 : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
             }
             className={cn(
-              "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative",
+              "relative flex shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-black",
+              "max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-50 max-[1100px]:shadow-[-24px_0_60px_rgba(0,0,0,0.55)]",
               !isRightSidebarOpen && "border-transparent",
             )}
           >
