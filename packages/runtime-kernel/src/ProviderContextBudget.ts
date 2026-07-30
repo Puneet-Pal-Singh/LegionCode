@@ -5,15 +5,15 @@ import {
 } from "@repo/platform-protocol";
 
 /**
- * Replaces preflight estimates with the provider's measured prompt size after
- * each model call while retaining the model-owned context-window policy.
+ * Replaces preflight estimates with the provider's measured total occupied
+ * context after each model call while retaining model-owned window policy.
  */
 export function reconcileProviderContextBudget(
   budget: ContextBudgetSnapshot | undefined,
   usage: UsageCostSnapshot,
 ): ContextBudgetSnapshot | undefined {
   if (!budget) return undefined;
-  const tokensUsed = usage.inputTokens;
+  const tokensUsed = usage.totalTokens;
   return ContextBudgetSnapshotSchema.parse({
     ...budget,
     tokensUsed,

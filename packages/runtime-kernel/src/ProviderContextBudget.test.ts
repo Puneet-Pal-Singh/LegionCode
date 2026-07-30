@@ -6,13 +6,13 @@ import type {
 import { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
 
 describe("reconcileProviderContextBudget", () => {
-  it("uses provider-measured input tokens for utilization", () => {
+  it("uses provider-measured total tokens for utilization", () => {
     const result = reconcileProviderContextBudget(budget(), usage());
 
     expect(result).toMatchObject({
-      tokensUsed: 32_000,
-      tokensRemaining: 68_000,
-      utilizationPercent: 32,
+      tokensUsed: 32_500,
+      tokensRemaining: 67_500,
+      utilizationPercent: 32.5,
       measurementSource: "provider",
     });
   });

@@ -2,7 +2,10 @@ import type { CoreMessage } from "ai";
 import type { BudgetPolicy } from "../cost/BudgetManager.js";
 import type { CostEvent, LLMUsage } from "../cost/types.js";
 import type { ICostLedger } from "../cost/CostLedger.js";
-import type { IPricingResolver } from "../cost/PricingResolver.js";
+import type {
+  IPricingResolver,
+  PricingResolution,
+} from "../cost/PricingResolver.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import type {
   ILLMGateway,
@@ -108,7 +111,8 @@ export class LLMGateway implements ILLMGateway {
 
   constructor(private deps: LLMGatewayDependencies) {
     this.transcriptPartNormalizer =
-      deps.transcriptPartNormalizer ?? new LegacyProviderTranscriptPartNormalizer();
+      deps.transcriptPartNormalizer ??
+      new LegacyProviderTranscriptPartNormalizer();
   }
 
   async generateText(req: LLMTextRequest): Promise<LLMTextResponse> {
@@ -210,7 +214,8 @@ export class LLMGateway implements ILLMGateway {
     }
 
     const usage = this.normalizeUsage(result.usage, req.model);
-    await this.persistCostEvent(requestWithIdempotency, usage);
+    const pricing = await this.persistCostEvent(requestWithIdempotency, usage);
+    const measuredUsage = withResolvedCost(usage, pricing);
 
     const toolCalls = result.toolCalls?.map((toolCall) => ({
       id:
@@ -240,11 +245,12 @@ export class LLMGateway implements ILLMGateway {
         providerParts: result.transcriptParts,
         providerText: result.text,
         toolCalls,
-        usage,
+        usage: measuredUsage,
         finishReason: result.finishReason,
-        outputIntent: req.context.phase === "synthesis" ? "final" : "intermediate",
+        outputIntent:
+          req.context.phase === "synthesis" ? "final" : "intermediate",
       }),
-      usage,
+      usage: measuredUsage,
       finishReason: result.finishReason,
       toolCalls,
     };
@@ -301,11 +307,11 @@ export class LLMGateway implements ILLMGateway {
     }
 
     const usage = this.normalizeUsage(result.usage, req.model);
-    await this.persistCostEvent(requestWithIdempotency, usage);
+    const pricing = await this.persistCostEvent(requestWithIdempotency, usage);
 
     return {
       object: result.object,
-      usage,
+      usage: withResolvedCost(usage, pricing),
     };
   }
 
@@ -517,7 +523,7 @@ export class LLMGateway implements ILLMGateway {
   private async persistCostEvent(
     req: LLMTextRequest | LLMStructuredRequest<unknown>,
     usage: LLMUsage,
-  ): Promise<void> {
+  ): Promise<PricingResolution> {
     const resolved = this.deps.pricingResolver.resolve(usage, usage.raw);
     const idempotencyKey =
       req.context.idempotencyKey ??
@@ -554,6 +560,7 @@ export class LLMGateway implements ILLMGateway {
         `[llm/gateway] unknown pricing persisted post-call for ${usage.provider}:${usage.model}`,
       );
     }
+    return resolved;
   }
 
   private assertPricingAllowed(context: LLMCallContext, usage: LLMUsage): void {
@@ -841,6 +848,15 @@ function normalizeToolArgs(args: unknown): Record<string, unknown> {
     return {};
   }
   return args as Record<string, unknown>;
+}
+
+function withResolvedCost(
+  usage: LLMUsage,
+  pricing: PricingResolution,
+): LLMUsage {
+  return pricing.pricingSource === "unknown"
+    ? usage
+    : { ...usage, cost: pricing.calculatedCostUsd };
 }
 
 function getMessagePartLength(part: unknown): number {

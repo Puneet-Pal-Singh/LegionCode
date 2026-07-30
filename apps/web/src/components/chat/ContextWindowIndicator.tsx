@@ -18,6 +18,7 @@ export function ContextWindowIndicator({
   onOpenDetails,
 }: ContextWindowIndicatorProps) {
   const percent = budget ? Math.round(budget.utilizationPercent) : null;
+  const remainingPercent = percent === null ? null : Math.max(0, 100 - percent);
   const canCompact =
     Boolean(onCompact) &&
     budget !== null &&
@@ -60,7 +61,9 @@ export function ContextWindowIndicator({
       <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-3 hidden w-60 -translate-x-1/2 rounded-2xl border border-zinc-700/70 bg-[#242426] px-4 py-3 text-center shadow-2xl group-hover:block group-focus-within:block">
         <div className="text-sm text-zinc-400">Context window:</div>
         <div className="mt-1 text-sm text-zinc-400">
-          {percent === null ? "Usage unavailable" : `${percent}% full`}
+          {percent === null
+            ? "Usage unavailable"
+            : `${percent}% used (${remainingPercent}% left)`}
         </div>
         {budget ? (
           <div className="mt-1 text-base text-zinc-100">
@@ -74,7 +77,7 @@ export function ContextWindowIndicator({
         )}
         {usage?.cumulativeThreadCost != null ? (
           <div className="mt-1 text-xs text-zinc-500">
-            ${usage.cumulativeThreadCost.toFixed(2)} spent
+            {formatCost(usage.cumulativeThreadCost)} spent
           </div>
         ) : null}
         {canCompact ? (
@@ -85,6 +88,12 @@ export function ContextWindowIndicator({
       </div>
     </div>
   );
+}
+
+function formatCost(value: number): string {
+  if (value === 0) return "$0.00";
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
 }
 
 function formatCount(value: number): string {
