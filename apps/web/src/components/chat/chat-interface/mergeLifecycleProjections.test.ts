@@ -36,6 +36,7 @@ describe("mergeLifecycleProjections", () => {
     const observed = createLifecycleProjection(turnId);
     const replayed = {
       ...createLifecycleProjection(turnId),
+      lastSequence: 1,
       terminal: {
         state: "completed" as const,
         eventId: "evt-terminal",
@@ -51,5 +52,26 @@ describe("mergeLifecycleProjections", () => {
     );
 
     expect(result[turnId]).toBe(replayed);
+  });
+
+  it("does not let stale replay hide newer live workflow activity", () => {
+    const turnId = TurnIdSchema.parse("trn_live_newer01");
+    const replayed = {
+      ...createLifecycleProjection(turnId),
+      lastSequence: 2,
+    };
+    const observed = {
+      ...createLifecycleProjection(turnId),
+      lastSequence: 5,
+      phase: "working" as const,
+    };
+
+    const result = mergeLifecycleProjections(
+      { [turnId]: replayed },
+      { [turnId]: observed },
+      null,
+    );
+
+    expect(result[turnId]).toBe(observed);
   });
 });
