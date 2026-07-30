@@ -26,23 +26,35 @@ import { ThinkingIndicator } from "./ThinkingIndicator.js";
 interface WorkflowTimelineProps {
   segments: readonly ToolActivitySegment[];
   showThinkingState: boolean;
+  onArtifactOpen?: (path: string, content: string) => void;
 }
 
 export function WorkflowTimeline({
   segments,
   showThinkingState,
+  onArtifactOpen,
 }: WorkflowTimelineProps) {
   return (
     <div className="space-y-3" data-testid="workflow-tool-viewport">
       {segments.map((segment) => (
-        <WorkflowSegment key={segment.key} segment={segment} />
+        <WorkflowSegment
+          key={segment.key}
+          segment={segment}
+          onArtifactOpen={onArtifactOpen}
+        />
       ))}
       {showThinkingState ? <ThinkingIndicator /> : null}
     </div>
   );
 }
 
-function WorkflowSegment({ segment }: { segment: ToolActivitySegment }) {
+function WorkflowSegment({
+  segment,
+  onArtifactOpen,
+}: {
+  segment: ToolActivitySegment;
+  onArtifactOpen?: (path: string, content: string) => void;
+}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
 
@@ -92,7 +104,11 @@ function WorkflowSegment({ segment }: { segment: ToolActivitySegment }) {
             className="max-h-60 space-y-1 overflow-y-auto pr-2"
           >
             {segment.children.map((item) => (
-              <WorkflowItemRow key={item.itemId} item={item} />
+              <WorkflowItemRow
+                key={item.itemId}
+                item={item}
+                onArtifactOpen={onArtifactOpen}
+              />
             ))}
           </div>
         </ActivityDisclosure>
@@ -145,9 +161,11 @@ function ActivityDisclosure({
 function WorkflowItemRow({
   item,
   reasoning = false,
+  onArtifactOpen,
 }: {
   item: WorkflowItem;
   reasoning?: boolean;
+  onArtifactOpen?: (path: string, content: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const text = itemDisplayText(item);
@@ -159,7 +177,7 @@ function WorkflowItemRow({
     item.kind !== "user_message";
   const label = reasoning
     ? (item.safeSummary ?? "Thinking")
-    : (item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind));
+    : resolveItemLabel(item);
   const StatusIcon = resolveItemIcon(item);
   const detailLines = [
     item.detail,
@@ -197,7 +215,18 @@ function WorkflowItemRow({
             type="button"
             aria-expanded={expanded}
             aria-label={`View details for ${label}`}
-            onClick={() => setExpanded((current) => !current)}
+            onClick={() => {
+              if (
+                item.toolFamily === "read" &&
+                item.filePath &&
+                item.outputContent &&
+                onArtifactOpen
+              ) {
+                onArtifactOpen(item.filePath, item.outputContent);
+                return;
+              }
+              setExpanded((current) => !current);
+            }}
             className="min-w-0 text-left text-zinc-500 transition-colors hover:text-zinc-100"
           >
             <span>{label}</span>
@@ -226,7 +255,16 @@ function WorkflowItemRow({
           </div>
         )}
       </div>
-      {expanded && detailLines.length > 0 ? (
+      {item.toolFamily === "edit" && item.diffPreview ? (
+        <InlineEditPreview item={item} />
+      ) : null}
+      {item.toolFamily === "shell" && (item.command || item.outputContent) ? (
+        <InlineShellOutput item={item} />
+      ) : null}
+      {expanded &&
+      detailLines.length > 0 &&
+      !item.diffPreview &&
+      item.toolFamily !== "shell" ? (
         <div className="ml-6 mt-1 max-h-40 overflow-auto rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2 font-mono text-xs leading-5 text-zinc-400">
           {detailLines.map((line) => (
             <div key={line} className="whitespace-pre-wrap break-words">
@@ -243,6 +281,71 @@ function WorkflowItemRow({
       ) : null}
     </div>
   );
+}
+
+function InlineEditPreview({ item }: { item: WorkflowItem }) {
+  return (
+    <div className="ml-6 mt-2 overflow-hidden rounded-lg border border-zinc-800 bg-[#0c0c0e]">
+      <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2 text-xs">
+        <span className="truncate font-mono text-zinc-300">
+          {item.filePath ?? "Edited file"}
+        </span>
+        <span className="shrink-0 font-mono">
+          <span className="text-emerald-400">+{item.additions ?? 0}</span>
+          <span className="ml-2 text-red-400">-{item.deletions ?? 0}</span>
+        </span>
+      </div>
+      <div className="max-h-64 overflow-auto font-mono text-xs leading-5">
+        {item.diffPreview?.split("\n").map((line, index) => (
+          <div
+            key={`${index}:${line}`}
+            className={cn(
+              "whitespace-pre-wrap break-words px-3",
+              line.startsWith("+")
+                ? "bg-emerald-950/35 text-emerald-300"
+                : line.startsWith("-")
+                  ? "bg-red-950/35 text-red-300"
+                  : "text-zinc-400",
+            )}
+          >
+            {line}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function InlineShellOutput({ item }: { item: WorkflowItem }) {
+  return (
+    <div className="ml-6 mt-2 max-h-64 overflow-auto rounded-lg border border-zinc-800 bg-[#0c0c0e] px-3 py-2 font-mono text-xs leading-5">
+      {item.command ? (
+        <div className="text-zinc-200">
+          <span className="mr-2 text-zinc-600">$</span>
+          {item.command}
+        </div>
+      ) : null}
+      {item.outputContent ? (
+        <pre className="mt-1 whitespace-pre-wrap break-words text-zinc-400">
+          {item.outputContent}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+function resolveItemLabel(item: WorkflowItem): string {
+  const target = item.filePath ?? item.inputSummary;
+  if (target && item.toolFamily === "read") {
+    return `${item.status === "active" ? "Reading" : "Read"} ${target}`;
+  }
+  if (target && item.toolFamily === "edit") {
+    return `${item.status === "active" ? "Editing" : "Edited"} ${target}`;
+  }
+  if (item.toolFamily === "shell") {
+    return item.status === "active" ? "Running command" : "Ran command";
+  }
+  return item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
 }
 
 function resolveItemIcon(item: WorkflowItem): LucideIcon {

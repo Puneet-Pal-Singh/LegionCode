@@ -13,17 +13,19 @@ import {
 
 interface CanonicalWorkflowSurfaceProps {
   projection: TurnWorkflowProjection;
+  onArtifactOpen?: (path: string, content: string) => void;
 }
 
 export function CanonicalWorkflowSurface({
   projection,
+  onArtifactOpen,
 }: CanonicalWorkflowSurfaceProps) {
   const terminal = projection.terminal;
   const [expanded, setExpanded] = useState(true);
   const now = useWorkflowClock(Boolean(terminal));
   const segments = useMemo(
-    () => groupToolActivity(projection.items),
-    [projection.items],
+    () => groupToolActivity(projection.items, projection.turnDiff),
+    [projection.items, projection.turnDiff],
   );
   const duration = formatTurnDuration(
     projection.startedAt,
@@ -50,6 +52,7 @@ export function CanonicalWorkflowSurface({
         <WorkflowDisclosure
           projection={projection}
           segments={segments}
+          onArtifactOpen={onArtifactOpen}
         />
       ) : null}
     </section>

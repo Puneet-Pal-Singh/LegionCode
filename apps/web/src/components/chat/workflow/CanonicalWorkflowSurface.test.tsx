@@ -28,6 +28,13 @@ describe("CanonicalWorkflowSurface", () => {
           safeSummary: null,
           inputSummary: "Read README.md",
           outputSummary: null,
+          toolName: "read_file",
+          filePath: "README.md",
+          command: null,
+          outputContent: "# README",
+          diffPreview: null,
+          additions: null,
+          deletions: null,
           planSteps: [],
           compactionPhase: null,
           startedAt: "2026-07-27T10:00:00.000Z",
@@ -82,14 +89,12 @@ describe("CanonicalWorkflowSurface", () => {
     fireEvent.click(screen.getByRole("button", { name: /read files/i }));
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
     const toolDetails = screen.getByRole("button", {
-      name: /view details for read/i,
+      name: /view details for read readme/i,
     });
     expect(toolDetails).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toolDetails);
-    expect(toolDetails).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByTestId("canonical-plan-diff-chip")).toHaveTextContent(
-      "1 file changed · +1 -0",
-    );
+    expect(
+      screen.queryByTestId("canonical-plan-diff-chip"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /review finalized changes/i }),
     ).not.toBeInTheDocument();
