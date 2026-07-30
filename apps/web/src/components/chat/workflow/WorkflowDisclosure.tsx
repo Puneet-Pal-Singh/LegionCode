@@ -2,21 +2,21 @@ import type {
   ToolActivitySegment,
   TurnWorkflowProjection,
 } from "@repo/platform-client-sdk";
-import { WorkflowPlanDiff } from "./WorkflowPlanDiff.js";
 import { WorkflowTimeline } from "./WorkflowTimeline.js";
 
 interface WorkflowDisclosureProps {
   projection: TurnWorkflowProjection;
   segments: readonly ToolActivitySegment[];
+  onArtifactOpen?: (path: string, content: string) => void;
 }
 
 export function WorkflowDisclosure({
   projection,
   segments,
+  onArtifactOpen,
 }: WorkflowDisclosureProps) {
   return (
     <div className="mt-1 max-w-3xl py-2">
-      <WorkflowPlanDiff projection={projection} />
       {projection.pendingApproval ? (
         <div className="mb-3 border-l border-zinc-700 pl-3 text-sm">
           <div className="font-medium text-zinc-300">Approval needed</div>
@@ -27,6 +27,7 @@ export function WorkflowDisclosure({
       ) : null}
       <WorkflowTimeline
         segments={segments}
+        onArtifactOpen={onArtifactOpen}
         showThinkingState={
           !projection.pendingApproval &&
           !projection.terminal &&
