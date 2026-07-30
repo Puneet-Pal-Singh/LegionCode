@@ -152,6 +152,11 @@ import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
 import { RuntimeWorkspaceScope } from "./RuntimeWorkspaceScope.js";
 import { RuntimeKernelProviderTranscript } from "./RuntimeKernelProviderTranscript.js";
 import { ProviderToolCallIdentityMap } from "./ProviderToolCallIdentityMap.js";
+import {
+  buildProviderContextMessages,
+  estimateConversationTokens,
+  summarizeConversationForCompaction,
+} from "./NativeProviderContextMessages.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -382,8 +387,12 @@ export class RuntimeKernelNativeRunner {
       gitSnapshots:
         this.gitSnapshots ?? createUnavailableSnapshotPort(protocol.manifest),
       turnArtifacts: createTurnArtifactPort(),
-      contextAssembly: createContextAssembly(input.input),
-      contextCompaction: createContextCompaction(input.input),
+      contextAssembly: createContextAssembly(
+        input.input,
+        input.messages,
+        runtimeTools,
+      ),
+      contextCompaction: createContextCompaction(input.input, input.messages),
       provider,
       worker,
       toolAuthorization: new RegistryToolAuthorization(
@@ -445,9 +454,7 @@ export class RuntimeKernelNativeRunner {
     }
 
     activeTurn.interruptReason = reason;
-    activeTurn.abortController.abort(
-      new DOMException(reason, "AbortError"),
-    );
+    activeTurn.abortController.abort(new DOMException(reason, "AbortError"));
     this.interruptedTurns.add(turnId);
 
     if (activeTurn.kernel?.isTurnReady(turnId)) {
@@ -853,7 +860,10 @@ export class RuntimeKernelNativeRunner {
 }
 
 function describeRuntimeErrorCause(error: unknown): string | null {
-  if (!(error instanceof RuntimeKernelError) || error.causeError === undefined) {
+  if (
+    !(error instanceof RuntimeKernelError) ||
+    error.causeError === undefined
+  ) {
     return null;
   }
   const cause = error.causeError;
@@ -939,8 +949,15 @@ class KernelAgenticProvider implements ProviderPort {
         phase: finalRecovery ? ("synthesis" as const) : ("task" as const),
         idempotencyKey: `runtime-kernel-native:${this.options.run.id}:turn:${input.turn.id}:step:${this.stepsExecuted + 1}:${finalRecovery ? `final-${finalOnlyRecoveryAttempts}` : "task"}`,
       };
+      const contextMessages = buildProviderContextMessages({
+        messages: this.messages,
+        compactedContext: readContextString(
+          input.context.metadata,
+          "compactedContext",
+        ),
+      });
       const messages = buildNativeProviderMessages(
-        this.messages,
+        contextMessages,
         finalOnlyRecoveryAttempts,
       );
 
@@ -988,7 +1005,8 @@ class KernelAgenticProvider implements ProviderPort {
                   .filter(Boolean)
                   .join("\n\n"),
                 continuation: this.options.run.metadata.continuation,
-                workspaceBootstrap: this.options.run.metadata.workspaceBootstrap,
+                workspaceBootstrap:
+                  this.options.run.metadata.workspaceBootstrap,
                 gitTaskStrategy: this.options.run.metadata.gitTaskStrategy,
               }),
               finalSynthesisOnly: false,
@@ -1035,7 +1053,9 @@ class KernelAgenticProvider implements ProviderPort {
     } while (true);
 
     if (!responseUsage) {
-      throw new Error("[runtime-kernel/native] Provider returned no usage record");
+      throw new Error(
+        "[runtime-kernel/native] Provider returned no usage record",
+      );
     }
     this.messages.push(buildAssistantMessage(visibleText, toolCalls));
     if (toolCalls.length === 0) {
@@ -1513,8 +1533,7 @@ class KernelToolWorker implements WorkerProtocolPort {
               : gatewayResult.code === "workspace_escape_denied"
                 ? "policy_denied"
                 : "validation_failed";
-        const failureCode =
-          gatewayResult.failure?.code ?? gatewayFailureCode;
+        const failureCode = gatewayResult.failure?.code ?? gatewayFailureCode;
         const disposition = toolFailureDisposition(
           toolName,
           message,
@@ -1901,14 +1920,28 @@ function createTurnArtifactPort(): RuntimeTurnArtifactPort {
   };
 }
 
-function createContextAssembly(input: RunInput): ContextAssemblyPort {
+function createContextAssembly(
+  input: RunInput,
+  messages: readonly CoreMessage[],
+  tools: Readonly<Record<string, CoreTool>>,
+): ContextAssemblyPort {
   return {
     assemble: async () => {
       const repositoryText = JSON.stringify(input.repositoryContext ?? {});
-      const conversationTokens = Math.ceil(input.prompt.length / 4);
+      const conversationTokens = estimateConversationTokens(messages);
       const repositoryContextTokens = Math.ceil(repositoryText.length / 4);
-      const systemTokens = Math.ceil(input.prompt.length / 8);
-      const toolDefinitionTokens = 0;
+      const systemTokens = Math.ceil(
+        buildAgenticLoopSystemPrompt({
+          finalSynthesisOnly: false,
+          requiresMutation: false,
+          completedMutatingToolCount: 0,
+          completedReadOnlyToolCount: 0,
+          explicitCiLogRequest: false,
+          encounteredCiLogsAuthorizationBoundary: false,
+          attemptedCiLogsCliFallback: false,
+        }).length / 4,
+      );
+      const toolDefinitionTokens = Math.ceil(JSON.stringify(tools).length / 4);
       const attachmentTokens = null;
       const contextWindowLimit = readPositiveInteger(
         input.metadata?.contextWindowTokens,
@@ -1921,14 +1954,23 @@ function createContextAssembly(input: RunInput): ContextAssemblyPort {
           }),
         };
       }
-      const reservedOutputTokens = Math.min(8_192, Math.floor(contextWindowLimit * 0.1));
-      const safetyReserveTokens = Math.min(4_096, Math.floor(contextWindowLimit * 0.05));
+      const reservedOutputTokens = Math.min(
+        8_192,
+        Math.floor(contextWindowLimit * 0.1),
+      );
+      const safetyReserveTokens = Math.min(
+        4_096,
+        Math.floor(contextWindowLimit * 0.05),
+      );
       const effectiveInputBudget = Math.max(
         1,
         contextWindowLimit - reservedOutputTokens - safetyReserveTokens,
       );
       const tokensUsed =
-        systemTokens + conversationTokens + toolDefinitionTokens + repositoryContextTokens;
+        systemTokens +
+        conversationTokens +
+        toolDefinitionTokens +
+        repositoryContextTokens;
       const snapshot = ContextBudgetSnapshotSchema.parse({
         providerId: input.providerId ?? "unknown",
         modelId: input.runtimeModelId ?? input.modelId ?? "unknown",
@@ -1943,9 +1985,12 @@ function createContextAssembly(input: RunInput): ContextAssemblyPort {
         effectiveInputBudget,
         tokensUsed,
         tokensRemaining: Math.max(0, effectiveInputBudget - tokensUsed),
-        utilizationPercent: Math.min(100, (tokensUsed / effectiveInputBudget) * 100),
+        utilizationPercent: Math.min(
+          100,
+          (tokensUsed / effectiveInputBudget) * 100,
+        ),
         warningThresholdPercent: 70,
-        automaticCompactionThresholdPercent: 80,
+        automaticCompactionThresholdPercent: 90,
         measurementSource: "estimate",
       });
       return {
@@ -1959,18 +2004,22 @@ function createContextAssembly(input: RunInput): ContextAssemblyPort {
   };
 }
 
-function createContextCompaction(input: RunInput): ContextCompactionPort {
+function createContextCompaction(
+  input: RunInput,
+  messages: readonly CoreMessage[],
+): ContextCompactionPort {
   return {
     compact: async ({ context, turn }) => {
-      const summary = [
-        `Preserved user request: ${input.prompt}`,
-        "Preserved repository scope: README-only unless the user request explicitly names another file.",
-        "Preserved completed tool outcomes and unresolved work in the active runtime transcript.",
-      ].join(" ");
+      const summary = summarizeConversationForCompaction(
+        messages,
+        input.prompt,
+      );
       const budget = context.budgetSnapshot;
       const compactedTokens = Math.max(
         1,
-        Math.ceil((summary.length + JSON.stringify(context.metadata).length) / 4),
+        Math.ceil(
+          (summary.length + JSON.stringify(context.metadata).length) / 4,
+        ),
       );
       const compactedBudget = budget
         ? ContextBudgetSnapshotSchema.parse({
