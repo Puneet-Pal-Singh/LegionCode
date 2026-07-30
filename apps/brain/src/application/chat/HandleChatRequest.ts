@@ -36,6 +36,7 @@ import type {
   AgentType,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
+import { builtinProviderRegistry } from "@repo/provider-core";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -161,6 +162,7 @@ export class HandleChatRequest {
           ? `${repositoryOwner}/${repositoryName}`
           : undefined;
       const taskId = input.taskId ?? sessionId;
+      const contextWindowTokens = resolveContextWindowTokens(input);
 
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
@@ -231,17 +233,18 @@ export class HandleChatRequest {
           messageCount: messages.length,
         }),
       );
-      const persistedUserMessage = await this.persistenceService.persistUserMessage(
-        sessionId,
-        runId,
-        lastUserMessage,
-        {
-          userId,
-          workspaceId,
-          repository: repositorySlug,
-          identity,
-        },
-      );
+      const persistedUserMessage =
+        await this.persistenceService.persistUserMessage(
+          sessionId,
+          runId,
+          lastUserMessage,
+          {
+            userId,
+            workspaceId,
+            repository: repositorySlug,
+            identity,
+          },
+        );
       console.log(
         formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
           correlationId,
@@ -310,9 +313,7 @@ export class HandleChatRequest {
           harnessMode: runtimeSelections.harnessMode,
           authMode: runtimeSelections.authMode,
           metadata: {
-            ...(input.contextWindowTokens
-              ? { contextWindowTokens: input.contextWindowTokens }
-              : {}),
+            ...(contextWindowTokens ? { contextWindowTokens } : {}),
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
@@ -497,4 +498,22 @@ function extractTextPart(part: unknown): string {
   }
 
   return "";
+}
+
+function resolveContextWindowTokens(
+  input: Pick<
+    HandleChatRequestInput,
+    "providerId" | "modelId" | "contextWindowTokens"
+  >,
+): number | undefined {
+  if (input.providerId && input.modelId) {
+    const catalogLimit = builtinProviderRegistry.getModel(
+      input.providerId,
+      input.modelId,
+    )?.contextWindow;
+    if (catalogLimit) {
+      return catalogLimit;
+    }
+  }
+  return input.contextWindowTokens;
 }

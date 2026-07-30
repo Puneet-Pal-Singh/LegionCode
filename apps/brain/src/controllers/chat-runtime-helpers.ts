@@ -52,6 +52,7 @@ export interface RunEngineExecutionPayload {
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
     authMode: RuntimeAuthMode;
+    metadata?: Record<string, unknown>;
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];
