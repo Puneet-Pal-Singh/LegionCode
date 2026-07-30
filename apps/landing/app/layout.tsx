@@ -49,7 +49,12 @@ export const metadata: Metadata = {
     siteName: site.name,
     type: "website",
     images: [
-      { url: site.ogImage, width: 1200, height: 1200, alt: "LegionCode" },
+      {
+        url: site.ogImage,
+        width: 1672,
+        height: 941,
+        alt: "LegionCode Agents",
+      },
     ],
   },
   twitter: {
