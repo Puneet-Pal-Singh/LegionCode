@@ -248,12 +248,15 @@ export function initiateGitHubReauthorization(): void {
  * Logout user
  */
 export async function logout(): Promise<void> {
-  await fetch(
+  const response = await fetch(
     `${BRAIN_API_URL}/auth/logout`,
     getFetchOptions({
       method: "POST",
     }),
   );
+  if (!response.ok) {
+    throw new Error(`Logout failed with status ${response.status}`);
+  }
 }
 
 /**

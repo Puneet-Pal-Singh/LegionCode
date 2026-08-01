@@ -109,7 +109,7 @@ function createRouter(): Router {
   router.add(/\/auth\/github\/reauthorize/, AuthController.handleLogin);
   router.add(/\/auth\/github\/callback/, AuthController.handleCallback);
   router.add(/\/auth\/session/, AuthController.handleGetSession);
-  router.add(/\/auth\/logout/, AuthController.handleLogout);
+  router.add(/\/auth\/logout/, AuthController.handleLogout, "POST");
 
   // GitHub API routes
   router.add(/\/api\/github\/repos/, GitHubController.listRepositories);

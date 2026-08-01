@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "../../types/session";
 import { AgentSidebar } from "./AgentSidebar";
@@ -22,6 +22,34 @@ function createSession(overrides?: Partial<AgentSession>): AgentSession {
 }
 
 describe("AgentSidebar", () => {
+  it("opens the account menu and logs out the authenticated user", async () => {
+    const onLogout = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <AgentSidebar
+        sessions={[]}
+        repositories={[]}
+        activeSessionId={null}
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+        accountUser={{
+          login: "puneet",
+          name: "Puneet Pal Singh",
+          avatar: "https://avatars.example/puneet.png",
+        }}
+        onLogout={onLogout}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Puneet Pal Singh" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+    await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
+  });
+
   it("renders awaiting approval status when the session has a pending approval", () => {
     render(
       <AgentSidebar
