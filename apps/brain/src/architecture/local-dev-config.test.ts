@@ -51,6 +51,8 @@ describe("local development configuration", () => {
     expect(templateConfig).toContain('"class_name": "RunEngineRuntime"');
     expect(templateConfig).toContain('"class_name": "RunAdmissionLimiter"');
     expect(templateConfig).toContain('"deleted_classes": ["RunEngineAgent"]');
+    expect(templateConfig).toContain('"binding": "HYPERDRIVE"');
+    expect(templateConfig).toContain('"localConnectionString"');
     expect(
       validateLocalWranglerConfig({
         canonical: canonicalPath,
@@ -61,12 +63,12 @@ describe("local development configuration", () => {
 
   it("fails closed when the ignored local config is absent or drifts", () => {
     const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
-    const localPath = join(APP_ROOT, "wrangler.local.jsonc");
+    const missingLocalPath = join(APP_ROOT, "wrangler.local.missing.jsonc");
 
     expect(
       validateLocalWranglerConfig({
         canonical: canonicalPath,
-        local: localPath,
+        local: missingLocalPath,
       }),
     ).toBe(false);
 
@@ -94,10 +96,46 @@ describe("local development configuration", () => {
     }
   });
 
+  it("fails closed when local Hyperdrive persistence is missing", () => {
+    const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
+    const temporaryDirectory = mkdtempSync(
+      join(tmpdir(), "brain-local-config-"),
+    );
+    const localConfigPath = join(temporaryDirectory, "wrangler.local.jsonc");
+    const template = readFileSync(
+      join(APP_ROOT, "wrangler.local.example.jsonc"),
+      "utf8",
+    );
+    writeFileSync(
+      localConfigPath,
+      template.replace(
+        /  "hyperdrive": \[[\s\S]*?^  \],\n/m,
+        "",
+      ),
+    );
+
+    try {
+      expect(
+        validateLocalWranglerConfig({
+          canonical: canonicalPath,
+          local: localConfigPath,
+        }),
+      ).toBe(false);
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("emits only the fixed remediation when run as a startup preflight", () => {
+    const canonicalPath = join(APP_ROOT, "wrangler.jsonc");
+    const missingLocalPath = join(APP_ROOT, "wrangler.local.missing.jsonc");
     const result = spawnSync(
       process.execPath,
-      [join(APP_ROOT, "scripts/validate-local-wrangler-config.mjs")],
+      [
+        join(APP_ROOT, "scripts/validate-local-wrangler-config.mjs"),
+        canonicalPath,
+        missingLocalPath,
+      ],
       { encoding: "utf8" },
     );
 

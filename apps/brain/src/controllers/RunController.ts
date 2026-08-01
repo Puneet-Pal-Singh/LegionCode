@@ -9,7 +9,7 @@ import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
-import { RunInterruptIdentitySchema } from "../runtime/RunInterruptContract";
+import { RunInterruptRequestSchema } from "../runtime/RunInterruptContract";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import { mapRunEventRecordsToCanonicalEvents } from "../services/runs/RunEventRecordMapper";
 import {
@@ -32,7 +32,7 @@ const RuntimeOrchestratorBackendSchema = z.enum([
   "execution-engine-v1",
   "cloudflare_agents",
 ]);
-const InterruptRunRequestSchema = RunInterruptIdentitySchema.extend({
+const InterruptRunRequestSchema = RunInterruptRequestSchema.extend({
   orchestratorBackend: RuntimeOrchestratorBackendSchema.optional(),
 });
 const ApproveRunRequestSchema = z.object({
@@ -244,67 +244,6 @@ export class RunController {
         req,
         env,
         error instanceof Error ? error.message : "Failed to fetch run events",
-        500,
-      );
-    }
-  }
-
-  static async getEventsStream(req: Request, env: Env): Promise<Response> {
-    const requestId = crypto.randomUUID();
-    const startedAt = Date.now();
-    try {
-      const url = new URL(req.url);
-      const runId = url.searchParams.get("runId")?.trim();
-      const requestedBackend = parseRequestedBackend(
-        url.searchParams.get("backend"),
-      );
-      if (!runId) {
-        return errorResponse(req, env, "runId is required", 400);
-      }
-
-      const auth = await getAuthenticatedUserSession(req, env);
-      if (!auth) {
-        return errorResponse(req, env, "Unauthorized", 401);
-      }
-
-      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
-      if (!ownsRun) {
-        console.warn(
-          `[run/events-stream] requestId=${requestId} runId=${runId} status=not-found elapsedMs=${Date.now() - startedAt}`,
-        );
-        return errorResponse(req, env, "Run not found", 404);
-      }
-
-      const response = await fetchRunEventsStreamFromRuntime(
-        req,
-        env,
-        runId,
-        requestedBackend,
-      );
-      if (!response.ok) {
-        const details = await readErrorPreview(response);
-        const suffix = details ? `: ${details}` : "";
-        return errorResponse(
-          req,
-          env,
-          `Failed to stream run events${suffix}`,
-          response.status,
-        );
-      }
-
-      console.log(
-        `[run/events-stream] requestId=${requestId} runId=${runId} status=connected backend=${requestedBackend} elapsedMs=${Date.now() - startedAt}`,
-      );
-      return response;
-    } catch (error) {
-      if (isSessionStoreUnavailableError(error)) {
-        return errorResponse(req, env, error.message, 503);
-      }
-      console.error("[RunController:getEventsStream] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to stream run events",
         500,
       );
     }
@@ -686,30 +625,6 @@ function extractErrorMessage(error: unknown): string {
     }
   }
   return "";
-}
-
-async function fetchRunEventsStreamFromRuntime(
-  req: Request,
-  env: Env,
-  runId: string,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<Response> {
-  const headers = buildRuntimeForwardHeaders(req);
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
-    method: "GET",
-    path: `/events/stream?runId=${encodeURIComponent(runId)}`,
-    ...(headers ? { headers } : {}),
-  });
-}
-
-function buildRuntimeForwardHeaders(
-  req: Request,
-): Record<string, string> | null {
-  const origin = req.headers.get("Origin");
-  if (!origin) {
-    return null;
-  }
-  return { Origin: origin };
 }
 
 function parseRequestedBackend(

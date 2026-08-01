@@ -16,20 +16,21 @@ export function useCompletedTurnReview(
   projection: LifecycleProjection | null,
   messageId: string | null,
 ): CompletedTurnReview {
+  const isCompletedTurn = projection?.terminal?.state === "completed";
   const error =
-    projection?.terminal && !projection.turnDiff
+    projection?.terminal?.state === "completed" && !projection.turnDiff
       ? "Completed-turn review is unavailable because the canonical turn diff was not settled."
       : null;
   const files = useMemo(
     () =>
-      projection?.terminal
+      isCompletedTurn
         ? collectLifecycleTurnDiffFiles(projection)
         : ([] as FileStatus[]),
-    [projection],
+    [isCompletedTurn, projection],
   );
   const loadFileDiff = useCallback(
     async (file: FileStatus): Promise<DiffContent> => {
-      if (!projection?.terminal || !projection.turnDiff) {
+      if (!isCompletedTurn || !projection?.turnDiff) {
         throw new Error("Completed-turn review requires a canonical turn diff.");
       }
       const diff = buildDiffContentFromTurnDiff(projection.turnDiff, file.path);
@@ -38,11 +39,11 @@ export function useCompletedTurnReview(
       }
       return diff;
     },
-    [projection],
+    [isCompletedTurn, projection],
   );
 
   return {
-    turnId: projection?.terminal ? projection.turnId : null,
+    turnId: isCompletedTurn ? projection.turnId : null,
     messageId,
     files,
     loadFileDiff,

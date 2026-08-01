@@ -167,6 +167,7 @@ function AppContent() {
     createSession,
     removeSession,
     renameSession,
+    refreshSessionProjection,
     pinSession,
     unpinSession,
     archiveSession,
@@ -217,6 +218,19 @@ function AppContent() {
     workspaceId: string;
     audits: readonly HookSettingsAuditReadModel[];
   } | null>(null);
+  const handleHookSettingsContextChange = useCallback(
+    (context: {
+      workspaceId: string;
+      audits: readonly HookSettingsAuditReadModel[];
+    }) => {
+      if (!activeSessionId) return;
+      setHookSettingsContext({
+        sessionId: activeSessionId,
+        ...context,
+      });
+    },
+    [activeSessionId],
+  );
   const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
     useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
@@ -1024,11 +1038,8 @@ function AppContent() {
           environmentSummary={
             showWorkspace && activeSessionId && activeSession
               ? {
-                  sessionId: activeSessionId,
-                  runId: activeSession.activeRunId,
                   repo,
                   branch,
-                  enabled: activeSession.status !== "running",
                   onBranchChange: switchBranch,
                   onOpenChanges: () =>
                     setSummaryActionRequest({
@@ -1141,9 +1152,12 @@ function AppContent() {
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }
-                  onSessionStatusChange={(status) =>
-                    updateSession(activeSessionId, { status })
-                  }
+                  onSessionStatusChange={(status) => {
+                    updateSession(activeSessionId, { status });
+                    if (status === "completed" || status === "failed") {
+                      void refreshSessionProjection(activeSessionId);
+                    }
+                  }}
                   initialPromptSubmission={
                     initialPromptSubmission?.sessionId === activeSessionId
                       ? initialPromptSubmission
@@ -1155,7 +1169,9 @@ function AppContent() {
                     );
                   }}
                   onPromptSubmitted={(prompt) => {
-                    void prompt;
+                    if (prompt.trim()) {
+                      updateSession(activeSessionId, { status: "running" });
+                    }
                   }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
@@ -1163,12 +1179,7 @@ function AppContent() {
                       hasPendingApproval,
                     );
                   }}
-                  onHookSettingsContextChange={(context) => {
-                    setHookSettingsContext({
-                      sessionId: activeSessionId,
-                      ...context,
-                    });
-                  }}
+                  onHookSettingsContextChange={handleHookSettingsContextChange}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
                   rightSidebarWidth={rightSidebarWidth}

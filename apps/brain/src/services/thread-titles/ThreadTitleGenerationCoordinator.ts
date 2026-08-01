@@ -2,14 +2,20 @@ import type { CoreMessage } from "ai";
 import { GeneratedThreadTitleSchema } from "@repo/platform-protocol";
 import type { Env } from "../../types/ai";
 import { AIService } from "../AIService";
-import { ThreadTitleService, type PersistThreadTitleInput } from "./ThreadTitleService";
+import {
+  ThreadTitleService,
+  type PersistThreadTitleInput,
+} from "./ThreadTitleService";
+import { createPostgresProviderConfigService } from "../providers/stores/PostgresStoreFactory";
 
 export interface BackgroundTaskOwner {
   waitUntil(promise: Promise<unknown>): void;
 }
 
-export interface GenerateThreadTitleInput
-  extends Omit<PersistThreadTitleInput, "title" | "source"> {
+export interface GenerateThreadTitleInput extends Omit<
+  PersistThreadTitleInput,
+  "title" | "source"
+> {
   prompt: string;
   previewVersion: number;
   providerId?: string;
@@ -34,6 +40,7 @@ export interface ThreadTitlePersistence {
 
 interface ThreadTitleGenerationDependencies {
   generator?: ThreadTitleGenerator;
+  generatorFactory?: (input: GenerateThreadTitleInput) => ThreadTitleGenerator;
   titleService?: ThreadTitlePersistence;
 }
 
@@ -45,12 +52,27 @@ const TITLE_GENERATION_TIMEOUT_MS = 7_500;
  * output leave the deterministic preview untouched.
  */
 export class ThreadTitleGenerationCoordinator {
-  private readonly generator: ThreadTitleGenerator;
+  private readonly generator?: ThreadTitleGenerator;
+  private readonly generatorFactory: (
+    input: GenerateThreadTitleInput,
+  ) => ThreadTitleGenerator;
   private readonly titleService: ThreadTitlePersistence;
 
   constructor(env: Env, dependencies: ThreadTitleGenerationDependencies = {}) {
-    this.generator = dependencies.generator ?? new AIService(env);
-    this.titleService = dependencies.titleService ?? new ThreadTitleService(env);
+    this.generator = dependencies.generator;
+    this.generatorFactory =
+      dependencies.generatorFactory ??
+      ((input) =>
+        new AIService(
+          env,
+          createPostgresProviderConfigService(
+            env,
+            input.userId,
+            input.workspaceId,
+          ),
+        ));
+    this.titleService =
+      dependencies.titleService ?? new ThreadTitleService(env);
   }
 
   schedule(owner: BackgroundTaskOwner, input: GenerateThreadTitleInput): void {
@@ -72,7 +94,8 @@ export class ThreadTitleGenerationCoordinator {
         },
         { role: "user", content: input.prompt },
       ];
-      const result = await this.generator.generateStructured({
+      const generator = this.generator ?? this.generatorFactory(input);
+      const result = await generator.generateStructured({
         messages,
         schema: GeneratedThreadTitleSchema,
         providerId: input.providerId,
@@ -111,7 +134,10 @@ function classifyTitleGenerationFailure(
   if (didTimeOut) {
     return "timeout";
   }
-  if (error instanceof Error && /schema|parse|validation/i.test(error.message)) {
+  if (
+    error instanceof Error &&
+    /schema|parse|validation/i.test(error.message)
+  ) {
     return "invalid_output";
   }
   return "provider_unavailable";

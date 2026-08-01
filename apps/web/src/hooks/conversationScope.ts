@@ -1,6 +1,7 @@
 import { getBrainHttpBase } from "../lib/platform-endpoints.js";
 import {
   TurnScopeBootstrapSchema,
+  TurnScopeReadQuerySchema,
   type TurnScopeBootstrap,
 } from "../lib/turn-scope-contract";
 
@@ -48,6 +49,14 @@ export function conversationScopeKey(scope: ConversationScope): string {
     .join("/");
 }
 
+export function isTurnScopeRecoveryError(message: string | null): boolean {
+  return Boolean(
+    message &&
+      (message.includes("Turn scope reconstruction failed") ||
+        message.includes("TURN_SCOPE_")),
+  );
+}
+
 export async function bootstrapConversationScope(
   sessionId: string,
   runId: string,
@@ -73,6 +82,37 @@ export async function bootstrapConversationScope(
   return createConversationScope({ ...identity, sessionId, runId });
 }
 
+export async function resumeConversationScope(
+  sessionId: string,
+  runId: string,
+  signal?: AbortSignal,
+): Promise<ConversationScope | null> {
+  const query = TurnScopeReadQuerySchema.safeParse({
+    sessionId: sessionId.trim(),
+    runId: runId.trim(),
+  });
+  if (!query.success) {
+    return null;
+  }
+  const { sessionId: normalizedSessionId, runId: normalizedRunId } = query.data;
+  const response = await fetch(
+    `${getBrainHttpBase()}/turn/scope?runId=${encodeURIComponent(normalizedRunId)}&sessionId=${encodeURIComponent(normalizedSessionId)}`,
+    { credentials: "include", signal },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Turn scope reconstruction failed with HTTP ${response.status}`);
+  }
+  const identity: TurnScopeBootstrap = TurnScopeBootstrapSchema.parse(
+    await response.json(),
+  );
+  return createConversationScope({
+    ...identity,
+    sessionId: normalizedSessionId,
+    runId: normalizedRunId,
+  });
+}
+
 export function publishConversationScopeReady(scope: ConversationScope): void {
   window.dispatchEvent(
     new CustomEvent(CONVERSATION_SCOPE_READY_EVENT, {
@@ -90,4 +130,12 @@ export function sameConversationScope(
   right: ConversationScope,
 ): boolean {
   return conversationScopeKey(left) === conversationScopeKey(right);
+}
+
+export function isEstablishedRunScope(
+  scope: ConversationScope | null,
+  sessionId: string,
+  runId: string,
+): boolean {
+  return scope?.sessionId === sessionId && scope.runId === runId;
 }

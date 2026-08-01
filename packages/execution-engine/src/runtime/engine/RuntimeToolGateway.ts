@@ -44,6 +44,7 @@ export interface RuntimeToolGatewayInput {
     timestamp?: number;
   }) => Promise<void> | void;
   readonly isCancelled?: () => boolean | Promise<boolean>;
+  readonly signal?: AbortSignal;
 }
 
 /** Canonical registry/manifest/scope tool dispatch for kernel turns. */
@@ -119,6 +120,7 @@ export class RuntimeToolGateway {
           await this.input.executor.execute(plugin, action, payload, {
             scope: this.input.scope.executionScope,
             onOutput: input.onOutput,
+            signal: input.signal,
           }),
       });
       if (await input.isCancelled?.()) {

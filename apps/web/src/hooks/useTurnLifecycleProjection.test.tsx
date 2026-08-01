@@ -67,6 +67,12 @@ function createClient(events: readonly LifecycleEvent[]): LifecycleClient {
       throw new Error("Unsupported test operation");
     }),
     getTurnDiff: vi.fn(async () => null),
+    interruptTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
+    compactTurn: vi.fn(async () => {
+      throw new Error("Unsupported test operation");
+    }),
   };
 }
 

@@ -22,6 +22,8 @@ import {
   TurnScopeBootstrapSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
+  CompactTurnRequestSchema,
+  CompactTurnResponseSchema,
 } from "@repo/platform-protocol";
 import {
   PermissionApprovalStore,
@@ -59,26 +61,33 @@ import {
   withRunEngineHeaders,
 } from "./RunEngineHttpResponse";
 import { createEditArtifactCoordinator } from "../services/edit-artifacts/EditArtifactCaptureService";
-import type { PersistedAssistantMessageResult } from "./RunEngineResponsePersistence";
-import type { RealtimeEventPort } from "./ports";
+import { SecureGitArtifactClient } from "../services/edit-artifacts/SecureGitArtifactClient";
+import { SecureRuntimeGitSnapshotPort } from "../services/edit-artifacts/SecureRuntimeGitSnapshotPort";
+import {
+  persistAssistantMessageText,
+  type PersistedAssistantMessageResult,
+} from "./RunEngineResponsePersistence";
 import { RunEngineCanonicalEventSink } from "./RunEngineCanonicalEventSink";
 import { RunEngineKernelLifecycleEventStore } from "./RunEngineKernelLifecycleEventStore";
-import { CloudflareLifecycleEventStreamAdapter } from "./adapters/CloudflareLifecycleEventStreamAdapter";
 import {
   InMemoryRunInterruptRegistry,
   type RunInterruptRegistry,
 } from "./RunInterruptRegistry";
+import {
+  InMemoryRunContextCompactionRegistry,
+  type RunContextCompactionRegistry,
+} from "./RunContextCompactionRegistry";
 import {
   InMemoryRunApprovalResolutionRegistry,
   type RunApprovalResolutionRegistry,
 } from "./RunApprovalResolutionRegistry";
 import {
   BrainWorkspaceIdSchema,
-  RunInterruptIdentitySchema,
+  RunInterruptRequestSchema,
+  type RunInterruptRequest,
   type RunInterruptIdentity,
 } from "./RunInterruptContract";
 import { BrainLifecycleEventStore } from "../services/lifecycle/BrainLifecycleEventStore";
-import type { LifecycleEventStreamPort } from "./ports";
 import {
   getCodingCoreToolRegistry,
   enforceCodingToolFloor,
@@ -109,11 +118,7 @@ const LifecycleEventsQuerySchema = z.object({
   afterSequence: EventSequenceSchema.nullable(),
   limit: z.number().int().min(1).max(1_000),
 });
-const LifecycleEventsStreamQuerySchema = z.object({
-  turnId: TurnIdSchema,
-  afterSequence: EventSequenceSchema.nullable(),
-});
-
+const TurnDiffQuerySchema = z.object({ turnId: TurnIdSchema });
 export interface RunEngineRequestLock {
   <T>(runId: string, operation: () => Promise<T>): Promise<T>;
 }
@@ -124,6 +129,7 @@ export interface RunEngineExecuteResult {
   sessionId: string;
   response: Response;
   identity: z.infer<typeof TurnScopeBootstrapSchema>;
+  assistantMessageId?: string | null;
 }
 
 export type RunEnginePostExecutionResult =
@@ -136,18 +142,15 @@ export interface CanonicalRunEventSink {
 export interface RunEngineRequestHandlerDependencies {
   canonicalEventSink?: CanonicalRunEventSink;
   lifecycleEventStore?: LifecycleEventStore;
-  lifecycleEventStream?: LifecycleEventStreamPort;
   interruptRegistry?: RunInterruptRegistry;
   approvalResolutionRegistry?: RunApprovalResolutionRegistry;
+  contextCompactionRegistry?: RunContextCompactionRegistry;
   taskCheckoutScopeResolver?: TaskCheckoutScopeResolutionPort;
 }
 
 type TurnRuntimeIdentity = RunInterruptIdentity;
 
 export class RunEngineRequestHandler {
-  private readonly fallbackLifecycleEventStream =
-    new CloudflareLifecycleEventStreamAdapter();
-
   private readonly turnToRunMap = new Map<string, string>();
   private readonly turnRuntimeIdentities = new Map<
     string,
@@ -155,6 +158,7 @@ export class RunEngineRequestHandler {
   >();
   private readonly interruptRegistry: RunInterruptRegistry;
   private readonly approvalResolutionRegistry: RunApprovalResolutionRegistry;
+  private readonly contextCompactionRegistry: RunContextCompactionRegistry;
   private turnToRunMapLoaded = false;
 
   private static readonly TURN_MAP_STORAGE_KEY = "turnToRunMap";
@@ -164,7 +168,7 @@ export class RunEngineRequestHandler {
     private readonly ctx: DurableObjectState,
     private readonly env: Env,
     private readonly withExecutionLock: RunEngineRequestLock,
-    private readonly eventStream?: RealtimeEventPort,
+    _removedEventStream?: never,
     private readonly dependencies: RunEngineRequestHandlerDependencies = {},
   ) {
     this.interruptRegistry =
@@ -172,6 +176,9 @@ export class RunEngineRequestHandler {
     this.approvalResolutionRegistry =
       dependencies.approvalResolutionRegistry ??
       new InMemoryRunApprovalResolutionRegistry();
+    this.contextCompactionRegistry =
+      dependencies.contextCompactionRegistry ??
+      new InMemoryRunContextCompactionRegistry();
   }
 
   async handleLifecycleEventsRequest(request: Request): Promise<Response> {
@@ -184,36 +191,8 @@ export class RunEngineRequestHandler {
     return runEngineJsonResponse(request, this.env, replay);
   }
 
-  async handleLifecycleEventsStreamRequest(
-    request: Request,
-  ): Promise<Response> {
-    const input = parseLifecycleEventsStreamQuery(request);
-    if (!input.ok) {
-      return runEngineErrorResponse(request, this.env, input.message, 400);
-    }
-
-    return withRunEngineHeaders(
-      request,
-      this.env,
-      new Response(
-        this.createLifecycleEventStream().getStream(
-          input.value.turnId,
-          input.value.afterSequence,
-        ),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/x-ndjson; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
-            "X-Turn-Id": input.value.turnId,
-          },
-        },
-      ),
-    );
-  }
-
   async handleTurnDiffRequest(request: Request): Promise<Response> {
-    const input = parseLifecycleEventsStreamQuery(request);
+    const input = parseTurnDiffQuery(request);
     if (!input.ok) {
       return runEngineErrorResponse(request, this.env, input.message, 400);
     }
@@ -308,56 +287,6 @@ export class RunEngineRequestHandler {
     );
   }
 
-  async handleEventsStreamRequest(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const runIdRaw = url.searchParams.get("runId");
-
-    if (!runIdRaw) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "runId is required",
-        400,
-      );
-    }
-
-    let runId: string;
-    try {
-      runId = validateWithSchema<string>(
-        runIdRaw.trim(),
-        RunIdSchema,
-        "run-events-stream",
-      );
-    } catch {
-      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
-    }
-
-    if (!this.eventStream) {
-      return runEngineErrorResponse(
-        request,
-        this.env,
-        "Realtime event stream is unavailable",
-        503,
-      );
-    }
-    console.log(
-      formatDiagnosticLogLine("run/events", "stream-opened", {
-        runId,
-      }),
-    );
-    return withRunEngineHeaders(
-      request,
-      this.env,
-      new Response(this.eventStream.getStream(runId), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/x-ndjson; charset=utf-8",
-          "Cache-Control": "no-cache, no-transform",
-          "X-Run-Id": runId,
-        },
-      }),
-    );
-  }
 
   async handleActivityRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -394,12 +323,12 @@ export class RunEngineRequestHandler {
   }
 
   async handleInterruptRequest(request: Request): Promise<Response> {
-    let payload: TurnRuntimeIdentity;
+    let payload: RunInterruptRequest;
     try {
       const body = await parseRequestBody(request, "run-interrupt");
-      const validated = validateWithSchema<RunInterruptIdentity>(
+      const validated = validateWithSchema<RunInterruptRequest>(
         body,
-        RunInterruptIdentitySchema,
+        RunInterruptRequestSchema,
         "run-interrupt",
       );
       payload = validated;
@@ -456,7 +385,7 @@ export class RunEngineRequestHandler {
 
     const accepted = await this.interruptRegistry.request(
       payload.turnId,
-      "User interrupted the turn.",
+      payload.reason,
     );
     if (!accepted) {
       return runEngineErrorResponse(
@@ -472,6 +401,73 @@ export class RunEngineRequestHandler {
       accepted: true,
       status: "interrupt_requested",
     });
+  }
+
+  async handleContextCompactionRequest(request: Request): Promise<Response> {
+    let payload: z.infer<typeof CompactTurnRequestSchema>;
+    try {
+      payload = validateWithSchema(
+        await parseRequestBody(request, "context-compaction"),
+        CompactTurnRequestSchema,
+        "context-compaction",
+      );
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid compact payload", 400);
+    }
+
+    await this.ensureTurnToRunMapLoaded();
+    const run = await new RunRepository(this.createRuntimeState()).getById(payload.runId);
+    const identity = this.turnRuntimeIdentities.get(payload.turnId);
+    if (!run || !identity || !sameTurnRuntimeIdentity(identity, payload)) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "Context compaction identity does not match the active run",
+        409,
+      );
+    }
+    const replay = await this.createLifecycleEventStore().replay({
+      turnId: payload.turnId,
+      afterSequence: null,
+      limit: 1_000,
+    });
+    const terminalEvent = replay.events.find(isTerminalLifecycleEvent);
+    if (terminalEvent) {
+      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
+        turnId: payload.turnId,
+        accepted: false,
+        status: "failed",
+        itemId: null,
+        error: "Turn is already settled",
+      }), 409);
+    }
+    if (!this.contextCompactionRegistry.has(payload.turnId)) {
+      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
+        turnId: payload.turnId,
+        accepted: false,
+        status: "unsupported",
+        itemId: null,
+        error: "The active runtime is not ready for context compaction",
+      }), 409);
+    }
+    try {
+      await this.contextCompactionRegistry.request(payload.turnId);
+      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
+        turnId: payload.turnId,
+        accepted: true,
+        status: "completed",
+        itemId: null,
+        error: null,
+      }));
+    } catch (error) {
+      return runEngineJsonResponse(request, this.env, CompactTurnResponseSchema.parse({
+        turnId: payload.turnId,
+        accepted: false,
+        status: "failed",
+        itemId: null,
+        error: error instanceof Error ? error.message : "Context compaction failed",
+      }), 409);
+    }
   }
 
   async handleApprovalRequest(request: Request): Promise<Response> {
@@ -509,7 +505,6 @@ export class RunEngineRequestHandler {
       run.sessionId,
       async (event) => {
         await this.persistCanonicalRunEvent(event, "run-approval");
-        this.emitLiveEvent(event);
       },
     );
 
@@ -747,7 +742,32 @@ export class RunEngineRequestHandler {
           ? this.turnRuntimeIdentities.get(requestedTurnId)
           : existingScopes.at(-1);
         if (existing) {
-          this.createLifecycleEventStream().start(existing.turnId);
+          const sessionMatch =
+            !input.sessionId || existing.sessionId === input.sessionId;
+          const workspaceMatch =
+            !input.workspaceId ||
+            existing.workspaceId === input.workspaceId ||
+            // Brain's workspace scope may be a UUID; tolerate the server-owned
+            // workspaceId when the caller-supplied scope is absent or empty.
+            !input.workspaceId.trim();
+          if (!sessionMatch || !workspaceMatch) {
+            if (requestedTurnId) {
+              return runEngineErrorResponse(
+                request,
+                this.env,
+                "A turn with this client message already exists for a different session or workspace.",
+                409,
+                "CLIENT_MESSAGE_ID_CONFLICT",
+              );
+            }
+            return runEngineErrorResponse(
+              request,
+              this.env,
+              "Turn scope identity does not match the active session or workspace.",
+              409,
+              "TURN_SCOPE_CONFLICT",
+            );
+          }
           return runEngineJsonResponse(
             request,
             this.env,
@@ -775,7 +795,6 @@ export class RunEngineRequestHandler {
           runId: input.runId,
           sessionId: input.sessionId,
         });
-        this.createLifecycleEventStream().start(identity.turnId);
         return runEngineJsonResponse(request, this.env, identity, 201);
       });
     } catch (error: unknown) {
@@ -865,6 +884,56 @@ export class RunEngineRequestHandler {
     }
   }
 
+  async handleTurnScopeRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const runIdRaw = url.searchParams.get("runId");
+    const sessionId = url.searchParams.get("sessionId");
+    if (!runIdRaw || !sessionId?.trim()) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "runId and sessionId are required",
+        400,
+        "TURN_SCOPE_QUERY_INVALID",
+      );
+    }
+
+    let runId: string;
+    try {
+      runId = validateWithSchema<string>(runIdRaw.trim(), RunIdSchema, "turn-scope");
+    } catch {
+      return runEngineErrorResponse(request, this.env, "Invalid runId", 400);
+    }
+
+    await this.ensureTurnToRunMapLoaded();
+    const identity = [...this.turnRuntimeIdentities.values()]
+      .reverse()
+      .find(
+        (candidate) =>
+          candidate.runId === runId && candidate.sessionId === sessionId.trim(),
+      );
+    if (!identity) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        "No server-issued turn scope exists for this session and run",
+        404,
+        "TURN_SCOPE_NOT_FOUND",
+      );
+    }
+
+    return runEngineJsonResponse(
+      request,
+      this.env,
+      TurnScopeBootstrapSchema.parse({
+        workspaceId: identity.workspaceId,
+        threadId: identity.threadId,
+        turnId: identity.turnId,
+        runAttemptId: identity.runAttemptId,
+      }),
+    );
+  }
+
   async handleExecuteRequest(
     request: Request,
     onExecuteResult?: (
@@ -947,7 +1016,6 @@ export class RunEngineRequestHandler {
             "TURN_SCOPE_MISMATCH",
           );
         }
-        this.eventStream?.start(payload.runId);
         const { turnId, runAttemptId, threadId } = identity;
         const runtimeState = this.createRuntimeState();
         const taskCheckoutOrchestrator = new TaskCheckoutExecutionOrchestrator(
@@ -995,7 +1063,6 @@ export class RunEngineRequestHandler {
               correlationId: payload.correlationId,
               runId: payload.runId,
               sessionId: payload.sessionId,
-              hasEventStream: Boolean(this.eventStream),
               toolCount: payload.tools?.length ?? 0,
               checkoutId: claimedTaskCheckout.checkoutId,
               sandboxId: claimedTaskCheckout.sandboxId,
@@ -1009,7 +1076,18 @@ export class RunEngineRequestHandler {
             runId: payload.runId,
             sessionId: payload.sessionId,
             repositoryContext: payload.input.repositoryContext,
+            workspaceScope: issuedTaskCheckout.workspaceScope,
+            executionSession: issuedTaskCheckout.executionSession,
           });
+          const gitSnapshots = new SecureRuntimeGitSnapshotPort(
+            new SecureGitArtifactClient(
+              this.env,
+              payload.sessionId,
+              payload.runId,
+              issuedTaskCheckout.workspaceScope,
+              issuedTaskCheckout.executionSession,
+            ),
+          );
           const userMessageId = readLatestUserMessageId(payload.messages);
           editArtifactCoordinator.setMessageContext({
             userMessageId: userMessageId ?? undefined,
@@ -1027,6 +1105,10 @@ export class RunEngineRequestHandler {
             agent,
             {
               ...runEngineDeps,
+              gitSnapshots,
+              prepareMutationCapture: async () => {
+                await editArtifactCoordinator.prepare();
+              },
               runEventListener: async (event) => {
                 // Legacy RunEvent records remain a projection for internal
                 // activity/artifact capture only. Kernel lifecycle events are
@@ -1059,17 +1141,32 @@ export class RunEngineRequestHandler {
               payload.input.mode === "plan" ? "plan" : "auto_edit",
             backendId: payload.input.executionBackend,
           });
+          let persistedAssistantMessageId: string | null = null;
+          const assistantTranscript = {
+            commentary: "",
+            final_answer: "",
+          };
           const kernelLifecycleEvents = new RunEngineKernelLifecycleEventStore({
-            runId: payload.runId,
-            sessionId: payload.sessionId,
-            correlationId: payload.correlationId,
             store: this.createLifecycleEventStore(),
-            stream: this.createLifecycleEventStream(),
+            onAssistantMessageDelta: async (event) => {
+              if (event.type === "assistant_message.delta") {
+                assistantTranscript[
+                  event.payload.phase === "commentary"
+                    ? "commentary"
+                    : "final_answer"
+                ] += event.payload.delta;
+              }
+            },
           });
-          await editArtifactCoordinator.prepare();
-          this.interruptRegistry.register(turnId, async (reason) => {
+          const pendingInterruptReason = this.interruptRegistry.register(
+            turnId,
+            async (reason) => {
             await runtimeRunner.interrupt(turnId, reason);
-          });
+            },
+          );
+          if (pendingInterruptReason) {
+            await runtimeRunner.interrupt(turnId, pendingInterruptReason);
+          }
           this.approvalResolutionRegistry.register(
             turnId,
             async (approvalId, resolution) => {
@@ -1080,6 +1177,9 @@ export class RunEngineRequestHandler {
               );
             },
           );
+          this.contextCompactionRegistry.register(turnId, async () => {
+            await runtimeRunner.compact(turnId);
+          });
           const executionResponse = await runtimeRunner.execute({
             input: payload.input,
             messages: payload.messages as CoreMessage[],
@@ -1106,6 +1206,21 @@ export class RunEngineRequestHandler {
             }),
           );
 
+          for (const phase of ["commentary", "final_answer"] as const) {
+            const text = assistantTranscript[phase];
+            if (!text) continue;
+            const persisted = await persistAssistantMessageText(
+              this.env,
+              payload.sessionId,
+              payload.runId,
+              identity,
+              text,
+              phase,
+            );
+            persistedAssistantMessageId =
+              persisted?.assistantMessageId ?? persistedAssistantMessageId;
+          }
+
           const postExecutionResult = onExecuteResult
             ? await onExecuteResult({
                 correlationId: payload.correlationId,
@@ -1113,6 +1228,7 @@ export class RunEngineRequestHandler {
                 sessionId: payload.sessionId,
                 response: executionResponse,
                 identity,
+                assistantMessageId: persistedAssistantMessageId,
               })
             : null;
           console.log(
@@ -1130,12 +1246,32 @@ export class RunEngineRequestHandler {
             });
           }
           await editArtifactCoordinator.waitForPendingCapture();
+          const lifecycleReplay = await this.createLifecycleEventStore().replay({
+            turnId,
+            afterSequence: null,
+            limit: 1_000,
+          });
+          const terminalLifecycleEvent = lifecycleReplay.events.find(
+            isTerminalLifecycleEvent,
+          );
+          if (!terminalLifecycleEvent) {
+            throw new DomainError(
+              "RUNTIME_TERMINAL_SETTLEMENT_MISSING",
+              "Runtime completed without a canonical terminal lifecycle event.",
+              502,
+              false,
+              payload.correlationId,
+            );
+          }
           await taskCheckoutLifecycle.settle(
-            executionResponse.ok
+            terminalLifecycleEvent.type === "turn.completed"
               ? { status: "settled" }
               : {
                   status: "failed",
-                  failureCode: "RUNTIME_TERMINAL_FAILURE",
+                  failureCode:
+                    terminalLifecycleEvent.type === "turn.interrupted"
+                      ? "RUNTIME_TURN_INTERRUPTED"
+                      : "RUNTIME_TERMINAL_FAILURE",
                 },
           );
           console.log(
@@ -1176,22 +1312,8 @@ export class RunEngineRequestHandler {
         } finally {
           this.interruptRegistry.unregister(turnId);
           this.approvalResolutionRegistry.unregister(turnId);
-          await taskCheckoutLifecycle
-            .release()
-            .catch((releaseError: unknown) => {
-              console.error(
-                formatDiagnosticLogLine(
-                  "run/runtime",
-                  "checkout-session-release-failed",
-                  {
-                    correlationId: payload.correlationId,
-                    runId: payload.runId,
-                    checkoutId: claimedTaskCheckout.checkoutId,
-                    error: sanitizeUnknownError(releaseError),
-                  },
-                ),
-              );
-            });
+          this.contextCompactionRegistry.unregister(turnId);
+          await taskCheckoutLifecycle.release();
         }
       });
     } catch (error: unknown) {
@@ -1238,62 +1360,6 @@ export class RunEngineRequestHandler {
     );
   }
 
-  private emitLiveEvent(event: RunEvent): void {
-    if (!this.eventStream) {
-      console.log(
-        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=skipped reason=stream-unavailable`,
-      );
-      return;
-    }
-
-    this.emitLiveEventSafely(event);
-    if (
-      event.type === RUN_EVENT_TYPES.RUN_COMPLETED ||
-      event.type === RUN_EVENT_TYPES.RUN_FAILED
-    ) {
-      this.completeLiveEventStreamSafely(event);
-    }
-  }
-
-  private emitLiveEventSafely(event: RunEvent): boolean {
-    try {
-      this.eventStream?.emit(event);
-      console.log(
-        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=emitted`,
-      );
-      return true;
-    } catch (error) {
-      console.warn(
-        formatDiagnosticLogLine("run/events-live", "emit-failed", {
-          runId: event.runId,
-          sessionId: event.sessionId ?? null,
-          eventId: event.eventId,
-          type: event.type,
-          error: sanitizeUnknownError(error),
-        }),
-      );
-      return false;
-    }
-  }
-
-  private completeLiveEventStreamSafely(event: RunEvent): void {
-    try {
-      this.eventStream?.complete(event.runId);
-      console.log(
-        `[run/events-live] runId=${event.runId} sessionId=${event.sessionId ?? "missing"} eventId=${event.eventId} type=${event.type} status=completed-stream`,
-      );
-    } catch (error) {
-      console.warn(
-        formatDiagnosticLogLine("run/events-live", "complete-failed", {
-          runId: event.runId,
-          sessionId: event.sessionId ?? null,
-          eventId: event.eventId,
-          type: event.type,
-          error: sanitizeUnknownError(error),
-        }),
-      );
-    }
-  }
 
   private async persistCanonicalRunEvent(
     event: RunEvent,
@@ -1313,13 +1379,6 @@ export class RunEngineRequestHandler {
     return (
       this.dependencies.lifecycleEventStore ??
       new BrainLifecycleEventStore(this.env)
-    );
-  }
-
-  private createLifecycleEventStream(): LifecycleEventStreamPort {
-    return (
-      this.dependencies.lifecycleEventStream ??
-      this.fallbackLifecycleEventStream
     );
   }
 
@@ -1491,16 +1550,15 @@ function parseLifecycleEventsQuery(
   );
 }
 
-function parseLifecycleEventsStreamQuery(
+function parseTurnDiffQuery(
   request: Request,
-): ParsedLifecycleQuery<z.infer<typeof LifecycleEventsStreamQuerySchema>> {
+): ParsedLifecycleQuery<z.infer<typeof TurnDiffQuerySchema>> {
   const url = new URL(request.url);
   return parseLifecycleQuery(
     {
       turnId: readTurnId(url),
-      afterSequence: readOptionalSequence(url.searchParams),
     },
-    LifecycleEventsStreamQuerySchema,
+    TurnDiffQuerySchema,
   );
 }
 
@@ -1524,7 +1582,7 @@ function readTurnId(url: URL): string | null {
 
 function readTurnIdFromPath(pathname: string): string | null {
   const match = pathname.match(
-    /^\/turns\/([^/]+)\/lifecycle-events(?:\/stream)?$/,
+    /^\/turns\/([^/]+)\/lifecycle-events$/,
   );
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }

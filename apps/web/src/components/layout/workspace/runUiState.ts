@@ -32,7 +32,6 @@ export interface DeriveWorkspaceRunUiStateInput {
   hasPendingApproval: boolean;
   isChatLoading: boolean;
   isSessionRunning: boolean;
-  isLocallyStoppedRun: boolean;
   lastMessage: WorkspaceRunMessage | undefined;
 }
 
@@ -66,7 +65,6 @@ function deriveWorkspaceRunBaseState(input: DeriveWorkspaceRunUiStateInput) {
   const isEffectiveCanonicalRunActive =
     isCanonicalRunActive &&
     !isStaleCanonicalActiveRun &&
-    !input.isLocallyStoppedRun &&
     !isApprovalWaitingRun;
 
   return {
@@ -106,7 +104,6 @@ function deriveSessionActiveWithoutSummary(
     input.isSessionRunning &&
     !isCanonicalRunTerminal &&
     !hasLocalAssistantCompletion &&
-    !input.isLocallyStoppedRun &&
     !isApprovalWaitingRun
   );
 }
@@ -117,12 +114,11 @@ function deriveCanStopRun(
   isRunLoading: boolean,
 ): boolean {
   return (
-    !input.isLocallyStoppedRun &&
-    (state.isApprovalWaitingRun ||
-      isRunLoading ||
-      (input.isSessionRunning &&
-        !state.isCanonicalRunTerminal &&
-        !state.isStaleCanonicalActiveRun))
+    state.isApprovalWaitingRun ||
+    isRunLoading ||
+    (input.isSessionRunning &&
+      !state.isCanonicalRunTerminal &&
+      !state.isStaleCanonicalActiveRun)
   );
 }
 

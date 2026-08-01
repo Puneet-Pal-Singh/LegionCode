@@ -60,7 +60,12 @@ export class LegacyProviderTranscriptPartNormalizer implements TranscriptPartNor
       if (part) parts.push(part);
     }
 
-    if (!input.providerParts?.length && input.providerText?.trim()) {
+    const hasStructuredVisibleText = (input.providerParts ?? []).some(
+      (part) =>
+        (part.type === "visible_text" || part.type === "final") &&
+        Boolean(part.text?.trim()),
+    );
+    if (!hasStructuredVisibleText && input.providerText?.trim()) {
       for (const parsed of parseLegacyProviderText(input.providerText)) {
         parts.push(
           buildTextPart(parsed, normalizedInput, sequence++, createdAt),

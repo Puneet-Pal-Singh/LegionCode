@@ -44,6 +44,49 @@ describe("resolveSelectedProviderConfig", () => {
       source: "store_selection",
     });
   });
+
+  it("preserves canonical context metadata for the selected provider tuple", () => {
+    expect(
+      resolveSelectedProviderConfig({
+        selectedProviderId: "openai",
+        selectedModelId: "gpt-4o",
+        selectedCredentialId: "cred-a",
+        lastResolvedConfig: {
+          providerId: "openai",
+          modelId: "gpt-4o",
+          credentialId: "cred-a",
+          contextWindow: 128_000,
+        },
+      }),
+    ).toEqual({
+      providerId: "openai",
+      modelId: "gpt-4o",
+      credentialId: "cred-a",
+      contextWindow: 128_000,
+      source: "store_selection",
+    });
+  });
+
+  it("does not borrow context metadata from a different provider tuple", () => {
+    expect(
+      resolveSelectedProviderConfig({
+        selectedProviderId: "openai",
+        selectedModelId: "gpt-4o",
+        selectedCredentialId: "cred-a",
+        lastResolvedConfig: {
+          providerId: "openai",
+          modelId: "gpt-4o-mini",
+          credentialId: "cred-a",
+          contextWindow: 128_000,
+        },
+      }),
+    ).toEqual({
+      providerId: "openai",
+      modelId: "gpt-4o",
+      credentialId: "cred-a",
+      source: "store_selection",
+    });
+  });
 });
 
 describe("requireResolvedProviderConfig", () => {

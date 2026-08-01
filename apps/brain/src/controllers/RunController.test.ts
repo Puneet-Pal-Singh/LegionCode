@@ -33,6 +33,7 @@ const INTERRUPT_PAYLOAD = {
   threadId: "thr_123456",
   turnId: "trn_123456",
   runAttemptId: "attempt_123456",
+  reason: "User interrupted the turn.",
 };
 
 describe("RunController", () => {
@@ -336,39 +337,6 @@ describe("RunController", () => {
     });
   });
 
-  it("proxies the live run events stream through the brain worker route", async () => {
-    const env = {} as Env;
-    const runtimeResponse = new Response('{"eventId":"evt-live"}\n', {
-      status: 200,
-      headers: {
-        "Content-Type": "application/x-ndjson; charset=utf-8",
-      },
-    });
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(runtimeResponse);
-
-    const response = await RunController.getEventsStream(
-      new Request(
-        "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
-        { headers: { Origin: "http://localhost:5173" } },
-      ),
-      env,
-    );
-
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      "123e4567-e89b-42d3-a456-426614174100",
-      "execution-engine-v1",
-      {
-        method: "GET",
-        path: "/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
-        headers: { Origin: "http://localhost:5173" },
-      },
-    );
-    expect(response).toBe(runtimeResponse);
-    expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain("evt-live");
-  });
-
   it("projects run activity snapshots from persisted canonical events", async () => {
     const env = {} as Env;
     const run = {
@@ -639,44 +607,6 @@ describe("RunController", () => {
           decision: "allow_once",
         }),
       }),
-      env,
-    );
-
-    expect(response.status).toBe(404);
-    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
-  });
-
-  it("rejects getEventsStream without an authenticated session", async () => {
-    authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
-    const env = {} as Env;
-
-    const response = await RunController.getEventsStream(
-      new Request(
-        "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
-        { headers: { Origin: "http://localhost:5173" } },
-      ),
-      env,
-    );
-
-    expect(response.status).toBe(401);
-    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
-  });
-
-  it("rejects getEventsStream when the run is not owned by the user", async () => {
-    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
-      callback({
-        getRun: vi.fn().mockResolvedValue(null),
-        listRunEvents: vi.fn().mockResolvedValue([]),
-        listRunSteps: vi.fn().mockResolvedValue([]),
-      }),
-    );
-    const env = {} as Env;
-
-    const response = await RunController.getEventsStream(
-      new Request(
-        "https://brain.local/api/run/events/stream?runId=victim-run-id",
-        { headers: { Origin: "http://localhost:5173" } },
-      ),
       env,
     );
 

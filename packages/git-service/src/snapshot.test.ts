@@ -52,16 +52,14 @@ describe("git workspace snapshots", () => {
 
   it("computes an immutable multi-file diff between snapshot trees", async () => {
     const executor = new QueueExecutor([
-      success("M\0src/app.ts\0R100\0old.ts\0new.ts\0A\0src/new.ts\0"),
+      success("M\tsrc/app.ts\nR100\told.ts\tnew.ts\nA\tsrc/new.ts\n"),
       success(
         [
           "3\t1\tsrc/app.ts",
-          "2\t0\t",
-          "old.ts",
-          "new.ts",
+          "2\t0\told.ts => new.ts",
           "5\t0\tsrc/new.ts",
           "",
-        ].join("\0"),
+        ].join("\n"),
       ),
       success("diff --git a/src/app.ts b/src/app.ts\n"),
     ]);
@@ -95,6 +93,57 @@ describe("git workspace snapshots", () => {
       },
     ]);
     expect(diff.patch).toContain("diff --git");
+    expect(executor.calls.slice(0, 2).map((call) => call.args)).toEqual([
+      [
+        "diff",
+        "--name-status",
+        "--find-renames",
+        START_TREE,
+        TERMINAL_TREE,
+      ],
+      [
+        "diff",
+        "--numstat",
+        "--find-renames",
+        START_TREE,
+        TERMINAL_TREE,
+      ],
+    ]);
+  });
+
+  it("accepts NUL-delimited fixture output while using transport-safe commands", async () => {
+    const executor = new QueueExecutor([
+      success("M\tsrc/app.ts\0A\tsrc/new.ts\0"),
+      success(["3\t1\tsrc/app.ts", "5\t0\tsrc/new.ts", ""].join("\0")),
+      success("diff --git a/src/app.ts b/src/app.ts\n"),
+    ]);
+
+    const diff = await diffGitWorkspaceSnapshots(executor, {
+      workspace: WORKSPACE,
+      start: snapshot(START_TREE),
+      terminal: snapshot(TERMINAL_TREE),
+    });
+
+    expect(diff.files.map((file) => file.path)).toEqual([
+      "src/app.ts",
+      "src/new.ts",
+    ]);
+  });
+
+  it("rejects truncated changed-file output instead of creating an empty path", async () => {
+    const executor = new QueueExecutor([
+      success("M"),
+      success("1\t1\tsrc/app.ts\n"),
+      success("diff --git a/src/app.ts b/src/app.ts\n"),
+    ]);
+
+    await expect(
+      diffGitWorkspaceSnapshots(executor, {
+        workspace: WORKSPACE,
+        start: snapshot(START_TREE),
+        terminal: snapshot(TERMINAL_TREE),
+      }),
+    ).rejects.toThrow("Git diff omitted a changed file path");
   });
 
   it("returns an explicit empty diff for identical snapshots", async () => {

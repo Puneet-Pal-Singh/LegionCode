@@ -119,6 +119,7 @@ describe("ProviderDialog", () => {
       loadManageProviderModels: vi.fn(async () => []),
       loadMoreProviderModels: vi.fn(async () => []),
       refreshProviderModels: vi.fn(async () => undefined),
+      ensureProviderModelsFresh: vi.fn(async () => []),
       setModelView: vi.fn(async () => undefined),
       updatePreferences: vi.fn(async () => undefined),
       setSelection: vi.fn(),

@@ -96,6 +96,16 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
     );
   });
 
+  it("preserves the server-resolved context window for the runtime", () => {
+    const payload = createValidPayload();
+    payload.input.metadata = {
+      contextWindowTokens: 128_000,
+    };
+
+    const result = ExecuteRunPayloadSchema.parse(payload);
+    expect(result.input.metadata?.contextWindowTokens).toBe(128_000);
+  });
+
   it("accepts explicit plan mode", () => {
     const payload = createValidPayload();
     payload.input.mode = "plan";

@@ -1,4 +1,13 @@
-import { Archive } from "lucide-react";
+import {
+  Archive,
+  Check,
+  Circle,
+  CircleAlert,
+  Clock3,
+  LoaderCircle,
+  Pause,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { formatTimeAgo } from "../../../lib/timeFormat";
 import { cn } from "../../../lib/utils";
@@ -15,35 +24,41 @@ interface TaskListRowProps {
 }
 
 interface StatusVisual {
+  icon: LucideIcon;
   indicatorClass: string;
-  kind: "dot" | "spinner" | "ring";
+  kind: "icon" | "spinner";
 }
 
 const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
   idle: {
-    indicatorClass: "h-2.5 w-2.5 rounded-full bg-zinc-500/75",
-    kind: "dot",
+    icon: Circle,
+    indicatorClass: "text-zinc-600",
+    kind: "icon",
   },
   running: {
-    indicatorClass:
-      "h-3.5 w-3.5 rounded-full border-2 border-zinc-100/90 border-t-transparent animate-spin",
+    icon: LoaderCircle,
+    indicatorClass: "animate-spin text-zinc-300",
     kind: "spinner",
   },
   paused: {
-    indicatorClass: "h-2.5 w-2.5 rounded-full bg-amber-300",
-    kind: "dot",
+    icon: Pause,
+    indicatorClass: "text-zinc-500",
+    kind: "icon",
   },
   failed: {
-    indicatorClass: "h-2.5 w-2.5 rounded-full bg-red-400",
-    kind: "dot",
+    icon: CircleAlert,
+    indicatorClass: "text-zinc-400",
+    kind: "icon",
   },
   completed: {
-    indicatorClass: "h-2.5 w-2.5 rounded-full bg-sky-300",
-    kind: "dot",
+    icon: Check,
+    indicatorClass: "text-zinc-500",
+    kind: "icon",
   },
   needs_approval: {
-    indicatorClass: "h-2.5 w-2.5 rounded-full bg-amber-300",
-    kind: "dot",
+    icon: Clock3,
+    indicatorClass: "text-zinc-400",
+    kind: "icon",
   },
 };
 
@@ -95,16 +110,17 @@ function handleRowKeyDown(
 
 function StatusDot({ status }: { status: SidebarTaskStatus }) {
   const visual = STATUS_VISUALS[status];
+  const StatusIcon = visual.icon;
 
   return (
     <span
       className="inline-flex h-3.5 w-3.5 items-center justify-center"
       aria-hidden="true"
     >
-      <span
+      <StatusIcon
         data-testid={`task-status-${status}`}
         data-status-kind={visual.kind}
-        className={visual.indicatorClass}
+        className={cn("h-3.5 w-3.5", visual.indicatorClass)}
       />
     </span>
   );

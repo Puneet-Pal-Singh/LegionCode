@@ -13,9 +13,13 @@ const gitToolFailureClassifier = new GitToolFailureClassifier();
 export function isTerminalToolFailure(input: {
   toolName: string;
   error: string;
+  failureCode?: string;
   metadata?: unknown;
 }): boolean {
-  if (isRecoverableToolFailure(input.toolName, input.error)) {
+  if (
+    input.failureCode === "validation_failed" ||
+    isRecoverableToolFailure(input.toolName, input.error)
+  ) {
     return false;
   }
 
@@ -36,16 +40,17 @@ export function isTerminalToolFailure(input: {
   return isMutatingCodingToolId(input.toolName);
 }
 
-function isRecoverableToolFailure(
-  toolName: string,
-  error: string,
-): boolean {
+function isRecoverableToolFailure(toolName: string, error: string): boolean {
   const normalizedError = error.trim().toLowerCase();
 
   if (toolName === "edit_file" || toolName === "multi_edit") {
     return (
       normalizedError.includes("exact edit text was not found") ||
-      normalizedError.includes("exact replacement text was not found")
+      normalizedError.includes("exact replacement text was not found") ||
+      normalizedError.includes("exact edit is ambiguous") ||
+      normalizedError.includes(
+        "multi_edit cannot target the same path more than once",
+      )
     );
   }
 

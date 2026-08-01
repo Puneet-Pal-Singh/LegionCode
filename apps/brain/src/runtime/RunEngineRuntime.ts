@@ -37,13 +37,10 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
-import {
-  createCloudflareEventStreamPort,
-  createCloudflareLifecycleEventStreamPort,
-} from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
 import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
 import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
+import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
 import { reportBrainError } from "../core/observability/BrainErrorReporter";
@@ -63,12 +60,11 @@ const CredentialLabelMutationRequestSchema = z.object({
 
 export class RunEngineRuntime extends DurableObject {
   private readonly executionLock = new RunExecutionLock();
-  private readonly eventStreamPort = createCloudflareEventStreamPort();
-  private readonly lifecycleEventStreamPort =
-    createCloudflareLifecycleEventStreamPort();
   private readonly interruptRegistry = new InMemoryRunInterruptRegistry();
   private readonly approvalResolutionRegistry =
     new InMemoryRunApprovalResolutionRegistry();
+  private readonly contextCompactionRegistry =
+    new InMemoryRunContextCompactionRegistry();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -81,7 +77,8 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return requestHandler.handleExecuteRequest(request, async (result) => {
-        return await persistAssistantMessageFromRunResponse(
+        const terminalPersistenceResult =
+          await persistAssistantMessageFromRunResponse(
           this.ctx,
           this.env as Env,
           result.sessionId,
@@ -89,7 +86,10 @@ export class RunEngineRuntime extends DurableObject {
           result.correlationId,
           result.response,
           result.identity,
-        );
+          );
+        return result.assistantMessageId
+          ? { assistantMessageId: result.assistantMessageId }
+          : terminalPersistenceResult;
       });
     }
 
@@ -101,6 +101,10 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleWorkspaceScopeRequest(request);
     }
 
+    if (url.pathname === "/turn/scope" && request.method === "GET") {
+      return requestHandler.handleTurnScopeRequest(request);
+    }
+
     if (url.pathname === "/summary" && request.method === "GET") {
       return requestHandler.handleSummaryRequest(request);
     }
@@ -109,19 +113,8 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleEventsRequest(request);
     }
 
-    if (url.pathname === "/events/stream" && request.method === "GET") {
-      return requestHandler.handleEventsStreamRequest(request);
-    }
-
     if (url.pathname === "/lifecycle-events" && request.method === "GET") {
       return requestHandler.handleLifecycleEventsRequest(request);
-    }
-
-    if (
-      url.pathname === "/lifecycle-events/stream" &&
-      request.method === "GET"
-    ) {
-      return requestHandler.handleLifecycleEventsStreamRequest(request);
     }
 
     if (url.pathname === "/turn-diff" && request.method === "GET") {
@@ -134,6 +127,10 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/interrupt" && request.method === "POST") {
       return requestHandler.handleInterruptRequest(request);
+    }
+
+    if (url.pathname === "/compact" && request.method === "POST") {
+      return requestHandler.handleContextCompactionRequest(request);
     }
 
     if (url.pathname === "/approval" && request.method === "POST") {
@@ -502,11 +499,11 @@ export class RunEngineRuntime extends DurableObject {
       this.ctx,
       this.env as Env,
       this.withExecutionLock.bind(this),
-      this.eventStreamPort,
+      undefined,
       {
-        lifecycleEventStream: this.lifecycleEventStreamPort,
         interruptRegistry: this.interruptRegistry,
         approvalResolutionRegistry: this.approvalResolutionRegistry,
+        contextCompactionRegistry: this.contextCompactionRegistry,
       },
     );
   }

@@ -5,10 +5,7 @@
  */
 
 import { z } from "zod";
-import {
-  RunIdSchema,
-  TurnScopeBootstrapSchema,
-} from "@repo/platform-protocol";
+import { RunIdSchema, TurnScopeBootstrapSchema } from "@repo/platform-protocol";
 import {
   ApprovalDecisionKindSchema,
   ProviderModelTransportSchema,
@@ -104,6 +101,7 @@ export const ExecuteRunPayloadSchema = z.object({
       authMode: AuthModeSchema,
       metadata: z
         .object({
+          contextWindowTokens: z.number().int().safe().positive().optional(),
           featureFlags: z
             .object({
               agenticLoopV1: z.boolean().optional(),

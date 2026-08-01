@@ -52,6 +52,7 @@ export interface RunEngineExecutionPayload {
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
     authMode: RuntimeAuthMode;
+    metadata?: Record<string, unknown>;
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];
@@ -149,7 +150,11 @@ export async function resolveExecutionScope(
 
   const scopeHeaders = new Headers(req.headers);
   scopeHeaders.set("X-Run-Id", runId);
-  const scopedRequest = new Request(req.url, {
+  const scopeUrl = new URL(req.url);
+  scopeUrl.searchParams.delete("runId");
+  scopeUrl.searchParams.delete("userId");
+  scopeUrl.searchParams.delete("workspaceId");
+  const scopedRequest = new Request(scopeUrl, {
     method: req.method,
     headers: scopeHeaders,
   });
@@ -224,6 +229,19 @@ export async function startRunTurn(
     );
   }
   return TurnScopeBootstrapSchema.parse(await response.json());
+}
+
+export async function fetchRunTurnScope(
+  env: Env,
+  runId: string,
+  sessionId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<Response> {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "GET",
+    path: `/turn/scope?runId=${encodeURIComponent(runId)}&sessionId=${encodeURIComponent(sessionId)}`,
+    headers: { Accept: "application/json" },
+  });
 }
 
 export async function fetchRunRuntimeRoute(

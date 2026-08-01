@@ -8,7 +8,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: true,
       isChatLoading: false,
       isSessionRunning: true,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 
@@ -23,7 +22,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: false,
       isChatLoading: false,
       isSessionRunning: true,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 
@@ -38,7 +36,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: false,
       isChatLoading: false,
       isSessionRunning: false,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 
@@ -54,7 +51,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: false,
       isChatLoading: false,
       isSessionRunning: true,
-      isLocallyStoppedRun: false,
       lastMessage: {
         role: "assistant",
         content: "Done.",
@@ -73,7 +69,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: false,
       isChatLoading: true,
       isSessionRunning: false,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 

@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentSession } from "../types/session.js";
 import { mergeServerSessionProjection } from "./session-title-ordering.js";
 
-function createSession(
-  overrides: Partial<AgentSession> = {},
-): AgentSession {
+function createSession(overrides: Partial<AgentSession> = {}): AgentSession {
   return {
     id: "session-1",
     name: "Preview title",
@@ -53,6 +51,23 @@ describe("mergeServerSessionProjection", () => {
       name: "Generated title",
       titleSource: "generated",
       titleVersion: 2,
+    });
+
+    expect(mergeServerSessionProjection(current, incoming)).toBe(incoming);
+  });
+
+  it("accepts a versioned server title over a newer unversioned local shell", () => {
+    const current = createSession({
+      name: "New Task",
+      titleVersion: undefined,
+      status: "completed",
+      updatedAt: "2026-07-18T10:02:00.000Z",
+    });
+    const incoming = createSession({
+      name: "Summarize Project README",
+      titleSource: "generated",
+      titleVersion: 3,
+      updatedAt: "2026-07-18T10:01:00.000Z",
     });
 
     expect(mergeServerSessionProjection(current, incoming)).toBe(incoming);

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiffContent } from "@repo/shared-types";
+import type {
+  ContextBudgetSnapshot,
+  UsageCostSnapshot,
+} from "@repo/platform-client-sdk";
 
 export type TabType = "review" | "changes" | "files";
 
@@ -8,6 +12,7 @@ const VALID_TABS: ReadonlySet<string> = new Set(["review", "changes", "files"]);
 export interface SelectedFile {
   path: string;
   content: string;
+  startingLineNumber?: number;
 }
 
 export interface SelectedDiff {
@@ -17,6 +22,13 @@ export interface SelectedDiff {
 
 export type SidebarContentTab =
   | { id: "files"; kind: "empty"; path: "Open file" }
+  | {
+      id: "context";
+      kind: "context";
+      path: "Context";
+      budget: ContextBudgetSnapshot;
+      usage: UsageCostSnapshot | null;
+    }
   | ({ id: string; kind: "file" } & SelectedFile)
   | ({ id: string; kind: "diff" } & SelectedDiff);
 
@@ -59,6 +71,8 @@ export function useWorkspaceState() {
     activeContentTab?.kind === "file" ? activeContentTab : null;
   const selectedDiff =
     activeContentTab?.kind === "diff" ? activeContentTab : null;
+  const selectedContext =
+    activeContentTab?.kind === "context" ? activeContentTab : null;
 
   const openContentTab = useCallback((tab: SidebarContentTab) => {
     setContentTabs((current) => {
@@ -90,6 +104,19 @@ export function useWorkspaceState() {
   const openFilesTab = useCallback(() => {
     openContentTab({ id: "files", kind: "empty", path: "Open file" });
   }, [openContentTab]);
+
+  const openContextTab = useCallback(
+    (budget: ContextBudgetSnapshot, usage: UsageCostSnapshot | null) => {
+      openContentTab({
+        id: "context",
+        kind: "context",
+        path: "Context",
+        budget,
+        usage,
+      });
+    },
+    [openContentTab],
+  );
 
   const openDiffTab = useCallback(
     (diff: SelectedDiff) => {
@@ -148,8 +175,10 @@ export function useWorkspaceState() {
     activeContentTabId,
     selectedFile,
     selectedDiff,
+    selectedContext,
     openFileTab,
     openFilesTab,
+    openContextTab,
     openDiffTab,
     selectContentTab,
     closeContentTab,

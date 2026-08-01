@@ -351,7 +351,7 @@ describe("DefaultGitService", () => {
     ]);
   });
 
-  it("redacts auth headers from failed push errors", async () => {
+  it("keeps authenticated push material out of command arguments", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 128,
       stdout: "",
@@ -363,23 +363,20 @@ describe("DefaultGitService", () => {
       service.push({
         workspace: BRANCH_WORKSPACE,
         remoteName: "origin",
-        authArgs: ["-c", "http.extraheader=AUTHORIZATION: basic secret"],
+        authEnvironment: {
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "http.extraHeader",
+          GIT_CONFIG_VALUE_0: "AUTHORIZATION: basic secret",
+        },
       }),
     ).rejects.toMatchObject({
       context: {
-        args: [
-          "-c",
-          "http.extraheader=<redacted>",
-          "push",
-          "-u",
-          "origin",
-          "HEAD:feat/canonical-git",
-        ],
+        args: ["push", "-u", "origin", "HEAD:feat/canonical-git"],
       },
     });
   });
 
-  it("rejects non-canonical push auth args", async () => {
+  it("rejects non-canonical push auth environment", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
       stdout: "",
@@ -391,7 +388,7 @@ describe("DefaultGitService", () => {
       service.push({
         workspace: BRANCH_WORKSPACE,
         remoteName: "origin",
-        authArgs: ["--upload-pack=/tmp/unsafe"],
+        authEnvironment: { UNSAFE_GIT_OPTION: "/tmp/unsafe" },
       }),
     ).rejects.toMatchObject({
       code: "invalid_git_input",

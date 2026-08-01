@@ -6,16 +6,10 @@ describe("useChatPresentation", () => {
   it("keeps a canonical failed terminal visible instead of replacing it with a final-output placeholder", () => {
     const { result } = renderHook(() =>
       useChatPresentation({
-        runId: "run_terminal_failure",
         messages: [
           { id: "user-1", role: "user", content: "Read the project" },
         ],
         conversationTurns: [],
-        activityTurns: [],
-        summary: null,
-        events: [],
-        snapshots: {},
-        artifacts: {},
         hasHydrated: true,
         isLoading: false,
         hasPendingApproval: false,
@@ -51,5 +45,7 @@ function failedProjection(): LifecycleProjection {
     assistantText: "",
     startedAt: "2026-07-18T09:59:59.000Z",
     settledAt: "2026-07-18T10:00:00.000Z",
+    contextBudget: null,
+    usage: null,
   };
 }

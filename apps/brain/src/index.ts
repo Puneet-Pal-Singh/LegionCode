@@ -91,6 +91,7 @@ function createRouter(): Router {
   router.add(/^\/api\/chat\/history$/, TranscriptController.getHistory, "GET");
   router.add(/\/chat/, ChatController.handle, "POST");
   router.add(/^\/turn\/start$/, TurnController.start, "POST");
+  router.add(/^\/turn\/scope$/, TurnController.scope, "GET");
   router.add(
     /^\/api\/debug\/runtime$/,
     RuntimeController.getRuntimeDebug,
@@ -190,11 +191,6 @@ function createRouter(): Router {
     "POST",
   );
   router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
-  router.add(
-    /^\/api\/run\/events\/stream$/,
-    RunController.getEventsStream,
-    "GET",
-  );
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
   router.add(/^\/api\/run\/interrupt$/, RunController.interrupt, "POST");
@@ -204,17 +200,13 @@ function createRouter(): Router {
     LifecycleController.getEvents,
     "GET",
   );
-  router.add(
-    /^\/turns\/[^/]+\/lifecycle-events\/stream$/,
-    LifecycleController.getEventsStream,
-    "GET",
-  );
   router.add(/^\/turns\/[^/]+\/diff$/, LifecycleController.getTurnDiff, "GET");
   router.add(
     /^\/turns\/[^/]+\/approvals\/[^/]+$/,
     LifecycleController.submitApproval,
     "POST",
   );
+  router.add(/^\/turns\/[^/]+\/compact$/, LifecycleController.compact, "POST");
   router.add(
     /^\/api\/edit-artifacts\/latest$/,
     EditArtifactController.getLatest,

@@ -17,6 +17,13 @@
       "service": "shadowbox-api",
     },
   ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "00000000-0000-0000-0000-000000000000",
+      "localConnectionString": "postgres://postgres:postgres@localhost:5432/shadowbox",
+    },
+  ],
   "durable_objects": {
     "bindings": [
       {
@@ -33,6 +40,10 @@
     {
       "tag": "v1-run-engine-runtime",
       "new_classes": ["RunEngineRuntime"],
+    },
+    {
+      "tag": "v2-session-memory-runtime",
+      "new_classes": ["SessionMemoryRuntime"],
     },
     {
       "tag": "v3-run-engine-agent",

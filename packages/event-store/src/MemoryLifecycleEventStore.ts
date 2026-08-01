@@ -85,6 +85,18 @@ export class MemoryLifecycleEventStore implements LifecycleEventStore {
       );
     }
     const events = this.eventsByTurn.get(event.turnId) ?? [];
+    const previousEvent = events.at(-1)?.event;
+    if (
+      previousEvent &&
+      (previousEvent.type === "turn.completed" ||
+        previousEvent.type === "turn.failed" ||
+        previousEvent.type === "turn.interrupted")
+    ) {
+      throw new EventStoreError(
+        "terminal_stream",
+        `Turn ${event.turnId} already has terminal lifecycle evidence`,
+      );
+    }
     const previous = events.at(-1)?.event.sequence ?? 0;
     if (event.sequence !== previous + 1) {
       throw new EventStoreError(

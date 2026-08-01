@@ -13,7 +13,6 @@ import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
-import { useRunSummary } from "../../hooks/useRunSummary";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { Resizer } from "../ui/Resizer";
@@ -21,16 +20,14 @@ import { useWorkspaceState } from "./workspace/useWorkspaceState";
 import { useGitHubTree } from "./workspace/useGitHubTree";
 import { useFileLoader } from "./workspace/useFileLoader";
 import { useStatusSync } from "./workspace/useStatusSync";
-import { useBootstrap } from "./workspace/useBootstrap";
 import { useSidebarOrchestration } from "./workspace/useSidebarOrchestration";
 import { SidebarHeader } from "./workspace/SidebarHeader";
 import { SidebarContent } from "./workspace/SidebarContent";
-import { TabType } from "./workspace/useWorkspaceState";
+import { TabType, type SelectedFile } from "./workspace/useWorkspaceState";
 import {
   loadStoredProductMode,
   persistProductMode,
 } from "../../lib/product-mode-storage";
-import { normalizeRunStatus } from "../../lib/run-status";
 import { GitReviewProvider } from "../git/GitReviewContext";
 import { GitReviewDialog } from "../git/GitReviewDialog";
 import { WorkspaceFilesTree } from "./workspace/SidebarTreeOverlay";
@@ -117,8 +114,10 @@ export function Workspace({
     activeContentTabId,
     selectedFile,
     selectedDiff,
+    selectedContext,
     openFileTab,
     openFilesTab,
+    openContextTab,
     selectContentTab,
     closeContentTab,
     isViewingContent,
@@ -173,6 +172,7 @@ export function Workspace({
     hasHydrated,
     runId: activeRunId,
     error: chatError,
+    clearNonCanonicalError,
     debugEvents,
     isModelConfigReady,
     scope: conversationScope,
@@ -190,6 +190,11 @@ export function Workspace({
     turnId: serverTurnId,
     transportLoading: isLoading,
   });
+  useEffect(() => {
+    if (activeTurn.hasReplay && chatError) {
+      clearNonCanonicalError();
+    }
+  }, [activeTurn.hasReplay, chatError, clearNonCanonicalError]);
   const hookSettingsAudits = useMemo(
     () =>
       activeTurn.projection
@@ -206,7 +211,11 @@ export function Workspace({
       workspaceId,
       audits: hookSettingsAudits,
     });
-  }, [conversationScope?.workspaceId, hookSettingsAudits, onHookSettingsContextChange]);
+  }, [
+    conversationScope?.workspaceId,
+    hookSettingsAudits,
+    onHookSettingsContextChange,
+  ]);
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {
@@ -219,52 +228,29 @@ export function Workspace({
     activeTurn.projection,
     latestAssistantMessageId,
   );
-  const { summary: runSummary } = useRunSummary(
-    activeRunId,
-    !activeTurn.hasCanonicalTurn && !isLoading,
-  );
-  const runSummaryMatchesActiveRun =
-    !activeTurn.hasCanonicalTurn && runSummary?.runId === activeRunId;
   const canonicalRunStatus = activeTurn.hasCanonicalTurn
-    ? activeTurn.isActive
-      ? "RUNNING"
-      : lifecycleStatusToRunStatus(
-          activeTurn.projection?.terminal?.state ?? null,
-        )
-    : runSummaryMatchesActiveRun
-      ? normalizeRunStatus(runSummary.status)
-      : null;
-  const hasPendingApproval = activeTurn.hasCanonicalTurn
-    ? Boolean(activeTurn.projection?.pendingApproval)
-    : runSummaryMatchesActiveRun && Boolean(runSummary?.pendingApproval);
-  const pendingApprovalRequestId = activeTurn.hasCanonicalTurn
-    ? (activeTurn.projection?.pendingApproval?.approvalId ?? null)
-    : runSummaryMatchesActiveRun
-      ? (runSummary?.pendingApproval?.requestId ?? null)
-      : null;
-  const lastMessage = messages[messages.length - 1];
-  const [locallyStoppedRunId, setLocallyStoppedRunId] = useState<string | null>(
-    null,
-  );
-  const isLocallyStoppedRun = locallyStoppedRunId === activeRunId;
+    ? activeTurn.projection?.terminal
+      ? lifecycleStatusToRunStatus(activeTurn.projection.terminal.state)
+      : "RUNNING"
+    : null;
+  const hasPendingApproval = Boolean(activeTurn.projection?.pendingApproval);
+  const pendingApprovalRequestId =
+    activeTurn.projection?.pendingApproval?.approvalId ?? null;
   const runUiState = useMemo(
     () =>
       deriveWorkspaceRunUiState({
         canonicalRunStatus,
         hasPendingApproval,
         isChatLoading: activeTurn.isTransportPending,
-        isSessionRunning,
-        isLocallyStoppedRun,
-        lastMessage: activeTurn.hasCanonicalTurn ? undefined : lastMessage,
+        isSessionRunning: activeTurn.isActive,
+        lastMessage: undefined,
       }),
     [
       activeTurn.hasCanonicalTurn,
       activeTurn.isTransportPending,
       canonicalRunStatus,
       hasPendingApproval,
-      isLocallyStoppedRun,
-      isSessionRunning,
-      lastMessage,
+      activeTurn.isActive,
     ],
   );
   const handledInitialPromptIdRef = useRef<string | null>(null);
@@ -305,30 +291,31 @@ export function Workspace({
   ]);
   const {
     isApprovalWaitingRun,
-    isStaleCanonicalActiveRun,
     isEffectiveCanonicalRunActive,
     isRunLoading,
     canStopRun,
   } = runUiState;
-  const passiveGitProbeEnabled =
-    !activeRunId ||
-    activeTurn.isTerminal ||
-    (runSummaryMatchesActiveRun && !isRunLoading);
+  const explicitReviewOpen =
+    isGitReviewOpen ||
+    (isRightSidebarOpen && (activeTab === "review" || activeTab === "changes"));
+  const liveGitReviewEnabled =
+    explicitReviewOpen &&
+    isEffectiveCanonicalRunActive &&
+    !completedTurnReview.turnId;
   useEffect(() => {
     logClientEvent("run/ui-state", "derived", {
       runId: activeRunId,
       kind: runUiState.kind,
       canonicalStatus: canonicalRunStatus,
-      summaryMatches: runSummaryMatchesActiveRun,
+      canonicalTurn: activeTurn.hasCanonicalTurn,
       pendingApproval: hasPendingApproval,
       pendingApprovalRequestId,
       chatLoading: activeTurn.isTransportPending,
       sessionRunning: isSessionRunning,
-      locallyStopped: isLocallyStoppedRun,
       runLoading: isRunLoading,
       approvalWaiting: isApprovalWaitingRun,
       canStop: canStopRun,
-      passiveGitProbeEnabled,
+      liveGitReviewEnabled,
     });
   }, [
     activeRunId,
@@ -337,31 +324,22 @@ export function Workspace({
     hasPendingApproval,
     isApprovalWaitingRun,
     activeTurn.isTransportPending,
-    isLocallyStoppedRun,
     isRunLoading,
+    activeTurn.hasCanonicalTurn,
     isSessionRunning,
-    passiveGitProbeEnabled,
+    liveGitReviewEnabled,
     pendingApprovalRequestId,
-    runSummaryMatchesActiveRun,
+    explicitReviewOpen,
     runUiState.kind,
   ]);
-  const {
-    status,
-    gitAvailable,
-    refetch: refetchGitStatus,
-  } = useGitStatus(activeRunId, sessionId, passiveGitProbeEnabled);
-  const repositoryOwner = repo?.owner?.login?.trim() ?? "";
-  const repositoryName = repo?.name?.trim() ?? "";
-  const repositoryBranch = (
-    status?.branch?.trim() ||
-    branch ||
-    repo?.default_branch ||
-    "main"
-  ).trim();
-  const repositoryBaseUrl = repo?.html_url;
+  const { status, refetch: refetchGitStatus } = useGitStatus(
+    activeRunId,
+    sessionId,
+    liveGitReviewEnabled,
+  );
 
   const handleOpenFileTab = useCallback(
-    (file: { path: string; content: string }) => {
+    (file: SelectedFile) => {
       openFileTab(file);
       setActiveTab("review");
       setIsRightSidebarOpen?.(true);
@@ -407,31 +385,12 @@ export function Workspace({
     canonicalRunStatus,
     isApprovalWaitingRun,
     pendingApprovalRequestId,
-    isStaleCanonicalActiveRun,
     isEffectiveCanonicalRunActive,
-    isLoading: activeTurn.isTransportPending,
     chatError,
-    hasPendingApproval,
-    isLocallyStoppedRun,
-    setLocallyStoppedRunId,
     stop,
     refetchGitStatus,
     onSessionStatusChange,
   });
-  const isGitWorkspaceRecovering = useBootstrap({
-    sessionId,
-    activeRunId,
-    gitAvailable,
-    isRunLoading: !passiveGitProbeEnabled || isRunLoading,
-    isContextMismatch,
-    isGitHubLoaded,
-    repositoryOwner,
-    repositoryName,
-    repositoryBranch,
-    repositoryBaseUrl,
-    refetchGitStatus,
-  });
-
   const { handleSidebarDiffSelected } = useSidebarOrchestration({
     activeRunId,
     status,
@@ -477,9 +436,9 @@ export function Workspace({
         isReviewActive={
           isGitReviewOpen || activeTab === "review" || activeTab === "changes"
         }
-        isReviewDataEnabled={passiveGitProbeEnabled}
+        isReviewDataEnabled={liveGitReviewEnabled}
         onReviewOpenChange={onGitReviewOpenChange ?? (() => undefined)}
-        isGitWorkspaceRecovering={isGitWorkspaceRecovering}
+        isGitWorkspaceRecovering={false}
         artifactIdentity={conversationScope}
         canonicalTurnReview={
           completedTurnReview.turnId
@@ -510,6 +469,7 @@ export function Workspace({
                 debugEvents,
                 serverTurnId,
                 conversationScope,
+                activeTurnProjection: activeTurn,
               }}
               sessionId={sessionId}
               hasStartedSession={hasStartedSession}
@@ -520,13 +480,26 @@ export function Workspace({
               onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
-              onArtifactOpen={(path, content) => {
-                handleOpenFileTab({ path, content });
+              onArtifactOpen={(path, content, options) => {
+                if (options?.refreshFromWorkspace) {
+                  void handleFileClick(path);
+                  return;
+                }
+                handleOpenFileTab({
+                  path,
+                  content,
+                  startingLineNumber: options?.startingLineNumber,
+                });
               }}
               onReviewOpen={() => {
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("review");
                 setIsViewingContent(false);
+              }}
+              onContextOpen={(budget, usage) => {
+                openContextTab(budget, usage);
+                setIsRightSidebarOpen?.(true);
+                setActiveTab("review");
               }}
             />
           </main>
@@ -569,7 +542,8 @@ export function Workspace({
                 : { duration: 0.15, ease: [0.23, 1, 0.32, 1] }
             }
             className={cn(
-              "border-l border-zinc-800 bg-black flex flex-col overflow-hidden shrink-0 relative",
+              "relative flex shrink-0 flex-col overflow-hidden border-l border-zinc-800 bg-black",
+              "max-[1100px]:absolute max-[1100px]:inset-y-0 max-[1100px]:right-0 max-[1100px]:z-50 max-[1100px]:shadow-[-24px_0_60px_rgba(0,0,0,0.55)]",
               !isRightSidebarOpen && "border-transparent",
             )}
           >
@@ -597,6 +571,7 @@ export function Workspace({
                 contentError={contentError}
                 selectedFile={selectedFile}
                 selectedDiff={selectedDiff}
+                selectedContext={selectedContext}
                 repo={repo}
                 isGitHubLoaded={isGitHubLoaded}
                 repoTree={repoTree}
@@ -655,7 +630,7 @@ export function Workspace({
 
 function lifecycleStatusToRunStatus(
   state: "completed" | "failed" | "interrupted" | null,
-): ReturnType<typeof normalizeRunStatus> | null {
+): "COMPLETED" | "FAILED" | "CANCELLED" | null {
   switch (state) {
     case "completed":
       return "COMPLETED";

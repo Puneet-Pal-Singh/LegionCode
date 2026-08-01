@@ -4,7 +4,12 @@ import type { DiffContent } from "@repo/shared-types";
 import type { FileExplorerHandle } from "../../FileExplorer";
 import { ChangesPanel } from "../../sidebar/ChangesPanel";
 import { useGitReview } from "../../git/useGitReview";
-import type { TabType, SelectedFile, SelectedDiff } from "./useWorkspaceState";
+import type {
+  TabType,
+  SelectedFile,
+  SelectedDiff,
+  SidebarContentTab,
+} from "./useWorkspaceState";
 import type { Repository } from "../../../services/GitHubService";
 import { SidebarTreeOverlay } from "./SidebarTreeOverlay";
 import { WorkspaceSurfaceBody } from "./WorkspaceSurfaceBody";
@@ -16,6 +21,7 @@ interface SidebarContentProps {
   contentError?: string | null;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
+  selectedContext?: Extract<SidebarContentTab, { kind: "context" }> | null;
 
   // GitHub / File Tree props
   repo: Repository | null;
@@ -45,6 +51,7 @@ export function SidebarContent({
   contentError,
   selectedFile,
   selectedDiff,
+  selectedContext = null,
   repo,
   isGitHubLoaded,
   repoTree,
@@ -142,6 +149,7 @@ export function SidebarContent({
               }
               selectedFile={selectedFile}
               selectedDiff={selectedDiff}
+              selectedContext={selectedContext}
               isLoadingContent={isLoadingContent}
               contentError={contentError}
               filesOpen={activeTab === "files"}

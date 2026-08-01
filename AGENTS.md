@@ -107,6 +107,83 @@ architectural simplification.
 
 ---
 
+## 4A. Canonical Wiring And Replacement
+
+For any change affecting runtime, lifecycle, workflow, tools, approvals,
+context, persistence, Git, execution backends, harnesses, SDKs, or clients:
+
+1. Name the product responsibility being changed.
+2. Identify every active producer, consumer, projection, fallback, and owner.
+3. Name the single canonical owner after the change.
+4. Implement through the canonical protocol and a narrow port.
+5. Migrate every active consumer before calling the replacement complete.
+6. Delete competing owners and obsolete fallbacks in the same change whenever
+   possible.
+7. Do not delete valuable behavior until its replacement is wired into the real
+   product path.
+8. Do not count a package, interface, or isolated test as integration.
+9. Clients render canonical replay plus live continuation; they do not infer
+   runtime truth.
+10. Adapters translate external systems into canonical contracts; they do not
+    own lifecycle, persistence, approval, Git, or context truth.
+
+Before editing an architecture-sensitive path, read:
+
+- `architecture/RUNTIME-ARCHITECTURE.md`
+- `architecture/CAPABILITY-OWNERSHIP.md`
+
+When ownership, wiring, migration state, or a deletion trigger changes, update
+`architecture/CAPABILITY-OWNERSHIP.md` in the same PR.
+
+If the canonical owner cannot be identified, stop implementation and perform an
+ownership trace first. Do not add another fallback, state store, projection, or
+local patch.
+
+The required migration shape is:
+
+```txt
+characterize valuable behavior
+-> define canonical contract and owner
+-> wire replacement into the real product path
+-> migrate all producers and consumers
+-> delete duplicate authority and fallback
+-> verify replay, live behavior, and terminal settlement
+```
+
+---
+
+## 4B. Plan Execution And In-Path Bug Fixing
+
+When implementing a designated plan:
+
+1. The named plan and its LLD define the primary scope and acceptance path.
+2. Implement the plan as a vertical product slice, not as disconnected package
+   work.
+3. Fix every bug encountered that blocks the plan's real acceptance path or
+   violates its canonical ownership, identity, replay, isolation, settlement,
+   security, or artifact invariants.
+4. Delete the competing owner or bad pattern causing an in-path bug; do not
+   stack a local workaround over it.
+5. Do not expand into unrelated repository cleanup. Record unrelated failures
+   with their reproduction, owner, and destination plan.
+6. A plan is not complete while its acceptance path still requires a known
+   workaround, manual repair, refresh trick, or retry to pass.
+7. If fixing an encountered bug materially changes architecture or plan scope,
+   update the plan/LLD and capability ownership ledger before continuing.
+
+The execution loop is:
+
+```txt
+implement the next plan slice
+-> run the real product path
+-> fix canonical-path blockers encountered
+-> delete the replaced bad path
+-> rerun focused and end-to-end proof
+-> defer only unrelated failures with evidence
+```
+
+---
+
 ## 5. Core Engineering Principles
 
 ### SOLID
@@ -215,6 +292,12 @@ When touching a god file:
 
 ## 8. Package And Boundary Rules
 
+The complete target wiring, ownership model, extension points, and migration
+rules are defined in:
+
+- `architecture/RUNTIME-ARCHITECTURE.md`
+- `architecture/CAPABILITY-OWNERSHIP.md`
+
 The ideal dependency direction:
 
 ```txt
@@ -234,6 +317,29 @@ Rules:
 - Provider/model behavior belongs in provider packages/services/catalogs.
 - Brain is control plane; runtime owns workspace/git/tools/events.
 - Web is a client; it does not own canonical runtime state.
+
+### Workflow And Activity Directory Boundaries
+
+Workflow/activity is a cross-layer capability, not one app-local service and
+not a second runtime API.
+
+- Canonical lifecycle item schemas and payloads belong under
+  `packages/platform-protocol`.
+- Reusable pure replay/projection/grouping code belongs in a dedicated
+  workflow/projection directory under `packages/platform-client-sdk` until the
+  public `@legioncode/sdk` cutover.
+- Client-specific view models and renderers belong in a dedicated workflow
+  feature directory inside that client, such as
+  `apps/web/src/components/chat/workflow`.
+- Runtime producers emit typed lifecycle items through the canonical append
+  path; they do not import SDK projections or client UI.
+- React components do not parse provider text, tool names, shell commands, or
+  file paths to reconstruct workflow types.
+- Do not create a separate workflow API, workflow event store, activity
+  lifecycle, or client-owned workflow package that competes with the canonical
+  protocol and SDK projection.
+- If Web and another client need the same state derivation, move that pure
+  derivation to the SDK boundary; do not copy it between clients.
 
 ---
 
@@ -336,11 +442,14 @@ Every implementation PR should clearly state:
 
 1. Objective.
 2. Architecture decision.
-3. Files changed.
-4. Tests/gates run.
-5. Risks.
-6. Rollback/recovery notes if relevant.
-7. Any fallback/legacy path kept and its deletion trigger.
+3. Product responsibility and canonical owner.
+4. Active producers and consumers migrated.
+5. Removed behavior and its wired replacement.
+6. Files changed.
+7. Tests/gates run.
+8. Risks.
+9. Rollback/recovery notes if relevant.
+10. Any fallback/legacy path kept and its owner and deletion trigger.
 
 Documentation rules:
 
@@ -380,5 +489,11 @@ Before declaring work complete:
 8. Did I update the red-flag tracker if a listed gap changed?
 9. Did I avoid touching unrelated user/agent work?
 10. Can Web/Desktop/SDK/ACP use the resulting boundary more easily?
+11. Did I name the responsibility and its single canonical owner?
+12. Did I migrate all active producers and consumers?
+13. Does every removed behavior have a wired replacement or an explicit
+    intentional-removal decision?
+14. Did I update the capability ownership ledger when ownership or migration
+    status changed?
 
 If the answer to 1 or 6 is "no," the fix is probably a bandage, not a fix.

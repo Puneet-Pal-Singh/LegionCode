@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   handleCreateSession,
   handleDeleteSession,
   handleExecuteTask,
+  handleCancelTask,
   handleResumeSession,
 } from "./SessionAPI";
 
@@ -78,6 +79,7 @@ interface RuntimeStoreMock extends Record<string, unknown> {
         duration: number;
       };
     }>;
+    cancelTask: (leaseId: string, taskId: string) => Promise<boolean>;
   };
 }
 
@@ -122,6 +124,7 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
           metrics: { duration: 12 },
         };
       },
+      cancelTask: vi.fn(async () => true),
     },
   };
 }
@@ -257,6 +260,20 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
   });
 }
 
+function createCancelRequest(
+  sessionId: string,
+  taskId: string,
+  authHeader?: string,
+): Request {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authHeader) headers.Authorization = authHeader;
+  return new Request("http://localhost/api/v1/cancel", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ sessionId, taskId }),
+  });
+}
+
 function createScopedExecuteRequest(
   sessionId: string,
   token: string,
@@ -321,6 +338,25 @@ describe("session auth hardening", () => {
     expect(body.taskId).toBe("task-execute-auth");
     expect(body.status).toBe("success");
     expect(body.output).toContain("node.execute");
+  });
+
+  it("cancels an authorized task through the leased runtime port", async () => {
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
+    const response = await handleCancelTask(
+      createCancelRequest(sessionId, "task-execute-auth", `Bearer ${token}`),
+      runtime,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cancelled: true,
+      taskId: "task-execute-auth",
+    });
+    expect(runtime.executionPort.cancelTask).toHaveBeenCalledWith(
+      expect.any(String),
+      "task-execute-auth",
+    );
   });
 
   it("persists the run workspace scope and rejects cross-run execution", async () => {

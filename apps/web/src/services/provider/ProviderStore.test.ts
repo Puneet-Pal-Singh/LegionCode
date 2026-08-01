@@ -553,6 +553,54 @@ describe("ProviderStore", () => {
       );
     });
 
+    it("reuses a fresh provider model cache without another request", async () => {
+      await store.loadProviderModels("openai", { view: "popular" });
+      vi.mocked(mockApiClient.getProviderModels).mockClear();
+      vi.mocked(mockApiClient.refreshProviderModels).mockClear();
+
+      const models = await store.ensureProviderModelsFresh("openai");
+
+      expect(models).toHaveLength(1);
+      expect(mockApiClient.getProviderModels).not.toHaveBeenCalled();
+      expect(mockApiClient.refreshProviderModels).not.toHaveBeenCalled();
+    });
+
+    it("revalidates a stale provider model cache", async () => {
+      vi.mocked(mockApiClient.getProviderModels).mockResolvedValueOnce({
+        providerId: "openai",
+        view: "popular",
+        models: [
+          {
+            id: "openrouter/auto",
+            name: "Auto",
+            provider: "openrouter",
+          },
+        ],
+        page: {
+          limit: 50,
+          hasMore: false,
+        },
+        metadata: {
+          fetchedAt: new Date().toISOString(),
+          stale: true,
+          source: "cache",
+          staleReason: "provider_api_unavailable",
+        },
+      });
+      await store.loadProviderModels("openai", { view: "popular" });
+      vi.mocked(mockApiClient.getProviderModels).mockClear();
+
+      await store.ensureProviderModelsFresh("openai");
+
+      expect(mockApiClient.refreshProviderModels).toHaveBeenCalledWith(
+        "openai",
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "openai",
+        expect.objectContaining({ view: "popular" }),
+      );
+    });
+
     it("sets status to ready on success", async () => {
       await store.bootstrap();
 

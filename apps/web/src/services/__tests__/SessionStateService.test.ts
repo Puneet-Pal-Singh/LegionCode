@@ -143,7 +143,7 @@ describe("SessionStateService", () => {
       );
       expect(warnSpy).toHaveBeenCalledWith(
         "[platform-endpoints] VITE_BRAIN_BASE_URL not set, using default:",
-        "http://localhost:8788",
+        `${window.location.origin}/__legioncode/brain`,
       );
     });
 

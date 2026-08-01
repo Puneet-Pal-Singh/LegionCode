@@ -42,6 +42,10 @@
       "new_classes": ["RunEngineRuntime"],
     },
     {
+      "tag": "v2-session-memory-runtime",
+      "new_classes": ["SessionMemoryRuntime"],
+    },
+    {
       "tag": "v3-run-engine-agent",
       "new_sqlite_classes": ["RunEngineAgent"],
     },

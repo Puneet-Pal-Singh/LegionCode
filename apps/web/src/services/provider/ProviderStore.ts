@@ -34,6 +34,7 @@ import {
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
+const PROVIDER_MODEL_CACHE_MAX_AGE_MS = 60 * 60 * 1_000;
 
 export type ProviderModelsMetadataState = ProviderModelsMetadata;
 
@@ -817,6 +818,30 @@ export class ProviderStore {
       cursor: pageState.nextCursor,
       append: true,
     });
+  }
+
+  async ensureProviderModelsFresh(
+    providerId: string,
+  ): Promise<ProviderModelOption[]> {
+    const cachedModels = this.state.providerModels[providerId];
+    if (!cachedModels) {
+      return this.loadProviderModels(providerId, {
+        view: this.state.selectedModelView,
+        append: false,
+      });
+    }
+
+    const metadata = this.state.providerModelsMetadata[providerId];
+    const fetchedAt = Date.parse(metadata?.fetchedAt ?? "");
+    const isExpired =
+      !Number.isFinite(fetchedAt) ||
+      Date.now() - fetchedAt >= PROVIDER_MODEL_CACHE_MAX_AGE_MS;
+    if (!metadata?.stale && !isExpired) {
+      return cachedModels;
+    }
+
+    await this.refreshProviderModels(providerId);
+    return this.state.providerModels[providerId] ?? cachedModels;
   }
 
   async refreshProviderModels(providerId: string): Promise<void> {

@@ -22,6 +22,16 @@ export function getProviderRecoveryAdvice(
     };
   }
 
+  if (containsTurnScopeFailure(message)) {
+    return {
+      message: "LegionCode could not restore this task's runtime scope.",
+      actionLabel: "Retry Request",
+      remediation:
+        "This is a task identity or runtime restoration failure, not evidence of a provider credential problem. Reload the task after the runtime is available.",
+      recoveryTarget: "general",
+    };
+  }
+
   if (containsActiveRunSelectionConflict(message)) {
     return {
       message:
@@ -88,12 +98,20 @@ export function getProviderRecoveryAdvice(
   }
 
   return {
-    message: message || "Provider setup is required before chat can continue.",
-    actionLabel: "Open Provider Setup",
+    message: message || "The request could not be completed.",
+    actionLabel: "Retry Request",
     remediation:
-      "Review provider status, reconnect credentials if needed, and retry.",
-    recoveryTarget: "connect",
+      "Retry once. If the failure repeats, inspect the runtime diagnostics before changing provider settings.",
+    recoveryTarget: "general",
   };
+}
+
+function containsTurnScopeFailure(message: string): boolean {
+  return (
+    message.includes("Turn scope reconstruction failed") ||
+    message.includes("TURN_SCOPE_") ||
+    message.includes("turn scope")
+  );
 }
 
 function containsRuntimeFailure(message: string): boolean {

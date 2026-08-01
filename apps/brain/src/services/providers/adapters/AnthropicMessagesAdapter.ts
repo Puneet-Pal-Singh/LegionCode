@@ -8,6 +8,7 @@ import type {
   StreamChunk,
 } from "../base/ProviderAdapter";
 import { ProviderError } from "../base/ProviderAdapter";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 
 interface AnthropicMessagesConfig {
   apiKey: string;
@@ -46,6 +47,8 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     return {
@@ -70,6 +73,8 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     let fullText = "";

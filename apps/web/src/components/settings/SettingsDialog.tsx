@@ -23,6 +23,10 @@ import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";
 import { HooksSettingsPanel } from "./HooksSettingsPanel.js";
 import type { ProviderModelOption } from "../../services/api/providerClient.js";
 import type { HookSettingsAuditReadModel } from "../../services/api/lifecycleClient.js";
+import {
+  updateComposerPreferences,
+  useComposerPreferences,
+} from "../../lib/composer-preferences";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 const DISCONNECT_TOAST_DURATION_MS = 4_000;
@@ -509,6 +513,8 @@ function SettingsNavSection({
 }
 
 function SettingsGeneralPanel(): React.ReactElement {
+  const composerPreferences = useComposerPreferences();
+
   return (
     <div className="space-y-4">
       <SettingCard
@@ -526,6 +532,35 @@ function SettingsGeneralPanel(): React.ReactElement {
         description="Provider selection and model visibility remain scoped to your active run context."
         right="Enabled"
       />
+      <div className="ui-surface-section px-5 py-4">
+        <div className="mb-4">
+          <p className="text-base font-medium text-zinc-100">Composer</p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Choose which runtime-reported information appears beside the model.
+          </p>
+        </div>
+        <label className="flex cursor-pointer items-center justify-between gap-4 border-t border-zinc-800 pt-4">
+          <span>
+            <span className="block text-sm font-medium text-zinc-100">
+              Show context window usage
+            </span>
+            <span className="mt-1 block text-xs text-zinc-500">
+              Display the context ring and open the canonical context details
+              panel.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={composerPreferences.showContextWindowUsage}
+            onChange={(event) =>
+              updateComposerPreferences({
+                showContextWindowUsage: event.currentTarget.checked,
+              })
+            }
+            className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-zinc-700 p-0.5 transition checked:bg-blue-600 before:block before:h-4 before:w-4 before:rounded-full before:bg-white before:transition before:content-[''] checked:before:translate-x-4"
+          />
+        </label>
+      </div>
     </div>
   );
 }

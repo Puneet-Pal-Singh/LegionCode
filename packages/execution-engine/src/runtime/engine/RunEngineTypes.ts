@@ -16,6 +16,7 @@ import type {
   MemoryCoordinator,
   MemoryCoordinatorDependencies,
 } from "../memory/index.js";
+import type { RuntimeGitSnapshotPort } from "@repo/runtime-kernel";
 
 export interface IRunEngine {
   execute(
@@ -74,6 +75,7 @@ export interface RunEngineDependencies {
   sessionMemoryClient?: MemoryCoordinatorDependencies["sessionMemoryClient"];
   workspaceBootstrapper?: WorkspaceBootstrapper;
   hasGitHubAuth?: GitHubAuthAvailabilityChecker;
+  gitSnapshots?: RuntimeGitSnapshotPort;
   prepareMutationCapture?: () => Promise<void>;
   runEventListener?: (event: RunEvent) => Promise<void> | void;
 }

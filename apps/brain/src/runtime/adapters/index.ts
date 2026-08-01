@@ -4,4 +4,3 @@
 
 export { CloudflareExecutionAdapter } from "./CloudflareExecutionAdapter";
 export { CloudflareProviderAdapter } from "./CloudflareProviderAdapter";
-export { CloudflareEventStreamAdapter } from "./CloudflareEventStreamAdapter";

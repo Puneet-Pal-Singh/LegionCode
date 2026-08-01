@@ -535,6 +535,7 @@ export class AgenticLoop {
               terminalError: isTerminalToolFailure({
                 toolName: toolCall.toolName,
                 error: toolError,
+                failureCode: readTaskFailureCode(result),
                 metadata: activityMetadata,
               }),
             });

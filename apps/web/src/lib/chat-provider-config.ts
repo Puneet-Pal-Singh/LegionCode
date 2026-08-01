@@ -6,6 +6,7 @@ interface ProviderConfigFields {
   providerId?: string | null;
   modelId?: string | null;
   credentialId?: string | null;
+  contextWindow?: number;
 }
 
 export interface ResolvedProviderConfig {
@@ -13,6 +14,7 @@ export interface ResolvedProviderConfig {
   modelId: string;
   credentialId: string;
   source: ProviderConfigResolutionSource;
+  contextWindow?: number;
 }
 
 export function resolveSelectedProviderConfig(input: {
@@ -21,16 +23,35 @@ export function resolveSelectedProviderConfig(input: {
   selectedCredentialId?: string | null;
   lastResolvedConfig?: ProviderConfigFields | null;
 }): ResolvedProviderConfig | null {
-  return (
-    toProviderConfig(
-      {
-        providerId: input.selectedProviderId,
-        modelId: input.selectedModelId,
-        credentialId: input.selectedCredentialId,
-      },
-      "store_selection",
-    ) ?? toProviderConfig(input.lastResolvedConfig, "store_selection")
+  const selected = toProviderConfig(
+    {
+      providerId: input.selectedProviderId,
+      modelId: input.selectedModelId,
+      credentialId: input.selectedCredentialId,
+    },
+    "store_selection",
   );
+  const resolved = toProviderConfig(
+    input.lastResolvedConfig,
+    "store_selection",
+  );
+
+  if (!selected) {
+    return resolved;
+  }
+
+  const contextWindow =
+    resolved &&
+    resolved.providerId === selected.providerId &&
+    resolved.modelId === selected.modelId &&
+    resolved.credentialId === selected.credentialId
+      ? resolved.contextWindow
+      : undefined;
+
+  return {
+    ...selected,
+    ...(contextWindow ? { contextWindow } : {}),
+  };
 }
 
 export function requireResolvedProviderConfig(
@@ -52,6 +73,7 @@ function toProviderConfig(
   const providerId = input?.providerId?.trim();
   const modelId = input?.modelId?.trim();
   const credentialId = input?.credentialId?.trim();
+  const contextWindow = input?.contextWindow;
 
   if (!providerId || !modelId || !credentialId) {
     return null;
@@ -62,5 +84,6 @@ function toProviderConfig(
     modelId,
     credentialId,
     source,
+    ...(contextWindow ? { contextWindow } : {}),
   };
 }

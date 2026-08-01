@@ -455,6 +455,30 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     [reconcileSessionMutation],
   );
 
+  const refreshSessionProjection = useCallback(
+    async (id: string): Promise<void> => {
+      try {
+        const serverSessions =
+          await SessionStateService.hydrateSessionsFromServer();
+        const serverSession = serverSessions[id];
+        if (!serverSession) {
+          return;
+        }
+        setSessions((current) => {
+          const next = replaceSessionById(current, serverSession);
+          sessionsRef.current = next;
+          return next;
+        });
+      } catch (error) {
+        console.warn(
+          "[useSessionManager] Failed to refresh session projection:",
+          error,
+        );
+      }
+    },
+    [],
+  );
+
   const pinSession = useCallback(
     async (id: string): Promise<void> => {
       await reconcileSessionMutation(
@@ -574,6 +598,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     createSession,
     removeSession,
     renameSession,
+    refreshSessionProjection,
     pinSession,
     unpinSession,
     archiveSession,

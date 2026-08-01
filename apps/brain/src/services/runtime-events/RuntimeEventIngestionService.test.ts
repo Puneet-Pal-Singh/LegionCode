@@ -110,7 +110,7 @@ describe("RuntimeEventIngestionService", () => {
     expect(retried.entry.status).toBe("processed");
     expect(processor.process).toHaveBeenCalledTimes(2);
     expect(errorLog).toHaveBeenCalledWith(
-      expect.stringContaining("[runtime-event/ingestion/failed]"),
+      expect.stringContaining('"event":"runtime-event.ingestion.failed"'),
     );
   });
 });

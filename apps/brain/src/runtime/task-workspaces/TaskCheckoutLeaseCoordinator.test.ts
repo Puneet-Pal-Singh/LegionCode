@@ -64,6 +64,7 @@ describe("TaskCheckoutBoundExecutionSession", () => {
         },
       })),
       recoverAfterSandboxLoss: vi.fn(async () => replacement),
+      cancelTask: vi.fn(async () => true),
       release: vi.fn(async () => undefined),
     } satisfies SecureExecutionSessionPort;
     const session = new TaskCheckoutBoundExecutionSession(

@@ -11,6 +11,10 @@ import { PRODUCT_MODES } from "@repo/shared-types";
 import { ApprovalDock } from "../approval/ApprovalDock.js";
 import { ChatInputBar } from "../ChatInputBar";
 import { PermissionModeControl } from "../PermissionModeControl";
+import type {
+  ContextBudgetSnapshot,
+  UsageCostSnapshot,
+} from "@repo/platform-client-sdk";
 
 export type ComposerLayout = "docked" | "hero";
 
@@ -20,7 +24,7 @@ interface ChatComposerControlsProps {
     message: string;
     remediation: string;
     actionLabel: string;
-    onOpen: () => void;
+    onOpen?: () => void;
   } | null;
   approval: {
     pending: ApprovalRequest | null;
@@ -50,6 +54,10 @@ interface ChatComposerControlsProps {
   isLoadingRepoTree: boolean;
   permissionMode?: ProductMode;
   onPermissionModeChange?: (mode: ProductMode) => void;
+  contextBudget?: ContextBudgetSnapshot | null;
+  usage?: UsageCostSnapshot | null;
+  onCompact?: () => void;
+  onContextOpen?: () => void;
 }
 
 export function ChatComposerControls(props: ChatComposerControlsProps) {
@@ -90,6 +98,10 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           repoTree={props.repoTree}
           isLoadingRepoTree={props.isLoadingRepoTree}
           layout={props.layout}
+          contextBudget={props.contextBudget}
+          usage={props.usage}
+          onCompact={props.onCompact}
+          onContextOpen={props.onContextOpen}
         />
       )}
       <div
@@ -120,13 +132,15 @@ function ChatErrorNotice({
     <div className="space-y-2 rounded border border-red-500/40 bg-red-950/30 px-4 py-3 text-sm text-red-200">
       <p>{message}</p>
       <p className="text-xs text-red-100/80">{remediation}</p>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="rounded border border-red-300/40 px-2 py-1 text-xs transition hover:bg-red-900/40"
-      >
-        {actionLabel}
-      </button>
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          className="rounded border border-red-300/40 px-2 py-1 text-xs transition hover:bg-red-900/40"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

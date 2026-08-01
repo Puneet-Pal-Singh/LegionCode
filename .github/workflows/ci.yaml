@@ -227,34 +227,6 @@ jobs:
       - name: Run hermetic repo-to-PR golden gate
         run: pnpm gate:golden-repo-to-pr
 
-  pr-metadata-governance:
-    name: PR Metadata Governance (report-only)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Collect PR metadata context
-        run: |
-          git fetch origin "${{ github.base_ref }}"
-          {
-            echo "REBUILD_CHANGED_FILES<<EOF"
-            git diff --name-only "origin/${{ github.base_ref }}...HEAD"
-            echo "EOF"
-            echo "REBUILD_PR_BODY<<EOF"
-            node -e 'const fs = require("node:fs"); const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")); process.stdout.write(event.pull_request?.body ?? "");'
-            echo
-            echo "EOF"
-          } >> "$GITHUB_ENV"
-
-      - name: Validate PR metadata
-        env:
-          REBUILD_PR_METADATA_MODE: blocking
-        run: node scripts/gates/check-rebuild-governance.mjs
-
   build:
     name: Build
     runs-on: ubuntu-latest

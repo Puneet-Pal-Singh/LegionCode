@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { ChatInputBar } from "./ChatInputBar.js";
 import * as useProviderStoreModule from "../../hooks/useProviderStore.js";
@@ -9,6 +15,25 @@ const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
 const ACTIVE_RUN_SWITCH_WARNING =
   "Stop the current run before changing mode or model.";
+const HIGH_CONTEXT_BUDGET = {
+  providerId: "openai",
+  modelId: "gpt-4o",
+  contextWindowLimit: 128_000,
+  systemTokens: 2_000,
+  conversationTokens: 90_000,
+  toolDefinitionTokens: 2_000,
+  attachmentTokens: null,
+  repositoryContextTokens: null,
+  reservedOutputTokens: 8_000,
+  safetyReserveTokens: 4_000,
+  effectiveInputBudget: 116_000,
+  tokensUsed: 94_000,
+  tokensRemaining: 22_000,
+  utilizationPercent: 81,
+  warningThresholdPercent: 70,
+  automaticCompactionThresholdPercent: 90,
+  measurementSource: "tokenizer" as const,
+};
 
 describe("ChatInputBar", () => {
   type UseProviderStoreResult = ReturnType<
@@ -82,6 +107,7 @@ describe("ChatInputBar", () => {
       validateCredential: vi.fn(async () => undefined),
       updatePreferences: vi.fn(async () => undefined),
       loadProviderModels: vi.fn(async () => []),
+      ensureProviderModelsFresh: vi.fn(async () => []),
       loadManageProviderModels: vi.fn(async () => []),
       loadMoreProviderModels: vi.fn(async () => []),
       refreshProviderModels: vi.fn(async () => undefined),
@@ -129,7 +155,6 @@ describe("ChatInputBar", () => {
       updatedAt: new Date().toISOString(),
       deletedAt: null,
     });
-
   });
 
   afterEach(() => {
@@ -156,6 +181,35 @@ describe("ChatInputBar", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits /compact during an active run once the canonical warning threshold is reached", async () => {
+    const onSubmit = vi.fn(async () => true);
+
+    render(
+      <ChatInputBar
+        input="/compact"
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        onStop={vi.fn()}
+        canStop
+        isLoading
+        sessionId="session-compact"
+        contextBudget={HIGH_CONTEXT_BUDGET}
+        onCompact={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(
+      screen.getByPlaceholderText(
+        "Ask LegionCode anything, @ to add files, / for commands",
+      ),
+      { key: "Enter" },
+    );
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("scopes provider selection to the active run", () => {
@@ -316,7 +370,9 @@ describe("ChatInputBar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open composer options" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open composer options" }),
+    );
     fireEvent.click(screen.getByRole("switch", { name: "Toggle plan mode" }));
 
     expect(onModeChange).toHaveBeenCalledWith("plan");
@@ -380,10 +436,14 @@ describe("ChatInputBar", () => {
       "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
-    fireEvent.change(textarea, { target: { value: "@rea", selectionStart: 4 } });
+    fireEvent.change(textarea, {
+      target: { value: "@rea", selectionStart: 4 },
+    });
 
     expect(await screen.findByText("README.md")).toBeTruthy();
-    expect(screen.getByRole("listbox", { name: "Repository files" })).toBeTruthy();
+    expect(
+      screen.getByRole("listbox", { name: "Repository files" }),
+    ).toBeTruthy();
     expect(textarea).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.mouseDown(screen.getByText("README.md"));
@@ -421,8 +481,14 @@ describe("ChatInputBar", () => {
       "Ask LegionCode anything, @ to add files, / for commands",
     ) as HTMLTextAreaElement;
 
-    fireEvent.change(textarea, { target: { value: "@jobd", selectionStart: 5 } });
-    expect(await screen.findByText("src/components/dashboard/employer/form-fields/JobDescriptionFields.tsx")).toBeTruthy();
+    fireEvent.change(textarea, {
+      target: { value: "@jobd", selectionStart: 5 },
+    });
+    expect(
+      await screen.findByText(
+        "src/components/dashboard/employer/form-fields/JobDescriptionFields.tsx",
+      ),
+    ).toBeTruthy();
     fireEvent.mouseDown(
       screen.getByText(
         "src/components/dashboard/employer/form-fields/JobDescriptionFields.tsx",
@@ -513,7 +579,9 @@ describe("ChatInputBar", () => {
     await act(async () => {
       textarea.focus();
       textarea.setSelectionRange(14, 14);
-      fireEvent.click(screen.getByRole("button", { name: "Open composer options" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open composer options" }),
+      );
       fireEvent.click(
         await screen.findByRole("menuitem", { name: "Add photos & files" }),
       );

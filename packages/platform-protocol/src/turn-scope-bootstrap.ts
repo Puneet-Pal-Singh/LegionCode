@@ -21,6 +21,11 @@ export const TurnScopeBootstrapRequestSchema = z.object({
   clientMessageId: z.string().trim().min(1).optional(),
 });
 
+export const TurnScopeReadQuerySchema = z.object({
+  runId: RunIdSchema,
+  sessionId: z.string().trim().min(1),
+});
+
 export const TurnScopeBootstrapSchema = z.object({
   workspaceId: WorkspaceScopeIdSchema,
   threadId: ThreadIdSchema,
@@ -28,7 +33,25 @@ export const TurnScopeBootstrapSchema = z.object({
   runAttemptId: RunAttemptIdSchema,
 });
 
+export const InterruptTurnIdentitySchema = z.object({
+  runId: RunIdSchema,
+  workspaceId: WorkspaceScopeIdSchema,
+  sessionId: SessionIdSchema,
+  threadId: ThreadIdSchema,
+  turnId: TurnIdSchema,
+  runAttemptId: RunAttemptIdSchema,
+});
+
+export const InterruptTurnRequestSchema = InterruptTurnIdentitySchema.extend({
+  reason: z.string().trim().min(1).max(2_000),
+}).strict();
+
 export type TurnScopeBootstrapRequest = z.infer<
   typeof TurnScopeBootstrapRequestSchema
 >;
+export type TurnScopeReadQuery = z.infer<typeof TurnScopeReadQuerySchema>;
 export type TurnScopeBootstrap = z.infer<typeof TurnScopeBootstrapSchema>;
+export type InterruptTurnIdentity = z.infer<
+  typeof InterruptTurnIdentitySchema
+>;
+export type InterruptTurnRequest = z.infer<typeof InterruptTurnRequestSchema>;

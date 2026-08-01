@@ -152,7 +152,12 @@ const ADAPTER_FAMILY_FACTORIES: Record<
         "INVALID_PROVIDER_SELECTION",
       );
     }
-    return createOpenAIAdapter(env, overrideApiKey, providerEntry.baseUrl);
+    return createOpenAIAdapter(
+      env,
+      overrideApiKey,
+      providerEntry.baseUrl,
+      providerId,
+    );
   },
   "google-native": (providerId, env, overrideApiKey) => {
     const resolvedProviderId = providerId ?? "google";

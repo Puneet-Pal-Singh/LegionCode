@@ -20,10 +20,6 @@ export class LifecycleController {
     return await proxyLifecycleRequest(request, env, "GET", "replay");
   }
 
-  static async getEventsStream(request: Request, env: Env): Promise<Response> {
-    return await proxyLifecycleRequest(request, env, "GET", "stream");
-  }
-
   static async getTurnDiff(request: Request, env: Env): Promise<Response> {
     return await proxyLifecycleRequest(request, env, "GET", "diff");
   }
@@ -31,9 +27,50 @@ export class LifecycleController {
   static async submitApproval(request: Request, env: Env): Promise<Response> {
     return await proxyLifecycleApprovalRequest(request, env);
   }
+
+  static async compact(request: Request, env: Env): Promise<Response> {
+    return await proxyLifecycleCommandRequest(request, env, "compact");
+  }
 }
 
-type LifecycleProxyMode = "replay" | "stream" | "diff";
+type LifecycleProxyMode = "replay" | "diff";
+
+async function proxyLifecycleCommandRequest(
+  request: Request,
+  env: Env,
+  command: "compact",
+): Promise<Response> {
+  try {
+    const url = new URL(request.url);
+    const match = url.pathname.match(/^\/turns\/([^/]+)\/compact$/);
+    const turnId = match?.[1] ? decodeURIComponent(match[1]) : null;
+    if (!turnId) return errorResponse(request, env, "turnId is required", 400);
+    const auth = await getAuthenticatedUserSession(request, env);
+    if (!auth) return errorResponse(request, env, "Unauthorized", 401);
+    const runId = runIdFromTurnId(turnId);
+    if (!(await verifyRunOwnership(env, runId, auth.userId))) {
+      return errorResponse(request, env, "Run not found", 404);
+    }
+    const body = await request.json();
+    const response = await fetchRunRuntimeRoute(env, runId, readBackend(url), {
+      method: "POST",
+      path: `/${command}`,
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+    return proxyResponse(request, env, response);
+  } catch (error) {
+    if (isSessionStoreUnavailableError(error)) {
+      return errorResponse(request, env, error.message, 503);
+    }
+    return errorResponse(
+      request,
+      env,
+      error instanceof Error ? error.message : "Failed to compact context",
+      500,
+    );
+  }
+}
 
 async function proxyLifecycleRequest(
   request: Request,
@@ -148,11 +185,10 @@ function buildRuntimeLifecyclePath(
   params.set("turnId", turnId);
   copyParam(searchParams, params, "afterSequence");
   copyParam(searchParams, params, "limit");
-  const suffix = mode === "stream" ? "/stream" : "";
   if (mode === "diff") {
     return `/turn-diff?${params.toString()}`;
   }
-  return `/lifecycle-events${suffix}?${params.toString()}`;
+  return `/lifecycle-events?${params.toString()}`;
 }
 
 function copyParam(
@@ -174,7 +210,7 @@ function readBackend(url: URL): RuntimeOrchestratorBackend {
 
 function readTurnIdFromPublicPath(pathname: string): string | null {
   const match = pathname.match(
-    /^\/turns\/([^/]+)\/(?:lifecycle-events(?:\/stream)?|diff)$/,
+    /^\/turns\/([^/]+)\/(?:lifecycle-events|diff)$/,
   );
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }

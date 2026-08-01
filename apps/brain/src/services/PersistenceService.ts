@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
-import type { JsonValue, TurnActivityTranscriptPart } from "@repo/shared-types";
+import type { JsonValue } from "@repo/shared-types";
+import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import type {
   AppendRunEventInput,
   RunEventRecord,
@@ -28,6 +29,7 @@ interface PersistMessageContext {
   workspaceId?: string;
   title?: string;
   repository?: string;
+  identity?: TurnScopeBootstrap;
 }
 
 type TranscriptPersistenceOperation =
@@ -313,32 +315,26 @@ export class PersistenceService {
   async persistAssistantTurn(input: {
     sessionId: string;
     runId: string;
-    turnId?: string | null;
+    turnId: string;
     text: string;
     metadata?: Record<string, unknown>;
-    activity?: TurnActivityTranscriptPart | null;
   }): Promise<TranscriptMessageRecord> {
     try {
       const parts = buildAssistantTurnParts(input);
-      const turnId = input.turnId ?? readActivityTurnId(input.activity);
       console.log(
         formatDiagnosticLogLine("chat/persistence", "assistant-turn-entered", {
           runId: input.runId,
           sessionId: input.sessionId,
-          turnId,
+          turnId: input.turnId,
           textChars: input.text.length,
           metadataKeys: Object.keys(input.metadata ?? {}).join(",") || "none",
-          activityEventCount: input.activity?.events.length ?? 0,
-          activitySnapshotItemCount:
-            input.activity?.activitySnapshot.items.length ?? 0,
-          activitySnapshotStatus: input.activity?.activitySnapshot.status ?? null,
           partCount: parts.length,
         }),
       );
       const idempotencyKey = await this.generateIdempotencyKey(
         input.sessionId,
         input.runId,
-        `assistant_turn:${turnId ?? "unknown_turn"}`,
+        `assistant_turn:${input.turnId}`,
         input.text,
       );
 
@@ -361,14 +357,9 @@ export class PersistenceService {
           {
             runId: input.runId,
             sessionId: input.sessionId,
-            turnId,
+            turnId: input.turnId,
             persistedMessageId: message.id,
             dedupeKey: idempotencyKey,
-            activityEventCount: input.activity?.events.length ?? 0,
-            activitySnapshotItemCount:
-              input.activity?.activitySnapshot.items.length ?? 0,
-            activitySnapshotStatus:
-              input.activity?.activitySnapshot.status ?? null,
             partCount: parts.length,
           },
         ),
@@ -379,7 +370,7 @@ export class PersistenceService {
         formatDiagnosticLogLine("chat/persistence", "assistant-turn-failed", {
           runId: input.runId,
           sessionId: input.sessionId,
-          turnId: input.turnId ?? readActivityTurnId(input.activity),
+          turnId: input.turnId,
           textChars: input.text.length,
           error,
         }),
@@ -445,7 +436,10 @@ export class PersistenceService {
     },
     repository: TranscriptRepository,
   ): Promise<TranscriptMessageRecord> {
-    const parts = coreMessageToTranscriptParts(input.message);
+    const parts = coreMessageToTranscriptParts(
+      input.message,
+      input.context.identity,
+    );
     const clientMessageId = readClientMessageId(input.message);
     console.log(
       `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} role=${input.message.role} clientMessageId=${clientMessageId ?? "missing"} dedupeKey=${input.idempotencyKey} status=append-started`,
@@ -529,19 +523,30 @@ function mapRunStatusToSessionStatus(status: RunStatus): SessionStatus {
   }
 }
 
-function coreMessageToTranscriptParts(message: CoreMessage): Array<{
+function coreMessageToTranscriptParts(
+  message: CoreMessage,
+  identity?: TurnScopeBootstrap,
+): Array<{
   type: "text" | "raw";
   content: JsonValue;
 }> {
   if (typeof message.content === "string") {
-    return [{ type: "text", content: { text: message.content } }];
+    return [
+      {
+        type: "text",
+        content: buildTranscriptTextContent(message.content, identity),
+      },
+    ];
   }
 
   if (messageHasImageParts(message)) {
     return [
       {
         type: "text",
-        content: { text: buildRedactedMessageText(message) },
+        content: buildTranscriptTextContent(
+          buildRedactedMessageText(message),
+          identity,
+        ),
       },
     ];
   }
@@ -552,34 +557,27 @@ function coreMessageToTranscriptParts(message: CoreMessage): Array<{
 function buildAssistantTurnParts(input: {
   text: string;
   metadata?: Record<string, unknown>;
-  activity?: TurnActivityTranscriptPart | null;
-}): Array<{ type: "text" | "activity"; content: JsonValue }> {
+}): Array<{ type: "text"; content: JsonValue }> {
   const textContent: Record<string, JsonValue> = { text: input.text };
   if (input.metadata) {
     textContent.metadata = toJsonValue(input.metadata);
   }
-  const parts: Array<{ type: "text" | "activity"; content: JsonValue }> = [
+  const parts: Array<{ type: "text"; content: JsonValue }> = [
     { type: "text", content: textContent },
   ];
-
-  if (hasPersistableActivity(input.activity)) {
-    parts.push({ type: "activity", content: toJsonValue(input.activity) });
-  }
-
   return parts;
 }
 
-function hasPersistableActivity(
-  activity: TurnActivityTranscriptPart | null | undefined,
-): activity is TurnActivityTranscriptPart {
-  if (!activity) {
-    return false;
-  }
-  return (
-    activity.events.length > 0 ||
-    activity.activitySnapshot.items.length > 0 ||
-    activity.activitySnapshot.status !== null
-  );
+function buildTranscriptTextContent(
+  text: string,
+  identity?: TurnScopeBootstrap,
+): Record<string, JsonValue> {
+  return {
+    text,
+    ...(identity
+      ? { metadata: { canonicalIdentity: toJsonValue(identity) } }
+      : {}),
+  };
 }
 
 function toJsonValue(value: unknown): JsonValue {
@@ -622,18 +620,4 @@ function buildPersistenceDedupeContent(message: CoreMessage): string {
 function readClientMessageId(message: CoreMessage): string | null {
   const candidate = message as { id?: unknown };
   return typeof candidate.id === "string" ? candidate.id : null;
-}
-
-function readActivityTurnId(
-  activity: TurnActivityTranscriptPart | null | undefined,
-): string | null {
-  const turnId = activity?.events.find((event) => event.turnId.trim())?.turnId;
-  if (turnId?.trim()) {
-    return turnId.trim();
-  }
-
-  const snapshotTurnId = activity?.activitySnapshot.items.find((item) =>
-    item.turnId?.trim(),
-  )?.turnId;
-  return snapshotTurnId?.trim() || null;
 }

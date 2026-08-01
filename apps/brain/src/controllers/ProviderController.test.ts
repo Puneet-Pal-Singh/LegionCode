@@ -1064,6 +1064,7 @@ describe("ProviderController", () => {
       expect(resolveData.providerId).toBe("openai");
       expect(resolveData.credentialId).toBe(connectData.credentialId);
       expect(resolveData.modelId).toBe("gpt-4o");
+      expect(resolveData.contextWindow).toBe(128_000);
     });
 
     it("connects credential when model discovery returns no selectable models", async () => {

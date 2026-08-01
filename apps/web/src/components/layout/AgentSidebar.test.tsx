@@ -40,7 +40,7 @@ describe("AgentSidebar", () => {
     expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
     expect(screen.getByTestId("task-status-needs_approval")).toHaveAttribute(
       "data-status-kind",
-      "dot",
+      "icon",
     );
   });
 
@@ -81,7 +81,7 @@ describe("AgentSidebar", () => {
 
     const indicator = screen.getByTestId("task-status-running");
     expect(indicator).toHaveAttribute("data-status-kind", "spinner");
-    expect(indicator.className).toContain("animate-spin");
+    expect(indicator.getAttribute("class")).toContain("animate-spin");
   });
 
   it("renders paused sessions without marking them failed", () => {
@@ -100,7 +100,7 @@ describe("AgentSidebar", () => {
 
     expect(screen.getByTestId("task-status-paused")).toHaveAttribute(
       "data-status-kind",
-      "dot",
+      "icon",
     );
     expect(screen.queryByTestId("task-status-failed")).not.toBeInTheDocument();
   });

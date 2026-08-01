@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 
 describe("shouldRetryNativeFinalOnlyResponse", () => {
-  it("retries one no-tool response that contains only quarantined material", () => {
+  it("allows two bounded final-only recoveries for quarantined material", () => {
     expect(
       shouldRetryNativeFinalOnlyResponse({
-        recoveryAlreadyAttempted: false,
+        recoveryAttemptCount: 0,
         toolCallCount: 0,
         responseParts: [
           {
@@ -22,9 +22,16 @@ describe("shouldRetryNativeFinalOnlyResponse", () => {
         ],
       }),
     ).toBe(true);
+    expect(
+      shouldRetryNativeFinalOnlyResponse({
+        recoveryAttemptCount: 1,
+        toolCallCount: 0,
+        responseParts: [],
+      }),
+    ).toBe(true);
   });
 
-  it("does not retry visible text, a tool response, or a second missing final", () => {
+  it("does not retry visible text, a tool response, or after two recoveries", () => {
     const visiblePart = {
       id: "provider-visible",
       schemaVersion: 1 as const,
@@ -39,21 +46,21 @@ describe("shouldRetryNativeFinalOnlyResponse", () => {
 
     expect(
       shouldRetryNativeFinalOnlyResponse({
-        recoveryAlreadyAttempted: false,
+        recoveryAttemptCount: 0,
         toolCallCount: 0,
         responseParts: [visiblePart],
       }),
     ).toBe(false);
     expect(
       shouldRetryNativeFinalOnlyResponse({
-        recoveryAlreadyAttempted: false,
+        recoveryAttemptCount: 0,
         toolCallCount: 1,
         responseParts: [],
       }),
     ).toBe(false);
     expect(
       shouldRetryNativeFinalOnlyResponse({
-        recoveryAlreadyAttempted: true,
+        recoveryAttemptCount: 2,
         toolCallCount: 0,
         responseParts: [],
       }),

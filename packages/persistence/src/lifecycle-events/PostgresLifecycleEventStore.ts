@@ -63,6 +63,19 @@ async function appendOne(
     READ_LAST_SEQUENCE_SQL,
     [event.turnId],
   );
+  const previousEvent = await client.query<LifecycleEventRow>(
+    READ_LAST_EVENT_SQL,
+    [event.turnId],
+  );
+  if (previousEvent.rows[0]?.event_json) {
+    const previousType = readEvent(previousEvent.rows[0]).type;
+    if (isTerminalLifecycleEventType(previousType)) {
+      throw new EventStoreError(
+        "terminal_stream",
+        `Turn ${event.turnId} already has terminal lifecycle evidence`,
+      );
+    }
+  }
   const last = Number(previous.rows[0]?.sequence ?? 0);
   if (event.sequence !== last + 1) {
     throw new EventStoreError("sequence_gap", `Expected sequence ${last + 1}`);
@@ -203,5 +216,10 @@ function validateReplay(input: ReplayLifecycleEventsInput): void {
 const LOCK_TURN_STREAM_SQL = `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`;
 const READ_IDEMPOTENT_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND idempotency_key = $2`;
 const READ_LAST_SEQUENCE_SQL = `SELECT sequence FROM canonical_lifecycle_events WHERE turn_id = $1 ORDER BY sequence DESC LIMIT 1 FOR UPDATE`;
+const READ_LAST_EVENT_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 ORDER BY sequence DESC LIMIT 1 FOR UPDATE`;
 const INSERT_SQL = `INSERT INTO canonical_lifecycle_events (event_id, thread_id, turn_id, run_attempt_id, sequence, idempotency_key, event_type, event_json, schema_version, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) RETURNING event_json, sequence`;
+
+function isTerminalLifecycleEventType(type: LifecycleEvent["type"]): boolean {
+  return type === "turn.completed" || type === "turn.failed" || type === "turn.interrupted";
+}
 const REPLAY_SQL = `SELECT event_json, sequence FROM canonical_lifecycle_events WHERE turn_id = $1 AND sequence > $2 ORDER BY sequence ASC LIMIT $3`;

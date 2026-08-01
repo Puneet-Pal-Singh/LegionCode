@@ -7,16 +7,14 @@ import type {
 } from "@repo/shared-types";
 import type { ChatMessageMetadata } from "../messageMetadata";
 import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalTypes.js";
-import type {
-  HookInvocationAuditEvent,
-  TurnDiffPayload,
-} from "../../../services/api/lifecycleClient.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
-import { TurnLifecycleStatus } from "./TurnLifecycleStatus.js";
+import { CanonicalWorkflowSurface } from "../workflow/CanonicalWorkflowSurface.js";
+import { PendingWorkflowSurface } from "../workflow/PendingWorkflowSurface.js";
 import { formatDebugPayload } from "./debugPayload.js";
 import {
   resolveChangedFilesSummary,
@@ -24,8 +22,10 @@ import {
 } from "./changedFiles";
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
+import type { ArtifactOpenHandler } from "../artifactOpen";
 
 interface ChatInterfaceViewProps {
+  workspaceId: string | null;
   threadId: string | null;
   runAttemptId: string | null;
   artifactIdentity?: EditArtifactIdentity | null;
@@ -36,11 +36,7 @@ interface ChatInterfaceViewProps {
   debugEvents: ChatDebugEvent[];
   chatEntries: ChatInterfaceEntry[];
   messageMetadataById: Record<string, ChatMessageMetadata>;
-  renderActivityTurn: (
-    entry: Extract<ChatInterfaceEntry, { kind: "turn" }>["turn"],
-  ) => ReactNode;
-  renderHookAudit: (event: HookInvocationAuditEvent) => ReactNode;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   snapshots: Record<string, FileStatus[]>;
   artifacts: Record<string, PromptArtifactReviewSource>;
@@ -63,7 +59,8 @@ interface ChatInterfaceViewProps {
   loadCompletedTurnFileDiff: (file: FileStatus) => Promise<DiffContent>;
   completedTurnReview: CompletedTurnReview;
   lifecycleProjection: LifecycleProjection | null;
-  workflowDebug: ReactNode;
+  onCompact?: () => void;
+  pendingWorkflow: boolean;
 }
 
 export const ChatInterfaceView = forwardRef<
@@ -85,7 +82,7 @@ export const ChatInterfaceView = forwardRef<
           {props.completedTurnReview.error}
         </div>
       ) : null}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         {props.showHeroComposer ? (
           <HeroComposer>{props.renderComposer("hero")}</HeroComposer>
         ) : props.showSessionPlaceholder ? (
@@ -96,24 +93,11 @@ export const ChatInterfaceView = forwardRef<
               <ChatDebugPanel events={props.debugEvents} />
             ) : null}
             <Transcript {...props} />
-            {props.lifecycleProjection &&
-            !props.chatEntries.some(
-              (entry) =>
-                entry.kind === "turn" &&
-                entry.turn.key === props.lifecycleProjection?.turnId,
-            ) &&
-            !(
-              props.lifecycleProjection.terminal &&
-              hasAssistantAfterLatestUser(props.chatEntries)
-            ) ? (
-              <TurnSurface props={props} turn={null} />
-            ) : null}
-            {props.workflowDebug}
           </div>
         )}
       </div>
       {props.showHeroComposer ? null : (
-        <div className="px-6 pb-4">
+        <div className="px-3 pb-4 sm:px-6">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}
           </div>
@@ -123,35 +107,16 @@ export const ChatInterfaceView = forwardRef<
   );
 });
 
-function hasAssistantAfterLatestUser(
-  entries: ChatInterfaceEntry[],
-): boolean {
-  let hasAssistant = false;
-  for (const entry of entries) {
-    if (entry.kind === "message") {
-      if (entry.message.role === "user") hasAssistant = false;
-      if (entry.message.role === "assistant") hasAssistant = true;
-      continue;
-    }
-    if (entry.userMessage) hasAssistant = false;
-    if (entry.assistantMessage) hasAssistant = true;
-  }
-  return hasAssistant;
-}
-
 function Transcript(props: ChatInterfaceViewProps) {
   return (
     <>
-      {props.chatEntries.map((entry) =>
-        entry.kind === "turn" ? (
-          <TurnSurface
-            key={`turn-surface:${entry.turn.key}`}
-            props={props}
-            turn={entry.turn}
-            userMessage={entry.userMessage}
-            assistantMessage={entry.assistantMessage}
-          />
-        ) : (
+      {props.chatEntries.map((entry) => {
+        if (entry.kind === "workflow") {
+          return (
+            <TurnWorkflowEntry key={entry.key} entry={entry} props={props} />
+          );
+        }
+        return (
           <ChatMessage
             key={entry.message.id}
             message={entry.message}
@@ -163,98 +128,41 @@ function Transcript(props: ChatInterfaceViewProps) {
               entry.message.id,
             )}
           />
-        ),
-      )}
+        );
+      })}
+      {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
   );
 }
 
-function TurnSurface({
+function TurnWorkflowEntry({
+  entry,
   props,
-  turn,
-  userMessage,
-  assistantMessage,
 }: {
+  entry: Extract<ChatInterfaceEntry, { kind: "workflow" }>;
   props: ChatInterfaceViewProps;
-  turn: Extract<ChatInterfaceEntry, { kind: "turn" }>["turn"] | null;
-  userMessage?: Extract<ChatInterfaceEntry, { kind: "turn" }>["userMessage"];
-  assistantMessage?: Extract<
-    ChatInterfaceEntry,
-    { kind: "turn" }
-  >["assistantMessage"];
 }) {
-  const turnId = turn?.key ?? props.lifecycleProjection?.turnId;
-  if (!turnId) return null;
+  const turnId = entry.projection.turnId;
   const surfaceId = props.threadId
     ? `thread-${props.threadId}-turn-${turnId}`
     : null;
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
-  const hasTool = Boolean(
-    turn?.rows.some((row) => row.kind === "tool" || row.kind === "group"),
-  );
-  const terminal = isCurrentTurn ? props.lifecycleProjection?.terminal : null;
+  const terminal = entry.projection.terminal;
   return (
     <section
       data-testid={surfaceId ?? undefined}
       data-thread-id={props.threadId ?? undefined}
+      data-workspace-id={props.workspaceId ?? undefined}
       data-turn-id={turnId}
       data-run-attempt-id={
         surfaceId ? (props.runAttemptId ?? undefined) : undefined
       }
       className="space-y-3"
     >
-      {userMessage ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-typed-part` : undefined}
-          data-kind="user_prompt"
-        >
-          <ChatMessage
-            message={userMessage}
-            metadata={props.messageMetadataById[userMessage.id]}
-          />
-        </div>
-      ) : turn?.userPrompt ? (
-        <div
-          data-testid={surfaceId ? `${surfaceId}-typed-part` : undefined}
-          data-kind="user_prompt"
-          className="text-right text-sm text-zinc-300"
-        >
-          {turn.userPrompt}
-        </div>
-      ) : null}
-
-      {turn && (hasTool || turn.rows.length > 0) ? (
-        <div data-testid={surfaceId ? `${surfaceId}-tool-surface` : undefined}>
-          {props.renderActivityTurn(turn)}
-        </div>
-      ) : null}
-      {hasTool ? (
-        <span
-          data-testid={surfaceId ? `${surfaceId}-tool` : undefined}
-          className="text-xs text-zinc-500"
-        >
-          Tool activity
-        </span>
-      ) : null}
-      {isCurrentTurn &&
-      (props.lifecycleProjection?.hookAudits?.length ?? 0) > 0 ? (
-        <div
-          className="space-y-2"
-          data-testid={surfaceId ? `${surfaceId}-hook-audits` : undefined}
-        >
-          {(props.lifecycleProjection?.hookAudits ?? []).map(
-            props.renderHookAudit,
-          )}
-        </div>
-      ) : null}
-      {isCurrentTurn &&
-      props.lifecycleProjection &&
-      !props.lifecycleProjection.terminal ? (
-        <TurnLifecycleStatus
-          projection={props.lifecycleProjection}
-          testId={surfaceId ? `${surfaceId}-spinner` : undefined}
-        />
-      ) : null}
+      <CanonicalWorkflowSurface
+        projection={entry.projection}
+        onArtifactOpen={props.onArtifactOpen}
+      />
       {terminal?.errorCode ? (
         <span
           data-testid={surfaceId ? `${surfaceId}-terminal-error` : undefined}
@@ -264,20 +172,7 @@ function TurnSurface({
           {terminal.errorCode}
         </span>
       ) : null}
-      {assistantMessage ? (
-        <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
-          <ChatMessage
-            message={assistantMessage}
-            metadata={props.messageMetadataById[assistantMessage.id]}
-            onArtifactOpen={props.onArtifactOpen}
-            onReviewOpen={props.onReviewOpen}
-            changedFilesSummary={resolveMessageChangedFilesSummary(
-              props,
-              assistantMessage.id,
-            )}
-          />
-        </div>
-      ) : props.terminalViewModel && isCurrentTurn ? (
+      {props.terminalViewModel && isCurrentTurn ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <TerminalMessage {...props} />
         </div>
@@ -290,14 +185,6 @@ function resolveMessageChangedFilesSummary(
   props: ChatInterfaceViewProps,
   messageId: string,
 ) {
-  if (props.completedTurnReview.messageId === messageId) {
-    if (props.completedTurnReview.files.length === 0) return undefined;
-    return {
-      files: props.completedTurnReview.files,
-      loadFileDiff: props.completedTurnReview.loadFileDiff,
-    };
-  }
-
   return resolveChangedFilesSummary({
     messageId,
     snapshots: props.snapshots,

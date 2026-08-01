@@ -87,6 +87,10 @@ const REASONING_PROVIDERS = new Set([
 ]);
 const REASONING_SUMMARY_PROVIDERS = new Set(["openai", "openrouter"]);
 const DIRECT_BYOK_PROVIDERS = new Set(["openrouter", "groq", "cloudflare-ai"]);
+const DEFAULT_MODEL_CONTEXT_WINDOWS = new Map<string, number>([
+  ["openai:gpt-4o", 128_000],
+  ["openai:gpt-4o-mini", 128_000],
+]);
 
 export class ProviderRegistry {
   private readonly providersById: ReadonlyMap<string, ProviderDefinition>;
@@ -221,6 +225,9 @@ function toDefaultModelDefinition(
       providerId: provider.providerId,
       modelId: provider.defaultModelId,
       displayName: provider.defaultModelId,
+      contextWindow: DEFAULT_MODEL_CONTEXT_WINDOWS.get(
+        `${provider.providerId}:${provider.defaultModelId}`,
+      ),
       supportsTools: provider.capabilities.tools,
       supportsVision: provider.capabilities.vision,
       supportsReasoning: provider.capabilities.reasoning,

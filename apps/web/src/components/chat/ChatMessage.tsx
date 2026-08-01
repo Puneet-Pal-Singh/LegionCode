@@ -1,4 +1,5 @@
 import type { Message } from "@ai-sdk/react";
+import type { ArtifactOpenHandler } from "./artifactOpen";
 import { cn } from "../../lib/utils";
 import type { ChatMessageMetadata } from "./messageMetadata";
 import { ChangedFilesCard } from "./chat-message/ChangedFilesCard";
@@ -11,7 +12,7 @@ import { useMessageDisplayContent } from "./chat-message/useMessageDisplayConten
 interface ChatMessageProps {
   message: Message;
   metadata?: ChatMessageMetadata;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   changedFilesSummary?: ChangedFilesSummary;
 }
@@ -37,7 +38,12 @@ export function ChatMessage({
         isUser ? "flex-row-reverse" : "flex-row",
       )}
     >
-      <div className={cn("max-w-4xl", isUser ? "text-right" : "flex-1")}>
+      <div
+        className={cn(
+          "max-w-4xl",
+          isUser ? "flex flex-col items-end" : "flex-1",
+        )}
+      >
         <MessageContent content={displayContent} isUser={isUser} />
         {!isUser && (
           <MessageArtifacts message={message} onArtifactOpen={onArtifactOpen} />

@@ -108,6 +108,37 @@ describe("TranscriptPartNormalizer", () => {
     expect(visibleTextFromTranscriptParts(parts)).toBe("Finished.");
   });
 
+  it("retains provider text when structured parts contain only private reasoning", () => {
+    const parts = normalizer.normalize({
+      ...input,
+      providerParts: [
+        {
+          type: "reasoning",
+          text: "Private provider reasoning",
+          reason: "provider_reasoning",
+        },
+      ],
+      providerText: "OK.",
+      outputIntent: "final",
+    });
+
+    expect(parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "reasoning",
+          visibility: "audit_only",
+          text: "Private provider reasoning",
+        }),
+        expect.objectContaining({
+          type: "final",
+          visibility: "visible",
+          text: "OK.",
+        }),
+      ]),
+    );
+    expect(visibleTextFromTranscriptParts(parts)).toBe("OK.");
+  });
+
   it("quarantines provider final markers until runtime declares terminal output", () => {
     const parts = normalizer.normalize({
       ...input,

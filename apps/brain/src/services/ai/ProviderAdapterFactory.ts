@@ -84,6 +84,7 @@ export function createOpenAIAdapter(
   env: Env,
   overrideApiKey?: string,
   baseURL?: string,
+  providerId = "openai",
 ): OpenAIAdapter {
   const resolved = resolveOpenAIKey(env, overrideApiKey);
 
@@ -91,6 +92,7 @@ export function createOpenAIAdapter(
     apiKey: resolved.apiKey,
     baseURL: baseURL ?? resolved.baseURL,
     defaultModel: env.DEFAULT_MODEL,
+    providerId,
   });
 }
 
@@ -146,6 +148,7 @@ export function createOpenRouterAdapter(
     apiKey,
     baseURL,
     defaultModel: undefined, // OpenRouter handles model in request
+    providerId: "openrouter",
   });
 }
 
@@ -162,6 +165,7 @@ export function createGroqAdapter(overrideApiKey?: string): OpenAIAdapter {
     apiKey,
     baseURL,
     defaultModel: undefined, // Groq handles model in request
+    providerId: "groq",
   });
 }
 

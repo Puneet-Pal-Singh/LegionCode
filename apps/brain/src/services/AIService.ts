@@ -30,6 +30,7 @@ import {
   resolveStructuredRuntimeProvider,
 } from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
+import { PROVIDER_SDK_MAX_RETRIES } from "./providers/ProviderRequestPolicy";
 
 export class AIService {
   private adapter: ProviderAdapter;
@@ -80,6 +81,7 @@ export class AIService {
     temperature = 0.7,
     system,
     tools,
+    signal,
   }: {
     messages: CoreMessage[];
     model?: string;
@@ -90,6 +92,7 @@ export class AIService {
     temperature?: number;
     system?: string;
     tools?: Record<string, CoreTool>;
+    signal?: AbortSignal;
   }): Promise<GenerateTextResult> {
     const selection = await resolveSelectionWithPreferences({
       providerId,
@@ -111,6 +114,7 @@ export class AIService {
       system,
       tools,
       temperature,
+      signal,
     });
   }
 
@@ -173,6 +177,7 @@ export class AIService {
       ...(maxTokens !== undefined ? { maxTokens } : {}),
       ...(abortSignal ? { abortSignal } : {}),
       mode: getStructuredGenerationMode(selection.runtimeProvider),
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     return {

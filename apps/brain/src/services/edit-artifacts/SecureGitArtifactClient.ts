@@ -1,14 +1,7 @@
 import { z } from "zod";
+import type { SecureExecutionWorkspaceScope } from "../../runtime/RuntimeWorkspaceScope";
 import type { Env } from "../../types/ai";
-
-interface SecureMuscleSession {
-  sessionId: string;
-  token: string;
-}
-
-interface SecureGitArtifactClientOptions {
-  sessionTimeoutMs?: number;
-}
+import type { SecureExecutionSessionPort } from "../secure-execution/SecureExecutionSessionClient";
 
 interface PluginSuccessPayload {
   success: true;
@@ -20,10 +13,6 @@ interface PluginErrorPayload {
   error?: string;
 }
 
-const SecureMuscleSessionSchema = z.object({
-  sessionId: z.string().min(1),
-  token: z.string().min(1),
-});
 const PatchCapturePayloadSchema = z.object({
   patch: z.string(),
   baseCommitSha: z.string().min(1).nullable(),
@@ -31,6 +20,27 @@ const PatchCapturePayloadSchema = z.object({
 });
 const WorktreeSnapshotPayloadSchema = z.object({
   treeSha: z.string().regex(/^[a-f0-9]{40,64}$/iu),
+});
+const SnapshotDiffPayloadSchema = z.object({
+  files: z.array(
+    z.object({
+      path: z.string().min(1),
+      previousPath: z.string().min(1).nullable(),
+      status: z.enum([
+        "added",
+        "copied",
+        "deleted",
+        "modified",
+        "renamed",
+        "type_changed",
+        "unmerged",
+        "untracked",
+      ]),
+      additions: z.number().int().nonnegative(),
+      deletions: z.number().int().nonnegative(),
+    }),
+  ),
+  patch: z.string(),
 });
 const CanonicalExecutionResponseSchema = z.object({
   taskId: z.string().min(1),
@@ -67,27 +77,20 @@ export interface CapturedGitPatch {
   branch: string | null;
 }
 
-const SECURE_SESSION_TIMEOUT_MS = 10_000;
-
 type CanonicalExecutionResponse = z.infer<
   typeof CanonicalExecutionResponseSchema
 >;
-type SecureApiResponse = Awaited<ReturnType<Env["SECURE_API"]["fetch"]>>;
-type SecureApiRequestInit = Parameters<Env["SECURE_API"]["fetch"]>[1];
 export type CapturedGitStatus = z.infer<typeof GitStatusPayloadSchema>;
+export type CapturedGitSnapshotDiff = z.infer<typeof SnapshotDiffPayloadSchema>;
 
 export class SecureGitArtifactClient {
   constructor(
     private readonly env: Env,
-    private readonly muscleSession: string,
+    private readonly brainSessionId: string,
     private readonly runId: string,
-    options: SecureGitArtifactClientOptions = {},
-  ) {
-    this.sessionTimeoutMs =
-      options.sessionTimeoutMs ?? SECURE_SESSION_TIMEOUT_MS;
-  }
-
-  private readonly sessionTimeoutMs: number;
+    private readonly workspaceScope: SecureExecutionWorkspaceScope,
+    private readonly executionSession: SecureExecutionSessionPort,
+  ) {}
 
   async capturePatch(input: {
     baselineTree: string;
@@ -105,6 +108,24 @@ export class SecureGitArtifactClient {
     assertPluginSuccess(payload, "git_worktree_snapshot");
     return WorktreeSnapshotPayloadSchema.parse(parseJsonOutput(payload.output))
       .treeSha;
+  }
+
+  async diffWorktreeSnapshots(input: {
+    startTree: string;
+    terminalTree: string;
+  }): Promise<CapturedGitSnapshotDiff> {
+    const payload = await this.executeGitAction("git_snapshot_diff", input);
+    assertPluginSuccess(payload, "git_snapshot_diff");
+    const parsed = SnapshotDiffPayloadSchema.safeParse(
+      parseJsonOutput(payload.output),
+    );
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "payload"}: ${issue.message}`)
+        .join("; ");
+      throw new Error(`Git snapshot diff contract mismatch: ${issues}`);
+    }
+    return parsed.data;
   }
 
   async getStatus(): Promise<CapturedGitStatus | null> {
@@ -133,9 +154,9 @@ export class SecureGitArtifactClient {
     action: string,
     payload: Record<string, unknown>,
   ): Promise<PluginSuccessPayload | PluginErrorPayload> {
-    const secureSession = await this.createSecureSession(action);
+    const secureSession = await this.executionSession.acquire();
     const response = await this.env.SECURE_API.fetch(
-      buildSecureApiUrl(this.muscleSession, "/api/v1/execute"),
+      buildSecureApiUrl(this.brainSessionId, "/api/v1/execute"),
       {
         method: "POST",
         headers: {
@@ -144,11 +165,16 @@ export class SecureGitArtifactClient {
         },
         body: JSON.stringify({
           sessionId: secureSession.sessionId,
-          taskId: `edit-artifact-${action}-${this.runId}`,
+          // Secure Agent API includes this value in a signed runtime-event
+          // idempotency key together with the run, session, and event type.
+          // Keep it opaque and bounded; repeating the action/run here can push
+          // otherwise valid internal Git operations past the 200 byte contract.
+          taskId: `artifact-${crypto.randomUUID()}`,
           action: "git.execute",
           params: {
             action,
             runId: this.runId,
+            workspaceScope: this.workspaceScope,
             ...payload,
           },
           timeout: 20_000,
@@ -161,56 +187,6 @@ export class SecureGitArtifactClient {
     }
 
     return normalizeCanonicalGitResponse((await response.json()) as unknown);
-  }
-
-  private async createSecureSession(
-    action: string,
-  ): Promise<SecureMuscleSession> {
-    const response = await fetchWithTimeout(
-      this.env.SECURE_API,
-      buildSecureApiUrl(this.muscleSession, "/api/v1/session"),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          runId: this.runId,
-          taskId: `edit-artifact-${action}-${this.runId}`,
-          repoPath: ".",
-        }),
-      },
-      this.sessionTimeoutMs,
-      `Git ${action} session creation`,
-    );
-
-    if (!response.ok) {
-      throw new Error(
-        `Git ${action} failed to create execution session with HTTP ${response.status}`,
-      );
-    }
-
-    return SecureMuscleSessionSchema.parse(await response.json());
-  }
-}
-
-async function fetchWithTimeout(
-  fetcher: Env["SECURE_API"],
-  url: string,
-  init: SecureApiRequestInit,
-  timeoutMs: number,
-  operation: string,
-): Promise<SecureApiResponse> {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-  try {
-    return await Promise.race([fetcher.fetch(url, init), timeout]);
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
   }
 }
 

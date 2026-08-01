@@ -13,6 +13,8 @@ export {
   type RuntimeTurnArtifactPort,
   type ApprovalWaitPort,
   type ContextAssemblyPort,
+  type ContextCompactionMode,
+  type ContextCompactionPort,
   type ProviderPort,
   type RuntimeKernelClock,
   type RuntimeHookAuditAppender,
@@ -34,6 +36,7 @@ export {
   RuntimeKernel,
   type RuntimeKernelDependencies,
 } from "./RuntimeKernel.js";
+export { reconcileProviderContextBudget } from "./ProviderContextBudget.js";
 export {
   type ApprovalResolution,
   type ProviderCallInput,

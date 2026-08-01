@@ -158,6 +158,16 @@ describe("WorkspaceBootstrapService", () => {
       clonedDuringBootstrap: true,
     });
     expect(execute).toHaveBeenNthCalledWith(
+      2,
+      "git",
+      "git_clone",
+      {
+        url: "https://github.com/sourcegraph/shadowbox.git",
+        startPoint: authorizedCommitId,
+      },
+      WORKSPACE_SCOPE_OPTIONS,
+    );
+    expect(execute).toHaveBeenNthCalledWith(
       3,
       "git",
       "git_branch_create",

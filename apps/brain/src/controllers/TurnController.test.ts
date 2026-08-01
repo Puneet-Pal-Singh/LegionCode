@@ -52,6 +52,31 @@ describe("TurnController public bootstrap contract", () => {
     });
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
+
+  it("authorizes canonical query identity through headers before runtime scope replay", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await TurnController.scope(
+      new Request(
+        `https://brain.local/turn/scope?runId=${TEST_RUN_ID}&sessionId=session-1`,
+        {
+          headers: { Cookie: "shadowbox_session=test-session-token" },
+        },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual(runtime.identity);
+    expect(runtime.idFromName).toHaveBeenCalledWith(TEST_RUN_ID);
+    const runtimeRequest = runtime.fetch.mock.calls[0]?.[0] as string;
+    expect(new URL(runtimeRequest).pathname).toBe("/turn/scope");
+    expect(new URL(runtimeRequest).searchParams.get("runId")).toBe(TEST_RUN_ID);
+    expect(new URL(runtimeRequest).searchParams.get("sessionId")).toBe(
+      "session-1",
+    );
+  });
 });
 
 function createTurnStartRequest(headers?: Record<string, string>): Request {

@@ -9,6 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
+import { ApprovalIdSchema } from "@repo/platform-client-sdk";
 import {
   createLifecycleClient,
   type LifecycleClient,
@@ -189,7 +190,9 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
     if (input.pendingApprovalState.source === "lifecycle") {
       await input.lifecycleClient.submitApproval({
         turnId: input.pendingApprovalState.turnId,
-        approvalId: input.pendingApprovalState.approval.approvalId,
+        approvalId: ApprovalIdSchema.parse(
+          input.pendingApprovalState.approval.approvalId,
+        ),
         decision: mapApprovalDecision(input.decision),
         decidedBy: null,
         reason: null,

@@ -38,6 +38,7 @@ export interface LLMTextRequest {
   system?: string;
   tools?: Record<string, CoreTool>;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface LLMStructuredRequest<T> {
@@ -115,6 +116,7 @@ export interface LLMRuntimeAIService {
     temperature?: number;
     system?: string;
     tools?: Record<string, CoreTool>;
+    signal?: AbortSignal;
     transcriptParts?: readonly ProviderTranscriptPart[];
   }): Promise<{
     text: string;

@@ -1,7 +1,5 @@
 import type {
-  ApprovalId,
   HookInvocationAuditEvent,
-  ItemId,
   ItemKind,
   LifecycleEvent,
   TurnDiffPayload,
@@ -11,95 +9,37 @@ import {
   applyHookAuditLifecycleEvent,
   createHookAuditProjection,
 } from "../api/lifecycleClient";
+import {
+  applyLifecycleEvent as applySdkLifecycleEvent,
+  createTurnWorkflowProjection,
+  workflowPhaseLabel,
+  type TurnWorkflowProjection,
+} from "@repo/platform-client-sdk";
 
-export type LifecycleProjectionTerminalState =
-  | "completed"
-  | "failed"
-  | "interrupted";
-
-export type LifecycleProjectionPhase =
-  | "starting"
-  | "working"
-  | "waiting_for_approval"
-  | "completed"
-  | "failed";
-
+export type LifecycleProjectionTerminalState = NonNullable<
+  TurnWorkflowProjection["terminal"]
+>["state"];
+export type LifecycleProjectionPhase = TurnWorkflowProjection["phase"];
 export type LifecycleProjectionItemStatus =
-  | "active"
-  | "completed"
-  | "failed"
-  | "declined"
-  | "interrupted";
+  TurnWorkflowProjection["items"][number]["status"];
 
-export interface LifecycleProjectionItem {
-  readonly itemId: ItemId;
-  readonly kind: ItemKind | "unknown";
-  readonly status: LifecycleProjectionItemStatus;
-  readonly text: string;
-  readonly startedAt: string;
-  readonly completedAt: string | null;
-}
+export type LifecycleProjectionItem = TurnWorkflowProjection["items"][number];
+export type LifecycleProjectionApproval =
+  NonNullable<TurnWorkflowProjection["pendingApproval"]>;
+export type LifecycleProjectionTerminal = NonNullable<
+  TurnWorkflowProjection["terminal"]
+>;
 
-export interface LifecycleProjectionApproval {
-  readonly approvalId: ApprovalId;
-  readonly itemId: ItemId;
-  readonly question: string;
-  readonly options: readonly string[];
-  readonly requestedAt: string;
-  readonly decidedAt: string | null;
-  readonly decision: string | null;
-}
-
-export interface LifecycleProjectionTerminal {
-  readonly state: LifecycleProjectionTerminalState;
-  readonly eventId: string;
-  readonly content: string;
-  readonly errorCode?: string | null;
-  readonly occurredAt: string;
-}
-
-export interface LifecycleProjection {
-  readonly turnId: TurnId;
-  readonly lastSequence: number;
-  readonly items: readonly LifecycleProjectionItem[];
+export interface LifecycleProjection extends TurnWorkflowProjection {
   readonly hookAudits: readonly HookInvocationAuditEvent[];
-  readonly pendingApproval: LifecycleProjectionApproval | null;
-  readonly terminal: LifecycleProjectionTerminal | null;
-  readonly turnDiff: TurnDiffPayload | null;
-  readonly activeThinking: boolean;
-  readonly assistantText: string;
-  readonly phase: LifecycleProjectionPhase;
-  readonly startedAt: string | null;
-  readonly settledAt: string | null;
 }
 
-type ItemEvent = LifecycleEvent & {
-  readonly itemId: ItemId;
-  readonly payload: Record<string, unknown>;
-};
-
-type ApprovalEvent = ItemEvent & {
-  readonly approvalId: ApprovalId;
-};
-
-type TerminalTurnEvent = LifecycleEvent & {
-  readonly payload: { readonly outcome: Record<string, unknown> };
-};
-
-export function createLifecycleProjection(turnId: TurnId): LifecycleProjection {
+export function createLifecycleProjection(
+  turnId: TurnId,
+): LifecycleProjection {
   return {
-    turnId,
-    lastSequence: 0,
-    items: [],
+    ...createTurnWorkflowProjection(turnId),
     hookAudits: createHookAuditProjection().events,
-    pendingApproval: null,
-    terminal: null,
-    turnDiff: null,
-    activeThinking: false,
-    assistantText: "",
-    phase: "starting",
-    startedAt: null,
-    settledAt: null,
   };
 }
 
@@ -107,22 +47,13 @@ export function applyLifecycleEvent(
   projection: LifecycleProjection,
   event: LifecycleEvent,
 ): LifecycleProjection {
-  if (event.turnId !== projection.turnId) {
-    return projection;
-  }
-  const hookAudits = applyHookAuditLifecycleEvent(
-    { events: projection.hookAudits },
-    event,
-  );
-  const next = applyKnownEvent(
-    { ...projection, hookAudits: hookAudits.events },
-    event,
-  );
+  if (event.turnId !== projection.turnId) return projection;
   return {
-    ...next,
-    lastSequence: Math.max(next.lastSequence, event.sequence),
-    activeThinking: hasActiveThinking(next),
-    assistantText: collectAssistantText(next.items),
+    ...applySdkLifecycleEvent(projection, event),
+    hookAudits: applyHookAuditLifecycleEvent(
+      { events: projection.hookAudits },
+      event,
+    ).events,
   };
 }
 
@@ -133,322 +64,5 @@ export function replayLifecycleProjection(
   return events.reduce(applyLifecycleEvent, createLifecycleProjection(turnId));
 }
 
-function applyKnownEvent(
-  projection: LifecycleProjection,
-  event: LifecycleEvent,
-): LifecycleProjection {
-  switch (event.type) {
-    case "turn.started":
-      return {
-        ...projection,
-        phase: "starting",
-        startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
-      };
-    case "run_attempt.started":
-      return {
-        ...projection,
-        phase: "working",
-        startedAt: earlierTimestamp(projection.startedAt, event.createdAt),
-      };
-    case "item.started":
-      return { ...upsertItem(projection, createStartedItem(event)), phase: "working" };
-    case "assistant_message.delta":
-    case "reasoning.summary_delta":
-    case "plan.updated":
-      return {
-        ...appendItemText(projection, event.itemId, readTextPayload(event.payload)),
-        phase: "working",
-      };
-    case "item.completed":
-    case "item.failed":
-    case "item.declined":
-    case "item.interrupted":
-      return { ...settleItem(projection, event), phase: "working" };
-    case "approval.requested":
-      return { ...requestApproval(projection, event), phase: "waiting_for_approval" };
-    case "approval.decided":
-      return { ...decideApproval(projection, event), phase: "working" };
-    case "request.resolved":
-      return { ...projection, pendingApproval: null, phase: "working" };
-    case "turn.diff_updated":
-      return { ...projection, turnDiff: readTurnDiff(event.payload), phase: "working" };
-    case "turn.completed":
-      return settleTurn(projection, "completed", event);
-    case "turn.failed":
-      return settleTurn(projection, "failed", event);
-    case "turn.interrupted":
-      return settleTurn(projection, "interrupted", event);
-    default:
-      return projection;
-  }
-}
-
-function createStartedItem(event: ItemEvent): LifecycleProjectionItem {
-  return {
-    itemId: event.itemId,
-    kind: readItemKind(event.payload),
-    status: "active",
-    text: readTextPayload(event.payload),
-    startedAt: event.createdAt,
-    completedAt: null,
-  };
-}
-
-function upsertItem(
-  projection: LifecycleProjection,
-  item: LifecycleProjectionItem,
-): LifecycleProjection {
-  const existing = projection.items.some(
-    (candidate) => candidate.itemId === item.itemId,
-  );
-  return {
-    ...projection,
-    items: existing
-      ? projection.items.map((candidate) =>
-          candidate.itemId === item.itemId ? item : candidate,
-        )
-      : [...projection.items, item],
-  };
-}
-
-function appendItemText(
-  projection: LifecycleProjection,
-  itemId: ItemId,
-  text: string,
-): LifecycleProjection {
-  if (!text) {
-    return projection;
-  }
-  return updateItem(projection, itemId, (item) => ({
-    ...item,
-    text: item.text ? `${item.text}${text}` : text,
-  }));
-}
-
-function settleItem(
-  projection: LifecycleProjection,
-  event: ItemEvent,
-): LifecycleProjection {
-  const status = event.type.replace("item.", "") as LifecycleProjectionItemStatus;
-  const resultText =
-    event.type === "item.completed"
-      ? readTextPayload(event.payload.result)
-      : "";
-  return updateItem(projection, event.itemId, (item) => ({
-    ...item,
-    status,
-    text: resultText || item.text,
-    completedAt: event.createdAt,
-  }));
-}
-
-function requestApproval(
-  projection: LifecycleProjection,
-  event: ApprovalEvent,
-): LifecycleProjection {
-  return {
-    ...projection,
-    pendingApproval: {
-      approvalId: event.approvalId,
-      itemId: event.itemId,
-      question: readString(event.payload, "question") ?? "Approval requested.",
-      options: readStringArray(event.payload, "options"),
-      requestedAt: event.createdAt,
-      decidedAt: null,
-      decision: null,
-    },
-  };
-}
-
-function decideApproval(
-  projection: LifecycleProjection,
-  event: ApprovalEvent,
-): LifecycleProjection {
-  const decision = readString(event.payload, "decision");
-  const pendingApproval = projection.pendingApproval;
-  if (!pendingApproval || pendingApproval.approvalId !== event.approvalId) {
-    return projection;
-  }
-  return {
-    ...projection,
-    pendingApproval: {
-      ...pendingApproval,
-      decidedAt: event.createdAt,
-      decision,
-    },
-  };
-}
-
-function settleTurn(
-  projection: LifecycleProjection,
-  state: LifecycleProjectionTerminalState,
-  event: TerminalTurnEvent,
-): LifecycleProjection {
-  return {
-    ...projection,
-    items: projection.items.map(settleActiveItem),
-    pendingApproval: null,
-    terminal: {
-      state,
-      eventId: event.eventId,
-      content: buildTerminalContent(state, event.payload.outcome),
-      errorCode: readString(event.payload.outcome, "code"),
-      occurredAt: event.createdAt,
-    },
-    phase: state === "completed" ? "completed" : "failed",
-    settledAt: event.createdAt,
-  };
-}
-
-export function lifecyclePhaseLabel(phase: LifecycleProjectionPhase): string {
-  switch (phase) {
-    case "starting":
-      return "Starting";
-    case "working":
-      return "Working";
-    case "waiting_for_approval":
-      return "Waiting for approval";
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-  }
-}
-
-function earlierTimestamp(current: string | null, candidate: string): string {
-  if (!current) {
-    return candidate;
-  }
-  return Date.parse(candidate) < Date.parse(current) ? candidate : current;
-}
-
-function updateItem(
-  projection: LifecycleProjection,
-  itemId: ItemId,
-  update: (item: LifecycleProjectionItem) => LifecycleProjectionItem,
-): LifecycleProjection {
-  return {
-    ...projection,
-    items: projection.items.map((item) =>
-      item.itemId === itemId ? update(item) : item,
-    ),
-  };
-}
-
-function settleActiveItem(
-  item: LifecycleProjectionItem,
-): LifecycleProjectionItem {
-  if (item.status !== "active") {
-    return item;
-  }
-  return { ...item, status: "completed", completedAt: item.completedAt };
-}
-
-function hasActiveThinking(projection: LifecycleProjection): boolean {
-  if (projection.terminal) {
-    return false;
-  }
-  return projection.items.some(
-    (item) =>
-      item.status === "active" &&
-      (item.kind === "reasoning" || item.kind === "plan"),
-  );
-}
-
-function collectAssistantText(
-  items: readonly LifecycleProjectionItem[],
-): string {
-  return items
-    .filter((item) => item.kind === "assistant_message")
-    .map((item) => item.text.trim())
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function readItemKind(payload: Record<string, unknown>): ItemKind | "unknown" {
-  const value = readString(payload, "kind");
-  switch (value) {
-    case "user_message":
-    case "reasoning":
-    case "plan":
-    case "assistant_message":
-    case "tool_call":
-    case "command_execution":
-    case "file_change":
-    case "git_operation":
-    case "approval_request":
-    case "user_input_request":
-    case "artifact":
-    case "context_compaction":
-    case "warning":
-      return value;
-    default:
-      return "unknown";
-  }
-}
-
-function readTurnDiff(payload: Record<string, unknown>): TurnDiffPayload | null {
-  const candidate = payload.diff;
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-    return null;
-  }
-  return candidate as TurnDiffPayload;
-}
-
-function buildTerminalContent(
-  state: LifecycleProjectionTerminalState,
-  outcome: Record<string, unknown>,
-): string {
-  const summary = readString(outcome, "summary");
-  if (summary) {
-    return summary;
-  }
-  if (state === "completed") {
-    return "Completed.";
-  }
-  const reason = readString(outcome, "reason");
-  if (reason) {
-    return reason;
-  }
-  return state === "interrupted" ? "Interrupted." : "";
-}
-
-function readTextPayload(payload: Record<string, unknown>): string {
-  return (
-    readString(payload, "text") ??
-    readString(payload, "delta") ??
-    readString(payload, "content") ??
-    readString(payload, "summary") ??
-    ""
-  );
-}
-
-function readString(
-  payload: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = payload[key];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function readStringArray(
-  payload: Record<string, unknown>,
-  key: string,
-): readonly string[] {
-  const value = payload[key];
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((entry) => {
-      if (typeof entry === "string") {
-        return entry.trim();
-      }
-      if (entry && typeof entry === "object" && "label" in entry) {
-        const label = (entry as { readonly label?: unknown }).label;
-        return typeof label === "string" ? label.trim() : "";
-      }
-      return "";
-    })
-    .filter(Boolean);
-}
+export { workflowPhaseLabel as lifecyclePhaseLabel };
+export type { HookInvocationAuditEvent, ItemKind, TurnDiffPayload };

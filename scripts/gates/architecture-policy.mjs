@@ -138,7 +138,7 @@ export const DIRECT_GIT_COMMAND_POLICY = [
   {
     path: "apps/secure-agent-api/src/plugins/GitPlugin.ts",
     allowedPatterns: [
-      /command:\s*["']git["'],\s*args:\s*\[\.\.\.authArgs,\s*["']clone["']/s,
+      /command:\s*["']git["'],\s*args:\s*\[\s*["']clone["']/s,
       /command:\s*["']git["'],\s*args:\s*\[\s*["']-C["'],\s*worktree,\s*["']apply["'],\s*["']--check["']/s,
       /command:\s*["']git["'],\s*args:\s*\[\s*["']-C["'],\s*worktree,\s*["']apply["'],\s*patchPath\s*\]/s,
     ],

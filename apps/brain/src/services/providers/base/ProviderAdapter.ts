@@ -13,6 +13,7 @@ export interface GenerationParams {
   tools?: Record<string, CoreTool>;
   temperature?: number;
   model?: string;
+  signal?: AbortSignal;
 }
 
 /**

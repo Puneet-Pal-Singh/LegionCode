@@ -1,12 +1,15 @@
 import type { ReactNode } from "react";
 import type { SelectedDiff, SelectedFile } from "./useWorkspaceState";
 import { WorkspaceContentView } from "./WorkspaceContentView";
+import type { SidebarContentTab } from "./useWorkspaceState";
+import { ContextDetailsPanel } from "../../chat/context/ContextDetailsPanel";
 
 interface WorkspaceSurfaceBodyProps {
   reviewActive: boolean;
   reviewContent: ReactNode;
   selectedFile: SelectedFile | null;
   selectedDiff: SelectedDiff | null;
+  selectedContext?: Extract<SidebarContentTab, { kind: "context" }> | null;
   isLoadingContent: boolean;
   contentError?: string | null;
   filesOpen: boolean;
@@ -21,6 +24,7 @@ export function WorkspaceSurfaceBody({
   reviewContent,
   selectedFile,
   selectedDiff,
+  selectedContext = null,
   isLoadingContent,
   contentError,
   filesOpen,
@@ -35,6 +39,15 @@ export function WorkspaceSurfaceBody({
         {reviewContent}
         {overlay}
       </>
+    );
+  }
+
+  if (selectedContext) {
+    return (
+      <ContextDetailsPanel
+        budget={selectedContext.budget}
+        usage={selectedContext.usage}
+      />
     );
   }
 

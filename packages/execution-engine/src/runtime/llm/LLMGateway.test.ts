@@ -97,6 +97,7 @@ describe("LLMGateway provider capabilities", () => {
     const response = await gateway.generateText(baseRequest);
 
     expect(projectVisibleTranscriptText(response.parts)).toBe("ok");
+    expect(response.usage.cost).toBe(0.01);
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
   });
 

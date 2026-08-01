@@ -15,6 +15,8 @@ const definition: HookDefinition = {
   configurationKey: "hooks.personal.startup",
 };
 
+const brainBaseUrl = `${window.location.origin}/__legioncode/brain`;
+
 describe("HookDefinitionsClient", () => {
   it("reads authenticated workspace definitions through the narrow API facade", async () => {
     const fetchImpl = vi.fn(async () =>
@@ -24,7 +26,7 @@ describe("HookDefinitionsClient", () => {
 
     await expect(client.list("workspace_1")).resolves.toEqual([definition]);
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://localhost:8788/api/workspaces/workspace_1/hooks",
+      `${brainBaseUrl}/api/workspaces/workspace_1/hooks`,
       expect.objectContaining({ credentials: "include" }),
     );
   });
@@ -41,7 +43,7 @@ describe("HookDefinitionsClient", () => {
       client.update("workspace_1", { ...definition, enabled: false }),
     ).resolves.toMatchObject({ enabled: false });
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://localhost:8788/api/workspaces/workspace_1/hooks/personal.session-start",
+      `${brainBaseUrl}/api/workspaces/workspace_1/hooks/personal.session-start`,
       expect.objectContaining({
         method: "PUT",
         credentials: "include",
@@ -65,7 +67,7 @@ describe("HookDefinitionsClient", () => {
       client.delete("workspace_1", definition.handlerId),
     ).resolves.toBeUndefined();
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://localhost:8788/api/workspaces/workspace_1/hooks/personal.session-start",
+      `${brainBaseUrl}/api/workspaces/workspace_1/hooks/personal.session-start`,
       expect.objectContaining({ method: "DELETE", credentials: "include" }),
     );
   });

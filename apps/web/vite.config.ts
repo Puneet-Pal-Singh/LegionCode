@@ -33,6 +33,13 @@ export default defineConfig(({ command, mode }) => {
     server: {
       port: 5174,
       strictPort: true,
+      proxy: {
+        "/__legioncode/brain": {
+          target: "http://127.0.0.1:8788",
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/__legioncode\/brain/, ""),
+        },
+      },
     },
     test: {
       globals: true,

@@ -1,8 +1,4 @@
 import type { Message } from "@ai-sdk/react";
-import {
-  isTurnActivityTranscriptPart,
-  type TurnActivityTranscriptPart,
-} from "@repo/shared-types";
 import { chatHistoryPath } from "../lib/platform-endpoints.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import type { ConversationScope } from "../hooks/conversationScope";
@@ -19,12 +15,10 @@ interface CorePart {
 
 type ServerMessagePart =
   | CorePart
-  | TurnActivityTranscriptPart
   | { type: string; [key: string]: unknown };
 
-type MessageWithActivityData = Message & {
+type MessageWithMetadataData = Message & {
   data: {
-    activityParts?: TurnActivityTranscriptPart[];
     metadata?: Record<string, unknown>;
   };
 };
@@ -35,7 +29,6 @@ interface ServerMessage {
   content: string | ServerMessagePart[];
   createdAt?: string | Date;
   data?: {
-    activityParts?: unknown[];
     metadata?: Record<string, unknown>;
   };
 }
@@ -197,9 +190,6 @@ export class ChatHydrationService {
       .map((msg, index) => {
         let content = "";
         const toolInvocations: ToolInvocation[] = [];
-        const activityParts: TurnActivityTranscriptPart[] = readActivityData(
-          msg.data,
-        );
         const metadata = msg.data?.metadata;
 
         if (typeof msg.content === "string") {
@@ -217,8 +207,6 @@ export class ChatHydrationService {
                 args: part.args || {},
                 result: null, // Results are pruned or handled separately
               });
-            } else if (isTurnActivityTranscriptPart(part)) {
-              activityParts.push(part);
             }
           });
         }
@@ -233,9 +221,8 @@ export class ChatHydrationService {
         if (toolInvocations.length > 0) {
           converted.toolInvocations = toolInvocations;
         }
-        if (activityParts.length > 0 || metadata) {
+        if (metadata) {
           return attachMessageData(converted, {
-            activityParts,
             metadata,
           });
         }
@@ -277,27 +264,17 @@ function isToolCallPart(
   return value.type === "tool-call";
 }
 
-function readActivityData(
-  data: ServerMessage["data"],
-): TurnActivityTranscriptPart[] {
-  return (data?.activityParts ?? []).filter(isTurnActivityTranscriptPart);
-}
-
 function attachMessageData(
   message: Message,
   data: {
-    activityParts: TurnActivityTranscriptPart[];
     metadata: Record<string, unknown> | undefined;
   },
 ): Message {
   const messageData = {
-    ...(data.activityParts.length > 0
-      ? { activityParts: data.activityParts }
-      : {}),
     ...(data.metadata ? { metadata: data.metadata } : {}),
   };
   return {
     ...message,
     data: messageData,
-  } as MessageWithActivityData;
+  } as MessageWithMetadataData;
 }

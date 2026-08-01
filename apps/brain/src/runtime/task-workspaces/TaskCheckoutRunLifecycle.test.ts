@@ -80,6 +80,7 @@ function executionSession(): SecureExecutionSessionPort {
   return {
     acquire: vi.fn(),
     recoverAfterSandboxLoss: vi.fn(),
+    cancelTask: vi.fn(),
     release: vi.fn(async () => undefined),
   };
 }

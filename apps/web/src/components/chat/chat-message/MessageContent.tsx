@@ -73,7 +73,7 @@ export function MessageContent({
 }): ReactNode {
   if (!content) return null;
   return isUser ? (
-    <div className="inline-block bg-[#262626] text-white px-4 py-2.5 rounded-2xl text-sm leading-relaxed">
+    <div className="inline-block max-w-full rounded-2xl bg-[#262626] px-4 py-2.5 text-left text-sm leading-relaxed text-white">
       <MarkdownMessageContent content={content} isUser />
     </div>
   ) : (

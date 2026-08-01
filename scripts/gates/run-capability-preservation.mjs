@@ -18,7 +18,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
-        "preserves transcript activity parts on hydrated assistant messages",
+        "replaces stale mounted messages with canonical history for the scope",
       ],
       [
         "apps/web/src/hooks/useChatPersistence.test.tsx",
@@ -30,7 +30,7 @@ const CAPABILITIES = [
       ],
       [
         "apps/brain/src/runtime/RunEngineResponsePersistence.test.ts",
-        "uses the latest user event as the assistant turn id when activity is empty",
+        "persists assistant deltas using the server-issued turn identity",
       ],
       [
         "packages/platform-client-sdk/src/providers/cross-client-lifecycle-parity.test.ts",
@@ -72,16 +72,16 @@ const CAPABILITIES = [
     owner: "@shadowbox/web",
     requiredTests: [
       [
-        "apps/web/src/components/chat/ChatInterface.test.tsx",
-        "does not let activity polling own an active lifecycle-backed run",
+        "apps/web/src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
+        "keeps settled workflow history visible without waiting for refresh",
       ],
       [
-        "apps/web/src/components/chat/chat-interface/useActivityPresentation.test.tsx",
-        "projects active thinking and elapsed time from canonical event timestamps",
+        "apps/web/src/hooks/useTurnLifecycleProjection.test.tsx",
+        "follows canonical lifecycle events into a projection",
       ],
       [
-        "apps/web/src/services/activity/TranscriptActivityParts.test.ts",
-        "prefers active live canonical activity over settled transcript rows",
+        "packages/platform-client-sdk/src/workflow/turn-workflow-projection.test.ts",
+        "preserves typed tool families and repeated ordered children",
       ],
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
@@ -95,10 +95,17 @@ const CAPABILITIES = [
         "@shadowbox/web",
         "test",
         "--",
-        "src/components/chat/ChatInterface.test.tsx",
-        "src/components/chat/chat-interface/useActivityPresentation.test.tsx",
-        "src/services/activity/TranscriptActivityParts.test.ts",
+        "src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
+        "src/hooks/useTurnLifecycleProjection.test.tsx",
         "src/hooks/useChatHydration.test.tsx",
+      ],
+      [
+        "pnpm",
+        "--filter",
+        "@repo/platform-client-sdk",
+        "test",
+        "--",
+        "src/workflow/turn-workflow-projection.test.ts",
       ],
     ],
   },

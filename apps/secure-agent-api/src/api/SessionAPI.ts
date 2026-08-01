@@ -7,6 +7,7 @@ import {
   SessionCreateRequestSchema,
   SessionResumeRequestSchema,
   ExecuteTaskRequestSchema,
+  CancelTaskRequestSchema,
   ExecuteTaskResponseSchema,
   validateRequestBody,
   jsonResponse,
@@ -301,7 +302,8 @@ async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
 
 function getRuntimeExecutionPort(
   runtime: RuntimeStub,
-): Pick<SandboxExecutionPort, "executeTask"> | null {
+): Pick<SandboxExecutionPort, "executeTask"> &
+  Partial<Pick<SandboxExecutionPort, "cancelTask">> | null {
   const candidate = runtime as Record<string, unknown>;
   const executionPort = candidate.executionPort;
   if (
@@ -309,7 +311,8 @@ function getRuntimeExecutionPort(
     typeof executionPort === "object" &&
     typeof (executionPort as SandboxExecutionPort).executeTask === "function"
   ) {
-    return executionPort as Pick<SandboxExecutionPort, "executeTask">;
+    return executionPort as Pick<SandboxExecutionPort, "executeTask"> &
+      Partial<Pick<SandboxExecutionPort, "cancelTask">>;
   }
 
   const executeTask = candidate.executeTask;
@@ -325,6 +328,15 @@ function getRuntimeExecutionPort(
           inputArg: TaskExecutionInput,
         ) => Promise<TaskExecutionResult>
       )(sessionId, input),
+    cancelTask: async (leaseId: string, taskId: string) => {
+      const cancelTask = candidate.cancelTask;
+      if (typeof cancelTask !== "function") {
+        return false;
+      }
+      return await (
+        cancelTask as (leaseIdArg: string, taskIdArg: string) => Promise<boolean>
+      )(leaseId, taskId);
+    },
   };
 }
 
@@ -910,6 +922,40 @@ export async function handleDeleteSession(
     );
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
+}
+
+export async function handleCancelTask(
+  request: Request,
+  runtime: RuntimeStub,
+): Promise<Response> {
+  const validation = await validateRequestBody(
+    request,
+    CancelTaskRequestSchema,
+  );
+  if (!validation.valid) {
+    return errorResponse(validation.error, "INVALID_REQUEST", 400);
+  }
+
+  const { sessionId, taskId } = validation.data;
+  const auth = await authorizeSessionRequest(request, runtime, sessionId);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  const executionPort = getRuntimeExecutionPort(runtime);
+  if (!executionPort?.cancelTask) {
+    return errorResponse(
+      "Runtime task cancellation is not implemented on this deployment",
+      EXECUTION_NOT_IMPLEMENTED_CODE,
+      501,
+    );
+  }
+
+  const cancelled = await executionPort.cancelTask(
+    auth.session.lease.leaseId,
+    taskId,
+  );
+  return jsonResponse({ cancelled, taskId }, 200);
 }
 
 export async function addLog(

@@ -30,6 +30,7 @@ interface UseChatResult {
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
 }
 
@@ -61,6 +62,7 @@ export function useChat(
     resetRun,
     isModelConfigReady,
     error,
+    clearNonCanonicalError,
     debugEvents,
   } = useChatCore(sessionId, runId, mode, productMode);
 
@@ -100,6 +102,7 @@ export function useChat(
     resetRun,
     isModelConfigReady,
     error,
+    clearNonCanonicalError,
     debugEvents,
   };
 }

@@ -375,7 +375,18 @@ async function findPackageRoot(root, collection, packageName) {
       continue;
     }
     const candidate = join(collectionRoot, entry.name);
-    const manifest = await readJson(join(candidate, "package.json"));
+    let manifest;
+    try {
+      manifest = await readJson(join(candidate, "package.json"));
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        // Build tooling can leave ignored artifact directories behind after a
+        // package is removed. They are not package roots and must not make the
+        // architecture gate fail before it can validate the declared policy.
+        continue;
+      }
+      throw error;
+    }
     if (manifest.name === packageName) {
       return candidate;
     }

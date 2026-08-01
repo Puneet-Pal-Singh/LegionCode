@@ -231,7 +231,12 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 
       const cloneResult = await this.executeGit(
         "git_clone",
-        { url: cloneUrl },
+        {
+          url: cloneUrl,
+          ...(this.pinnedCheckout
+            ? { startPoint: this.pinnedCheckout.authorizedCommitId }
+            : {}),
+        },
         request.runId,
       );
       if (!cloneResult.success) {

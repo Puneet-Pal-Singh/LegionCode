@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 import { useTurnLifecycleProjection } from "../../../hooks/useTurnLifecycleProjection.js";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 
@@ -15,14 +16,16 @@ export interface ActiveTurnProjection {
 export function useActiveTurnProjection(input: {
   turnId: string | null | undefined;
   transportLoading: boolean;
+  enabled?: boolean;
 }): ActiveTurnProjection {
   const normalizedTurnId = input.turnId?.trim() || null;
-  const turnId = normalizedTurnId?.startsWith("trn_")
-    ? normalizedTurnId
+  const parsedTurnId = normalizedTurnId
+    ? TurnIdSchema.safeParse(normalizedTurnId)
     : null;
+  const turnId = parsedTurnId?.success ? parsedTurnId.data : null;
   const { projection } = useTurnLifecycleProjection(
     turnId,
-    Boolean(turnId),
+    Boolean(turnId) && input.enabled !== false,
   );
 
   return useMemo(() => {

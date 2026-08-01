@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  MemoryEventStore,
   MemoryRunRepository,
+  MemoryThreadTitleRepository,
   MemoryTranscriptRepository,
 } from "@repo/persistence";
 import { ChatController } from "./ChatController";
@@ -104,6 +106,8 @@ function createMockRuntimeNamespace() {
 
 function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
   const oauthState = new Map<string, string>();
+  const transcripts = new MemoryTranscriptRepository();
+  const events = new MemoryEventStore();
 
   return {
     AI: {} as Env["AI"],
@@ -116,8 +120,12 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
         createIdentitySessionRecord(),
       revokeSession: async () => undefined,
     },
-    AUTH_TRANSCRIPT_REPOSITORY: new MemoryTranscriptRepository(),
+    AUTH_TRANSCRIPT_REPOSITORY: transcripts,
     AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
+      transcripts,
+      events,
+    ),
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
