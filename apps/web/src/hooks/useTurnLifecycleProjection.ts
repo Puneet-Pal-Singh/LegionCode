@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 import {
   createLifecycleClient,
   type LifecycleClient,

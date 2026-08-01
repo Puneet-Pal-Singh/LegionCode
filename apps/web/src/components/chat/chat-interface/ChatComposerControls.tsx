@@ -14,7 +14,7 @@ import { PermissionModeControl } from "../PermissionModeControl";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 
 export type ComposerLayout = "docked" | "hero";
 

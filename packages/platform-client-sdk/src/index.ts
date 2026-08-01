@@ -30,6 +30,17 @@ export {
 } from "./platform/hook-audit-projection.js";
 export {
   LifecycleEventSchema,
+  ApprovalIdSchema,
+  EventIdSchema,
+  ItemIdSchema,
+  RunAttemptIdSchema,
+  RunIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+  WorkspaceIdSchema,
+  ContextBudgetSnapshotSchema,
+  UsageCostSnapshotSchema,
+  TurnDiffPayloadSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
@@ -40,6 +51,8 @@ export {
   type ThreadId,
   type TurnDiffPayload,
   type TurnId,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
 } from "@repo/platform-protocol";
 export {
   turnIdFromRunId,

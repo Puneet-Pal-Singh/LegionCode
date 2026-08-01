@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import type { ApprovalDecisionKind, ApprovalRequest } from "@repo/shared-types";
-import { ApprovalIdSchema } from "@repo/platform-protocol";
+import { ApprovalIdSchema } from "@repo/platform-client-sdk";
 import {
   createLifecycleClient,
   type LifecycleClient,

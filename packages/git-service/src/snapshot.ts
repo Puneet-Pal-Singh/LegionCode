@@ -174,7 +174,11 @@ function parseNameStatus(
 
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index] ?? "";
-    let [statusToken = "", path = "", nextPath] = record.split("\t");
+    const [parsedStatusToken = "", parsedPath = "", parsedNextPath] =
+      record.split("\t");
+    const statusToken = parsedStatusToken;
+    let path = parsedPath;
+    let nextPath = parsedNextPath;
     if (!path && isStandaloneStatusToken(statusToken)) {
       path = records[index + 1] ?? "";
       index += 1;

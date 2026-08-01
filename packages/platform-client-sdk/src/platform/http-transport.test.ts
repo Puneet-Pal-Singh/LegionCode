@@ -16,7 +16,6 @@ import {
   createTurn,
   createTurnDiff,
 } from "./test-fixtures.js";
-import type { LifecycleEvent } from "@repo/platform-protocol";
 
 interface FetchCall {
   url: string;

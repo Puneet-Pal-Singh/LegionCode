@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 import { ContextDetailsPanel } from "./ContextDetailsPanel";
 
 const budget: ContextBudgetSnapshot = {

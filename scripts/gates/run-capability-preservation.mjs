@@ -73,7 +73,7 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
-        "collapses settled work while keeping ordered tool details outside the disclosure",
+        "keeps settled workflow history visible without waiting for refresh",
       ],
       [
         "apps/web/src/hooks/useTurnLifecycleProjection.test.tsx",

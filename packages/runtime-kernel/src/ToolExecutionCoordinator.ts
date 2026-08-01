@@ -1,7 +1,6 @@
 import { LifecycleTransitionError } from "@repo/platform-protocol";
 import type {
   ItemId,
-  LifecycleToolDisplay,
   ProtocolError,
   Run,
   RunAttemptId,

@@ -262,6 +262,15 @@ test("ignores transient Vite timestamp modules", async (context) => {
   assert.deepEqual(await validateArchitecture(root), []);
 });
 
+test("ignores orphaned package artifact directories", async (context) => {
+  const root = await createFixture(context);
+  await mkdir(join(root, "packages", "removed-package", ".turbo"), {
+    recursive: true,
+  });
+
+  assert.deepEqual(await validateArchitecture(root), []);
+});
+
 async function createFixture(context) {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "architecture-fixture-"));
   context.after(() => rm(fixtureRoot, { force: true, recursive: true }));

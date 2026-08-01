@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useCallback, useState } from "react";
+import { useRef, useEffect, useMemo, useCallback } from "react";
 import {
   RunIdSchema,
   RunAttemptIdSchema,
@@ -7,7 +7,7 @@ import {
   WorkspaceIdSchema,
   type ContextBudgetSnapshot,
   type UsageCostSnapshot,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
@@ -44,7 +44,6 @@ import {
   hasChangedFileSnapshot,
 } from "./chat-interface/changedFiles";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
-import type { LifecycleProjection } from "../../services/lifecycle/LifecycleProjection";
 import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
 import type { ArtifactOpenHandler } from "./artifactOpen";
 
@@ -145,15 +144,6 @@ export function ChatInterface({
     activeTurn.isActive ||
     activeTurn.isTransportPending ||
     awaitingCanonicalLifecycle;
-  const pendingWorkflowStartedAtRef = useRef<number | null>(null);
-  if (
-    awaitingCanonicalLifecycle &&
-    pendingWorkflowStartedAtRef.current === null
-  ) {
-    pendingWorkflowStartedAtRef.current = Date.now();
-  } else if (!awaitingCanonicalLifecycle) {
-    pendingWorkflowStartedAtRef.current = null;
-  }
   const latestAssistantMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === "assistant") {
@@ -251,33 +241,14 @@ export function ChatInterface({
     conversationTurns,
     lifecycleProjection?.turnId,
   );
-  const [observedLifecycleProjections, setObservedLifecycleProjections] =
-    useState<Record<string, LifecycleProjection>>({});
-
-  useEffect(() => {
-    setObservedLifecycleProjections({});
-  }, [runId, sessionId]);
-
-  useEffect(() => {
-    if (!lifecycleProjection) return;
-    setObservedLifecycleProjections((current) => ({
-      ...current,
-      [lifecycleProjection.turnId]: lifecycleProjection,
-    }));
-  }, [lifecycleProjection]);
-
   const lifecycleProjectionsByTurnId = useMemo(
     () =>
       mergeLifecycleProjections(
         historicalLifecycleProjections,
-        observedLifecycleProjections,
+        {},
         lifecycleProjection,
       ),
-    [
-      historicalLifecycleProjections,
-      lifecycleProjection,
-      observedLifecycleProjections,
-    ],
+    [historicalLifecycleProjections, lifecycleProjection],
   );
   const latestLifecycleProjection = useMemo(() => {
     if (lifecycleProjection) return lifecycleProjection;
@@ -451,9 +422,7 @@ export function ChatInterface({
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
       completedTurnReview={completedTurnReview}
       lifecycleProjection={lifecycleProjection}
-      pendingWorkflowStartedAt={
-        awaitingCanonicalLifecycle ? pendingWorkflowStartedAtRef.current : null
-      }
+      pendingWorkflow={awaitingCanonicalLifecycle}
     />
   );
 }

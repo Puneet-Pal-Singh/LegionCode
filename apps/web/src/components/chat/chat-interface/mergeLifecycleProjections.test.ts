@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { mergeLifecycleProjections } from "./mergeLifecycleProjections";
 

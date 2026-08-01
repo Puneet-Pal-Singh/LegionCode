@@ -5,7 +5,7 @@ import {
   ItemIdSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 import { createTurnWorkflowProjection } from "@repo/platform-client-sdk";
 import { CanonicalWorkflowSurface } from "./CanonicalWorkflowSurface.js";
 

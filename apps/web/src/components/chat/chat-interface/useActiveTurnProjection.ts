@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 import { useTurnLifecycleProjection } from "../../../hooks/useTurnLifecycleProjection.js";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 

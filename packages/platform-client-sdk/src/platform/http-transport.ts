@@ -12,7 +12,6 @@ import {
 } from "./errors.js";
 import type {
   GetTurnDiffRequest,
-  InterruptTurnRequest,
   CompactTurnRequest,
   ReplayLifecycleEventsRequest,
   SubmitLifecycleApprovalRequest,
@@ -71,7 +70,7 @@ export function createPlatformHttpTransport(
         options,
       ),
     interruptTurn: (payload, options) =>
-      request.json("POST", buildInterruptTurnPath(payload), payload, options),
+      request.json("POST", buildInterruptTurnPath(), payload, options),
     compactTurn: (payload, options) =>
       request.json("POST", buildCompactTurnPath(payload), payload, options),
     submitApproval: (payload, options) =>
@@ -482,7 +481,7 @@ function buildTurnDiffPath(request: GetTurnDiffRequest): string {
   return `/turns/${encodeURIComponent(TurnIdSchema.parse(request.turnId))}/diff`;
 }
 
-function buildInterruptTurnPath(_request: InterruptTurnRequest): string {
+function buildInterruptTurnPath(): string {
   return "/api/run/interrupt";
 }
 

@@ -20,12 +20,11 @@ export async function hasCanonicalLifecycleEvidence(
     () => abortController.abort("Canonical lifecycle evidence timed out."),
     timeoutMs,
   );
-  const iterator = lifecycleClient
-    .followTurnLifecycle(
-      { turnId },
-      { signal: abortController.signal },
-    )
-    [Symbol.asyncIterator]();
+  const stream = lifecycleClient.followTurnLifecycle(
+    { turnId },
+    { signal: abortController.signal },
+  );
+  const iterator = stream[Symbol.asyncIterator]();
 
   try {
     const first = await iterator.next();

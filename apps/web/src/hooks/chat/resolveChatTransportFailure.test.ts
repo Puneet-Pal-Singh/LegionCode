@@ -32,6 +32,7 @@ describe("hasCanonicalLifecycleEvidence", () => {
   it("does not hide a transport failure when canonical replay has no evidence", async () => {
     const lifecycleClient = {
       followTurnLifecycle: vi.fn(async function* () {
+        yield* [];
         return;
       }),
     } as unknown as LifecycleClient;

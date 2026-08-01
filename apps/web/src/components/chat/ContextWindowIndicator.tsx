@@ -1,7 +1,7 @@
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 import { cn } from "../../lib/utils";
 
 interface ContextWindowIndicatorProps {

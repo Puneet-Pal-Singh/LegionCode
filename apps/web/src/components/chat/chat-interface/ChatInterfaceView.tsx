@@ -60,7 +60,7 @@ interface ChatInterfaceViewProps {
   completedTurnReview: CompletedTurnReview;
   lifecycleProjection: LifecycleProjection | null;
   onCompact?: () => void;
-  pendingWorkflowStartedAt: number | null;
+  pendingWorkflow: boolean;
 }
 
 export const ChatInterfaceView = forwardRef<
@@ -130,9 +130,7 @@ function Transcript(props: ChatInterfaceViewProps) {
           />
         );
       })}
-      {props.pendingWorkflowStartedAt ? (
-        <PendingWorkflowSurface startedAt={props.pendingWorkflowStartedAt} />
-      ) : null}
+      {props.pendingWorkflow ? <PendingWorkflowSurface /> : null}
     </>
   );
 }

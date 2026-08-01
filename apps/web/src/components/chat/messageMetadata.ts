@@ -1,6 +1,6 @@
 import type { Message } from "@ai-sdk/react";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 
 export interface ChatMessageMetadata {
   modeLabel: string;

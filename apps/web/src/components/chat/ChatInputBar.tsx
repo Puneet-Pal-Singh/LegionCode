@@ -44,7 +44,7 @@ import { getReviewCommentDisplayLabel } from "../git/reviewComments";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 import { ContextWindowIndicator } from "./ContextWindowIndicator";
 import { useComposerPreferences } from "../../lib/composer-preferences";
 

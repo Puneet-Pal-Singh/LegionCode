@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
 import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
-import { TurnIdSchema } from "@repo/platform-protocol";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 
 describe("buildChatEntries", () => {
   it("preserves canonical transcript order", () => {

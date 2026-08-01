@@ -3,7 +3,7 @@ import type { DiffContent } from "@repo/shared-types";
 import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 
 export type TabType = "review" | "changes" | "files";
 

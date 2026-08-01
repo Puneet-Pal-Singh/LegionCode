@@ -11,7 +11,6 @@ import {
   Terminal,
   Wrench,
   ChevronDown,
-  type LucideIcon,
 } from "lucide-react";
 import {
   buildSegmentTitle,
@@ -191,7 +190,6 @@ function WorkflowItemRow({
   const label = reasoning
     ? (item.safeSummary ?? "Thinking")
     : resolveItemLabel(item);
-  const StatusIcon = resolveItemIcon(item);
   const detailLines = [
     item.detail,
     item.inputSummary,
@@ -215,17 +213,7 @@ function WorkflowItemRow({
       className="group py-0.5 text-[13px]"
     >
       <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
-        <StatusIcon
-          aria-hidden="true"
-          className={cn(
-            "mt-0.5 h-3.5 w-3.5 text-zinc-600",
-            item.status === "active" &&
-              "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
-            item.status === "completed" && "text-zinc-500",
-            item.status === "failed" && "text-zinc-400",
-            item.status === "interrupted" && "text-zinc-500",
-          )}
-        />
+        <WorkflowStatusIcon item={item} />
         {isInspectable ? (
           <button
             type="button"
@@ -410,26 +398,40 @@ function resolveItemLabel(item: WorkflowItem): string {
   return item.safeSummary ?? item.toolFamily ?? humanizeKind(item.kind);
 }
 
-function resolveItemIcon(item: WorkflowItem): LucideIcon {
-  if (item.status === "failed") return CircleAlert;
-  if (item.status === "interrupted") return Square;
-  if (item.status === "completed" && item.kind === "commentary") return Check;
+function WorkflowStatusIcon({ item }: { item: WorkflowItem }) {
+  const className = cn(
+    "mt-0.5 h-3.5 w-3.5 text-zinc-600",
+    item.status === "active" &&
+      "text-zinc-400 motion-safe:animate-pulse motion-reduce:animate-none",
+    item.status === "completed" && "text-zinc-500",
+    item.status === "failed" && "text-zinc-400",
+    item.status === "interrupted" && "text-zinc-500",
+  );
+  if (item.status === "failed") {
+    return <CircleAlert aria-hidden="true" className={className} />;
+  }
+  if (item.status === "interrupted") {
+    return <Square aria-hidden="true" className={className} />;
+  }
+  if (item.status === "completed" && item.kind === "commentary") {
+    return <Check aria-hidden="true" className={className} />;
+  }
   switch (item.toolFamily) {
     case "read":
-      return BookOpen;
+      return <BookOpen aria-hidden="true" className={className} />;
     case "search":
-      return Search;
+      return <Search aria-hidden="true" className={className} />;
     case "edit":
-      return FilePenLine;
+      return <FilePenLine aria-hidden="true" className={className} />;
     case "shell":
-      return Terminal;
+      return <Terminal aria-hidden="true" className={className} />;
     case "git":
-      return GitBranch;
+      return <GitBranch aria-hidden="true" className={className} />;
     case "web":
     case "browser":
-      return Globe;
+      return <Globe aria-hidden="true" className={className} />;
     default:
-      return Wrench;
+      return <Wrench aria-hidden="true" className={className} />;
   }
 }
 

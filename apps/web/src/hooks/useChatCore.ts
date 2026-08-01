@@ -4,7 +4,7 @@ import {
   RunIdSchema,
   ThreadIdSchema,
   TurnIdSchema,
-} from "@repo/platform-protocol";
+} from "@repo/platform-client-sdk";
 import {
   DEFAULT_RUN_MODE,
   type ProductMode,
