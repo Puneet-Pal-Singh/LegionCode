@@ -1,97 +1,94 @@
-# LegionCode
+<div align="center">
+  <img src="apps/web/public/assets/legioncode-logo.png" alt="LegionCode" width="500" />
 
-A web-native coding-agent workspace built on a custom Cloudflare-native execution harness.
+  <p><strong>An open-source coding-agent workspace for running tasks and reviewing code changes.</strong></p>
 
-## Launch Posture
+  <p>
+    <a href="https://legioncode.dev/">Website</a> ·
+    <a href="https://legioncode.dev/cloud/">Request private-alpha access</a> ·
+    <a href="https://legioncode.dev/docs/">Documentation</a>
+  </p>
 
-LegionCode is currently in **Public Alpha**.
+  <p>
+    <img alt="Private Alpha" src="https://img.shields.io/badge/status-private_alpha-f5c451" />
+    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-white" /></a>
+  </p>
+</div>
 
-> LegionCode is in public alpha. Expect rough edges, fast changes, and occasional breakage while the harness is actively evolving.
+> [!IMPORTANT]
+> **LegionCode is open source. LegionCode Cloud is in private alpha.** The current build demonstrates a complete coding-task workflow with task history and diff review. Reliability, execution isolation, and parallel-agent workflows are actively being rebuilt. It is not yet intended for production or sensitive repositories.
 
-## Repository Layout
+![LegionCode agent workspace showing a completed task, changed files, diff review, and an inline review comment](.github/assets/legioncode-agent-review.png)
+
+## What is LegionCode?
+
+LegionCode is an open-source workspace where coding agents work on your GitHub repositories. Give an agent a task, follow its work, and review every code change before you use it.
+
+## Private alpha today
+
+- Connect a GitHub repository and your preferred model provider.
+- Run a coding task and follow the agent's progress.
+- Review changed files, inspect diffs, and leave inline feedback.
+
+## In development
+
+- Reliable isolated execution for every run.
+- Parallel coding-agent workspaces.
+- Predictable recovery for failed and interrupted runs.
+- Durable task lifecycle across clients.
+- Desktop and CLI clients.
+- A public SDK and additional agent-harness adapters.
+
+## Try LegionCode Cloud
+
+Access to the hosted private alpha is approved in limited batches. Use a test repository or disposable branch, keep backups, and review every generated change.
+
+To try the hosted alpha:
+
+1. [Request access](https://legioncode.dev/cloud/) using the email associated with your GitHub account.
+2. After approval, sign in with GitHub and connect a repository.
+3. Add your model provider, submit a scoped task, and review the resulting diff.
+
+## Architecture
+
+LegionCode separates its browser interface, agent orchestration, and code-execution boundary:
+
+```text
+Web workspace → Brain → Secure agent API → Cloudflare Sandbox
+                       ↘ Durable Objects for run state
+```
+
+The Web app owns task control and review. Brain coordinates models, tools, and streaming responses. The secure-agent API performs filesystem, command, and Git operations inside a run-scoped workspace. Durable Objects retain orchestration and execution state.
 
 ```text
 apps/
-  web/               # React + Vite frontend
-  brain/             # Orchestration and API boundary
-  secure-agent-api/  # Sandbox execution + session API
+  web/               React + Vite control and review interface
+  brain/             Agent orchestration and public API boundary
+  secure-agent-api/  Sandbox execution, Git operations, and run state
 
 packages/
-  execution-engine/  # Runtime execution engine
-  shared-types/      # Cross-app contracts
-  ...
+  execution-engine/  Runtime execution policy and adapters
+  shared-types/      Cross-application contracts
 ```
 
-## Prerequisites
+Each execution is identified by a `runId`, which scopes its runtime state and workspace.
+
+## Run locally
+
+### Prerequisites
 
 - Node.js `>=18`
 - pnpm `>=9`
 
-## Bootstrap
+Local development is currently being stabilized. See the [local development guide](https://legioncode.dev/docs/local-development/) for required environment variables, Cloudflare bindings, app-specific commands, and verification steps.
 
-```bash
-pnpm install
-pnpm dev
-```
+## Contributing
 
-Run individual apps:
+LegionCode is evolving quickly. Contributions that improve runtime reliability, lifecycle correctness, and the end-to-end coding workflow are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-```bash
-pnpm --filter @shadowbox/web dev
-pnpm --filter @shadowbox/brain dev
-pnpm --filter @shadowbox/secure-agent-api dev
-```
+- Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+- Review the project standards in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-For reliable local runtime debugging, start one explicit localhost stack and verify the
-runtime fingerprints before testing:
+## License
 
-```bash
-pnpm --filter @shadowbox/secure-agent-api dev
-pnpm --filter @shadowbox/brain dev
-pnpm --filter @shadowbox/web dev
-```
-
-Local runtime checks:
-
-```bash
-curl http://localhost:8787/api/debug/runtime
-curl http://localhost:8788/api/debug/runtime
-curl "http://localhost:8788/api/debug/runtime?runId=<RUN_ID>"
-```
-
-Set `MUSCLE_BASE_URL=http://localhost:8787` in `apps/brain/.dev.vars` so Brain never
-guesses which secure-agent-api process owns your local ports. If `RUNTIME_GIT_SHA` is
-set in the app `.dev.vars`, the debug endpoints and response headers will expose it
-alongside startup timestamps and boot IDs.
-
-## Local Verification Workflow
-
-Run the same baseline gates we enforce in CI:
-
-```bash
-pnpm lint
-pnpm check-types
-pnpm check:boundaries
-pnpm --filter @shadowbox/web test -- --run
-pnpm --filter @shadowbox/brain test
-pnpm --filter @shadowbox/secure-agent-api test
-pnpm --filter @shadowbox/execution-engine test
-pnpm build
-```
-
-## Architecture and Contract Ownership
-
-- `apps/brain` owns public API boundary contracts.
-- `packages/shared-types` is the canonical cross-app schema source.
-- `packages/execution-engine` owns runtime execution policy and adapter orchestration.
-- Provider/model ownership and compatibility rules are documented in:
-  - `apps/brain/src/services/ai/PROVIDER_INTEGRATION_MATRIX.md`
-  - `docs/adr/ADR-003-provider-contract-ownership-and-matrix.md`
-
-## Documentation and Governance
-
-- Contribution guide: `CONTRIBUTING.md`
-- Code of conduct: `CODE_OF_CONDUCT.md`
-- Security policy: `SECURITY.md`
-- License: `LICENSE`
-- Architecture decisions: `docs/adr/`
+LegionCode is released under the [MIT License](LICENSE).

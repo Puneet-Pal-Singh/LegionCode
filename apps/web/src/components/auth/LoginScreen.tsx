@@ -71,10 +71,10 @@ export function LoginScreen({ onLogin, onSkip }: LoginScreenProps) {
         >
           <img
             alt="LegionCode"
-            className="h-10 w-auto"
-            height="40"
-            src="/assets/legioncode-wordmark.png"
-            width="164"
+            className="h-20 w-auto"
+            height="80"
+            src="/assets/legioncode-logo.png"
+            width="152"
           />
         </motion.div>
 

@@ -41,9 +41,9 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/assets/legioncode-og.png",
-        width: 1200,
-        height: 1200,
+        url: "/assets/legioncode-logo.png",
+        width: 1731,
+        height: 909,
         alt: "LegionCode",
       },
     ],
