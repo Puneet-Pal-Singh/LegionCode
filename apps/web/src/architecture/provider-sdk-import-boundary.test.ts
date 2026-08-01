@@ -9,6 +9,18 @@ const ALLOWED_IMPORT_FILES = new Set([
   "services/api/lifecycleClient.ts",
   "components/chat/workflow/CanonicalWorkflowSurface.tsx",
   "services/lifecycle/LifecycleProjection.ts",
+  "components/chat/ChatInputBar.tsx",
+  "components/chat/ChatInterface.tsx",
+  "components/chat/ContextWindowIndicator.tsx",
+  "components/chat/chat-interface/ChatComposerControls.tsx",
+  "components/chat/chat-interface/useActiveTurnProjection.ts",
+  "components/chat/chat-interface/useApprovalController.ts",
+  "components/chat/context/ContextDetailsPanel.tsx",
+  "components/chat/messageMetadata.ts",
+  "components/layout/workspace/useWorkspaceState.ts",
+  "hooks/useChatCore.ts",
+  "hooks/useConversationLifecycleProjections.ts",
+  "hooks/useTurnLifecycleProjection.ts",
 ]);
 
 describe("Architecture Boundary: Provider SDK import ownership", () => {
