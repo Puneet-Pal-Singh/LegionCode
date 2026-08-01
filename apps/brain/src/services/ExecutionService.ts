@@ -455,11 +455,7 @@ export class ExecutionService {
       if (!res.ok) {
         const expectedBootstrapMiss =
           executionResult &&
-          isExpectedGitStatusBootstrapFailure(
-            plugin,
-            action,
-            executionResult,
-          );
+          isExpectedGitStatusBootstrapFailure(plugin, action, executionResult);
         const logHttpFailure = expectedBootstrapMiss
           ? console.log
           : console.error;
@@ -468,14 +464,14 @@ export class ExecutionService {
             "execution/tool",
             expectedBootstrapMiss ? "http-warning" : "http-failed",
             {
-            runId: this.runId,
-            sessionId: this.sessionId,
-            secureSessionId: executionSession.sessionId,
-            taskId,
-            plugin,
-            action,
-            httpStatus: res.status,
-            elapsedMs: Date.now() - startedAt,
+              runId: this.runId,
+              sessionId: this.sessionId,
+              secureSessionId: executionSession.sessionId,
+              taskId,
+              plugin,
+              action,
+              httpStatus: res.status,
+              elapsedMs: Date.now() - startedAt,
             },
           ),
         );

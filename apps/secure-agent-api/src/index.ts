@@ -262,8 +262,7 @@ export default {
         request.method === "POST"
       ) {
         const authResponse = enforceInternalServiceBinding(request, env);
-        response =
-          authResponse ?? (await handleResumeSession(request, stub));
+        response = authResponse ?? (await handleResumeSession(request, stub));
       } else if (
         url.pathname === "/api/v1/execute" &&
         request.method === "POST"
