@@ -52,7 +52,12 @@ run("docker", [
     "git --version",
     "gh --version",
     "rg --version",
-    "test -x /usr/local/bin/my-redis-server",
+    "/usr/local/bin/my-redis-server >/tmp/redis.log 2>&1 & redis_pid=$!",
+    "redis_ready=false",
+    "for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do if nc -z 127.0.0.1 6378; then redis_ready=true; break; fi; sleep 0.1; done",
+    'kill "$redis_pid"',
+    'wait "$redis_pid" || true',
+    'test "$redis_ready" = true',
     'test -z "$(find /var/cache/apt /var/lib/apt/lists -type f -print -quit 2>/dev/null)"',
   ].join("; "),
 ]);
