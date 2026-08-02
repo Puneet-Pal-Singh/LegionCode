@@ -1,0 +1,8 @@
+{
+  "name": "legioncode-secure-container-tools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "tsx": "4.20.6"
+  }
+}

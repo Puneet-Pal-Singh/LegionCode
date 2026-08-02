@@ -6,6 +6,8 @@
 	"description": "A minimal example of using the Sandbox SDK",
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"predeploy:production": "corepack pnpm --dir ../.. gate:secure-container-image",
+		"deploy:production": "wrangler deploy --config wrangler.production.jsonc",
 		"dev": "wrangler dev --port 8787 --inspector-port 9229",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",

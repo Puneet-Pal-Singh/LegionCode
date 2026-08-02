@@ -1,122 +1,30 @@
 # syntax=docker/dockerfile:1
-# # ==========================================
-# # 🔧 CONFIGURATION (Edit these lines only)
-# # ==========================================
-# ARG GO_VERSION=1.23-bookworm
-# ARG REDIS_REPO_URL=https://github.com/Puneet-Pal-Singh/go-redis.git
-# ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.7.0
 
-# # ==========================================
-# # Stage 1: The Builder
-# # ==========================================
-# FROM golang:${GO_VERSION} AS builder
-
-# # Re-declare ARG because they reset after FROM
-# ARG REDIS_REPO_URL 
-
-# WORKDIR /app
-
-# # 1. Clone the repo using the variable
-# #    If you change the link at the top, this updates automatically.
-# RUN git clone ${REDIS_REPO_URL} .
-
-# # 2. Build
-# RUN CGO_ENABLED=0 GOOS=linux go build -o my-redis-server ./cmd/redis-server/
-
-# # ==========================================
-# # Stage 2: The Runtime
-# # ==========================================
-# FROM ${BASE_IMAGE}
-
-# USER root
-
-# # 1. Install Dependencies (Official Redis included for testing)
-# RUN apt-get update && \
-#     apt-get install -y python3 python3-pip netcat-openbsd redis-server && \
-#     rm -rf /var/lib/apt/lists/*
-
-# # 2. Install Python Libs
-# RUN python3 -m pip install redis requests numpy pandas
-
-# # 3. Copy Binary
-# COPY --from=builder /app/my-redis-server /usr/local/bin/my-redis-server
-# RUN chmod +x /usr/local/bin/my-redis-server
-
-# # 4. Setup Data Dir
-# RUN mkdir -p /data
-
-# WORKDIR /root
-
-# -----------------------------------------------------------------------------------------------
-# # ==========================================
-# # 🔧 CONFIGURATION
-# # ==========================================
-# ARG GO_VERSION=1.23-bookworm
-# ARG REDIS_REPO_URL=https://github.com/Puneet-Pal-Singh/go-redis.git
-# ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.7.0
-
-# # Stage 1: The Builder (Go-Redis)
-# FROM golang:${GO_VERSION} AS builder
-# ARG REDIS_REPO_URL 
-# WORKDIR /app
-# RUN git clone ${REDIS_REPO_URL} .
-# RUN CGO_ENABLED=0 GOOS=linux go build -o my-redis-server ./cmd/redis-server/
-
-# # Stage 2: The Universal Runtime
-# FROM ${BASE_IMAGE}
-# USER root
-
-# # 1. Install System Dependencies
-# RUN apt-get update && \
-#     apt-get install -y \
-#     python3 python3-pip \
-#     netcat-openbsd redis-server \
-#     curl git build-essential \
-#     && rm -rf /var/lib/apt/lists/*
-
-# # 2. Install Node.js (v20 LTS) & TS Tools
-# RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-#     apt-get install -y nodejs && \
-#     npm install -g typescript tsx
-
-# # 3. Install Rust (Minimal Profile)
-# ENV RUSTUP_HOME=/usr/local/rustup \
-#     CARGO_HOME=/usr/local/cargo \
-#     PATH=/usr/local/cargo/bin:$PATH
-# RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
-
-# # 4. Install Python Libs
-# RUN python3 -m pip install redis requests numpy pandas
-
-# # 5. Copy Go-Redis Binary
-# COPY --from=builder /app/my-redis-server /usr/local/bin/my-redis-server
-# RUN chmod +x /usr/local/bin/my-redis-server
-
-# # 6. Setup Data Dir
-# RUN mkdir -p /data
-# WORKDIR /root
-
-
-# ----------------------------------------------------------------------------------------------------
 # ==========================================
 # 🔧 GLOBAL CONFIGURATION
 # ==========================================
-ARG GO_VERSION=1.23-bookworm
+ARG GO_IMAGE=docker.io/library/golang:1.23-bookworm@sha256:167053a2bb901972bf2c1611f8f52c44d5fe7e762e5cab213708d82c421614db
 ARG REDIS_REPO_URL=https://github.com/Puneet-Pal-Singh/go-redis.git
-ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.12.3
+ARG REDIS_REPO_REF=0c1f4b75474c3c7f64474ee0b0ddb1ef75df96e2
+ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.12.3@sha256:23f67e16131b780865a5fa5aa3c8607408a730105c248836409f4e02bb6bf042
 ARG SANDBOX_IMAGE_PLATFORM=linux/amd64
+ARG UBUNTU_SNAPSHOT=20260802T000000Z
 
 # ==========================================
 # Stage 1: The Go Builder (Go-Redis)
 # ==========================================
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS go-builder
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS go-builder
 
-ARG REDIS_REPO_URL 
+ARG REDIS_REPO_URL
+ARG REDIS_REPO_REF
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
 WORKDIR /app
-RUN git clone ${REDIS_REPO_URL} .
+RUN git init \
+    && git remote add origin "${REDIS_REPO_URL}" \
+    && git fetch --depth 1 origin "${REDIS_REPO_REF}" \
+    && git checkout --detach FETCH_HEAD
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o redis-binary ./cmd/redis-server/
 
 # ==========================================
@@ -125,35 +33,38 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o redis-binary
 FROM --platform=${SANDBOX_IMAGE_PLATFORM} ${BASE_IMAGE}
 USER root
 
+ARG UBUNTU_SNAPSHOT
 ENV DEBIAN_FRONTEND=noninteractive
-ENV RUSTUP_HOME=/usr/local/rustup
-ENV CARGO_HOME=/usr/local/cargo
-ENV PATH=/usr/local/cargo/bin:$PATH
-
 # 1. Install only the runtime packages we actually need.
 # cloudflare/sandbox already includes node, npm, npx, git, and curl, so we do not reinstall them here.
-# We intentionally avoid shipping a full C toolchain in the base image for launch; Python packages that
-# require native compilation can still be handled as a future optimization path if they become essential.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip \
-    netcat-openbsd \
-    ripgrep \
-    gh \
-    && rm -rf /var/lib/apt/lists/*
+# The packaged Rust compiler brings its linker explicitly; the previous Rustup-only layer exposed rustc
+# but could not produce binaries because no linker was installed.
+RUN sed -i -E "s#http://(archive|security).ubuntu.com/ubuntu/#https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/#g" /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    gh=2.4.0+dfsg1-2 \
+    netcat-openbsd=1.218-4ubuntu1 \
+    python3=3.10.6-1~22.04.1 \
+    python3-pip=22.0.2+dfsg-1ubuntu0.7 \
+    ripgrep=13.0.0-2ubuntu0.1 \
+    rustc=1.75.0+dfsg0ubuntu1~bpo0-0ubuntu0.22.04.1 \
+    && apt-get clean \
+    && rm -rf /var/cache/apt/* /var/lib/apt/lists/*
 
-# 2. Add only the TypeScript runner required by the Node plugin.
-RUN npm install -g --no-audit --no-fund tsx@4.20.6 \
+# 2. Add only the lockfile-pinned TypeScript runner required by the Node plugin.
+COPY container-tools/package.json container-tools/package-lock.json /opt/legioncode/container-tools/
+RUN npm ci --prefix /opt/legioncode/container-tools --omit=dev --no-audit --no-fund \
+    && ln -s /opt/legioncode/container-tools/node_modules/.bin/tsx /usr/local/bin/tsx \
     && npm cache clean --force
 
-# 3. Install the minimal Rust toolchain used by the Rust plugin.
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
-RUN rm -rf /usr/local/cargo/registry /usr/local/cargo/git
-
-# 4. Preinstall only the lightweight Python packages we actually want available by default.
+# 3. Preinstall only the hash-locked lightweight Python packages we want available by default.
 # Heavy libraries like numpy/pandas can still be installed on demand by the Python plugin.
-RUN python3 -m pip install --no-cache-dir redis requests
+COPY container-requirements.txt /tmp/container-requirements.txt
+RUN python3 -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
+    -r /tmp/container-requirements.txt \
+    && rm /tmp/container-requirements.txt
 
-# 5. Copy Pre-compiled Go Binary from Stage 1
+# 4. Copy Pre-compiled Go Binary from Stage 1
 COPY --from=go-builder /app/redis-binary /usr/local/bin/my-redis-server
 RUN chmod +x /usr/local/bin/my-redis-server && mkdir -p /data
 
