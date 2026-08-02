@@ -89,6 +89,26 @@
   }
 }
 
+.turn-lifecycle-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgba(113, 113, 122, 0.9) 0%,
+    rgba(244, 244, 245, 0.98) 45%,
+    rgba(113, 113, 122, 0.9) 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-lifecycle-shimmer {
+    animation: none;
+    color: rgb(161 161 170);
+  }
+}
+
 @keyframes slide-up {
   from {
     opacity: 0;

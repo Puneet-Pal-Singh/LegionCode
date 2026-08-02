@@ -31,6 +31,48 @@ export const LIFECYCLE_AUTHORITY_RULES = [
     token: "live_git_empty_fallback",
     message: "review source selection must not silently fallback to saved edits",
   },
+  {
+    kind: "token_absent",
+    path: "apps/web/src/components/chat",
+    token: "fallbackApproval",
+    message: "approval UI must use canonical lifecycle projection only",
+  },
+  {
+    kind: "token_absent",
+    path: "apps/web/src/services/activity",
+    token: "fallbackSessionId",
+    message: "activity projection must not use fallback session authority",
+  },
+  {
+    kind: "token_absent",
+    path: "apps/web/src/services/ChatHydrationService.ts",
+    token: "tool_calls",
+    message: "hydration must not restore legacy assistant tool_calls",
+  },
+  {
+    kind: "token_absent",
+    path: "apps/web/src",
+    token: "loadSessionPendingQuery",
+    message: "prompt replay must not be driven by browser storage",
+  },
+  {
+    kind: "token_absent",
+    path: "apps/web/src",
+    token: "saveSessionPendingQuery",
+    message: "prompt submission must not persist pending prompts to browser storage",
+  },
+  {
+    kind: "token_absent",
+    path: "apps/web/src",
+    token: "clearSessionPendingQuery",
+    message: "prompt lifecycle must not depend on pending browser-storage cleanup",
+  },
+  {
+    kind: "token_absent",
+    path: "apps/web/src",
+    token: "shadowbox:pending-query",
+    message: "browser storage must not own prompt lifecycle state",
+  },
 ];
 
 export function findLifecycleAuthorityViolations(projectRoot) {

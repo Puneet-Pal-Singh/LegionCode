@@ -2,13 +2,16 @@ import type { Env } from "../types/ai";
 import {
   ApprovalDecisionKindSchema,
   type ApprovalDecisionKind,
-  parseActivityFeedSnapshot,
 } from "@repo/shared-types";
+import { projectRunActivityFeed } from "@shadowbox/execution-engine/runtime";
+import type { RunStatus as RuntimeRunStatus } from "@shadowbox/orchestrator-core";
 import { z } from "zod";
 import { getCorsHeaders } from "../lib/cors";
 import { getBrainRuntimeHeaders } from "../core/observability/runtime";
 import { fetchRunRuntimeRoute } from "./chat-runtime-helpers";
+import { RunInterruptRequestSchema } from "../runtime/RunInterruptContract";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
+import { mapRunEventRecordsToCanonicalEvents } from "../services/runs/RunEventRecordMapper";
 import {
   getAuthenticatedUserSession,
   isSessionStoreUnavailableError,
@@ -18,12 +21,20 @@ import type {
   RunRecord,
   RunStepRecord,
 } from "@repo/persistence";
+import {
+  RUN_EVENT_TYPES,
+  type ApprovalRequest,
+  type RunEvent,
+} from "@repo/shared-types";
 
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 const RuntimeOrchestratorBackendSchema = z.enum([
   "execution-engine-v1",
   "cloudflare_agents",
 ]);
+const InterruptRunRequestSchema = RunInterruptRequestSchema.extend({
+  orchestratorBackend: RuntimeOrchestratorBackendSchema.optional(),
+});
 const ApproveRunRequestSchema = z.object({
   runId: z.string().trim().min(1),
   requestId: z.string().trim().min(1),
@@ -50,6 +61,8 @@ interface RunSummaryResponse {
 
 export class RunController {
   static async getSummary(req: Request, env: Env): Promise<Response> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId")?.trim();
@@ -76,6 +89,9 @@ export class RunController {
       });
 
       if (!summary) {
+        console.warn(
+          `[run/summary] requestId=${requestId} runId=${runId} status=not-found elapsedMs=${Date.now() - startedAt}`,
+        );
         return errorResponse(req, env, "Run not found", 404);
       }
 
@@ -94,32 +110,31 @@ export class RunController {
     }
   }
 
-  static async cancel(req: Request, env: Env): Promise<Response> {
+  static async interrupt(req: Request, env: Env): Promise<Response> {
     try {
-      const body = (await req.json().catch(() => null)) as {
-        runId?: string;
-        orchestratorBackend?: RuntimeOrchestratorBackend;
-      } | null;
-      const runId = body?.runId?.trim();
-      const requestedBackend =
-        body?.orchestratorBackend ?? "execution-engine-v1";
-      if (!runId) {
-        return errorResponse(req, env, "runId is required", 400);
+      const parsed = InterruptRunRequestSchema.safeParse(
+        await req.json().catch(() => null),
+      );
+      if (!parsed.success) {
+        return errorResponse(req, env, "Invalid interrupt payload", 400);
       }
+      const payload = parsed.data;
+      const requestedBackend =
+        payload.orchestratorBackend ?? "execution-engine-v1";
 
       const auth = await getAuthenticatedUserSession(req, env);
       if (!auth) {
         return errorResponse(req, env, "Unauthorized", 401);
       }
 
-      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
+      const ownsRun = await verifyRunIdentity(env, payload, auth.userId);
       if (!ownsRun) {
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      const response = await fetchRunCancelFromRuntime(
+      const response = await fetchRunInterruptFromRuntime(
         env,
-        runId,
+        payload,
         requestedBackend,
       );
       if (!response.ok) {
@@ -128,22 +143,22 @@ export class RunController {
         return errorResponse(
           req,
           env,
-          `Failed to cancel run${suffix}`,
+          `Failed to interrupt run${suffix}`,
           response.status,
         );
       }
 
-      const payload = (await response.json()) as unknown;
-      return jsonResponse(req, env, payload);
+      const responsePayload = (await response.json()) as unknown;
+      return jsonResponse(req, env, responsePayload);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
         return errorResponse(req, env, error.message, 503);
       }
-      console.error("[RunController:cancel] Error:", error);
+      console.error("[RunController:interrupt] Error:", error);
       return errorResponse(
         req,
         env,
-        error instanceof Error ? error.message : "Failed to cancel run",
+        error instanceof Error ? error.message : "Failed to interrupt run",
         500,
       );
     }
@@ -190,13 +205,11 @@ export class RunController {
   }
 
   static async getEvents(req: Request, env: Env): Promise<Response> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId")?.trim();
-      const requestedBackend = parseRequestedBackend(
-        url.searchParams.get("backend"),
-      );
-
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
       }
@@ -215,9 +228,13 @@ export class RunController {
       });
 
       if (!result) {
+        console.warn(
+          `[run/events] requestId=${requestId} runId=${runId} status=not-found elapsedMs=${Date.now() - startedAt}`,
+        );
         return errorResponse(req, env, "Run not found", 404);
       }
-      return jsonResponse(req, env, result);
+      const events = mapRunEventRecordsToCanonicalEvents(result);
+      return jsonResponse(req, env, events);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
         return errorResponse(req, env, error.message, 503);
@@ -232,67 +249,12 @@ export class RunController {
     }
   }
 
-  static async getEventsStream(req: Request, env: Env): Promise<Response> {
-    try {
-      const url = new URL(req.url);
-      const runId = url.searchParams.get("runId")?.trim();
-      const requestedBackend = parseRequestedBackend(
-        url.searchParams.get("backend"),
-      );
-
-      if (!runId) {
-        return errorResponse(req, env, "runId is required", 400);
-      }
-
-      const auth = await getAuthenticatedUserSession(req, env);
-      if (!auth) {
-        return errorResponse(req, env, "Unauthorized", 401);
-      }
-
-      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
-      if (!ownsRun) {
-        return errorResponse(req, env, "Run not found", 404);
-      }
-
-      const response = await fetchRunEventsStreamFromRuntime(
-        req,
-        env,
-        runId,
-        requestedBackend,
-      );
-      if (!response.ok) {
-        const details = await readErrorPreview(response);
-        const suffix = details ? `: ${details}` : "";
-        return errorResponse(
-          req,
-          env,
-          `Failed to stream run events${suffix}`,
-          response.status,
-        );
-      }
-
-      return response;
-    } catch (error) {
-      if (isSessionStoreUnavailableError(error)) {
-        return errorResponse(req, env, error.message, 503);
-      }
-      console.error("[RunController:getEventsStream] Error:", error);
-      return errorResponse(
-        req,
-        env,
-        error instanceof Error ? error.message : "Failed to stream run events",
-        500,
-      );
-    }
-  }
-
   static async getActivity(req: Request, env: Env): Promise<Response> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     try {
       const url = new URL(req.url);
       const runId = url.searchParams.get("runId")?.trim();
-      const requestedBackend = parseRequestedBackend(
-        url.searchParams.get("backend"),
-      );
 
       if (!runId) {
         return errorResponse(req, env, "runId is required", 400);
@@ -303,28 +265,33 @@ export class RunController {
         return errorResponse(req, env, "Unauthorized", 401);
       }
 
-      const ownsRun = await verifyRunOwnership(env, runId, auth.userId);
-      if (!ownsRun) {
+      const persisted = await withRunRepository(env, async (repo) => {
+        const run = await repo.getRun(runId, auth.userId);
+        if (!run) {
+          return null;
+        }
+        const events = mapRunEventRecordsToCanonicalEvents(
+          await repo.listRunEvents(runId, auth.userId),
+        );
+        return { run, events };
+      });
+      if (!persisted) {
+        console.warn(
+          `[run/activity] requestId=${requestId} runId=${runId} status=not-found elapsedMs=${Date.now() - startedAt}`,
+        );
         return errorResponse(req, env, "Run not found", 404);
       }
 
-      const response = await fetchRunActivityFromRuntime(
-        env,
+      const payload = projectRunActivityFeed({
         runId,
-        requestedBackend,
-      );
-      if (!response.ok) {
-        const details = await readErrorPreview(response);
-        const suffix = details ? `: ${details}` : "";
-        return errorResponse(
-          req,
-          env,
-          `Failed to fetch run activity${suffix}`,
-          response.status,
-        );
-      }
-
-      const payload = parseActivityFeedSnapshot(await response.json());
+        run: {
+          id: persisted.run.id,
+          sessionId: persisted.run.sessionId,
+          status: mapPersistedStatusToRuntimeStatus(persisted.run.status),
+          metadata: { prompt: "" },
+        },
+        events: persisted.events,
+      });
       return jsonResponse(req, env, payload);
     } catch (error) {
       if (isSessionStoreUnavailableError(error)) {
@@ -347,6 +314,9 @@ function buildPostgresRunSummary(
   steps: RunStepRecord[],
 ): RunSummaryResponse {
   const terminalState = resolvePostgresTerminalState(run.status, steps);
+  const approvalEvents = mapRunEventRecordsToCanonicalEvents(
+    events.filter(isApprovalEventRecord),
+  );
   return {
     runId: run.id,
     status: run.status,
@@ -362,7 +332,32 @@ function buildPostgresRunSummary(
     terminalMessage: terminalState
       ? buildPostgresTerminalMessage(terminalState, steps)
       : null,
+    pendingApproval: resolvePendingApproval(approvalEvents),
   };
+}
+
+function isApprovalEventRecord(event: RunEventRecord): boolean {
+  return (
+    event.eventType === RUN_EVENT_TYPES.APPROVAL_REQUESTED ||
+    event.eventType === RUN_EVENT_TYPES.APPROVAL_RESOLVED
+  );
+}
+
+function resolvePendingApproval(
+  events: readonly RunEvent[],
+): ApprovalRequest | null {
+  const pending = new Map<string, ApprovalRequest>();
+  for (const event of events) {
+    if (event.type === RUN_EVENT_TYPES.APPROVAL_REQUESTED) {
+      pending.set(event.payload.request.requestId, event.payload.request);
+      continue;
+    }
+    if (event.type === RUN_EVENT_TYPES.APPROVAL_RESOLVED) {
+      pending.delete(event.payload.requestId);
+    }
+  }
+
+  return [...pending.values()].at(-1) ?? null;
 }
 
 function countStepsByStatus(
@@ -370,6 +365,25 @@ function countStepsByStatus(
   status: RunStepRecord["status"],
 ): number {
   return steps.filter((step) => step.status === status).length;
+}
+
+function mapPersistedStatusToRuntimeStatus(
+  status: RunRecord["status"],
+): RuntimeRunStatus {
+  switch (status) {
+    case "created":
+      return "CREATED";
+    case "running":
+      return "RUNNING";
+    case "paused":
+      return "PAUSED";
+    case "completed":
+      return "COMPLETED";
+    case "failed":
+      return "FAILED";
+    case "cancelled":
+      return "CANCELLED";
+  }
 }
 
 function resolvePostgresTerminalState(
@@ -479,15 +493,30 @@ async function verifyRunOwnership(
   });
 }
 
-async function fetchRunCancelFromRuntime(
+async function verifyRunIdentity(
   env: Env,
-  runId: string,
+  payload: z.infer<typeof InterruptRunRequestSchema>,
+  userId: string,
+): Promise<boolean> {
+  return await withRunRepository(env, async (repo) => {
+    const run = await repo.getRun(payload.runId, userId);
+    return Boolean(
+      run &&
+        run.sessionId === payload.sessionId &&
+        run.workspaceId === payload.workspaceId,
+    );
+  });
+}
+
+async function fetchRunInterruptFromRuntime(
+  env: Env,
+  payload: z.infer<typeof InterruptRunRequestSchema>,
   requestedBackend: RuntimeOrchestratorBackend,
 ): Promise<Response> {
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+  return fetchRunRuntimeRoute(env, payload.runId, requestedBackend, {
     method: "POST",
-    path: "/cancel",
-    body: JSON.stringify({ runId }),
+    path: "/interrupt",
+    body: JSON.stringify(payload),
     headers: {
       "Content-Type": "application/json",
     },
@@ -596,41 +625,6 @@ function extractErrorMessage(error: unknown): string {
     }
   }
   return "";
-}
-
-async function fetchRunEventsStreamFromRuntime(
-  req: Request,
-  env: Env,
-  runId: string,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<Response> {
-  const headers = buildRuntimeForwardHeaders(req);
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
-    method: "GET",
-    path: `/events/stream?runId=${encodeURIComponent(runId)}`,
-    ...(headers ? { headers } : {}),
-  });
-}
-
-function buildRuntimeForwardHeaders(
-  req: Request,
-): Record<string, string> | null {
-  const origin = req.headers.get("Origin");
-  if (!origin) {
-    return null;
-  }
-  return { Origin: origin };
-}
-
-async function fetchRunActivityFromRuntime(
-  env: Env,
-  runId: string,
-  requestedBackend: RuntimeOrchestratorBackend,
-): Promise<Response> {
-  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
-    method: "GET",
-    path: `/activity?runId=${encodeURIComponent(runId)}`,
-  });
 }
 
 function parseRequestedBackend(

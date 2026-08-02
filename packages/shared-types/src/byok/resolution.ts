@@ -28,6 +28,7 @@ export const BYOKResolutionSchema = z.object({
 
   /** Resolved model ID */
   modelId: z.string().min(1),
+  contextWindow: z.number().int().positive().optional(),
 
   /** Which resolution step was used */
   resolvedAt: z.enum([

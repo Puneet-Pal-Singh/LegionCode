@@ -1,15 +1,15 @@
 /**
  * Session API Handlers
- * HTTP endpoints for CloudSandboxExecutor integration
+ * HTTP endpoints for the canonical Brain-to-secure-runtime boundary.
  */
 
 import {
   SessionCreateRequestSchema,
+  SessionResumeRequestSchema,
   ExecuteTaskRequestSchema,
+  CancelTaskRequestSchema,
   ExecuteTaskResponseSchema,
-  LogStreamQuerySchema,
   validateRequestBody,
-  validateQueryParams,
   jsonResponse,
   errorResponse,
   type ExecuteTaskRequest,
@@ -18,9 +18,18 @@ import {
 import type {
   SandboxExecutionPort,
   TaskExecutionInput,
+  TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
 import type { RuntimeEventPublisher } from "../services/runtime-events/InternalRuntimeEventClient";
 import type { JsonValue } from "@repo/shared-types";
+import {
+  createSandboxLease,
+  type SandboxExecutionLease,
+} from "../ports/SandboxExecutionLease";
+import {
+  sanitizeLogText,
+  sanitizeUnknownError,
+} from "../core/security/LogSanitizer";
 
 type RuntimeStub = Record<string, unknown>;
 
@@ -34,6 +43,9 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
+  workspaceScope: WorkspaceScope;
+  lease: SandboxExecutionLease;
+  recoveryExhausted?: boolean;
 }
 
 interface PublicSessionRecord {
@@ -42,6 +54,17 @@ interface PublicSessionRecord {
   repoPath: string;
   expiresAt: number;
   createdAt: number;
+  workspaceScope: WorkspaceScope;
+  lease: SandboxExecutionLease;
+}
+
+interface WorkspaceScope {
+  runId: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
 }
 
 interface SessionLogEntry {
@@ -69,6 +92,10 @@ interface RuntimeSessionStore {
   ) => Promise<SessionLogEntry[]>;
   deleteExecutionSession: (sessionId: string) => Promise<void>;
 }
+
+type LeaseRuntime = RuntimeStub & {
+  releaseLease?: (leaseId: string) => Promise<void>;
+};
 
 function generateSessionId(): string {
   const randomBytes = new Uint8Array(8);
@@ -153,7 +180,8 @@ async function storeSession(
   taskId: string,
   repoPath: string,
   token: string,
-): Promise<number> {
+  workspaceScope: WorkspaceScope,
+): Promise<{ expiresAt: number; lease: SandboxExecutionLease }> {
   const sessionStore = getRuntimeSessionStore(runtime);
   if (!sessionStore) {
     throw new Error("Session storage is unavailable");
@@ -161,6 +189,12 @@ async function storeSession(
 
   const now = Date.now();
   const expiresAt = now + SESSION_TTL_MS;
+  const lease = await createSandboxLease({
+    workspaceScope,
+    owner: sessionId,
+    correlationId: `secure-api:${sessionId}`,
+    now,
+  });
   await sessionStore.storeExecutionSession(sessionId, {
     runId,
     taskId,
@@ -168,8 +202,10 @@ async function storeSession(
     expiresAt,
     token,
     createdAt: now,
+    workspaceScope,
+    lease,
   });
-  return expiresAt;
+  return { expiresAt, lease };
 }
 
 async function getActiveSession(
@@ -187,6 +223,10 @@ async function getActiveSession(
   }
 
   if (Date.now() > session.expiresAt) {
+    const releaseLease = (runtime as LeaseRuntime).releaseLease;
+    if (typeof releaseLease === "function") {
+      await releaseLease(session.lease.leaseId);
+    }
     await sessionStore.deleteExecutionSession(sessionId);
     return null;
   }
@@ -211,7 +251,7 @@ async function recordLog(
     taskId,
     timestamp: Date.now(),
     level,
-    message,
+    message: sanitizeLogText(message),
     source,
   });
 }
@@ -262,7 +302,8 @@ async function fetchManifest(runtime: RuntimeStub): Promise<unknown> {
 
 function getRuntimeExecutionPort(
   runtime: RuntimeStub,
-): Pick<SandboxExecutionPort, "executeTask"> | null {
+): Pick<SandboxExecutionPort, "executeTask"> &
+  Partial<Pick<SandboxExecutionPort, "cancelTask">> | null {
   const candidate = runtime as Record<string, unknown>;
   const executionPort = candidate.executionPort;
   if (
@@ -270,7 +311,8 @@ function getRuntimeExecutionPort(
     typeof executionPort === "object" &&
     typeof (executionPort as SandboxExecutionPort).executeTask === "function"
   ) {
-    return executionPort as Pick<SandboxExecutionPort, "executeTask">;
+    return executionPort as Pick<SandboxExecutionPort, "executeTask"> &
+      Partial<Pick<SandboxExecutionPort, "cancelTask">>;
   }
 
   const executeTask = candidate.executeTask;
@@ -284,8 +326,17 @@ function getRuntimeExecutionPort(
         executeTask as (
           sessionIdArg: string,
           inputArg: TaskExecutionInput,
-        ) => Promise<ExecuteTaskResponse>
+        ) => Promise<TaskExecutionResult>
       )(sessionId, input),
+    cancelTask: async (leaseId: string, taskId: string) => {
+      const cancelTask = candidate.cancelTask;
+      if (typeof cancelTask !== "function") {
+        return false;
+      }
+      return await (
+        cancelTask as (leaseIdArg: string, taskIdArg: string) => Promise<boolean>
+      )(leaseId, taskId);
+    },
   };
 }
 
@@ -294,12 +345,19 @@ function extractSessionIdFromPath(pathname: string): string | null {
   return match?.[1] ?? null;
 }
 
+function extractResumedSessionIdFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/v1\/session\/([^/]+)\/resume$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
 function parseExecutionResponse(result: unknown): ExecuteTaskResponse | null {
   const parsed = ExecuteTaskResponseSchema.safeParse(result);
   return parsed.success ? parsed.data : null;
 }
 
-function toTaskExecutionInput(request: ExecuteTaskRequest): TaskExecutionInput {
+function toTaskExecutionInput(
+  request: ExecuteTaskRequest,
+): Omit<TaskExecutionInput, "lease"> {
   return {
     taskId: request.taskId,
     action: request.action,
@@ -307,6 +365,84 @@ function toTaskExecutionInput(request: ExecuteTaskRequest): TaskExecutionInput {
     timeout: request.timeout,
     retryable: request.retryable,
   };
+}
+
+function getExecutionHttpStatus(result: ExecuteTaskResponse): number {
+  if (result.status === "success") return 200;
+  if (result.status === "timeout") return 504;
+  if (result.status === "cancelled") return 499;
+  if (result.status === "sandbox_unavailable") {
+    return 503;
+  }
+  return 422;
+}
+
+function hasMatchingWorkspaceScope(
+  session: SessionRecord,
+  params: Record<string, unknown>,
+): boolean {
+  const requestedRunId = params.runId;
+  if (requestedRunId !== undefined && requestedRunId !== session.runId) {
+    return false;
+  }
+  const candidate = params.workspaceScope;
+  if (!isWorkspaceScope(candidate)) {
+    return false;
+  }
+  return workspaceScopesEqual(session.workspaceScope, candidate);
+}
+
+function workspaceScopesEqual(
+  left: WorkspaceScope,
+  right: WorkspaceScope,
+): boolean {
+  return (
+    left.runId === right.runId &&
+    left.threadId === right.threadId &&
+    left.turnId === right.turnId &&
+    left.runAttemptId === right.runAttemptId &&
+    left.workspaceId === right.workspaceId &&
+    left.root === right.root
+  );
+}
+
+async function replaceDeadLease(
+  runtime: RuntimeStub,
+  sessionId: string,
+  session: SessionRecord,
+): Promise<void> {
+  const sessionStore = getRuntimeSessionStore(runtime);
+  if (!sessionStore) return;
+  if (session.lease.generation >= 1) {
+    await sessionStore.storeExecutionSession(sessionId, {
+      ...session,
+      recoveryExhausted: true,
+    });
+    return;
+  }
+  const nextGeneration = session.lease.generation + 1;
+  const replacement = await createSandboxLease({
+    workspaceScope: session.workspaceScope,
+    owner: sessionId,
+    correlationId: `${session.lease.correlationId}:replacement-${nextGeneration}`,
+    generation: nextGeneration,
+  });
+  await sessionStore.storeExecutionSession(sessionId, {
+    ...session,
+    lease: replacement,
+    recoveryExhausted: false,
+  });
+}
+
+function isWorkspaceScope(value: unknown): value is WorkspaceScope {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.runId === "string" &&
+    typeof candidate.runAttemptId === "string" &&
+    typeof candidate.workspaceId === "string" &&
+    typeof candidate.root === "string"
+  );
 }
 
 function getExecutionLogLevel(
@@ -364,27 +500,31 @@ export async function handleCreateSession(
       SessionCreateRequestSchema,
     );
     if (!validation.valid) {
-      console.warn(`[api/session] Validation failed: ${validation.error}`);
+      console.warn(
+        `[api/session] Validation failed: ${sanitizeLogText(validation.error)}`,
+      );
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
 
-    const { runId, taskId, repoPath } = validation.data;
+    const { runId, taskId, repoPath, workspaceScope } = validation.data;
     const sessionId = generateSessionId();
     const token = generateToken();
-    const expiresAt = await storeSession(
+    const storedSession = await storeSession(
       runtime,
       sessionId,
       runId,
       taskId,
       repoPath,
       token,
+      workspaceScope,
     );
     const manifest = await fetchManifest(runtime);
 
     const response: Record<string, unknown> = {
       sessionId,
       token,
-      expiresAt,
+      expiresAt: storedSession.expiresAt,
+      lease: storedSession.lease,
     };
     if (manifest) {
       response.manifest = manifest;
@@ -395,9 +535,149 @@ export async function handleCreateSession(
     );
     return jsonResponse(response, 201);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/session] Unexpected error: ${msg}`);
+    const msg = sanitizeUnknownError(error);
+    console.error(`[api/session] Unexpected error: ${sanitizeLogText(msg)}`);
     return errorResponse(msg, "INTERNAL_ERROR", 500);
+  }
+}
+
+/**
+ * Rotates the short-lived bearer for one exact persisted checkout session.
+ *
+ * Routing must authenticate this handler as an internal Brain service-binding
+ * request before invocation. The caller must also prove the complete persisted
+ * workspace and lease identity; no session, lease, or checkout is guessed or
+ * replaced here.
+ */
+export async function handleResumeSession(
+  request: Request,
+  runtime: RuntimeStub,
+): Promise<Response> {
+  try {
+    const sessionId = extractResumedSessionIdFromPath(
+      new URL(request.url).pathname,
+    );
+    if (!sessionId) {
+      return errorResponse("Invalid session ID", "INVALID_REQUEST", 400);
+    }
+    const validation = await validateRequestBody(
+      request,
+      SessionResumeRequestSchema,
+    );
+    if (!validation.valid) {
+      return errorResponse(validation.error, "INVALID_REQUEST", 400);
+    }
+    const session = await getActiveSession(runtime, sessionId);
+    if (!session) {
+      if (validation.data.lease.generation >= 1) {
+        return errorResponse(
+          "The isolated sandbox replacement budget is exhausted",
+          "SANDBOX_RECOVERY_EXHAUSTED",
+          503,
+        );
+      }
+      const sessionStore = getRuntimeSessionStore(runtime);
+      if (!sessionStore) {
+        return errorResponse(
+          "Session storage unavailable",
+          "SESSION_STORAGE_UNAVAILABLE",
+          503,
+        );
+      }
+      const token = generateToken();
+      const now = Date.now();
+      const lease = await createSandboxLease({
+        workspaceScope: validation.data.workspaceScope,
+        owner: sessionId,
+        correlationId: `secure-api:${sessionId}:recovery-${validation.data.lease.generation + 1}`,
+        generation: validation.data.lease.generation + 1,
+        now,
+      });
+      const recovered: SessionRecord = {
+        runId: validation.data.workspaceScope.runId,
+        taskId: `recovered-${validation.data.workspaceScope.runAttemptId}`,
+        repoPath: ".",
+        expiresAt: now + SESSION_TTL_MS,
+        token,
+        createdAt: now,
+        workspaceScope: validation.data.workspaceScope,
+        lease,
+      };
+      await sessionStore.storeExecutionSession(sessionId, recovered);
+      return jsonResponse(
+        {
+          sessionId,
+          token,
+          expiresAt: recovered.expiresAt,
+          lease,
+          replaced: true,
+        },
+        200,
+      );
+    }
+    if (
+      !workspaceScopesEqual(
+        session.workspaceScope,
+        validation.data.workspaceScope,
+      )
+    ) {
+      return errorResponse(
+        "Persisted checkout identity does not match the secure session",
+        "SESSION_SCOPE_MISMATCH",
+        409,
+      );
+    }
+    if (session.recoveryExhausted) {
+      return errorResponse(
+        "The isolated sandbox replacement budget is exhausted",
+        "SANDBOX_RECOVERY_EXHAUSTED",
+        503,
+      );
+    }
+    const exactLease =
+      session.lease.leaseId === validation.data.lease.leaseId &&
+      session.lease.sandboxId === validation.data.lease.sandboxId &&
+      session.lease.generation === validation.data.lease.generation;
+    const pendingReplacement =
+      session.lease.generation === validation.data.lease.generation + 1;
+    if (!exactLease && !pendingReplacement) {
+      return errorResponse(
+        "Persisted checkout lease generation does not match the secure session",
+        "SESSION_SCOPE_MISMATCH",
+        409,
+      );
+    }
+    const sessionStore = getRuntimeSessionStore(runtime);
+    if (!sessionStore) {
+      return errorResponse(
+        "Session storage unavailable",
+        "SESSION_STORAGE_UNAVAILABLE",
+        503,
+      );
+    }
+    const token = generateToken();
+    const resumed: SessionRecord = {
+      ...session,
+      token,
+      expiresAt: Date.now() + SESSION_TTL_MS,
+    };
+    await sessionStore.storeExecutionSession(sessionId, resumed);
+    return jsonResponse(
+      {
+        sessionId,
+        token,
+        expiresAt: resumed.expiresAt,
+        lease: resumed.lease,
+        replaced: pendingReplacement,
+      },
+      200,
+    );
+  } catch (error) {
+    const message = sanitizeUnknownError(error);
+    console.error(
+      `[api/resume-session] status=failed error=${sanitizeLogText(message)}`,
+    );
+    return errorResponse(message, "INTERNAL_ERROR", 500);
   }
 }
 
@@ -406,7 +686,9 @@ export async function handleExecuteTask(
   runtime: RuntimeStub,
   runtimeEventPublisher?: RuntimeEventPublisher,
 ): Promise<Response> {
-  console.log("[api/execute] Handling task execution request");
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  console.log(`[api/execute] requestId=${requestId} status=received`);
 
   try {
     const validation = await validateRequestBody(
@@ -414,14 +696,29 @@ export async function handleExecuteTask(
       ExecuteTaskRequestSchema,
     );
     if (!validation.valid) {
-      console.warn(`[api/execute] Validation failed: ${validation.error}`);
+      console.warn(
+        `[api/execute] requestId=${requestId} status=validation-failed error=${sanitizeLogText(validation.error)} elapsedMs=${Date.now() - startedAt}`,
+      );
       return errorResponse(validation.error, "INVALID_REQUEST", 400);
     }
 
     const { sessionId } = validation.data;
+    console.log(
+      `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=validated`,
+    );
     const auth = await authorizeSessionRequest(request, runtime, sessionId);
     if (!auth.ok) {
+      console.warn(
+        `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
+      );
       return auth.response;
+    }
+    if (!hasMatchingWorkspaceScope(auth.session, validation.data.params)) {
+      return errorResponse(
+        "Execution workspace scope does not match the session scope",
+        "WORKSPACE_SCOPE_MISMATCH",
+        409,
+      );
     }
 
     const executionPort = getRuntimeExecutionPort(runtime);
@@ -450,7 +747,10 @@ export async function handleExecuteTask(
 
     const runtimeResult = await executionPort.executeTask(
       sessionId,
-      toTaskExecutionInput(validation.data),
+      {
+        ...toTaskExecutionInput(validation.data),
+        lease: auth.session.lease,
+      },
       {
         onLog: async (entry) => {
           await recordLog(
@@ -466,6 +766,9 @@ export async function handleExecuteTask(
     );
     const executionResult = parseExecutionResponse(runtimeResult);
     if (!executionResult) {
+      console.error(
+        `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${validation.data.taskId} action=${validation.data.action} status=invalid-runtime-response elapsedMs=${Date.now() - startedAt}`,
+      );
       return errorResponse(
         "Runtime returned an invalid execution response",
         "INVALID_RUNTIME_RESPONSE",
@@ -481,6 +784,10 @@ export async function handleExecuteTask(
       result: executionResult,
     });
 
+    if (executionResult.status === "sandbox_unavailable") {
+      await replaceDeadLease(runtime, sessionId, auth.session);
+    }
+
     await recordLog(
       runtime,
       sessionId,
@@ -490,10 +797,15 @@ export async function handleExecuteTask(
       executionResult.taskId,
     );
 
-    return jsonResponse(executionResult, 200);
+    console.log(
+      `[api/execute] requestId=${requestId} sessionId=${sessionId} taskId=${executionResult.taskId} action=${validation.data.action} status=${executionResult.status} outputLength=${executionResult.output?.length ?? 0} durationMs=${executionResult.metrics?.duration ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+    );
+    return jsonResponse(executionResult, getExecutionHttpStatus(executionResult));
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/execute] Unexpected error: ${msg}`);
+    const msg = sanitizeUnknownError(error);
+    console.error(
+      `[api/execute] requestId=${requestId} status=error elapsedMs=${Date.now() - startedAt} error=${JSON.stringify(msg)}`,
+    );
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
 }
@@ -559,61 +871,6 @@ function buildTaskEventPayload(input: RuntimeTaskEventInput): JsonValue {
   return payload;
 }
 
-export async function handleStreamLogs(
-  request: Request,
-  runtime: RuntimeStub,
-  corsHeaders: Record<string, string> = {},
-): Promise<Response> {
-  console.log("[api/logs] Handling log stream request");
-
-  try {
-    const url = new URL(request.url);
-    const validation = validateQueryParams(url, LogStreamQuerySchema);
-    if (!validation.valid) {
-      console.warn(`[api/logs] Validation failed: ${validation.error}`);
-      return errorResponse(validation.error, "INVALID_REQUEST", 400);
-    }
-
-    const sessionStore = getRuntimeSessionStore(runtime);
-    if (!sessionStore) {
-      return errorResponse(
-        "Session storage unavailable",
-        "SESSION_STORAGE_UNAVAILABLE",
-        503,
-      );
-    }
-
-    const { sessionId, since, taskId } = validation.data;
-    const auth = await authorizeSessionRequest(request, runtime, sessionId);
-    if (!auth.ok) {
-      return auth.response;
-    }
-
-    const logs = await sessionStore.getExecutionLogs(sessionId, since, taskId);
-    console.log(
-      `[api/logs] Streaming ${logs.length} logs for session: ${sessionId.substring(0, 8)}...`,
-    );
-
-    const sseContent = logs
-      .map((log) => `data: ${JSON.stringify(log)}\n\n`)
-      .join("");
-
-    return new Response(sseContent, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        ...corsHeaders,
-      },
-    });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/logs] Unexpected error: ${msg}`);
-    return errorResponse(msg, "INTERNAL_ERROR", 500);
-  }
-}
-
 export async function handleDeleteSession(
   request: Request,
   runtime: RuntimeStub,
@@ -642,6 +899,10 @@ export async function handleDeleteSession(
       );
     }
 
+    const releaseLease = (runtime as LeaseRuntime).releaseLease;
+    if (typeof releaseLease === "function") {
+      await releaseLease(auth.session.lease.leaseId);
+    }
     await sessionStore.deleteExecutionSession(sessionId);
     console.log(
       `[api/delete-session] Session deleted: ${sessionId.substring(0, 8)}...`,
@@ -655,10 +916,46 @@ export async function handleDeleteSession(
       200,
     );
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[api/delete-session] Unexpected error: ${msg}`);
+    const msg = sanitizeUnknownError(error);
+    console.error(
+      `[api/delete-session] Unexpected error: ${sanitizeLogText(msg)}`,
+    );
     return errorResponse(msg, "INTERNAL_ERROR", 500);
   }
+}
+
+export async function handleCancelTask(
+  request: Request,
+  runtime: RuntimeStub,
+): Promise<Response> {
+  const validation = await validateRequestBody(
+    request,
+    CancelTaskRequestSchema,
+  );
+  if (!validation.valid) {
+    return errorResponse(validation.error, "INVALID_REQUEST", 400);
+  }
+
+  const { sessionId, taskId } = validation.data;
+  const auth = await authorizeSessionRequest(request, runtime, sessionId);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  const executionPort = getRuntimeExecutionPort(runtime);
+  if (!executionPort?.cancelTask) {
+    return errorResponse(
+      "Runtime task cancellation is not implemented on this deployment",
+      EXECUTION_NOT_IMPLEMENTED_CODE,
+      501,
+    );
+  }
+
+  const cancelled = await executionPort.cancelTask(
+    auth.session.lease.leaseId,
+    taskId,
+  );
+  return jsonResponse({ cancelled, taskId }, 200);
 }
 
 export async function addLog(

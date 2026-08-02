@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  createRunAttemptId,
+  createThreadId,
+  createTurnId,
   EventCursorSchema,
   ModelIdSchema,
   PlatformIdSchemas,
   ProviderIdSchema,
+  RunAttemptIdSchema,
   RunIdSchema,
+  TaskCheckoutIdSchema,
   ThreadIdSchema,
+  TurnIdSchema,
+  LeaseIdSchema,
+  WorkspaceSnapshotIdSchema,
 } from "./ids.js";
 
 describe("platform protocol IDs", () => {
@@ -17,12 +25,14 @@ describe("platform protocol IDs", () => {
         "EventCursor",
         "EventId",
         "ItemId",
+        "LeaseId",
         "ModelId",
         "OrganizationId",
         "PermissionProfileId",
         "ProviderId",
         "RunAttemptId",
         "RunId",
+        "TaskCheckoutId",
         "ThreadId",
         "ToolCallId",
         "TurnId",
@@ -30,6 +40,7 @@ describe("platform protocol IDs", () => {
         "WorkerId",
         "WorkspaceId",
         "WorkspaceManifestId",
+        "WorkspaceSnapshotId",
       ]
     `);
   });
@@ -38,6 +49,19 @@ describe("platform protocol IDs", () => {
     expect(ThreadIdSchema.parse("thr_abc123")).toBe("thr_abc123");
     expect(RunIdSchema.parse("run_abc123")).toBe("run_abc123");
     expect(EventCursorSchema.parse("cursor_abc123")).toBe("cursor_abc123");
+    expect(WorkspaceSnapshotIdSchema.parse("wsnap_abc123")).toBe(
+      "wsnap_abc123",
+    );
+    expect(TaskCheckoutIdSchema.parse("checkout_abc123")).toBe(
+      "checkout_abc123",
+    );
+    expect(LeaseIdSchema.parse("lease_abc123")).toBe("lease_abc123");
+  });
+
+  it("allocates canonical opaque IDs with their protocol prefixes", () => {
+    expect(TurnIdSchema.parse(createTurnId())).toMatch(/^trn_/);
+    expect(ThreadIdSchema.parse(createThreadId())).toMatch(/^thr_/);
+    expect(RunAttemptIdSchema.parse(createRunAttemptId())).toMatch(/^attempt_/);
   });
 
   it("rejects missing, unprefixed, and wrong-prefixed run IDs", () => {

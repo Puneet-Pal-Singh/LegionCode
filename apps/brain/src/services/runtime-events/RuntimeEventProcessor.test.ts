@@ -69,6 +69,7 @@ describe("RuntimeEventProcessor", () => {
       event: expect.objectContaining({
         runId: "run_abc",
         eventType: RUN_EVENT_TYPES.TOOL_REQUESTED,
+        payload: event.payload,
         idempotencyKey: "run_abc:tool-1:requested",
       }),
       step: expect.objectContaining({

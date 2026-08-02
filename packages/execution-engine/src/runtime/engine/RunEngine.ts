@@ -22,9 +22,9 @@ import { DefaultTaskExecutor, AgentTaskExecutor } from "./TaskExecutor.js";
 import { AgenticLoop } from "./AgenticLoop.js";
 import { buildAgenticLoopWorkspaceContext } from "./RunContinuationContext.js";
 import {
-  enforceGoldenFlowToolFloor,
-  getGoldenFlowToolRegistry,
-} from "../contracts/CodingToolGateway.js";
+  enforceCodingToolFloor,
+  getCodingCoreToolRegistry,
+} from "../tools/CodingToolRegistry.js";
 import type {
   RunInput,
   RunStatus,
@@ -53,14 +53,11 @@ import {
 } from "./RunPermissionWorkspacePolicy.js";
 import {
   createStreamResponse,
-  finalizeRunWithAssistantMessage as finalizeRunWithAssistantMessagePolicy,
-  completeRunWithRecoveredAssistantMessage as completeRunWithRecoveredAssistantMessagePolicy,
   getRunDurationMs as getRunDurationMsPolicy,
-  tryHandlePlanningError as tryHandlePlanningErrorPolicy,
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
 import { createRunManifest, ensureManifestMatch } from "./RunManifestPolicy.js";
-import { sanitizeUserFacingOutput } from "./RunOutputSanitizer.js";
+import { redactUserFacingOutput } from "./RunOutputRedactor.js";
 import {
   transitionRunToCompleted,
   transitionRunToFailed,
@@ -69,6 +66,7 @@ import {
   buildAgenticLoopFinalMessage,
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
+  resolveAssistantFinalParts,
 } from "./RunAgenticLoopPolicy.js";
 import {
   buildPlanModeResponse,
@@ -96,6 +94,7 @@ import {
   resolveBudgetConfig,
   resolveUnknownPricingMode,
 } from "./RunEngineConfigPolicy.js";
+import { requireLegacyRunExecutionScope } from "./LegacyRunExecutionScope.js";
 import {
   handleExecutionErrorPolicy,
   safeMemoryOperation as safeMemoryOperationPolicy,
@@ -113,6 +112,11 @@ import {
   resolveNextStepFromSummaryText,
   resolveSummaryReason,
 } from "./FinalSummaryBuilder.js";
+import {
+  FinalAssistantMessageService,
+  createRuntimeFinalText,
+} from "./FinalAssistantMessageService.js";
+import { RunEngineFinalizationService } from "./RunEngineFinalizationService.js";
 import {
   resolveLoopTerminalState,
   shouldUseDeterministicTerminalSummary,
@@ -150,6 +154,7 @@ export class RunEngine implements IRunEngine {
   private readonly sessionCostsLoaded: Promise<void>;
   private workspaceBootstrapper?: WorkspaceBootstrapper;
   private permissionApprovalStore: PermissionApprovalStore;
+  private finalizationService: RunEngineFinalizationService;
   private hasGitHubAuthChecker?: GitHubAuthAvailabilityChecker;
   private prepareMutationCapture?: () => Promise<void>;
   constructor(
@@ -265,6 +270,9 @@ export class RunEngine implements IRunEngine {
       ctx,
       options.runId,
     );
+    this.finalizationService = new RunEngineFinalizationService(() =>
+      this.getRunCompletionDependencies(),
+    );
   }
 
   async execute(
@@ -337,9 +345,9 @@ export class RunEngine implements IRunEngine {
               detail: buildApprovalDecisionMessage(decisionResult),
             })
           : buildApprovalDecisionMessage(decisionResult);
-        return await this.completeRunWithAssistantMessage(
+        return await this.finalizationService.completeRunWithAssistantMessage(
           run,
-          decisionMessage,
+          createRuntimeFinalText(decisionMessage),
           {
             code: "APPROVAL_DECISION_RECORDED",
             requestId: decisionResult.request.requestId,
@@ -371,9 +379,9 @@ export class RunEngine implements IRunEngine {
           console.log(
             `[run/engine] Permission directive processed for run ${runId}`,
           );
-          return await this.completeRunWithAssistantMessage(
+          return await this.finalizationService.completeRunWithAssistantMessage(
             run,
-            approvalDirectiveMessage,
+            createRuntimeFinalText(approvalDirectiveMessage),
           );
         }
       } else {
@@ -408,9 +416,13 @@ export class RunEngine implements IRunEngine {
                   "Choose an approval action to continue, or deny to stop this path.",
               })
             : permissionMessage;
-          return await this.completeRunWithAssistantMessage(run, message, {
-            terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
-          });
+          return await this.finalizationService.completeRunWithAssistantMessage(
+            run,
+            createRuntimeFinalText(message),
+            {
+              terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+            },
+          );
         }
       } else {
         console.log(
@@ -424,6 +436,9 @@ export class RunEngine implements IRunEngine {
           effectiveInput.prompt,
           effectiveInput.repositoryContext,
           this.workspaceBootstrapper,
+        );
+        console.log(
+          `[run/engine/workspace-bootstrap-evaluated] runId=${runId} status=${bootstrapEvaluation.status} blocked=${bootstrapEvaluation.blocked} hasMessage=${Boolean(bootstrapEvaluation.message)} expectedMiss=${bootstrapEvaluation.expectedMiss} mode=${bootstrapEvaluation.mode ?? "none"} clonedDuringBootstrap=${bootstrapEvaluation.clonedDuringBootstrap}`,
         );
         run.metadata.workspaceBootstrap = {
           requested: bootstrapEvaluation.status !== "skipped",
@@ -451,10 +466,12 @@ export class RunEngine implements IRunEngine {
           const bootstrapLogLabel = bootstrapEvaluation.expectedMiss
             ? "Workspace bootstrap expected miss blocked action planning"
             : "Workspace bootstrap blocked action planning";
-          console.log(`[run/engine] ${bootstrapLogLabel} for run ${runId}`);
-          return await this.completeRunWithAssistantMessage(
+          console.log(
+            `[run/engine/workspace-bootstrap-finalizing] runId=${runId} label="${bootstrapLogLabel}" terminalState=${RUN_TERMINAL_STATES.COMPLETED} messageLength=${bootstrapEvaluation.message.length}`,
+          );
+          return await this.finalizationService.completeRunWithAssistantMessage(
             run,
-            bootstrapEvaluation.message,
+            createRuntimeFinalText(bootstrapEvaluation.message),
           );
         }
       }
@@ -465,8 +482,8 @@ export class RunEngine implements IRunEngine {
           run,
           effectiveInput,
           messages,
-          enforceGoldenFlowToolFloor(
-            { ...getGoldenFlowToolRegistry(), ...tools },
+          enforceCodingToolFloor(
+            { ...getCodingCoreToolRegistry(), ...tools },
             effectiveInput.metadata,
           ),
           finalSummaryContractEnabled,
@@ -513,12 +530,12 @@ export class RunEngine implements IRunEngine {
         );
         await this.runRepo.update(run);
 
-        return await this.completeRunWithAssistantMessage(
+        return await this.finalizationService.completeRunWithAssistantMessage(
           run,
-          buildPlanModeResponse(planArtifact),
+          createRuntimeFinalText(buildPlanModeResponse(planArtifact)),
         );
       } catch (planError) {
-        const recoveryResponse = await this.tryHandlePlanningError(
+        const recoveryResponse = await this.finalizationService.tryHandlePlanningError(
           run,
           runId,
           planError,
@@ -565,11 +582,14 @@ export class RunEngine implements IRunEngine {
     );
     await this.runRepo.update(run);
 
+    const executionScope = requireLegacyRunExecutionScope(this.options);
     const loop = new AgenticLoop(
       {
         maxSteps: getAgenticLoopMaxSteps(run.input.metadata),
         runId: run.id,
         sessionId: run.sessionId,
+        workspaceRoot: executionScope.workspaceRoot,
+        artifactRoot: executionScope.artifactRoot,
         budget: this.budgetManager,
         executionNonce: run.createdAt.toISOString(),
       },
@@ -655,17 +675,21 @@ export class RunEngine implements IRunEngine {
         : await applyReviewerPassIfEnabled({
             run,
             originalPrompt: input.prompt,
-            synthesisOutput: sanitizeUserFacingOutput(finalMessage.text),
+            synthesisOutput: redactUserFacingOutput(finalMessage.text),
             llmGateway: this.llmGateway,
           });
       const mergedMetadata: Record<string, unknown> = {
         ...(finalMessage.metadata ?? {}),
         terminalState,
       };
-      return this.completeRunWithAssistantMessage(
+      const modelParts = resolveAssistantFinalParts(finalOutput, finalMessage);
+      return this.finalizationService.completeRunWithAssistantMessage(
         run,
-        finalOutput,
+        finalMessage.source === "runtime"
+          ? createRuntimeFinalText(finalOutput)
+          : undefined,
         mergedMetadata,
+        modelParts,
       );
     } catch (error) {
       if (error instanceof PermissionGateError) {
@@ -679,11 +703,15 @@ export class RunEngine implements IRunEngine {
                   "Choose an approval action to continue, or deny to stop this path.",
               })
             : error.message;
-          return this.completeRunWithAssistantMessage(run, message, {
-            code: "APPROVAL_REQUIRED",
-            approvalRequest: gateResult.request,
-            terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
-          });
+          return this.finalizationService.completeRunWithAssistantMessage(
+            run,
+            createRuntimeFinalText(message),
+            {
+              code: "APPROVAL_REQUIRED",
+              approvalRequest: gateResult.request,
+              terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED,
+            },
+          );
         }
         const currentRun = await this.runRepo.getById(run.id);
         if (currentRun?.status === "CANCELLED") {
@@ -702,11 +730,15 @@ export class RunEngine implements IRunEngine {
                 "If you want to proceed, allow the action in a new approval decision.",
             })
           : error.message;
-        return this.completeRunWithAssistantMessage(run, message, {
-          code: "PERMISSION_DENIED",
-          reason: denialReason,
-          terminalState: RUN_TERMINAL_STATES.APPROVAL_DENIED,
-        });
+        return this.finalizationService.completeRunWithAssistantMessage(
+          run,
+          createRuntimeFinalText(message),
+          {
+            code: "PERMISSION_DENIED",
+            reason: denialReason,
+            terminalState: RUN_TERMINAL_STATES.APPROVAL_DENIED,
+          },
+        );
       }
       const recoveryResponse = await this.tryHandleTaskExecutionError(
         run,
@@ -745,12 +777,11 @@ export class RunEngine implements IRunEngine {
       memoryCoordinator: this.memoryCoordinator,
       persistConversationMessages: this.persistConversationMessages.bind(this),
       runEventRecorder: this.runEventRecorder,
+      readCanonicalRunEvents: this.runEventRepo.getByRun.bind(this.runEventRepo),
       runRepo: this.runRepo,
       safeMemoryOperation: this.safeMemoryOperation.bind(this),
     };
   }
-
-
   async getRunStatus(runId: string): Promise<RunStatus | null> {
     const run = await this.runRepo.getById(runId);
     return run?.status ?? null;
@@ -784,20 +815,18 @@ export class RunEngine implements IRunEngine {
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
     );
-    if (
-      isFinalSummaryContractEnabled(
-        run.input.metadata,
-        this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
-      )
-    ) {
+    if (isFinalSummaryContractEnabled(
+      run.input.metadata,
+      this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
+    )) {
+      const finalMessage = new FinalAssistantMessageService().build({
+        terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
+        outcomeCode: "INTERRUPTED",
+      });
       await this.runEventRecorder.recordMessageEmitted(
         "assistant",
-        buildFinalSummaryFrame({
-          terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
-          detail: "The run was cancelled before execution could finish.",
-          nextStep: "Resubmit the request when you want me to continue.",
-        }),
-        { terminalState: RUN_TERMINAL_STATES.INTERRUPTED },
+        redactUserFacingOutput(finalMessage.content),
+        finalMessage.metadata,
       );
     }
     const tasks = await this.taskRepo.getByRun(runId);
@@ -936,49 +965,6 @@ export class RunEngine implements IRunEngine {
     return evaluation.message;
   }
 
-  private async completeRunWithAssistantMessage(
-    run: Run,
-    text: string,
-    metadata?: Record<string, unknown>,
-  ): Promise<Response> {
-    return finalizeRunWithAssistantMessagePolicy({
-      run,
-      text,
-      metadata,
-      deps: this.getRunCompletionDependencies(),
-    });
-  }
-
-  private async completeRunWithRecoveredAssistantMessage(
-    run: Run,
-    text: string,
-    metadata?: Record<string, unknown>,
-    errorMetadata?: string,
-    terminalStatus?: "COMPLETED" | "PAUSED",
-  ): Promise<Response> {
-    return completeRunWithRecoveredAssistantMessagePolicy({
-      run,
-      text,
-      metadata,
-      errorMetadata,
-      terminalStatus,
-      deps: this.getRunCompletionDependencies(),
-    });
-  }
-
-  private async tryHandlePlanningError(
-    run: Run,
-    runId: string,
-    error: unknown,
-  ): Promise<Response | null> {
-    return tryHandlePlanningErrorPolicy({
-      run,
-      runId,
-      error,
-      deps: this.getRunCompletionDependencies(),
-    });
-  }
-
   private async handleExecutionError(
     runId: string,
     error: unknown,
@@ -1024,7 +1010,9 @@ export class RunEngine implements IRunEngine {
       error,
       deps: {
         completeRunWithRecoveredAssistantMessage:
-          this.completeRunWithRecoveredAssistantMessage.bind(this),
+          this.finalizationService.completeRunWithRecoveredAssistantMessage.bind(
+            this.finalizationService,
+          ),
         runEventRecorder: this.runEventRecorder,
       },
     });
@@ -1042,7 +1030,6 @@ function readLatestUserMessageId(messages: CoreMessage[]): string | null {
   }
   return null;
 }
-
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);

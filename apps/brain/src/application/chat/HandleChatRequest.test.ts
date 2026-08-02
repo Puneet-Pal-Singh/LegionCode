@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../types/ai";
 import { ValidationError } from "../../domain/errors";
 import { PersistenceService } from "../../services/PersistenceService";
+import {
+  ThreadTitleGenerationCoordinator,
+  ThreadTitleService,
+} from "../../services/thread-titles";
 import { HandleChatRequest } from "./HandleChatRequest";
 
 describe("HandleChatRequest", () => {
@@ -17,7 +21,13 @@ describe("HandleChatRequest", () => {
   it("builds execution payload and persists the last user message", async () => {
     const persistSpy = vi
       .spyOn(PersistenceService.prototype, "persistUserMessage")
-      .mockResolvedValue();
+      .mockResolvedValue({ id: "message-1" } as Awaited<
+        ReturnType<PersistenceService["persistUserMessage"]>
+      >);
+    vi.spyOn(
+      PersistenceService.prototype,
+      "findFirstPersistedUserMessage",
+    ).mockResolvedValue(null);
 
     const useCase = new HandleChatRequest(createEnv());
     const messages: CoreMessage[] = [
@@ -36,7 +46,8 @@ describe("HandleChatRequest", () => {
         prompt: "latest user prompt",
         messages,
         providerId: "openai",
-        modelId: "gpt-4",
+        modelId: "gpt-4o",
+        contextWindowTokens: 999,
         harnessId: "cloudflare-sandbox",
         repositoryOwner: "sourcegraph",
         repositoryName: "shadowbox",
@@ -50,7 +61,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.mode).toBe("build");
     expect(result.executionPayload.input.agentType).toBe("coding");
     expect(result.executionPayload.input.providerId).toBe("openai");
-    expect(result.executionPayload.input.modelId).toBe("gpt-4");
+    expect(result.executionPayload.input.modelId).toBe("gpt-4o");
     expect(result.executionPayload.input.harnessId).toBe("cloudflare-sandbox");
     expect(result.executionPayload.input.orchestratorBackend).toBe(
       "execution-engine-v1",
@@ -61,6 +72,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.harnessMode).toBe("platform_owned");
     expect(result.executionPayload.input.authMode).toBe("api_key");
     expect(result.executionPayload.input.metadata).toEqual({
+      contextWindowTokens: 128_000,
       featureFlags: {
         agenticLoopV1: false,
         reviewerPassV1: false,
@@ -75,7 +87,9 @@ describe("HandleChatRequest", () => {
       branch: "dev",
       baseUrl: "https://github.com/sourcegraph/shadowbox",
     });
-    expect(result.executionPayload.requestOrigin).toBe("https://shadowbox.local");
+    expect(result.executionPayload.requestOrigin).toBe(
+      "https://shadowbox.local",
+    );
     expect(result.executionPayload.messages).toEqual(messages);
     expect(persistSpy).toHaveBeenCalledWith(
       "session-1",
@@ -95,10 +109,18 @@ describe("HandleChatRequest", () => {
       .mockResolvedValue();
     const ensureRunSpy = vi
       .spyOn(PersistenceService.prototype, "ensureRun")
-      .mockResolvedValue({} as Awaited<ReturnType<PersistenceService["ensureRun"]>>);
+      .mockResolvedValue(
+        {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
+      );
     const persistSpy = vi
       .spyOn(PersistenceService.prototype, "persistUserMessage")
-      .mockResolvedValue();
+      .mockResolvedValue({ id: "message-1" } as Awaited<
+        ReturnType<PersistenceService["persistUserMessage"]>
+      >);
+    vi.spyOn(
+      PersistenceService.prototype,
+      "findFirstPersistedUserMessage",
+    ).mockResolvedValue(null);
 
     const useCase = new HandleChatRequest(createEnv());
 
@@ -115,12 +137,19 @@ describe("HandleChatRequest", () => {
       modelId: "deepseek/deepseek-v4-flash:free",
       repositoryOwner: "Puneet-Pal-Singh",
       repositoryName: "career-crew",
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_order001",
+        turnId: "trn_order001",
+        runAttemptId: "attempt_order001",
+      },
     });
 
     expect(ensureSessionSpy).toHaveBeenCalledWith({
       sessionId: "123e4567-e89b-42d3-a456-426614174001",
       userId: "123e4567-e89b-42d3-a456-426614174002",
       workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      threadId: "thr_order001",
       taskId: "123e4567-e89b-42d3-a456-426614174001",
       repository: "Puneet-Pal-Singh/career-crew",
     });
@@ -144,8 +173,75 @@ describe("HandleChatRequest", () => {
     );
   });
 
+  it("persists a deterministic preview and schedules bounded title inference", async () => {
+    vi.spyOn(
+      PersistenceService.prototype,
+      "ensureTranscriptSession",
+    ).mockResolvedValue();
+    vi.spyOn(PersistenceService.prototype, "ensureRun").mockResolvedValue(
+      {} as Awaited<ReturnType<PersistenceService["ensureRun"]>>,
+    );
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue({
+      id: "message-first",
+    } as Awaited<ReturnType<PersistenceService["persistUserMessage"]>>);
+    vi.spyOn(
+      PersistenceService.prototype,
+      "findFirstPersistedUserMessage",
+    ).mockResolvedValue({
+      id: "message-first",
+    } as Awaited<
+      ReturnType<PersistenceService["findFirstPersistedUserMessage"]>
+    >);
+    const previewSpy = vi
+      .spyOn(ThreadTitleService.prototype, "persistPreview")
+      .mockResolvedValue({ titleVersion: 1 } as Awaited<
+        ReturnType<ThreadTitleService["persistPreview"]>
+      >);
+    const waitUntil = vi.fn();
+    const scheduleSpy = vi
+      .spyOn(ThreadTitleGenerationCoordinator.prototype, "schedule")
+      .mockImplementation(() => undefined);
+
+    await new HandleChatRequest(createEnv()).execute({
+      sessionId: "123e4567-e89b-42d3-a456-426614174001",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      userId: "123e4567-e89b-42d3-a456-426614174002",
+      workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+      correlationId: "corr-title-preview",
+      agentType: "coding",
+      prompt: "edit the readme",
+      messages: [{ role: "user", content: "edit the readme" }],
+      providerId: "openrouter",
+      modelId: "poolside/laguna-s-2.1:free",
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_title001",
+        turnId: "trn_title001",
+        runAttemptId: "attempt_title001",
+      },
+      backgroundTaskOwner: { waitUntil },
+    });
+
+    expect(previewSpy).toHaveBeenCalledOnce();
+    expect(scheduleSpy).toHaveBeenCalledWith(
+      { waitUntil },
+      expect.objectContaining({
+        prompt: "edit the readme",
+        previewVersion: 1,
+        providerId: "openrouter",
+        modelId: "poolside/laguna-s-2.1:free",
+      }),
+    );
+  });
+
   it("honors explicit runtime selection overrides in execution payload", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
     const result = await useCase.execute({
@@ -170,7 +266,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("propagates GitHub CLI feature flags into run metadata", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(
       createEnv({
@@ -198,7 +297,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("passes explicit plan mode into execution payload", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
     const result = await useCase.execute({
@@ -215,7 +317,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("passes optional tool definitions into execution payload", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
     const result = await useCase.execute({
@@ -240,7 +345,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("keeps workflow metadata sparse when no workflow entrypoint is provided", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
     const result = await useCase.execute({
@@ -269,7 +377,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("throws NO_MESSAGES when messages are empty", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
 
@@ -288,7 +399,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("throws NO_USER_MESSAGE when history has no user messages", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
 
@@ -307,7 +421,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("rejects stale history that does not end with the submitted prompt", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
 
@@ -329,7 +446,10 @@ describe("HandleChatRequest", () => {
   });
 
   it("rejects prompts that do not match the latest user message", async () => {
-    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue();
+    vi.spyOn(
+      PersistenceService.prototype,
+      "persistUserMessage",
+    ).mockResolvedValue();
 
     const useCase = new HandleChatRequest(createEnv());
 

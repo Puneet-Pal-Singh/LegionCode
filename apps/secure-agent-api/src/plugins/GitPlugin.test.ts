@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { GitPlugin } from "./GitPlugin";
 import { runSafeCommand } from "./security/SafeCommand";
+import { pluginTestExecutionContext } from "./test-support/PluginExecutionContext";
 
 vi.mock("./security/SafeCommand", () => ({
   runSafeCommand: vi.fn(),
@@ -20,6 +21,21 @@ function asSandbox(overrides: Partial<Sandbox> = {}): Sandbox {
 describe("GitPlugin", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    const execute = GitPlugin.prototype.execute;
+    vi.spyOn(GitPlugin.prototype, "execute").mockImplementation(function (
+      this: GitPlugin,
+      sandbox,
+      payload,
+      onLog,
+    ) {
+      return execute.call(
+        this,
+        sandbox,
+        payload,
+        onLog,
+        pluginTestExecutionContext(payload),
+      );
+    });
   });
 
   it("rejects non-canonical git action aliases", async () => {
@@ -34,6 +50,97 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/invalid enum value/i);
     expect(runSafeCommandMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps authenticated clone material out of command arguments", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const plugin = new GitPlugin();
+
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_clone",
+      runId: "run_git_clone_1",
+      url: "https://github.com/example/repository.git",
+      token: "ghp_exampleSecretToken123456789",
+    });
+
+    expect(result.success).toBe(true);
+    const cloneSpec = runSafeCommandMock.mock.calls.find(([, spec]) =>
+      spec.args?.includes("clone"),
+    )?.[1];
+    expect(cloneSpec?.args).toEqual([
+      "clone",
+      "https://github.com/example/repository.git",
+      "/home/sandbox/checkouts/run_git_clone_1",
+    ]);
+    expect(cloneSpec?.args?.join(" ")).not.toMatch(
+      /authorization|basic|ghp_/i,
+    );
+    expect(cloneSpec?.env).toMatchObject({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.extraHeader",
+      GIT_CONFIG_VALUE_0: expect.stringMatching(/^AUTHORIZATION: basic /),
+    });
+  });
+
+  it("fetches only the authorized commit for a pinned checkout", async () => {
+    const runSafeCommandMock = vi.mocked(runSafeCommand);
+    runSafeCommandMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const plugin = new GitPlugin();
+    const authorizedCommitId = "a".repeat(40);
+
+    const result = await plugin.execute(asSandbox(), {
+      action: "git_clone",
+      runId: "run_git_pinned_clone_1",
+      url: "https://github.com/example/repository.git",
+      token: "ghp_exampleSecretToken123456789",
+      startPoint: authorizedCommitId,
+    });
+
+    expect(result.success).toBe(true);
+    const gitCommands = runSafeCommandMock.mock.calls
+      .map(([, spec]) => spec)
+      .filter((spec) => spec.command === "git");
+    expect(gitCommands.map((spec) => spec.args)).toEqual([
+      ["-C", "/home/sandbox/checkouts/run_git_pinned_clone_1", "init"],
+      [
+        "-C",
+        "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        "config",
+        "remote.origin.url",
+        "https://github.com/example/repository.git",
+      ],
+      [
+        "-C",
+        "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        "fetch",
+        "--depth=1",
+        "--no-tags",
+        "origin",
+        authorizedCommitId,
+      ],
+      [
+        "-C",
+        "/home/sandbox/checkouts/run_git_pinned_clone_1",
+        "checkout",
+        "--detach",
+        authorizedCommitId,
+      ],
+    ]);
+    expect(gitCommands[2]?.env).toMatchObject({
+      GIT_CONFIG_VALUE_0: expect.stringMatching(/^AUTHORIZATION: basic /),
+    });
+    expect(gitCommands.flatMap((spec) => spec.args ?? []).join(" ")).not.toMatch(
+      /authorization|basic|ghp_/i,
+    );
   });
 
   it("routes git_unstage through GitService", async () => {
@@ -159,7 +266,7 @@ describe("GitPlugin", () => {
     const statusCommand = runSafeCommandMock.mock.calls.find(([, spec]) =>
       spec.args?.includes("--porcelain=v2"),
     )?.[1] as { args?: string[]; cwd?: string } | undefined;
-    expect(statusCommand?.cwd).toBe("/home/sandbox/runs/run_git_status_1");
+    expect(statusCommand?.cwd).toBe("/home/sandbox/checkouts/run_git_status_1");
     expect(statusCommand?.args).toEqual(
       expect.arrayContaining([
         "--no-optional-locks",
@@ -340,7 +447,7 @@ describe("GitPlugin", () => {
     expect(result.success).toBe(true);
     expect(writeFile).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/home/sandbox/runs/run_patch_apply_1/.shadowbox/edit-artifact-",
+        "/home/sandbox/checkouts/run_patch_apply_1/.shadowbox/edit-artifact-",
       ),
       "diff --git a/src/app.ts b/src/app.ts\n",
     );
@@ -503,7 +610,8 @@ describe("GitPlugin", () => {
       if (args.includes("--git-path")) {
         return {
           exitCode: 0,
-          stdout: "/home/sandbox/runs/run_snapshot/.git/index.legioncode-turn\n",
+          stdout:
+            "/home/sandbox/checkouts/run_snapshot/.git/index.legioncode-turn\n",
           stderr: "",
         };
       }
@@ -533,7 +641,9 @@ describe("GitPlugin", () => {
       expect.arrayContaining(["rev-parse", "--git-path"]),
     );
     expect(
-      gitCalls.slice(1, 4).every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
+      gitCalls
+        .slice(1, 4)
+        .every(([, spec]) => Boolean(spec.env?.GIT_INDEX_FILE)),
     ).toBe(true);
   });
 
@@ -714,11 +824,12 @@ describe("GitPlugin", () => {
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (args.includes("user.name") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "Random User", stderr: "" };
-      }
-      if (args.includes("user.email") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "random@example.com", stderr: "" };
+      if (args.includes("--null") && args.includes("--list")) {
+        return {
+          exitCode: 0,
+          stdout: "user.name\nRandom User\0user.email\nrandom@example.com\0",
+          stderr: "",
+        };
       }
       if (args.includes("--porcelain=v2")) {
         return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
@@ -846,11 +957,12 @@ describe("GitPlugin", () => {
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (args.includes("user.name") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "Puneet Singh", stderr: "" };
-      }
-      if (args.includes("user.email") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "puneet@example.com", stderr: "" };
+      if (args.includes("--null") && args.includes("--list")) {
+        return {
+          exitCode: 0,
+          stdout: "user.name\nPuneet Singh\0user.email\npuneet@example.com\0",
+          stderr: "",
+        };
       }
       if (args.includes("--porcelain=v2")) {
         return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
@@ -880,16 +992,18 @@ describe("GitPlugin", () => {
       if (spec.command === "mkdir") {
         return { exitCode: 0, stdout: "", stderr: "" };
       }
-      if (args.includes("user.name") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "Existing User", stderr: "" };
-      }
-      if (args.includes("user.email") && args.includes("--get")) {
-        return { exitCode: 0, stdout: "existing@example.com", stderr: "" };
+      if (args.includes("--null") && args.includes("--list")) {
+        return {
+          exitCode: 0,
+          stdout:
+            "user.name\nExisting User\0user.email\nexisting@example.com\0",
+          stderr: "",
+        };
       }
       if (args.includes("--porcelain=v2")) {
         return { exitCode: 0, stdout: "# branch.head main\0", stderr: "" };
       }
-      if (args.includes("user.name") && !args.includes("--get")) {
+      if (args.includes("user.name") && !args.includes("--list")) {
         return { exitCode: 1, stdout: "", stderr: "write failed" };
       }
       return { exitCode: 0, stdout: "", stderr: "" };

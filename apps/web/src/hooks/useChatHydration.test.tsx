@@ -2,6 +2,18 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { Message } from "@ai-sdk/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useChatHydration } from "./useChatHydration";
+import { createConversationScope } from "./conversationScope";
+
+function scopeFor(sessionId: string, runId: string) {
+  return createConversationScope({
+    workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+    threadId: `thr_${sessionId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    turnId: `trn_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    runAttemptId: `attempt_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    sessionId,
+    runId,
+  });
+}
 
 vi.mock("../lib/platform-endpoints.js", () => ({
   chatHistoryPath: (runId: string) =>
@@ -21,7 +33,7 @@ describe("useChatHydration", () => {
       .spyOn(globalThis, "fetch")
       .mockImplementation((input: RequestInfo | URL) => {
         const url = input.toString();
-        if (url.includes("run-1")) {
+        if (url.includes("session-1")) {
           return new Promise<Response>((resolve) => {
             resolveRunOneFetch = resolve;
           });
@@ -40,23 +52,23 @@ describe("useChatHydration", () => {
 
     const { rerender } = renderHook(
       ({ sessionId, runId }) =>
-        useChatHydration(sessionId, runId, [], setMessages),
+        useChatHydration(scopeFor(sessionId, runId), [], setMessages),
       {
         initialProps: {
           sessionId: "session-1",
-          runId: "run-1",
+          runId: "run-reused",
         },
       },
     );
 
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("run-1"),
+        expect.stringContaining("run-reused"),
         expect.objectContaining({ credentials: "include" }),
       );
     });
 
-    rerender({ sessionId: "session-2", runId: "run-2" });
+    rerender({ sessionId: "session-2", runId: "run-reused" });
 
     await waitFor(() => {
       expect(setMessages).toHaveBeenCalledWith([
@@ -88,6 +100,50 @@ describe("useChatHydration", () => {
     ]);
   });
 
+  it("keeps reused run ids isolated by the full conversation scope", async () => {
+    let resolveOldFetch: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("session=thread-a")) {
+        return new Promise<Response>((resolve) => {
+          resolveOldFetch = resolve;
+        });
+      }
+      return Promise.resolve(
+        createHistoryResponse([
+          { id: "thread-b-message", role: "assistant", content: "B" },
+        ]),
+      );
+    });
+
+    const { rerender } = renderHook(
+      ({ sessionId }) =>
+        useChatHydration(scopeFor(sessionId, "reused-run"), [], setMessages),
+      { initialProps: { sessionId: "thread-a" } },
+    );
+
+    rerender({ sessionId: "thread-b" });
+    await waitFor(() => {
+      expect(setMessages).toHaveBeenCalledWith([
+        expect.objectContaining({ id: "thread-b-message" }),
+      ]);
+    });
+
+    await act(async () => {
+      resolveOldFetch?.(
+        createHistoryResponse([
+          { id: "thread-a-message", role: "assistant", content: "A" },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).not.toHaveBeenCalledWith([
+      expect.objectContaining({ id: "thread-a-message" }),
+    ]);
+  });
+
   it("replaces stale mounted messages with canonical history for the scope", async () => {
     const setMessages = vi.fn<[Message[]], void>();
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -102,8 +158,7 @@ describe("useChatHydration", () => {
 
     renderHook(() =>
       useChatHydration(
-        "session-current",
-        "run-current",
+        scopeFor("session-current", "run-current"),
         [
           createMessage("stale-user", "user", "stale prompt"),
           createMessage("stale-assistant", "assistant", "stale answer"),
@@ -126,7 +181,7 @@ describe("useChatHydration", () => {
     });
   });
 
-  it("retries failed hydration before allowing pending query replay", async () => {
+  it("retries failed hydration before settling transcript hydration", async () => {
     const setMessages = vi.fn<[Message[]], void>();
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -142,7 +197,7 @@ describe("useChatHydration", () => {
       );
 
     const { result } = renderHook(() =>
-      useChatHydration("session-1", "run-1", [], setMessages),
+      useChatHydration(scopeFor("session-1", "run-1"), [], setMessages),
     );
 
     await waitFor(() => {
@@ -161,71 +216,6 @@ describe("useChatHydration", () => {
     });
   });
 
-  it("preserves transcript activity parts on hydrated assistant messages", async () => {
-    const setMessages = vi.fn<[Message[]], void>();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      createHistoryResponse([
-        {
-          id: "assistant-with-activity",
-          role: "assistant",
-          content: [
-            {
-              type: "text",
-              text: "The selected model stopped responding.",
-            },
-            {
-              version: 1,
-              type: "turn_activity",
-              compacted: false,
-              events: [],
-              activitySnapshot: {
-                runId: "run-1",
-                sessionId: "session-1",
-                status: "PAUSED",
-                items: [
-                  {
-                    id: "activity-1",
-                    runId: "run-1",
-                    sessionId: "session-1",
-                    turnId: "turn-1",
-                    kind: "commentary",
-                    phase: "commentary",
-                    status: "completed",
-                    text: "The selected model stopped responding.",
-                    metadata: {
-                      code: "PROVIDER_UNAVAILABLE",
-                    },
-                    createdAt: "2026-05-24T00:00:00.000Z",
-                    updatedAt: "2026-05-24T00:00:00.000Z",
-                    source: "brain",
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ]),
-    );
-
-    renderHook(() => useChatHydration("session-1", "run-1", [], setMessages));
-
-    await waitFor(() => {
-      expect(setMessages).toHaveBeenCalledWith([
-        expect.objectContaining({
-          id: "assistant-with-activity",
-          content: "The selected model stopped responding.",
-          data: expect.objectContaining({
-            activityParts: [
-              expect.objectContaining({
-                type: "turn_activity",
-              }),
-            ],
-          }),
-        }),
-      ]);
-    });
-  });
-
   it("preserves live messages that arrive while history is loading", async () => {
     let resolveHistory: ((response: Response) => void) | null = null;
     const setMessages = vi.fn<[Message[]], void>();
@@ -238,7 +228,7 @@ describe("useChatHydration", () => {
     const initialMessages: Message[] = [];
     const { rerender } = renderHook(
       ({ messages }) =>
-        useChatHydration("session-live", "run-live", messages, setMessages),
+        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
       { initialProps: { messages: initialMessages } },
     );
 
@@ -250,6 +240,114 @@ describe("useChatHydration", () => {
     });
 
     expect(setMessages).toHaveBeenCalledWith([liveUser]);
+  });
+
+  it("does not duplicate a live user prompt when canonical history replays it", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const liveUser = createMessage(
+      "client_msg_same",
+      "user",
+      "Keep this prompt singular",
+    );
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+      { initialProps: { messages: [] as Message[] } },
+    );
+
+    rerender({ messages: [liveUser] });
+    await act(async () => {
+      resolveHistory?.(
+        createHistoryResponse([
+          {
+            id: "client_msg_same",
+            role: "user",
+            content: "Keep this prompt singular",
+          },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([liveUser]);
+  });
+
+  it("collapses adjacent canonical and live user prompts with different ids", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const liveUser = createMessage(
+      "client_msg_live",
+      "user",
+      "Keep this prompt singular",
+    );
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+      { initialProps: { messages: [] as Message[] } },
+    );
+
+    rerender({ messages: [liveUser] });
+    await act(async () => {
+      resolveHistory?.(
+        createHistoryResponse([
+          {
+            id: "persisted-user-different-id",
+            role: "user",
+            content: "Keep this prompt singular",
+          },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([liveUser]);
+  });
+
+  it("keeps repeated user prompts when an assistant turn separates them", async () => {
+    let resolveHistory: ((response: Response) => void) | null = null;
+    const setMessages = vi.fn<[Message[]], void>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    const liveRepeat = createMessage("client_msg_repeat", "user", "try again");
+    const { rerender } = renderHook(
+      ({ messages }) =>
+        useChatHydration(scopeFor("session-live", "run-live"), messages, setMessages),
+      { initialProps: { messages: [] as Message[] } },
+    );
+
+    rerender({ messages: [liveRepeat] });
+    await act(async () => {
+      resolveHistory?.(
+        createHistoryResponse([
+          { id: "user-1", role: "user", content: "try again" },
+          { id: "assistant-1", role: "assistant", content: "First answer" },
+        ]),
+      );
+      await Promise.resolve();
+    });
+
+    expect(setMessages).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "user-1", role: "user" }),
+      expect.objectContaining({ id: "assistant-1", role: "assistant" }),
+      liveRepeat,
+    ]);
   });
 });
 

@@ -30,7 +30,6 @@ import {
   isSessionContextPending,
   resolveShellStartupState,
 } from "./lib/startup-shell-state";
-import { getBrainHttpBase } from "./lib/platform-endpoints";
 import { doesSessionContextMatchRepository } from "./lib/repository-context-match";
 import { resolveTaskRepositoryFullName } from "./lib/session-github-context";
 import { LockedShellCard } from "./components/startup/LockedShellCard";
@@ -38,41 +37,17 @@ import { AuthShellLoading } from "./components/startup/AuthShellLoading";
 import type { SetupSessionState } from "./types/session";
 import { StartupOnboardingOverlay } from "./components/onboarding/StartupOnboardingOverlay";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
-import { generateChatTitleFromPrompt } from "./lib/chat-title-generator";
 import {
   subscribeToOpenSettingsDialog,
   type SettingsSection,
 } from "./lib/settings-dialog-events";
-import {
-  isApprovalRequiredRunStatus,
-  isTerminalRunStatus,
-  mapRunStatusToSessionStatus,
-} from "./lib/run-status";
-import {
-  parseRunSummaryStatusSnapshot,
-  type RunSummaryStatusSnapshot,
-} from "./lib/run-summary-status-snapshot";
+import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
     return "shadowbox:startup-onboarding:seen:anonymous";
   }
   return `shadowbox:startup-onboarding:seen:${userId}`;
-}
-
-const RUN_STATUS_RECONCILE_INTERVAL_MS = 12_000;
-
-async function fetchRunSummaryStatus(
-  runId: string,
-): Promise<RunSummaryStatusSnapshot | null> {
-  const response = await fetch(
-    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
-    { credentials: "include" },
-  );
-  if (!response.ok) {
-    return null;
-  }
-  return parseRunSummaryStatusSnapshot(await response.json());
 }
 
 function buildRepositoryFromWorkspace(
@@ -183,7 +158,8 @@ function App() {
  * Separated to allow useAuth hook access within AuthProvider
  */
 function AppContent() {
-  const { isAuthenticated, isLoading, login, refreshSession, user } = useAuth();
+  const { isAuthenticated, isLoading, login, logout, refreshSession, user } =
+    useAuth();
   const {
     sessions,
     activeSessionId,
@@ -192,6 +168,7 @@ function AppContent() {
     createSession,
     removeSession,
     renameSession,
+    refreshSessionProjection,
     pinSession,
     unpinSession,
     archiveSession,
@@ -237,6 +214,24 @@ function AppContent() {
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] =
     useState<SettingsSection>("general");
+  const [hookSettingsContext, setHookSettingsContext] = useState<{
+    sessionId: string;
+    workspaceId: string;
+    audits: readonly HookSettingsAuditReadModel[];
+  } | null>(null);
+  const handleHookSettingsContextChange = useCallback(
+    (context: {
+      workspaceId: string;
+      audits: readonly HookSettingsAuditReadModel[];
+    }) => {
+      if (!activeSessionId) return;
+      setHookSettingsContext({
+        sessionId: activeSessionId,
+        ...context,
+      });
+    },
+    [activeSessionId],
+  );
   const [isOnboardingOverlayDelayElapsed, setIsOnboardingOverlayDelayElapsed] =
     useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
@@ -658,6 +653,11 @@ function AppContent() {
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
+  const [initialPromptSubmission, setInitialPromptSubmission] = useState<{
+    id: string;
+    sessionId: string;
+    prompt: string;
+  } | null>(null);
 
   const scopedApprovalStatesBySessionId = useMemo(() => {
     const validSessionIds = new Set(sessions.map((session) => session.id));
@@ -666,86 +666,6 @@ function AppContent() {
     );
     return Object.fromEntries(nextEntries);
   }, [approvalStatesBySessionId, sessions]);
-  const reconcilableSessions = useMemo(
-    () =>
-      sessions.filter((session) =>
-        ["running", "waiting_for_approval", "paused"].includes(session.status),
-      ),
-    [sessions],
-  );
-
-  useEffect(() => {
-    if (!isAuthenticated || reconcilableSessions.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const reconcile = async (): Promise<void> => {
-      const updates = await Promise.all(
-        reconcilableSessions.map(async (session) => {
-          try {
-            const snapshot = await fetchRunSummaryStatus(session.activeRunId);
-            if (!snapshot) {
-              return null;
-            }
-            if (
-              !snapshot.hasPendingApproval &&
-              !isApprovalRequiredRunStatus(snapshot.status) &&
-              !isTerminalRunStatus(snapshot.status)
-            ) {
-              return null;
-            }
-
-            return {
-              sessionId: session.id,
-              status: mapRunStatusToSessionStatus(snapshot.status, {
-                hasPendingApproval: snapshot.hasPendingApproval,
-              }),
-              hasPendingApproval: snapshot.hasPendingApproval,
-            };
-          } catch (error) {
-            console.warn(
-              `[App] Failed to reconcile run status for session ${session.id}`,
-              error,
-            );
-            return null;
-          }
-        }),
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      updates.forEach((update) => {
-        if (!update) {
-          return;
-        }
-        if (update.status) {
-          updateSession(update.sessionId, { status: update.status });
-        }
-        handlePendingApprovalStateChange(
-          update.sessionId,
-          update.hasPendingApproval,
-        );
-      });
-    };
-
-    void reconcile();
-    const intervalId = window.setInterval(() => {
-      void reconcile();
-    }, RUN_STATUS_RECONCILE_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [
-    handlePendingApprovalStateChange,
-    isAuthenticated,
-    reconcilableSessions,
-    updateSession,
-  ]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -758,19 +678,12 @@ function AppContent() {
     localStorage.setItem("shadowbox_active_tab", activeTab);
   }, [activeTab]);
 
-  // Check if current session has a pending query or messages
-  const hasPendingQuery = activeSessionId
-    ? !!SessionStateService.loadSessionPendingQuery(activeSessionId)
-    : false;
-
   // A session is considered to have "started" if:
-  // 1. It has a pending query in session-scoped storage
-  // 2. OR its name has been changed from "New Task"
-  // 3. OR its status is not "idle"
+  // 1. Its name has been changed from "New Task"
+  // 2. OR its status is not "idle"
   const isSessionStarted =
     !!activeSession &&
-    (hasPendingQuery ||
-      (activeSession.name !== "New Task" && activeSession.name !== "") ||
+    ((activeSession.name !== "New Task" && activeSession.name !== "") ||
       (activeSession.status && activeSession.status !== "idle"));
 
   // Robust visibility flags
@@ -953,9 +866,6 @@ function AppContent() {
       const sessionName = `New Task`;
       const sessionId = createSession(sessionName, targetRepo);
 
-      // Clear pending query for new task
-      SessionStateService.clearSessionPendingQuery(sessionId);
-
       // Sync GitHub context with new session
       // Use SessionStateService for session-scoped storage
       const otherSessionWithRepo = sessions.find(
@@ -1094,6 +1004,8 @@ function AppContent() {
             onClose={handleToggleSidebar}
             onAddRepository={handleOpenRepositoryPicker}
             onOpenSettings={() => openSettingsDialog("general")}
+            accountUser={user}
+            onLogout={logout}
             width={sidebarWidth}
           />
           <Resizer
@@ -1129,8 +1041,6 @@ function AppContent() {
           environmentSummary={
             showWorkspace && activeSessionId && activeSession
               ? {
-                  sessionId: activeSessionId,
-                  runId: activeSession.activeRunId,
                   repo,
                   branch,
                   onBranchChange: switchBranch,
@@ -1187,30 +1097,15 @@ function AppContent() {
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
                     onStart={(config) => {
-                      const name = generateChatTitleFromPrompt(config.task);
-
                       updateSession(activeSessionId, {
-                        name,
-                        titleSource: "generated",
                         status: "running",
                         mode: config.mode,
                       });
-                      void SessionStateService.updateGeneratedSessionTitle(
-                        activeSessionId,
-                        name,
-                      ).catch((error) => {
-                        console.warn(
-                          "[App] Failed to persist generated title:",
-                          error,
-                        );
+                      setInitialPromptSubmission({
+                        id: crypto.randomUUID(),
+                        sessionId: activeSessionId,
+                        prompt: config.task,
                       });
-                      // Store pending query in session-scoped storage
-                      SessionStateService.saveSessionPendingQuery(
-                        activeSessionId,
-                        config.task,
-                      );
-                      // State updates above (updateSession + saveSessionPendingQuery)
-                      // will naturally trigger re-renders; no manual trigger needed
                     }}
                   />
                 </RunContextProvider>
@@ -1257,38 +1152,29 @@ function AppContent() {
                   mode={activeSession?.mode}
                   isSessionRunning={activeSession?.status === "running"}
                   hasStartedSession={isSessionStarted}
-                  allowPendingQueryRestore={
-                    activeSession?.status !== "completed" &&
-                    activeSession?.status !== "paused" &&
-                    activeSession?.status !== "failed"
-                  }
                   onModeChange={(mode) =>
                     updateSession(activeSessionId, { mode })
                   }
-                  onSessionStatusChange={(status) =>
-                    updateSession(activeSessionId, { status })
+                  onSessionStatusChange={(status) => {
+                    updateSession(activeSessionId, { status });
+                    if (status === "completed" || status === "failed") {
+                      void refreshSessionProjection(activeSessionId);
+                    }
+                  }}
+                  initialPromptSubmission={
+                    initialPromptSubmission?.sessionId === activeSessionId
+                      ? initialPromptSubmission
+                      : null
                   }
+                  onInitialPromptHandled={(id) => {
+                    setInitialPromptSubmission((current) =>
+                      current?.id === id ? null : current,
+                    );
+                  }}
                   onPromptSubmitted={(prompt) => {
-                    if (activeSession?.name !== "New Task") {
-                      return;
+                    if (prompt.trim()) {
+                      updateSession(activeSessionId, { status: "running" });
                     }
-                    const name = generateChatTitleFromPrompt(prompt);
-                    if (name === "New Task") {
-                      return;
-                    }
-                    updateSession(activeSessionId, {
-                      name,
-                      titleSource: "generated",
-                    });
-                    void SessionStateService.updateGeneratedSessionTitle(
-                      activeSessionId,
-                      name,
-                    ).catch((error) => {
-                      console.warn(
-                        "[App] Failed to persist generated title:",
-                        error,
-                      );
-                    });
                   }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
@@ -1296,6 +1182,7 @@ function AppContent() {
                       hasPendingApproval,
                     );
                   }}
+                  onHookSettingsContextChange={handleHookSettingsContextChange}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
                   rightSidebarWidth={rightSidebarWidth}
@@ -1366,6 +1253,16 @@ function AppContent() {
           <SettingsDialog
             isOpen={isSettingsDialogOpen}
             runId={isAuthenticated ? providerScopeRunId : undefined}
+            workspaceId={
+              hookSettingsContext?.sessionId === activeSessionId
+                ? hookSettingsContext.workspaceId
+                : null
+            }
+            hookAudits={
+              hookSettingsContext?.sessionId === activeSessionId
+                ? hookSettingsContext.audits
+                : []
+            }
             initialSection={settingsInitialSection}
             onUnarchiveSession={unarchiveSession}
             onClose={() => setIsSettingsDialogOpen(false)}

@@ -9,9 +9,12 @@ import {
 } from "./index.js";
 
 describe("runtime capability manifest", () => {
+  const workspaceRoot = "/home/sandbox/checkouts/run-1";
+
   it("builds a cloud sandbox manifest from available coding tools", () => {
     const manifest = createCloudSandboxRunCapabilityManifest({
       runId: "run-1",
+      workspaceRoot,
       availableToolIds: ["read_file", "grep", "bash", "git_status"],
       providerId: "openai",
       modelId: "gpt-5.1-codex",
@@ -52,6 +55,7 @@ describe("runtime capability manifest", () => {
   it("generates a prompt-facing catalog snapshot", () => {
     const manifest = createCloudSandboxRunCapabilityManifest({
       runId: "run-1",
+      workspaceRoot,
       availableToolIds: ["read_file", "glob"],
     });
     const snapshot = buildToolCatalogSnapshot(manifest);
@@ -61,7 +65,11 @@ describe("runtime capability manifest", () => {
       expect.objectContaining({
         name: "read_file",
         availability: "available",
-        preferredFor: ["file inspection", "line range reads"],
+        preferredFor: [
+          "file inspection",
+          "line-numbered range reads",
+          "continuing with nextOffset after truncation",
+        ],
       }),
       expect.objectContaining({
         name: "glob",
@@ -78,6 +86,7 @@ describe("runtime capability manifest", () => {
   it("renders execution environment guidance from the manifest", () => {
     const manifest = createCloudSandboxRunCapabilityManifest({
       runId: "run-1",
+      workspaceRoot,
       availableToolIds: ["read_file", "bash"],
     });
     const prompt = buildRuntimeCapabilityPromptSection(manifest);
@@ -93,6 +102,7 @@ describe("runtime capability manifest", () => {
   it("builds structured unavailable tool errors with correction hints", () => {
     const manifest = createCloudSandboxRunCapabilityManifest({
       runId: "run-1",
+      workspaceRoot,
       availableToolIds: ["read_file", "grep", "bash"],
     });
     const error = buildUnavailableToolError({

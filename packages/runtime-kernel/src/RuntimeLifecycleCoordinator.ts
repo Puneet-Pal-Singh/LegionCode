@@ -24,6 +24,10 @@ import {
   validateTerminalSettlement,
   type ApprovalStatus,
   type ItemKind,
+  type LifecycleToolDisplay,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
+  type ContextCompactionPayload,
   type ItemStatus,
   type LifecycleEvent,
   type LifecycleEventType,
@@ -61,6 +65,25 @@ interface EventFields {
   readonly payload: JsonRecord;
 }
 
+type RuntimeHookAuditEventType = Extract<
+  LifecycleEventType,
+  | "hook.invocation.started"
+  | "hook.invocation.completed"
+  | "hook.invocation.failed"
+  | "hook.invocation.timed_out"
+  | "hook.invocation.cancelled"
+>;
+
+const RUNTIME_HOOK_AUDIT_EVENT_TYPES = new Set<LifecycleEventType>([
+  "hook.invocation.started",
+  "hook.invocation.completed",
+  "hook.invocation.failed",
+  "hook.invocation.timed_out",
+  "hook.invocation.cancelled",
+]);
+
+const MAX_LIFECYCLE_OUTPUT_LENGTH = 4_000;
+
 export class RuntimeLifecycleCoordinator {
   private status: TurnStatus = "queued";
   private blockingState: TurnBlockingState = { kind: "none" };
@@ -82,11 +105,29 @@ export class RuntimeLifecycleCoordinator {
     return ["completed", "interrupted", "failed"].includes(this.status);
   }
 
-  async start(): Promise<void> {
-    await this.enqueue(async () => this.startNow());
+  async start(): Promise<{
+    readonly turnStarted: LifecycleEvent;
+    readonly runAttemptStarted: LifecycleEvent;
+  }> {
+    let result:
+      | {
+          readonly turnStarted: LifecycleEvent;
+          readonly runAttemptStarted: LifecycleEvent;
+        }
+      | undefined;
+    await this.enqueue(async () => {
+      result = await this.startNow();
+    });
+    if (!result) {
+      throw new Error("Runtime lifecycle start did not append its events.");
+    }
+    return result;
   }
 
-  private async startNow(): Promise<void> {
+  private async startNow(): Promise<{
+    readonly turnStarted: LifecycleEvent;
+    readonly runAttemptStarted: LifecycleEvent;
+  }> {
     if (this.accepted) {
       throw new LifecycleTransitionError(
         "turn",
@@ -110,30 +151,50 @@ export class RuntimeLifecycleCoordinator {
     this.accepted = true;
     this.status = nextTurn;
     this.runAttemptStatus = nextAttempt;
+    return {
+      turnStarted: events[1] as LifecycleEvent,
+      runAttemptStarted: events[2] as LifecycleEvent,
+    };
   }
 
   async startToolCall(
     itemId: ItemId,
     toolCallId: ToolCallId,
     input: JsonRecord,
+    display?: LifecycleToolDisplay,
   ): Promise<void> {
     await this.enqueue(async () =>
-      this.startToolCallNow(itemId, toolCallId, input),
+      this.startToolCallNow(itemId, toolCallId, input, display),
     );
+  }
+
+  async appendAssistantCommentary(itemId: ItemId, text: string): Promise<void> {
+    const bounded = text.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH);
+    if (!bounded.trim()) return;
+    await this.enqueue(async () => {
+      await this.startItem(itemId, "commentary", {});
+      await this.emit({
+        type: "assistant_message.delta",
+        itemId,
+        payload: { phase: "commentary", delta: bounded },
+      });
+      await this.settleItem(itemId, "completed", { result: { text: bounded } });
+    });
   }
 
   private async startToolCallNow(
     itemId: ItemId,
     toolCallId: ToolCallId,
     input: JsonRecord,
+    display?: LifecycleToolDisplay,
   ): Promise<void> {
-    await this.startItem(itemId, "tool_call", {});
+    await this.startItem(itemId, "tool_call", display ? { display } : {});
     const next = transitionToolCallStatus("not_started", "active");
     await this.emit({
       type: "tool_call.started",
       itemId,
       toolCallId,
-      payload: {},
+      payload: display ? { display } : {},
     });
     this.toolCallStatuses[toolCallId] = next;
     this.toolCallItems[toolCallId] = itemId;
@@ -163,7 +224,7 @@ export class RuntimeLifecycleCoordinator {
       type: "tool_call.output_delta",
       itemId: this.requireToolCallItem(toolCallId),
       toolCallId,
-      payload: { output },
+      payload: { output: output.slice(0, MAX_LIFECYCLE_OUTPUT_LENGTH) },
     });
   }
 
@@ -180,6 +241,26 @@ export class RuntimeLifecycleCoordinator {
     );
   }
 
+  /**
+   * Appends a sanitized hook invocation through the same serialized sequence
+   * owner as every other runtime event. Hook execution and outcome application
+   * remain outside this coordinator.
+   */
+  async appendHookAudit(
+    eventType: RuntimeHookAuditEventType,
+    payload: JsonRecord,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      if (!RUNTIME_HOOK_AUDIT_EVENT_TYPES.has(eventType)) {
+        throw new Error("Unsupported runtime hook audit event type.");
+      }
+      await this.emit({
+        type: eventType,
+        payload: JsonRecordSchema.parse(payload),
+      });
+    });
+  }
+
   async createTurnArtifact(artifact: unknown): Promise<void> {
     await this.enqueue(async () =>
       this.emit({
@@ -187,6 +268,74 @@ export class RuntimeLifecycleCoordinator {
         payload: { artifact: JsonRecordSchema.parse(artifact) },
       }),
     );
+  }
+
+  async updateTurnDiff(diff: unknown): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "turn.diff_updated",
+        payload: { diff: JsonRecordSchema.parse(diff) },
+      }),
+    );
+  }
+
+  async updateContextBudget(snapshot: ContextBudgetSnapshot): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "context_budget.updated",
+        payload: { snapshot },
+      }),
+    );
+  }
+
+  async updateUsage(usage: UsageCostSnapshot): Promise<void> {
+    await this.enqueue(async () =>
+      this.emit({
+        type: "usage.updated",
+        payload: { usage },
+      }),
+    );
+  }
+
+  async requestContextCompaction(
+    payload: ContextCompactionPayload,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      await this.startItem(payload.itemId, "context_compaction", {
+        kind: "context_compaction",
+        mode: payload.mode,
+      });
+      await this.emit({
+        type: "context_compaction.requested",
+        itemId: payload.itemId,
+        payload: { ...payload, phase: "requested" },
+      });
+      await this.emit({
+        type: "context_compaction.started",
+        itemId: payload.itemId,
+        payload: { ...payload, phase: "compacting" },
+      });
+    });
+  }
+
+  async settleContextCompaction(
+    payload: ContextCompactionPayload,
+  ): Promise<void> {
+    await this.enqueue(async () => {
+      const terminal = payload.phase === "failed" ? "failed" : "completed";
+      await this.emit({
+        type: `context_compaction.${terminal}`,
+        itemId: payload.itemId,
+        payload,
+      });
+      await this.settleItem(
+        payload.itemId,
+        terminal,
+        terminal === "failed"
+          ? { reason: payload.error ?? "Context compaction failed" }
+          : { result: { preservedContextReference: payload.preservedContextReference } },
+      );
+    });
   }
 
   private async createArtifactNow(
@@ -304,7 +453,7 @@ export class RuntimeLifecycleCoordinator {
     await this.emit({
       type: "assistant_message.delta",
       itemId,
-      payload: { delta: output },
+      payload: { phase: "final_answer", delta: output },
     });
     await this.settleItem(itemId, "completed", { result: { output } });
     await this.settleTurn({ status: "completed" });
@@ -442,6 +591,11 @@ export class RuntimeLifecycleCoordinator {
       type: "turn.blocking_changed",
       payload: { blockingState },
     });
+    if (blockingState.kind === "waiting_for_approval") {
+      this.status = transitionTurnStatus(this.status, "awaiting_approval");
+    } else if (this.status === "awaiting_approval") {
+      this.status = transitionTurnStatus(this.status, "in_progress");
+    }
     this.blockingState = blockingState;
   }
 

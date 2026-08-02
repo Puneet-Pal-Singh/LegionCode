@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type {
   RunCompletedEvent,
@@ -11,8 +11,15 @@ import {
   extractChangedFileFromToolResult,
   mergePromptChangedFilesWithGitStats,
 } from "./EditArtifactCaptureService";
+import type { SecureExecutionSessionPort } from "../secure-execution/SecureExecutionSessionClient";
+
+const executionSession = {} as SecureExecutionSessionPort;
 
 describe("EditArtifactCaptureService helpers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("extracts edit stats from top-level tool activity metadata", () => {
     const changedFile = extractChangedFileFromToolResult({
       content: "Updated src/hero.tsx",
@@ -106,7 +113,10 @@ describe("EditArtifactCaptureService helpers", () => {
       runId: "run-1",
       sessionId: "session-1",
       workspaceId: "workspace-1",
-      muscleSession: "run-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      runAttemptId: "attempt-1",
+      executionSession,
       repoOwner: "owner",
       repoName: "repo",
       repoUrl: "https://github.com/owner/repo",
@@ -155,7 +165,10 @@ describe("EditArtifactCaptureService helpers", () => {
         runId: "run-1",
         sessionId: "session-1",
         workspaceId: "workspace-1",
-        muscleSession: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runAttemptId: "attempt-1",
+        executionSession,
         repoOwner: "owner",
         repoName: "repo",
         repoUrl: "https://github.com/owner/repo",
@@ -167,6 +180,43 @@ describe("EditArtifactCaptureService helpers", () => {
     await coordinator.waitForPendingCapture();
 
     expect(captureAfterRunMutation).not.toHaveBeenCalled();
+  });
+
+  it("skips artifact capture when the baseline was unavailable", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const captureAfterRunMutation = vi.fn();
+    const coordinator = new EditArtifactRunCaptureCoordinator(
+      {
+        captureBaseline: async () => {
+          throw new Error("not a git repository");
+        },
+        captureAfterRunMutation,
+      },
+      {
+        userId: "user-1",
+        runId: "run-1",
+        sessionId: "session-1",
+        workspaceId: "workspace-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runAttemptId: "attempt-1",
+        executionSession,
+        repoOwner: "owner",
+        repoName: "repo",
+        repoUrl: "https://github.com/owner/repo",
+      },
+    );
+
+    await coordinator.prepare();
+    coordinator.handleEvent(createWriteFileCompletedEvent());
+    coordinator.handleEvent(createRunCompletedEvent());
+    await coordinator.waitForPendingCapture();
+
+    expect(captureAfterRunMutation).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[edit-artifacts/capture] skipped without baseline",
+      { runId: "run-1", changedFileCount: 1 },
+    );
   });
 });
 

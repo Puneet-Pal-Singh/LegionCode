@@ -189,7 +189,7 @@ export type RunCapabilityManifest = z.infer<typeof RunCapabilityManifestSchema>;
 export interface RunCapabilityManifestInput {
   runId: string;
   backendId?: string;
-  workspaceRoot?: string;
+  workspaceRoot: string;
   artifactRoot?: string;
   availableToolIds?: readonly string[];
   providerId?: string;
@@ -200,8 +200,7 @@ export function createCloudSandboxRunCapabilityManifest(
   input: RunCapabilityManifestInput,
 ): RunCapabilityManifest {
   const availableTools = buildToolCapabilities(input);
-  const workspaceRoot =
-    input.workspaceRoot ?? `/home/sandbox/runs/${input.runId}`;
+  const workspaceRoot = input.workspaceRoot;
   const artifactRoot = input.artifactRoot ?? `${workspaceRoot}/artifacts`;
   const manifest: RunCapabilityManifest = {
     runId: input.runId,

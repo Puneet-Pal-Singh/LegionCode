@@ -1,41 +1,31 @@
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useStatusSync } from "./useStatusSync";
 
 describe("useStatusSync", () => {
-  it("keeps the local stop marker when stopping makes chat loading active", () => {
-    const setLocallyStoppedRunId = vi.fn();
+  it("publishes terminal status only from the canonical run status", () => {
     const stop = vi.fn();
     const refetchGitStatus = vi.fn().mockResolvedValue(undefined);
+    const onSessionStatusChange = vi.fn();
 
-    const { result, rerender } = renderHook(
-      ({ isLoading }) =>
-        useStatusSync({
-          activeRunId: "run-123",
-          canonicalRunStatus: "RUNNING",
-          isApprovalWaitingRun: false,
-          pendingApprovalRequestId: null,
-          isStaleCanonicalActiveRun: false,
-          isEffectiveCanonicalRunActive: true,
-          isLoading,
-          chatError: null,
-          hasPendingApproval: false,
-          isLocallyStoppedRun: false,
-          setLocallyStoppedRunId,
-          stop,
-          refetchGitStatus,
-        }),
-      { initialProps: { isLoading: false } },
+    const { result } = renderHook(() =>
+      useStatusSync({
+        activeRunId: "run-123",
+        canonicalRunStatus: "CANCELLED",
+        isApprovalWaitingRun: false,
+        pendingApprovalRequestId: null,
+        isEffectiveCanonicalRunActive: false,
+        chatError: null,
+        stop,
+        refetchGitStatus,
+        onSessionStatusChange,
+      }),
     );
-    setLocallyStoppedRunId.mockClear();
 
-    act(() => {
-      result.current.handleStopRun();
-    });
-    rerender({ isLoading: true });
+    result.current.handleStopRun();
 
     expect(stop).toHaveBeenCalledTimes(1);
-    expect(setLocallyStoppedRunId).toHaveBeenCalledWith("run-123");
-    expect(setLocallyStoppedRunId).not.toHaveBeenCalledWith(null);
+    expect(onSessionStatusChange).toHaveBeenCalledWith("completed");
+    expect(onSessionStatusChange).not.toHaveBeenCalledWith("running");
   });
 });

@@ -42,13 +42,6 @@ export type {
   ProviderConnection as ProviderConnectionStatus,
 };
 
-export const ModelsListResponseSchema = z.object({
-  providerId: ProviderIdSchema,
-  models: z.array(ModelDescriptorSchema),
-  lastFetchedAt: z.string().datetime(),
-});
-export type ModelsListResponse = z.infer<typeof ModelsListResponseSchema>;
-
 export const ProviderStatusResponseSchema = z.object({
   providers: z.array(ProviderConnectionSchema),
 });

@@ -797,7 +797,7 @@ describe("ProviderController", () => {
   });
 
   describe("byok v3", () => {
-    it("returns provider models for selected provider", async () => {
+    it("returns the canonical discovery envelope for the selected provider", async () => {
       const env = createMockEnv();
       const response = await ProviderController.byokProviderModels(
         new Request("http://localhost/api/byok/providers/openrouter/models", {
@@ -809,8 +809,9 @@ describe("ProviderController", () => {
       const data = await response.json();
 
       expect(response.status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
-      expect(data[0].id).toBe("openrouter/auto");
+      expect(Array.isArray(data)).toBe(false);
+      expect(data.providerId).toBe("openrouter");
+      expect(data.metadata.status).toBe("available");
     });
 
     it("returns discovered provider model envelope for view queries", async () => {
@@ -1063,6 +1064,7 @@ describe("ProviderController", () => {
       expect(resolveData.providerId).toBe("openai");
       expect(resolveData.credentialId).toBe(connectData.credentialId);
       expect(resolveData.modelId).toBe("gpt-4o");
+      expect(resolveData.contextWindow).toBe(128_000);
     });
 
     it("connects credential when model discovery returns no selectable models", async () => {

@@ -5,7 +5,11 @@ import {
   APP_IMPORT_POLICY,
   CANONICAL_AUTHORITIES,
   DIRECT_GIT_COMMAND_POLICY,
+  HARNESS_PRODUCT_PATH_GUARDS,
   PACKAGE_DEPENDENCY_POLICY,
+  POLICY_INVENTORY_ALLOWED_CATEGORIES,
+  POLICY_INVENTORY_ALLOWED_DISPOSITIONS,
+  POLICY_INVENTORY_PATH,
   UNIQUE_ACTION_REGISTRIES,
 } from "./architecture-policy.mjs";
 
@@ -29,6 +33,10 @@ export async function validateArchitecture(root) {
   await validateCanonicalAuthorities(root, violations);
   await validateUniqueActionRegistries(root, violations);
   await validateDirectGitCommands(root, violations);
+  await validatePolicyInventory(root, violations);
+  await validateHarnessProductPathGuards(root, violations);
+  await validateClientSideTurnIdDerivation(root, violations);
+  await validateActiveStateRunSummaryAuthority(root, violations);
   return violations;
 }
 
@@ -118,6 +126,248 @@ async function validateDirectGitCommands(root, violations) {
   }
 }
 
+async function validatePolicyInventory(root, violations) {
+  const inventory = await readPolicyInventory(root);
+  const entries = inventory.entries ?? [];
+  const inventoryPaths = new Set();
+
+  for (const entry of entries) {
+    validatePolicyInventoryEntry(root, entry, inventoryPaths, violations);
+  }
+
+  const policyFiles = (await listSourceFiles(join(root, "apps"), join(root, "packages")))
+    .map((file) => relative(root, file))
+    .filter((path) => path.endsWith("Policy.ts"))
+    .sort();
+
+  for (const policyFile of policyFiles) {
+    if (!inventoryPaths.has(policyFile)) {
+      violations.push(
+        `${policyFile}: policy file is missing from ${POLICY_INVENTORY_PATH}; classify it before adding behavior.`,
+      );
+    }
+  }
+
+  for (const inventoryPath of inventoryPaths) {
+    if (!policyFiles.includes(inventoryPath)) {
+      violations.push(
+        `${POLICY_INVENTORY_PATH}: inventory references missing policy file ${inventoryPath}.`,
+      );
+    }
+  }
+}
+
+async function readPolicyInventory(root) {
+  const inventory = await readJson(join(root, POLICY_INVENTORY_PATH));
+  if (!inventory || typeof inventory !== "object" || Array.isArray(inventory)) {
+    throw new Error(`${POLICY_INVENTORY_PATH} must contain a JSON object.`);
+  }
+  if (!Array.isArray(inventory.entries)) {
+    throw new Error(`${POLICY_INVENTORY_PATH} must contain an entries array.`);
+  }
+  return inventory;
+}
+
+function validatePolicyInventoryEntry(root, entry, seenPaths, violations) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    violations.push(`${POLICY_INVENTORY_PATH}: each entry must be an object.`);
+    return;
+  }
+
+  const path = readInventoryString(entry.path);
+  if (!path) {
+    violations.push(`${POLICY_INVENTORY_PATH}: entry is missing path.`);
+    return;
+  }
+  if (seenPaths.has(path)) {
+    violations.push(`${POLICY_INVENTORY_PATH}: duplicate inventory entry ${path}.`);
+  }
+  seenPaths.add(path);
+
+  if (resolve(root, path) !== join(root, path)) {
+    violations.push(
+      `${POLICY_INVENTORY_PATH}: ${path} must be a repo-relative path without traversal.`,
+    );
+  }
+  if (!path.endsWith("Policy.ts")) {
+    violations.push(`${POLICY_INVENTORY_PATH}: ${path} must end in Policy.ts.`);
+  }
+
+  const category = readInventoryString(entry.category);
+  if (!POLICY_INVENTORY_ALLOWED_CATEGORIES.includes(category)) {
+    violations.push(
+      `${POLICY_INVENTORY_PATH}: ${path} has invalid category ${category || "(missing)"}.`,
+    );
+  }
+
+  const disposition = readInventoryString(entry.disposition);
+  if (!POLICY_INVENTORY_ALLOWED_DISPOSITIONS.includes(disposition)) {
+    violations.push(
+      `${POLICY_INVENTORY_PATH}: ${path} has invalid disposition ${disposition || "(missing)"}.`,
+    );
+  }
+
+  for (const field of ["owner", "purpose", "gate"]) {
+    if (!readInventoryString(entry[field])) {
+      violations.push(`${POLICY_INVENTORY_PATH}: ${path} is missing ${field}.`);
+    }
+  }
+
+  if (
+    (disposition === "delete-from-product-path" ||
+      disposition === "quarantine-temporarily") &&
+    !readInventoryString(entry.deletionTrigger)
+  ) {
+    violations.push(
+      `${POLICY_INVENTORY_PATH}: ${path} must document a deletionTrigger for ${disposition}.`,
+    );
+  }
+}
+
+async function validateHarnessProductPathGuards(root, violations) {
+  const sourceFiles = await listSourceFiles(join(root, "apps"), join(root, "packages"));
+  await validateTurnModePolicyImports(root, sourceFiles, violations);
+  await validatePromptIntentPolicyImports(root, sourceFiles, violations);
+  await validatePromptTextRouting(root, sourceFiles, violations);
+  await validateFinalAnswerRegexRepair(root, sourceFiles, violations);
+  await validateDuplicateToolRegistries(root, sourceFiles, violations);
+}
+
+async function validateTurnModePolicyImports(root, sourceFiles, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.turnModePolicy;
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || guard.allowedFiles.includes(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (
+      guard.forbiddenImportPattern.test(source) ||
+      guard.forbiddenReferencePattern.test(source)
+    ) {
+      violations.push(
+        `${path}: production code must not use deleted turn-mode/direct-plan policy for product routing; use explicit turn metadata, capability policy, tool registry, and evidence-backed settlement.`,
+      );
+    }
+  }
+}
+
+async function validatePromptIntentPolicyImports(root, sourceFiles, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.promptIntentPolicy;
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || guard.allowedFiles.includes(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (
+      guard.forbiddenImportPattern.test(source) ||
+      guard.forbiddenReferencePattern.test(source)
+    ) {
+      violations.push(
+        `${path}: production code must not use prompt intent classifiers for product routing; use explicit turn metadata, capability policy, tool registry, and evidence-backed settlement.`,
+      );
+    }
+  }
+}
+
+async function validatePromptTextRouting(root, sourceFiles, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.promptTextRouting;
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.forbiddenPattern.test(source)) {
+      violations.push(
+        `${path}: production code must not route product behavior from prompt text; use explicit turn metadata and capability/runtime context.`,
+      );
+    }
+  }
+}
+
+async function validateFinalAnswerRegexRepair(root, sourceFiles, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.finalAnswerRegexRepair;
+  const quarantinedPaths = new Set(
+    guard.quarantinedFiles.map((entry) => entry.path),
+  );
+
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || quarantinedPaths.has(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    for (const repairPattern of guard.patterns) {
+      if (repairPattern.pattern.test(source)) {
+        violations.push(
+          `${path}: forbidden final-answer regex repair (${repairPattern.name}); final answers must come from typed model parts and terminal events.`,
+        );
+      }
+    }
+  }
+}
+
+async function validateDuplicateToolRegistries(root, sourceFiles, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.duplicateToolRegistries;
+  const allowedPaths = new Set([
+    ...guard.canonicalFiles,
+    ...guard.quarantinedFiles.map((entry) => entry.path),
+  ]);
+
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || allowedPaths.has(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.declarationPattern.test(source)) {
+      violations.push(
+        `${path}: duplicate tool registries are forbidden; tool visibility must flow through the canonical runtime registry/capability manifest.`,
+      );
+    }
+  }
+}
+
+async function validateClientSideTurnIdDerivation(root, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.clientSideTurnIdDerivation;
+  const webRoot = join(root, "apps", "web", "src");
+  const sourceFiles = await listSourceFiles(webRoot);
+
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || guard.allowedFiles.includes(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.forbiddenImportPattern.test(source)) {
+      violations.push(
+        `${path}: Web product code must not derive turn identity client-side with turnIdFromRunId or turnSeedFromLatestUserMessage; use canonical server-provided turnId from the X-Turn-Id response header.`,
+      );
+    }
+  }
+}
+
+async function validateActiveStateRunSummaryAuthority(root, violations) {
+  const guard = HARNESS_PRODUCT_PATH_GUARDS.activeStateRunSummaryAuthority;
+  const webRoot = join(root, "apps", "web", "src");
+  const sourceFiles = await listSourceFiles(webRoot);
+
+  for (const file of sourceFiles) {
+    const path = relative(root, file);
+    if (isTestSourcePath(path) || guard.allowedFiles.includes(path)) {
+      continue;
+    }
+    const source = await readFile(file, "utf8");
+    if (guard.forbiddenImportPattern.test(source)) {
+      violations.push(
+        `${path}: active Web chat components must not import run-summary status helpers for active-turn state; use canonical lifecycle projection for active workflow/thinking/approval/terminal state.`,
+      );
+    }
+  }
+}
+
 async function findPackageRoot(root, collection, packageName) {
   const collectionRoot = join(root, collection);
   for (const entry of await readdir(collectionRoot, { withFileTypes: true })) {
@@ -125,7 +375,18 @@ async function findPackageRoot(root, collection, packageName) {
       continue;
     }
     const candidate = join(collectionRoot, entry.name);
-    const manifest = await readJson(join(candidate, "package.json"));
+    let manifest;
+    try {
+      manifest = await readJson(join(candidate, "package.json"));
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        // Build tooling can leave ignored artifact directories behind after a
+        // package is removed. They are not package roots and must not make the
+        // architecture gate fail before it can validate the declared policy.
+        continue;
+      }
+      throw error;
+    }
     if (manifest.name === packageName) {
       return candidate;
     }
@@ -159,10 +420,26 @@ async function collectSourceFiles(root, files) {
 
 function isIgnoredSourceEntry(name) {
   return (
+    name === ".next" ||
+    name === ".turbo" ||
+    name === ".wrangler" ||
     name === "dist" ||
     name === "node_modules" ||
+    name === "out" ||
     /\.timestamp-\d+-[a-f0-9]+\.mjs$/.test(name)
   );
+}
+
+function isTestSourcePath(path) {
+  return (
+    path.includes("/__tests__/") ||
+    /\.test\.[cm]?[jt]sx?$/.test(path) ||
+    /\.spec\.[cm]?[jt]sx?$/.test(path)
+  );
+}
+
+function readInventoryString(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function findRepoImports(source) {

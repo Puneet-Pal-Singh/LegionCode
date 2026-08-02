@@ -46,7 +46,27 @@ For private alpha, set `PRIVATE_ALPHA_ACCESS_MODE=allowlist` in production and l
 
 ## Deploy order
 
-1. Apply pending Postgres migrations.
+1. Apply pending Postgres migrations from an isolated remote-development
+   session. This entrypoint has no public `fetch` route:
+
+   ```bash
+   cd apps/brain
+   corepack pnpm exec wrangler dev \
+     --config wrangler.migrations.jsonc \
+     --remote \
+     --test-scheduled
+   ```
+
+   In a second terminal, invoke the local scheduled-test endpoint:
+
+   ```bash
+   curl --fail-with-body "http://localhost:8787/__scheduled"
+   ```
+
+   Inspect the migration worker log for the exact `applied` and `skipped`
+   migration IDs, then stop the remote-development session. The migration
+   runner uses one PostgreSQL transaction plus an advisory lock; a failed
+   statement is rolled back and must block deployment.
 2. Deploy the secure runner and verify its bindings.
 3. Deploy the API service and verify auth, database access, and service bindings.
 4. Build and deploy the agents app with all three required `VITE_*` endpoints.

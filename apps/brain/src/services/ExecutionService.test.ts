@@ -4,6 +4,10 @@ import { ExecutionService } from "./ExecutionService";
 import type { Env } from "../types/ai";
 import { GIT_STATUS_TIMEOUT_MS } from "./gitExecutionTimeouts";
 import { createIdentityRepository } from "../test-utils/identityTestHelpers";
+import {
+  SecureExecutionSessionRecoveryError,
+  type SecureExecutionSessionPort,
+} from "./secure-execution/SecureExecutionSessionClient";
 
 vi.mock("@shadowbox/github-bridge", () => ({
   decryptToken: vi.fn(async () => "token:encrypted-token"),
@@ -15,6 +19,14 @@ vi.mock("@shadowbox/github-bridge", () => ({
     })),
   })),
 }));
+
+function testLease() {
+  return {
+    leaseId: "lease_test001",
+    sandboxId: "sb-test001",
+    generation: 0,
+  };
+}
 
 describe("ExecutionService", () => {
   beforeEach(() => {
@@ -34,6 +46,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-1",
             token: "tok-1",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -42,6 +55,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-1",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "file contents",
             metrics: { duration: 8 },
@@ -53,6 +69,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-2",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "second call",
             metrics: { duration: 9 },
@@ -64,10 +83,12 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
-        INTERNAL_RUNTIME_EVENT_SECRET: "internal-test-secret",
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-123",
       "run-456",
+      undefined,
+      scopeFor("run-456"),
     );
 
     const first = await service.execute("filesystem", "read_file", {
@@ -77,8 +98,18 @@ describe("ExecutionService", () => {
       command: "pnpm test",
     });
 
-    expect(first).toEqual({ success: true, output: "file contents" });
-    expect(second).toEqual({ success: true, output: "second call" });
+    expect(first).toEqual({
+      success: true,
+      status: "success",
+      output: "file contents",
+      metrics: { duration: 8 },
+    });
+    expect(second).toEqual({
+      success: true,
+      status: "success",
+      output: "second call",
+      metrics: { duration: 9 },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
 
     const [sessionUrl, sessionInit] = fetchMock.mock.calls[0]!;
@@ -87,12 +118,13 @@ describe("ExecutionService", () => {
     );
     expect(sessionInit?.method).toBe("POST");
     expect(sessionInit?.headers).toMatchObject({
-      "X-Internal-Runtime-Secret": "internal-test-secret",
+      "X-Internal-Runtime-Secret": "test-internal-secret",
     });
     expect(JSON.parse(String(sessionInit?.body))).toMatchObject({
       runId: "run-456",
       taskId: "brain-session-session-123",
       repoPath: ".",
+      workspaceScope: scopeFor("run-456"),
     });
 
     const [executeUrl, executeInit] = fetchMock.mock.calls[1]!;
@@ -110,61 +142,91 @@ describe("ExecutionService", () => {
         action: "read_file",
         runId: "run-456",
         path: "src/index.ts",
+        workspaceScope: scopeFor("run-456"),
       },
       timeout: 120000,
     });
   });
 
-  it.each([
-    [undefined, null],
-    ["   ", null],
-    ["  internal-trimmed-secret  ", "internal-trimmed-secret"],
-  ])(
-    "normalizes the internal runtime secret before session creation",
-    async (secret, expectedHeader) => {
-      const fetchMock = vi
-        .fn<
-          Parameters<Env["SECURE_API"]["fetch"]>,
-          ReturnType<Env["SECURE_API"]["fetch"]>
-        >()
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              sessionId: "sess-secret",
-              token: "tok-secret",
-              expiresAt: Date.now() + 60_000,
-            }),
-            { status: 201, headers: { "Content-Type": "application/json" } },
-          ),
-        )
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              taskId: "task-secret",
-              status: "success",
-              output: "ok",
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        );
-      const service = new ExecutionService(
-        {
-          SECURE_API: { fetch: fetchMock },
-          INTERNAL_RUNTIME_EVENT_SECRET: secret,
-        } as unknown as Env,
-        "session-secret",
-        "run-secret",
+  it("rejects a secure execution request before transport when scope is absent", async () => {
+    const fetchMock = vi.fn();
+    expect(
+      () =>
+        new ExecutionService(
+          {
+            SECURE_API: { fetch: fetchMock },
+            INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+          } as unknown as Env,
+          "session-unscoped",
+          "run-unscoped",
+        ),
+    ).toThrow("workspaceScope is required for secure execution");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("retries secure session creation while the local shadowbox-api worker is still registering", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          { status: 503, headers: { "Content-Type": "text/plain" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-retry",
+            token: "tok-retry",
+            expiresAt: Date.now() + 60_000,
+            lease: testLease(),
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-retry",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
+            status: "success",
+            output: "file contents",
+            metrics: { duration: 7 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
-      await service.execute("filesystem", "read_file", { path: "README.md" });
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
+      "session-retry",
+      "run-retry",
+      undefined,
+      scopeFor("run-retry"),
+    );
 
-      const [, sessionInit] = fetchMock.mock.calls[0]!;
-      const headers = new Headers(sessionInit?.headers);
-      expect(headers.get("X-Internal-Runtime-Secret")).toBe(expectedHeader);
-    },
-  );
+    const result = await service.execute("filesystem", "read_file", {
+      path: "README.md",
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      output: "file contents",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 
   it("maps task failures back into the legacy execution shape", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
       ReturnType<Env["SECURE_API"]["fetch"]>
@@ -177,6 +239,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-2",
             token: "tok-2",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -185,6 +248,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-fail",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "failure",
             error: {
               code: "PLUGIN_EXECUTION_FAILED",
@@ -192,24 +258,360 @@ describe("ExecutionService", () => {
             },
             metrics: { duration: 12 },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 422, headers: { "Content-Type": "application/json" } },
         ),
       );
 
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-abc",
       "run-def",
+      undefined,
+      scopeFor("run-def"),
     );
 
     await expect(
       service.execute("node", "run", { command: "pnpm lint" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: false,
-      error: "command failed",
+      status: "failure",
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "command failed",
+      },
+      metrics: { duration: 12 },
     });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"plugin":"node","action":"run"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"secureStatus":"failure"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"errorCode":"PLUGIN_EXECUTION_FAILED"'),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("preserves typed secure execution timeout failures", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-timeout",
+            token: "tok-timeout",
+            expiresAt: Date.now() + 60_000,
+            lease: testLease(),
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-timeout",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
+            status: "timeout",
+            output: "partial output",
+            error: {
+              code: "EXECUTION_TIMEOUT",
+              message: "Execution request timed out after 120000ms",
+              details: { timeoutMs: 120000 },
+            },
+            metrics: { duration: 120000 },
+          }),
+          { status: 504, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
+      "session-timeout",
+      "run-timeout",
+      undefined,
+      scopeFor("run-timeout"),
+    );
+
+    await expect(
+      service.execute("filesystem", "read_file", { path: "src/index.ts" }),
+    ).resolves.toMatchObject({
+      success: false,
+      status: "timeout",
+      output: "partial output",
+      error: {
+        code: "EXECUTION_TIMEOUT",
+        message: "Execution request timed out after 120000ms",
+        details: { timeoutMs: 120000 },
+      },
+      metrics: { duration: 120000 },
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"plugin":"filesystem","action":"read_file"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"secureStatus":"timeout"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"errorCode":"EXECUTION_TIMEOUT"'),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("bridges sandbox infrastructure failure identity into the runtime port", async () => {
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-sandbox",
+            token: "tok-sandbox",
+            expiresAt: Date.now() + 60_000,
+            lease: testLease(),
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-sandbox",
+            leaseId: "lease-sandbox",
+            correlationId: "secure-correlation-sandbox",
+            retryable: true,
+            status: "sandbox_unavailable",
+            error: {
+              code: "SANDBOX_UNAVAILABLE",
+              message: "Sandbox container became unavailable during execution",
+              details: { exitCode: 137 },
+            },
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-sandbox",
+            token: "tok-sandbox",
+            expiresAt: Date.now() + 60_000,
+            lease: {
+              leaseId: "lease_replacement01",
+              sandboxId: "sb-replacement01",
+              generation: 1,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
+      "session-sandbox",
+      "run-sandbox",
+      undefined,
+      scopeFor("run-sandbox"),
+    );
+
+    const result = await service.execute(
+      "filesystem",
+      "read_file",
+      { path: "src/index.ts" },
+      {
+        scope: {
+          runId: "run-sandbox",
+          threadId: "thread-run-sandbox",
+          turnId: "turn-run-sandbox",
+          runAttemptId: "attempt-run-sandbox",
+          workspaceId: "workspace-run-sandbox",
+          root: "/home/sandbox/runs/run-sandbox",
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      status: "sandbox_unavailable",
+      metadata: {
+        success: false,
+        runtimeFailure: {
+          code: "worker_unavailable",
+          retryable: true,
+          correlationId: "secure-correlation-sandbox",
+          details: {
+            secureStatus: "sandbox_unavailable",
+            secureCode: "SANDBOX_UNAVAILABLE",
+            taskId: "task-sandbox",
+            leaseId: "lease-sandbox",
+            workspaceScope: {
+              threadId: "thread-run-sandbox",
+              turnId: "turn-run-sandbox",
+              runAttemptId: "attempt-run-sandbox",
+              workspaceId: "workspace-run-sandbox",
+            },
+          },
+        },
+      },
+    });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
+      "/api/v1/session/sess-sandbox/resume",
+    );
+  });
+
+  it("preserves non-retryable sandbox recovery exhaustion", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          taskId: "task-sandbox-exhausted",
+          leaseId: "lease-sandbox-exhausted",
+          correlationId: "secure-correlation-sandbox-exhausted",
+          retryable: true,
+          status: "sandbox_unavailable",
+          error: {
+            code: "SANDBOX_UNAVAILABLE",
+            message: "Sandbox container became unavailable during execution",
+          },
+        }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const executionSession: SecureExecutionSessionPort = {
+      acquire: vi.fn(async () => ({
+        sessionId: "sess-sandbox-exhausted",
+        token: "tok-sandbox-exhausted",
+        expiresAt: Date.now() + 60_000,
+        lease: {
+          leaseId: "lease_sandbox_exhausted",
+          sandboxId: "sb-sandbox-exhausted",
+          generation: 1,
+        },
+      })),
+      recoverAfterSandboxLoss: vi.fn(async () => {
+        throw new SecureExecutionSessionRecoveryError();
+      }),
+      cancelTask: vi.fn(async () => true),
+      release: vi.fn(async () => {}),
+    };
+    const service = new ExecutionService(
+      { SECURE_API: { fetch: fetchMock } } as unknown as Env,
+      "session-sandbox-exhausted",
+      "run-sandbox-exhausted",
+      undefined,
+      scopeFor("run-sandbox-exhausted"),
+      executionSession,
+    );
+
+    const result = await service.execute(
+      "filesystem",
+      "read_file",
+      { path: "src/index.ts" },
+      { scope: scopeFor("run-sandbox-exhausted") },
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      status: "sandbox_unavailable",
+      error: {
+        code: "SANDBOX_RECOVERY_EXHAUSTED",
+        message: "The task sandbox replacement budget is exhausted.",
+      },
+      metadata: {
+        runtimeFailure: {
+          retryable: false,
+          details: {
+            secureCode: "SANDBOX_RECOVERY_EXHAUSTED",
+          },
+        },
+      },
+    });
+  });
+
+  it("rejects a 2xx secure failure payload as a typed contract violation", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn<
+      Parameters<Env["SECURE_API"]["fetch"]>,
+      ReturnType<Env["SECURE_API"]["fetch"]>
+    >();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessionId: "sess-contract",
+            token: "tok-contract",
+            expiresAt: Date.now() + 60_000,
+            lease: testLease(),
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            taskId: "task-contract",
+            leaseId: "lease-contract",
+            correlationId: "secure-correlation-contract",
+            retryable: true,
+            status: "failure",
+            error: { code: "COMMAND_FAILED", message: "command failed" },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const service = new ExecutionService(
+      {
+        SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
+      } as unknown as Env,
+      "session-contract",
+      "run-contract",
+      undefined,
+      scopeFor("run-contract"),
+    );
+
+    await expect(
+      service.execute("filesystem", "read_file", { path: "src/index.ts" }),
+    ).resolves.toMatchObject({
+      success: false,
+      error: { code: "SECURE_EXECUTION_CONTRACT_VIOLATION" },
+      metadata: {
+        runtimeFailure: {
+          code: "internal_error",
+          details: {
+            failureKind: "secure_execution_contract_violation",
+            httpStatus: 200,
+          },
+        },
+      },
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.contract-violation"'),
+    );
+    errorSpy.mockRestore();
   });
 
   it("normalizes git actions before sending execute payloads", async () => {
@@ -225,6 +627,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-git",
             token: "tok-git",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -233,6 +636,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-git",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -243,9 +649,12 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-git",
       "run-git",
+      undefined,
+      scopeFor("run-git"),
     );
 
     await service.execute("git", "status", {});
@@ -274,6 +683,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-commit",
             token: "tok-commit",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -282,6 +692,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-commit",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -292,6 +705,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-123"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -312,6 +726,7 @@ describe("ExecutionService", () => {
       "session-commit",
       "run-commit",
       "user-123",
+      scopeFor("run-commit"),
     );
 
     await service.execute("git", "git_commit", {
@@ -344,6 +759,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-commit-oauth",
             token: "tok-commit-oauth",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -352,6 +768,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-commit-oauth",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -362,6 +781,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-commit-oauth"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -382,6 +802,7 @@ describe("ExecutionService", () => {
       "session-commit-oauth",
       "run-commit-oauth",
       "user-commit-oauth",
+      scopeFor("run-commit-oauth"),
     );
 
     await service.execute("git", "git_commit", {
@@ -416,6 +837,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-github",
             token: "tok-github",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -424,6 +846,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-github",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: '{"number":228}',
           }),
@@ -434,6 +859,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-456"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -454,6 +880,7 @@ describe("ExecutionService", () => {
       "session-github",
       "run-github",
       "user-456",
+      scopeFor("run-github"),
     );
 
     await service.execute("github", "pr_get", {
@@ -496,6 +923,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-github-cli",
             token: "tok-github-cli",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -504,6 +932,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-github-cli",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: '{"actionsJobId":1234}',
           }),
@@ -514,6 +945,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-789"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -534,6 +966,7 @@ describe("ExecutionService", () => {
       "session-github-cli",
       "run-github-cli",
       "user-789",
+      scopeFor("run-github-cli"),
     );
 
     await service.execute("github_cli", "actions_job_logs_get", {
@@ -557,6 +990,7 @@ describe("ExecutionService", () => {
   });
 
   it("fails fast on persisted missing-scope boundary for GitHub Actions logs", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi.fn<
       Parameters<Env["SECURE_API"]["fetch"]>,
       ReturnType<Env["SECURE_API"]["fetch"]>
@@ -565,6 +999,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-790", [
           "read:user",
           "user:email",
@@ -589,6 +1024,7 @@ describe("ExecutionService", () => {
       "session-github-cli-scope",
       "run-github-cli-scope",
       "user-790",
+      scopeFor("run-github-cli-scope"),
     );
 
     await expect(
@@ -599,6 +1035,10 @@ describe("ExecutionService", () => {
       }),
     ).rejects.toThrow("Missing GitHub OAuth scope");
     expect(fetchMock).toHaveBeenCalledTimes(0);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.threw"'),
+    );
+    errorSpy.mockRestore();
   });
 
   it("does not allow payload to override canonical action or runId", async () => {
@@ -614,6 +1054,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-node",
             token: "tok-node",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -622,6 +1063,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-node",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "ok",
           }),
@@ -632,9 +1076,12 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-node",
       "run-owned-by-service",
+      undefined,
+      scopeFor("run-owned-by-service"),
     );
 
     await service.execute("node", "run", {
@@ -654,79 +1101,6 @@ describe("ExecutionService", () => {
     });
   });
 
-  it("filters streamed log polling by task id", async () => {
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(123456789);
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.123456789);
-    let logPollCount = 0;
-    const fetchMock = vi.fn<
-      Parameters<Env["SECURE_API"]["fetch"]>,
-      ReturnType<Env["SECURE_API"]["fetch"]>
-    >(async (url) => {
-      const value = String(url);
-
-      if (value.startsWith("http://internal/api/v1/session")) {
-        return new Response(
-          JSON.stringify({
-            sessionId: "sess-stream",
-            token: "tok-stream",
-            expiresAt: Date.now() + 60_000,
-          }),
-          { status: 201, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      if (value.startsWith("http://internal/api/v1/logs")) {
-        const parsed = new URL(value);
-        const taskId = parsed.searchParams.get("taskId");
-        expect(taskId).toMatch(/^filesystem-read_file-123456789-/);
-        logPollCount += 1;
-        const body =
-          logPollCount >= 2
-            ? `data: ${JSON.stringify({ taskId, timestamp: 2, level: "info", message: "chunk", source: "stdout" })}\n\n`
-            : "";
-        return new Response(body, {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream" },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({
-          taskId: "filesystem-read_file-task",
-          status: "success",
-          output: "done",
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    });
-
-    const service = new ExecutionService(
-      {
-        SECURE_API: { fetch: fetchMock },
-      } as unknown as Env,
-      "session-stream",
-      "run-stream",
-    );
-
-    const chunks: Array<{ message: string; source?: "stdout" | "stderr" }> = [];
-    await service.execute(
-      "filesystem",
-      "read_file",
-      { path: "src/index.ts" },
-      {
-        onOutput: async (chunk) => {
-          chunks.push(chunk);
-        },
-      },
-    );
-
-    expect(chunks).toEqual([
-      { message: "chunk", source: "stdout", timestamp: 2 },
-    ]);
-    nowSpy.mockRestore();
-    randomSpy.mockRestore();
-  });
-
   it("logs structured execution failures with plugin and action context", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetchMock = vi.fn<
@@ -741,6 +1115,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-failure",
             token: "tok-failure",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -749,6 +1124,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-failure",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "failure",
             error: {
               code: "PLUGIN_EXECUTION_FAILED",
@@ -756,32 +1134,49 @@ describe("ExecutionService", () => {
               details: { stderr: "fatal: empty ident name" },
             },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 422, headers: { "Content-Type": "application/json" } },
         ),
       );
 
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-failure",
       "run-failure",
+      undefined,
+      scopeFor("run-failure"),
     );
 
     await expect(
       service.execute("git", "git_commit", { message: "feat: add hero" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: false,
-      error: "Git commit author is not configured.",
+      status: "failure",
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message: "Git commit author is not configured.",
+        details: { stderr: "fatal: empty ident name" },
+      },
     });
 
     expect(errorSpy).toHaveBeenCalledWith(
-      "[ExecutionService] git:git_commit failed",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-        errorMessage: "Git commit author is not configured.",
-      }),
+      expect.stringContaining('"event":"execution.tool.result-failed"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"plugin":"git","action":"git_commit"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"secureStatus":"failure"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"errorCode":"PLUGIN_EXECUTION_FAILED"'),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '"errorMessage":"Git commit author is not configured."',
+      ),
     );
 
     errorSpy.mockRestore();
@@ -802,6 +1197,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-status",
             token: "tok-status",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -810,6 +1206,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-status",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "failure",
             error: {
               code: "PLUGIN_EXECUTION_FAILED",
@@ -817,34 +1216,48 @@ describe("ExecutionService", () => {
                 "fatal: not a git repository (or any of the parent directories): .git",
             },
           }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          { status: 422, headers: { "Content-Type": "application/json" } },
         ),
       );
 
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-status",
       "run-status",
+      undefined,
+      scopeFor("run-status"),
     );
 
-    await expect(service.execute("git", "git_status", {})).resolves.toEqual({
+    await expect(
+      service.execute("git", "git_status", {}),
+    ).resolves.toMatchObject({
       success: false,
-      error:
-        "fatal: not a git repository (or any of the parent directories): .git",
+      status: "failure",
+      error: {
+        code: "PLUGIN_EXECUTION_FAILED",
+        message:
+          "fatal: not a git repository (or any of the parent directories): .git",
+      },
     });
 
-    expect(errorSpy).not.toHaveBeenCalledWith(
-      "[ExecutionService] git:git_status failed",
-      expect.anything(),
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"execution.tool.http-warning"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      "[ExecutionService] git:git_status expected bootstrap miss",
-      expect.objectContaining({
-        status: "failure",
-        errorCode: "PLUGIN_EXECUTION_FAILED",
-      }),
+      expect.stringContaining('"event":"execution.tool.result-warning"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"plugin":"git","action":"git_status"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"warning":"expected bootstrap miss"'),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"secureStatus":"failure"'),
     );
 
     logSpy.mockRestore();
@@ -859,19 +1272,23 @@ describe("ExecutionService", () => {
       ReturnType<Env["SECURE_API"]["fetch"]>
     >();
 
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
-        { status: 503, headers: { "Content-Type": "text/plain" } },
-      ),
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          'Couldn\'t find a local dev session for the "default" entrypoint of service "shadowbox-api" to proxy to',
+          { status: 503, headers: { "Content-Type": "text/plain" } },
+        ),
     );
 
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
       } as unknown as Env,
       "session-status-local-dev",
       "run-status-local-dev",
+      undefined,
+      scopeFor("run-status-local-dev"),
     );
 
     await expect(service.execute("git", "git_status", {})).rejects.toThrow(
@@ -879,16 +1296,20 @@ describe("ExecutionService", () => {
     );
 
     expect(errorSpy).not.toHaveBeenCalledWith(
-      "[ExecutionService] Error:",
-      expect.anything(),
+      expect.stringContaining('"event":"execution.tool.threw"'),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      "[ExecutionService] git:git_status transient startup miss",
-      expect.objectContaining({
-        errorMessage: expect.stringMatching(
-          /Couldn't find a local dev session/i,
-        ),
-      }),
+      expect.stringContaining(
+        '"event":"execution.tool.transient-startup-miss"',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '"runId":"run-status-local-dev","sessionId":"session-status-local-dev"',
+      ),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/"errorMessage":".*local dev session/i),
     );
 
     logSpy.mockRestore();
@@ -909,6 +1330,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-pr",
             token: "tok-pr",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -917,6 +1339,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-status",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: JSON.stringify({
               gitAvailable: true,
@@ -936,6 +1361,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async (key: string) =>
@@ -957,6 +1383,7 @@ describe("ExecutionService", () => {
       "session-pr",
       "run-pr",
       "user-pr",
+      scopeFor("run-pr"),
     );
 
     const result = await service.execute("git", "git_create_pull_request", {
@@ -1019,6 +1446,7 @@ describe("ExecutionService", () => {
             sessionId: "sess-pr",
             token: "tok-pr",
             expiresAt: Date.now() + 60_000,
+            lease: testLease(),
           }),
           { status: 201, headers: { "Content-Type": "application/json" } },
         ),
@@ -1027,6 +1455,9 @@ describe("ExecutionService", () => {
         new Response(
           JSON.stringify({
             taskId: "task-status",
+            leaseId: "lease-test",
+            correlationId: "secure-correlation-test",
+            retryable: true,
             status: "success",
             output: "not-json",
           }),
@@ -1037,6 +1468,7 @@ describe("ExecutionService", () => {
     const service = new ExecutionService(
       {
         SECURE_API: { fetch: fetchMock },
+        INTERNAL_RUNTIME_EVENT_SECRET: "test-internal-secret",
         AUTH_IDENTITY_REPOSITORY: createIdentityRepository("user-pr"),
         SESSIONS: {
           get: vi.fn(async () =>
@@ -1056,6 +1488,7 @@ describe("ExecutionService", () => {
       "session-pr",
       "run-pr",
       "user-pr",
+      scopeFor("run-pr"),
     );
 
     await expect(
@@ -1071,3 +1504,14 @@ describe("ExecutionService", () => {
     });
   });
 });
+
+function scopeFor(runId: string) {
+  return {
+    runId,
+    threadId: `thread-${runId}`,
+    turnId: `turn-${runId}`,
+    runAttemptId: `attempt-${runId}`,
+    workspaceId: `workspace-${runId}`,
+    root: `/home/sandbox/runs/${runId}`,
+  };
+}

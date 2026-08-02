@@ -1,9 +1,9 @@
 import {
-  isGoldenFlowToolName,
-  type GoldenFlowToolInputByName,
-  type GoldenFlowToolName,
-  validateGoldenFlowToolInput,
-} from "../contracts/CodingToolGateway.js";
+  isCodingToolId,
+  type CodingToolInputByName,
+  type CodingToolId,
+  validateCodingToolInput,
+} from "../tools/CodingToolRegistry.js";
 
 export interface ToolPresentation {
   description: string;
@@ -11,10 +11,10 @@ export interface ToolPresentation {
   summary: string;
 }
 
-type ToolPresentationToolName = GoldenFlowToolName | "search_code";
+type ToolPresentationToolName = CodingToolId | "search_code";
 
-type ToolPresentationInputByName = GoldenFlowToolInputByName & {
-  search_code: GoldenFlowToolInputByName["grep"];
+type ToolPresentationInputByName = CodingToolInputByName & {
+  search_code: CodingToolInputByName["grep"];
 };
 
 type ToolPresenter<T extends ToolPresentationToolName> = (
@@ -56,6 +56,54 @@ function deriveToolPresentation(
   }
 
   return presentDefaultTool(toolName);
+}
+
+function deriveFallbackToolPresentation(
+  toolName: ToolPresentationToolName,
+  input: Record<string, unknown> | undefined,
+): ToolPresentation {
+  const path =
+    readString(input?.path) ??
+    readString(input?.filePath) ??
+    readString(input?.file) ??
+    readString(input?.filename);
+
+  switch (toolName) {
+    case "read_file":
+      return {
+        description: path ? `Read ${path}` : "Read file",
+        displayText: path ? `Reading ${path}` : "Reading file",
+        summary: path
+          ? `Reading file contents from ${path}.`
+          : "Reading file contents from the workspace.",
+      };
+    case "list_files":
+      return {
+        description:
+          path && path !== "." ? `List ${path}` : "List project files",
+        displayText:
+          path && path !== "." ? `Listing ${path}` : "Listing project files",
+        summary:
+          path && path !== "."
+            ? `Listing files in ${path}.`
+            : "Listing files in the current workspace.",
+      };
+    case "glob":
+      return {
+        description: "Find files",
+        displayText: "Finding files",
+        summary: "Finding matching files in the workspace.",
+      };
+    case "grep":
+    case "search_code":
+      return {
+        description: "Search project",
+        displayText: "Searching project",
+        summary: "Searching the workspace for matching content.",
+      };
+    default:
+      return presentDefaultTool(toolName);
+  }
 }
 
 const TOOL_PRESENTERS: Record<
@@ -536,7 +584,7 @@ function readString(value: unknown): string | undefined {
 function isToolPresentationToolName(
   toolName: string,
 ): toolName is ToolPresentationToolName {
-  return toolName === "search_code" || isGoldenFlowToolName(toolName);
+  return toolName === "search_code" || isCodingToolId(toolName);
 }
 
 function validateToolPresentationInput<T extends ToolPresentationToolName>(
@@ -545,13 +593,13 @@ function validateToolPresentationInput<T extends ToolPresentationToolName>(
 ): ToolPresentationInputByName[T] {
   try {
     if (toolName === "search_code") {
-      return validateGoldenFlowToolInput(
+      return validateCodingToolInput(
         "grep",
         input,
       ) as ToolPresentationInputByName[T];
     }
 
-    return validateGoldenFlowToolInput(
+    return validateCodingToolInput(
       toolName,
       input,
     ) as ToolPresentationInputByName[T];

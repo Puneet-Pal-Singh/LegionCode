@@ -4,6 +4,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
+      "@repo/hook-protocol": ["../../packages/hook-protocol/src/index.ts"],
       "@shadowbox/execution-engine/runtime": [
         "../../packages/execution-engine/src/runtime/index.ts"
       ],
@@ -17,7 +18,8 @@
         "../../packages/github-bridge/src/*"
       ],
       "@repo/shared-types": ["../../packages/shared-types/src/index.ts"],
-      "@repo/shared-types/*": ["../../packages/shared-types/src/*"]
+      "@repo/shared-types/*": ["../../packages/shared-types/src/*"],
+      "@repo/observability": ["../../packages/observability/src/index.ts"]
     },
     "types": ["@cloudflare/workers-types", "@types/node"],
     "noEmit": true,

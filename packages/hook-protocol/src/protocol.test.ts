@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   HookInvocationAuditEventSchema,
+  HookDefinitionSchema,
   HookEventNameSchema,
   PermissionRequestOutcomeSchema,
+  StopOutcomeSchema,
   UserPromptSubmitRequestSchema,
 } from "./index.js";
 import { createTestContext } from "./testSupport.js";
@@ -23,6 +25,47 @@ describe("hook protocol schemas", () => {
       "SubagentStop",
       "Stop",
     ]);
+  });
+
+  it("limits executable definitions to the four production lifecycle hooks", () => {
+    expect(
+      HookDefinitionSchema.parse({
+        handlerId: "project.prompt_policy",
+        eventName: "UserPromptSubmit",
+        source: "project",
+        displayName: "Prompt policy",
+        enabled: true,
+        order: 10,
+        timeoutMs: 1_000,
+        configurationKey: "project:hooks/prompt-policy",
+      }).eventName,
+    ).toBe("UserPromptSubmit");
+
+    expect(() =>
+      HookDefinitionSchema.parse({
+        handlerId: "project.pre_tool",
+        eventName: "PreToolUse",
+        source: "project",
+        displayName: "Pre-tool hook",
+        enabled: true,
+        order: 10,
+        timeoutMs: 1_000,
+        configurationKey: null,
+      }),
+    ).toThrow();
+  });
+
+  it("does not allow stop hooks to mutate final assistant text", () => {
+    expect(() =>
+      StopOutcomeSchema.parse({
+        status: "continue",
+        finalMessagePatch: "Replace the model final.",
+        cleanupResult: null,
+        userVisibleMessage: null,
+        modelContextAdditions: [],
+        auditMetadata: {},
+      }),
+    ).toThrow();
   });
 
   it("rejects invalid hook requests at the protocol boundary", () => {
@@ -66,6 +109,8 @@ describe("hook protocol schemas", () => {
       runId: "run_abcdef",
       threadId: "thr_abcdef",
       handlerId: "system.session_context",
+      source: "project",
+      order: 10,
       eventName: "SessionStart",
       startedAt: timestamp,
       completedAt: timestamp,
@@ -80,13 +125,14 @@ describe("hook protocol schemas", () => {
       auditEventId: "evt_audit1",
       eventType: "hook.invocation.completed",
       invocation,
-      outcome: {
+      outcomeSummary: {
+        eventName: "SessionStart",
         status: "continue",
-        userVisibleMessage: null,
-        modelContextAdditions: [],
-        auditMetadata: {},
+        hasUserVisibleMessage: false,
+        addedContextCount: 0,
+        cleanupStatus: null,
       },
-      metadata: {},
+      metadata: { durationMs: 1, cleanupStatus: null },
       emittedAt: timestamp,
       eventSequence: 1,
     });

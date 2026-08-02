@@ -1,5 +1,6 @@
 import type { CoreMessage } from "ai";
-import type { JsonValue, TurnActivityTranscriptPart } from "@repo/shared-types";
+import type { JsonValue } from "@repo/shared-types";
+import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import type {
   AppendRunEventInput,
   RunEventRecord,
@@ -21,12 +22,14 @@ import {
   buildRedactedMessageText,
   messageHasImageParts,
 } from "./chat/ImageMessageRedactor";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 
 interface PersistMessageContext {
   userId?: string;
   workspaceId?: string;
   title?: string;
   repository?: string;
+  identity?: TurnScopeBootstrap;
 }
 
 type TranscriptPersistenceOperation =
@@ -75,6 +78,7 @@ export class PersistenceService {
     sessionId: string;
     userId: string;
     workspaceId?: string | null;
+    threadId?: string | null;
     taskId?: string | null;
     title?: string | null;
     repository?: string | null;
@@ -84,6 +88,7 @@ export class PersistenceService {
         sessionId: input.sessionId,
         userId: input.userId,
         workspaceId: input.workspaceId,
+        threadId: input.threadId,
         taskId: input.taskId ?? input.sessionId,
         title: input.title,
         repository: input.repository,
@@ -191,6 +196,17 @@ export class PersistenceService {
     context: PersistMessageContext = {},
   ): Promise<TranscriptMessageRecord> {
     try {
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-entered", {
+          runId,
+          sessionId,
+          role: message.role,
+          messageId: readClientMessageId(message),
+          hasImages: messageHasImageParts(message),
+          repository: context.repository ?? null,
+          workspaceId: context.workspaceId ?? null,
+        }),
+      );
       const content = buildPersistenceDedupeContent(message);
 
       const idempotencyKey = await this.generateMessageIdempotencyKey(
@@ -207,12 +223,56 @@ export class PersistenceService {
         idempotencyKey,
         context,
       });
-      console.log(`[Brain] Persisted ${message.role} message for run ${runId}`);
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-persisted", {
+          runId,
+          sessionId,
+          role: message.role,
+          inputMessageId: readClientMessageId(message),
+          persistedMessageId: persistedMessage.id,
+          dedupeKey: idempotencyKey,
+        }),
+      );
       return persistedMessage;
     } catch (error) {
-      console.error("[Brain] Persist user message failed", error);
+      console.error(
+        formatDiagnosticLogLine("chat/persistence", "user-message-failed", {
+          runId,
+          sessionId,
+          role: message.role,
+          messageId: readClientMessageId(message),
+          error,
+        }),
+      );
       throw new TranscriptPersistenceError("persistUserMessage", error);
     }
+  }
+
+  async findFirstPersistedUserMessage(input: {
+    sessionId: string;
+    userId: string;
+  }): Promise<TranscriptMessageRecord | null> {
+    let cursor: number | null = 0;
+
+    while (cursor !== null) {
+      const page = await withTranscriptRepository(this.env, (repository) =>
+        repository.listTranscript({
+          sessionId: input.sessionId,
+          userId: input.userId,
+          cursor,
+          limit: 100,
+        }),
+      );
+      const firstUserMessage = page.messages.find(
+        (message) => message.role === "user",
+      );
+      if (firstUserMessage) {
+        return firstUserMessage;
+      }
+      cursor = page.nextCursor;
+    }
+
+    return null;
   }
 
   async persistConversation(
@@ -255,15 +315,26 @@ export class PersistenceService {
   async persistAssistantTurn(input: {
     sessionId: string;
     runId: string;
+    turnId: string;
     text: string;
     metadata?: Record<string, unknown>;
-    activity?: TurnActivityTranscriptPart | null;
   }): Promise<TranscriptMessageRecord> {
     try {
+      const parts = buildAssistantTurnParts(input);
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "assistant-turn-entered", {
+          runId: input.runId,
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          textChars: input.text.length,
+          metadataKeys: Object.keys(input.metadata ?? {}).join(",") || "none",
+          partCount: parts.length,
+        }),
+      );
       const idempotencyKey = await this.generateIdempotencyKey(
         input.sessionId,
         input.runId,
-        "assistant_turn",
+        `assistant_turn:${input.turnId}`,
         input.text,
       );
 
@@ -275,14 +346,35 @@ export class PersistenceService {
             runId: input.runId,
             role: "assistant",
             dedupeKey: idempotencyKey,
-            parts: buildAssistantTurnParts(input),
+            parts,
           });
         },
       );
-      console.log(`[Brain] Persisted assistant turn for run ${input.runId}`);
+      console.log(
+        formatDiagnosticLogLine(
+          "chat/persistence",
+          "assistant-turn-persisted",
+          {
+            runId: input.runId,
+            sessionId: input.sessionId,
+            turnId: input.turnId,
+            persistedMessageId: message.id,
+            dedupeKey: idempotencyKey,
+            partCount: parts.length,
+          },
+        ),
+      );
       return message;
     } catch (error) {
-      console.error("[Brain] Persist assistant turn failed", error);
+      console.error(
+        formatDiagnosticLogLine("chat/persistence", "assistant-turn-failed", {
+          runId: input.runId,
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          textChars: input.text.length,
+          error,
+        }),
+      );
       throw new TranscriptPersistenceError("persistAssistantTurn", error);
     }
   }
@@ -344,9 +436,16 @@ export class PersistenceService {
     },
     repository: TranscriptRepository,
   ): Promise<TranscriptMessageRecord> {
-    const parts = coreMessageToTranscriptParts(input.message);
+    const parts = coreMessageToTranscriptParts(
+      input.message,
+      input.context.identity,
+    );
+    const clientMessageId = readClientMessageId(input.message);
+    console.log(
+      `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} role=${input.message.role} clientMessageId=${clientMessageId ?? "missing"} dedupeKey=${input.idempotencyKey} status=append-started`,
+    );
     if (input.context.userId) {
-      return await repository.appendMessage({
+      const record = await repository.appendMessage({
         sessionId: input.sessionId,
         runId: input.runId,
         userId: input.context.userId,
@@ -356,20 +455,28 @@ export class PersistenceService {
         activeRunId: input.runId,
         status: "running",
         role: input.message.role,
-        clientMessageId: readClientMessageId(input.message),
+        clientMessageId,
         dedupeKey: input.idempotencyKey,
         parts,
       });
+      console.log(
+        `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} messageId=${record.id} role=${record.role} clientMessageId=${record.clientMessageId ?? "missing"} status=appended`,
+      );
+      return record;
     }
 
-    return await repository.appendMessageToExistingSession({
+    const record = await repository.appendMessageToExistingSession({
       sessionId: input.sessionId,
       runId: input.runId,
       role: input.message.role,
-      clientMessageId: readClientMessageId(input.message),
+      clientMessageId,
       dedupeKey: input.idempotencyKey,
       parts,
     });
+    console.log(
+      `[chat/persistence] sessionId=${input.sessionId} runId=${input.runId} messageId=${record.id} role=${record.role} clientMessageId=${record.clientMessageId ?? "missing"} status=appended-existing-session`,
+    );
+    return record;
   }
 
   private async generateMessageIdempotencyKey(
@@ -416,19 +523,30 @@ function mapRunStatusToSessionStatus(status: RunStatus): SessionStatus {
   }
 }
 
-function coreMessageToTranscriptParts(message: CoreMessage): Array<{
+function coreMessageToTranscriptParts(
+  message: CoreMessage,
+  identity?: TurnScopeBootstrap,
+): Array<{
   type: "text" | "raw";
   content: JsonValue;
 }> {
   if (typeof message.content === "string") {
-    return [{ type: "text", content: { text: message.content } }];
+    return [
+      {
+        type: "text",
+        content: buildTranscriptTextContent(message.content, identity),
+      },
+    ];
   }
 
   if (messageHasImageParts(message)) {
     return [
       {
         type: "text",
-        content: { text: buildRedactedMessageText(message) },
+        content: buildTranscriptTextContent(
+          buildRedactedMessageText(message),
+          identity,
+        ),
       },
     ];
   }
@@ -439,21 +557,27 @@ function coreMessageToTranscriptParts(message: CoreMessage): Array<{
 function buildAssistantTurnParts(input: {
   text: string;
   metadata?: Record<string, unknown>;
-  activity?: TurnActivityTranscriptPart | null;
-}): Array<{ type: "text" | "activity"; content: JsonValue }> {
+}): Array<{ type: "text"; content: JsonValue }> {
   const textContent: Record<string, JsonValue> = { text: input.text };
   if (input.metadata) {
     textContent.metadata = toJsonValue(input.metadata);
   }
-  const parts: Array<{ type: "text" | "activity"; content: JsonValue }> = [
+  const parts: Array<{ type: "text"; content: JsonValue }> = [
     { type: "text", content: textContent },
   ];
-
-  if (input.activity && input.activity.events.length > 0) {
-    parts.push({ type: "activity", content: toJsonValue(input.activity) });
-  }
-
   return parts;
+}
+
+function buildTranscriptTextContent(
+  text: string,
+  identity?: TurnScopeBootstrap,
+): Record<string, JsonValue> {
+  return {
+    text,
+    ...(identity
+      ? { metadata: { canonicalIdentity: toJsonValue(identity) } }
+      : {}),
+  };
 }
 
 function toJsonValue(value: unknown): JsonValue {

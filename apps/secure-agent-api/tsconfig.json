@@ -5,6 +5,8 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "paths": {
+      "@repo/observability": ["../../packages/observability/src/index.ts"],
+      "@repo/observability/*": ["../../packages/observability/src/*"],
       "@repo/shared-types": ["../../packages/shared-types/src/index.ts"],
       "@repo/shared-types/*": ["../../packages/shared-types/src/*"]
     },

@@ -127,7 +127,10 @@ export class DefaultGitService {
     const workspaceRoot = validateWorkspaceRoot(input.workspace.filesystemRoot);
     const paths = validateExplicitRepoPaths(input.paths);
     const counts = new Map<string, Omit<GitFileLineCount, "path">>();
-    await this.mergeNumstat(workspaceRoot, runId, counts, ["diff", "--numstat"]);
+    await this.mergeNumstat(workspaceRoot, runId, counts, [
+      "diff",
+      "--numstat",
+    ]);
     await this.mergeNumstat(workspaceRoot, runId, counts, [
       "diff",
       "--cached",
@@ -180,9 +183,7 @@ export class DefaultGitService {
     return { path, patch: diffResult.stdout };
   }
 
-  async getRepoIdentity(
-    input: GitRepoIdentityInput,
-  ): Promise<string | null> {
+  async getRepoIdentity(input: GitRepoIdentityInput): Promise<string | null> {
     const remoteUrl = await this.readConfigValue({
       workspace: input.workspace,
       key: "remote.origin.url",
@@ -191,11 +192,8 @@ export class DefaultGitService {
   }
 
   async readConfigValue(input: GitConfigValueInput): Promise<string | null> {
-    const value = await this.readOptionalGitValue(input.workspace, [
-      "config",
-      "--get",
-      input.key,
-    ]);
+    const values = await this.readConfigValues(input.workspace);
+    const value = values.get(input.key);
     return value && value.length > 0 ? value : null;
   }
 
@@ -280,7 +278,6 @@ export class DefaultGitService {
     const branchName = validateBranchNamePolicy(input.workspace.workingBranch);
     const remoteName = validateRemoteName(input.remoteName);
     const args = [
-      ...validateGitAuthArgs(input.authArgs ?? []),
       "push",
       "-u",
       remoteName,
@@ -290,6 +287,7 @@ export class DefaultGitService {
       runId,
       cwd: workspaceRoot,
       args,
+      environment: validateGitAuthEnvironment(input.authEnvironment),
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     if (result.exitCode !== 0) {
@@ -313,7 +311,6 @@ export class DefaultGitService {
   async pull(input: GitPullInput): Promise<void> {
     const remoteName = validateRemoteName(input.remoteName);
     const args = [
-      ...validateGitAuthArgs(input.authArgs ?? []),
       "pull",
       "--ff-only",
       remoteName,
@@ -321,20 +318,34 @@ export class DefaultGitService {
     if (input.branchName && input.branchName.trim().length > 0) {
       args.push(validateBranchNamePolicy(input.branchName));
     }
-    await this.executeRequired(input.workspace, args);
+    await this.executeRequired(
+      input.workspace,
+      args,
+      validateGitAuthEnvironment(input.authEnvironment),
+    );
   }
 
   async fetch(input: GitFetchInput): Promise<void> {
-    await this.executeRequired(input.workspace, [
-      ...validateGitAuthArgs(input.authArgs ?? []),
-      "fetch",
-      validateRemoteName(input.remoteName),
-    ]);
+    await this.executeRequired(
+      input.workspace,
+      ["fetch", validateRemoteName(input.remoteName)],
+      validateGitAuthEnvironment(input.authEnvironment),
+    );
   }
 
   async createBranch(input: GitBranchInput): Promise<GitBranchResult> {
     const branchName = validateBranchNamePolicy(input.branchName);
-    await this.executeRequired(input.workspace, ["checkout", "-b", branchName]);
+    const args = ["checkout", "-b", branchName];
+    if (input.startPoint) {
+      if (!GIT_OBJECT_ID_PATTERN.test(input.startPoint)) {
+        throw new GitServiceError(
+          "invalid_git_input",
+          "Git branch start point must be an immutable object id",
+        );
+      }
+      args.push(input.startPoint);
+    }
+    await this.executeRequired(input.workspace, args);
     return {
       branchName,
       message: `Created and switched to branch: ${branchName}`,
@@ -439,7 +450,13 @@ export class DefaultGitService {
     workspace: GitFileLineCountsInput["workspace"],
     path: string,
   ): Promise<number | null> {
-    const result = await this.executeGit(workspace, ["ls-files", "--others", "--exclude-standard", "--", path]);
+    const result = await this.executeGit(workspace, [
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "--",
+      path,
+    ]);
     if (result.exitCode !== 0 || !hasExactPath(result.stdout, path)) {
       return null;
     }
@@ -589,6 +606,20 @@ export class DefaultGitService {
     });
   }
 
+  private async readConfigValues(
+    workspace: GitCommitInput["workspace"],
+  ): Promise<ReadonlyMap<string, string>> {
+    const result = await this.executeGit(workspace, [
+      "config",
+      "--null",
+      "--list",
+    ]);
+    if (result.exitCode !== 0) {
+      return new Map();
+    }
+    return parseNullDelimitedConfig(result.stdout);
+  }
+
   private async writeCommitAuthor(input: GitCommitInput): Promise<void> {
     await this.writeGitConfigValue(
       input.workspace,
@@ -658,6 +689,21 @@ export class DefaultGitService {
     const value = result.stdout.trim();
     return value.length > 0 ? value : null;
   }
+}
+
+function parseNullDelimitedConfig(stdout: string): ReadonlyMap<string, string> {
+  const values = new Map<string, string>();
+  for (const entry of stdout.split("\0")) {
+    if (entry.length === 0) {
+      continue;
+    }
+    const separatorIndex = entry.indexOf("\n");
+    if (separatorIndex < 0) {
+      continue;
+    }
+    values.set(entry.slice(0, separatorIndex), entry.slice(separatorIndex + 1));
+  }
+  return values;
 }
 
 function getCommandErrorText(result: {
@@ -730,10 +776,14 @@ function shouldKeepPatchPath(
   if (!internalPathPrefix) {
     return true;
   }
-  return path !== internalPathPrefix && !path.startsWith(`${internalPathPrefix}/`);
+  return (
+    path !== internalPathPrefix && !path.startsWith(`${internalPathPrefix}/`)
+  );
 }
 
-function toPathspecArgs(paths: readonly string[] | undefined): readonly string[] {
+function toPathspecArgs(
+  paths: readonly string[] | undefined,
+): readonly string[] {
   if (!paths || paths.length === 0) {
     return [];
   }
@@ -766,7 +816,9 @@ function normalizeRepoIdentity(remoteUrl: string): string | null {
   try {
     const parsed = new URL(trimmed);
     const normalizedPath = normalizeRepoIdentityPath(parsed.pathname);
-    return normalizedPath ? `${parsed.host.toLowerCase()}/${normalizedPath}` : null;
+    return normalizedPath
+      ? `${parsed.host.toLowerCase()}/${normalizedPath}`
+      : null;
   } catch {
     return null;
   }
@@ -781,19 +833,26 @@ function normalizeRepoIdentityPath(pathname: string): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function validateGitAuthArgs(authArgs: readonly string[]): readonly string[] {
-  if (authArgs.length === 0) {
-    return [];
+function validateGitAuthEnvironment(
+  environment: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (!environment || Object.keys(environment).length === 0) {
+    return undefined;
   }
+  const keys = Object.keys(environment).sort();
   if (
-    authArgs.length !== 2 ||
-    authArgs[0] !== "-c" ||
-    !authArgs[1]?.toLowerCase().startsWith("http.extraheader=")
+    keys.join(",") !==
+      "GIT_CONFIG_COUNT,GIT_CONFIG_KEY_0,GIT_CONFIG_VALUE_0" ||
+    environment.GIT_CONFIG_COUNT !== "1" ||
+    environment.GIT_CONFIG_KEY_0?.toLowerCase() !== "http.extraheader" ||
+    !environment.GIT_CONFIG_VALUE_0?.toLowerCase().startsWith(
+      "authorization: basic ",
+    )
   ) {
     throw new GitServiceError(
       "invalid_git_input",
-      "Git auth args must be the canonical HTTP extraheader pair",
+      "Git auth environment must be the canonical HTTP extraheader config",
     );
   }
-  return authArgs;
+  return environment;
 }

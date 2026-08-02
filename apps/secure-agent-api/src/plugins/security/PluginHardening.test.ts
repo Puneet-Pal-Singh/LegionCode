@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
+import type { IPlugin } from "../../interfaces/types";
 import { BashPlugin } from "../BashPlugin";
 import { NodePlugin } from "../NodePlugin";
 import { FileSystemPlugin } from "../FileSystemPlugin";
 import { GitPlugin } from "../GitPlugin";
 import { BashTool } from "../../schemas/bash";
+import { pluginTestExecutionContext } from "../test-support/PluginExecutionContext";
 
 interface ExecResult {
   exitCode: number;
@@ -53,6 +55,13 @@ function asSandbox(mock: SandboxMock): Sandbox {
 }
 
 describe("secure-agent-api plugin hardening", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    installScopedExecutionFixture(NodePlugin);
+    installScopedExecutionFixture(BashPlugin);
+    installScopedExecutionFixture(FileSystemPlugin);
+    installScopedExecutionFixture(GitPlugin);
+  });
   it("rejects command injection tokens in node command", async () => {
     const plugin = new NodePlugin();
     const sandbox = createSandboxMock();
@@ -258,6 +267,7 @@ describe("secure-agent-api plugin hardening", () => {
   });
 
   it("rejects filesystem traversal and absolute paths", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = new FileSystemPlugin();
     const sandbox = createSandboxMock();
 
@@ -276,6 +286,8 @@ describe("secure-agent-api plugin hardening", () => {
     });
     expect(absolute.success).toBe(false);
     expect(absolute.error).toMatch(/absolute paths are not allowed/i);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
+    errorSpy.mockRestore();
   });
 
   it("returns read windows with line metadata", async () => {
@@ -290,7 +302,7 @@ describe("secure-agent-api plugin hardening", () => {
       if (command.includes("'wc'")) {
         return {
           exitCode: 0,
-          stdout: "4 /home/sandbox/runs/run-safe-read/a.txt\n",
+          stdout: "4 /home/sandbox/checkouts/run-safe-read/a.txt\n",
           stderr: "",
         };
       }
@@ -306,12 +318,19 @@ describe("secure-agent-api plugin hardening", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.output).toBe("line two\nline three\n");
+    expect(result.output).toContain(
+      "[read_file] path=a.txt offset=1 limit=2 returnedLines=2 totalLines=4 truncated=true nextOffset=3",
+    );
+    expect(result.output).toContain("2: line two\n3: line three");
+    expect(result.output).toContain(
+      '[read_file] Continue with {"path":"a.txt","offset":3,"limit":2}',
+    );
     expect(result.metadata).toMatchObject({
       offset: 1,
       limit: 2,
       returnedLines: 2,
       totalLines: 4,
+      nextOffset: 3,
     });
     expect(sandbox.execCalls.some((command) => command.includes("'stat'"))).toBe(
       false,
@@ -331,7 +350,7 @@ describe("secure-agent-api plugin hardening", () => {
       if (command.includes("'wc'")) {
         return {
           exitCode: 0,
-          stdout: "3 /home/sandbox/runs/run-safe-empty/a.txt\n",
+          stdout: "3 /home/sandbox/checkouts/run-safe-empty/a.txt\n",
           stderr: "",
         };
       }
@@ -347,14 +366,18 @@ describe("secure-agent-api plugin hardening", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.output).toBe("");
+    expect(result.output).toBe(
+      "[read_file] path=a.txt offset=10 limit=2 returnedLines=0 totalLines=3 truncated=false\n",
+    );
     expect(result.metadata).toMatchObject({
       returnedLines: 0,
       totalLines: 3,
+      nextOffset: null,
     });
   });
 
   it("routes invalid grep regex errors through filesystem metadata", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = new FileSystemPlugin();
     const sandbox = createSandboxMockWithResponder((command) => {
       if (command.includes("'rg'")) {
@@ -378,9 +401,16 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.error).toMatch(/Invalid grep regex/);
     expect(result.metadata).toMatchObject({ reason: "invalid_regex" });
     expect(result.truncated).toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[filesystem/tool] runId=run-safe-grep action=grep status=completed success=false",
+      ),
+    );
+    errorSpy.mockRestore();
   });
 
   it("rejects traversal in fast glob paths", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const plugin = new FileSystemPlugin();
     const sandbox = createSandboxMock();
 
@@ -393,6 +423,10 @@ describe("secure-agent-api plugin hardening", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/traversal|Access Denied/i);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[filesystem/tool] action=unknown status=failed"),
+    );
+    errorSpy.mockRestore();
   });
 
   it("returns an empty successful result for fast glob misses", async () => {
@@ -441,7 +475,7 @@ describe("secure-agent-api plugin hardening", () => {
 
     const result = await plugin.execute(asSandbox(sandbox), {
       action: "git_commit",
-      runId: "run-safe-5",
+      runId: "run_safe_5",
       message: "feat: test commit",
       files: ["src/app.ts"],
     });
@@ -450,3 +484,23 @@ describe("secure-agent-api plugin hardening", () => {
     expect(result.error).toMatch(/git commit author is not configured/i);
   });
 });
+
+function installScopedExecutionFixture<T extends { prototype: IPlugin }>(
+  Plugin: T,
+): void {
+  const execute = Plugin.prototype.execute;
+  vi.spyOn(Plugin.prototype, "execute").mockImplementation(function (
+    this: IPlugin,
+    sandbox,
+    payload,
+    onLog,
+  ) {
+    return execute.call(
+      this,
+      sandbox,
+      payload,
+      onLog,
+      pluginTestExecutionContext(payload),
+    );
+  });
+}

@@ -1,33 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  MemoryEventStore,
   MemoryRunRepository,
+  MemoryThreadTitleRepository,
   MemoryTranscriptRepository,
 } from "@repo/persistence";
 import { ChatController } from "./ChatController";
 import type { Env } from "../types/ai";
 
-const VALID_RUN_ID = "123e4567-e89b-42d3-a456-426614174000";
+const VALID_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "default";
+const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 const TEST_SESSION_TOKEN = "test-session-token";
-
-vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
-  CloudflareAgent: class MockCloudflareAgent {},
-  CloudflareAgentsRunRuntimeClient: class MockRuntimeClient {
-    execute = vi.fn();
-    getSummary = vi.fn();
-    cancel = vi.fn();
-  },
-  parseCloudflareAgentsFeatureFlag: (value: string | undefined) =>
-    value === "true" || value === "1",
-  shouldActivateCloudflareAgentsAdapter: ({
-    requestedBackend,
-    featureFlagEnabled,
-  }: {
-    requestedBackend: string;
-    featureFlagEnabled: boolean;
-  }) => featureFlagEnabled && requestedBackend === "cloudflare_agents",
-}));
 
 describe("ChatController auth contract", () => {
   beforeEach(() => {
@@ -86,6 +70,12 @@ function createChatRequest(options?: {
     body: JSON.stringify({
       sessionId: "session-1",
       runId: VALID_RUN_ID,
+      identity: {
+          workspaceId: TEST_WORKSPACE_ID,
+        threadId: "thr_test001",
+        turnId: "trn_test001",
+        runAttemptId: "attempt_test001",
+      },
       messages: [
         {
           role: "user",
@@ -116,6 +106,8 @@ function createMockRuntimeNamespace() {
 
 function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
   const oauthState = new Map<string, string>();
+  const transcripts = new MemoryTranscriptRepository();
+  const events = new MemoryEventStore();
 
   return {
     AI: {} as Env["AI"],
@@ -128,8 +120,12 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
         createIdentitySessionRecord(),
       revokeSession: async () => undefined,
     },
-    AUTH_TRANSCRIPT_REPOSITORY: new MemoryTranscriptRepository(),
+    AUTH_TRANSCRIPT_REPOSITORY: transcripts,
     AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
+      transcripts,
+      events,
+    ),
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
@@ -150,7 +146,6 @@ function createEnv(runEngineRuntime: Env["RUN_ENGINE_RUNTIME"]): Env {
     } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
     RUN_ADMISSION_LIMITER: createMockRunAdmissionLimiterNamespace(),
-    FEATURE_FLAG_CLOUDFLARE_AGENTS_V1: "false",
   } as Env;
 }
 

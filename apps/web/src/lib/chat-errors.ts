@@ -66,6 +66,21 @@ function mapKnownChatErrorMessage(
   message: string,
   payload?: ParsedChatErrorPayload | null,
 ): string | null {
+  if (payload?.code === "SANDBOX_UNAVAILABLE") {
+    return "Sandbox execution is unavailable. Retry the request; if it continues, the runtime needs attention rather than provider setup.";
+  }
+  if (payload?.code === "WORKSPACE_SCOPE_INVALID") {
+    return "The run workspace scope was rejected. Retry the request so the server can create a fresh scoped run.";
+  }
+  if (payload?.code === "EXECUTION_TIMEOUT") {
+    return "Sandbox execution timed out. Retry the request or narrow the task.";
+  }
+  if (payload?.code === "EXECUTION_CANCELLED") {
+    return "Sandbox execution was cancelled. Retry the request when you are ready.";
+  }
+  if (payload?.code === "RUNTIME_EXECUTION_FAILED") {
+    return "Runtime execution failed before the run could settle. Retry the request or narrow the task.";
+  }
   if (payload?.code === "AXIS_DAILY_LIMIT_EXCEEDED") {
     const used = payload.metadata?.used;
     const limit = payload.metadata?.limit;

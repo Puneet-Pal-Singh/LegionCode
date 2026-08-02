@@ -89,6 +89,44 @@ export const LIFECYCLE_METADATA_FIELDS = [
   "lifecycle/conformance regression test",
 ];
 
+export const ARCHITECTURE_METADATA_FIELDS = [
+  "product responsibility",
+  "current owner(s)",
+  "canonical owner after change",
+  "active producers migrated",
+  "active consumers migrated",
+  "code or path removed",
+  "replacement for removed behavior",
+  "remaining duplicate authority",
+  "capability ownership ledger update",
+];
+
+export const ARCHITECTURE_SENSITIVE_PATHS = [
+  /^apps\/brain\/src\/controllers\//,
+  /^apps\/brain\/src\/runtime\//,
+  /^apps\/brain\/src\/services\/runs\//,
+  /^apps\/desktop\//,
+  /^apps\/secure-agent-api\/src\//,
+  /^apps\/web\/src\/components\/chat\//,
+  /^apps\/web\/src\/components\/git\//,
+  /^apps\/web\/src\/hooks\/useChat/,
+  /^apps\/web\/src\/hooks\/useRun/,
+  /^apps\/web\/src\/services\/activity\//,
+  /^apps\/web\/src\/services\/lifecycle\//,
+  /^apps\/web\/src\/services\/run/,
+  /^packages\/context-/,
+  /^packages\/event-store\//,
+  /^packages\/execution-engine\/src\/runtime\//,
+  /^packages\/git-service\//,
+  /^packages\/permission-policy\//,
+  /^packages\/platform-client-sdk\//,
+  /^packages\/platform-protocol\//,
+  /^packages\/runtime-kernel\//,
+  /^packages\/token-budgeting\//,
+  /^packages\/worker-protocol\//,
+  /^packages\/workspace-core\//,
+];
+
 export const LIFECYCLE_SENSITIVE_PATHS = [
   /^apps\/brain\/src\/application\/chat\//,
   /^apps\/brain\/src\/controllers\/ChatController/,

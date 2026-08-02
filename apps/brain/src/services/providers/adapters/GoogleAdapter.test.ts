@@ -94,6 +94,25 @@ describe("GoogleAdapter", () => {
     ).rejects.toThrow("boom");
   });
 
+  it("disables hidden provider SDK retries for token-heavy coding turns", async () => {
+    mockGenerateText.mockResolvedValueOnce({
+      text: "OK",
+      usage: { promptTokens: 5_000, completionTokens: 1 },
+      finishReason: "stop",
+      toolCalls: [],
+    });
+    const adapter = new GoogleAdapter({ apiKey: "google-test-key" });
+
+    await adapter.generate({
+      messages: [],
+      model: "gemini-2.5-flash-lite",
+    });
+
+    expect(mockGenerateText).toHaveBeenCalledWith(
+      expect.objectContaining({ maxRetries: 0 }),
+    );
+  });
+
   it("configures Google client with the Gemini thought-signature fetch bridge", () => {
     new GoogleAdapter({
       apiKey: "google-test-key",

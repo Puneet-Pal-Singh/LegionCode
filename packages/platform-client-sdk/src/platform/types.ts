@@ -1,4 +1,8 @@
 import { z } from "zod";
+import type {
+  InterruptTurnRequest,
+  InterruptTurnResponse,
+} from "./lifecycle-types.js";
 import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
@@ -25,9 +29,10 @@ import {
   type UserId,
   type TurnDiffPayload,
   type WorkspaceManifest,
+  type CompactTurnRequest,
+  type CompactTurnResponse,
 } from "@repo/platform-protocol";
 import type {
-  AttachLifecycleStreamRequest,
   FollowLifecycleRequest,
   GetTurnDiffRequest,
   ReplayLifecycleEventsRequest,
@@ -40,14 +45,6 @@ import type {
 
 const MAX_EVENT_REPLAY_LIMIT = 1_000;
 const MAX_LIST_LIMIT = 200;
-export const StreamRetryPolicySchema = z
-  .object({
-    maxAttempts: z.number().int().min(1).max(10),
-    delayMs: z.number().int().min(0).max(30_000),
-  })
-  .strict();
-export type StreamRetryPolicy = z.infer<typeof StreamRetryPolicySchema>;
-
 export const CreateThreadRequestSchema = z
   .object({
     userId: UserIdSchema,
@@ -90,16 +87,6 @@ export const ListThreadsResponseSchema = z
   })
   .strict();
 export type ListThreadsResponse = z.infer<typeof ListThreadsResponseSchema>;
-
-export const AttachRunStreamRequestSchema = z
-  .object({
-    runId: RunIdSchema,
-    afterCursor: EventCursorSchema.nullable().optional(),
-  })
-  .strict();
-export type AttachRunStreamRequest = z.infer<
-  typeof AttachRunStreamRequestSchema
->;
 
 export const ReplayRunEventsRequestSchema = z
   .object({
@@ -153,7 +140,6 @@ export type SubmitApprovalRequest = z.infer<typeof SubmitApprovalRequestSchema>;
 
 export interface PlatformClientOperationOptions {
   signal?: AbortSignal;
-  streamRetry?: StreamRetryPolicy;
 }
 
 export interface PlatformClientTransport {
@@ -181,20 +167,20 @@ export interface PlatformClientTransport {
     runId: Run["id"],
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
-  attachRunStream(
-    request: AttachRunStreamRequest,
-    options?: PlatformClientOperationOptions,
-  ): AsyncIterable<unknown>;
-  attachLifecycleStream(
-    request: AttachLifecycleStreamRequest,
-    options?: PlatformClientOperationOptions,
-  ): AsyncIterable<unknown>;
   replayRunEvents(
     request: ReplayRunEventsRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
   replayLifecycleEvents(
     request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  interruptTurn(
+    request: InterruptTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<unknown>;
+  compactTurn(
+    request: CompactTurnRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<unknown>;
   submitApproval(
@@ -252,14 +238,6 @@ export interface PlatformClient {
     runId: Run["id"],
     options?: PlatformClientOperationOptions,
   ): Promise<Run>;
-  attachRunStream(
-    request: AttachRunStreamRequest,
-    options?: PlatformClientOperationOptions,
-  ): AsyncIterable<RunEvent>;
-  attachLifecycleStream(
-    request: AttachLifecycleStreamRequest,
-    options?: PlatformClientOperationOptions,
-  ): AsyncIterable<LifecycleEvent>;
   followTurnLifecycle(
     request: FollowLifecycleRequest,
     options?: PlatformClientOperationOptions,
@@ -272,6 +250,14 @@ export interface PlatformClient {
     request: ReplayLifecycleEventsRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<ReplayLifecycleEventsResponse>;
+  interruptTurn(
+    request: InterruptTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<InterruptTurnResponse>;
+  compactTurn(
+    request: CompactTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<CompactTurnResponse>;
   submitApproval(
     request: SubmitApprovalRequest,
     options?: PlatformClientOperationOptions,

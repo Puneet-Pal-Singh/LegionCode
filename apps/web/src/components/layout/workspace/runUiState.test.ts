@@ -8,7 +8,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: true,
       isChatLoading: false,
       isSessionRunning: true,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 
@@ -17,13 +16,26 @@ describe("deriveWorkspaceRunUiState", () => {
     expect(state.canStopRun).toBe(true);
   });
 
+  it("settles paused runs without pending approval", () => {
+    const state = deriveWorkspaceRunUiState({
+      canonicalRunStatus: "PAUSED",
+      hasPendingApproval: false,
+      isChatLoading: false,
+      isSessionRunning: true,
+      lastMessage: undefined,
+    });
+
+    expect(state.kind).toBe("terminal");
+    expect(state.isRunLoading).toBe(false);
+    expect(state.canStopRun).toBe(false);
+  });
+
   it("treats canonical running state as active without local completion", () => {
     const state = deriveWorkspaceRunUiState({
       canonicalRunStatus: "RUNNING",
       hasPendingApproval: false,
       isChatLoading: false,
       isSessionRunning: false,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 
@@ -39,7 +51,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: false,
       isChatLoading: false,
       isSessionRunning: true,
-      isLocallyStoppedRun: false,
       lastMessage: {
         role: "assistant",
         content: "Done.",
@@ -58,7 +69,6 @@ describe("deriveWorkspaceRunUiState", () => {
       hasPendingApproval: false,
       isChatLoading: true,
       isSessionRunning: false,
-      isLocallyStoppedRun: false,
       lastMessage: undefined,
     });
 

@@ -156,6 +156,34 @@ export class MemoryRunRepository implements RunRepository {
   }
 
   async transaction<T>(callback: (repository: RunRepository) => Promise<T>): Promise<T> {
-    return await callback(this);
+    const snapshot = {
+      runs: new Map(this.runs),
+      events: new Map(
+        Array.from(this.events, ([runId, events]) => [runId, [...events]]),
+      ),
+      steps: new Map(
+        Array.from(this.steps, ([runId, steps]) => [runId, [...steps]]),
+      ),
+      idCounter: this.idCounter,
+    };
+    try {
+      return await callback(this);
+    } catch (error) {
+      replaceMap(this.runs, snapshot.runs);
+      replaceMap(this.events, snapshot.events);
+      replaceMap(this.steps, snapshot.steps);
+      this.idCounter = snapshot.idCounter;
+      throw error;
+    }
+  }
+}
+
+function replaceMap<TKey, TValue>(
+  target: Map<TKey, TValue>,
+  source: Map<TKey, TValue>,
+): void {
+  target.clear();
+  for (const [key, value] of source) {
+    target.set(key, value);
   }
 }

@@ -1,5 +1,10 @@
 import { DomainError, isDomainError } from "../domain/errors";
 import { ProviderCapabilityError } from "@shadowbox/execution-engine/runtime";
+import {
+  SecureExecutionContractViolationError,
+  SecureExecutionFailureError,
+} from "../services/secure-execution/SecureExecutionContract";
+import { SecureRuntimeFailureMapper } from "../services/secure-execution/SecureRuntimeFailureMapper";
 
 const RUN_MANIFEST_IMMUTABLE_CODE = "RUN_MANIFEST_IMMUTABLE";
 const RUN_MANIFEST_IMMUTABLE_STATUS = 409;
@@ -60,6 +65,12 @@ const MODEL_NOT_ALLOWED_CODE = "MODEL_NOT_ALLOWED";
 const MODEL_NOT_ALLOWED_STATUS = 400;
 const MODEL_NOT_ALLOWED_MESSAGE =
   "The selected model is not allowed for the chosen provider. Pick an allowed model and retry.";
+const SECURE_SANDBOX_UNAVAILABLE_CODE = "SANDBOX_UNAVAILABLE";
+const SECURE_EXECUTION_FAILED_CODE = "SECURE_EXECUTION_FAILED";
+const SECURE_EXECUTION_TIMEOUT_CODE = "EXECUTION_TIMEOUT";
+const SECURE_EXECUTION_CANCELLED_CODE = "EXECUTION_CANCELLED";
+const SECURE_CONTRACT_VIOLATION_CODE = "SECURE_EXECUTION_CONTRACT_VIOLATION";
+const secureRuntimeFailureMapper = new SecureRuntimeFailureMapper();
 
 type MessageResolver = string | ((error: ProviderCapabilityError) => string);
 
@@ -126,6 +137,27 @@ export function mapRunExecutionErrorToDomain(
 ): DomainError | null {
   if (isDomainError(error)) {
     return error;
+  }
+
+  if (error instanceof SecureExecutionFailureError) {
+    return mapSecureExecutionFailure(error, correlationId);
+  }
+
+  if (error instanceof SecureExecutionContractViolationError) {
+    return new DomainError(
+      SECURE_CONTRACT_VIOLATION_CODE,
+      "Secure execution returned a response that violated its failure contract. Retry the run.",
+      502,
+      true,
+      correlationId,
+      {
+        ...secureRuntimeFailureMapper.toContractViolation(
+          error.httpStatus,
+          error.message,
+        ).details,
+        requestCorrelationId: correlationId ?? null,
+      },
+    );
   }
 
   if (isRunManifestMismatch(error)) {
@@ -204,6 +236,44 @@ export function mapRunExecutionErrorToDomain(
   }
 
   return null;
+}
+
+function mapSecureExecutionFailure(
+  error: SecureExecutionFailureError,
+  requestCorrelationId?: string,
+): DomainError {
+  const runtimeFailure = secureRuntimeFailureMapper.toRuntimeFailure(
+    error.outcome,
+    error.httpStatus,
+    error.context,
+  );
+  const code =
+    runtimeFailure.code === "worker_unavailable"
+      ? SECURE_SANDBOX_UNAVAILABLE_CODE
+      : runtimeFailure.code === "command_timed_out"
+        ? SECURE_EXECUTION_TIMEOUT_CODE
+        : runtimeFailure.code === "command_cancelled"
+          ? SECURE_EXECUTION_CANCELLED_CODE
+          : SECURE_EXECUTION_FAILED_CODE;
+  const status =
+    runtimeFailure.code === "command_timed_out"
+      ? 504
+      : runtimeFailure.code === "command_cancelled"
+        ? 499
+        : runtimeFailure.code === "worker_unavailable"
+          ? 503
+          : 422;
+  return new DomainError(
+    code,
+    runtimeFailure.message,
+    status,
+    runtimeFailure.retryable,
+    requestCorrelationId ?? runtimeFailure.correlationId ?? undefined,
+    {
+      ...(runtimeFailure.details ?? {}),
+      requestCorrelationId: requestCorrelationId ?? null,
+    },
+  );
 }
 
 function mapProviderCapabilityError(
@@ -305,8 +375,7 @@ function isTaskExecutionTimeout(error: unknown): boolean {
   }
   const signalText = getErrorSignalText(error);
   return (
-    (error.name === "LLMTimeoutError" &&
-      signalText.includes("(phase=task)")) ||
+    (error.name === "LLMTimeoutError" && signalText.includes("(phase=task)")) ||
     signalText.includes("text call timed out") ||
     signalText.includes("task execution timed out")
   );

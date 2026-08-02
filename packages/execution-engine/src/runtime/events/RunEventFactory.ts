@@ -194,11 +194,13 @@ export function createRunCompletedEvent(
   input: EventBaseInput,
   totalDurationMs: number,
   toolsUsed: number,
+  outcomeCode?: string,
 ): RunCompletedEvent {
   return createEnvelope(input, RUN_EVENT_TYPES.RUN_COMPLETED, {
     status: "complete",
     totalDurationMs,
     toolsUsed,
+    ...(outcomeCode ? { outcomeCode } : {}),
   });
 }
 
@@ -206,11 +208,13 @@ export function createRunFailedEvent(
   input: EventBaseInput,
   error: string,
   totalDurationMs: number,
+  outcomeCode?: string,
 ): RunFailedEvent {
   return createEnvelope(input, RUN_EVENT_TYPES.RUN_FAILED, {
     status: "failed",
     error,
     totalDurationMs,
+    ...(outcomeCode ? { outcomeCode } : {}),
   });
 }
 
@@ -256,7 +260,7 @@ export function mapRuntimeStatusToRunEventStatus(
     case "PAUSED":
       return "paused";
     case "CANCELLED":
-      return "waiting";
+      return "cancelled";
     case "CREATED":
     case "PLANNING":
     default:

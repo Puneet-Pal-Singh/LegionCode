@@ -108,22 +108,35 @@ describe("DefaultGitService", () => {
     });
   });
 
-  it("reads repo identity from the canonical config path", async () => {
+  it("reads repo identity from the canonical config snapshot", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
-      stdout: "git@github.com:Shadowbox/App.git\n",
+      stdout: "remote.origin.url\ngit@github.com:Shadowbox/App.git\0",
       stderr: "",
     });
     const service = new DefaultGitService(executor);
 
-    await expect(service.getRepoIdentity({ workspace: WORKSPACE })).resolves.toBe(
-      "github.com/shadowbox/app",
-    );
-    expect(executor.calls[0]?.args).toEqual([
-      "config",
-      "--get",
-      "remote.origin.url",
-    ]);
+    await expect(
+      service.getRepoIdentity({ workspace: WORKSPACE }),
+    ).resolves.toBe("github.com/shadowbox/app");
+    expect(executor.calls[0]?.args).toEqual(["config", "--null", "--list"]);
+  });
+
+  it("returns null for missing config keys without running missing-key probes", async () => {
+    const executor = new FakeGitExecutor({
+      exitCode: 0,
+      stdout: "remote.origin.url\ngit@github.com:Shadowbox/App.git\0",
+      stderr: "",
+    });
+    const service = new DefaultGitService(executor);
+
+    await expect(
+      service.readConfigValue({
+        workspace: WORKSPACE,
+        key: "user.name",
+      }),
+    ).resolves.toBeNull();
+    expect(executor.calls[0]?.args).toEqual(["config", "--null", "--list"]);
   });
 
   it("reports line counts through canonical numstat commands", async () => {
@@ -184,7 +197,11 @@ describe("DefaultGitService", () => {
   it("returns a patch for an untracked file through git-service", async () => {
     const executor = new QueueGitExecutor([
       { exitCode: 0, stdout: "src/new.ts\n", stderr: "" },
-      { exitCode: 1, stdout: "diff --git a/src/new.ts b/src/new.ts\n", stderr: "" },
+      {
+        exitCode: 1,
+        stdout: "diff --git a/src/new.ts b/src/new.ts\n",
+        stderr: "",
+      },
     ]);
     const service = new DefaultGitService(executor);
 
@@ -315,25 +332,26 @@ describe("DefaultGitService", () => {
     await service.createBranch({
       workspace: WORKSPACE,
       branchName: "feat/canonical-git",
+      startPoint: "a".repeat(40),
     });
     await service.switchBranch({
       workspace: WORKSPACE,
       branchName: "main",
     });
-    await expect(service.listBranches({ workspace: WORKSPACE })).resolves.toEqual(
-      { output: "* main\n" },
-    );
+    await expect(
+      service.listBranches({ workspace: WORKSPACE }),
+    ).resolves.toEqual({ output: "* main\n" });
 
     expect(executor.calls.map((call) => call.args)).toEqual([
       ["pull", "--ff-only", "origin", "main"],
       ["fetch", "origin"],
-      ["checkout", "-b", "feat/canonical-git"],
+      ["checkout", "-b", "feat/canonical-git", "a".repeat(40)],
       ["checkout", "main"],
       ["branch", "-a"],
     ]);
   });
 
-  it("redacts auth headers from failed push errors", async () => {
+  it("keeps authenticated push material out of command arguments", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 128,
       stdout: "",
@@ -345,23 +363,20 @@ describe("DefaultGitService", () => {
       service.push({
         workspace: BRANCH_WORKSPACE,
         remoteName: "origin",
-        authArgs: ["-c", "http.extraheader=AUTHORIZATION: basic secret"],
+        authEnvironment: {
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "http.extraHeader",
+          GIT_CONFIG_VALUE_0: "AUTHORIZATION: basic secret",
+        },
       }),
     ).rejects.toMatchObject({
       context: {
-        args: [
-          "-c",
-          "http.extraheader=<redacted>",
-          "push",
-          "-u",
-          "origin",
-          "HEAD:feat/canonical-git",
-        ],
+        args: ["push", "-u", "origin", "HEAD:feat/canonical-git"],
       },
     });
   });
 
-  it("rejects non-canonical push auth args", async () => {
+  it("rejects non-canonical push auth environment", async () => {
     const executor = new FakeGitExecutor({
       exitCode: 0,
       stdout: "",
@@ -373,7 +388,7 @@ describe("DefaultGitService", () => {
       service.push({
         workspace: BRANCH_WORKSPACE,
         remoteName: "origin",
-        authArgs: ["--upload-pack=/tmp/unsafe"],
+        authEnvironment: { UNSAFE_GIT_OPTION: "/tmp/unsafe" },
       }),
     ).rejects.toMatchObject({
       code: "invalid_git_input",

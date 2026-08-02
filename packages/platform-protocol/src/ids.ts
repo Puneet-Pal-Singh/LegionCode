@@ -15,6 +15,9 @@ export const PLATFORM_ID_PREFIXES = {
   approval: "appr",
   artifact: "art",
   workspaceManifest: "wsm",
+  workspaceSnapshot: "wsnap",
+  taskCheckout: "checkout",
+  lease: "lease",
   event: "evt",
   eventCursor: "cursor",
   worker: "worker",
@@ -128,6 +131,24 @@ export const WorkspaceManifestIdSchema = createPrefixedIdSchema(
 );
 export type WorkspaceManifestId = z.infer<typeof WorkspaceManifestIdSchema>;
 
+export const WorkspaceSnapshotIdSchema = createPrefixedIdSchema(
+  "WorkspaceSnapshotId",
+  PLATFORM_ID_PREFIXES.workspaceSnapshot,
+);
+export type WorkspaceSnapshotId = z.infer<typeof WorkspaceSnapshotIdSchema>;
+
+export const TaskCheckoutIdSchema = createPrefixedIdSchema(
+  "TaskCheckoutId",
+  PLATFORM_ID_PREFIXES.taskCheckout,
+);
+export type TaskCheckoutId = z.infer<typeof TaskCheckoutIdSchema>;
+
+export const LeaseIdSchema = createPrefixedIdSchema(
+  "LeaseId",
+  PLATFORM_ID_PREFIXES.lease,
+);
+export type LeaseId = z.infer<typeof LeaseIdSchema>;
+
 export const EventIdSchema = createPrefixedIdSchema(
   "EventId",
   PLATFORM_ID_PREFIXES.event,
@@ -179,6 +200,9 @@ export const PlatformIdSchemas = {
   ApprovalId: ApprovalIdSchema,
   ArtifactId: ArtifactIdSchema,
   WorkspaceManifestId: WorkspaceManifestIdSchema,
+  WorkspaceSnapshotId: WorkspaceSnapshotIdSchema,
+  TaskCheckoutId: TaskCheckoutIdSchema,
+  LeaseId: LeaseIdSchema,
   EventId: EventIdSchema,
   EventCursor: EventCursorSchema,
   WorkerId: WorkerIdSchema,
@@ -188,3 +212,27 @@ export const PlatformIdSchemas = {
 } as const;
 
 export type PlatformIdSchemaName = keyof typeof PlatformIdSchemas;
+
+function randomPlatformSuffix(): string {
+  return crypto.randomUUID().replaceAll("-", "");
+}
+
+export function createTurnId(): TurnId {
+  return TurnIdSchema.parse(`trn_${randomPlatformSuffix()}`);
+}
+
+export function createThreadId(): ThreadId {
+  return ThreadIdSchema.parse(`thr_${randomPlatformSuffix()}`);
+}
+
+export function createRunAttemptId(): RunAttemptId {
+  return RunAttemptIdSchema.parse(`attempt_${randomPlatformSuffix()}`);
+}
+
+export function createWorkspaceSnapshotId(): WorkspaceSnapshotId {
+  return WorkspaceSnapshotIdSchema.parse(`wsnap_${randomPlatformSuffix()}`);
+}
+
+export function createTaskCheckoutId(): TaskCheckoutId {
+  return TaskCheckoutIdSchema.parse(`checkout_${randomPlatformSuffix()}`);
+}

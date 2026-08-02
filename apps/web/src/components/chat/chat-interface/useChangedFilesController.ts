@@ -3,51 +3,49 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Message } from "@ai-sdk/react";
 import type {
   DiffContent,
+  EditArtifactIdentity,
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
-import type { ActivityTurnViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
+import { EditArtifactIdentitySchema } from "@repo/shared-types";
 import { isTerminalRunStatus } from "../../../lib/run-status.js";
-import { getGitDiff } from "../../../lib/git-client.js";
 import {
   getEditArtifactDiff,
-  getEditArtifactReviewSourceByMessage,
+  getEditArtifactReviewSourceByMessageWithStatus,
 } from "../../../lib/edit-artifacts-client.js";
-import { buildConversationTurns } from "../messageMetadata";
 import {
   areFileStatusListsEqual,
   buildArtifactChangedFileDiffCacheKey,
-  buildChangedFileDiffCacheKey,
-  buildDiffFromActivityPreview,
   cloneFileStatuses,
-  collectChangedFilesSinceBaseline,
-  mergeChangedFileSnapshots,
 } from "./changedFiles";
-import { deriveActivityChangedFilesByAssistantMessageId } from "./chatEntries";
 import {
   logClientEvent,
   logClientWarning,
 } from "../../../lib/client-logger.js";
+import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
+import { buildDiffContentFromTurnDiff } from "../../../services/lifecycle/TurnDiffPatchParser.js";
 
 interface ChangedFilesControllerInput {
   messages: Message[];
   runId: string;
-  sessionId: string;
   isLoading: boolean;
   summaryStatus?: string | null;
-  gitFiles: FileStatus[];
-  conversationTurns: ReturnType<typeof buildConversationTurns>;
-  activityTurns: ActivityTurnViewModel[];
-  hasScopedFeed: boolean;
+  turnDiff: TurnDiffPayload | null;
+  artifactIdentity?: EditArtifactIdentity | null;
 }
 
 type ArtifactLookupInput = Pick<
   ChangedFilesControllerInput,
-  "isLoading" | "messages" | "runId" | "summaryStatus"
+  "isLoading" | "messages" | "runId" | "summaryStatus" | "artifactIdentity"
 >;
 
 const MAX_ARTIFACT_LOOKUP_ATTEMPTS = 3;
 const ARTIFACT_LOOKUP_RETRY_DELAY_MS = 500;
+
+interface ArtifactLookupRequest {
+  messageId: string;
+  identity: EditArtifactIdentity;
+}
 
 export function useChangedFilesController(input: ChangedFilesControllerInput) {
   const [snapshots, setSnapshots] = useState<Record<string, FileStatus[]>>({});
@@ -55,40 +53,36 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     Record<string, PromptArtifactReviewSource>
   >({});
   const [artifactRetryVersion, setArtifactRetryVersion] = useState(0);
-  const refs = useChangedFilesRefs(input.isLoading);
-  const activitySnapshots = useMemo(
-    () =>
-      input.hasScopedFeed
-        ? deriveActivityChangedFilesByAssistantMessageId(
-            input.conversationTurns,
-            input.activityTurns,
-          )
-        : {},
-    [input.activityTurns, input.conversationTurns, input.hasScopedFeed],
-  );
-  const mergedSnapshots = useMemo(
-    () => mergeChangedFileSnapshots(snapshots, activitySnapshots),
-    [activitySnapshots, snapshots],
-  );
+  const refs = useChangedFilesRefs();
   const latestAssistantMessageId = useMemo(
     () => findLatestAssistantMessageId(input.messages),
     [input.messages],
   );
   const loadChangedFileDiff = useChangedFileDiffLoader(
-    input.runId,
-    input.sessionId,
     artifacts,
     refs.diffCache,
+    input.turnDiff,
+    latestAssistantMessageId,
   );
-  const loadArtifactChangedFileDiff = useArtifactDiffLoader(refs.diffCache);
+  const loadArtifactChangedFileDiff = useArtifactDiffLoader(
+    refs.diffCache,
+    input.artifactIdentity,
+  );
   const artifactLookupInput = useMemo<ArtifactLookupInput>(
     () => ({
       isLoading: input.isLoading,
       messages: input.messages,
       runId: input.runId,
       summaryStatus: input.summaryStatus,
+      artifactIdentity: input.artifactIdentity,
     }),
-    [input.isLoading, input.messages, input.runId, input.summaryStatus],
+    [
+      input.artifactIdentity,
+      input.isLoading,
+      input.messages,
+      input.runId,
+      input.summaryStatus,
+    ],
   );
 
   useEffect(
@@ -100,13 +94,7 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     [refs],
   );
 
-  useResetChangedFiles(
-    input.runId,
-    input.isLoading,
-    refs,
-    setSnapshots,
-    setArtifacts,
-  );
+  useResetChangedFiles(input.runId, refs, setSnapshots, setArtifacts);
   useArtifactSources(
     artifactLookupInput,
     artifacts,
@@ -115,34 +103,28 @@ export function useChangedFilesController(input: ChangedFilesControllerInput) {
     setArtifacts,
     setArtifactRetryVersion,
   );
-  useChangedFileSnapshots(input, latestAssistantMessageId, refs, setSnapshots);
+  useChangedFileSnapshots(input, latestAssistantMessageId, setSnapshots);
 
   return {
-    snapshots: mergedSnapshots,
+    snapshots,
     artifacts,
     loadChangedFileDiff,
     loadArtifactChangedFileDiff,
   };
 }
 
-function useChangedFilesRefs(isLoading: boolean) {
-  const pending = useRef<FileStatus[]>([]);
-  const baseline = useRef<FileStatus[]>([]);
-  const settled = useRef<FileStatus[]>([]);
-  const previousLoading = useRef(isLoading);
+function useChangedFilesRefs() {
   const diffCache = useRef<Record<string, DiffContent>>({});
   const inflightArtifacts = useRef<Set<string>>(new Set());
   const artifactAttempts = useRef<Map<string, number>>(new Map());
+  const terminalNoArtifactMessageIds = useRef<Set<string>>(new Set());
   const artifactRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   return useMemo(
     () => ({
-      pending,
-      baseline,
-      settled,
-      previousLoading,
       diffCache,
       inflightArtifacts,
       artifactAttempts,
+      terminalNoArtifactMessageIds,
       artifactRetryTimer,
     }),
     [],
@@ -152,10 +134,10 @@ function useChangedFilesRefs(isLoading: boolean) {
 type ChangedFilesRefs = ReturnType<typeof useChangedFilesRefs>;
 
 function useChangedFileDiffLoader(
-  runId: string,
-  sessionId: string,
   artifacts: Record<string, PromptArtifactReviewSource>,
   diffCache: ChangedFilesRefs["diffCache"],
+  turnDiff: TurnDiffPayload | null,
+  turnDiffMessageId: string | null,
 ) {
   return useCallback(
     async (messageId: string, file: FileStatus): Promise<DiffContent> => {
@@ -167,51 +149,46 @@ function useChangedFileDiffLoader(
           artifactId: source.artifactId,
           path: file.path,
         });
-        return loadCachedArtifactDiff(source.artifactId, file, diffCache);
+        return loadCachedArtifactDiff(
+          source.artifactId,
+          file,
+          diffCache,
+          source,
+        );
       }
-      const cacheKey = buildChangedFileDiffCacheKey(messageId, file);
-      const cached = diffCache.current[cacheKey];
-      if (cached) {
-        logClientEvent("artifact/diff", "source-selected", {
-          source: "message-cache",
-          messageId,
-          path: file.path,
-        });
-        return cached;
+
+      if (turnDiff && messageId === turnDiffMessageId) {
+        const diff = buildDiffContentFromTurnDiff(turnDiff, file.path);
+        if (diff) {
+          logClientEvent("artifact/diff", "source-selected", {
+            source: "canonical-turn-diff",
+            messageId,
+            path: file.path,
+          });
+          return diff;
+        }
       }
-      const preview = buildDiffFromActivityPreview(file);
-      if (preview) {
-        logClientEvent("artifact/diff", "source-selected", {
-          source: "activity-preview",
-          messageId,
-          path: file.path,
-        });
-        diffCache.current[cacheKey] = preview;
-        return preview;
-      }
-      logClientEvent("artifact/diff", "source-selected", {
-        source: "live-git",
-        messageId,
-        path: file.path,
-      });
-      const diff = await getGitDiff({
-        runId,
-        sessionId,
-        path: file.path,
-        staged: file.isStaged,
-      });
-      diffCache.current[cacheKey] = diff;
-      return diff;
+
+      throw new Error(`Turn-owned diff for ${file.path} is unavailable.`);
     },
-    [artifacts, diffCache, runId, sessionId],
+    [artifacts, diffCache, turnDiff, turnDiffMessageId],
   );
 }
 
-function useArtifactDiffLoader(diffCache: ChangedFilesRefs["diffCache"]) {
+function useArtifactDiffLoader(
+  diffCache: ChangedFilesRefs["diffCache"],
+  identity: EditArtifactIdentity | null | undefined,
+) {
   return useCallback(
-    (artifactId: string, file: FileStatus) =>
-      loadCachedArtifactDiff(artifactId, file, diffCache),
-    [diffCache],
+    (artifactId: string, file: FileStatus) => {
+      if (!identity) {
+        return Promise.reject(
+          new Error(`Turn identity is required to load ${file.path}.`),
+        );
+      }
+      return loadCachedArtifactDiff(artifactId, file, diffCache, identity);
+    },
+    [diffCache, identity],
   );
 }
 
@@ -219,6 +196,7 @@ async function loadCachedArtifactDiff(
   artifactId: string,
   file: FileStatus,
   diffCache: ChangedFilesRefs["diffCache"],
+  identity: EditArtifactIdentity,
 ): Promise<DiffContent> {
   const cacheKey = buildArtifactChangedFileDiffCacheKey(artifactId, file);
   const cached = diffCache.current[cacheKey];
@@ -233,7 +211,11 @@ async function loadCachedArtifactDiff(
     artifactId,
     path: file.path,
   });
-  const response = await getEditArtifactDiff({ artifactId, path: file.path });
+  const response = await getEditArtifactDiff({
+    artifactId,
+    path: file.path,
+    identity,
+  });
   diffCache.current[cacheKey] = response.diff;
   logClientEvent("artifact/diff", "loaded", {
     artifactId,
@@ -245,7 +227,6 @@ async function loadCachedArtifactDiff(
 
 function useResetChangedFiles(
   runId: string,
-  isLoading: boolean,
   refs: ChangedFilesRefs,
   setSnapshots: React.Dispatch<
     React.SetStateAction<Record<string, FileStatus[]>>
@@ -255,29 +236,18 @@ function useResetChangedFiles(
   >,
 ) {
   useEffect(() => {
-    refs.pending.current = [];
-    refs.baseline.current = [];
-    refs.settled.current = [];
     refs.diffCache.current = {};
     refs.inflightArtifacts.current = new Set();
     refs.artifactAttempts.current = new Map();
+    refs.terminalNoArtifactMessageIds.current = new Set();
     if (refs.artifactRetryTimer.current) {
       clearTimeout(refs.artifactRetryTimer.current);
       refs.artifactRetryTimer.current = null;
     }
-    refs.previousLoading.current = false;
     setSnapshots({});
     setArtifacts({});
     logClientEvent("artifact/state", "scope-reset", { runId });
   }, [refs, runId, setArtifacts, setSnapshots]);
-  useEffect(() => {
-    if (!refs.previousLoading.current && isLoading) {
-      refs.baseline.current = cloneFileStatuses(refs.settled.current);
-      refs.pending.current = [];
-      refs.diffCache.current = {};
-    }
-    refs.previousLoading.current = isLoading;
-  }, [isLoading, refs]);
 }
 
 function useArtifactSources(
@@ -291,20 +261,20 @@ function useArtifactSources(
   setArtifactRetryVersion: React.Dispatch<React.SetStateAction<number>>,
 ) {
   useEffect(() => {
-    const ids = selectArtifactLookupIds(input, artifacts, refs);
-    if (!input.runId || ids.length === 0) return;
-    markArtifactLookupsStarted(ids, refs);
+    const requests = selectArtifactLookupIds(input, artifacts, refs);
+    if (!input.runId || requests.length === 0) return;
+    markArtifactLookupsStarted(requests, refs);
     logClientEvent("artifact/hydration", "batch-started", {
       runId: input.runId,
-      messageCount: ids.length,
+      messageCount: requests.length,
       retryVersion: artifactRetryVersion,
     });
     let cancelled = false;
-    void fetchArtifactSources(input.runId, ids).then((results) => {
+    void fetchArtifactSources(input.runId, requests).then((results) => {
       if (cancelled) return;
       applyArtifactLookupResults(
         results,
-        ids,
+        requests,
         input,
         refs,
         setArtifacts,
@@ -313,7 +283,9 @@ function useArtifactSources(
     });
     return () => {
       cancelled = true;
-      ids.forEach((id) => refs.inflightArtifacts.current.delete(id));
+      requests.forEach(({ messageId }) =>
+        refs.inflightArtifacts.current.delete(messageId),
+      );
     };
   }, [
     artifacts,
@@ -329,16 +301,26 @@ function selectArtifactLookupIds(
   input: ArtifactLookupInput,
   artifacts: Record<string, PromptArtifactReviewSource>,
   refs: ChangedFilesRefs,
-): string[] {
+): ArtifactLookupRequest[] {
   const canRetry = canRetryArtifactLookups(input);
+  const latestAssistantMessageId = findLatestAssistantMessageId(input.messages);
   return input.messages
     .filter((message) => message.role === "assistant")
-    .map((message) => message.id)
-    .filter((id) => {
-      const attempts = refs.artifactAttempts.current.get(id) ?? 0;
+    .map((message) => ({
+      messageId: message.id,
+      identity: resolveMessageArtifactIdentity(
+        message,
+        message.id === latestAssistantMessageId ? input.artifactIdentity : null,
+      ),
+    }))
+    .filter((request): request is ArtifactLookupRequest => {
+      if (!request.identity) return false;
+      const attempts =
+        refs.artifactAttempts.current.get(request.messageId) ?? 0;
       return (
-        !artifacts[id] &&
-        !refs.inflightArtifacts.current.has(id) &&
+        !artifacts[request.messageId] &&
+        !refs.inflightArtifacts.current.has(request.messageId) &&
+        !refs.terminalNoArtifactMessageIds.current.has(request.messageId) &&
         (attempts === 0 || canRetry) &&
         attempts < MAX_ARTIFACT_LOOKUP_ATTEMPTS
       );
@@ -346,27 +328,31 @@ function selectArtifactLookupIds(
 }
 
 function markArtifactLookupsStarted(
-  ids: string[],
+  requests: ArtifactLookupRequest[],
   refs: ChangedFilesRefs,
 ): void {
-  ids.forEach((id) => {
-    refs.inflightArtifacts.current.add(id);
+  requests.forEach(({ messageId }) => {
+    refs.inflightArtifacts.current.add(messageId);
     refs.artifactAttempts.current.set(
-      id,
-      (refs.artifactAttempts.current.get(id) ?? 0) + 1,
+      messageId,
+      (refs.artifactAttempts.current.get(messageId) ?? 0) + 1,
     );
   });
 }
 
-function fetchArtifactSources(runId: string, ids: string[]) {
+function fetchArtifactSources(
+  runId: string,
+  requests: ArtifactLookupRequest[],
+) {
   return Promise.allSettled(
-    ids.map(
-      async (id) =>
+    requests.map(
+      async (request) =>
         [
-          id,
-          await getEditArtifactReviewSourceByMessage({
+          request.messageId,
+          await getEditArtifactReviewSourceByMessageWithStatus({
             runId,
-            assistantMessageId: id,
+            assistantMessageId: request.messageId,
+            identity: request.identity,
           }),
         ] as const,
     ),
@@ -381,9 +367,30 @@ function canRetryArtifactLookups(input: ArtifactLookupInput): boolean {
   );
 }
 
+function resolveMessageArtifactIdentity(
+  message: Message,
+  activeIdentity: EditArtifactIdentity | null | undefined,
+): EditArtifactIdentity | null {
+  const data = (message as Message & { data?: unknown }).data;
+  if (data && typeof data === "object" && "metadata" in data) {
+    const metadata = (data as { metadata?: unknown }).metadata;
+    if (
+      metadata &&
+      typeof metadata === "object" &&
+      "artifactScope" in metadata
+    ) {
+      const parsed = EditArtifactIdentitySchema.safeParse(
+        (metadata as { artifactScope?: unknown }).artifactScope,
+      );
+      if (parsed.success) return parsed.data;
+    }
+  }
+  return activeIdentity ?? null;
+}
+
 function applyArtifactLookupResults(
   results: Awaited<ReturnType<typeof fetchArtifactSources>>,
-  ids: string[],
+  requests: ArtifactLookupRequest[],
   input: ArtifactLookupInput,
   refs: ChangedFilesRefs,
   setArtifacts: React.Dispatch<
@@ -393,7 +400,7 @@ function applyArtifactLookupResults(
 ): void {
   const entries: Array<[string, PromptArtifactReviewSource]> = [];
   results.forEach((result, index) =>
-    collectArtifactResult(result, ids[index], refs, entries),
+    collectArtifactResult(result, requests[index]?.messageId, refs, entries),
   );
   if (entries.length > 0) {
     setArtifacts((current) => ({
@@ -401,10 +408,10 @@ function applyArtifactLookupResults(
       ...Object.fromEntries(entries),
     }));
   }
-  if (!shouldRetryArtifactLookup(results, ids, input, refs)) return;
+  if (!shouldRetryArtifactLookup(results, requests, input, refs)) return;
   logClientEvent("artifact/hydration", "retry-scheduled", {
     runId: input.runId,
-    messageCount: ids.length,
+    messageCount: requests.length,
     delayMs: ARTIFACT_LOOKUP_RETRY_DELAY_MS,
   });
   refs.artifactRetryTimer.current = setTimeout(() => {
@@ -415,9 +422,12 @@ function applyArtifactLookupResults(
 
 function shouldRetryArtifactLookup(
   results: PromiseSettledResult<
-    readonly [string, PromptArtifactReviewSource | null]
+    readonly [
+      string,
+      { source: PromptArtifactReviewSource | null; status: number },
+    ]
   >[],
-  ids: string[],
+  requests: ArtifactLookupRequest[],
   input: ArtifactLookupInput,
   refs: ChangedFilesRefs,
 ): boolean {
@@ -425,9 +435,14 @@ function shouldRetryArtifactLookup(
     return false;
   }
   return results.some((result, index) => {
-    const id = ids[index];
+    const id = requests[index]?.messageId;
     if (!id) return false;
-    const missing = result.status === "rejected" || result.value[1] === null;
+    if (result.status === "fulfilled" && result.value[1].status === 204) {
+      refs.terminalNoArtifactMessageIds.current.add(id);
+      return false;
+    }
+    const missing =
+      result.status === "rejected" || result.value[1].source === null;
     return (
       missing &&
       (refs.artifactAttempts.current.get(id) ?? 0) <
@@ -438,7 +453,10 @@ function shouldRetryArtifactLookup(
 
 function collectArtifactResult(
   result: PromiseSettledResult<
-    readonly [string, PromptArtifactReviewSource | null]
+    readonly [
+      string,
+      { source: PromptArtifactReviewSource | null; status: number },
+    ]
   >,
   id: string | undefined,
   refs: ChangedFilesRefs,
@@ -446,8 +464,8 @@ function collectArtifactResult(
 ): void {
   if (!id) return;
   refs.inflightArtifacts.current.delete(id);
-  if (result.status === "fulfilled" && result.value[1]) {
-    const source = result.value[1];
+  if (result.status === "fulfilled" && result.value[1].source) {
+    const source = result.value[1].source;
     logClientEvent("artifact/hydration", "message-resolved", {
       requestedMessageId: id,
       returnedMessageId: source.assistantMessageId ?? null,
@@ -455,7 +473,7 @@ function collectArtifactResult(
       fileCount: source.files.length,
       attempt: refs.artifactAttempts.current.get(id) ?? 0,
     });
-    entries.push([id, result.value[1]]);
+    entries.push([id, source]);
     return;
   }
   if (result.status === "rejected") {
@@ -478,50 +496,47 @@ function collectArtifactResult(
 function useChangedFileSnapshots(
   input: ChangedFilesControllerInput,
   latestAssistantMessageId: string | null,
-  refs: ChangedFilesRefs,
   setSnapshots: React.Dispatch<
     React.SetStateAction<Record<string, FileStatus[]>>
   >,
 ) {
   useEffect(() => {
-    if (!input.isLoading)
-      refs.settled.current = cloneFileStatuses(input.gitFiles);
-    if (input.gitFiles.length > 0)
-      refs.pending.current = collectChangedFilesSinceBaseline(
-        input.gitFiles,
-        refs.baseline.current,
-      );
-  }, [input.gitFiles, input.isLoading, refs]);
-  useEffect(() => {
-    if (input.isLoading || !latestAssistantMessageId) return;
-    const changed =
-      refs.pending.current.length > 0
-        ? refs.pending.current
-        : collectChangedFilesSinceBaseline(
-            input.gitFiles,
-            refs.baseline.current,
-          );
-    if (changed.length === 0) return;
-    logClientEvent("artifact/snapshot", "assigned", {
-      runId: input.runId,
-      assistantMessageId: latestAssistantMessageId,
-      fileCount: changed.length,
-      source: refs.pending.current.length > 0 ? "pending-git" : "live-git",
-    });
-    setSnapshots((current) => {
-      const next = cloneFileStatuses(changed);
-      return areFileStatusListsEqual(current[latestAssistantMessageId], next)
-        ? current
-        : { ...current, [latestAssistantMessageId]: next };
-    });
+    if (!input.isLoading && input.turnDiff && latestAssistantMessageId) {
+      const files = input.turnDiff.files.map(mapTurnDiffFileToStatus);
+      if (files.length === 0) return;
+      logClientEvent("artifact/snapshot", "assigned", {
+        runId: input.runId,
+        assistantMessageId: latestAssistantMessageId,
+        fileCount: files.length,
+        source: "canonical-turn-diff",
+      });
+      setSnapshots((current) => {
+        const next = cloneFileStatuses(files);
+        return areFileStatusListsEqual(current[latestAssistantMessageId], next)
+          ? current
+          : { ...current, [latestAssistantMessageId]: next };
+      });
+      return;
+    }
   }, [
-    input.gitFiles,
     input.isLoading,
     input.runId,
+    input.turnDiff,
     latestAssistantMessageId,
-    refs,
     setSnapshots,
   ]);
+}
+
+function mapTurnDiffFileToStatus(
+  file: TurnDiffPayload["files"][number],
+): FileStatus {
+  return {
+    path: file.path,
+    status: (file.status ?? "modified") as FileStatus["status"],
+    additions: file.additions ?? 0,
+    deletions: file.deletions ?? 0,
+    isStaged: false,
+  };
 }
 
 function findLatestAssistantMessageId(messages: Message[]): string | null {

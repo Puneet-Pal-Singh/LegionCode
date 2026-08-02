@@ -1,4 +1,5 @@
 import type { CoreTool } from "ai";
+import { isModelFacingCodingTool } from "./ModelFacingCodingTools.js";
 import { z } from "zod";
 
 const PermissionRiskLevelSchema = z.enum(["low", "medium", "high", "critical"]);
@@ -83,6 +84,16 @@ export const ToolRendererHintSchema = z.enum([
 ]);
 export type ToolRendererHint = z.infer<typeof ToolRendererHintSchema>;
 
+export const TOOL_EVIDENCE_KINDS = [
+  "file_read",
+  "file_search",
+  "file_edit",
+  "git_diff",
+  "git_status",
+  "command_run",
+] as const;
+export type ToolEvidenceKind = (typeof TOOL_EVIDENCE_KINDS)[number];
+
 export const ToolModelCapabilitySchema = z.enum(["patch_application"]);
 export type ToolModelCapability = z.infer<typeof ToolModelCapabilitySchema>;
 
@@ -137,6 +148,13 @@ export interface ToolExecutionContext {
     plugin: ToolGatewayRoute["plugin"],
     action: string,
     input: Record<string, unknown>,
+    options?: {
+      onOutput?: (chunk: {
+        message: string;
+        source?: "stdout" | "stderr";
+        timestamp?: number;
+      }) => Promise<void> | void;
+    },
   ): Promise<unknown>;
 }
 
@@ -154,6 +172,7 @@ export interface ToolDefinition {
   tokenPolicy: ToolTokenPolicy;
   outputRenderer: ToolRendererHint;
   rendererHint: ToolRendererHint;
+  evidenceKinds: readonly ToolEvidenceKind[];
   preferredFor: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
@@ -183,6 +202,7 @@ export const ToolDefinitionSchema = z
     riskLevel: PermissionRiskLevelSchema,
     parallelism: ToolParallelismSchema,
     rendererHint: ToolRendererHintSchema,
+    evidenceKinds: z.array(z.enum(TOOL_EVIDENCE_KINDS)),
     preferredFor: z.array(z.string().min(1)).min(1),
     avoidWhen: z.array(z.string().min(1)).optional(),
     alternatives: z.array(z.string().min(1)).optional(),
@@ -411,6 +431,52 @@ export const CODING_TOOL_IDS = [
 
 export type CodingToolId = (typeof CODING_TOOL_IDS)[number];
 
+export type CodingToolInputByName = {
+  read_file: z.infer<typeof READ_FILE_TOOL_INPUT_SCHEMA>;
+  list_files: z.infer<typeof LIST_FILES_TOOL_INPUT_SCHEMA>;
+  write_file: z.infer<typeof WRITE_FILE_TOOL_INPUT_SCHEMA>;
+  edit_file: z.infer<typeof EDIT_FILE_TOOL_INPUT_SCHEMA>;
+  multi_edit: z.infer<typeof MULTI_EDIT_TOOL_INPUT_SCHEMA>;
+  apply_patch: z.infer<typeof APPLY_PATCH_TOOL_INPUT_SCHEMA>;
+  format_file: z.infer<typeof FORMAT_FILE_TOOL_INPUT_SCHEMA>;
+  language_diagnostics: z.infer<typeof LANGUAGE_DIAGNOSTICS_TOOL_INPUT_SCHEMA>;
+  bash: z.infer<typeof BASH_TOOL_INPUT_SCHEMA>;
+  git_stage: z.infer<typeof GIT_STAGE_TOOL_INPUT_SCHEMA>;
+  git_commit: z.infer<typeof GIT_COMMIT_TOOL_INPUT_SCHEMA>;
+  git_push: z.infer<typeof GIT_PUSH_TOOL_INPUT_SCHEMA>;
+  git_pull: z.infer<typeof GIT_PULL_TOOL_INPUT_SCHEMA>;
+  git_create_pull_request: z.infer<
+    typeof GIT_CREATE_PULL_REQUEST_TOOL_INPUT_SCHEMA
+  >;
+  git_branch_create: z.infer<typeof GIT_BRANCH_CREATE_TOOL_INPUT_SCHEMA>;
+  git_branch_switch: z.infer<typeof GIT_BRANCH_SWITCH_TOOL_INPUT_SCHEMA>;
+  git_status: z.infer<typeof GIT_STATUS_TOOL_INPUT_SCHEMA>;
+  git_diff: z.infer<typeof GIT_DIFF_TOOL_INPUT_SCHEMA>;
+  github_pr_list: z.infer<typeof GITHUB_PR_LIST_TOOL_INPUT_SCHEMA>;
+  github_pr_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_review_threads_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_issue_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_actions_run_get: z.infer<
+    typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_actions_job_logs_get: z.infer<
+    typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_pr_checks_get: z.infer<typeof GITHUB_PR_GET_TOOL_INPUT_SCHEMA>;
+  github_cli_actions_run_get: z.infer<
+    typeof GITHUB_ACTIONS_RUN_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_actions_job_logs_get: z.infer<
+    typeof GITHUB_ACTIONS_JOB_LOGS_GET_TOOL_INPUT_SCHEMA
+  >;
+  github_cli_pr_comment: z.infer<
+    typeof GITHUB_CLI_PR_COMMENT_TOOL_INPUT_SCHEMA
+  >;
+  glob: z.infer<typeof GLOB_TOOL_INPUT_SCHEMA>;
+  grep: z.infer<typeof GREP_TOOL_INPUT_SCHEMA>;
+};
+
 const READ_TOKEN_POLICY: ToolTokenPolicy = {
   maxOutputBytes: 24_000,
   maxLineBytes: 500,
@@ -456,6 +522,7 @@ function createRoutedToolDefinition(input: {
   tokenPolicy: ToolTokenPolicy;
   outputRenderer?: ToolRendererHint;
   rendererHint?: ToolRendererHint;
+  evidenceKinds?: readonly ToolEvidenceKind[];
   preferredFor?: readonly string[];
   avoidWhen?: readonly string[];
   alternatives?: readonly string[];
@@ -478,6 +545,7 @@ function createRoutedToolDefinition(input: {
     parallelism: input.parallelism ?? deriveParallelism(input),
     outputRenderer: rendererHint,
     rendererHint,
+    evidenceKinds: input.evidenceKinds ?? [],
     preferredFor: input.preferredFor ?? usage.preferredFor,
     avoidWhen: input.avoidWhen ?? usage.avoidWhen,
     alternatives: input.alternatives ?? usage.alternatives,
@@ -591,8 +659,12 @@ function describeToolUsage(input: {
 } {
   if (input.id === "read_file") {
     return {
-      preferredFor: ["file inspection", "line range reads"],
-      alternatives: ["bash"],
+      preferredFor: [
+        "file inspection",
+        "line-numbered range reads",
+        "continuing with nextOffset after truncation",
+      ],
+      alternatives: ["glob", "grep", "list_files"],
     };
   }
   if (input.id === "glob" || input.id === "list_files") {
@@ -754,12 +826,14 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   createRoutedToolDefinition({
     id: "read_file",
     title: "Read File",
-    description: "Read a capped text window from a workspace file.",
+    description:
+      "Read a capped, line-numbered text window from a workspace file. If truncated, call read_file again with the reported nextOffset and a larger limit, or use grep/glob to narrow.",
     inputSchema: READ_FILE_TOOL_INPUT_SCHEMA,
     permission: WORKSPACE_READ_PERMISSION,
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "text",
+    evidenceKinds: ["file_read"],
     route: { plugin: "filesystem", action: "read_file" },
   }),
   createRoutedToolDefinition({
@@ -771,6 +845,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "text",
+    evidenceKinds: ["file_search"],
     route: { plugin: "filesystem", action: "list_files" },
   }),
   createRoutedToolDefinition({
@@ -782,6 +857,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "write",
     tokenPolicy: WRITE_TOKEN_POLICY,
     outputRenderer: "text",
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "write_file" },
   }),
   createRoutedToolDefinition({
@@ -795,6 +871,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     outputRenderer: "text",
     preferredFor: ["small exact replacements", "hash-guarded edits"],
     alternatives: ["write_file", "multi_edit"],
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "edit_file" },
   }),
   createRoutedToolDefinition({
@@ -809,6 +886,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     outputRenderer: "json",
     preferredFor: ["coordinated exact replacements across files"],
     alternatives: ["edit_file"],
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "multi_edit" },
   }),
   createRoutedToolDefinition({
@@ -824,6 +902,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     avoidWhen: ["the selected model lacks patch application capability"],
     alternatives: ["edit_file", "multi_edit"],
     requiredModelCapabilities: ["patch_application"],
+    evidenceKinds: ["file_edit", "git_diff"],
     route: { plugin: "git", action: "git_patch_apply" },
   }),
   createRoutedToolDefinition({
@@ -837,6 +916,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     tokenPolicy: WRITE_TOKEN_POLICY,
     outputRenderer: "text",
     preferredFor: ["deterministic formatting after code edits"],
+    evidenceKinds: ["file_edit"],
     route: { plugin: "filesystem", action: "format_file" },
   }),
   createRoutedToolDefinition({
@@ -861,6 +941,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "shell",
     tokenPolicy: SHELL_TOKEN_POLICY,
     outputRenderer: "shell",
+    evidenceKinds: ["command_run"],
     route: { plugin: "bash", action: "run" },
   }),
   createRoutedToolDefinition({
@@ -949,6 +1030,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "git",
     tokenPolicy: GIT_TOKEN_POLICY,
     outputRenderer: "git",
+    evidenceKinds: ["git_status"],
     route: { plugin: "git", action: "git_status" },
   }),
   createRoutedToolDefinition({
@@ -960,6 +1042,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "git",
     tokenPolicy: GIT_TOKEN_POLICY,
     outputRenderer: "diff",
+    evidenceKinds: ["git_diff"],
     route: { plugin: "git", action: "git_diff" },
   }),
   createRoutedToolDefinition({
@@ -1092,6 +1175,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "json",
+    evidenceKinds: ["file_search"],
     route: { plugin: "filesystem", action: "glob" },
   }),
   createRoutedToolDefinition({
@@ -1103,6 +1187,7 @@ export const CODING_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     sandboxClass: "read",
     tokenPolicy: READ_TOKEN_POLICY,
     outputRenderer: "json",
+    evidenceKinds: ["file_search"],
     route: { plugin: "filesystem", action: "grep" },
   }),
 ];
@@ -1154,12 +1239,140 @@ export function getCodingToolDefinitions(): ToolDefinition[] {
   return codingToolRegistry.listDefinitions();
 }
 
+export function getCodingToolIds(): CodingToolId[] {
+  return [...CODING_TOOL_IDS];
+}
+
 export function getCodingCoreToolRegistry(): Record<string, CoreTool> {
   return codingToolRegistry.toCoreToolRegistry();
 }
 
 export function isCodingToolId(value: string): value is CodingToolId {
   return CODING_TOOL_IDS.includes(value as CodingToolId);
+}
+
+export function isMutatingCodingToolId(toolName: string): boolean {
+  return (
+    getCodingToolDefinition(toolName)?.permission.mode === "approval_required"
+  );
+}
+
+export function getCodingToolRoute(toolName: string): ToolGatewayRoute | null {
+  const definition = getCodingToolDefinition(toolName);
+  return definition ? { ...definition.route } : null;
+}
+
+export function validateCodingToolInput<T extends CodingToolId>(
+  toolName: T,
+  input: unknown,
+): CodingToolInputByName[T] {
+  const definition = getCodingToolDefinition(toolName);
+  if (!definition) {
+    throw new Error(`Unknown tool: ${toolName}`);
+  }
+
+  const parsed = definition.inputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(`Invalid ${toolName} input. ${formatIssues(parsed.error)}`);
+  }
+  return parsed.data as CodingToolInputByName[T];
+}
+
+export function enforceCodingToolFloor(
+  incomingTools: Record<string, CoreTool>,
+  metadata?: Record<string, unknown>,
+): Record<string, CoreTool> {
+  const constrained: Record<string, CoreTool> = {};
+  const githubCliFlags = resolveGitHubCliFlags(metadata);
+  const modelCapabilities = resolveModelCapabilities(metadata);
+  for (const toolName of CODING_TOOL_IDS) {
+    if (
+      !isModelFacingCodingTool(toolName) ||
+      !isCodingToolEnabledByFlags(toolName, githubCliFlags) ||
+      !isToolEnabledByModelCapabilities(toolName, modelCapabilities)
+    ) {
+      continue;
+    }
+    const incoming = incomingTools[toolName];
+    if (incoming) {
+      constrained[toolName] = incoming;
+    }
+  }
+  return constrained;
+}
+
+interface GitHubCliLaneFlags {
+  laneEnabled: boolean;
+  ciEnabled: boolean;
+  prCommentEnabled: boolean;
+}
+
+function formatIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`)
+    .join("; ");
+}
+
+function resolveModelCapabilities(
+  metadata: Record<string, unknown> | undefined,
+): ReadonlySet<string> {
+  const value = metadata?.modelCapabilities;
+  if (Array.isArray(value)) {
+    return new Set(
+      value.filter((item): item is string => typeof item === "string"),
+    );
+  }
+  if (!value || typeof value !== "object") {
+    return new Set();
+  }
+  return new Set(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, enabled]) => enabled === true)
+      .map(([capability]) => capability),
+  );
+}
+
+function isToolEnabledByModelCapabilities(
+  toolName: CodingToolId,
+  capabilities: ReadonlySet<string>,
+): boolean {
+  const required =
+    getCodingToolDefinition(toolName)?.requiredModelCapabilities ?? [];
+  return required.every((capability) => capabilities.has(capability));
+}
+
+function resolveGitHubCliFlags(
+  metadata: Record<string, unknown> | undefined,
+): GitHubCliLaneFlags {
+  const featureFlags =
+    metadata?.featureFlags && typeof metadata.featureFlags === "object"
+      ? (metadata.featureFlags as Record<string, unknown>)
+      : undefined;
+
+  return {
+    laneEnabled: readBoolean(featureFlags?.ghCliLaneEnabled) ?? false,
+    ciEnabled: readBoolean(featureFlags?.ghCliCiEnabled) ?? false,
+    prCommentEnabled: readBoolean(featureFlags?.ghCliPrCommentEnabled) ?? false,
+  };
+}
+
+function isCodingToolEnabledByFlags(
+  toolName: CodingToolId,
+  flags: GitHubCliLaneFlags,
+): boolean {
+  if (toolName === "github_cli_pr_comment") {
+    return flags.laneEnabled && flags.prCommentEnabled;
+  }
+
+  if (
+    toolName === "github_cli_pr_checks_get" ||
+    toolName === "github_cli_actions_run_get" ||
+    toolName === "github_cli_actions_job_logs_get"
+  ) {
+    return flags.laneEnabled && flags.ciEnabled;
+  }
+
+  return true;
 }
 
 function createUniqueDefinitionMap(

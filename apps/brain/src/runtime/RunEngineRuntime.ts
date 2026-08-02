@@ -37,10 +37,13 @@ import {
   SAFE_SCOPE_IDENTIFIER_REGEX,
   type ProviderStoreScopeInput,
 } from "../types/provider-scope";
-import { createCloudflareEventStreamPort } from "./factories/PortalityAdapterFactory";
 import { RunEngineRequestHandler } from "./RunEngineRequestHandler";
+import { InMemoryRunInterruptRegistry } from "./RunInterruptRegistry";
+import { InMemoryRunApprovalResolutionRegistry } from "./RunApprovalResolutionRegistry";
+import { InMemoryRunContextCompactionRegistry } from "./RunContextCompactionRegistry";
 import { persistAssistantMessageFromRunResponse } from "./RunEngineResponsePersistence";
 import { RunExecutionLock } from "./RunExecutionLock";
+import { reportBrainError } from "../core/observability/BrainErrorReporter";
 
 const ScopeIdSchema = z
   .string()
@@ -57,7 +60,11 @@ const CredentialLabelMutationRequestSchema = z.object({
 
 export class RunEngineRuntime extends DurableObject {
   private readonly executionLock = new RunExecutionLock();
-  private readonly eventStreamPort = createCloudflareEventStreamPort();
+  private readonly interruptRegistry = new InMemoryRunInterruptRegistry();
+  private readonly approvalResolutionRegistry =
+    new InMemoryRunApprovalResolutionRegistry();
+  private readonly contextCompactionRegistry =
+    new InMemoryRunContextCompactionRegistry();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -70,15 +77,32 @@ export class RunEngineRuntime extends DurableObject {
 
     if (url.pathname === "/execute" && request.method === "POST") {
       return requestHandler.handleExecuteRequest(request, async (result) => {
-        return await persistAssistantMessageFromRunResponse(
+        const terminalPersistenceResult =
+          await persistAssistantMessageFromRunResponse(
           this.ctx,
           this.env as Env,
           result.sessionId,
           result.runId,
           result.correlationId,
           result.response,
-        );
+          result.identity,
+          );
+        return result.assistantMessageId
+          ? { assistantMessageId: result.assistantMessageId }
+          : terminalPersistenceResult;
       });
+    }
+
+    if (url.pathname === "/turn/start" && request.method === "POST") {
+      return requestHandler.handleTurnStartRequest(request);
+    }
+
+    if (url.pathname === "/scope" && request.method === "GET") {
+      return requestHandler.handleWorkspaceScopeRequest(request);
+    }
+
+    if (url.pathname === "/turn/scope" && request.method === "GET") {
+      return requestHandler.handleTurnScopeRequest(request);
     }
 
     if (url.pathname === "/summary" && request.method === "GET") {
@@ -89,20 +113,32 @@ export class RunEngineRuntime extends DurableObject {
       return requestHandler.handleEventsRequest(request);
     }
 
-    if (url.pathname === "/events/stream" && request.method === "GET") {
-      return requestHandler.handleEventsStreamRequest(request);
+    if (url.pathname === "/lifecycle-events" && request.method === "GET") {
+      return requestHandler.handleLifecycleEventsRequest(request);
+    }
+
+    if (url.pathname === "/turn-diff" && request.method === "GET") {
+      return requestHandler.handleTurnDiffRequest(request);
     }
 
     if (url.pathname === "/activity" && request.method === "GET") {
       return requestHandler.handleActivityRequest(request);
     }
 
-    if (url.pathname === "/cancel" && request.method === "POST") {
-      return requestHandler.handleCancelRequest(request);
+    if (url.pathname === "/interrupt" && request.method === "POST") {
+      return requestHandler.handleInterruptRequest(request);
+    }
+
+    if (url.pathname === "/compact" && request.method === "POST") {
+      return requestHandler.handleContextCompactionRequest(request);
     }
 
     if (url.pathname === "/approval" && request.method === "POST") {
       return requestHandler.handleApprovalRequest(request);
+    }
+
+    if (url.pathname === "/lifecycle-approval" && request.method === "POST") {
+      return requestHandler.handleLifecycleApprovalRequest(request);
     }
 
     if (url.pathname === "/debug/runtime" && request.method === "GET") {
@@ -186,29 +222,22 @@ export class RunEngineRuntime extends DurableObject {
           ProviderIdSchema,
           correlationId,
         );
-        const isDiscoveryQuery =
-          url.searchParams.has("view") ||
-          url.searchParams.has("limit") ||
-          url.searchParams.has("cursor");
-        if (isDiscoveryQuery) {
-          const discoveryQuery =
-            validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
-              {
-                view: url.searchParams.get("view") ?? undefined,
-                limit: url.searchParams.get("limit") ?? undefined,
-                cursor: url.searchParams.get("cursor") ?? undefined,
-              },
-              BYOKDiscoveredProviderModelsQuerySchema,
-              correlationId,
-            );
-          const discovered = await configService.getDiscoveredModels(
-            providerId,
-            discoveryQuery,
+        const discoveryQuery =
+          validateWithSchema<BYOKDiscoveredProviderModelsQuery>(
+            {
+              view: url.searchParams.get("view") ?? undefined,
+              surface: url.searchParams.get("surface") ?? undefined,
+              limit: url.searchParams.get("limit") ?? undefined,
+              cursor: url.searchParams.get("cursor") ?? undefined,
+            },
+            BYOKDiscoveredProviderModelsQuerySchema,
+            correlationId,
           );
-          return jsonResponse(request, env, discovered);
-        }
-        const response = await configService.getModels(providerId);
-        return jsonResponse(request, env, response);
+        const discovered = await configService.getDiscoveredModels(
+          providerId,
+          discoveryQuery,
+        );
+        return jsonResponse(request, env, discovered);
       }
 
       if (url.pathname === "/providers/models/refresh") {
@@ -325,11 +354,19 @@ export class RunEngineRuntime extends DurableObject {
         return errorResponse(request, env, message, status, code, metadata);
       }
 
-      console.error(
-        `[runtime/provider] ${correlationId}: Unexpected provider route error`,
+      reportBrainError(env, {
+        request,
+        operation: "runtime.provider.route",
         error,
+        context: { correlationId },
+      });
+      return errorResponse(
+        request,
+        env,
+        "Internal server error",
+        500,
+        "RUNTIME_PROVIDER_ROUTE_FAILED",
       );
-      return errorResponse(request, env, "Internal server error", 500);
     }
   }
 
@@ -462,7 +499,12 @@ export class RunEngineRuntime extends DurableObject {
       this.ctx,
       this.env as Env,
       this.withExecutionLock.bind(this),
-      this.eventStreamPort,
+      undefined,
+      {
+        interruptRegistry: this.interruptRegistry,
+        approvalResolutionRegistry: this.approvalResolutionRegistry,
+        contextCompactionRegistry: this.contextCompactionRegistry,
+      },
     );
   }
 }

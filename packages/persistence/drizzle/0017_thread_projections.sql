@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS canonical_thread_projections (
   workspace_id TEXT NOT NULL,
   title TEXT NOT NULL,
   title_source TEXT NOT NULL,
+  title_version INTEGER NOT NULL DEFAULT 1,
+  title_status TEXT NOT NULL DEFAULT 'ready',
+  last_terminal_turn_id TEXT,
   status TEXT NOT NULL,
   pinned_at TIMESTAMPTZ,
   archived_at TIMESTAMPTZ,
@@ -18,7 +21,9 @@ CREATE TABLE IF NOT EXISTS canonical_thread_projections (
   CONSTRAINT canonical_thread_projections_status_check
     CHECK (status IN ('active', 'archived')),
   CONSTRAINT canonical_thread_projections_title_source_check
-    CHECK (title_source IN ('user', 'generated', 'imported', 'none')),
+    CHECK (title_source IN ('user', 'preview', 'generated', 'imported', 'none')),
+  CONSTRAINT canonical_thread_projections_title_status_check
+    CHECK (title_status IN ('pending', 'ready', 'failed')),
   CONSTRAINT canonical_thread_projections_last_event_sequence_check
     CHECK (last_event_sequence > 0),
   CONSTRAINT canonical_thread_projections_version_check

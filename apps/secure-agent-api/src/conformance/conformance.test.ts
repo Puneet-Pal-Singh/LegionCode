@@ -15,7 +15,7 @@
 
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import type { Sandbox } from "@cloudflare/sandbox";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IPlugin, PluginResult, ToolDefinition } from "../interfaces/types";
 import { composeRuntime } from "../factories/RuntimeCompositionFactory";
 import { UnsupportedExecutionBackendError } from "../adapters/AgentRuntimeAdapterFactory";
@@ -24,6 +24,25 @@ import type {
   SandboxExecutionPort,
   SessionStatePort,
 } from "../ports";
+import type { SandboxExecutionLease } from "../ports/SandboxExecutionLease";
+
+const CONFORMANCE_LEASE: SandboxExecutionLease = {
+  leaseId: "lease:conformance:attempt-1",
+  sandboxId: "workspace:conformance:attempt:attempt-1",
+  workspaceScope: {
+    runId: "run-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runAttemptId: "attempt-1",
+    workspaceId: "conformance",
+    root: "/home/sandbox/checkouts/run-1",
+  },
+  owner: "conformance",
+  correlationId: "conformance-correlation",
+  expiresAt: Date.now() + 60_000,
+  generation: 0,
+  mutationMode: "serialized",
+};
 
 interface DurableObjectStorageLike {
   get<T>(key: string): Promise<T | undefined>;
@@ -215,6 +234,7 @@ describe("Portability Conformance", () => {
       sandbox: {} as Sandbox,
       plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
       r2Bucket,
+      executionLease: CONFORMANCE_LEASE,
     });
   });
 
@@ -310,10 +330,11 @@ describe("Portability Conformance", () => {
 
   describe("Execution Contract", () => {
     it("should route plugin execution through sandbox execution port", async () => {
-      const result = await runtime.executionPort.executeTask("session-1", {
+      const result = await runtime.executionPort.executeTask(CONFORMANCE_LEASE.leaseId, {
         taskId: "task-1",
         action: "MockPlugin.execute",
         params: { action: "mock", command: "echo hi", runId: "run-1" },
+        lease: CONFORMANCE_LEASE,
       });
 
       expect(result.taskId).toBe("task-1");
@@ -322,10 +343,11 @@ describe("Portability Conformance", () => {
     });
 
     it("should classify unknown actions as deterministic failures", async () => {
-      const result = await runtime.executionPort.executeTask("session-1", {
+      const result = await runtime.executionPort.executeTask(CONFORMANCE_LEASE.leaseId, {
         taskId: "task-2",
         action: "MissingPlugin.execute",
         params: {},
+        lease: CONFORMANCE_LEASE,
       });
 
       expect(result.status).toBe("failure");
@@ -340,6 +362,9 @@ describe("Portability Conformance", () => {
     });
 
     it("should enforce cross-session artifact access isolation", async () => {
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
       const metadata = await runtime.artifactPort.upload({
         sessionId: "session-a",
         contentType: "application/octet-stream",
@@ -348,6 +373,9 @@ describe("Portability Conformance", () => {
 
       const result = await runtime.artifactPort.download(metadata.id, "session-b");
       expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[ArtifactStore] Unauthorized download attempt:"),
+      );
     });
   });
 
@@ -367,6 +395,7 @@ describe("Portability Conformance", () => {
         sandbox: {} as Sandbox,
         plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
         r2Bucket,
+        executionLease: CONFORMANCE_LEASE,
       });
 
       expect(runtime.executionPort).not.toBe(runtime2.executionPort);
@@ -380,16 +409,18 @@ describe("Portability Conformance", () => {
         sandbox: {} as Sandbox,
         plugins: new Map<string, IPlugin>([["MockPlugin", new MockPlugin()]]),
         r2Bucket,
+        executionLease: CONFORMANCE_LEASE,
       });
 
-      const result = await defaultRuntime.executionPort.executeTask("session-1", {
+      const result = await defaultRuntime.executionPort.executeTask(CONFORMANCE_LEASE.leaseId, {
         taskId: "task-default-backend",
         action: "MockPlugin.execute",
         params: {
           action: "mock",
           command: "echo backend",
-          runId: "run-default",
+          runId: "run-1",
         },
+        lease: CONFORMANCE_LEASE,
       });
 
       expect(result.status).toBe("success");

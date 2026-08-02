@@ -1,16 +1,10 @@
-import {
-  Check,
-  FolderPlus,
-  ListFilter,
-  Pin,
-  Search,
-  Settings,
-} from "lucide-react";
+import { Check, FolderPlus, ListFilter, Pin, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
   groupSessionsByRepository,
   selectPinnedSessions,
+  selectSessionUnread,
 } from "../../lib/session-sidebar-selectors";
 import {
   SidebarShell,
@@ -19,6 +13,10 @@ import {
   type SidebarTaskItem,
   type SidebarTaskStatus,
 } from "../navigation/sidebar";
+import {
+  SidebarAccountMenu,
+  type SidebarAccountUser,
+} from "./SidebarAccountMenu";
 
 interface AgentSidebarProps {
   sessions: AgentSession[];
@@ -33,6 +31,8 @@ interface AgentSidebarProps {
   onClose?: () => void;
   onAddRepository: () => void;
   onOpenSettings: () => void;
+  accountUser?: SidebarAccountUser | null;
+  onLogout?: () => Promise<void>;
   width?: number;
 }
 
@@ -56,6 +56,20 @@ const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
 ];
 
 const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
+
+function buildTaskMetrics(
+  session: AgentSession,
+  hasPendingApproval: boolean,
+): SidebarTaskItem["metrics"] {
+  const metrics: NonNullable<SidebarTaskItem["metrics"]> = {};
+  if (hasPendingApproval) {
+    metrics.label = "Awaiting approval";
+  }
+  if (selectSessionUnread(session)) {
+    metrics.unreadCount = 1;
+  }
+  return Object.keys(metrics).length > 0 ? metrics : undefined;
+}
 
 function shouldHighlightCompleted(
   session: AgentSession,
@@ -129,6 +143,8 @@ export function AgentSidebar({
   onClose,
   onAddRepository,
   onOpenSettings,
+  accountUser,
+  onLogout,
   width = 280,
 }: AgentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -185,9 +201,10 @@ export function AgentSidebar({
             : mapSessionStatus(session, activeSessionId),
           updatedAt: session.createdAt,
           isActive: session.id === activeSessionId,
-          metrics: approvalStatesBySessionId[session.id]
-            ? { label: "Awaiting approval" }
-            : undefined,
+          metrics: buildTaskMetrics(
+            session,
+            Boolean(approvalStatesBySessionId[session.id]),
+          ),
         }));
 
         const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
@@ -229,9 +246,10 @@ export function AgentSidebar({
           : mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
-        metrics: approvalStatesBySessionId[session.id]
-          ? { label: "Awaiting approval" }
-          : undefined,
+        metrics: buildTaskMetrics(
+          session,
+          Boolean(approvalStatesBySessionId[session.id]),
+        ),
       })),
       normalizedQuery,
       statusFilter,
@@ -337,14 +355,11 @@ export function AgentSidebar({
         <FolderPlus size={15} className="text-zinc-400" />
         Add repository
       </button>
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
-      >
-        <Settings size={15} className="text-zinc-400" />
-        Settings
-      </button>
+      <SidebarAccountMenu
+        user={accountUser}
+        onOpenSettings={onOpenSettings}
+        onLogout={onLogout}
+      />
     </div>
   );
 

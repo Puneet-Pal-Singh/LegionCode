@@ -1,744 +1,499 @@
-# 📄 `AGENTS.md`
+# AGENTS.md
 
-# 🤖 Shadowbox Agent Registry & Personas
+# LegionCode Agent Operating Constitution
 
-This document defines the specialized behaviors, tool access, and mission protocols for the different agent roles within the Shadowbox ecosystem.
+This file is the repo-wide truth file for agents working on LegionCode.
 
----
-
-## 1. Global Agent Identity
-
-All Shadowbox agents share these common traits:
-
-- **Environment**: Cloudflare Linux Sandbox via `AgentRun`.
-- **Communication**: Professional, concise, and action-oriented.
-- **Workflow**: Plan first, execute second, verify third.
+It defines how agents must behave, how code should be shaped, what architecture
+the product is moving toward, and what quality bar every change must meet. It is
+not a status report. It is the operating law.
 
 ---
 
-## 2. Specialized Roles
+## 1. Product Truth
 
-### 🏗️ The System Architect (`role: architect`)
+LegionCode is an OSS AI coding-agent workspace.
 
-- **Primary Mission**: High-level planning, file structure design, and tech-stack selection.
-- **Protocol**:
-  - Always operates in **Plan Mode** (`planMode: true`).
-  - Does not write implementation code; creates `TODO.md` and architecture maps.
-  - Summarizes complex repo structures into the "Workspace Map."
-- **Allowed Tools (strict names)**: `list_files`, `read_file`, `search_code`.
+The product must support:
 
-### 💻 The Fullstack Engineer (`role: engineer`)
+- Web cloud sandbox execution.
+- Desktop local execution.
+- CLI and mobile later.
+- Public `@legioncode/sdk`.
+- ACP, Codex SDK, OpenCode, Claude Code, and Cursor-style harness adapters.
+- BYOK and provider catalog support.
+- One canonical runtime/workflow/review architecture shared by all clients.
 
-- **Primary Mission**: Feature implementation, bug fixing, and refactoring.
-- **Protocol**:
-  - Direct execution.
-  - **Must** use `create_code_artifact` for all multi-line changes.
-  - Follows SOLID and DRY principles strictly.
-- **Allowed Tools (strict names)**: `create_code_artifact`, `run_command`, `npm_install`, `read_file`.
+The goal is one kernel, one protocol, one event log, one workspace manifest, one
+Git owner, and many thin clients.
 
-### 🛡️ The Security Auditor (`role: security`)
-
-- **Primary Mission**: Vulnerability scanning, dependency audits, and path-traversal verification.
-- **Protocol**:
-  - Defensive mindset.
-  - Rejects any plan that uses `eval()` or unvalidated user input.
-  - Focuses on the "Airlock" boundaries.
-- **Allowed Tools (strict names)**: `read_file`, `run_command`, `list_files`.
-
-### 🚀 The DevOps/Git Operator (`role: devops`)
-
-- **Primary Mission**: Branch management, worktree cleanup (only when explicitly requested), and PR creation.
-- **Protocol**:
-  - Expert in Git.
-  - Manages the `baseBranch` -> `runId` branch transitions only when explicitly requested.
-  - Ensures clean commit history.
-- **Allowed Tools (strict names)**: `setup_workspace`, `git_commit`, `git_push`, `cleanup_worktree`.
-
-### Tool Contract Semantics (Required)
-
-- Role tool lists are **strict executable tool names**, not conceptual labels.
-- If a listed tool is unavailable in the active runtime, fail fast and report the missing tool.
-- Do not silently substitute unlisted tools for role-scoped operations.
+Do not optimize for one temporary UI screen if it damages the future
+SDK/desktop/runtime architecture.
 
 ---
 
-## 3. Operational Modes
+## 2. Canonical Mental Model
 
-### 📝 Plan Mode (Shift+Tab to toggle)
+Use these nouns consistently:
 
-When an agent is in **Plan Mode**, it should:
+- **Workspace**: repo/environment boundary.
+- **Thread/Session**: durable user conversation.
+- **Turn**: one user request and assistant response lifecycle.
+- **Run Attempt**: one execution attempt for a turn.
+- **Tool Call**: auditable action inside a run attempt.
+- **Approval**: explicit permission decision.
+- **Artifact/Diff**: canonical output of a completed turn.
+- **Lifecycle Event**: append-only source of truth.
+- **Projection**: derived read model only.
 
-1. Output a step-by-step checklist of what it _intends_ to do.
-2. Wait for user approval (`[Approve]`) before executing any tool.
-3. Use a `<thinking>` block to weigh pros/cons of different implementation paths.
+Forbidden confusion:
 
-### ⚡ Execute Mode (Default)
-
-When an agent is in **Execute Mode**, it should:
-
-1. Act immediately on the user's prompt.
-2. Only ask for clarification if the path is ambiguous.
-3. Report success/failure via `ActionBlocks`.
-
----
-
-## 4. Cross-Agent Hand-off Protocol
-
-When moving from one agent to another within the same `Session`:
-
-1. **Default (No Extra File)**: Do not create `SESSION_SUMMARY.md` by default.
-2. **Optional Summary File**: Create `SESSION_SUMMARY.md` only when the user explicitly requests hand-off documentation.
-3. **Context Injection**: Incoming agent should use issue/PR/git context first, then optional `SESSION_SUMMARY.md` if present.
-4. **Isolation**: Remember that while they share the **Filesystem**, they have separate **Chat History** (scoped by `runId`).
+- Do not collapse thread, turn, run, and tool call into one id.
+- Do not make Web infer runtime truth.
+- Do not let projections mutate source-of-truth state.
+- Do not use live Git as completed-turn review truth.
+- Do not treat localStorage as product persistence.
 
 ---
 
-## 5. System Prompt Injection Logic
+## 3. Source-Of-Truth Rules
 
-In `apps/brain/src/controllers/ChatController.ts`, the system prompt is assembled as:
-`Constitution (this doc) + Persona (agent role section) + Session Context (Muscle) = Final Prompt.`
+1. Runtime is the only producer of canonical turn/tool/approval/artifact/final
+   lifecycle events.
+2. The same append path must persist and emit live continuation.
+3. Web/Desktop/CLI render SDK replay plus live continuation.
+4. Run summary is a projection.
+5. Activity feed is a projection.
+6. localStorage is only a UI preference/cache layer.
+7. Review/diff comes from canonical turn diff/artifact projection.
+8. Approval request, decision, settlement, and terminal turn settlement are
+   typed lifecycle events.
+9. Failed, cancelled, interrupted, and timed-out turns settle explicitly.
+10. Stop/interrupt is a runtime command that emits terminal lifecycle state.
 
----
-
-# 🧬 Shadowbox Engineering Constitution
-
-This section defines **non-negotiable architectural invariants, coding standards, and workflows**.
-All agents and contributors must comply with this constitution.
-
----
-
-## 6. System Architecture (The Mental Model)
-
-Shadowbox is a **web-native, multi-agent IDE** built on Cloudflare primitives.
-
-### System Roles (Separation of Concerns)
-
-- **CORE PROTECTION:** Never modify low-level kernel files (e.g., `apps/secure-agent-api/src/core`, `apps/brain/src/index.ts`) unless explicitly instructed.
-- **Brain (`apps/brain`)**
-  - **Tech**: Workers + Vercel AI SDK.
-  - **Role**: Logic, Prompt Assembly, Tool Selection.
-  - **Restriction**: Does **NOT** execute code or touch the filesystem directly.
-- **Muscle (`apps/secure-agent-api`)**
-  - **Tech**: Durable Objects + Cloudflare Sandbox.
-  - **Role**: Code Execution, Git Operations, Filesystem, State Storage.
-  - **Status**: The **Single Source of Truth** for execution.
-- **Web (`apps/web`)**
-  - **Tech**: Vite + React 19 + Tailwind v4.
-  - **Role**: UI/UX, Visualization.
-  - **Status**: **Stateless**. Hydrates data from the Muscle/Brain.
+If two modules can both decide the same product state, the architecture is
+wrong.
 
 ---
 
-## 7. Execution & Data Model (Strict Invariants)
+## 4. Architecture-First Bug Fixing
 
-### The "AgentRun" Primitive
+Do not patch symptoms on broken lifecycle/runtime/product flows.
 
-- **`runId` is the ONLY execution identifier.**
-- Do NOT use `session`, `agent`, or `thread` semantics for execution logic.
-- All state, filesystem operations, and history are scoped to a `runId`.
+When fixing workflow, tool calls, execution, persistence, approval, review/diff,
+Git, provider routing, runtime state, or SDK boundaries:
 
-### Persistence Strategy
+1. Trace the full lifecycle of the feature.
+2. Identify every owner/source of truth.
+3. Delete competing owners.
+4. Make the canonical owner explicit.
+5. Add the smallest high-signal gate that proves the complete lifecycle.
+6. Research Codex, OpenCode, and T3 Code when architecture is unclear.
+7. Adapt the good pattern to LegionCode boundaries; do not blindly copy.
 
-- **Location**: Durable Object storage (`this.ctx.storage`).
-- **Key Format**: `chat:${runId}`.
-- **Append-Only**: Never mutate prior messages. Only push new ones.
-- **Concurrency**: All write operations MUST be wrapped in `blockConcurrencyWhile`.
+Required stance:
 
-### Isolation Strategy
+- Delete bad code more.
+- Delete bad patterns more.
+- Delete fallbacks.
+- Delete duplicate authorities.
+- Implement good patterns.
+- Divide god files into smaller helper files using SRP, KISS, DRY, SOLID, and
+  strong package boundaries.
 
-- **Git Worktrees**: Every `runId` maps to exactly one Git worktree.
-- **Path**: `/home/sandbox/runs/{runId}`.
-- **Rule**: Agents must **never** share a working directory or write to the sandbox root.
+Deletion-biased stabilization PRs are good. Major cleanup PRs may look like
+`1250+ / 6500-`. Do not remove healthy code just to hit numbers; the point is
+architectural simplification.
 
 ---
 
-## 8. Coding Standards (The "Big Four")
+## 4A. Canonical Wiring And Replacement
 
-### S.O.L.I.D. & Pattern Discipline
+For any change affecting runtime, lifecycle, workflow, tools, approvals,
+context, persistence, Git, execution backends, harnesses, SDKs, or clients:
 
-#### Single Responsibility Principle (SRP)
+1. Name the product responsibility being changed.
+2. Identify every active producer, consumer, projection, fallback, and owner.
+3. Name the single canonical owner after the change.
+4. Implement through the canonical protocol and a narrow port.
+5. Migrate every active consumer before calling the replacement complete.
+6. Delete competing owners and obsolete fallbacks in the same change whenever
+   possible.
+7. Do not delete valuable behavior until its replacement is wired into the real
+   product path.
+8. Do not count a package, interface, or isolated test as integration.
+9. Clients render canonical replay plus live continuation; they do not infer
+   runtime truth.
+10. Adapters translate external systems into canonical contracts; they do not
+    own lifecycle, persistence, approval, Git, or context truth.
 
-**MANDATORY**: Every function/class must do ONE thing and do it well.
+Before editing an architecture-sensitive path, read:
 
-- **Function limit**: Max 50 lines. If > 50 lines, refactor into smaller functions.
-- **One reason to change**: If a function could change for 2+ reasons, split it.
-- **Naming clarity**: Function name must describe its ONLY responsibility.
-  - ❌ `generateAndParseAndValidate()` — Does 3 things
-  - ✅ `generate()`, `parseResponse()`, `validateOutput()` — Each does 1 thing
+- `architecture/RUNTIME-ARCHITECTURE.md`
+- `architecture/CAPABILITY-OWNERSHIP.md`
 
-**Example violation and fix**:
+When ownership, wiring, migration state, or a deletion trigger changes, update
+`architecture/CAPABILITY-OWNERSHIP.md` in the same PR.
 
-```typescript
-// ❌ BAD: generate() does 80+ things
-async generate(input: ModelInput): Promise<ModelOutput> {
-  const messages = [...]; // Build messages
-  const tools = input.tools?.map(...); // Map tools
-  const response = await fetch(...); // HTTP call
-  const data = await response.json(); // Parse JSON
-  const toolCalls = []; // Extract tools
-  if (choice.message.tool_calls) { // Tool extraction logic
-    for (const tc of ...) { // Parsing logic
-      toolCalls.push(...); // Pushing
-    }
-  }
-  const mapFinishReason = (...) => { ... }; // Reason mapping
-  return { ... }; // Build response
-}
+If the canonical owner cannot be identified, stop implementation and perform an
+ownership trace first. Do not add another fallback, state store, projection, or
+local patch.
 
-// ✅ GOOD: Split into 6 functions, each with 1 responsibility
-private buildMessages(input: ModelInput): OpenAIMessage[] { ... }
-private buildTools(tools?: ToolDefinition[]): OpenAITool[] | undefined { ... }
-private async callOpenAIAPI(req: object): Promise<OpenAIResponse> { ... }
-private extractToolCalls(choice: OpenAIChoice): ModelToolCall[] { ... }
-private mapFinishReason(reason: string): StopReason { ... }
-async generate(input: ModelInput): Promise<ModelOutput> {
-  const messages = this.buildMessages(input);
-  const tools = this.buildTools(input.tools);
-  const data = await this.callOpenAIAPI({ messages, tools });
-  const choice = data.choices[0];
-  const toolCalls = this.extractToolCalls(choice);
-  return { /* assembled */ };
-}
+The required migration shape is:
+
+```txt
+characterize valuable behavior
+-> define canonical contract and owner
+-> wire replacement into the real product path
+-> migrate all producers and consumers
+-> delete duplicate authority and fallback
+-> verify replay, live behavior, and terminal settlement
 ```
 
-#### Open/Closed Principle (OCP)
+---
 
-**MANDATORY**: Classes/modules must be open for extension, closed for modification.
+## 4B. Plan Execution And In-Path Bug Fixing
 
-- **Use abstractions**: Depend on interfaces, not concrete implementations.
-- **Avoid hardcoding**: Use factory patterns or injection for swappable components.
+When implementing a designated plan:
 
-**Example violation and fix**:
+1. The named plan and its LLD define the primary scope and acceptance path.
+2. Implement the plan as a vertical product slice, not as disconnected package
+   work.
+3. Fix every bug encountered that blocks the plan's real acceptance path or
+   violates its canonical ownership, identity, replay, isolation, settlement,
+   security, or artifact invariants.
+4. Delete the competing owner or bad pattern causing an in-path bug; do not
+   stack a local workaround over it.
+5. Do not expand into unrelated repository cleanup. Record unrelated failures
+   with their reproduction, owner, and destination plan.
+6. A plan is not complete while its acceptance path still requires a known
+   workaround, manual repair, refresh trick, or retry to pass.
+7. If fixing an encountered bug materially changes architecture or plan scope,
+   update the plan/LLD and capability ownership ledger before continuing.
 
-```typescript
-// ❌ BAD: Hardcoded OpenAI, can't swap providers
-class Engine {
-  async execute() {
-    const openai = new OpenAI(...);
-    const response = await openai.generate(...);
-  }
-}
+The execution loop is:
 
-// ✅ GOOD: Depends on ModelProvider abstraction
-class Engine {
-  constructor(private modelProvider: ModelProvider) {}
-  async execute() {
-    const response = await this.modelProvider.generate(...);
-  }
-}
-// Can inject OpenAIAdapter, AnthropicAdapter, LocalMockAdapter
+```txt
+implement the next plan slice
+-> run the real product path
+-> fix canonical-path blockers encountered
+-> delete the replaced bad path
+-> rerun focused and end-to-end proof
+-> defer only unrelated failures with evidence
 ```
-
-#### Liskov Substitution Principle (LSP)
-
-**MANDATORY**: Subtypes must be substitutable for their base types.
-
-- **Honor contracts**: If interface says it returns X, always return X.
-- **No surprises**: Derived classes must not break base class assumptions.
-
-**Example violation**:
-
-```typescript
-// ❌ BAD: LocalMockAdapter breaks ModelProvider contract
-class LocalMockAdapter implements ModelProvider {
-  async generate(): Promise<ModelOutput> {
-    if (this.random) return null; // Contract says ModelOutput, not null!
-  }
-}
-
-// ✅ GOOD: Always honors contract
-class LocalMockAdapter implements ModelProvider {
-  async generate(): Promise<ModelOutput> {
-    return { content: '', usage: { ... }, stopReason: 'end_turn' };
-  }
-}
-```
-
-#### Interface Segregation Principle (ISP)
-
-**MANDATORY**: Many specific interfaces are better than one general interface.
-
-- **Narrow interfaces**: Don't force clients to depend on methods they don't use.
-- **Split when possible**: If a class only uses part of an interface, split the interface.
-
-**Example violation and fix**:
-
-```typescript
-// ❌ BAD: Tool interface forces every tool to implement validate()
-interface Tool {
-  execute(args: any): Promise<ToolResult>;
-  validate(args: any): boolean;
-  getMetadata(): ToolMetadata;
-}
-
-// ReadFileTool doesn't need getMetadata(), but forced to implement
-
-// ✅ GOOD: Segregate into focused interfaces
-interface Tool {
-  execute(args: Record<string, unknown>): Promise<ToolResult>;
-}
-interface Validatable {
-  validate(args: Record<string, unknown>): boolean;
-}
-interface Describable {
-  getMetadata(): ToolMetadata;
-}
-
-class ReadFileTool implements Tool, Validatable { ... }
-```
-
-#### Dependency Inversion Principle (DIP)
-
-**MANDATORY**: Depend on abstractions, not concretions.
-
-- **Inject dependencies**: Pass dependencies as constructor parameters.
-- **Mock for testing**: Use interfaces so you can inject mocks.
-
-**Example violation and fix**:
-
-```typescript
-// ❌ BAD: Hardcoded dependency on concrete OpenAI class
-class Engine {
-  private openai = new OpenAI(...);
-  async execute() {
-    const resp = await this.openai.generate(...);
-  }
-}
-
-// ✅ GOOD: Depend on ModelProvider abstraction
-class Engine {
-  constructor(private modelProvider: ModelProvider) {}
-  async execute() {
-    const resp = await this.modelProvider.generate(...);
-  }
-}
-
-// Test with mock
-const mockProvider = new LocalMockAdapter();
-const engine = new Engine(mockProvider);
-```
-
-### Don't Repeat Yourself (DRY)
-
-**MANDATORY**: Code must not repeat logic.
-
-- **Extract to functions**: If you write it twice, make it a function.
-- **Extract to constants**: Magic numbers → named constants.
-- **Extract to classes**: Repeated patterns → base classes or utilities.
-
-**Example**:
-
-```typescript
-// ❌ BAD: Path validation repeated
-if (!path.includes('..')) { ... }
-// ... elsewhere ...
-if (!path.includes('..')) { ... }
-
-// ✅ GOOD: Extract to function
-function isSafePath(path: string): boolean {
-  return !path.includes('..') && !path.includes('\\');
-}
-```
-
-### Keep It Simple, Stupid (KISS)
-
-**MANDATORY**: Simplicity over cleverness.
-
-- **No over-engineering**: Don't add complexity for future features that don't exist.
-- **Readable over clever**: `const isValid = x > 0 && x < 100` beats `const isValid = /^\d{1,2}$/.test(String(x))`
-- **Obvious solutions**: Use the straightforward approach.
-
-**Example**:
-
-```typescript
-// ❌ BAD: Over-engineered, hard to understand
-const p = (a, b) => a.reduce((acc, x) => (acc.includes(x) ? acc : [...acc, x]), []).filter(x => b.includes(x));
-
-// ✅ GOOD: Clear intent
-function findCommon(arr1: string[], arr2: string[]): string[] {
-  return arr1.filter(x => arr2.includes(x));
-}
-```
-
-- **Service Pattern**: Business logic goes in `src/services/`. External API calls (Google, Groq, Sandbox) MUST be wrapped in a Service with proper error handling.
-- **Adapter Pattern**: Wrap external SDKs (AI SDK, Git) so they can be swapped.
-- **Helper Pattern**: Do not put logic in React components or Worker fetch handlers. Extract to `src/lib`.
-- **Composition**: Favor composition over inheritance. Depend on abstractions, not concretions.
-
-### Strict Type Safety
-
-- **NO `any` TYPE**: Use of `any` is a build failure. Use `unknown` with narrowing if necessary.
-- **Zod Validation**: All tool inputs and API bodies must be validated via `zod`.
-- **Discriminated Unions**: Use them for state (e.g., `status: 'idle' | 'running' | 'failed'`).
-
-### D.R.Y. & K.I.S.S.
-
-- **No God Objects**: If a function exceeds 50 lines, refactor it.
-- **Shared Types**: Define interfaces in `packages/shared-types` if used across apps.
-- **Refactor-on-touch rule**: When implementing a feature/fix in a large non-SOLID file, extract/split it into smaller SRP/DRY/KISS-compliant modules as part of the same work (scope to touched area, avoid unrelated rewrites).
-
-### Compatibility and Fallback Policy
-
-**MANDATORY**: Default to forward-only behavior unless the user explicitly requests compatibility work.
-
-- **No fallback paths by default**: Do not add silent or secondary execution paths.
-- **No backward-compat layers by default**: Do not preserve legacy contracts unless explicitly required.
-- **Fail fast with typed errors**: Prefer explicit errors over hidden compatibility behavior.
-- **Delete deprecated paths quickly**: Once replacement is validated, remove old logic in the same milestone or next immediate PR.
-
-### Hard-Cut Product Policy
-
-- **Current product phase assumption**: This app currently has no external installed user base. Optimize for one canonical current-state implementation, not compatibility with historical local states.
-- **Do not introduce compatibility glue** unless explicitly requested by the user: no migration shims, fallback paths, compat adapters, or dual behavior for old local states.
-- Prefer:
-  - one canonical current-state codepath
-  - fail-fast diagnostics
-  - explicit recovery steps
-- Over:
-  - automatic migration
-  - compatibility glue
-  - silent fallbacks
-  - "temporary" second paths
-- If temporary migration/compatibility code is introduced for debugging or a narrow transition, the same diff must call out:
-  - why it exists
-  - why the canonical path is insufficient
-  - exact deletion criteria
-  - the ADR/task that tracks removal
-- **Default stance across the app**: delete old-state compatibility code rather than carrying it forward.
 
 ---
 
-## 9. Git & Workflow Protocol
+## 5. Core Engineering Principles
 
-### Branching Strategy
+### SOLID
 
-- **Canonical Branch Names**: `feat/<intent>`, `fix/<intent>`, `refactor/<intent>`, `docs/<intent>`, `chore/<intent>`, `test/<intent>`.
-- **Branch Creation/Switching Gate**: Create or switch branches only when explicitly requested by the user (or an explicit workflow step such as "create PR branch").
-- **Task Branch Rule**: Once branch creation is explicitly requested, create the task branch before implementation work.
-- **No Direct Push**: Never push directly to `main` without verification.
+- **Single Responsibility**: one module, class, function, or hook should have
+  one reason to change.
+- **Open/Closed**: extend through interfaces, registries, and adapters; avoid
+  modifying central switchboards for every new provider/tool/client.
+- **Liskov Substitution**: implementations must honor their interface
+  contracts. No surprise `null`, missing fields, or partial behavior.
+- **Interface Segregation**: prefer narrow ports over giant service interfaces.
+- **Dependency Inversion**: high-level policy depends on abstractions, not
+  concrete SDKs, fetch calls, or filesystem implementations.
 
-### Commit Standards
+### DRY
 
-- **Conventional Commits**: Use prefixes: `feat:`, `fix:`, `chore:`, `refactor:`.
-- **Commit Rules (Required)**:
+- Do not duplicate lifecycle state machines, approval logic, tool schemas, Git
+  parsing, provider routing, or diff selection.
+- Shared behavior used by two clients belongs in a package or shared service,
+  not copied into Web/Desktop/Brain separately.
 
-Use conventional-commit type in title:
+### KISS
 
-```bash
-# Required:
-<type>(<scope>): <imperative summary>
+- Prefer obvious code over clever code.
+- Prefer explicit state machines over boolean soup.
+- Prefer typed errors over magical recovery.
+- Prefer small adapters over broad abstraction frameworks.
 
-# Good:
-fix(runtime): enforce runId isolation in harness adapter
-feat(web): add composer model picker popover
-refactor(brain): extract run lifecycle collaborators
+### OOP And Composition
 
-# Avoid:
-runtime: enforce runId isolation
-fix: misc changes
-update PR
+- Use objects/classes when they model long-lived collaborators with state or
+  ports.
+- Prefer composition over inheritance.
+- Avoid god services that know every subsystem.
+- Inject dependencies at boundaries so tests and local/cloud backends can swap
+  implementations.
+
+### YAGNI
+
+- Do not build future harnesses, mobile, hooks, or provider features until the
+  canonical runtime path is stable.
+- Add extension points only when they remove real duplication or match an
+  already-needed integration.
+
+### Law Of Demeter
+
+- Modules should talk to their direct collaborators only.
+- Web should not reach into persistence/runtime internals.
+- Brain should not know filesystem execution details.
+- Adapters should not own lifecycle, Git, approval, or persistence truth.
+
+### Type And Schema Discipline
+
+- Avoid `any`; use `unknown` plus narrowing.
+- Validate external input with Zod or canonical protocol schemas.
+- Use discriminated unions for lifecycle/status states.
+- Use branded/canonical ids where available.
+- Do not pass raw strings for important ids when a schema/type exists.
+
+---
+
+## 6. Compatibility And Fallback Policy
+
+Default to forward-only behavior.
+
+- No silent fallback paths.
+- No compatibility layers unless explicitly requested.
+- No "just in case" dual paths.
+- No local UI guessing when canonical lifecycle exists.
+- No legacy API path in active product flow unless explicitly quarantined.
+
+If a fallback/compatibility path must remain temporarily, the PR must state:
+
+1. owner,
+2. reason,
+3. canonical replacement,
+4. deletion trigger,
+5. test/gate that will prove it can be removed.
+
+---
+
+## 7. God File Policy
+
+A god file is any file where one change requires understanding unrelated
+concerns, or where the file is large enough that agents repeatedly break it.
+
+Known high-risk files include, but are not limited to:
+
+- `packages/execution-engine/src/runtime/engine/AgenticLoopToolExecutor.ts`
+- `packages/execution-engine/src/runtime/tools/CodingToolRegistry.ts`
+- `packages/execution-engine/src/runtime/engine/RuntimeKernelNativeRunner.ts`
+- `apps/brain/src/runtime/RunEngineRequestHandler.ts`
+- `apps/brain/src/services/ExecutionService.ts`
+- `apps/web/src/components/chat/ChatInputBar.tsx`
+- `apps/web/src/components/chat/ChatMessage.tsx`
+- `apps/web/src/services/workflow/WorkflowTimelineViewModel.ts`
+
+When touching a god file:
+
+1. Extract the touched responsibility into a focused helper/module.
+2. Preserve behavior unless intentionally deleting bad behavior.
+3. Add or keep tests around the extracted boundary.
+4. Do not perform unrelated broad rewrites.
+
+---
+
+## 8. Package And Boundary Rules
+
+The complete target wiring, ownership model, extension points, and migration
+rules are defined in:
+
+- `architecture/RUNTIME-ARCHITECTURE.md`
+- `architecture/CAPABILITY-OWNERSHIP.md`
+
+The ideal dependency direction:
+
+```txt
+clients -> platform-client-sdk -> platform-protocol
+clients -> runtime adapters -> runtime-kernel
+runtime-kernel -> worker-protocol / permission-policy / git-service
+brain -> control-plane services -> runtime backend ports
+persistence -> event/projection repositories
 ```
-- **Atomic Commits**: One logical change per commit. Do not bundle a UI fix with a backend refactor.
-- **Don't commit plans/ folder**: Keep plans/ out of git commits.
-- **NEVER use `git add -A`**: Always add specific files/paths. Pattern: `git add path/to/file` or `git add path/to/dir/`. This ensures intentional, auditable commits.
-  - ✅ `git add packages/planning-engine/src/types.ts`
-  - ✅ `git add packages/planning-engine/src/`
-  - ❌ `git add -A` (too risky, unintentional files)
-  - ❌ `git add .` (same risk as -A)
-
-### "Plan-First" Workflow
-
-1.  **Read Docs**: Before writing code, check `docs/plans/` for architectural context.
-2.  **Update Plans**: If implementation details change, update the `.md` file in `docs/plans/` first.
-3.  **Safety Check**: Never commit `.dev.vars`, `.env`, or API keys.
-
-### Rebase and Merge Policy
-
-Use rebase as a local cleanup tool, not as a shared-history sync strategy.
-
-1. Rebase is allowed only on private in-progress branches (single owner, pre-first-PR cleanup).
-2. Do not rebase branches already pushed and referenced by PR/review/other agents.
-3. Never rebase integration branches (`main`, `dev`); preserve history with merge commits.
-4. On shared branches, sync with `git pull --ff-only` by default.
-5. For shared/reviewed branch conflict resolution, prefer merge over history rewriting.
-
-### Task Orchestration (Linear + MCP)
-
-Use Linear as the operational source of truth for execution sequencing and multi-agent coordination.
-
-1. Every implementation PR should map to one Linear issue.
-2. Every roadmap/milestone should have one parent epic with child issues.
-3. Status flow must be explicit: `Backlog -> In Progress -> In Review -> Done`.
-4. Keep issue scope PR-sized (target 1-3 PRs per issue, not long-running mega tasks).
-5. Parallel agent work must be non-overlapping by ownership (files/modules), with one merge gate issue controlling sequencing.
-6. Keep acceptance criteria in Linear issue descriptions and update them as code reality changes.
-
-### OSS Issue Governance (Required)
-
-Use OSS-friendly issue structure so external contributors can understand work without internal plan context.
-
-Reference:
-
-- `local/Rules/OSS-ISSUE-GOVERNANCE-RULES.md`
 
 Rules:
 
-1. Do not include internal plan/priority IDs in issue titles (for example `49`, `P0`, `S1`, `SHA-*`).
-2. Use outcome-first issue titles in format: `<Area>: <Outcome>`.
-3. Keep priority and roadmap linkage in labels/fields/parent-child hierarchy, not title prefixes.
-4. Use hierarchy: Initiative/Epic -> Issue -> Sub-issue (PR-sized).
-5. Every issue description must include objective, scope, non-goals, acceptance criteria, and dependencies.
+- Public clients should use SDK/protocol packages, not app internals.
+- Runtime execution must sit behind ports.
+- Tool execution must use registry/policy metadata.
+- Git mutations must use canonical Git services/tools.
+- Provider/model behavior belongs in provider packages/services/catalogs.
+- Brain is control plane; runtime owns workspace/git/tools/events.
+- Web is a client; it does not own canonical runtime state.
+
+### Workflow And Activity Directory Boundaries
+
+Workflow/activity is a cross-layer capability, not one app-local service and
+not a second runtime API.
+
+- Canonical lifecycle item schemas and payloads belong under
+  `packages/platform-protocol`.
+- Reusable pure replay/projection/grouping code belongs in a dedicated
+  workflow/projection directory under `packages/platform-client-sdk` until the
+  public `@legioncode/sdk` cutover.
+- Client-specific view models and renderers belong in a dedicated workflow
+  feature directory inside that client, such as
+  `apps/web/src/components/chat/workflow`.
+- Runtime producers emit typed lifecycle items through the canonical append
+  path; they do not import SDK projections or client UI.
+- React components do not parse provider text, tool names, shell commands, or
+  file paths to reconstruct workflow types.
+- Do not create a separate workflow API, workflow event store, activity
+  lifecycle, or client-owned workflow package that competes with the canonical
+  protocol and SDK projection.
+- If Web and another client need the same state derivation, move that pure
+  derivation to the SDK boundary; do not copy it between clients.
 
 ---
 
-## 10. Critical Runtime Constraints (Must-Enforce)
+## 9. Code Smells To Delete
 
-### Filesystem Safety
-
-- **Jail Execution**: All file operations must be scoped to `cwd`.
-- **Path Traversal**: Validate paths to prevent `../../` escapes.
-
-### Network & Streaming
-
-- **CORS**: All responses from Brain/Muscle must include `CORS_HEADERS`.
-- **Streaming**: Use `toDataStreamResponse` (Vercel AI SDK standard). Never buffer full LLM responses.
-- **Event-Driven UI**: Use `window.dispatchEvent` or WebSockets to sync state between Sandbox and Web. Do not poll.
-
----
-
-## 11. Review Checklist (Self-Correction)
-
-Before declaring a task complete, the Agent must verify:
-
-1.  Did I use `any`? (If yes, fix it).
-2.  Did I put logic in a Controller/Component instead of a Service? (If yes, move it).
-3.  Did I respect the `runId` isolation?
-4.  Did I update the relevant documentation?
-5.  Is there a simpler way to achieve this (KISS)?
-6.  Did I add any fallback/backward-compat layer without explicit requirement? (If yes, remove it.)
-7.  Are the tests added actually necessary for behavior, policy, or regression risk? (If no, remove them.)
-8.  Did I apply refactor-on-touch in modified large files to improve SRP/DRY/KISS compliance?
+- Multiple sources of truth.
+- Silent catch blocks.
+- Boolean soup for lifecycle state.
+- UI-owned runtime state.
+- localStorage as product state.
+- Live Git as completed-turn review truth.
+- Controller files containing business logic.
+- Tool execution outside registry/policy.
+- Hardcoded provider/model/tool behavior.
+- Legacy "temporary" paths without deletion criteria.
+- Repeated parser/string manipulation where typed APIs exist.
+- Large React components doing data orchestration.
+- Large services mixing auth, execution, persistence, Git, and logging.
 
 ---
 
-## 12. Multi-Agent Safety Rules
+## 10. Testing And Gates
 
-When multiple agents work in the same repository:
+Test where the risk lives.
 
-### Git Safety
+- Unit tests for pure reducers, schemas, policies, and view-model builders.
+- Contract tests for SDK/protocol/runtime boundaries.
+- Integration tests for persistence and runtime ports.
+- Product E2E tests for prompt -> workflow -> approval -> tool -> final ->
+  review diff -> reload/replay.
 
-- **Do NOT create/apply/drop `git stash`** entries unless explicitly requested
-- **Do NOT switch branches** unless explicitly requested
-- **Do NOT create/remove/modify `git worktree`** checkouts unless explicitly requested (including DevOps tasks)
-- When the user says "push", sync shared branches with `git pull --ff-only`
-- When the user says "commit", scope to your changes only
-- When you see unrecognized files, keep going; focus on your changes
+Do not add low-value tests for trivial pass-through code.
 
-### Workspace Isolation
-
-- Running multiple agents is OK as long as each agent has its own `runId`
-- Never assume you're the only agent working; avoid cross-cutting state changes
-- Each agent has separate Chat History but shares Filesystem
-
-### Conflict Resolution
-
-- If there are local changes or unpushed commits when starting a review, stop and alert the user
-- For shared/reviewed branches, prefer **merge** (not rebase) to preserve traceability
-- Rebase is only for private local cleanup before first PR
-- Focus reports on your edits; avoid guard-rail disclaimers unless truly blocked
-
----
-
-## 13. Testing Guidelines
-
-### Test Organization
-
-- Tests should be **co-located** with source files: `ComponentName.test.ts` next to `ComponentName.ts`
-- One test file per source file
-- Integration tests live in `tests/integration/`
-
-### Test Standards
-
-- Run tests before pushing when you touch logic
-- Pure test additions generally do **not** need a changelog entry
-- Test coverage: aim for 70%+ on new code
-- Mock external dependencies; test business logic in isolation
-- **No unnecessary unit tests**: Do not add tests for pure renames, formatting-only changes, or trivial pass-through code
-- **Test where risk lives**: Prioritize integration/contract/policy tests for runtime, provider, auth, and orchestration flows
-- **Prefer high-signal tests**: Add tests only when they prevent realistic regressions or validate required invariants
-
-### Test Commands
+Important commands:
 
 ```bash
-# Run all tests
-npm test
-
-# Run with coverage
-npm run test:coverage
-
-# Run specific test file
-npm test -- src/services/MyService.test.ts
+corepack pnpm --filter @shadowbox/web test
+corepack pnpm --filter @shadowbox/web check-types
+corepack pnpm --filter @shadowbox/brain test
+corepack pnpm --filter @shadowbox/brain check-types
+corepack pnpm --filter @shadowbox/execution-engine test
+corepack pnpm --filter @shadowbox/execution-engine type-check
+corepack pnpm gate:golden-repo-to-pr
 ```
+
+If a command fails because a package/script name changed, inspect
+`package.json` and run the correct equivalent.
 
 ---
 
-## 14. Project Structure
+## 11. Git And Multi-Agent Safety
 
-All projects in this repo should follow this structure:
+- Do not create/switch branches unless explicitly requested.
+- Do not create/apply/drop stash entries unless explicitly requested.
+- Do not create/remove/modify worktrees unless explicitly requested.
+- Never use `git reset --hard` or destructive checkout commands unless the user
+  explicitly requests that exact operation.
+- Never use `git add -A` or `git add .`; stage specific files.
+- Use conventional commits:
+  - `fix(scope): summary`
+  - `feat(scope): summary`
+  - `refactor(scope): summary`
+  - `test(scope): summary`
+  - `docs(scope): summary`
+- Keep commits atomic.
+- For shared/reviewed branches, prefer merge over rebase.
+- Rebase only private unpushed cleanup branches.
+- When seeing unfamiliar changes, assume another agent/user made them and work
+  around them. Do not revert unrelated changes.
 
-```
-src/
-├── services/              # Business logic
-│   ├── MyService/
-│   │   ├── MyService.ts
-│   │   ├── MyService.test.ts
-│   │   └── index.ts
-├── lib/                   # Utilities and helpers
-│   └── utils/
-├── types/                 # Type definitions
-└── index.ts              # Public API
-```
+### Worktree Hygiene
 
-### Co-location Principles
-
-1. **One folder per module**: `ModuleName/ModuleName.ts` + `index.ts` for barrel export
-2. **Tests co-located**: `*.test.ts` next to source files
-3. **Dependencies together**: Utils, hooks, constants live next to files using them
-4. **Shared code**: Extract to `src/lib/` or `packages/shared-*` when used in 2+ places
-
----
-
-## 15. Logging Conventions
-
-Use prefixed console logging with consistent context:
-
-```typescript
-// Pattern: [domain/operation] message
-console.log("[auth/login] User logged in:", userId);
-console.error("[api/fetch] Failed to fetch data:", error);
-console.warn("[cache/invalidate] Cache miss for key:", key);
-```
-
-### What to Log
-
-- ✅ Entry/exit of significant operations
-- ✅ External API calls (without sensitive data)
-- ✅ Error conditions with context (IDs, relevant state)
-- ❌ Sensitive data (tokens, passwords, PII)
-- ❌ High-frequency operations in loops
+Avoid putting worktrees inside the repo root. If `.worktrees/` exists, scans and
+scripts must prune it along with `node_modules`, `dist`, `.turbo`, and generated
+artifacts.
 
 ---
 
-## 16. Code Smells to Avoid
+## 12. Skills
 
-| Smell                            | Symptom                                | Fix                                      |
-| -------------------------------- | -------------------------------------- | ---------------------------------------- |
-| **Magic numbers**                | Hardcoded `100`, `3` in logic          | Extract to named constants               |
-| **God objects**                  | Class/function does everything         | Split by responsibility                  |
-| **Deep nesting**                 | 4+ levels of if/for/try                | Early returns, extract functions         |
-| **Boolean blindness**            | `doThing(true, false, true)`           | Use options object with named properties |
-| **Shotgun surgery**              | One change requires 5+ file edits      | Co-locate related code                   |
-| **Primitive obsession**          | Raw strings for IDs everywhere         | Consider branded types                   |
-| **Silent error swallowing**      | `catch(() => {})`                      | At minimum log the error                 |
-| **Cross-layer imports**          | UI importing from db internals         | Go through proper package exports        |
-| **Barrel file abuse**            | `export * from` creating circular deps | Import from concrete files               |
-| **Optional deps without reason** | `logger?: Logger` in interface         | Make required unless truly optional      |
+Use repo skills when the task matches them:
+
+- `.agents/skills/git-workflow`: safe git operations.
+- `.agents/skills/security`: security audits and vulnerability scanning.
+- `.agents/skills/pr-workflow`: PR creation, review, and merge workflow.
+
+Do not invent tool names from old docs. Use the tools actually available in the
+current environment. If a requested skill/tool is unavailable, say so and use
+the safest available equivalent.
 
 ---
 
-## 17. Agent Skills
+## 13. PR Checklist And Documentation
 
-Shadowbox uses the [Agent Skills](https://agentskills.io/) standard to extend agent capabilities with specialized knowledge.
+Follow the PR workflow skill:
 
-### Available Skills
+- `.agents/skills/pr-workflow`
 
-Located in `.agents/skills/`:
+Every implementation PR should clearly state:
 
-| Skill          | Purpose                                      |
-| -------------- | -------------------------------------------- |
-| `git-workflow` | Safe git operations (branch, commit, status) |
-| `security`     | Security audits and vulnerability scanning   |
-| `pr-workflow`  | Create, review, and merge Pull Requests      |
+1. Objective.
+2. Architecture decision.
+3. Product responsibility and canonical owner.
+4. Active producers and consumers migrated.
+5. Removed behavior and its wired replacement.
+6. Files changed.
+7. Tests/gates run.
+8. Risks.
+9. Rollback/recovery notes if relevant.
+10. Any fallback/legacy path kept and its owner and deletion trigger.
 
-### Skill Format
+Documentation rules:
 
-Skills follow the Agent Skills specification:
-
-```
-skill-name/
-└── SKILL.md          # YAML frontmatter + Markdown instructions
-```
-
-### How Skills Work
-
-1. **Discovery**: Agent loads skill metadata at startup
-2. **Activation**: Full instructions loaded when task matches description
-3. **Execution**: Agent follows step-by-step guidance
-
-### Integration
-
-- **git-workflow**: Implements Section 9 (Git Protocol) and Section 12 (Multi-Agent Safety)
-- **security**: Implements the Security Auditor role (Section 2)
-- **pr-workflow**: Implements the DevOps/Git Operator role (Section 2)
-
-### Creating New Skills
-
-See `.agents/skills/README.md` for the template and guidelines.
+- Do not create completion summaries, handoff docs, or extra markdown files
+  unless explicitly requested.
+- PR descriptions are the source of truth for implementation summaries.
+- `local/` is for private findings, audits, handoffs, and scratch material.
+- `plans/` is for planning. Many plan files may be intentionally ignored.
+- If closing an architecture red flag, update:
+  `local/findings/red-flags/2026-07-03-ARCHITECTURE-RED-FLAG-TRACKER.md`.
 
 ---
 
-## 18. PR Documentation Standard
+## 14. Security And Secrets
 
-### GitHub PR Description Format
-
-**Every PR must include this structure** (no exceptions, minimal variations):
-
-Note - Check [Pr Workflow](.agents/skills/pr-workflow) skill for this Structure
-
-### Documentation Files: STRICT RULE
-
-**NEVER create summary or documentation files unless EXPLICITLY REQUESTED by user.**
-
-**Do NOT create:**
-- ❌ Any `.md` summary files (PR4_SUMMARY.md, COMPLETION_SUMMARY.md, etc.)
-- ❌ `SESSION_SUMMARY.md` by default (allowed only when explicitly requested for hand-off)
-- ❌ Task completion documents
-- ❌ Status reports in markdown
-- ❌ Multiple documentation files
-- ❌ Files that duplicate PR description
-- ❌ Auto-generated completion reports
-
-**ONLY create docs if user explicitly says:**
-- `"Create a document for..."`
-- `"Write architecture.md"`
-- `"Document the design"`
-
-**Place all details in the GitHub PR description itself** — that's the source of truth.
-
-**Never push documentation files to remote** unless explicitly requested. Keep working directory clean.
+- Never log secrets, API keys, OAuth tokens, cookies, or PII.
+- Never commit `.env`, `.dev.vars`, key files, or credentials.
+- Validate filesystem paths against traversal.
+- Scope file operations to the workspace/root/cwd supplied by the runtime.
+- Permission-sensitive actions must flow through typed approval policy.
+- GitHub/Git mutations must use canonical git services/tools, not ad hoc shell
+  commands, unless explicitly routed through the approved execution boundary.
 
 ---
 
-## 19. Common Commands
+## 15. Review Checklist
 
-```bash
-# Development
-npm run dev                 # Start all dev servers
-npm run build               # Build all packages
-npm run typecheck           # Type check all packages
+Before declaring work complete:
 
-# Code Quality
-npm run lint               # Check for lint issues
-npm run lint:fix           # Fix auto-fixable lint issues
-npm run format             # Format code
+1. Did I remove competing sources of truth instead of adding another patch?
+2. Did I delete bad fallback/legacy code where possible?
+3. Did I avoid `any` and validate external inputs?
+4. Did I apply SOLID, DRY, OOP, KISS, and package-boundary discipline?
+5. Did I extract touched god-file responsibilities?
+6. Did I preserve or improve the product path?
+7. Did I run the smallest meaningful tests/typechecks?
+8. Did I update the red-flag tracker if a listed gap changed?
+9. Did I avoid touching unrelated user/agent work?
+10. Can Web/Desktop/SDK/ACP use the resulting boundary more easily?
+11. Did I name the responsibility and its single canonical owner?
+12. Did I migrate all active producers and consumers?
+13. Does every removed behavior have a wired replacement or an explicit
+    intentional-removal decision?
+14. Did I update the capability ownership ledger when ownership or migration
+    status changed?
 
-# Testing
-npm test                   # Run tests
-npm run test:coverage      # Run tests with coverage
-
-# Database (if applicable)
-npm run db:migrate         # Run migrations
-npm run db:generate        # Generate migrations
-```
-
----
+If the answer to 1 or 6 is "no," the fix is probably a bandage, not a fix.

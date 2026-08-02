@@ -21,26 +21,22 @@ import {
   type BYOKPreferencesUpdateRequest,
   type BYOKResolveRequest,
   ProviderRegistryEntry,
-  canPreloadProvider,
   canShowProviderInPrimaryUi,
 } from "@repo/shared-types";
 import {
   ProviderApiClient,
   type ProviderModelDiscoveryView,
   type ProviderModelOption,
+  type ProviderModelsMetadata,
   type ProviderModelsPageResult,
   type ProviderModelsQuery,
 } from "../api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
+const PROVIDER_MODEL_CACHE_MAX_AGE_MS = 60 * 60 * 1_000;
 
-export interface ProviderModelsMetadataState {
-  fetchedAt: string;
-  stale: boolean;
-  source: "provider_api" | "cache";
-  staleReason?: string;
-}
+export type ProviderModelsMetadataState = ProviderModelsMetadata;
 
 export interface ProviderModelsPageState {
   view: ProviderModelDiscoveryView;
@@ -369,22 +365,6 @@ export class ProviderStore {
         selectedModelId: selection.selectedModelId,
         status: "ready",
       });
-
-      const preloadProviderIds = this.collectBootstrapModelPreloadProviderIds(
-        catalog,
-        credentials,
-      );
-      for (const providerId of preloadProviderIds) {
-        if (this.state.providerModels[providerId]) {
-          continue;
-        }
-        void this.loadProviderModels(providerId).catch((error) => {
-          this.log("[bootstrap] model preload failed", {
-            providerId,
-            error,
-          });
-        });
-      }
 
       this.log("[bootstrap] Success", {
         providers: catalog.length,
@@ -840,6 +820,30 @@ export class ProviderStore {
     });
   }
 
+  async ensureProviderModelsFresh(
+    providerId: string,
+  ): Promise<ProviderModelOption[]> {
+    const cachedModels = this.state.providerModels[providerId];
+    if (!cachedModels) {
+      return this.loadProviderModels(providerId, {
+        view: this.state.selectedModelView,
+        append: false,
+      });
+    }
+
+    const metadata = this.state.providerModelsMetadata[providerId];
+    const fetchedAt = Date.parse(metadata?.fetchedAt ?? "");
+    const isExpired =
+      !Number.isFinite(fetchedAt) ||
+      Date.now() - fetchedAt >= PROVIDER_MODEL_CACHE_MAX_AGE_MS;
+    if (!metadata?.stale && !isExpired) {
+      return cachedModels;
+    }
+
+    await this.refreshProviderModels(providerId);
+    return this.state.providerModels[providerId] ?? cachedModels;
+  }
+
   async refreshProviderModels(providerId: string): Promise<void> {
     const key = `refresh-models:${providerId}`;
     if (this.inflight.has(key)) {
@@ -884,12 +888,12 @@ export class ProviderStore {
   ): Promise<ProviderModelOption[]> {
     this.log("[loadProviderModels] Starting", { providerId, ...options });
     try {
-    const result = await this.apiClient.getProviderModels(providerId, {
-      view: options.view,
-      surface: options.surface,
-      limit: options.limit,
-      cursor: options.cursor,
-    });
+      const result = await this.apiClient.getProviderModels(providerId, {
+        view: options.view,
+        surface: options.surface,
+        limit: options.limit,
+        cursor: options.cursor,
+      });
       if (this.isWorkspaceEpochStale("loadProviderModels", epoch)) {
         return result.models;
       }
@@ -948,13 +952,11 @@ export class ProviderStore {
         error instanceof Error
           ? error.message
           : "Failed to load provider models";
-      const fallbackModels = this.state.providerModels[providerId] ?? [];
+      const providerModels = { ...this.state.providerModels };
+      delete providerModels[providerId];
 
       this.setState({
-        providerModels: {
-          ...this.state.providerModels,
-          [providerId]: fallbackModels,
-        },
+        providerModels,
         providerModelsPage: {
           ...this.state.providerModelsPage,
           [providerId]: {
@@ -967,9 +969,10 @@ export class ProviderStore {
           ...this.state.providerModelsMetadata,
           [providerId]: {
             fetchedAt: new Date().toISOString(),
-            stale: true,
+            stale: false,
             source: "cache",
-            staleReason: "provider_api_unavailable",
+            status: "unavailable",
+            statusReason: "cache_unavailable",
           },
         },
         error: message,
@@ -1050,7 +1053,12 @@ export class ProviderStore {
       view: this.state.selectedModelView,
       append: false,
     });
-    if (Object.prototype.hasOwnProperty.call(this.state.manageProviderModels, providerId)) {
+    if (
+      Object.prototype.hasOwnProperty.call(
+        this.state.manageProviderModels,
+        providerId,
+      )
+    ) {
       await this.loadManageProviderModels(
         providerId,
         this.state.manageProviderModels[providerId]?.length || 150,
@@ -1138,7 +1146,29 @@ export class ProviderStore {
       selection.selectedModelId ?? undefined,
     );
     this.persistRunScopedSelection(selection);
+    await this.persistSelectionAsWorkspaceDefault(selection);
     return this.resolveForChat();
+  }
+
+  private async persistSelectionAsWorkspaceDefault(
+    selection: ProviderSelectionSnapshot,
+  ): Promise<void> {
+    if (!selection.selectedProviderId || !selection.selectedModelId) {
+      return;
+    }
+
+    if (
+      this.state.preferences?.defaultProviderId ===
+        selection.selectedProviderId &&
+      this.state.preferences.defaultModelId === selection.selectedModelId
+    ) {
+      return;
+    }
+
+    await this.updatePreferences({
+      defaultProviderId: selection.selectedProviderId,
+      defaultModelId: selection.selectedModelId,
+    });
   }
 
   /**
@@ -1609,6 +1639,9 @@ export class ProviderStore {
       models,
       this.state.visibleModelIds,
     );
+    if (currentModelId && visibleSet.has(currentModelId)) {
+      return currentModelId;
+    }
     if (selectableModels.length === 0) {
       return this.resolvePendingVisibleModelId(
         currentModelId,
@@ -1773,7 +1806,9 @@ export class ProviderStore {
     const visibleSet = this.state.visibleModelIds[providerId];
     if (!visibleSet) {
       return (
-        resolvedModelId || this.state.providerModels[providerId]?.[0]?.id || null
+        resolvedModelId ||
+        this.state.providerModels[providerId]?.[0]?.id ||
+        null
       );
     }
 
@@ -1846,34 +1881,6 @@ export class ProviderStore {
     }
 
     return mergeModelsById(pickerModels, curatedVisibleModels);
-  }
-
-  private collectBootstrapModelPreloadProviderIds(
-    catalog: ProviderRegistryEntry[],
-    credentials: ProviderCredential[],
-  ): string[] {
-    const providerIds = new Set<string>();
-    const catalogProviderIds = new Set(
-      catalog.map((entry) => entry.providerId),
-    );
-
-    if (
-      catalogProviderIds.has("axis") &&
-      canPreloadProvider(WEB_PROVIDER_POLICY, "axis")
-    ) {
-      providerIds.add("axis");
-    }
-
-    for (const credential of credentials) {
-      if (
-        catalogProviderIds.has(credential.providerId) &&
-        canPreloadProvider(WEB_PROVIDER_POLICY, credential.providerId)
-      ) {
-        providerIds.add(credential.providerId);
-      }
-    }
-
-    return Array.from(providerIds);
   }
 
   private isWorkspaceEpochStale(operation: string, epoch: number): boolean {

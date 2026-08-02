@@ -36,3 +36,9 @@ If a run fails, its transcript and review metadata should remain available so yo
 Database migrations live in the repository and should be applied deliberately before deploying code that depends on new schema.
 
 For production, prefer a manual migration step with verification. Do not mark a failed migration as complete without inspecting the exact statement that failed.
+
+The supported Cloudflare production procedure is the scheduled-only migration
+worker documented in [Deployment](/docs/deployment/#deploy-order). It has no
+HTTP handler or public route. Keep the main Brain Worker in
+`DATABASE_MIGRATIONS_MODE=manual`; do not temporarily enable automatic
+migrations on live request handlers.

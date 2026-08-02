@@ -2,6 +2,7 @@ import type {
   EditArtifactChangedFile,
   EditArtifactPatchObjectMetadata,
   EditArtifactRecord,
+  EditArtifactIdentity,
   GitStatusResponse,
   RunEvent,
   ToolCompletedEvent,
@@ -9,6 +10,8 @@ import type {
 import type { ArtifactRepository } from "@repo/persistence";
 import { RUN_EVENT_TYPES } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
+import type { SecureExecutionWorkspaceScope } from "../../runtime/RuntimeWorkspaceScope";
+import type { SecureExecutionSessionPort } from "../secure-execution/SecureExecutionSessionClient";
 import { EditArtifactObjectStore } from "./EditArtifactObjectStore";
 import { createEditArtifactStorageBackend } from "./EditArtifactStorageBackendFactory";
 import {
@@ -17,7 +20,7 @@ import {
 } from "./EditArtifactPatchParser";
 import { SecureGitArtifactClient } from "./SecureGitArtifactClient";
 import { withArtifactRepository } from "./ArtifactPersistenceFactory";
-import type { CompositeEditArtifactStorageResult } from "./CompositeEditArtifactStorageBackend";
+import type { StoredEditArtifact } from "./EditArtifactStorageBackend";
 
 const EDIT_ARTIFACT_RETENTION_DAYS = 30;
 
@@ -26,14 +29,17 @@ interface CaptureAfterRunInput {
   runId: string;
   sessionId: string;
   workspaceId: string;
-  muscleSession: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+  workspaceScope: SecureExecutionWorkspaceScope;
+  executionSession: SecureExecutionSessionPort;
   repoOwner: string | null;
   repoName: string | null;
   repoUrl: string | null;
   changedFiles: EditArtifactChangedFile[];
   userMessageId?: string;
   assistantMessageId?: string;
-  sourceTurnId?: string;
   captureSequence?: number;
   baselineTree?: string;
 }
@@ -105,19 +111,25 @@ export class EditArtifactCaptureService {
   ): SecureGitArtifactClient {
     return new SecureGitArtifactClient(
       this.env,
-      input.muscleSession,
+      input.sessionId,
       input.runId,
+      input.workspaceScope,
+      input.executionSession,
     );
   }
 
   async captureBaseline(input: {
-    muscleSession: string;
+    sessionId: string;
     runId: string;
+    workspaceScope: SecureExecutionWorkspaceScope;
+    executionSession: SecureExecutionSessionPort;
   }): Promise<string> {
     return await new SecureGitArtifactClient(
       this.env,
-      input.muscleSession,
+      input.sessionId,
       input.runId,
+      input.workspaceScope,
+      input.executionSession,
     ).captureWorktreeSnapshot();
   }
 
@@ -261,6 +273,9 @@ export class EditArtifactCaptureService {
       runId: input.input.runId,
       sessionId: input.input.sessionId,
       workspaceId: input.input.workspaceId,
+      threadId: input.input.threadId,
+      turnId: input.input.turnId,
+      runAttemptId: input.input.runAttemptId,
       repoOwner: input.input.repoOwner,
       repoName: input.input.repoName,
       repoUrl: input.input.repoUrl,
@@ -271,7 +286,6 @@ export class EditArtifactCaptureService {
       changedFiles: input.changedFiles,
       userMessageId: input.input.userMessageId ?? null,
       assistantMessageId: input.input.assistantMessageId ?? null,
-      sourceTurnId: input.input.sourceTurnId ?? null,
       captureSequence: input.input.captureSequence ?? 0,
       patchParseStatus: "unknown",
       patchSha256: null,
@@ -307,9 +321,9 @@ export class EditArtifactCaptureService {
     input: CaptureAfterRunInput;
     patch: string;
     r2ObjectKey: string;
-  }): Promise<CompositeEditArtifactStorageResult> {
+  }): Promise<StoredEditArtifact> {
     const storageBackend = createEditArtifactStorageBackend(this.env);
-    const storedArtifact = (await storageBackend.writeArtifact({
+    const storedArtifact = await storageBackend.writeArtifact({
       artifactId: input.artifactId,
       userId: input.input.userId,
       workspaceId: input.input.workspaceId,
@@ -318,7 +332,7 @@ export class EditArtifactCaptureService {
       objectKey: input.r2ObjectKey,
       patch: input.patch,
       metadata: buildPatchMetadata(input, await sha256Hex(input.patch)),
-    })) as CompositeEditArtifactStorageResult;
+    });
     await input.repository.appendEvent({
       id: crypto.randomUUID(),
       artifactId: input.artifactId,
@@ -327,29 +341,6 @@ export class EditArtifactCaptureService {
       message: "Edit artifact patch written to R2",
       metadata: { patchSha256: storedArtifact.patchSha256 },
     });
-    if (storedArtifact.secondaryError) {
-      await input.repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: input.artifactId,
-        runId: input.input.runId,
-        eventType: "cf_artifacts_write_failed",
-        message: "Cloudflare Artifacts secondary write failed",
-        metadata: { error: storedArtifact.secondaryError },
-      });
-    } else if (storedArtifact.secondary) {
-      await input.repository.appendEvent({
-        id: crypto.randomUUID(),
-        artifactId: input.artifactId,
-        runId: input.input.runId,
-        eventType: "cf_artifacts_write_succeeded",
-        message: "Cloudflare Artifacts secondary write succeeded",
-        metadata: {
-          cfArtifactRepo: storedArtifact.secondary.cfRepo ?? null,
-          cfArtifactCommitSha: storedArtifact.secondary.cfCommitSha ?? null,
-          cfArtifactPath: storedArtifact.secondary.cfPath ?? null,
-        },
-      });
-    }
     return storedArtifact;
   }
 
@@ -361,16 +352,12 @@ export class EditArtifactCaptureService {
     changedFileCount: number,
     patchSha256: string,
     patchSizeBytes: number,
-    storedArtifact: CompositeEditArtifactStorageResult,
+    storedArtifact: StoredEditArtifact,
   ): Promise<void> {
     await repository.updateStatus({
       artifactId,
       userId,
-      status: storedArtifact.secondaryError
-        ? "secondary_write_failed"
-        : storedArtifact.secondary
-          ? "stored_with_secondary"
-          : "stored",
+      status: "stored",
       contentType: "text/x-patch",
       sizeBytes: patchSizeBytes,
       sha256: patchSha256,
@@ -383,7 +370,6 @@ export class EditArtifactCaptureService {
       message: "Edit artifact metadata committed",
       metadata: {
         changedFileCount,
-        secondaryBackend: storedArtifact.secondary?.backend ?? null,
       },
     });
   }
@@ -395,7 +381,7 @@ export class EditArtifactCaptureService {
     patchSha256: string,
     patch: string,
     changedFiles: EditArtifactChangedFile[],
-    storedArtifact: CompositeEditArtifactStorageResult,
+    storedArtifact: StoredEditArtifact,
   ): Promise<void> {
     const parseStatus = resolvePatchParseStatus(patch, changedFiles);
     await repository.updateReviewMetadata({
@@ -403,16 +389,13 @@ export class EditArtifactCaptureService {
       userId: input.userId,
       userMessageId: input.userMessageId ?? null,
       assistantMessageId: input.assistantMessageId ?? null,
-      sourceTurnId: input.sourceTurnId ?? null,
       captureSequence: input.captureSequence ?? 0,
       patchParseStatus: parseStatus,
       patchSha256,
-      storageBackend: storedArtifact.secondary
-        ? "cloudflare_artifacts"
-        : "r2_postgres",
-      cfArtifactRepo: storedArtifact.secondary?.cfRepo ?? null,
-      cfArtifactCommitSha: storedArtifact.secondary?.cfCommitSha ?? null,
-      cfArtifactPath: storedArtifact.secondary?.cfPath ?? null,
+      storageBackend: "r2_postgres",
+      cfArtifactRepo: null,
+      cfArtifactCommitSha: null,
+      cfArtifactPath: null,
     });
     await repository.appendEvent({
       id: crypto.randomUUID(),
@@ -466,8 +449,10 @@ export class EditArtifactCaptureService {
 
 interface EditArtifactCapturePort {
   captureBaseline(input: {
-    muscleSession: string;
+    sessionId: string;
     runId: string;
+    workspaceScope: SecureExecutionWorkspaceScope;
+    executionSession: SecureExecutionSessionPort;
   }): Promise<string>;
   captureAfterRunMutation(input: CaptureAfterRunInput): Promise<void>;
 }
@@ -475,7 +460,6 @@ interface EditArtifactCapturePort {
 interface EditArtifactMessageContext {
   userMessageId?: string;
   assistantMessageId?: string;
-  sourceTurnId?: string;
 }
 
 interface EditArtifactCoordinator {
@@ -501,7 +485,11 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
       runId: string;
       sessionId: string;
       workspaceId: string;
-      muscleSession: string;
+      threadId: string;
+      turnId: string;
+      runAttemptId: string;
+      workspaceScope: SecureExecutionWorkspaceScope;
+      executionSession: SecureExecutionSessionPort;
       repoOwner: string | null;
       repoName: string | null;
       repoUrl: string | null;
@@ -511,8 +499,10 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
   async prepare(): Promise<void> {
     try {
       this.baselineTree = await this.service.captureBaseline({
-        muscleSession: this.context.muscleSession,
+        sessionId: this.context.sessionId,
         runId: this.context.runId,
+        workspaceScope: this.context.workspaceScope,
+        executionSession: this.context.executionSession,
       });
     } catch (error) {
       this.baselineTree = undefined;
@@ -567,6 +557,13 @@ export class EditArtifactRunCaptureCoordinator implements EditArtifactCoordinato
     if (this.changedFiles.size === 0) {
       return;
     }
+    if (!this.baselineTree) {
+      console.warn("[edit-artifacts/capture] skipped without baseline", {
+        runId: this.context.runId,
+        changedFileCount: this.changedFiles.size,
+      });
+      return;
+    }
     this.captureSequence += 1;
     await this.service.captureAfterRunMutation({
       ...this.context,
@@ -582,6 +579,7 @@ export function createEditArtifactCoordinator(input: {
   env: Env;
   userId?: string;
   workspaceId?: string;
+  identity?: EditArtifactIdentity;
   runId: string;
   sessionId: string;
   repositoryContext?: {
@@ -589,8 +587,15 @@ export function createEditArtifactCoordinator(input: {
     repo?: string;
     baseUrl?: string;
   };
+  executionSession: SecureExecutionSessionPort;
+  workspaceScope: SecureExecutionWorkspaceScope;
 }): EditArtifactCoordinator {
-  if (!input.env.EDIT_ARTIFACTS || !input.userId || !input.workspaceId) {
+  if (
+    !input.env.EDIT_ARTIFACTS ||
+    !input.userId ||
+    !input.workspaceId ||
+    !input.identity
+  ) {
     return new NoopEditArtifactCoordinator();
   }
 
@@ -601,7 +606,11 @@ export function createEditArtifactCoordinator(input: {
       runId: input.runId,
       sessionId: input.sessionId,
       workspaceId: input.workspaceId,
-      muscleSession: input.runId,
+      threadId: input.identity.threadId,
+      turnId: input.identity.turnId,
+      runAttemptId: input.identity.runAttemptId,
+      workspaceScope: input.workspaceScope,
+      executionSession: input.executionSession,
       repoOwner: input.repositoryContext?.owner ?? null,
       repoName: input.repositoryContext?.repo ?? null,
       repoUrl: input.repositoryContext?.baseUrl ?? null,
@@ -633,7 +642,6 @@ function removeEmptyMessageContextFields(
   return {
     userMessageId: normalizeOptionalMessageId(context.userMessageId),
     assistantMessageId: normalizeOptionalMessageId(context.assistantMessageId),
-    sourceTurnId: normalizeOptionalMessageId(context.sourceTurnId),
   };
 }
 
@@ -691,6 +699,9 @@ function buildPatchMetadata(
     runId: input.input.runId,
     sessionId: input.input.sessionId,
     workspaceId: input.input.workspaceId,
+    threadId: input.input.threadId,
+    turnId: input.input.turnId,
+    runAttemptId: input.input.runAttemptId,
     repoOwner: input.input.repoOwner,
     repoName: input.input.repoName,
     branch: input.artifact.branch,
@@ -698,7 +709,6 @@ function buildPatchMetadata(
     patchSha256,
     userMessageId: input.input.userMessageId ?? null,
     assistantMessageId: input.input.assistantMessageId ?? null,
-    sourceTurnId: input.input.sourceTurnId ?? null,
     captureSequence: input.input.captureSequence ?? 0,
     patchParseStatus: "unknown",
     storageBackend: "r2_postgres",

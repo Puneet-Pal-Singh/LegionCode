@@ -56,6 +56,7 @@ export {
   EditArtifactStatusSchema,
   EditArtifactEventTypeSchema,
   EditArtifactChangedFileSchema,
+  EditArtifactIdentitySchema,
   EditArtifactRecordSchema,
   EditArtifactEventSchema,
   CreateEditArtifactInputSchema,
@@ -64,6 +65,7 @@ export {
   type EditArtifactStatus,
   type EditArtifactEventType,
   type EditArtifactChangedFile,
+  type EditArtifactIdentity,
   type EditArtifactRecord,
   type EditArtifactEvent,
   type CreateEditArtifactInput,
@@ -172,6 +174,10 @@ export {
   RunTerminalStateSchema,
   type RunTerminalState,
 } from "./run-terminal-state.js";
+export {
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "./lifecycle-turn-routing.js";
 
 // Explicit build/plan mode contract
 export { RunModeSchema, DEFAULT_RUN_MODE, type RunMode } from "./run-mode.js";
@@ -451,7 +457,6 @@ export {
   BYOKCredentialUpdateRequestSchema,
   BYOKCredentialValidateRequestSchema,
   BYOKCredentialValidateResponseSchema,
-  BYOKProviderModelsResponseSchema,
   BYOKProviderSlugSchema,
   BYOKModelDiscoveryViewSchema,
   BYOKModelDiscoverySurfaceSchema,
@@ -522,7 +527,6 @@ export {
   type BYOKCredentialUpdateRequest,
   type BYOKCredentialValidateRequest,
   type BYOKCredentialValidateResponse,
-  type BYOKProviderModelsResponse,
   type BYOKProviderSlug,
   type BYOKModelDiscoveryView,
   type BYOKModelDiscoverySurface,

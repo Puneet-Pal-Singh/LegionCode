@@ -69,6 +69,7 @@ export const workspaces = pgTable(
   (table) => [
     uniqueIndex("workspaces_user_repo_idx").on(table.userId, table.repoId),
     uniqueIndex("workspaces_id_repo_idx").on(table.id, table.repoId),
+    uniqueIndex("workspaces_id_user_id_idx").on(table.id, table.userId),
     index("workspaces_user_updated_at_idx").on(table.userId, table.updatedAt),
     index("workspaces_repo_id_idx").on(table.repoId),
     check(

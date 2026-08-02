@@ -1,14 +1,14 @@
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
-import type { TranscriptMessageRecord } from "@repo/persistence";
-import { RUN_EVENT_TYPES } from "@repo/shared-types";
-import type { MessageEmittedEvent, RunEvent } from "@repo/shared-types";
+import type {
+  LifecycleEvent,
+  TurnScopeBootstrap,
+} from "@repo/platform-protocol";
 import {
-  projectRunActivityTranscript,
-  RunEventRepository,
   RunRepository,
   tagRuntimeStateSemantics,
 } from "@shadowbox/execution-engine/runtime";
 import { DomainError } from "../domain/errors";
+import { formatDiagnosticLogLine } from "../lib/diagnostic-log";
 import { PersistenceService } from "../services/PersistenceService";
 import type { Env } from "../types/ai";
 
@@ -17,48 +17,83 @@ export interface PersistedAssistantMessageResult {
 }
 
 class RunPostExecutionPersistenceError extends DomainError {
-  constructor(
-    operation: string,
-    cause: unknown,
-    correlationId: string,
-  ) {
+  constructor(operation: string, cause: unknown, correlationId: string) {
     super(
       "RUN_POST_EXECUTION_PERSISTENCE_FAILED",
       "Run post-execution persistence failed",
       503,
       true,
       correlationId,
-      {
-        operation,
-        cause: describePersistenceCause(cause),
-      },
+      { operation, cause: describePersistenceCause(cause) },
     );
   }
 }
 
+/**
+ * Lifecycle is the source of truth for assistant transcript ordering. This
+ * callback only settles the legacy run projection after runtime completion;
+ * it never reconstructs or infers a turn from RunEvents/activity snapshots.
+ */
 export async function persistAssistantMessageFromRunResponse(
   ctx: DurableObjectState,
   env: Env,
-  sessionId: string,
+  _sessionId: string,
   runId: string,
   correlationId: string,
   response: Response,
+  _identity: TurnScopeBootstrap,
 ): Promise<PersistedAssistantMessageResult | null> {
-  if (!response.ok) {
-    return null;
-  }
+  if (!response.ok) return null;
+  await persistTerminalRunStatusFromRuntime(ctx, env, runId, correlationId);
+  return null;
+}
 
-  const persistedOutput = await persistAssistantMessageFromRunOutput(
-    ctx,
+export async function persistAssistantMessageFromLifecycleEvent(
+  env: Env,
+  sessionId: string,
+  runId: string,
+  identity: TurnScopeBootstrap,
+  event: LifecycleEvent,
+): Promise<PersistedAssistantMessageResult | null> {
+  if (event.type !== "assistant_message.delta") return null;
+  const delta = event.payload.delta;
+  if (typeof delta !== "string" || delta.length === 0) return null;
+
+  return await persistAssistantMessageText(
     env,
     sessionId,
     runId,
-    correlationId,
+    identity,
+    delta,
   );
-  await persistTerminalRunStatusFromRuntime(ctx, env, runId, correlationId);
-  return persistedOutput
-    ? toPersistedAssistantMessageResult(persistedOutput)
-    : null;
+}
+
+export async function persistAssistantMessageText(
+  env: Env,
+  sessionId: string,
+  runId: string,
+  identity: TurnScopeBootstrap,
+  text: string,
+  phase: "commentary" | "final_answer" = "final_answer",
+): Promise<PersistedAssistantMessageResult | null> {
+  if (!text) return null;
+
+  try {
+    const message = await new PersistenceService(env).persistAssistantTurn({
+      sessionId,
+      runId,
+      turnId: identity.turnId,
+      text,
+      metadata: { canonicalIdentity: identity, phase },
+    });
+    return { assistantMessageId: message.id };
+  } catch (error) {
+    throw new RunPostExecutionPersistenceError(
+      "persistAssistantMessageText",
+      error,
+      runId,
+    );
+  }
 }
 
 async function persistTerminalRunStatusFromRuntime(
@@ -71,20 +106,23 @@ async function persistTerminalRunStatusFromRuntime(
     ctx as unknown as LegacyDurableObjectState,
     "do",
   );
-  const runRepository = new RunRepository(runtimeState);
-  const run = await runRepository.getById(runId);
+  const run = await new RunRepository(runtimeState).getById(runId);
   const status = mapRuntimeTerminalStatus(run?.status);
-  if (!status) {
-    return;
-  }
+  if (!status) return;
 
   try {
-    const persistenceService = new PersistenceService(env);
-    await persistenceService.updateRunStatus(
+    await new PersistenceService(env).updateRunStatus(
       runId,
       status,
       run?.metadata?.startedAt,
       run?.metadata?.completedAt ?? new Date().toISOString(),
+    );
+    console.log(
+      formatDiagnosticLogLine("run/post-execution", "terminal-status-persisted", {
+        correlationId,
+        runId,
+        persistedStatus: status,
+      }),
     );
   } catch (error) {
     throw new RunPostExecutionPersistenceError(
@@ -93,112 +131,6 @@ async function persistTerminalRunStatusFromRuntime(
       correlationId,
     );
   }
-}
-
-async function persistAssistantMessageFromRunOutput(
-  ctx: DurableObjectState,
-  env: Env,
-  sessionId: string,
-  runId: string,
-  correlationId: string,
-): Promise<TranscriptMessageRecord | null> {
-  const runtimeState = tagRuntimeStateSemantics(
-    ctx as unknown as LegacyDurableObjectState,
-    "do",
-  );
-  const runRepository = new RunRepository(runtimeState);
-  const runEventRepository = new RunEventRepository(runtimeState);
-  const run = await runRepository.getById(runId);
-  const outputContent = run?.output?.content?.trim();
-
-  if (!outputContent) {
-    if (requiresPersistedAssistantOutput(run?.status)) {
-      throw new RunPostExecutionPersistenceError(
-        "readCanonicalAssistantOutput",
-        new Error(`Missing canonical assistant output for run ${runId}`),
-        correlationId,
-      );
-    }
-    return null;
-  }
-
-  try {
-    const persistenceService = new PersistenceService(env);
-    const events = await runEventRepository.getByRun(runId);
-    return await persistenceService.persistAssistantTurn({
-      sessionId,
-      runId,
-      text: outputContent,
-      metadata: readTerminalAssistantMetadata(events),
-      activity: projectRunActivityTranscript({
-        runId,
-        sessionId,
-        events,
-        terminalStatus: mapRuntimeActivityTerminalStatus(run?.status),
-        terminalReason: readTerminalReason(run?.metadata?.error),
-      }),
-    });
-  } catch (error) {
-    throw new RunPostExecutionPersistenceError(
-      "persistAssistantTurn",
-      error,
-      correlationId,
-    );
-  }
-}
-
-function readTerminalAssistantMetadata(
-  events: Awaited<ReturnType<RunEventRepository["getByRun"]>>,
-): Record<string, unknown> | undefined {
-  const assistantEvents = events.filter(isAssistantMessageEvent);
-  const latestMetadata = assistantEvents.at(-1)?.payload.metadata;
-  return latestMetadata && Object.keys(latestMetadata).length > 0
-    ? latestMetadata
-    : undefined;
-}
-
-function isAssistantMessageEvent(
-  event: RunEvent,
-): event is MessageEmittedEvent {
-  return (
-    event.type === RUN_EVENT_TYPES.MESSAGE_EMITTED &&
-    event.payload.role === "assistant"
-  );
-}
-
-function mapRuntimeActivityTerminalStatus(
-  status: string | null | undefined,
-): "completed" | "paused" | "failed" | "cancelled" {
-  switch (status) {
-    case "PAUSED":
-      return "paused";
-    case "FAILED":
-      return "failed";
-    case "CANCELLED":
-      return "cancelled";
-    default:
-      return "completed";
-  }
-}
-
-function readTerminalReason(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function toPersistedAssistantMessageResult(
-  message: TranscriptMessageRecord,
-): PersistedAssistantMessageResult {
-  return { assistantMessageId: message.id };
-}
-
-function requiresPersistedAssistantOutput(
-  status: string | null | undefined,
-): boolean {
-  return status === "COMPLETED" || status === "PAUSED" || status === "FAILED";
-}
-
-function describePersistenceCause(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown persistence error";
 }
 
 function mapRuntimeTerminalStatus(
@@ -216,4 +148,8 @@ function mapRuntimeTerminalStatus(
     default:
       return null;
   }
+}
+
+function describePersistenceCause(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown persistence error";
 }

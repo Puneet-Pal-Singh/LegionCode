@@ -5,11 +5,22 @@ import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
 import { useEditArtifactReviewSource } from "./useEditArtifactReviewSource.js";
 
 const mockGetLatestEditArtifactReviewSource = vi.hoisted(() =>
-  vi.fn<[unknown], Promise<PromptArtifactReviewSource | null>>(async () => null),
+  vi.fn<[unknown], Promise<PromptArtifactReviewSource | null>>(
+    async () => null,
+  ),
 );
 const mockGetEditArtifactReviewSourceByMessage = vi.hoisted(() =>
-  vi.fn<[unknown], Promise<PromptArtifactReviewSource | null>>(async () => null),
+  vi.fn<[unknown], Promise<PromptArtifactReviewSource | null>>(
+    async () => null,
+  ),
 );
+
+const IDENTITY = {
+  threadId: "thread-1",
+  turnId: "turn-1",
+  runAttemptId: "attempt-1",
+  workspaceId: "workspace-1",
+};
 
 vi.mock("../lib/edit-artifacts-client.js", () => ({
   getLatestEditArtifactReviewSource: (input: unknown) =>
@@ -38,6 +49,7 @@ describe("useEditArtifactReviewSource", () => {
       useEditArtifactReviewSource({
         runId: "run-1",
         sessionId: "session-1",
+        identity: IDENTITY,
         enabled: true,
       }),
     );
@@ -65,6 +77,7 @@ describe("useEditArtifactReviewSource", () => {
         useEditArtifactReviewSource({
           runId,
           sessionId: "session-1",
+          identity: IDENTITY,
           enabled: true,
         }),
       {
@@ -98,6 +111,9 @@ function buildArtifactSource(): PromptArtifactReviewSource {
     runId: "run-1",
     sessionId: "session-1",
     workspaceId: "workspace-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runAttemptId: "attempt-1",
     assistantMessageId: "assistant-1",
     status: "stored",
     files: [],

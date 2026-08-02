@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   ArtifactIdSchema,
   ArtifactMetadataSchema,
-  EventCursorSchema,
   LifecycleEventSchema,
   RunEventSchema,
   RunIdSchema,
@@ -11,7 +10,6 @@ import {
   ThreadIdSchema,
   WorkspaceManifestSchema,
   type ArtifactId,
-  type RunEvent,
 } from "@repo/platform-protocol";
 import {
   PlatformClientContractError,
@@ -19,27 +17,30 @@ import {
 } from "./errors.js";
 import { followLifecycleEvents } from "./lifecycle-continuation.js";
 import {
-  AttachLifecycleStreamRequestSchema,
   FollowLifecycleRequestSchema,
   GetTurnDiffRequestSchema,
   GetTurnDiffResponseSchema,
+  InterruptTurnRequestSchema,
+  InterruptTurnResponseSchema,
+  CompactTurnRequestSchema,
+  CompactTurnResponseSchema,
   ReplayLifecycleEventsRequestSchema,
   ReplayLifecycleEventsResponseSchema,
   StartTurnRequestSchema,
   StartTurnResponseSchema,
   SubmitLifecycleApprovalRequestSchema,
   SubmitUserInputResponseRequestSchema,
-  type AttachLifecycleStreamRequest,
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
+  type InterruptTurnRequest,
   type ReplayLifecycleEventsRequest,
   type ReplayLifecycleEventsResponse,
   type StartTurnRequest,
   type SubmitLifecycleApprovalRequest,
   type SubmitUserInputResponseRequest,
+  type CompactTurnRequest,
 } from "./lifecycle-types.js";
 import {
-  AttachRunStreamRequestSchema,
   CreateRunRequestSchema,
   CreateThreadRequestSchema,
   ListArtifactsRequestSchema,
@@ -48,9 +49,7 @@ import {
   ListThreadsResponseSchema,
   ReplayRunEventsRequestSchema,
   ReplayRunEventsResponseSchema,
-  StreamRetryPolicySchema,
   SubmitApprovalRequestSchema,
-  type AttachRunStreamRequest,
   type CreateRunRequest,
   type CreateThreadRequest,
   type ListArtifactsRequest,
@@ -146,71 +145,6 @@ export class DefaultPlatformClient implements PlatformClient {
     return parseResponse(payload, RunSchema, "getRun");
   }
 
-  async *attachRunStream(
-    request: AttachRunStreamRequest,
-    options?: PlatformClientOperationOptions,
-  ): AsyncIterable<RunEvent> {
-    const normalizedRequest = parseRequest(
-      request,
-      AttachRunStreamRequestSchema,
-      "attachRunStream",
-    );
-    let afterCursor = normalizedRequest.afterCursor ?? null;
-    const retry = options?.streamRetry
-      ? parseRequest(
-          options.streamRetry,
-          StreamRetryPolicySchema,
-          "attachRunStream",
-        )
-      : undefined;
-    const maxAttempts = retry?.maxAttempts ?? 1;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        const stream = this.transport.attachRunStream(
-          { ...normalizedRequest, afterCursor },
-          options,
-        );
-        for await (const event of stream) {
-          const parsed = parseResponse(
-            event,
-            RunEventSchema,
-            "attachRunStream",
-          );
-          afterCursor = EventCursorSchema.parse(parsed.cursor);
-          yield parsed;
-        }
-        return;
-      } catch (error) {
-        const normalized = normalizePlatformClientOperationError(
-          error,
-          "attachRunStream",
-        );
-        if (!normalized.retryable || attempt === maxAttempts) {
-          throw normalized;
-        }
-        await waitForRetry(retry?.delayMs ?? 0, options?.signal);
-      }
-    }
-  }
-
-  async *attachLifecycleStream(
-    request: AttachLifecycleStreamRequest,
-    options?: PlatformClientOperationOptions,
-  ) {
-    const normalizedRequest = parseRequest(
-      request,
-      AttachLifecycleStreamRequestSchema,
-      "attachLifecycleStream",
-    );
-    const stream = this.transport.attachLifecycleStream(
-      normalizedRequest,
-      options,
-    );
-    for await (const event of stream) {
-      yield parseResponse(event, LifecycleEventSchema, "attachLifecycleStream");
-    }
-  }
-
   async *followTurnLifecycle(
     request: FollowLifecycleRequest,
     options?: PlatformClientOperationOptions,
@@ -222,8 +156,9 @@ export class DefaultPlatformClient implements PlatformClient {
     );
     yield* followLifecycleEvents({
       request: normalizedRequest,
-      replay: (input) => this.replayLifecycleEvents(input, options),
-      attach: (input) => this.attachLifecycleStream(input, options),
+      options,
+      replay: (input, replayOptions) =>
+        this.replayLifecycleEvents(input, replayOptions),
     });
   }
 
@@ -269,6 +204,36 @@ export class DefaultPlatformClient implements PlatformClient {
       ReplayLifecycleEventsResponseSchema,
       "replayLifecycleEvents",
     );
+  }
+
+  async interruptTurn(
+    request: InterruptTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      InterruptTurnRequestSchema,
+      "interruptTurn",
+    );
+    const payload = await this.invoke("interruptTurn", () =>
+      this.transport.interruptTurn(normalizedRequest, options),
+    );
+    return parseResponse(payload, InterruptTurnResponseSchema, "interruptTurn");
+  }
+
+  async compactTurn(
+    request: CompactTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ) {
+    const normalizedRequest = parseRequest(
+      request,
+      CompactTurnRequestSchema,
+      "compactTurn",
+    );
+    const payload = await this.invoke("compactTurn", () =>
+      this.transport.compactTurn(normalizedRequest, options),
+    );
+    return parseResponse(payload, CompactTurnResponseSchema, "compactTurn");
   }
 
   async submitApproval(
@@ -399,29 +364,6 @@ export class DefaultPlatformClient implements PlatformClient {
       throw normalizePlatformClientOperationError(error, operation);
     }
   }
-}
-
-async function waitForRetry(
-  delayMs: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (signal?.aborted) {
-    throw new DOMException("Request was aborted", "AbortError");
-  }
-  if (delayMs === 0) {
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(resolve, delayMs);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        reject(new DOMException("Request was aborted", "AbortError"));
-      },
-      { once: true },
-    );
-  });
 }
 
 export function createPlatformClient(

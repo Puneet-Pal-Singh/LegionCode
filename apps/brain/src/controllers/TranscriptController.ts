@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  CHAT_TITLE_SOURCES,
-  isTurnActivityTranscriptPart,
-  type JsonValue,
-  type TurnActivityTranscriptPart,
-} from "@repo/shared-types";
+import type { JsonValue } from "@repo/shared-types";
 import { RunIdSchema } from "@repo/platform-protocol";
 import type {
   SessionRecord,
@@ -19,13 +14,16 @@ import {
 } from "../services/AuthService";
 import { withRunRepository } from "../services/runs/RunPersistenceFactory";
 import { withTranscriptRepository } from "../services/sessions/TranscriptPersistenceFactory";
+import {
+  readPersistedThreadTitleScope,
+  ThreadTitleService,
+} from "../services/thread-titles";
 
 const SessionCreateRequestSchema = z.object({
   sessionId: z.string().uuid(),
   runId: RunIdSchema.optional(),
   workspaceId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(160).optional(),
-  titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
   repository: z.string().trim().min(1).max(240).optional(),
   mode: z.string().trim().min(1).max(64).optional(),
 });
@@ -43,7 +41,6 @@ const ArchiveSessionParamsSchema = z.object({
 
 const RenameSessionRequestSchema = z.object({
   title: z.string().trim().min(1).max(80),
-  titleSource: z.enum(CHAT_TITLE_SOURCES).optional(),
 });
 
 export class TranscriptController {
@@ -93,21 +90,28 @@ export class TranscriptController {
         readSessionParams(request.url),
       );
       const body = RenameSessionRequestSchema.parse(await request.json());
-      const session = await withTranscriptRepository(env, (repository) => {
-        if (body.titleSource === "generated") {
-          return repository.updateGeneratedSessionTitle({
-            userId: auth.userId,
-            sessionId,
-            title: body.title,
-            titleSource: "generated",
-          });
-        }
-        return repository.renameSessionTitle({
-          userId: auth.userId,
-          sessionId,
-          title: body.title,
-          titleSource: "user",
-        });
+      const titleScope = await readPersistedThreadTitleScope(
+        env,
+        auth.userId,
+        sessionId,
+      );
+      if (!titleScope) {
+        return errorResponse(
+          request,
+          env,
+          "This task has no canonical title scope yet.",
+          409,
+          "TITLE_SCOPE_UNAVAILABLE",
+        );
+      }
+      const session = await new ThreadTitleService(env).rename({
+        sessionId,
+        threadId: titleScope.threadId,
+        runId: titleScope.runId,
+        workspaceId: titleScope.workspaceId,
+        userId: auth.userId,
+        firstMessageId: titleScope.firstMessageId,
+        title: body.title,
       });
 
       if (!session) {
@@ -115,7 +119,7 @@ export class TranscriptController {
       }
 
       console.log(
-        `[chat/title] updated sessionId=${sessionId} source=${body.titleSource ?? "user"} titleLength=${body.title.length}`,
+        `[chat/title] updated sessionId=${sessionId} source=user titleLength=${body.title.length}`,
       );
       return jsonResponse(request, env, { session });
     } catch (error) {
@@ -198,14 +202,25 @@ export class TranscriptController {
   }
 
   static async getHistory(request: Request, env: Env): Promise<Response> {
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const queryParams = new URL(request.url).searchParams;
+    const requestedRunId = queryParams.get("runId")?.trim() ?? "";
+    const requestedSessionId = queryParams.get("session")?.trim() ?? "";
     try {
+      console.log(
+        `[chat/history] requestId=${requestId} runId=${requestedRunId || "missing"} sessionId=${requestedSessionId || "missing"} status=started`,
+      );
       const auth = await getAuthenticatedUserSession(request, env);
       if (!auth) {
+        console.warn(
+          `[chat/history] requestId=${requestId} runId=${requestedRunId || "missing"} sessionId=${requestedSessionId || "missing"} status=unauthorized elapsedMs=${Date.now() - startedAt}`,
+        );
         return errorResponse(request, env, "Unauthorized", 401);
       }
 
       const query = TranscriptQuerySchema.parse(
-        Object.fromEntries(new URL(request.url).searchParams),
+        Object.fromEntries(queryParams),
       );
       const result = await withTranscriptRepository(env, (repository) =>
         repository.listTranscript({
@@ -217,14 +232,30 @@ export class TranscriptController {
         }),
       );
 
-      return jsonResponse(request, env, {
+      const response = {
         messages: result.messages.map(toHydrationMessage),
         nextCursor: result.nextCursor?.toString(),
-      });
+      };
+      console.log(
+        `[chat/history] requestId=${requestId} runId=${query.runId} sessionId=${query.session} status=success messageCount=${response.messages.length} messageIds=${summarizeHydrationMessages(response.messages)} nextCursor=${response.nextCursor ?? "none"} elapsedMs=${Date.now() - startedAt}`,
+      );
+      return jsonResponse(request, env, response);
     } catch (error) {
+      console.error(
+        `[chat/history] requestId=${requestId} runId=${requestedRunId || "unknown"} sessionId=${requestedSessionId || "unknown"} status=failed elapsedMs=${Date.now() - startedAt}`,
+        summarizeTranscriptError(error),
+      );
       return transcriptErrorResponse(request, env, error);
     }
   }
+}
+
+function summarizeHydrationMessages(
+  messages: Array<ReturnType<typeof toHydrationMessage>>,
+): string {
+  return messages
+    .map((message) => `${message.role}:${message.id}`)
+    .join(",");
 }
 
 async function createPersistedSession(
@@ -253,7 +284,7 @@ async function ensureTranscriptSession(
       userId,
       workspaceId: body.workspaceId ?? null,
       title: body.title ?? "Untitled task",
-      titleSource: body.titleSource ?? "generated",
+      titleSource: "preview",
       repository: body.repository ?? null,
       activeRunId,
       mode: body.mode ?? "build",
@@ -280,6 +311,7 @@ async function ensureSessionRun(
     });
   });
 }
+
 
 const SessionParamsSchema = z.object({
   sessionId: z.string().uuid(),
@@ -347,7 +379,6 @@ function toHydrationMessage(message: TranscriptMessageRecord): {
   content: string | Array<{ type: "text"; text: string } | JsonValue>;
   createdAt: string;
   data?: {
-    activityParts?: TurnActivityTranscriptPart[];
     metadata?: Record<string, unknown>;
   };
 } {
@@ -393,25 +424,17 @@ function readHydrationData(
   parts: TranscriptMessagePartRecord[],
 ):
   | {
-      activityParts?: TurnActivityTranscriptPart[];
       metadata?: Record<string, unknown>;
     }
   | undefined {
-  const activityParts: TurnActivityTranscriptPart[] = [];
-  for (const part of parts) {
-    if (part.type === "activity" && isTurnActivityTranscriptPart(part.content)) {
-      activityParts.push(part.content);
-    }
-  }
   const metadata = parts
     .filter((part) => part.type === "text")
     .map((part) => readPartMetadata(part.content))
     .find((value): value is Record<string, unknown> => value !== null);
-  if (activityParts.length === 0 && !metadata) {
+  if (!metadata) {
     return undefined;
   }
   return {
-    ...(activityParts.length > 0 ? { activityParts } : {}),
     ...(metadata ? { metadata } : {}),
   };
 }
@@ -432,6 +455,7 @@ function transcriptErrorResponse(
   error: unknown,
 ): Response {
   if (error instanceof z.ZodError) {
+    console.warn("[transcript/request] invalid request", error.issues);
     return errorResponse(request, env, "Invalid transcript request", 400);
   }
 
@@ -441,4 +465,14 @@ function transcriptErrorResponse(
 
   console.error("[transcript/persistence] request failed:", error);
   return errorResponse(request, env, "Failed to load transcript state", 500);
+}
+
+function summarizeTranscriptError(error: unknown): {
+  name: string;
+  message: string;
+} {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+  return { name: "UnknownError", message: String(error) };
 }

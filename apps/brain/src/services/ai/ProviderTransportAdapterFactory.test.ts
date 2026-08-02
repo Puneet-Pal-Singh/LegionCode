@@ -45,6 +45,20 @@ describe("ProviderTransportAdapterFactory", () => {
     ).toBe("https://opencode.ai/zen/go/v1");
   });
 
+  it("preserves the logical provider for OpenAI-compatible transports", () => {
+    const adapter = createTransportAdapter(
+      {
+        providerId: "openrouter",
+        transport: "openai-chat-completions",
+        endpoint: "https://openrouter.ai/api/v1/chat/completions",
+      },
+      createEnv(),
+      "or-test",
+    );
+
+    expect(adapter.provider).toBe("openrouter");
+  });
+
   it("rejects unwired transports", () => {
     expect(() =>
       createTransportAdapter(

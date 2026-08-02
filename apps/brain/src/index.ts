@@ -10,15 +10,23 @@ import { RuntimeEventController } from "./controllers/RuntimeEventController";
 import { WorkspaceController } from "./controllers/WorkspaceController";
 import { TranscriptController } from "./controllers/TranscriptController";
 import { EditArtifactController } from "./controllers/EditArtifactController";
+import { LifecycleController } from "./controllers/LifecycleController";
+import { TurnController } from "./controllers/TurnController";
+import { HookDefinitionController } from "./controllers/HookDefinitionController";
 import { handleOptions, getCorsHeaders } from "./lib/cors";
 import { Env } from "./types/ai";
 import { RunEngineRuntime } from "./runtime/RunEngineRuntime";
-import { RunEngineAgent } from "./runtime/RunEngineAgent";
 import { RunAdmissionLimiter } from "./runtime/RunAdmissionLimiter";
 import { getBrainRuntimeHeaders } from "./core/observability/runtime";
 import { EditArtifactRetentionService } from "./services/edit-artifacts/EditArtifactRetentionService";
+import {
+  getOrCreateCorrelationId,
+  reportBrainError,
+  withCorrelationId,
+  withObservabilityHeaders,
+} from "./core/observability/BrainErrorReporter";
 
-export { RunEngineRuntime, RunEngineAgent, RunAdmissionLimiter };
+export { RunEngineRuntime, RunAdmissionLimiter };
 
 /**
  * Route configuration type with HTTP method support
@@ -26,7 +34,11 @@ export { RunEngineRuntime, RunEngineAgent, RunAdmissionLimiter };
 interface RouteConfig {
   pattern: RegExp;
   method: string;
-  handler: (request: Request, env: Env) => Promise<Response>;
+  handler: (
+    request: Request,
+    env: Env,
+    context?: ExecutionContext,
+  ) => Promise<Response>;
 }
 
 /**
@@ -45,13 +57,17 @@ class Router {
     this.routes.push({ pattern, method: method.toUpperCase(), handler });
   }
 
-  async match(request: Request, env: Env): Promise<Response | null> {
+  async match(
+    request: Request,
+    env: Env,
+    context?: ExecutionContext,
+  ): Promise<Response | null> {
     const url = new URL(request.url);
     const requestMethod = request.method.toUpperCase();
 
     for (const route of this.routes) {
       if (route.pattern.test(url.pathname) && route.method === requestMethod) {
-        return await route.handler(request, env);
+        return await route.handler(request, env, context);
       }
     }
 
@@ -74,6 +90,8 @@ function createRouter(): Router {
   );
   router.add(/^\/api\/chat\/history$/, TranscriptController.getHistory, "GET");
   router.add(/\/chat/, ChatController.handle, "POST");
+  router.add(/^\/turn\/start$/, TurnController.start, "POST");
+  router.add(/^\/turn\/scope$/, TurnController.scope, "GET");
   router.add(
     /^\/api\/debug\/runtime$/,
     RuntimeController.getRuntimeDebug,
@@ -81,15 +99,17 @@ function createRouter(): Router {
   );
   router.add(
     /^\/internal\/runtime\/events$/,
-    RuntimeEventController.acceptInternalRuntimeEvent,
+    (request, env) =>
+      RuntimeEventController.acceptInternalRuntimeEvent(request, env),
     "POST",
   );
 
   // Auth routes - OAuth flow
   router.add(/\/auth\/github\/login/, AuthController.handleLogin);
+  router.add(/\/auth\/github\/reauthorize/, AuthController.handleLogin);
   router.add(/\/auth\/github\/callback/, AuthController.handleCallback);
   router.add(/\/auth\/session/, AuthController.handleGetSession);
-  router.add(/\/auth\/logout/, AuthController.handleLogout);
+  router.add(/\/auth\/logout/, AuthController.handleLogout, "POST");
 
   // GitHub API routes
   router.add(/\/api\/github\/repos/, GitHubController.listRepositories);
@@ -108,6 +128,21 @@ function createRouter(): Router {
     /^\/api\/workspaces\/selection$/,
     WorkspaceController.selectWorkspace,
     "POST",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks$/,
+    HookDefinitionController.list,
+    "GET",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
+    HookDefinitionController.upsert,
+    "PUT",
+  );
+  router.add(
+    /^\/api\/workspaces\/[^/]+\/hooks\/[^/]+$/,
+    HookDefinitionController.delete,
+    "DELETE",
   );
   router.add(/^\/api\/sessions$/, TranscriptController.listSessions, "GET");
   router.add(/^\/api\/sessions$/, TranscriptController.createSession, "POST");
@@ -156,15 +191,22 @@ function createRouter(): Router {
     "POST",
   );
   router.add(/^\/api\/run\/summary$/, RunController.getSummary, "GET");
-  router.add(
-    /^\/api\/run\/events\/stream$/,
-    RunController.getEventsStream,
-    "GET",
-  );
   router.add(/^\/api\/run\/events$/, RunController.getEvents, "GET");
   router.add(/^\/api\/run\/activity$/, RunController.getActivity, "GET");
-  router.add(/^\/api\/run\/cancel$/, RunController.cancel, "POST");
+  router.add(/^\/api\/run\/interrupt$/, RunController.interrupt, "POST");
   router.add(/^\/api\/run\/approval$/, RunController.approve, "POST");
+  router.add(
+    /^\/turns\/[^/]+\/lifecycle-events$/,
+    LifecycleController.getEvents,
+    "GET",
+  );
+  router.add(/^\/turns\/[^/]+\/diff$/, LifecycleController.getTurnDiff, "GET");
+  router.add(
+    /^\/turns\/[^/]+\/approvals\/[^/]+$/,
+    LifecycleController.submitApproval,
+    "POST",
+  );
+  router.add(/^\/turns\/[^/]+\/compact$/, LifecycleController.compact, "POST");
   router.add(
     /^\/api\/edit-artifacts\/latest$/,
     EditArtifactController.getLatest,
@@ -247,46 +289,67 @@ function createRouter(): Router {
  * Delegates to controllers - follows Dependency Inversion Principle
  */
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const optionsResponse = handleOptions(request, env);
+  async fetch(
+    request: Request,
+    env: Env,
+    context: ExecutionContext,
+  ): Promise<Response> {
+    const correlationId = getOrCreateCorrelationId(request);
+    const correlatedRequest = withCorrelationId(request, correlationId);
+    const optionsResponse = handleOptions(correlatedRequest, env);
     if (optionsResponse) return optionsResponse;
 
     const router = createRouter();
 
     try {
-      const response = await router.match(request, env);
+      const response = await router.match(correlatedRequest, env, context);
 
       if (response) {
-        return response;
+        return withObservabilityHeaders(response, correlationId);
       }
 
-      return new Response(
-        JSON.stringify({
-          error: "Not Found",
-          path: new URL(request.url).pathname,
-        }),
-        {
-          status: 404,
-          headers: {
-            ...getCorsHeaders(request, env),
-            ...getBrainRuntimeHeaders(env),
-            "Content-Type": "application/json",
+      return withObservabilityHeaders(
+        new Response(
+          JSON.stringify({
+            error: "Not Found",
+            path: new URL(request.url).pathname,
+          }),
+          {
+            status: 404,
+            headers: {
+              ...getCorsHeaders(correlatedRequest, env),
+              ...getBrainRuntimeHeaders(env),
+              "Content-Type": "application/json",
+            },
           },
-        },
+        ),
+        correlationId,
       );
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Internal Server Error";
-      console.error("[Router] Error handling request:", error);
-
-      return new Response(JSON.stringify({ error: message }), {
-        status: 500,
-        headers: {
-          ...getCorsHeaders(request, env),
-          ...getBrainRuntimeHeaders(env),
-          "Content-Type": "application/json",
-        },
+      reportBrainError(env, {
+        request: correlatedRequest,
+        operation: "http.router.dispatch",
+        error,
       });
+
+      return withObservabilityHeaders(
+        new Response(
+          JSON.stringify({
+            error: "Internal Server Error",
+            code: "HTTP_REQUEST_FAILED",
+            correlationId,
+          }),
+          {
+            status: 500,
+            headers: {
+              ...getCorsHeaders(correlatedRequest, env),
+              ...getBrainRuntimeHeaders(env),
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+        correlationId,
+      );
     }
   },
 

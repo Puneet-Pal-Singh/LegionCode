@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { RUN_TERMINAL_STATES } from "@repo/shared-types";
+import {
+  RUN_EVENT_TYPES,
+  RUN_TERMINAL_STATES,
+  type RunEvent,
+} from "@repo/shared-types";
 import type { MemoryCoordinator } from "../memory/index.js";
 import type { RunEventRecorder } from "../events/index.js";
 import { Run } from "../run/index.js";
@@ -10,6 +14,7 @@ import {
   pauseRunForApprovalWithAssistantMessage,
   type RunCompletionDependencies,
 } from "./RunCompletionPolicy.js";
+import { createRuntimeFinalText } from "./FinalAssistantMessageService.js";
 
 describe("RunCompletionPolicy", () => {
   it("does not overwrite a run cancelled while assistant completion was in flight", async () => {
@@ -19,7 +24,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      text: "late answer",
+      runtimeFinal: createRuntimeFinalText("late answer"),
       deps,
     });
 
@@ -36,7 +41,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithRecoveredAssistantMessage({
       run,
-      text: "late timeout recovery",
+      runtimeFinal: createRuntimeFinalText("late timeout recovery"),
       deps,
     });
 
@@ -46,13 +51,15 @@ describe("RunCompletionPolicy", () => {
     expect(run.status).toBe("RUNNING");
   });
 
-  it("can persist a recovered assistant message as a paused run", async () => {
+  it("can persist an interrupted recovered assistant message as a paused run", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
 
     const response = await completeRunWithRecoveredAssistantMessage({
       run,
-      text: "The selected model stopped responding, so I paused this run.",
+      runtimeFinal: createRuntimeFinalText(
+        "The selected model stopped responding, so I paused this run.",
+      ),
       metadata: {
         code: "PROVIDER_UNAVAILABLE",
         terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
@@ -74,6 +81,7 @@ describe("RunCompletionPolicy", () => {
       "PAUSED",
       "synthesis",
     );
+    expect(deps.runEventRecorder.recordRunFailed).not.toHaveBeenCalled();
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
     expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
       expect.objectContaining({ runStatus: "PAUSED" }),
@@ -86,7 +94,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await finalizeRunWithAssistantMessage({
       run,
-      text: "I need your approval before I can continue.",
+      runtimeFinal: createRuntimeFinalText("I need your approval before I can continue."),
       metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
       deps,
     });
@@ -112,7 +120,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await pauseRunForApprovalWithAssistantMessage({
       run,
-      text: "Approval is required.",
+      runtimeFinal: createRuntimeFinalText("Approval is required."),
       deps,
     });
 
@@ -133,7 +141,7 @@ describe("RunCompletionPolicy", () => {
     await expect(
       completeRunWithAssistantMessage({
         run,
-        text: "Approval is required.",
+        runtimeFinal: createRuntimeFinalText("Approval is required."),
         metadata: { terminalState: RUN_TERMINAL_STATES.APPROVAL_REQUIRED },
         deps,
       }),
@@ -148,7 +156,7 @@ describe("RunCompletionPolicy", () => {
 
     const response = await completeRunWithAssistantMessage({
       run,
-      text: "late answer",
+        runtimeFinal: createRuntimeFinalText("late answer"),
       deps,
     });
 
@@ -162,30 +170,41 @@ describe("RunCompletionPolicy", () => {
     expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
   });
 
-  it("emits deterministic runtime text when assistant completion text is empty", async () => {
+  it("fails when assistant completion text has no model-written final", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
 
     const response = await completeRunWithAssistantMessage({
       run,
-      text: '{ "success": true, "output": "" }',
+        runtimeFinal: createRuntimeFinalText(""),
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
 
     await expect(response.text()).resolves.toContain(
-      "I finished the run, but the model did not produce a final response.",
+      "The model stopped before returning a final answer.",
     );
+    expect(run.status).toBe("FAILED");
     expect(run.output?.finalSummary).toContain(
-      "I finished the run, but the model did not produce a final response.",
+      "The model stopped before returning a final answer.",
     );
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
-      expect.stringContaining("I finished the run"),
+      expect.stringContaining(
+        "The model stopped before returning a final answer.",
+      ),
       expect.objectContaining({
-        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        terminalState: RUN_TERMINAL_STATES.FAILED_VALIDATION,
+        outcomeCode: "MODEL_FINAL_MISSING",
         finalMessageSource: "runtime",
       }),
+    );
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "The model stopped before returning a final answer.",
+      ),
+      expect.any(Number),
+      "MODEL_FINAL_MISSING",
     );
   });
 
@@ -195,7 +214,20 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      text: "Done. I changed the requested files.",
+        runtimeFinal: createRuntimeFinalText("Done. I changed the requested files."),
+      modelParts: [
+        {
+          id: "model-final-part",
+          schemaVersion: 1,
+          runId: run.id,
+          turnId: run.id,
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "final",
+          visibility: "visible",
+          text: "Done. I changed the requested files.",
+        },
+      ],
       metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
       deps,
     });
@@ -207,6 +239,44 @@ describe("RunCompletionPolicy", () => {
         terminalState: RUN_TERMINAL_STATES.COMPLETED,
         finalMessageSource: "model",
       }),
+    );
+  });
+
+  it("does not promote a provider visible_text part into the terminal final", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+    const incidentText = "The user said 'hi'. I should respond with a greeting.";
+
+    const response = await completeRunWithAssistantMessage({
+      run,
+      modelParts: [
+        {
+          id: "provider-visible",
+          schemaVersion: 1,
+          runId: run.id,
+          turnId: run.id,
+          sequence: 0,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          type: "visible_text",
+          visibility: "visible",
+          text: incidentText,
+          finalized: false,
+        },
+      ],
+      metadata: { terminalState: RUN_TERMINAL_STATES.COMPLETED },
+      deps,
+    });
+
+    const responseText = await response.text();
+    expect(responseText).toContain(
+      "The model stopped before returning a final answer.",
+    );
+    expect(responseText).not.toContain(incidentText);
+    expect(run.status).toBe("FAILED");
+    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
+      "assistant",
+      expect.not.stringContaining(incidentText),
+      expect.objectContaining({ finalMessageSource: "runtime" }),
     );
   });
 
@@ -242,7 +312,7 @@ describe("RunCompletionPolicy", () => {
 
     await completeRunWithAssistantMessage({
       run,
-      text: "Tests failed after the edit.",
+      runtimeFinal: createRuntimeFinalText("Tests failed after the edit."),
       metadata: {
         terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
         resumeHint: "Fix the failing test and retry.",
@@ -252,43 +322,209 @@ describe("RunCompletionPolicy", () => {
 
     expect(run.metadata.terminalMessage).toMatchObject({
       terminalState: RUN_TERMINAL_STATES.FAILED_TOOL,
-      changedFileCount: 1,
-      lastSuccessfulStep: "create_code_artifact",
-      failedStep: "npm_test",
-      nextAction: "Fix the failing test and retry.",
+      outcomeCode: "TOOL_EXECUTION_FAILED",
     });
     expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalledWith(
       "assistant",
       "Tests failed after the edit.",
       expect.objectContaining({
-        changedFileCount: 1,
-        failedStep: "npm_test",
+        outcomeCode: "TOOL_EXECUTION_FAILED",
       }),
+    );
+    expect(run.status).toBe("FAILED");
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      "Tests failed after the edit.",
+      expect.any(Number),
+      "TOOL_EXECUTION_FAILED",
+    );
+    expect(deps.memoryCoordinator.createCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ runStatus: "FAILED" }),
     );
   });
 
-  it("handles final assistant transcript persistence failure gracefully", async () => {
+  it("fails file-review finalization without read or search evidence", async () => {
+    const run = createRun("RUNNING");
+    const deps = createDeps(run);
+
+    const response = await completeRunWithAssistantMessage({
+      run,
+      runtimeFinal: createRuntimeFinalText("The file looks correct."),
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_read_or_search"],
+      },
+      deps,
+    });
+
+    await expect(response.text()).resolves.toContain(
+      "required evidence is missing",
+    );
+    expect(run.status).toBe("FAILED");
+    expect(run.metadata.terminalState).toBe(
+      RUN_TERMINAL_STATES.FAILED_VALIDATION,
+    );
+    expect(run.metadata.finalizationContract).toMatchObject({
+      settled: false,
+      missingEvidence: ["file_read_or_search"],
+    });
+    expect(deps.runEventRecorder.recordRunFailed).toHaveBeenCalledWith(
+      expect.stringContaining("required evidence"),
+      expect.any(Number),
+      "FINALIZATION_MISSING_EVIDENCE",
+    );
+  });
+
+  it("settles file-review finalization with read or search evidence", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          status: "completed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "read",
+            path: "src/App.tsx",
+            count: 30,
+            truncated: false,
+            loadedPaths: ["src/App.tsx"],
+          },
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      modelParts: [modelFinalPart(run, "The file looks correct.")],
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_read_or_search"],
+      },
+      deps,
+    });
+
+    expect(run.status).toBe("COMPLETED");
+    expect(run.metadata.finalizationContract).toMatchObject({
+      settled: true,
+      missingEvidence: [],
+    });
+    expect(run.metadata.evidenceLedger).toEqual([
+      expect.objectContaining({
+        kind: "file_read",
+        path: "src/App.tsx",
+      }),
+    ]);
+  });
+
+  it("fails edit finalization without edit or diff evidence", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "read_file",
+          status: "completed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "read",
+            path: "src/App.tsx",
+            count: 30,
+            truncated: false,
+            loadedPaths: ["src/App.tsx"],
+          },
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      modelParts: [modelFinalPart(run, "I changed the file.")],
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_edit_or_diff"],
+      },
+      deps,
+    });
+
+    expect(run.status).toBe("FAILED");
+    expect(run.metadata.terminalMessage).toMatchObject({
+      code: "FINALIZATION_MISSING_EVIDENCE",
+      finalizationContract: {
+        settled: false,
+        missingEvidence: ["file_edit_or_diff"],
+      },
+    });
+  });
+
+  it("settles edit finalization with edit or diff evidence", async () => {
+    const run = createRun("RUNNING");
+    run.metadata.agenticLoop = {
+      enabled: true,
+      toolLifecycle: [
+        {
+          toolCallId: "tool-1",
+          toolName: "git_diff",
+          status: "completed",
+          mutating: false,
+          recordedAt: "2026-06-03T00:00:00.000Z",
+          metadata: {
+            family: "git",
+            displayText: "Diff",
+          },
+        },
+      ],
+    };
+    const deps = createDeps(run);
+
+    await completeRunWithAssistantMessage({
+      run,
+      modelParts: [modelFinalPart(run, "I changed the file.")],
+      metadata: {
+        terminalState: RUN_TERMINAL_STATES.COMPLETED,
+        requiredEvidence: ["file_edit_or_diff"],
+      },
+      deps,
+    });
+
+    expect(run.status).toBe("COMPLETED");
+    expect(run.metadata.finalizationContract).toMatchObject({
+      settled: true,
+      missingEvidence: [],
+    });
+    expect(run.metadata.evidenceLedger).toEqual([
+      expect.objectContaining({ kind: "git_diff" }),
+    ]);
+  });
+
+  it("fails terminal settlement when final assistant transcript persistence fails", async () => {
     const run = createRun("RUNNING");
     const deps = createDeps(run);
     const failure = new Error("transcript unavailable");
     vi.mocked(deps.persistConversationMessages).mockRejectedValueOnce(failure);
 
-    const response = await completeRunWithAssistantMessage({
-      run,
-      text: "Done.",
-      deps,
-    });
-
-    await expect(response.text()).resolves.toBe("Done.");
+    await expect(
+      completeRunWithAssistantMessage({
+        run,
+        runtimeFinal: createRuntimeFinalText("Done."),
+        deps,
+      }),
+    ).rejects.toThrow("transcript unavailable");
     expect(deps.safeMemoryOperation).toHaveBeenCalled();
-    expect(deps.runEventRecorder.recordMessageEmitted).toHaveBeenCalled();
-    expect(deps.runEventRecorder.recordRunCompleted).toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordMessageEmitted).not.toHaveBeenCalled();
+    expect(deps.runEventRecorder.recordRunCompleted).not.toHaveBeenCalled();
   });
 });
 
 function createRun(status: "RUNNING" | "CANCELLED"): Run {
   return new Run(
-    "run-1",
+    "run_100001",
     "session-1",
     status,
     "coding",
@@ -314,6 +550,20 @@ function createRun(status: "RUNNING" | "CANCELLED"): Run {
   );
 }
 
+function modelFinalPart(run: Run, text: string) {
+  return {
+    id: `final-${run.id}`,
+    schemaVersion: 1 as const,
+    runId: run.id,
+    turnId: run.id,
+    sequence: 0,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    type: "final" as const,
+    visibility: "visible" as const,
+    text,
+  };
+}
+
 function createDeps(
   currentRun: Run,
   updateResult = true,
@@ -322,6 +572,7 @@ function createDeps(
     recordRunStatusChanged: vi.fn(),
     recordMessageEmitted: vi.fn(),
     recordRunCompleted: vi.fn(),
+    recordRunFailed: vi.fn(),
   } as unknown as RunEventRecorder;
   const memoryCoordinator = {
     extractAndPersist: vi.fn(),
@@ -332,16 +583,68 @@ function createDeps(
     memoryCoordinator,
     persistConversationMessages: vi.fn(),
     runEventRecorder,
+    readCanonicalRunEvents: vi.fn(async () =>
+      canonicalEventsFromRun(currentRun),
+    ),
     runRepo: {
       getById: vi.fn(async () => currentRun),
       updateUnlessStatus: vi.fn(async () => updateResult),
     },
-    safeMemoryOperation: vi.fn(async (operation) => {
-      try {
-        return await operation();
-      } catch {
-        return undefined;
-      }
-    }),
+    safeMemoryOperation: vi.fn(async (operation) => await operation()),
   };
+}
+
+function canonicalEventsFromRun(run: Run): RunEvent[] {
+  return (run.metadata.agenticLoop?.toolLifecycle ?? []).map((event, index) => {
+    const base = {
+      version: 1 as const,
+      eventId: `event-${index}`,
+      runId: run.id,
+      sessionId: run.sessionId,
+      timestamp: event.recordedAt,
+      source: "muscle" as const,
+    };
+    if (event.status === "failed") {
+      return {
+        ...base,
+        type: RUN_EVENT_TYPES.TOOL_FAILED,
+        payload: {
+          toolId: event.toolCallId,
+          toolName: event.toolName,
+          error: event.detail ?? "failed",
+          executionTimeMs: 0,
+        },
+      } satisfies RunEvent;
+    }
+    return {
+      ...base,
+      type: RUN_EVENT_TYPES.TOOL_COMPLETED,
+      payload: {
+        toolId: event.toolCallId,
+        toolName: event.toolName,
+        result: { metadata: canonicalActivityMetadata(event.metadata) },
+        executionTimeMs: 0,
+      },
+    } satisfies RunEvent;
+  });
+}
+
+function canonicalActivityMetadata(
+  metadata: NonNullable<
+    NonNullable<Run["metadata"]["agenticLoop"]>["toolLifecycle"]
+  >[number]["metadata"],
+) {
+  if (!metadata) return undefined;
+  switch (metadata.family) {
+    case "read":
+      return { count: 0, truncated: false, loadedPaths: [], ...metadata };
+    case "search":
+      return { count: 0, truncated: false, loadedPaths: [], ...metadata };
+    case "edit":
+      return { additions: 0, deletions: 0, ...metadata };
+    case "shell":
+      return { origin: "agent_tool" as const, truncated: false, ...metadata };
+    default:
+      return metadata;
+  }
 }

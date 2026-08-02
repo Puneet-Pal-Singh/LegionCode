@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "updated": "2026-07-18",
+  "purpose": "Machine-readable inventory for LegionCode harness policy files. New *Policy.ts files must be classified here before they can enter apps/ or packages/.",
+  "entries": [
+    {
+      "path": "apps/brain/src/services/providers/ProviderRequestPolicy.ts",
+      "owner": "brain-provider-routing",
+      "category": "provider",
+      "disposition": "keep-pure-policy",
+      "purpose": "Bound provider request retry behavior at the adapter boundary.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "apps/brain/src/runtime/RunAdmissionPolicy.ts",
+      "owner": "brain-run-admission",
+      "category": "lifecycle",
+      "disposition": "keep-pure-policy",
+      "purpose": "Build typed run-admission limits from canonical user, workspace, thread, and run-attempt identities.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test -- src/runtime/RunAdmissionPolicy.test.ts"
+    },
+    {
+      "path": "apps/brain/src/runtime/policies/AgentTypePolicy.ts",
+      "owner": "brain-control-plane",
+      "category": "config",
+      "disposition": "keep-pure-policy",
+      "purpose": "Resolve the supported agent type value for brain runtime requests.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
+    },
+    {
+      "path": "apps/brain/src/services/ai/ModelSelectionPolicy.ts",
+      "owner": "brain-provider-routing",
+      "category": "provider",
+      "disposition": "convert-data-config-policy",
+      "purpose": "Map requested provider/model selections into runtime provider metadata.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "apps/brain/src/services/ai/ProviderEndpointPolicy.ts",
+      "owner": "brain-provider-routing",
+      "category": "provider",
+      "disposition": "convert-data-config-policy",
+      "purpose": "Resolve direct BYOK provider endpoint configuration.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "apps/brain/src/services/auth/PrivateAlphaAccessPolicy.ts",
+      "owner": "brain-auth",
+      "category": "auth-access",
+      "disposition": "keep-pure-policy",
+      "purpose": "Decide private alpha access from request and deployment context.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "apps/brain/src/services/chat/ChatImageInputPolicy.ts",
+      "owner": "brain-chat-ingress",
+      "category": "config",
+      "disposition": "keep-pure-policy",
+      "purpose": "Validate and bound chat image input payload handling.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "apps/brain/src/services/chat/SubmittedClientMessagePolicy.ts",
+      "owner": "brain-chat-ingress",
+      "category": "conversation",
+      "disposition": "keep-pure-policy",
+      "purpose": "Normalize submitted client chat messages at the request boundary.",
+      "gate": "corepack pnpm --filter @shadowbox/brain test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/NativeProviderFinalRecoveryPolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "finalization",
+      "disposition": "keep-pure-policy",
+      "purpose": "Allow one bounded final-only provider retry when a response contains no visible final and no tool calls.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/NativeProviderFinalRecoveryPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/ConversationPolicy.ts",
+      "owner": "runtime-conversation-boundary",
+      "category": "conversation",
+      "disposition": "keep-pure-policy",
+      "purpose": "Read typed conversation metadata without owning lifecycle state.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RepositoryPermissionPolicy.ts",
+      "owner": "runtime-permission-boundary",
+      "category": "permission",
+      "disposition": "convert-data-config-policy",
+      "purpose": "Evaluate repository permission directives before workspace access.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RepositoryPermissionPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunAgenticLoopCallbacksPolicy.ts",
+      "owner": "runtime-agent-loop",
+      "category": "permission",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Build callback wiring for approvals, risky actions, and lifecycle metadata during the agent loop.",
+      "deletionTrigger": "Split into ToolPermissionGate, ToolLifecycleEmitter, and approval collaborators in slices 036.3-036.4.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunAgenticLoopCallbacksPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunAgenticLoopPolicy.ts",
+      "owner": "runtime-agent-loop",
+      "category": "synthesis",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Legacy loop defaults and summary builders; too large and mixes loop policy with user-facing synthesis.",
+      "deletionTrigger": "Extract typed finalization, evidence, and loop collaborators in slices 035.3 and 036.3.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunAgenticLoopPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunApprovalDecisionPolicy.ts",
+      "owner": "runtime-approval-boundary",
+      "category": "approval",
+      "disposition": "keep-pure-policy",
+      "purpose": "Normalize approval decisions into typed runtime decision messages.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunApprovalWaitPolicy.ts",
+      "owner": "runtime-approval-boundary",
+      "category": "approval",
+      "disposition": "keep-pure-policy",
+      "purpose": "Wait for approval decisions with explicit timeout/cancellation behavior.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunApprovalWaitPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunCompletionPolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "finalization",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Finalize runs, persist assistant messages, record terminal lifecycle, and currently mixes too many responsibilities.",
+      "deletionTrigger": "Split into terminal resolver, final projector, settlement writer, and response writer in slices 035.5 and 036.5.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunCompletionPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunEngineConfigPolicy.ts",
+      "owner": "runtime-config",
+      "category": "config",
+      "disposition": "keep-pure-policy",
+      "purpose": "Resolve runtime budget and pricing configuration.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunEngineConfigPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunEngineReliabilityPolicy.ts",
+      "owner": "runtime-reliability",
+      "category": "recovery",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Handle execution errors and memory safety around run failure paths.",
+      "deletionTrigger": "Move terminal settlement into typed lifecycle writer when slice 035.3 finalization contract lands.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunExecutionPreparationPolicy.ts",
+      "owner": "runtime-execution-preparation",
+      "category": "execution-preparation",
+      "disposition": "convert-data-config-policy",
+      "purpose": "Prepare execution strategy metadata before a run enters the harness.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunGitTaskStrategyPolicy.ts",
+      "owner": "runtime-git-boundary",
+      "category": "execution-preparation",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Legacy git task strategy selector; must not become a duplicate git authority.",
+      "deletionTrigger": "Replace with canonical git service/tool evidence contract in slices 035.3 and 036.4.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunInitialActivityPolicy.ts",
+      "owner": "runtime-lifecycle",
+      "category": "lifecycle",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Emit initial activity lifecycle state for a run.",
+      "deletionTrigger": "Move to the canonical turn lifecycle append path during product projection hard-cut.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunManifestPolicy.ts",
+      "owner": "runtime-manifest",
+      "category": "config",
+      "disposition": "keep-pure-policy",
+      "purpose": "Create and validate immutable run manifests.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunManifestPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunMetadataPolicy.ts",
+      "owner": "runtime-lifecycle",
+      "category": "metadata",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Record run metadata snapshots and legacy turn-mode telemetry.",
+      "deletionTrigger": "Remove turn-mode metadata and move lifecycle metadata to typed terminal/attempt events in slices 035.4-035.5.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunPermissionContextPolicy.ts",
+      "owner": "runtime-permission-boundary",
+      "category": "permission",
+      "disposition": "convert-data-config-policy",
+      "purpose": "Resolve permission context from explicit metadata and workflow entrypoint data.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunPermissionWorkspacePolicy.ts",
+      "owner": "runtime-permission-boundary",
+      "category": "workspace-bootstrap",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Mixes workspace bootstrap decisions, permission directives, and user-facing permission copy.",
+      "deletionTrigger": "Split bootstrap state from permission messaging after capability manifest and permission policy drive workspace availability.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunPermissionWorkspacePolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunPlanModePolicy.ts",
+      "owner": "runtime-planning",
+      "category": "mode-intent",
+      "disposition": "delete-from-product-path",
+      "purpose": "Legacy plan-mode response and artifact persistence path.",
+      "deletionTrigger": "Remove once planning is represented as typed turn parts rather than an alternate product route.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunPlanningRecoveryPolicy.ts",
+      "owner": "runtime-recovery",
+      "category": "recovery",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Builds recovery copy after planner failures.",
+      "deletionTrigger": "Replace recovery copy with typed terminal settlement and UI projection in slices 035.5 and 036.5.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunRecyclableResetPolicy.ts",
+      "owner": "runtime-lifecycle",
+      "category": "lifecycle",
+      "disposition": "keep-pure-policy",
+      "purpose": "Reset reusable run state before a new attempt.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunReviewerPassPolicy.ts",
+      "owner": "runtime-review",
+      "category": "synthesis",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Optional reviewer pass behavior that must be evidence-backed and not a final-copy authority.",
+      "deletionTrigger": "Move review output behind evidence ledger/finalization contract in slice 035.3.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunRiskyActionPolicy.ts",
+      "owner": "runtime-permission-boundary",
+      "category": "permission",
+      "disposition": "convert-data-config-policy",
+      "purpose": "Evaluate risky tool actions against approval policy and permission metadata.",
+      "deletionTrigger": "Move rules into package-level permission policy data after tool gateway extraction in slice 036.4.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunRiskyActionPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunStatusPolicy.ts",
+      "owner": "runtime-lifecycle",
+      "category": "lifecycle",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Transition legacy run status fields; must not remain a second terminal state authority.",
+      "deletionTrigger": "Fold into terminal settlement coordinator after typed terminal events are authoritative.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/RunStatusPolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunSynthesisPolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "synthesis",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Build synthesis text inputs and outputs before finalization.",
+      "deletionTrigger": "Replace with typed model parts and finalization projector in slices 035.2 and 035.5.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunTaskExecutionRecoveryPolicy.ts",
+      "owner": "runtime-recovery",
+      "category": "recovery",
+      "disposition": "quarantine-temporarily",
+      "purpose": "Large recovery handler mixing task failures, copy, terminal state, and continuation hints.",
+      "deletionTrigger": "Split into typed tool error classifier and terminal settlement paths in slices 035.3 and 036.4.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/TerminalFinalEvidencePolicy.ts",
+      "owner": "runtime-finalization",
+      "category": "finalization",
+      "disposition": "keep-pure-policy",
+      "purpose": "Reject successful terminal settlement unless the canonical provider transcript contains an explicit typed model final.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test -- src/runtime/engine/TerminalFinalEvidencePolicy.test.ts"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/ToolFailureTerminalPolicy.ts",
+      "owner": "runtime-recovery",
+      "category": "recovery",
+      "disposition": "keep-pure-policy",
+      "purpose": "Classify whether a tool failure is terminal or recoverable using tool metadata and git/shell failure classifiers.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunTerminalStatePolicy.ts",
+      "owner": "runtime-lifecycle",
+      "category": "lifecycle",
+      "disposition": "keep-pure-policy",
+      "purpose": "Resolve typed terminal state codes from loop outcomes.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/RunWorkspaceBootstrapSummaryPolicy.ts",
+      "owner": "runtime-workspace-bootstrap",
+      "category": "workspace-bootstrap",
+      "disposition": "convert-typed-protocol-projector",
+      "purpose": "Summarize workspace bootstrap state for runtime metadata.",
+      "deletionTrigger": "Project workspace bootstrap from typed lifecycle state when RF-001/RF-003 are closed.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/engine/WorkspaceBootstrapModePolicy.ts",
+      "owner": "runtime-workspace-bootstrap",
+      "category": "mode-intent",
+      "disposition": "delete-from-product-path",
+      "purpose": "Prompt heuristic for deciding whether workspace bootstrap is needed.",
+      "deletionTrigger": "Replace with explicit workspace capability/manifest availability in slice 035.4.",
+      "gate": "scripts/gates/check-architecture-boundaries.mjs"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/memory/MemoryPolicy.ts",
+      "owner": "runtime-memory",
+      "category": "memory",
+      "disposition": "keep-pure-policy",
+      "purpose": "Bound memory retention and compaction choices.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    },
+    {
+      "path": "packages/execution-engine/src/runtime/orchestration/RetryPolicy.ts",
+      "owner": "runtime-orchestration",
+      "category": "retry",
+      "disposition": "keep-pure-policy",
+      "purpose": "Classify retryable failures and calculate retry budget timing.",
+      "gate": "corepack pnpm --filter @shadowbox/execution-engine test"
+    }
+  ]
+}

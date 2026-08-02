@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PostgresMigrationRunner } from "./PostgresMigrationRunner.js";
+import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
 import type { MigrationLedger, SqlMigration } from "./types.js";
 import type { SqlClient, SqlQueryResult, SqlRow } from "../sql.js";
 
@@ -48,6 +49,22 @@ class FakeLedger implements MigrationLedger {
 }
 
 describe("PostgresMigrationRunner", () => {
+  it("defines the artifact provenance columns and lookup index", () => {
+    expect(artifactProvenanceMigration.id).toBe("0024_artifact_provenance");
+    expect(artifactProvenanceMigration.statements).toHaveLength(2);
+    expect(artifactProvenanceMigration.statements[0]).toContain("thread_id");
+    expect(artifactProvenanceMigration.statements[0]).toContain("turn_id");
+    expect(artifactProvenanceMigration.statements[0]).toContain(
+      "run_attempt_id",
+    );
+    expect(artifactProvenanceMigration.statements[1]).toContain(
+      "artifacts_provenance_lookup_idx",
+    );
+    expect(artifactProvenanceMigration.statements[1]).toContain(
+      "assistant_message_id",
+    );
+  });
+
   it("applies only pending migrations", async () => {
     const client = new RecordingSqlClient();
     const ledger = new FakeLedger(new Set(["0001_done"]));

@@ -1,5 +1,11 @@
 import { useChat as useVercelChat, type Message } from "@ai-sdk/react";
 import {
+  RunAttemptIdSchema,
+  RunIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+} from "@repo/platform-client-sdk";
+import {
   DEFAULT_RUN_MODE,
   type ProductMode,
   type RunMode,
@@ -7,17 +13,15 @@ import {
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
 } from "react";
-import { chatStreamPath, getBrainHttpBase } from "../lib/platform-endpoints.js";
+import { chatStreamPath } from "../lib/platform-endpoints.js";
 import { logClientEvent, logClientWarning } from "../lib/client-logger.js";
 import { dispatchRunSummaryRefresh } from "../lib/run-summary-events.js";
-import { agentStore } from "../store/agentStore";
 import { useProviderStore } from "./useProviderStore.js";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import {
@@ -42,6 +46,17 @@ import {
   type ChatImageAttachment,
 } from "../components/chat/chatImageAttachments";
 import { createRunId } from "../lib/run-id";
+import {
+  bootstrapConversationScope,
+  conversationScopeKey,
+  isEstablishedRunScope,
+  isTurnScopeRecoveryError,
+  publishConversationScopeReady,
+  resumeConversationScope,
+  type ConversationScope,
+} from "./conversationScope";
+import { createLifecycleClient } from "../services/api/lifecycleClient";
+import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
 
 type ChatUserContent =
   | string
@@ -56,6 +71,7 @@ type ChatUserContent =
     >;
 
 interface ChatAppendMessage {
+  id?: string;
   role: "user";
   content: ChatUserContent;
   imageMetadata?: ReturnType<typeof toRedactedImageMetadata>;
@@ -78,9 +94,12 @@ interface UseChatCoreResult {
   stop: () => void;
   setMessages: (messages: Message[]) => void;
   runId: string;
+  scope: ConversationScope | null;
+  serverTurnId: string | null;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
+  clearNonCanonicalError: () => void;
   debugEvents: ChatDebugEvent[];
 }
 
@@ -102,37 +121,117 @@ export function useChatCore(
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [serverTurnId, setServerTurnId] = useState<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<{
     scopeKey: string;
     message: Message;
   } | null>(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
+  const preAdmissionStopKeyRef = useRef<string | null>(null);
+  const stopRequestedRef = useRef(false);
   const lastLoggedStreamErrorRef = useRef<{
     message: string;
     timestamp: number;
   } | null>(null);
   const runId = externalRunId || internalRunId;
   const apiPath = chatStreamPath();
-  const scopeKey = `${sessionId}:${runId}`;
+  const [conversationScope, setConversationScope] =
+    useState<ConversationScope | null>(null);
+  const clearNonCanonicalError = useCallback(() => setError(null), []);
+  const activeConversationScope =
+    conversationScope?.sessionId === sessionId &&
+    conversationScope.runId === runId
+      ? conversationScope
+      : null;
+  const scopeKey = activeConversationScope
+    ? conversationScopeKey(activeConversationScope)
+    : null;
+  const runScopeKey = `${encodeURIComponent(sessionId)}:${encodeURIComponent(runId)}`;
   const activeScopeKeyRef = useRef(scopeKey);
-  const clearedScopeRef = useRef<string | null>(null);
+  const activeRunScopeKeyRef = useRef(runScopeKey);
+  const activeConversationScopeRef = useRef(activeConversationScope);
   const isActiveScope = useCallback(
-    (candidateScopeKey: string) =>
+    (candidateScopeKey: string | null) =>
       activeScopeKeyRef.current === candidateScopeKey,
+    [],
+  );
+  const isActiveRunScope = useCallback(
+    (candidateRunScopeKey: string) =>
+      activeRunScopeKeyRef.current === candidateRunScopeKey,
     [],
   );
 
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
+    activeConversationScopeRef.current = activeConversationScope;
+    setServerTurnId(activeConversationScope?.turnId ?? null);
+    setPendingUserMessage((current) =>
+      current?.scopeKey === scopeKey ? current : null,
+    );
+  }, [activeConversationScope, scopeKey]);
+
+  useEffect(() => {
+    activeRunScopeKeyRef.current = runScopeKey;
+    preAdmissionStopKeyRef.current = null;
+    stopRequestedRef.current = false;
     setError(null);
     setIsSubmitting(false);
     setIsStopping(false);
     setDebugEvents([]);
-    setPendingUserMessage((current) =>
-      current?.scopeKey === scopeKey ? current : null,
-    );
     lastLoggedStreamErrorRef.current = null;
-  }, [scopeKey]);
+  }, [runScopeKey]);
+
+  useEffect(() => {
+    const normalizedSessionId = sessionId.trim();
+    const normalizedRunId = externalRunId?.trim() ?? "";
+    if (!normalizedSessionId || !normalizedRunId) {
+      setConversationScope(null);
+      return;
+    }
+    const controller = new AbortController();
+    const requestRunScopeKey = `${encodeURIComponent(normalizedSessionId)}:${encodeURIComponent(normalizedRunId)}`;
+    void resumeConversationScope(
+      normalizedSessionId,
+      normalizedRunId,
+      controller.signal,
+    )
+      .then((scope) => {
+        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+          return;
+        }
+        if (!scope) return;
+        const nextScopeKey = conversationScopeKey(scope);
+        activeScopeKeyRef.current = nextScopeKey;
+        activeConversationScopeRef.current = scope;
+        setConversationScope(scope);
+        setError((current) =>
+          isTurnScopeRecoveryError(current) ? null : current,
+        );
+        publishConversationScopeReady(scope);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+          return;
+        }
+        if (
+          isEstablishedRunScope(
+            activeConversationScopeRef.current,
+            normalizedSessionId,
+            normalizedRunId,
+          )
+        ) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        setError(message);
+        logClientWarning("chat/scope", "reconstruction-failed", {
+          runId: normalizedRunId,
+          sessionId: normalizedSessionId,
+          error: message,
+        });
+      });
+    return () => controller.abort();
+  }, [externalRunId, isActiveRunScope, runId, runScopeKey, sessionId]);
 
   const pushDebugEvent = useCallback(
     (event: Omit<ChatDebugEvent, "id" | "timestamp">) => {
@@ -150,8 +249,9 @@ export function useChatCore(
     [],
   );
 
-  // Stable instance key - changes when runId changes
-  const instanceKey = useMemo(() => `chat-${runId}`, [runId]);
+  // Vercel owns the stream instance. Its identity must include every
+  // transcript boundary, never only the run attempt.
+  const instanceKey = runScopeKey;
   const {
     status,
     credentials,
@@ -167,7 +267,10 @@ export function useChatCore(
     [],
   );
   const hasConnectedCredential = credentials.length > 0;
-  const isModelConfigReady = status === "ready" && hasConnectedCredential;
+  const isModelConfigReady =
+    status === "ready" &&
+    hasConnectedCredential;
+  const lifecycleClient = useMemo(() => createLifecycleClient(), []);
 
   const {
     messages,
@@ -185,16 +288,39 @@ export function useChatCore(
       runId,
       mode,
       productMode,
+      ...(activeConversationScope
+        ? {
+            identity: {
+              workspaceId: activeConversationScope.workspaceId,
+              threadId: activeConversationScope.threadId,
+              turnId: activeConversationScope.turnId,
+              runAttemptId: activeConversationScope.runAttemptId,
+            },
+          }
+        : {}),
     },
     initialMessages: [],
     id: instanceKey,
     onResponse: (response: Response) => {
-      if (!isActiveScope(scopeKey)) {
+      if (!isActiveRunScope(runScopeKey)) {
+        return;
+      }
+      const currentScope = activeConversationScopeRef.current;
+      const responseTurnId = response.headers.get("X-Turn-Id")?.trim() ?? null;
+      if (responseTurnId && responseTurnId !== currentScope?.turnId) {
+        logClientWarning("chat/stream", "scope-mismatch", {
+          runId,
+          sessionId,
+          expectedTurnId: currentScope?.turnId ?? null,
+          responseTurnId,
+        });
         return;
       }
       dispatchRunSummaryRefresh(runId);
       logClientEvent("chat/stream", "response", {
         runId,
+        sessionId,
+        turnId: currentScope?.turnId ?? null,
         status: response.status,
       });
       pushDebugEvent({
@@ -208,12 +334,13 @@ export function useChatCore(
       });
     },
     onFinish: (message, details) => {
-      if (!isActiveScope(scopeKey)) {
+      if (!isActiveRunScope(runScopeKey)) {
         return;
       }
       dispatchRunSummaryRefresh(runId);
       logClientEvent("chat/stream", "finished", {
         runId,
+        sessionId,
         responseLength: message.content.length,
       });
       pushDebugEvent({
@@ -226,14 +353,16 @@ export function useChatCore(
       });
     },
     onError: (error: Error) => {
-      if (!isActiveScope(scopeKey)) {
+      if (!isActiveRunScope(runScopeKey)) {
         return;
       }
       dispatchRunSummaryRefresh(runId);
       const message = normalizeChatErrorMessage(error);
-      setError(message);
+      // The append promise verifies canonical replay before deciding whether
+      // this transport failure is also a product failure.
       logClientWarning("chat/stream", "failed", {
         runId,
+        sessionId,
         error: message,
       });
       pushDebugEvent({
@@ -255,55 +384,40 @@ export function useChatCore(
     credentials: "include",
     fetch: authenticatedChatFetch,
   });
-  const messagesReadyScopeKeyRef = useRef(scopeKey);
-  const pendingScopeMessagesRef = useRef<{
-    scopeKey: string;
-    messages: Message[];
-  } | null>(null);
-  const [, setMessagesScopeVersion] = useState(0);
-  const scopedMessagesBase =
-    messagesReadyScopeKeyRef.current === scopeKey
-      ? messages
-      : (pendingScopeMessagesRef.current?.messages ??
-        agentStore.getMessages(runId));
+  const scopedMessagesBase = messages;
+  const presentationScopeKey = scopeKey ?? runScopeKey;
   const scopedMessages = useMemo(
     () =>
       appendPendingUserMessage(
         scopedMessagesBase,
-        pendingUserMessage?.scopeKey === scopeKey
+        pendingUserMessage?.scopeKey === presentationScopeKey
           ? pendingUserMessage.message
           : null,
       ),
-    [pendingUserMessage, scopedMessagesBase, scopeKey],
+    [pendingUserMessage, presentationScopeKey, scopedMessagesBase],
   );
-
-  useLayoutEffect(() => {
-    if (clearedScopeRef.current === scopeKey) return;
-    clearedScopeRef.current = scopeKey;
-    const scopedStoredMessages = agentStore.getMessages(runId);
-    messagesReadyScopeKeyRef.current = "";
-    pendingScopeMessagesRef.current = {
-      scopeKey,
-      messages: scopedStoredMessages,
-    };
-    setMessages(scopedStoredMessages);
-    setMessagesScopeVersion((version) => version + 1);
-  }, [runId, scopeKey, setMessages]);
-
   useEffect(() => {
-    const pendingScope = pendingScopeMessagesRef.current;
-    if (
-      !pendingScope ||
-      pendingScope.scopeKey !== scopeKey ||
-      !haveSameMessageIds(messages, pendingScope.messages)
-    ) {
-      return;
-    }
-
-    pendingScopeMessagesRef.current = null;
-    messagesReadyScopeKeyRef.current = scopeKey;
-    setMessagesScopeVersion((version) => version + 1);
-  }, [messages, scopeKey]);
+    logClientEvent("chat/messages", "scoped-derived", {
+      runId,
+      sessionId,
+      baseCount: scopedMessagesBase.length,
+      finalCount: scopedMessages.length,
+      pendingUser: Boolean(
+        pendingUserMessage?.scopeKey === presentationScopeKey,
+      ),
+      baseRoles: summarizeMessageRoles(scopedMessagesBase),
+      finalRoles: summarizeMessageRoles(scopedMessages),
+      baseIds: summarizeMessageIdentities(scopedMessagesBase),
+      finalIds: summarizeMessageIdentities(scopedMessages),
+    });
+  }, [
+    pendingUserMessage,
+    runId,
+    scopedMessages,
+    scopedMessagesBase,
+    presentationScopeKey,
+    sessionId,
+  ]);
 
   const resetRun = useCallback(() => {
     if (!externalRunId) {
@@ -331,7 +445,7 @@ export function useChatCore(
   const resolveProviderConfigFromApi = useCallback(
     async (requestScopeKey: string): Promise<ResolvedProviderConfig | null> => {
       const resolvedConfig = await resolveForChat();
-      if (!isActiveScope(requestScopeKey)) {
+      if (!isActiveRunScope(requestScopeKey)) {
         return null;
       }
 
@@ -339,22 +453,37 @@ export function useChatCore(
         providerId: resolvedConfig.providerId,
         modelId: resolvedConfig.modelId,
         credentialId: resolvedConfig.credentialId,
+        contextWindow: resolvedConfig.contextWindow,
         source: "provider_resolve_api",
       });
     },
-    [isActiveScope, resolveForChat],
+    [isActiveRunScope, resolveForChat],
   );
 
   const buildChatRequestBody = useCallback(
-    (config: ResolvedProviderConfig): ChatRequestBody =>
+    (
+      config: ResolvedProviderConfig,
+      clientMessageId: string,
+      identity: ConversationScope,
+    ): ChatRequestBody =>
       parseChatRequestBody({
         sessionId,
         runId,
+        clientMessageId,
         mode,
         productMode,
         harnessId: resolveRuntimeHarnessId(sessionId),
         providerId: config.providerId,
         modelId: config.modelId,
+        ...(config.contextWindow
+          ? { contextWindowTokens: config.contextWindow }
+          : {}),
+        identity: {
+          workspaceId: identity.workspaceId,
+          threadId: identity.threadId,
+          turnId: identity.turnId,
+          runAttemptId: identity.runAttemptId,
+        },
         ...loadRepositoryContextFields(sessionId),
       }),
     [mode, productMode, runId, sessionId],
@@ -373,7 +502,8 @@ export function useChatCore(
         payload: {
           endpoint: apiPath,
           requestBody,
-          userMessage: text,
+          clientMessageId: message.id,
+          userContentHash: hashLogString(text),
           imageAttachments:
             message.imageMetadata ??
             toRedactedImageMetadataFromParts(message.content),
@@ -398,74 +528,205 @@ export function useChatCore(
         input: ChatAppendMessage,
         options: { body: ChatRequestBody },
       ) => Promise<string | null | undefined>;
-      await appendMultimodal(message, { body: requestBody });
+      logClientEvent("chat/append", "dispatching", {
+        runId,
+        sessionId,
+        scopeKey,
+        clientMessageId: message.id,
+        requestRunId: requestBody.runId,
+        requestSessionId: requestBody.sessionId,
+        providerId: requestBody.providerId,
+        modelId: requestBody.modelId,
+      });
+      const responseMessageId = await appendMultimodal(message, {
+        body: requestBody,
+      });
+      logClientEvent("chat/append", "returned", {
+        runId,
+        sessionId,
+        scopeKey,
+        clientMessageId: message.id,
+        responseMessageId: responseMessageId ?? null,
+      });
     },
-    [append],
+    [append, runId, scopeKey, sessionId],
   );
 
   const appendWithResolution = useCallback(
     async (message: ChatAppendMessage): Promise<void> => {
-      const requestScopeKey = scopeKey;
+      const bootstrapScopeKey = runScopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
-      if ((!content && !hasImages) || status !== "ready") {
+      if (
+        (!content && !hasImages) ||
+        status !== "ready"
+      ) {
         throw new Error(
-          "Chat is still initializing model settings. Wait a moment, then try again. If this continues, open Settings and reconnect a provider key.",
+          "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
         );
       }
+      const submittedMessage = ensureClientMessageId(message);
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      preAdmissionStopKeyRef.current = null;
+      stopRequestedRef.current = false;
       setPendingUserMessage({
-        scopeKey: requestScopeKey,
-        message: buildPendingUserMessage(message),
+        scopeKey: bootstrapScopeKey,
+        message: buildPendingUserMessage(submittedMessage),
+      });
+      logClientEvent("chat/pending-user", "projected", {
+        runId,
+        sessionId,
+        scopeKey: bootstrapScopeKey,
+        clientMessageId: submittedMessage.id,
+        userContentHash: hashLogString(content),
       });
       logClientEvent("chat/submit", "started", {
         runId,
         sessionId,
+        scopeKey: bootstrapScopeKey,
+        clientMessageId: submittedMessage.id,
+        userContentHash: hashLogString(content),
         hasText: Boolean(content),
-        imageCount: message.imageMetadata?.length ?? 0,
+        imageCount: submittedMessage.imageMetadata?.length ?? 0,
       });
       dispatchRunSummaryRefresh(runId);
 
       try {
         const providerConfig =
           resolveSelectedProviderConfigForRequest() ??
-          (await resolveProviderConfigFromApi(requestScopeKey));
-        if (!providerConfig) return;
-        if (!isActiveScope(requestScopeKey)) {
+          (await resolveProviderConfigFromApi(bootstrapScopeKey));
+        if (!providerConfig) {
+          logClientWarning("chat/submit", "aborted", {
+            runId,
+            sessionId,
+            scopeKey: bootstrapScopeKey,
+            reason: "provider-resolution-unavailable",
+          });
+          return;
+        }
+        if (
+          stopRequestedRef.current &&
+          preAdmissionStopKeyRef.current === bootstrapScopeKey
+        ) {
+          return;
+        }
+        if (!isActiveRunScope(runScopeKey)) {
+          logClientWarning("chat/submit", "aborted", {
+            runId,
+            sessionId,
+            scopeKey: bootstrapScopeKey,
+            reason: "inactive-scope-after-provider-resolution",
+          });
           return;
         }
 
-        const requestBody = buildChatRequestBody(providerConfig);
+        const requestScope = await bootstrapConversationScope(
+          sessionId,
+          runId,
+          submittedMessage.id,
+        );
+        if (!isActiveRunScope(runScopeKey)) {
+          return;
+        }
+        const requestScopeKey = conversationScopeKey(requestScope);
+        activeScopeKeyRef.current = requestScopeKey;
+        activeConversationScopeRef.current = requestScope;
+        setConversationScope(requestScope);
+        setError((current) =>
+          isTurnScopeRecoveryError(current) ? null : current,
+        );
+        publishConversationScopeReady(requestScope);
+        setPendingUserMessage({
+          scopeKey: requestScopeKey,
+          message: buildPendingUserMessage(submittedMessage),
+        });
+
+        if (
+          stopRequestedRef.current &&
+          preAdmissionStopKeyRef.current === bootstrapScopeKey
+        ) {
+          await interruptAndAwaitTerminal(
+            lifecycleClient,
+            requestScope,
+          );
+          stopStream();
+          return;
+        }
+
+        const requestBody = buildChatRequestBody(
+          providerConfig,
+          submittedMessage.id,
+          requestScope,
+        );
         logClientEvent("chat/submit", "provider-resolved", {
           runId,
+          sessionId,
+          scopeKey: requestScopeKey,
+          clientMessageId: submittedMessage.id,
           providerId: providerConfig.providerId,
           modelId: providerConfig.modelId,
           source: providerConfig.source,
         });
-        pushChatRequestDebugEvent(message, requestBody, providerConfig);
+        pushChatRequestDebugEvent(
+          submittedMessage,
+          requestBody,
+          providerConfig,
+        );
         dispatchRunSummaryRefresh(runId);
-        await submitResolvedMessage(message, requestBody);
-      } finally {
-        if (isActiveScope(requestScopeKey)) {
-          setPendingUserMessage((current) =>
-            current?.scopeKey === requestScopeKey ? null : current,
+        try {
+          await submitResolvedMessage(submittedMessage, requestBody);
+        } catch (transportError) {
+          const canonicalTurnAccepted = await hasCanonicalLifecycleEvidence(
+            lifecycleClient,
+            TurnIdSchema.parse(requestScope.turnId),
           );
+          if (!canonicalTurnAccepted) {
+            throw transportError;
+          }
+          setError(null);
+          logClientWarning("chat/stream", "transport-detached-after-acceptance", {
+            runId,
+            sessionId,
+            scopeKey: requestScopeKey,
+            clientMessageId: submittedMessage.id,
+            error:
+              transportError instanceof Error
+                ? transportError.message
+                : String(transportError),
+          });
+        }
+      } finally {
+        if (isActiveRunScope(runScopeKey)) {
+          const settledScopeKey = activeScopeKeyRef.current;
+          setPendingUserMessage(null);
           setIsSubmitting(false);
-          logClientEvent("chat/submit", "settled", { runId });
+          logClientEvent("chat/pending-user", "cleared", {
+            runId,
+            sessionId,
+            scopeKey: settledScopeKey,
+            clientMessageId: submittedMessage.id,
+          });
+          logClientEvent("chat/submit", "settled", {
+            runId,
+            sessionId,
+            scopeKey: settledScopeKey,
+            clientMessageId: submittedMessage.id,
+          });
         }
       }
     },
     [
       buildChatRequestBody,
-      isActiveScope,
+      isActiveRunScope,
+      isActiveRunScope,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
       runId,
+      runScopeKey,
       sessionId,
-      scopeKey,
       status,
       submitResolvedMessage,
     ],
@@ -494,7 +755,10 @@ export function useChatCore(
 
   const handleSubmitFailure = useCallback(
     (error: unknown, requestScopeKey: string, originalInput: string) => {
-      if (!isActiveScope(requestScopeKey)) {
+      if (
+        requestScopeKey !== runScopeKey &&
+        !isActiveScope(requestScopeKey)
+      ) {
         return;
       }
       restoreChatInput(originalInput);
@@ -506,6 +770,12 @@ export function useChatCore(
           ? normalizeChatErrorMessage(error)
           : "Failed to send message.";
       setError(message);
+      logClientWarning("chat/submit", "failed", {
+        runId,
+        sessionId,
+        scopeKey: requestScopeKey,
+        error: message,
+      });
       pushDebugEvent({
         phase: "error",
         summary: message,
@@ -515,12 +785,14 @@ export function useChatCore(
             error instanceof Error ? error.message : "Unknown append error",
         },
       });
-      console.error(
-        `[useChatCore] Failed to append resolved message for session ${sessionId}`,
-        error,
-      );
+      logClientWarning("chat/submit", "append-failed", {
+        runId,
+        sessionId,
+        scopeKey: requestScopeKey,
+        error: error instanceof Error ? error.message : "Unknown append error",
+      });
     },
-    [isActiveScope, pushDebugEvent, restoreChatInput, sessionId],
+    [isActiveScope, pushDebugEvent, restoreChatInput, runId, runScopeKey, sessionId],
   );
 
   const submitPreparedInput = useCallback(
@@ -546,13 +818,23 @@ export function useChatCore(
       attachments?: ChatSubmitAttachments,
     ): Promise<boolean> => {
       e?.preventDefault();
-      const requestScopeKey = scopeKey;
       const originalInput = input;
       const trimmedInput = input.trim();
       const imageAttachments = attachments?.imageAttachments ?? [];
       if (shouldBlockSubmit(trimmedInput, imageAttachments.length > 0)) {
+        logClientWarning("chat/submit", "blocked", {
+          runId,
+          sessionId,
+          hasText: Boolean(trimmedInput),
+          imageCount: imageAttachments.length,
+          isLoading,
+          isSubmitting,
+          isStopping,
+          isModelConfigReady,
+        });
         return false;
       }
+      const requestScopeKey = runScopeKey;
       clearChatInput();
       return submitPreparedInput(
         buildChatAppendMessage(trimmedInput, imageAttachments),
@@ -560,47 +842,63 @@ export function useChatCore(
         originalInput,
       );
     },
-    [clearChatInput, input, scopeKey, shouldBlockSubmit, submitPreparedInput],
+    [
+      clearChatInput,
+      input,
+      isLoading,
+      isModelConfigReady,
+      isStopping,
+      isSubmitting,
+      runId,
+      runScopeKey,
+      sessionId,
+      shouldBlockSubmit,
+      submitPreparedInput,
+    ],
   );
 
-  const stop = useCallback(() => {
+const stop = useCallback(() => {
+    if (stopRequestedRef.current) {
+      return;
+    }
     const requestRunId = runId;
-    const requestScopeKey = scopeKey;
+    const requestScope = activeConversationScopeRef.current;
+    stopRequestedRef.current = true;
     setIsSubmitting(false);
     setIsStopping(true);
-    stopStream();
     dispatchRunSummaryRefresh(requestRunId);
 
     const cancelRun = async (): Promise<void> => {
       try {
-        const response = await authenticatedChatFetch(
-          `${getBrainHttpBase()}/api/run/cancel`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ runId: requestRunId }),
-          },
-        );
-        if (!response.ok) {
-          throw new Error(`Cancel failed with HTTP ${response.status}`);
+        if (requestScope) {
+          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
+          stopStream();
+        } else {
+          preAdmissionStopKeyRef.current = runScopeKey;
+          stopStream();
+          setPendingUserMessage(null);
         }
         dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
-        console.warn("[chat/stop] Failed to cancel run", {
+        setError(
+          error instanceof Error
+            ? normalizeChatErrorMessage(error)
+            : "Failed to stop the turn.",
+        );
+        logClientWarning("chat/stop", "interrupt-failed", {
           runId: requestRunId,
-          error,
+          scopeKey: scopeKey,
+          error: error instanceof Error ? error.message : String(error),
         });
       } finally {
-        if (isActiveScope(requestScopeKey)) {
+        if (isActiveRunScope(runScopeKey)) {
           setIsStopping(false);
         }
       }
     };
 
     void cancelRun();
-  }, [authenticatedChatFetch, isActiveScope, runId, scopeKey, stopStream]);
+  }, [isActiveScope, lifecycleClient, runId, runScopeKey, scopeKey, stopStream]);
 
   return {
     messages: scopedMessages,
@@ -612,11 +910,52 @@ export function useChatCore(
     stop,
     setMessages,
     runId,
+    scope: activeConversationScope,
+    serverTurnId,
     resetRun,
     isModelConfigReady,
     error,
+    clearNonCanonicalError,
     debugEvents,
   };
+}
+
+async function interruptAndAwaitTerminal(
+  lifecycleClient: ReturnType<typeof createLifecycleClient>,
+  scope: ConversationScope,
+): Promise<void> {
+  const settlementAbort = new AbortController();
+  const settlementTimeout = window.setTimeout(
+    () =>
+      settlementAbort.abort("Timed out waiting for interrupted terminal event."),
+    15_000,
+  );
+  try {
+    const response = await lifecycleClient.interruptTurn({
+      runId: RunIdSchema.parse(scope.runId),
+      workspaceId: scope.workspaceId,
+      sessionId: scope.sessionId,
+      threadId: ThreadIdSchema.parse(scope.threadId),
+      turnId: TurnIdSchema.parse(scope.turnId),
+      runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
+      reason: "User stopped the turn.",
+    });
+    if (response.terminalEvent) return;
+    for await (const event of lifecycleClient.followTurnLifecycle(
+      { turnId: TurnIdSchema.parse(scope.turnId) },
+      { signal: settlementAbort.signal },
+    )) {
+      if (
+        event.type === "turn.completed" ||
+        event.type === "turn.failed" ||
+        event.type === "turn.interrupted"
+      ) {
+        return;
+      }
+    }
+  } finally {
+    window.clearTimeout(settlementTimeout);
+  }
 }
 
 function buildChatAppendMessage(
@@ -652,29 +991,50 @@ function extractTextContent(content: ChatUserContent): string {
 function buildPendingUserMessage(message: ChatAppendMessage): Message {
   const content = extractTextContent(message.content).trim();
   return {
-    id: `pending-user-${crypto.randomUUID()}`,
+    id: message.id ?? createClientMessageId(),
     role: "user",
     content: content || "Analyze the attached image(s).",
     createdAt: new Date(),
   };
 }
 
+function ensureClientMessageId(
+  message: ChatAppendMessage,
+): ChatAppendMessage & {
+  id: string;
+} {
+  return {
+    ...message,
+    id: message.id ?? createClientMessageId(),
+  };
+}
+
+function createClientMessageId(): string {
+  return `client_msg_${crypto.randomUUID()}`;
+}
+
 function appendPendingUserMessage(
   messages: Message[],
   pending: Message | null,
 ): Message[] {
-  if (!pending || hasEquivalentUserMessage(messages, pending)) {
+  if (!pending || hasEquivalentLatestUserMessage(messages, pending)) {
     return messages;
   }
   return [...messages, pending];
 }
 
-function hasEquivalentUserMessage(messages: Message[], pending: Message): boolean {
+function hasEquivalentLatestUserMessage(
+  messages: Message[],
+  pending: Message,
+): boolean {
   const pendingContent = pending.content.trim();
-  return messages.some(
-    (message) =>
-      message.role === "user" &&
-      extractMessageText(message.content).trim() === pendingContent,
+  if (messages.some((message) => message.id === pending.id)) {
+    return true;
+  }
+  const latest = messages.at(-1);
+  return (
+    latest?.role === "user" &&
+    extractMessageText(latest.content).trim() === pendingContent
   );
 }
 
@@ -696,6 +1056,14 @@ function extractMessageText(content: Message["content"]): string {
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function hashLogString(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 function messageHasImageParts(message: ChatAppendMessage): boolean {
@@ -744,9 +1112,21 @@ function fetchWithSessionAuth(
   });
 }
 
-function haveSameMessageIds(left: Message[], right: Message[]): boolean {
-  return (
-    left.length === right.length &&
-    left.every((message, index) => message.id === right[index]?.id)
-  );
+function summarizeMessageRoles(messages: Message[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
+}
+
+function summarizeMessageIdentities(messages: Message[]): string {
+  return messages
+    .map(
+      (message) =>
+        `${message.role}:${message.id}:${hashLogString(extractMessageText(message.content))}`,
+    )
+    .join(",");
 }

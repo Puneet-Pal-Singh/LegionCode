@@ -21,6 +21,11 @@ registerLifecycleContinuationConformance(
 function createTransport(
   scenario: LifecycleContinuationScenario,
 ): PlatformClientTransport {
+  const allEvents = [
+    ...scenario.replayEvents,
+    ...scenario.liveEvents,
+  ].sort((a, b) => a.sequence - b.sequence);
+
   return {
     createThread: unsupported,
     createRun: unsupported,
@@ -28,19 +33,21 @@ function createTransport(
     getThread: unsupported,
     listThreads: unsupported,
     getRun: unsupported,
-    attachRunStream: unsupportedStream,
     replayRunEvents: unsupported,
     submitApproval: unsupported,
     getArtifact: unsupported,
     listArtifacts: unsupported,
     getWorkspaceManifest: unsupported,
-    replayLifecycleEvents: async () => ({
-      events: scenario.replayEvents,
-      nextSequence: scenario.replayEvents.at(-1)?.sequence ?? null,
-    }),
-    attachLifecycleStream: async function* () {
-      yield* scenario.liveEvents;
+    replayLifecycleEvents: async (request) => {
+      const after = request.afterSequence ?? 0;
+      const next = allEvents.filter((e) => e.sequence > after);
+      return {
+        events: next,
+        nextSequence: next.at(-1)?.sequence ?? null,
+      };
     },
+    interruptTurn: unsupported,
+    compactTurn: unsupported,
     submitLifecycleApproval: unsupported,
     submitUserInputResponse: unsupported,
     getTurnDiff: unsupported,
@@ -49,9 +56,4 @@ function createTransport(
 
 async function unsupported(): Promise<never> {
   throw new Error("Unsupported conformance operation");
-}
-
-async function* unsupportedStream(): AsyncIterable<never> {
-  await unsupported();
-  yield undefined as never;
 }

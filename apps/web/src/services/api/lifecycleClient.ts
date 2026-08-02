@@ -1,12 +1,23 @@
 import {
+  applyHookAuditLifecycleEvent,
+  buildHookSettingsAuditReadModel,
   createPlatformClient,
   createPlatformHttpTransport,
+  createHookAuditProjection,
+  HookInvocationAuditEventSchema,
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
+  type InterruptTurnRequest,
+  type InterruptTurnResponse,
+  type CompactTurnRequest,
+  type CompactTurnResponse,
+  type HookInvocationAuditEvent,
+  type HookAuditProjectionState,
+  type HookSettingsAuditReadModel,
   type ItemId,
   type ItemKind,
   type LifecycleEvent,
@@ -23,10 +34,17 @@ import {
 import { getBrainHttpBase } from "../../lib/platform-endpoints.js";
 
 export {
+  applyHookAuditLifecycleEvent,
+  buildHookSettingsAuditReadModel,
+  createHookAuditProjection,
+  HookInvocationAuditEventSchema,
   LifecycleEventSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
+  type HookInvocationAuditEvent,
+  type HookAuditProjectionState,
+  type HookSettingsAuditReadModel,
   type ItemId,
   type ItemKind,
   type LifecycleEvent,
@@ -57,6 +75,14 @@ export interface LifecycleClient {
     request: GetTurnDiffRequest,
     options?: PlatformClientOperationOptions,
   ): Promise<TurnDiffPayload | null>;
+  interruptTurn(
+    request: InterruptTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<InterruptTurnResponse>;
+  compactTurn(
+    request: CompactTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<CompactTurnResponse>;
 }
 
 export function createLifecycleClient(
@@ -101,6 +127,20 @@ class PlatformLifecycleClient implements LifecycleClient {
     options?: PlatformClientOperationOptions,
   ): Promise<TurnDiffPayload | null> {
     return this.platformClient.getTurnDiff(request, options);
+  }
+
+  interruptTurn(
+    request: InterruptTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<InterruptTurnResponse> {
+    return this.platformClient.interruptTurn(request, options);
+  }
+
+  compactTurn(
+    request: CompactTurnRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<CompactTurnResponse> {
+    return this.platformClient.compactTurn(request, options);
   }
 }
 

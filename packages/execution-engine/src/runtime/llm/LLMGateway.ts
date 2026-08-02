@@ -2,7 +2,11 @@ import type { CoreMessage } from "ai";
 import type { BudgetPolicy } from "../cost/BudgetManager.js";
 import type { CostEvent, LLMUsage } from "../cost/types.js";
 import type { ICostLedger } from "../cost/CostLedger.js";
-import type { IPricingResolver } from "../cost/PricingResolver.js";
+import type {
+  IPricingResolver,
+  PricingResolution,
+} from "../cost/PricingResolver.js";
+import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import type {
   ILLMGateway,
   LLMExecutionLane,
@@ -15,6 +19,11 @@ import type {
   ProviderCapabilityFlags,
   ProviderCapabilityResolver,
 } from "./types.js";
+import {
+  LegacyProviderTranscriptPartNormalizer,
+  type TranscriptPartNormalizer,
+} from "./TranscriptPartNormalizer.js";
+import { describeLLMFailure } from "./LLMFailureDiagnostic.js";
 
 const TOKEN_CHAR_RATIO = 4;
 // Conservative cross-provider placeholder for image/file parts when exact
@@ -36,6 +45,7 @@ export interface LLMGatewayDependencies {
   costLedger: ICostLedger;
   pricingResolver: IPricingResolver;
   providerCapabilityResolver?: ProviderCapabilityResolver;
+  transcriptPartNormalizer?: TranscriptPartNormalizer;
 }
 
 export class LLMTimeoutError extends Error {
@@ -97,7 +107,13 @@ export class LLMUnusableResponseError extends Error {
 }
 
 export class LLMGateway implements ILLMGateway {
-  constructor(private deps: LLMGatewayDependencies) {}
+  private readonly transcriptPartNormalizer: TranscriptPartNormalizer;
+
+  constructor(private deps: LLMGatewayDependencies) {
+    this.transcriptPartNormalizer =
+      deps.transcriptPartNormalizer ??
+      new LegacyProviderTranscriptPartNormalizer();
+  }
 
   async generateText(req: LLMTextRequest): Promise<LLMTextResponse> {
     this.assertProviderCapabilities(req);
@@ -116,6 +132,21 @@ export class LLMGateway implements ILLMGateway {
     );
 
     let result: Awaited<ReturnType<LLMRuntimeAIService["generateText"]>>;
+    const timeoutMs = this.resolveTextTimeoutMs(req);
+    const startedAt = Date.now();
+    console.log(
+      formatRuntimeDiagnosticLogLine("llm/gateway", "text-started", {
+        runId: req.context.runId,
+        sessionId: req.context.sessionId,
+        phase: req.context.phase,
+        providerId: req.providerId ?? null,
+        modelId: req.runtimeModelId ?? req.model ?? null,
+        timeoutMs,
+        messageCount: req.messages.length,
+        messageRoles: summarizeCoreMessageRoles(req.messages),
+        toolDefinitionCount: req.tools ? Object.keys(req.tools).length : 0,
+      }),
+    );
     try {
       result = await this.withTimeout(
         this.deps.aiService.generateText({
@@ -128,14 +159,42 @@ export class LLMGateway implements ILLMGateway {
           temperature: req.temperature,
           system: req.system,
           tools: req.tools,
+          signal: req.signal,
         }),
         {
-          timeoutMs: this.resolveTextTimeoutMs(req),
+          timeoutMs,
           phase: req.context.phase,
           operation: "text",
         },
       );
     } catch (error) {
+      const failure = describeLLMFailure(error);
+      console.error(
+        formatRuntimeDiagnosticLogLine("llm/gateway", "text-failed", {
+          runId: req.context.runId,
+          sessionId: req.context.sessionId,
+          phase: req.context.phase,
+          providerId: req.providerId ?? null,
+          modelId: req.runtimeModelId ?? req.model ?? null,
+          elapsedMs: Date.now() - startedAt,
+          ...failure,
+        }),
+      );
+      if (error instanceof LLMTimeoutError) {
+        console.error(
+          formatRuntimeDiagnosticLogLine("llm/gateway", "text-timeout", {
+            runId: req.context.runId,
+            sessionId: req.context.sessionId,
+            phase: req.context.phase,
+            providerId: req.providerId ?? null,
+            modelId: req.runtimeModelId ?? req.model ?? null,
+            timeoutMs: error.timeoutMs,
+            elapsedMs: Date.now() - startedAt,
+            messageCount: req.messages.length,
+            toolDefinitionCount: req.tools ? Object.keys(req.tools).length : 0,
+          }),
+        );
+      }
       const unusableResponse = this.normalizeUnusableResponseError(
         error,
         req,
@@ -155,17 +214,43 @@ export class LLMGateway implements ILLMGateway {
     }
 
     const usage = this.normalizeUsage(result.usage, req.model);
-    await this.persistCostEvent(requestWithIdempotency, usage);
+    const pricing = await this.persistCostEvent(requestWithIdempotency, usage);
+    const measuredUsage = withResolvedCost(usage, pricing);
 
     const toolCalls = result.toolCalls?.map((toolCall) => ({
-      id: crypto.randomUUID(),
+      id:
+        normalizeProviderToolCallId(toolCall.toolCallId) ?? crypto.randomUUID(),
       toolName: toolCall.toolName,
       args: normalizeToolArgs(toolCall.args),
     }));
+    console.log(
+      formatRuntimeDiagnosticLogLine("llm/gateway", "text-completed", {
+        runId: req.context.runId,
+        sessionId: req.context.sessionId,
+        phase: req.context.phase,
+        providerId: req.providerId ?? null,
+        modelId: req.runtimeModelId ?? req.model ?? null,
+        elapsedMs: Date.now() - startedAt,
+        responseChars: result.text?.length ?? 0,
+        finishReason: result.finishReason ?? null,
+        toolCallCount: toolCalls?.length ?? 0,
+      }),
+    );
 
     return {
-      text: result.text,
-      usage,
+      parts: this.transcriptPartNormalizer.normalize({
+        runId: req.context.runId,
+        turnId: req.context.turnId ?? req.context.runId,
+        providerId: req.providerId ?? "unknown",
+        providerParts: result.transcriptParts,
+        providerText: result.text,
+        toolCalls,
+        usage: measuredUsage,
+        finishReason: result.finishReason,
+        outputIntent:
+          req.context.phase === "synthesis" ? "final" : "intermediate",
+      }),
+      usage: measuredUsage,
       finishReason: result.finishReason,
       toolCalls,
     };
@@ -222,11 +307,11 @@ export class LLMGateway implements ILLMGateway {
     }
 
     const usage = this.normalizeUsage(result.usage, req.model);
-    await this.persistCostEvent(requestWithIdempotency, usage);
+    const pricing = await this.persistCostEvent(requestWithIdempotency, usage);
 
     return {
       object: result.object,
-      usage,
+      usage: withResolvedCost(usage, pricing),
     };
   }
 
@@ -393,10 +478,7 @@ export class LLMGateway implements ILLMGateway {
       return content.length;
     }
     if (Array.isArray(content)) {
-      return content.reduce(
-        (sum, part) => sum + getMessagePartLength(part),
-        0,
-      );
+      return content.reduce((sum, part) => sum + getMessagePartLength(part), 0);
     }
     return getMessagePartLength(content);
   }
@@ -441,7 +523,7 @@ export class LLMGateway implements ILLMGateway {
   private async persistCostEvent(
     req: LLMTextRequest | LLMStructuredRequest<unknown>,
     usage: LLMUsage,
-  ): Promise<void> {
+  ): Promise<PricingResolution> {
     const resolved = this.deps.pricingResolver.resolve(usage, usage.raw);
     const idempotencyKey =
       req.context.idempotencyKey ??
@@ -478,6 +560,7 @@ export class LLMGateway implements ILLMGateway {
         `[llm/gateway] unknown pricing persisted post-call for ${usage.provider}:${usage.model}`,
       );
     }
+    return resolved;
   }
 
   private assertPricingAllowed(context: LLMCallContext, usage: LLMUsage): void {
@@ -662,6 +745,23 @@ export class LLMGateway implements ILLMGateway {
   }
 }
 
+function normalizeProviderToolCallId(
+  value: string | undefined,
+): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function summarizeCoreMessageRoles(messages: readonly CoreMessage[]): string {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([role, count]) => `${role}:${count}`)
+    .join(",");
+}
+
 function clampTaskTextTimeoutMs(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs)) {
     return STANDARD_TASK_TEXT_TIMEOUT_MS;
@@ -748,6 +848,15 @@ function normalizeToolArgs(args: unknown): Record<string, unknown> {
     return {};
   }
   return args as Record<string, unknown>;
+}
+
+function withResolvedCost(
+  usage: LLMUsage,
+  pricing: PricingResolution,
+): LLMUsage {
+  return pricing.pricingSource === "unknown"
+    ? usage
+    : { ...usage, cost: pricing.calculatedCostUsd };
 }
 
 function getMessagePartLength(part: unknown): number {

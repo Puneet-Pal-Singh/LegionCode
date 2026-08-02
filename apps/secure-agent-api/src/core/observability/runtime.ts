@@ -7,6 +7,7 @@ import {
   type RuntimeIdentity,
 } from "@repo/shared-types";
 import type { Env } from "../../index";
+import { createLogger } from "@repo/observability";
 
 const MODULE_STARTED_AT = new Date().toISOString();
 
@@ -57,9 +58,18 @@ function ensureRuntimeStartupLogged(env: Env): void {
   const fingerprint = buildRuntimeFingerprint(identity, gitSha);
   const featureFlags = collectFeatureFlagSnapshot(toEnvRecord(env));
 
-  console.log(
-    `[runtime/startup] name=${identity.name} gitSha=${gitSha} startedAt=${identity.startedAt} bootId=${identity.bootId} fingerprint=${fingerprint} featureFlags=${JSON.stringify(featureFlags)}`,
-  );
+  createLogger({
+    service: "secure-agent-api",
+    environment: env.ENVIRONMENT ?? "unknown",
+    release: gitSha,
+  }).info("runtime.startup", {
+    name: identity.name,
+    gitSha,
+    startedAt: identity.startedAt,
+    bootId: identity.bootId,
+    fingerprint,
+    featureFlags,
+  });
   startupLogged = true;
 }
 

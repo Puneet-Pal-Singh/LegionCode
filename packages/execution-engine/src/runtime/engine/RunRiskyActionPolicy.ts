@@ -9,12 +9,8 @@ import {
   type RiskyActionCategory,
   type WorkflowIntent,
 } from "@repo/shared-types";
-import type { GoldenFlowToolName } from "../contracts/CodingToolGateway.js";
+import type { CodingToolId } from "../tools/CodingToolRegistry.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
-import {
-  requiresMutationForIntent,
-  type CurrentTurnIntent,
-} from "./RunCurrentTurnIntent.js";
 
 const SHELL_NETWORK_PATTERN =
   /\b(curl|wget|npm\s+install|pnpm\s+add|yarn\s+add|pip\s+install)\b/i;
@@ -58,9 +54,8 @@ export interface RiskyActionEvaluationInput {
   origin: "user" | "agent";
   productMode: ProductMode;
   workflowIntent: WorkflowIntent;
-  toolName: GoldenFlowToolName;
+  toolName: CodingToolId;
   toolArgs: Record<string, unknown>;
-  currentTurnIntent?: CurrentTurnIntent;
   hasMutationEvidence: boolean;
   allowResumeGitPush?: boolean;
   ownerUserId?: string;
@@ -109,7 +104,6 @@ export async function evaluateToolPermission(
   const mutationEvidenceDenial = getMutationEvidenceDenial(
     classified,
     input.toolName,
-    input.currentTurnIntent,
     input.hasMutationEvidence,
     Boolean(input.allowResumeGitPush),
   );
@@ -148,16 +142,8 @@ export function mapPermissionGateToEvaluationResult(
 
 function requiresMutationEvidence(
   classified: ClassifiedRiskAction,
-  toolName: GoldenFlowToolName,
-  currentTurnIntent: CurrentTurnIntent | undefined,
+  toolName: CodingToolId,
 ): boolean {
-  const mutationScopedTurn = currentTurnIntent
-    ? requiresMutationForIntent(currentTurnIntent)
-    : true;
-  if (!mutationScopedTurn) {
-    return false;
-  }
-
   return (
     classified.category === RISKY_ACTION_CATEGORIES.GIT_MUTATION &&
     toolName === "git_push"
@@ -166,8 +152,7 @@ function requiresMutationEvidence(
 
 function getMutationEvidenceDenial(
   classified: ClassifiedRiskAction,
-  toolName: GoldenFlowToolName,
-  currentTurnIntent: CurrentTurnIntent | undefined,
+  toolName: CodingToolId,
   hasMutationEvidence: boolean,
   allowResumeGitPush: boolean,
 ): PermissionDenyResult | null {
@@ -176,7 +161,7 @@ function getMutationEvidenceDenial(
   }
 
   if (
-    requiresMutationEvidence(classified, toolName, currentTurnIntent) &&
+    requiresMutationEvidence(classified, toolName) &&
     !hasMutationEvidence
   ) {
     return {
@@ -219,7 +204,7 @@ async function hasPreapprovedAction(
 }
 
 function classifyRiskAction(
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
   toolArgs: Record<string, unknown>,
 ): ClassifiedRiskAction {
   const affectedPaths = extractCandidatePaths(toolArgs);
@@ -576,7 +561,7 @@ function buildAvailableDecisions(
 
 function buildProposedPersistentRule(
   classified: ClassifiedRiskAction,
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
 ): ProposedPersistentRule | null {
   if (classified.category === RISKY_ACTION_CATEGORIES.SHELL_COMMAND) {
     if (!classified.command) {
@@ -749,7 +734,7 @@ function isOutsideWorkspacePath(path: string): boolean {
 }
 
 function toGitAction(
-  toolName: GoldenFlowToolName,
+  toolName: CodingToolId,
 ): "stage" | "commit" | "push" | "pull" | undefined {
   if (toolName === "git_stage") {
     return "stage";
@@ -766,7 +751,7 @@ function toGitAction(
   return undefined;
 }
 
-function describeGitMutationTitle(toolName: GoldenFlowToolName): string {
+function describeGitMutationTitle(toolName: CodingToolId): string {
   if (toolName === "git_stage") {
     return "LegionCode wants to stage repository changes";
   }

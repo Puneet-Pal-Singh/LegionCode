@@ -6,9 +6,8 @@
  *
  * Storage Keys:
  * - shadowbox:sessions:v3 — Main session store
- * - shadowbox:active-session-id:v3 — Active session selector
+ * - shadowbox:active-session-id:v4 — Per-tab active session selector
  * - shadowbox:session-context:{sessionId} — GitHub context per session
- * - shadowbox:pending-query:{sessionId} — Pending user input per session
  * - shadowbox:run:{runId}:messages — Messages per run
  *
  * @module services/SessionStateService
@@ -20,6 +19,7 @@ import {
   sessionArchivePath,
   sessionPinPath,
   sessionTitlePath,
+  sessionReadReceiptPath,
   sessionUnarchivePath,
   sessionUnpinPath,
   sessionsPath,
@@ -35,7 +35,7 @@ import type {
 import { createRunId, isCanonicalRunId } from "../lib/run-id";
 
 const SESSIONS_KEY = "shadowbox:sessions:v3";
-const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v3";
+const ACTIVE_SESSION_ID_KEY = "shadowbox:active-session-id:v4";
 const SETUP_SESSION_KEY = "shadowbox:setup-session:v1";
 
 type StoredSessionStatus = AgentSession["status"] | "error";
@@ -60,6 +60,10 @@ interface ServerSessionRecord {
   archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  titleVersion?: number;
+  titleStatus?: "pending" | "ready" | "failed";
+  lastTerminalTurnId?: string | null;
+  lastAcknowledgedTerminalTurnId?: string | null;
 }
 
 interface ServerSessionsResponse {
@@ -72,10 +76,6 @@ interface ServerSessionResponse {
 
 function getSessionContextKey(sessionId: string): string {
   return `shadowbox:session-context:${sessionId}`;
-}
-
-function getSessionPendingQueryKey(sessionId: string): string {
-  return `shadowbox:pending-query:${sessionId}`;
 }
 
 /**
@@ -209,20 +209,17 @@ export class SessionStateService {
     return readMetadataMutationResponse(response, "Session rename");
   }
 
-  static async updateGeneratedSessionTitle(
+  static async acknowledgeSession(
     sessionId: string,
-    title: string,
+    terminalTurnId: string,
   ): Promise<AgentSession> {
-    const response = await fetch(sessionTitlePath(sessionId), {
-      method: "PATCH",
+    const response = await fetch(sessionReadReceiptPath(sessionId), {
+      method: "POST",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ title, titleSource: "generated" }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ terminalTurnId }),
     });
-
-    return readMetadataMutationResponse(response, "Generated session title");
+    return readMetadataMutationResponse(response, "Session read receipt");
   }
 
   static async pinSession(sessionId: string): Promise<AgentSession> {
@@ -270,8 +267,13 @@ export class SessionStateService {
    */
   static loadActiveSessionId(): string | null {
     try {
-      const stored = localStorage.getItem(ACTIVE_SESSION_ID_KEY);
-      return stored || null;
+      const stored = sessionStorage.getItem(ACTIVE_SESSION_ID_KEY);
+      if (!stored) {
+        return null;
+      }
+
+      const sessions = this.loadSessions();
+      return sessions[stored] ? stored : null;
     } catch (e) {
       console.error(
         "[SessionStateService] Failed to load active session ID:",
@@ -375,9 +377,9 @@ export class SessionStateService {
 
     try {
       if (sessionId) {
-        localStorage.setItem(ACTIVE_SESSION_ID_KEY, sessionId);
+        sessionStorage.setItem(ACTIVE_SESSION_ID_KEY, sessionId);
       } else {
-        localStorage.removeItem(ACTIVE_SESSION_ID_KEY);
+        sessionStorage.removeItem(ACTIVE_SESSION_ID_KEY);
       }
     } catch (e) {
       console.error(
@@ -464,55 +466,6 @@ export class SessionStateService {
   }
 
   /**
-   * Load pending query for a specific session
-   */
-  static loadSessionPendingQuery(sessionId: string): string | null {
-    try {
-      const key = getSessionPendingQueryKey(sessionId);
-      return localStorage.getItem(key);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to load pending query for session:",
-        sessionId,
-        e,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Save pending query for a specific session
-   */
-  static saveSessionPendingQuery(sessionId: string, query: string): void {
-    try {
-      const key = getSessionPendingQueryKey(sessionId);
-      localStorage.setItem(key, query);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to save pending query for session:",
-        sessionId,
-        e,
-      );
-    }
-  }
-
-  /**
-   * Clear pending query for a specific session
-   */
-  static clearSessionPendingQuery(sessionId: string): void {
-    try {
-      const key = getSessionPendingQueryKey(sessionId);
-      localStorage.removeItem(key);
-    } catch (e) {
-      console.error(
-        "[SessionStateService] Failed to clear pending query for session:",
-        sessionId,
-        e,
-      );
-    }
-  }
-
-  /**
    * Create a new session
    * Returns the created session
    */
@@ -529,7 +482,7 @@ export class SessionStateService {
     return {
       id: sessionId,
       name,
-      titleSource: "generated",
+      titleSource: "preview",
       repository,
       activeRunId: runId,
       runIds: [runId],
@@ -618,7 +571,9 @@ export class SessionStateService {
       {
         name: "titleSource",
         pass:
-          session.titleSource === "generated" || session.titleSource === "user",
+          session.titleSource === "preview" ||
+          session.titleSource === "generated" ||
+          session.titleSource === "user",
       },
       {
         name: "activeRunId",
@@ -673,7 +628,7 @@ function normalizeSession(session: StoredAgentSession): AgentSession {
     ...session,
     mode: session.mode ?? DEFAULT_RUN_MODE,
     status: normalizeStoredSessionStatus(session.status),
-    titleSource: session.titleSource ?? "generated",
+    titleSource: session.titleSource ?? "preview",
     pinnedAt: session.pinnedAt ?? null,
     archivedAt: session.archivedAt ?? null,
     createdAt: session.createdAt ?? session.updatedAt,
@@ -695,7 +650,8 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
   return {
     id: session.id,
     name: session.title,
-    titleSource: session.titleSource ?? "generated",
+    titleSource: session.titleSource ?? "preview",
+    ...mapServerThreadMetadata(session),
     repository: session.repository,
     activeRunId: session.activeRunId,
     runIds: [session.activeRunId],
@@ -710,6 +666,44 @@ function mapServerSession(session: ServerSessionRecord): AgentSession | null {
 
 function mapServerStatus(status: ServerSessionRecord["status"]): SessionStatus {
   return status;
+}
+
+function mapServerThreadMetadata(
+  session: ServerSessionRecord,
+): Pick<
+  AgentSession,
+  | "titleVersion"
+  | "titleStatus"
+  | "lastTerminalTurnId"
+  | "lastAcknowledgedTerminalTurnId"
+> {
+  return {
+    ...(isTitleVersion(session.titleVersion)
+      ? { titleVersion: session.titleVersion }
+      : {}),
+    ...(isTitleStatus(session.titleStatus)
+      ? { titleStatus: session.titleStatus }
+      : {}),
+    ...(typeof session.lastTerminalTurnId === "string"
+      ? { lastTerminalTurnId: session.lastTerminalTurnId }
+      : {}),
+    ...(typeof session.lastAcknowledgedTerminalTurnId === "string"
+      ? {
+          lastAcknowledgedTerminalTurnId:
+            session.lastAcknowledgedTerminalTurnId,
+        }
+      : {}),
+  };
+}
+
+function isTitleVersion(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isTitleStatus(
+  value: unknown,
+): value is NonNullable<AgentSession["titleStatus"]> {
+  return value === "pending" || value === "ready" || value === "failed";
 }
 
 async function sendSessionMutation(

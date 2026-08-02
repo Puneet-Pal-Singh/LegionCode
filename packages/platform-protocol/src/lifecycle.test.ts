@@ -11,6 +11,11 @@ import {
   ToolCallStatusSchema,
   TurnStatusSchema,
   TurnLifecycleSchema,
+  AssistantMessageDeltaPayloadSchema,
+  ContextCompactionItemPayloadSchema,
+  LifecycleToolDisplaySchema,
+  PlanUpdatedPayloadSchema,
+  ReasoningSummaryDeltaPayloadSchema,
   assertNextLifecycleSequence,
   assertTurnAcceptsLifecycleEvent,
   transitionApprovalStatus,
@@ -33,9 +38,14 @@ const LEGAL_TURN_TRANSITIONS: ReadonlyArray<readonly [TurnStatus, TurnStatus]> =
     ["queued", "interrupted"],
     ["queued", "failed"],
     ["in_progress", "in_progress"],
+    ["in_progress", "awaiting_approval"],
     ["in_progress", "completed"],
     ["in_progress", "interrupted"],
     ["in_progress", "failed"],
+    ["awaiting_approval", "in_progress"],
+    ["awaiting_approval", "completed"],
+    ["awaiting_approval", "interrupted"],
+    ["awaiting_approval", "failed"],
   ];
 
 const LEGAL_RUN_ATTEMPT_TRANSITIONS: ReadonlyArray<
@@ -71,6 +81,14 @@ const LEGAL_APPROVAL_TRANSITIONS: ReadonlyArray<
 ];
 
 describe("canonical lifecycle transition authority", () => {
+  it("validates typed Plan 049 workflow payloads at the protocol boundary", () => {
+    expect(AssistantMessageDeltaPayloadSchema.parse({ phase: "commentary", delta: "Working" })).toEqual({ phase: "commentary", delta: "Working" });
+    expect(ReasoningSummaryDeltaPayloadSchema.parse({ delta: "Safe summary", displaySafe: true })).toBeTruthy();
+    expect(LifecycleToolDisplaySchema.parse({ family: "read", title: "Read File", namespace: "filesystem" })).toBeTruthy();
+    expect(PlanUpdatedPayloadSchema.parse({ explanation: null, steps: [{ stepId: "step-1", title: "Read", status: "in_progress" }] })).toBeTruthy();
+    expect(ContextCompactionItemPayloadSchema.parse({ kind: "context_compaction", phase: "compacting", mode: "automatic" })).toBeTruthy();
+    expect(() => LifecycleToolDisplaySchema.parse({ family: "Filesystem", title: "Read File", namespace: "filesystem" })).toThrow();
+  });
   it("accepts every legal transition", () => {
     for (const [from, to] of LEGAL_TURN_TRANSITIONS) {
       expect(transitionTurnStatus(from, to)).toBe(to);

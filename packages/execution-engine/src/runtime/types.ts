@@ -38,6 +38,10 @@ import type {
   RunStatus,
   WorkflowStep,
 } from "@shadowbox/orchestrator-core";
+import type {
+  EvidenceRecord,
+  FinalizationContract,
+} from "./engine/EvidenceLedger.js";
 
 export type RunPhase = WorkflowStep;
 
@@ -177,6 +181,7 @@ export interface AgenticLoopToolLifecycleEvent {
   mutating: boolean;
   recordedAt: string;
   detail?: string;
+  failureCode?: string;
   metadata?: ToolActivityMetadata;
 }
 
@@ -235,7 +240,7 @@ export interface RunMetadata {
   manifest?: RunManifest;
   turnMode?: {
     mode: "chat" | "action";
-    source: "heuristic" | "llm" | "recovered";
+    source: "heuristic" | "llm" | "recovered" | "runtime-kernel";
     rationale?: string;
     confidence?: number;
     recordedAt: string;
@@ -284,6 +289,8 @@ export interface RunMetadata {
   startedAt?: string;
   terminalState?: RunTerminalState;
   terminalMessage?: Record<string, unknown>;
+  evidenceLedger?: EvidenceRecord[];
+  finalizationContract?: FinalizationContract;
 }
 
 export interface RunOrchestrationTelemetry {
@@ -432,6 +439,15 @@ export interface RuntimeExecutionService {
     payload: Record<string, unknown>,
     options?: {
       onOutput?: (chunk: ExecutionOutputChunk) => Promise<void> | void;
+      signal?: AbortSignal;
+      scope?: {
+        runId: string;
+        threadId: string;
+        turnId: string;
+        runAttemptId: string;
+        workspaceId: string;
+        root: string;
+      };
     },
   ): Promise<unknown>;
 }

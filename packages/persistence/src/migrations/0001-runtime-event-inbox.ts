@@ -17,9 +17,17 @@ import { canonicalEventTablesMigration } from "./0016-canonical-event-tables.js"
 import { threadProjectionsMigration } from "./0017-thread-projections.js";
 import { runProjectionsMigration } from "./0018-run-projections.js";
 import { workspaceManifestsArtifactMetadataMigration } from "./0019-workspace-manifests-artifact-metadata.js";
+import { artifactProvenanceMigration } from "./0024-artifact-provenance.js";
+import { taskWorkspacesMigration } from "./0025-task-workspaces.js";
+import { sessionTitleVersionMigration } from "./0026-session-title-version.js";
+import { threadTitlePreviewSourceMigration } from "./0027-thread-title-preview-source.js";
+import { taskCheckoutSecureSessionMigration } from "./0028-task-checkout-secure-session.js";
+import { hookDefinitionsMigration } from "./0029-hook-definitions.js";
+import { sessionThreadIdentityMigration } from "./0030-session-thread-identity.js";
 import { lifecycleEventsProjectionsMigration } from "./0020-lifecycle-events-projections.js";
 import { canonicalWorkspaceManifestMigration } from "./0021-canonical-workspace-manifest.js";
 import { canonicalRunIdTextMigration } from "./0022-canonical-run-id-text.js";
+import { threadTitleReadReceiptsMigration } from "./0023-thread-title-read-receipts.js";
 import type { SqlMigration } from "./types.js";
 
 const RUNTIME_EVENT_INBOX_STATUS_SQL_LIST =
@@ -84,4 +92,12 @@ export const persistenceMigrations = [
   lifecycleEventsProjectionsMigration,
   canonicalWorkspaceManifestMigration,
   canonicalRunIdTextMigration,
+  threadTitleReadReceiptsMigration,
+  artifactProvenanceMigration,
+  taskWorkspacesMigration,
+  sessionTitleVersionMigration,
+  threadTitlePreviewSourceMigration,
+  taskCheckoutSecureSessionMigration,
+  hookDefinitionsMigration,
+  sessionThreadIdentityMigration,
 ] as const;

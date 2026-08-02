@@ -1,10 +1,9 @@
 import type { CoreMessage } from "ai";
-import type { RunMode } from "@repo/shared-types";
 import {
-  CloudflareAgentsRunRuntimeClient,
-  parseCloudflareAgentsFeatureFlag,
-  shouldActivateCloudflareAgentsAdapter,
-} from "@shadowbox/orchestrator-adapters-cloudflare-agents";
+  TurnScopeBootstrapSchema,
+  type TurnScopeBootstrap,
+} from "@repo/platform-protocol";
+import type { RunMode } from "@repo/shared-types";
 import type {
   AgentType,
   RepositoryContext,
@@ -20,13 +19,14 @@ import type { SerializableToolDefinition } from "../types/tools";
 import { parseOptionalScopeIdentifier } from "./chat-request-helpers";
 import { extractSessionToken } from "../services/AuthService";
 import { resolveAuthorizedProviderScope } from "./provider/ProviderAuthScopeService";
+import { createTraceContext, formatTraceparent } from "@repo/observability";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
 type RuntimeExecutionBackend = "cloudflare_sandbox" | "e2b" | "daytona";
 type RuntimeHarnessMode = "platform_owned" | "delegated";
 type RuntimeAuthMode = "api_key" | "oauth";
-export type RuntimeExecutionTarget = "do" | "cloudflare_agents";
+export type RuntimeExecutionTarget = "do";
 
 export interface ExecutionScope {
   userId: string;
@@ -52,10 +52,12 @@ export interface RunEngineExecutionPayload {
     executionBackend: RuntimeExecutionBackend;
     harnessMode: RuntimeHarnessMode;
     authMode: RuntimeAuthMode;
+    metadata?: Record<string, unknown>;
     repositoryContext?: RepositoryContext;
   };
   messages: CoreMessage[];
   tools?: Record<string, SerializableToolDefinition>;
+  identity: TurnScopeBootstrap;
 }
 
 export function extractPromptFromMessages(
@@ -148,7 +150,11 @@ export async function resolveExecutionScope(
 
   const scopeHeaders = new Headers(req.headers);
   scopeHeaders.set("X-Run-Id", runId);
-  const scopedRequest = new Request(req.url, {
+  const scopeUrl = new URL(req.url);
+  scopeUrl.searchParams.delete("runId");
+  scopeUrl.searchParams.delete("userId");
+  scopeUrl.searchParams.delete("workspaceId");
+  const scopedRequest = new Request(scopeUrl, {
     method: req.method,
     headers: scopeHeaders,
   });
@@ -186,7 +192,55 @@ export async function executeViaRunEngineDurableObject(
     method: "POST",
     path: "/execute",
     body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      traceparent: formatTraceparent(createTraceContext()),
+    },
+  });
+}
+
+export async function startRunTurn(
+  env: Env,
+  runId: string,
+  payload: Pick<
+    RunEngineExecutionPayload,
+    "sessionId" | "workspaceId" | "userId" | "correlationId"
+  > & {
+    clientMessageId?: string;
+  },
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<TurnScopeBootstrap> {
+  const response = await fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "POST",
+    path: "/turn/start",
+    body: JSON.stringify({ runId, ...payload }),
+    headers: {
+      "Content-Type": "application/json",
+      traceparent: formatTraceparent(createTraceContext()),
+    },
+  });
+  if (!response.ok) {
+    throw new DomainError(
+      "TURN_BOOTSTRAP_FAILED",
+      "Failed to establish the server-owned turn scope.",
+      response.status,
+      response.status >= 500,
+      payload.correlationId,
+    );
+  }
+  return TurnScopeBootstrapSchema.parse(await response.json());
+}
+
+export async function fetchRunTurnScope(
+  env: Env,
+  runId: string,
+  sessionId: string,
+  requestedBackend: RuntimeOrchestratorBackend,
+): Promise<Response> {
+  return fetchRunRuntimeRoute(env, runId, requestedBackend, {
+    method: "GET",
+    path: `/turn/scope?runId=${encodeURIComponent(runId)}&sessionId=${encodeURIComponent(sessionId)}`,
+    headers: { Accept: "application/json" },
   });
 }
 
@@ -202,9 +256,6 @@ export async function fetchRunRuntimeRoute(
   },
 ): Promise<Response> {
   const runtimeTarget = resolveRuntimeTarget(env, requestedBackend);
-  if (runtimeTarget === "cloudflare_agents") {
-    return fetchViaCloudflareAgentsRuntime(env, runId, requestInit);
-  }
   return fetchViaRunEngineDurableObject(env, runId, requestInit);
 }
 
@@ -212,25 +263,9 @@ export function resolveRuntimeTarget(
   env: Env,
   requestedBackend: RuntimeOrchestratorBackend,
 ): RuntimeExecutionTarget {
-  const featureFlagEnabled = parseCloudflareAgentsFeatureFlag(
-    env.FEATURE_FLAG_CLOUDFLARE_AGENTS_V1,
-  );
-
-  if (
-    shouldActivateCloudflareAgentsAdapter({
-      requestedBackend,
-      featureFlagEnabled,
-    })
-  ) {
-    if (!env.RUN_ENGINE_AGENT) {
-      throw new Error("RUN_ENGINE_AGENT binding is unavailable");
-    }
-    return "cloudflare_agents";
-  }
-
   if (requestedBackend === "cloudflare_agents") {
     throw new PolicyError(
-      "cloudflare_agents backend is not enabled. Set FEATURE_FLAG_CLOUDFLARE_AGENTS_V1 and configure RUN_ENGINE_AGENT.",
+      "cloudflare_agents is quarantined; use the canonical RunEngineRuntime Durable Object.",
       "CLOUDFLARE_AGENTS_BACKEND_DISABLED",
     );
   }
@@ -263,42 +298,4 @@ async function fetchViaRunEngineDurableObject(
     },
   );
   return runtimeResponse as unknown as Response;
-}
-
-async function fetchViaCloudflareAgentsRuntime(
-  env: Env,
-  runId: string,
-  requestInit: {
-    method: "GET" | "POST";
-    path: string;
-    body?: string;
-    headers?: Record<string, string>;
-  },
-): Promise<Response> {
-  if (!env.RUN_ENGINE_AGENT) {
-    throw new Error("RUN_ENGINE_AGENT binding is unavailable");
-  }
-
-  const client = new CloudflareAgentsRunRuntimeClient({
-    namespace: env.RUN_ENGINE_AGENT,
-  });
-
-  if (requestInit.path === "/execute") {
-    return client.execute({
-      runId,
-      payload: requestInit.body ? JSON.parse(requestInit.body) : {},
-    });
-  }
-
-  if (requestInit.path.startsWith("/summary")) {
-    return client.getSummary({ runId });
-  }
-
-  if (requestInit.path === "/cancel") {
-    return client.cancel({ runId });
-  }
-
-  throw new Error(
-    `Unsupported Cloudflare Agents runtime route: ${requestInit.path}`,
-  );
 }

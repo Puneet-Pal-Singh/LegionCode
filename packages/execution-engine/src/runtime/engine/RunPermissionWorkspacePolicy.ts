@@ -114,8 +114,9 @@ export async function evaluateWorkspaceBootstrap(
   prompt: string,
   repositoryContext: RepositoryContext | undefined,
   workspaceBootstrapper: WorkspaceBootstrapper | undefined,
+  options?: { force?: boolean },
 ): Promise<WorkspaceBootstrapEvaluation> {
-  if (!requiresWorkspaceBootstrap(prompt)) {
+  if (!options?.force && !requiresWorkspaceBootstrap(prompt)) {
     return {
       status: "skipped",
       message: null,

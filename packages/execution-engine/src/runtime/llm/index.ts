@@ -22,3 +22,12 @@ export type {
   ProviderExecutionLaneSupport,
   ProviderCapabilityResolver,
 } from "./types.js";
+export {
+  LegacyProviderTranscriptPartNormalizer,
+  visibleTextFromTranscriptParts,
+} from "./TranscriptPartNormalizer.js";
+export type {
+  ProviderTranscriptPart,
+  TranscriptPartNormalizer,
+  TranscriptPartNormalizerInput,
+} from "./TranscriptPartNormalizer.js";

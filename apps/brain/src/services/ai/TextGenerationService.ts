@@ -17,6 +17,7 @@ export interface GenerateTextResult {
   usage: LLMUsage;
   finishReason?: string;
   toolCalls?: Array<{
+    toolCallId?: string;
     toolName: string;
     args: unknown;
   }>;
@@ -37,6 +38,7 @@ export async function generateText(
     tools?: Record<string, CoreTool>;
     temperature?: number;
     model: string;
+    signal?: AbortSignal;
   },
 ): Promise<GenerateTextResult> {
   const generationParams: GenerationParams = {
@@ -45,6 +47,7 @@ export async function generateText(
     tools: params.tools,
     temperature: params.temperature,
     model: params.model,
+    signal: params.signal,
   };
 
   const result = await adapter.generate(generationParams);

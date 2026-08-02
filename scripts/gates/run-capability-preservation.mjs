@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 const REQUIRED_CAPABILITIES = [
   "session-reload",
+  "live-workflow-projection",
   "prompt-terminal-state",
   "multi-file-review",
   "approval-continuation",
@@ -17,11 +18,19 @@ const CAPABILITIES = [
     requiredTests: [
       [
         "apps/web/src/hooks/useChatHydration.test.tsx",
-        "preserves transcript activity parts on hydrated assistant messages",
+        "replaces stale mounted messages with canonical history for the scope",
       ],
       [
         "apps/web/src/hooks/useChatPersistence.test.tsx",
-        "does not replay a claimed pending query after switching scopes",
+        "does not read browser storage while mirroring messages",
+      ],
+      [
+        "apps/brain/src/services/PersistenceService.test.ts",
+        "appends assistant turns for distinct user turns on the same run",
+      ],
+      [
+        "apps/brain/src/runtime/RunEngineResponsePersistence.test.ts",
+        "persists assistant deltas using the server-issued turn identity",
       ],
       [
         "packages/platform-client-sdk/src/providers/cross-client-lifecycle-parity.test.ts",
@@ -42,10 +51,61 @@ const CAPABILITIES = [
       [
         "pnpm",
         "--filter",
+        "@shadowbox/brain",
+        "test",
+        "--",
+        "src/services/PersistenceService.test.ts",
+        "src/runtime/RunEngineResponsePersistence.test.ts",
+      ],
+      [
+        "pnpm",
+        "--filter",
         "@repo/platform-client-sdk",
         "test",
         "--",
         "src/providers/cross-client-lifecycle-parity.test.ts",
+      ],
+    ],
+  },
+  {
+    id: "live-workflow-projection",
+    owner: "@shadowbox/web",
+    requiredTests: [
+      [
+        "apps/web/src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
+        "keeps settled workflow history visible without waiting for refresh",
+      ],
+      [
+        "apps/web/src/hooks/useTurnLifecycleProjection.test.tsx",
+        "follows canonical lifecycle events into a projection",
+      ],
+      [
+        "packages/platform-client-sdk/src/workflow/turn-workflow-projection.test.ts",
+        "preserves typed tool families and repeated ordered children",
+      ],
+      [
+        "apps/web/src/hooks/useChatHydration.test.tsx",
+        "collapses adjacent canonical and live user prompts with different ids",
+      ],
+    ],
+    commands: [
+      [
+        "pnpm",
+        "--filter",
+        "@shadowbox/web",
+        "test",
+        "--",
+        "src/components/chat/workflow/CanonicalWorkflowSurface.test.tsx",
+        "src/hooks/useTurnLifecycleProjection.test.tsx",
+        "src/hooks/useChatHydration.test.tsx",
+      ],
+      [
+        "pnpm",
+        "--filter",
+        "@repo/platform-client-sdk",
+        "test",
+        "--",
+        "src/workflow/turn-workflow-projection.test.ts",
       ],
     ],
   },
@@ -198,27 +258,11 @@ const CAPABILITIES = [
     owner: "@repo/git-service",
     requiredTests: [
       [
-        "packages/git-service/src/GitService.test.ts",
-        "runs read-only porcelain-v2 status through the executor",
-      ],
-      [
-        "packages/git-service/src/GitService.test.ts",
-        "runs canonical diff with optional staged mode and explicit paths",
-      ],
-      [
         "apps/web/src/lib/git-client.test.ts",
         "requests git diff through the canonical Brain endpoint",
       ],
     ],
     commands: [
-      [
-        "pnpm",
-        "--filter",
-        "@repo/git-service",
-        "test",
-        "--",
-        "src/GitService.test.ts",
-      ],
       [
         "pnpm",
         "--filter",

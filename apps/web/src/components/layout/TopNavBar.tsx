@@ -25,8 +25,6 @@ interface TopNavBarProps {
   isAuthenticated?: boolean;
   onConnectGitHub?: () => void;
   environmentSummary?: {
-    sessionId: string;
-    runId: string;
     repo: Repository | null;
     branch: string;
     onBranchChange: (branch: string) => void;

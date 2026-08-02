@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   handleCreateSession,
   handleDeleteSession,
   handleExecuteTask,
-  handleStreamLogs,
+  handleCancelTask,
+  handleResumeSession,
 } from "./SessionAPI";
 
 interface SessionRecord {
@@ -13,6 +14,22 @@ interface SessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
+  workspaceScope: WorkspaceScope;
+  recoveryExhausted?: boolean;
+  lease: {
+    leaseId: string;
+    sandboxId: string;
+    generation: number;
+  };
+}
+
+interface WorkspaceScope {
+  runId: string;
+  threadId: string;
+  turnId: string;
+  runAttemptId: string;
+  workspaceId: string;
+  root: string;
 }
 
 interface SessionLogEntry {
@@ -51,7 +68,7 @@ interface RuntimeStoreMock extends Record<string, unknown> {
       },
     ) => Promise<{
       taskId: string;
-      status: "success" | "failure" | "timeout" | "cancelled";
+      status: "success" | "failure" | "timeout" | "cancelled" | "sandbox_unavailable";
       output?: string;
       error?: {
         code: string;
@@ -62,6 +79,7 @@ interface RuntimeStoreMock extends Record<string, unknown> {
         duration: number;
       };
     }>;
+    cancelTask: (leaseId: string, taskId: string) => Promise<boolean>;
   };
 }
 
@@ -98,11 +116,15 @@ function createRuntimeStoreMock(): RuntimeStoreMock {
       async executeTask(sessionId, input) {
         return {
           taskId: input.taskId,
+          leaseId: "lease:test:attempt-1",
+          correlationId: "test-correlation",
           status: "success",
+          retryable: false,
           output: `executed ${input.action} for ${sessionId}`,
           metrics: { duration: 12 },
         };
       },
+      cancelTask: vi.fn(async () => true),
     },
   };
 }
@@ -115,6 +137,36 @@ function createSessionRequest(): Request {
       runId: "run-auth-1",
       taskId: "task-auth-1",
       repoPath: "workspace/repo",
+      workspaceScope: {
+        runId: "run-auth-1",
+        threadId: "thread-auth-1",
+        turnId: "turn-auth-1",
+        runAttemptId: "attempt-auth-1",
+        workspaceId: "workspace-auth-1",
+        root: "/runs/auth-1",
+      },
+    }),
+  });
+}
+
+const scopedWorkspace: WorkspaceScope = {
+  runId: "run-scoped-1",
+  threadId: "thread-scoped-1",
+  turnId: "turn-scoped-1",
+  runAttemptId: "attempt_scoped_000001",
+  workspaceId: "wrk_scoped_000001",
+  root: "/runs/scoped-1",
+};
+
+function createScopedSessionRequest(): Request {
+  return new Request("http://localhost/api/v1/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: scopedWorkspace.runId,
+      taskId: "task-scoped-1",
+      repoPath: ".",
+      workspaceScope: scopedWorkspace,
     }),
   });
 }
@@ -147,6 +199,35 @@ function createDeleteRequest(sessionId: string, authHeader?: string): Request {
   });
 }
 
+function createResumeRequest(
+  sessionId: string,
+  lease: SessionRecord["lease"],
+  workspaceScope: WorkspaceScope = {
+    runId: "run-auth-1",
+    threadId: "thread-auth-1",
+    turnId: "turn-auth-1",
+    runAttemptId: "attempt-auth-1",
+    workspaceId: "workspace-auth-1",
+    root: "/runs/auth-1",
+  },
+): Request {
+  return new Request(
+    `http://localhost/api/v1/session/${encodeURIComponent(sessionId)}/resume`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspaceScope,
+        lease: {
+          leaseId: lease.leaseId,
+          sandboxId: lease.sandboxId,
+          generation: lease.generation,
+        },
+      }),
+    },
+  );
+}
+
 function createExecuteRequest(sessionId: string, authHeader?: string): Request {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -166,29 +247,50 @@ function createExecuteRequest(sessionId: string, authHeader?: string): Request {
         action: "run",
         command: "echo hello",
         runId: "run-auth-1",
+        workspaceScope: {
+          runId: "run-auth-1",
+          threadId: "thread-auth-1",
+          turnId: "turn-auth-1",
+          runAttemptId: "attempt-auth-1",
+          workspaceId: "workspace-auth-1",
+          root: "/runs/auth-1",
+        },
       },
     }),
   });
 }
 
-function createLogsRequest(
+function createCancelRequest(
   sessionId: string,
+  taskId: string,
   authHeader?: string,
-  taskId?: string,
 ): Request {
-  const headers: Record<string, string> = {};
-  if (authHeader) {
-    headers.Authorization = authHeader;
-  }
-
-  const query = new URLSearchParams({ sessionId });
-  if (taskId) {
-    query.set("taskId", taskId);
-  }
-
-  return new Request(`http://localhost/api/v1/logs?${query.toString()}`, {
-    method: "GET",
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authHeader) headers.Authorization = authHeader;
+  return new Request("http://localhost/api/v1/cancel", {
+    method: "POST",
     headers,
+    body: JSON.stringify({ sessionId, taskId }),
+  });
+}
+
+function createScopedExecuteRequest(
+  sessionId: string,
+  token: string,
+  workspaceScope: WorkspaceScope,
+): Request {
+  return new Request("http://localhost/api/v1/execute", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      sessionId,
+      taskId: "task-scoped-execute",
+      action: "node.execute",
+      params: { workspaceScope },
+    }),
   });
 }
 
@@ -238,6 +340,57 @@ describe("session auth hardening", () => {
     expect(body.output).toContain("node.execute");
   });
 
+  it("cancels an authorized task through the leased runtime port", async () => {
+    const runtime = createRuntimeStoreMock();
+    const { sessionId, token } = await createSession(runtime);
+    const response = await handleCancelTask(
+      createCancelRequest(sessionId, "task-execute-auth", `Bearer ${token}`),
+      runtime,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cancelled: true,
+      taskId: "task-execute-auth",
+    });
+    expect(runtime.executionPort.cancelTask).toHaveBeenCalledWith(
+      expect.any(String),
+      "task-execute-auth",
+    );
+  });
+
+  it("persists the run workspace scope and rejects cross-run execution", async () => {
+    const runtime = createRuntimeStoreMock();
+    const sessionResponse = await handleCreateSession(
+      createScopedSessionRequest(),
+      runtime,
+    );
+    expect(sessionResponse.status).toBe(201);
+    const { sessionId, token } = (await sessionResponse.json()) as {
+      sessionId: string;
+      token: string;
+    };
+
+    const mismatchedScope = {
+      ...scopedWorkspace,
+      runId: "run-scoped-2",
+    };
+    const rejected = await handleExecuteTask(
+      createScopedExecuteRequest(sessionId, token, mismatchedScope),
+      runtime,
+    );
+    expect(rejected.status).toBe(409);
+    expect(((await rejected.json()) as ErrorBody).code).toBe(
+      "WORKSPACE_SCOPE_MISMATCH",
+    );
+
+    const accepted = await handleExecuteTask(
+      createScopedExecuteRequest(sessionId, token, scopedWorkspace),
+      runtime,
+    );
+    expect(accepted.status).toBe(200);
+  });
+
   it("publishes signed runtime task events around execution", async () => {
     const runtime = createRuntimeStoreMock();
     const { sessionId, token } = await createSession(runtime);
@@ -268,56 +421,68 @@ describe("session auth hardening", () => {
     ]);
   });
 
-  it("rejects logs without authorization header", async () => {
+  it("permits one replacement and then reports recovery exhaustion", async () => {
     const runtime = createRuntimeStoreMock();
-    const { sessionId } = await createSession(runtime);
-    const response = await handleStreamLogs(createLogsRequest(sessionId), runtime);
+    const stored: SessionRecord[] = [];
+    const originalStore = runtime.storeExecutionSession;
+    runtime.storeExecutionSession = async (sessionId, session) => {
+      stored.push(session);
+      await originalStore(sessionId, session);
+    };
+    runtime.executionPort.executeTask = async (_leaseId, input) => ({
+      taskId: input.taskId,
+      leaseId: "dead-lease",
+      correlationId: "dead-correlation",
+      status: "sandbox_unavailable",
+      retryable: true,
+      error: {
+        code: "SANDBOX_UNAVAILABLE",
+        message: "container exited",
+      },
+      metrics: { duration: 1 },
+    });
 
-    expect(response.status).toBe(401);
-    const body = (await response.json()) as ErrorBody;
-    expect(body.code).toBe("UNAUTHORIZED");
-  });
-
-  it("allows logs with matching bearer token", async () => {
-    const runtime = createRuntimeStoreMock();
     const { sessionId, token } = await createSession(runtime);
-    const response = await handleStreamLogs(
-      createLogsRequest(sessionId, `Bearer ${token}`),
+    const response = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${token}`),
       runtime,
     );
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toContain("text/event-stream");
-  });
+    expect(response.status).toBe(503);
+    expect(stored).toHaveLength(2);
+    expect(stored[1]?.lease.generation).toBe(1);
+    expect(stored[1]?.lease.sandboxId).not.toBe(stored[0]?.lease.sandboxId);
 
-  it("filters streamed logs to the requested task id", async () => {
-    const runtime = createRuntimeStoreMock();
-    const { sessionId, token } = await createSession(runtime);
-
-    await runtime.appendExecutionLog(sessionId, {
-      taskId: "task-a",
-      timestamp: 1,
-      level: "info",
-      message: "first",
-      source: "stdout",
-    });
-    await runtime.appendExecutionLog(sessionId, {
-      taskId: "task-b",
-      timestamp: 2,
-      level: "info",
-      message: "second",
-      source: "stdout",
-    });
-
-    const response = await handleStreamLogs(
-      createLogsRequest(sessionId, `Bearer ${token}`, "task-b"),
+    const resume = await handleResumeSession(
+      createResumeRequest(sessionId, stored[0]!.lease),
       runtime,
     );
+    expect(resume.status).toBe(200);
+    const resumed = (await resume.json()) as {
+      token: string;
+      lease: SessionRecord["lease"];
+      replaced: boolean;
+    };
+    expect(resumed.replaced).toBe(true);
+    expect(resumed.lease).toMatchObject(stored[1]!.lease);
 
-    expect(response.status).toBe(200);
-    const body = await response.text();
-    expect(body).toContain("\"taskId\":\"task-b\"");
-    expect(body).not.toContain("\"taskId\":\"task-a\"");
+    const secondResponse = await handleExecuteTask(
+      createExecuteRequest(sessionId, `Bearer ${resumed.token}`),
+      runtime,
+    );
+    expect(secondResponse.status).toBe(503);
+    const activeSession = await runtime.getExecutionSession(sessionId);
+    expect(activeSession?.lease).toMatchObject(resumed.lease);
+    expect(activeSession?.recoveryExhausted).toBe(true);
+
+    const exhaustedResume = await handleResumeSession(
+      createResumeRequest(sessionId, resumed.lease),
+      runtime,
+    );
+    expect(exhaustedResume.status).toBe(503);
+    expect(((await exhaustedResume.json()) as ErrorBody).code).toBe(
+      "SANDBOX_RECOVERY_EXHAUSTED",
+    );
   });
 
   it("rejects delete without authorization header", async () => {
@@ -361,5 +526,116 @@ describe("session auth hardening", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as DeleteBody;
     expect(body.success).toBe(true);
+  });
+
+  it("rotates a bearer only for the exact persisted session and lease scope", async () => {
+    const runtime = createRuntimeStoreMock();
+    const createdResponse = await handleCreateSession(
+      createSessionRequest(),
+      runtime,
+    );
+    const created = (await createdResponse.json()) as {
+      sessionId: string;
+      token: string;
+      lease: SessionRecord["lease"];
+    };
+
+    const resumedResponse = await handleResumeSession(
+      createResumeRequest(created.sessionId, created.lease),
+      runtime,
+    );
+    expect(resumedResponse.status).toBe(200);
+    const resumed = (await resumedResponse.json()) as {
+      sessionId: string;
+      token: string;
+      lease: SessionRecord["lease"];
+    };
+    expect(resumed.sessionId).toBe(created.sessionId);
+    expect(resumed.token).not.toBe(created.token);
+    expect(resumed.lease).toMatchObject(created.lease);
+
+    const oldToken = await handleExecuteTask(
+      createExecuteRequest(created.sessionId, `Bearer ${created.token}`),
+      runtime,
+    );
+    expect(oldToken.status).toBe(401);
+    const newToken = await handleExecuteTask(
+      createExecuteRequest(created.sessionId, `Bearer ${resumed.token}`),
+      runtime,
+    );
+    expect(newToken.status).toBe(200);
+  });
+
+  it("rejects resume when persisted checkout identity mismatches", async () => {
+    const runtime = createRuntimeStoreMock();
+    const createdResponse = await handleCreateSession(
+      createSessionRequest(),
+      runtime,
+    );
+    const created = (await createdResponse.json()) as {
+      sessionId: string;
+      lease: SessionRecord["lease"];
+    };
+
+    const response = await handleResumeSession(
+      createResumeRequest(created.sessionId, {
+        ...created.lease,
+        leaseId: "lease_wrong",
+      }),
+      runtime,
+    );
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as ErrorBody).code).toBe(
+      "SESSION_SCOPE_MISMATCH",
+    );
+  });
+
+  it("creates exactly one next-generation lease when the persisted secure session is gone", async () => {
+    const runtime = createRuntimeStoreMock();
+    const createdResponse = await handleCreateSession(
+      createSessionRequest(),
+      runtime,
+    );
+    const created = (await createdResponse.json()) as {
+      sessionId: string;
+      token: string;
+      lease: SessionRecord["lease"];
+    };
+    await handleDeleteSession(
+      createDeleteRequest(created.sessionId, `Bearer ${created.token}`),
+      runtime,
+    );
+
+    const resumedResponse = await handleResumeSession(
+      createResumeRequest(created.sessionId, created.lease),
+      runtime,
+    );
+    expect(resumedResponse.status).toBe(200);
+    const resumed = (await resumedResponse.json()) as {
+      sessionId: string;
+      lease: SessionRecord["lease"];
+      replaced: boolean;
+    };
+    expect(resumed.sessionId).toBe(created.sessionId);
+    expect(resumed.replaced).toBe(true);
+    expect(resumed.lease.generation).toBe(created.lease.generation + 1);
+    expect(resumed.lease.leaseId).not.toBe(created.lease.leaseId);
+  });
+
+  it("does not invent a second replacement when a generation-one session is gone", async () => {
+    const runtime = createRuntimeStoreMock();
+    const response = await handleResumeSession(
+      createResumeRequest("sess_missing_generation_one", {
+        leaseId: "lease_generation_one",
+        sandboxId: "sandbox-generation-one",
+        generation: 1,
+      }),
+      runtime,
+    );
+
+    expect(response.status).toBe(503);
+    expect(((await response.json()) as ErrorBody).code).toBe(
+      "SANDBOX_RECOVERY_EXHAUSTED",
+    );
   });
 });

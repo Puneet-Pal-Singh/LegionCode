@@ -22,7 +22,6 @@ import {
   BYOKDiscoveredProviderModelsResponseSchema,
   BYOKDiscoveredProviderModelsQuerySchema,
   BYOKDiscoveredProviderModelsRefreshResponseSchema,
-  BYOKProviderModelsResponseSchema,
   BYOKPreferencesUpdateRequestSchema,
   type BYOKResolution,
   type BYOKResolveRequest,
@@ -31,7 +30,6 @@ import {
   type BYOKCredentialValidateRequest,
   type BYOKDiscoveredProviderModelsResponse,
   type BYOKDiscoveredProviderModelsRefreshResponse,
-  type BYOKProviderModelsResponse,
   type BYOKPreferencesUpdateRequest,
   type BYOKValidateResponse,
   BYOKConnectRequestSchema,
@@ -103,34 +101,11 @@ export class ProviderController {
         req.url,
         correlationId,
       );
-      const discoveryQuery = buildDiscoveryQueryParams(req.url);
-      const hasDiscoveryParams = hasDiscoveryQuery(discoveryQuery);
-      const runtimePath = buildRuntimeModelsPath(
-        providerId,
-        hasDiscoveryParams
-          ? validateDiscoveryQuery(discoveryQuery, correlationId)
-          : discoveryQuery,
+      const discoveryQuery = validateDiscoveryQuery(
+        buildDiscoveryQueryParams(req.url),
+        correlationId,
       );
-
-      if (hasDiscoveryParams) {
-        const response = await proxyByokOperation(
-          req,
-          env,
-          {
-            scope,
-            method: "GET",
-            path: runtimePath,
-          },
-          BYOKDiscoveredProviderModelsResponseSchema,
-          correlationId,
-        );
-        const payload = await readProxyResponseJson(
-          response,
-          BYOKDiscoveredProviderModelsResponseSchema,
-          correlationId,
-        );
-        return withScopeJson(req, env, scope, payload);
-      }
+      const runtimePath = buildRuntimeModelsPath(providerId, discoveryQuery);
 
       const response = await proxyByokOperation(
         req,
@@ -140,24 +115,15 @@ export class ProviderController {
           method: "GET",
           path: runtimePath,
         },
-        BYOKProviderModelsResponseSchema,
+        BYOKDiscoveredProviderModelsResponseSchema,
         correlationId,
       );
-      const payload = await readProxyResponseJson<BYOKProviderModelsResponse>(
+      const payload = await readProxyResponseJson(
         response,
-        BYOKProviderModelsResponseSchema,
+        BYOKDiscoveredProviderModelsResponseSchema,
         correlationId,
       );
-      return withScopeJson(
-        req,
-        env,
-        scope,
-        payload.models.map((model) => ({
-          id: model.id,
-          name: model.name,
-          provider: model.provider,
-        })),
-      );
+      return withScopeJson(req, env, scope, payload);
     } catch (error) {
       return handleByokError(req, env, error, correlationId);
     }
@@ -931,20 +897,6 @@ function buildDiscoveryQueryParams(urlValue: string): {
   };
 }
 
-function hasDiscoveryQuery(query: {
-  view?: string;
-  surface?: string;
-  limit?: string;
-  cursor?: string;
-}): boolean {
-  return (
-    query.view !== undefined ||
-    query.surface !== undefined ||
-    query.limit !== undefined ||
-    query.cursor !== undefined
-  );
-}
-
 function validateDiscoveryQuery(
   query: {
     view?: string;
@@ -1488,7 +1440,7 @@ function mapCatalogEntryToRegistry(
       structuredOutputs: entry.capabilities.structuredOutputs,
     },
     modelSource: builtin?.modelSource ?? "static",
-    defaultModelId: entry.models[0]?.id ?? builtin?.defaultModelId,
+    defaultModelId: entry.defaultModelId ?? entry.models[0]?.id,
     ...(builtin?.baseUrl ? { baseUrl: builtin.baseUrl } : {}),
     ...(builtin?.keyFormat ? { keyFormat: builtin.keyFormat } : {}),
   };
@@ -1653,11 +1605,20 @@ function resolveSelection(
     catalog,
     correlationId,
   );
+  const contextWindow =
+    catalog.providers
+      .find((provider) => provider.providerId === selectedCredential.providerId)
+      ?.models.find((model) => model.id === modelId)?.contextWindow ??
+    builtinProviderRegistry.getModel(
+      selectedCredential.providerId,
+      modelId,
+    )?.contextWindow;
 
   return {
     providerId: selectedCredential.providerId,
     credentialId: selectedCredential.credentialId,
     modelId,
+    ...(contextWindow ? { contextWindow } : {}),
     resolvedAt,
     resolvedAtTime: new Date().toISOString(),
   };
@@ -1841,7 +1802,7 @@ function resolveDefaultModel(
   const provider = catalog.providers.find(
     (entry) => entry.providerId === providerId,
   );
-  const modelId = provider?.models[0]?.id;
+  const modelId = provider?.defaultModelId ?? provider?.models[0]?.id;
   if (modelId) {
     return modelId;
   }
@@ -1922,7 +1883,7 @@ function resolveOptionalDefaultModel(
   const provider = catalog.providers.find(
     (entry) => entry.providerId === providerId,
   );
-  return provider?.models[0]?.id ?? null;
+  return provider?.defaultModelId ?? provider?.models[0]?.id ?? null;
 }
 
 async function persistCredentialLabel(

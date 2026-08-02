@@ -12,6 +12,7 @@ interface ArtifactViewProps {
   language?: string;
   wordWrap?: boolean;
   richPreview?: boolean;
+  startingLineNumber?: number;
 }
 
 export function ArtifactView({
@@ -21,6 +22,7 @@ export function ArtifactView({
   language,
   wordWrap = true,
   richPreview = false,
+  startingLineNumber = 1,
 }: ArtifactViewProps) {
   if (!isOpen) return null;
 
@@ -56,6 +58,7 @@ export function ArtifactView({
           style={vscDarkPlus}
           PreTag="div"
           showLineNumbers={true}
+          startingLineNumber={startingLineNumber}
           wrapLongLines={wordWrap}
           wrapLines={wordWrap}
           lineProps={{

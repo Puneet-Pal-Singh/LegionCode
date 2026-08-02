@@ -121,7 +121,7 @@ describe("MemoryTranscriptRepository", () => {
       title: "My Custom Title",
       titleSource: "user",
     });
-    const generated = await repository.updateGeneratedSessionTitle({
+    const generated = await repository.updateAutomatedSessionTitle({
       userId: "user-1",
       sessionId: "session-1",
       title: "Ignored Title",
@@ -149,7 +149,7 @@ describe("MemoryTranscriptRepository", () => {
       title: "Incidental title",
       titleSource: "generated",
     });
-    const updated = await repository.updateGeneratedSessionTitle({
+    const updated = await repository.updateAutomatedSessionTitle({
       userId: "user-1",
       sessionId: "session-1",
       title: "Explicit title",
@@ -233,7 +233,7 @@ describe("MemoryTranscriptRepository", () => {
     expect(cleared.repository).toBeNull();
     expect(cleared.activeRunId).toBeNull();
     expect(cleared.title).toBe("Original title");
-    expect(cleared.titleSource).toBe("generated");
+    expect(cleared.titleSource).toBe("preview");
   });
 
   it("does not hydrate another user's transcript", async () => {

@@ -35,8 +35,10 @@ export function useGitStatus(
 ): UseGitStatusResult {
   const { runId: contextRunId, sessionId: contextSessionId } =
     useOptionalRunContext();
-  const runId = enabled ? (explicitRunId ?? contextRunId) : null;
-  const sessionId = enabled ? (explicitSessionId ?? contextSessionId) : null;
+  const requestedRunId = explicitRunId ?? contextRunId;
+  const requestedSessionId = explicitSessionId ?? contextSessionId;
+  const runId = enabled ? requestedRunId : null;
+  const sessionId = enabled ? requestedSessionId : null;
   const cacheKey = runId && sessionId ? `${sessionId}:${runId}` : null;
   const [status, setStatus] = useState<GitStatusResponse | null>(null);
   const [gitAvailable, setGitAvailable] = useState(true);
@@ -64,6 +66,16 @@ export function useGitStatus(
     setLoading(false);
     setError(null);
   }, [cacheKey]);
+
+  useEffect(() => {
+    if (enabled) {
+      return;
+    }
+    logClientEvent("git/status", "disabled", {
+      runId: requestedRunId ?? null,
+      sessionId: requestedSessionId ?? null,
+    });
+  }, [enabled, requestedRunId, requestedSessionId]);
 
   const fetchStatus = useCallback(
     async (force = false) => {

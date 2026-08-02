@@ -37,12 +37,17 @@ export { providerConnectionConfigMigration } from "./migrations/0015-provider-co
 export { canonicalEventTablesMigration } from "./migrations/0016-canonical-event-tables.js";
 export { runProjectionsMigration } from "./migrations/0018-run-projections.js";
 export { workspaceManifestsArtifactMetadataMigration } from "./migrations/0019-workspace-manifests-artifact-metadata.js";
+export { artifactProvenanceMigration } from "./migrations/0024-artifact-provenance.js";
+export { taskWorkspacesMigration } from "./migrations/0025-task-workspaces.js";
+export { sessionTitleVersionMigration } from "./migrations/0026-session-title-version.js";
+export { hookDefinitionsMigration } from "./migrations/0029-hook-definitions.js";
 export {
   runtimeEventInboxMigration,
   persistenceMigrations,
 } from "./migrations/0001-runtime-event-inbox.js";
 export { PostgresMigrationLedger } from "./migrations/PostgresMigrationLedger.js";
 export { PostgresMigrationRunner } from "./migrations/PostgresMigrationRunner.js";
+export { runWorkerPersistenceMigrations } from "./migrations/runWorkerPersistenceMigrations.js";
 export type {
   MigrationLedger,
   MigrationRunResult,
@@ -60,13 +65,26 @@ export { MemoryTranscriptRepository } from "./sessions/MemoryTranscriptRepositor
 export { PostgresTranscriptRepository } from "./sessions/PostgresTranscriptRepository.js";
 export { MemoryRunRepository } from "./runs/MemoryRunRepository.js";
 export { PostgresRunRepository } from "./runs/PostgresRunRepository.js";
+export { MemoryThreadTitleRepository } from "./thread-titles/MemoryThreadTitleRepository.js";
+export { PostgresThreadTitleRepository } from "./thread-titles/PostgresThreadTitleRepository.js";
+export type {
+  PersistThreadTitleInput,
+  ThreadTitleRepository,
+} from "./thread-titles/types.js";
 export { InMemoryEventRepository } from "./memory/InMemoryEventRepository.js";
 export { PostgresMemoryEventRepository } from "./memory/PostgresMemoryEventRepository.js";
 export { PostgresEventStore } from "./canonical-events/PostgresEventStore.js";
 export { PostgresLifecycleEventStore } from "./lifecycle-events/PostgresLifecycleEventStore.js";
+export { MemoryEventStore, MemoryLifecycleEventStore } from "@repo/event-store";
+export type {
+  LifecycleEventStore,
+  ReplayLifecycleEventsInput,
+  ReplayLifecycleEventsResult,
+} from "@repo/event-store";
 export { PostgresLifecycleProjectionRepository } from "./lifecycle-projections/PostgresLifecycleProjectionRepository.js";
 export { lifecycleEventsProjectionsMigration } from "./migrations/0020-lifecycle-events-projections.js";
 export { canonicalWorkspaceManifestMigration } from "./migrations/0021-canonical-workspace-manifest.js";
+export { threadTitleReadReceiptsMigration } from "./migrations/0023-thread-title-read-receipts.js";
 export { PostgresWorkspaceManifestRepository } from "./workspace-manifests/PostgresWorkspaceManifestRepository.js";
 export { PostgresThreadProjectionRepository } from "./thread-projections/PostgresThreadProjectionRepository.js";
 export { projectThreadEvents } from "./thread-projections/ThreadProjectionProjector.js";
@@ -90,6 +108,9 @@ export {
   type ThreadProjectionEventInput,
   type ThreadProjectionRepository,
   type ThreadProjectionSnapshot,
+  type ThreadReadReceipt,
+  type AcknowledgeThreadInput,
+  type ApplyGeneratedTitleInput,
 } from "./thread-projections/types.js";
 export {
   ApprovalProjectionStatusSchema,
@@ -122,6 +143,15 @@ export { MemoryPermissionRepository } from "./permissions/MemoryPermissionReposi
 export { PostgresPermissionRepository } from "./permissions/PostgresPermissionRepository.js";
 export { MemoryArtifactRepository } from "./artifacts/MemoryArtifactRepository.js";
 export { PostgresArtifactRepository } from "./artifacts/PostgresArtifactRepository.js";
+export { PostgresTaskWorkspaceRepository } from "./task-workspaces/PostgresTaskWorkspaceRepository.js";
+export {
+  TaskWorkspacePersistenceError,
+  type SettleTaskCheckoutInput,
+  type TaskCheckoutBinding,
+  type TaskCheckoutRepository,
+  type TaskWorkspaceRepository,
+  type WorkspaceSnapshotRepository,
+} from "./task-workspaces/types.js";
 export {
   PostgresCredentialStore,
   PostgresPreferenceStore,

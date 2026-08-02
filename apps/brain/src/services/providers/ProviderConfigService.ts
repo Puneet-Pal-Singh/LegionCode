@@ -29,7 +29,6 @@ import type {
   ProviderId,
   ProviderRegistryEntry,
 } from "@repo/shared-types";
-import type { ModelsListResponse } from "../../schemas/provider";
 import type { CredentialStore } from "./stores/CredentialStore";
 import type { PreferenceStore } from "./stores/PreferenceStore";
 import type { ProviderModelCacheStore } from "./stores/ProviderModelCacheStore";
@@ -40,11 +39,7 @@ import { ProviderCredentialService } from "./ProviderCredentialService";
 import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
-import {
-  AXIS_DAILY_LIMIT,
-  AXIS_PROVIDER_ID,
-  getAxisDiscoveredModels,
-} from "./axis";
+import { AXIS_DAILY_LIMIT } from "./axis";
 import { ProviderModelDiscoveryService } from "./model-discovery";
 import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
 import { isDomainError } from "../../domain/errors";
@@ -231,39 +226,19 @@ export class ProviderConfigService {
     return this.connectionService.getStatus();
   }
 
-  async getModels(providerId: ProviderId): Promise<ModelsListResponse> {
-    await this.ensureStorageReady();
-    return this.getCatalogService().getDiscoveredModels(providerId);
-  }
-
   async getDiscoveredModels(
     providerId: ProviderId,
     query: BYOKDiscoveredProviderModelsQuery,
   ): Promise<BYOKDiscoveredProviderModelsResponse> {
     await this.ensureStorageReady();
-    if (providerId === AXIS_PROVIDER_ID) {
-      return this.getCatalogService().getStaticDiscoveredModelsForAxis(query);
-    }
-    return this.getModelDiscoveryService().getDiscoveredModels(
-      providerId,
-      query,
-    );
+    return this.getCatalogService().getDiscoveredModels(providerId, query);
   }
 
   async refreshDiscoveredModels(
     providerId: ProviderId,
   ): Promise<BYOKDiscoveredProviderModelsRefreshResponse> {
     await this.ensureStorageReady();
-    if (providerId === AXIS_PROVIDER_ID) {
-      return {
-        providerId: AXIS_PROVIDER_ID,
-        refreshedAt: new Date().toISOString(),
-        source: "provider_api",
-        cacheInvalidated: false,
-        modelsCount: getAxisDiscoveredModels().length,
-      };
-    }
-    return this.getModelDiscoveryService().refreshDiscoveredModels(providerId);
+    return this.getCatalogService().refreshDiscoveredModels(providerId);
   }
 
   async getApiKey(providerId: ProviderId): Promise<string | null> {

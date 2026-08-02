@@ -26,7 +26,10 @@ export function ApprovalDock({
 }: ApprovalDockProps) {
   return (
     <div className="mb-3">
-      <div className="overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.5)]">
+      <div
+        data-testid="lifecycle-approval"
+        className="overflow-hidden rounded-xl border border-zinc-700/80 bg-[#18181b] text-zinc-100 shadow-[0_18px_48px_rgba(0,0,0,0.5)]"
+      >
         <div className="border-b border-zinc-800 px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-300">
             Pending approval

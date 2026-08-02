@@ -7,7 +7,12 @@ import {
   type GitStatusResult,
 } from "@repo/git-service";
 import { z } from "zod";
-import type { IPlugin, PluginResult, LogCallback } from "../interfaces/types";
+import type {
+  IPlugin,
+  PluginResult,
+  LogCallback,
+  PluginExecutionContext,
+} from "../interfaces/types";
 import { GitTools } from "../schemas/git";
 import type {
   GitCommitIdentity,
@@ -16,17 +21,15 @@ import type {
   FileStatus,
   GitStatusResponse,
 } from "@repo/shared-types";
-import {
-  getWorkspaceRoot,
-  normalizeRunId,
-  validateRepoRelativePath,
-} from "./security/PathGuard";
+import { normalizeRunId, validateRepoRelativePath } from "./security/PathGuard";
+import { resolveScopedWorkspaceRoot } from "./security/WorkspaceScope";
 import { runSafeCommand } from "./security/SafeCommand";
 import {
   readToolboxCommandContext,
   withToolboxCommandContext,
 } from "./security/ToolboxCommandContext";
 import { SandboxGitCommandExecutor } from "./git/SandboxGitCommandExecutor";
+import { clonePinnedWorkspace } from "./git/SandboxGitWorkspaceCloner";
 
 const GIT_ACTIONS = [
   "git_clone",
@@ -42,6 +45,7 @@ const GIT_ACTIONS = [
   "git_unstage",
   "git_status",
   "git_worktree_snapshot",
+  "git_snapshot_diff",
   "git_patch_capture",
   "git_patch_apply",
 ] as const;
@@ -57,12 +61,18 @@ const GitPayloadSchema = z.object({
   authorName: z.string().optional(),
   authorEmail: z.string().optional(),
   branch: z.string().optional(),
+  startPoint: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/u)
+    .optional(),
   path: z.string().optional(),
   files: z.array(z.string()).optional(),
   remote: z.string().optional(),
   staged: z.boolean().optional(),
   patch: z.string().optional(),
   baselineTree: z.string().optional(),
+  startTree: z.string().optional(),
+  terminalTree: z.string().optional(),
   dryRun: z.boolean().optional(),
 });
 
@@ -85,12 +95,13 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     payload: unknown,
     onLog?: LogCallback,
+    context?: PluginExecutionContext,
   ): Promise<PluginResult> {
     try {
       const toolboxContext = readToolboxCommandContext(payload);
       const parsed = GitPayloadSchema.parse(payload);
       const runId = normalizeRunId(parsed.runId ?? toolboxContext.runId);
-      const worktree = getWorkspaceRoot(runId);
+      const worktree = resolveScopedWorkspaceRoot(context, runId);
 
       await this.ensureWorkspace(sandbox, worktree, toolboxContext, runId);
 
@@ -112,6 +123,15 @@ export class GitPlugin implements IPlugin {
             worktree,
             toolboxContext,
             runId,
+          );
+        case "git_snapshot_diff":
+          return await this.diffWorktreeSnapshots(
+            sandbox,
+            worktree,
+            toolboxContext,
+            runId,
+            parsed.startTree,
+            parsed.terminalTree,
           );
         case "git_patch_apply":
           return await this.applyPatch(
@@ -175,6 +195,7 @@ export class GitPlugin implements IPlugin {
             worktree,
             parsed.url,
             parsed.token,
+            parsed.startPoint,
             toolboxContext,
             runId,
             onLog,
@@ -203,6 +224,7 @@ export class GitPlugin implements IPlugin {
             sandbox,
             worktree,
             parsed.branch,
+            parsed.startPoint,
             toolboxContext,
             runId,
           );
@@ -249,12 +271,13 @@ export class GitPlugin implements IPlugin {
     worktree: string,
     url: string | undefined,
     token: string | undefined,
+    authorizedCommitId: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
     onLog?: LogCallback,
   ): Promise<PluginResult> {
     const safeUrl = validateCloneUrl(url);
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
 
     if (onLog) {
       onLog(`[git/plugin] Cloning repository into ${worktree}\n`);
@@ -262,9 +285,10 @@ export class GitPlugin implements IPlugin {
 
     const result = await this.runCloneCommand(
       sandbox,
-      authArgs,
+      authEnvironment,
       safeUrl,
       worktree,
+      authorizedCommitId,
       toolboxContext,
       runId,
     );
@@ -273,9 +297,10 @@ export class GitPlugin implements IPlugin {
 
   private async runCloneCommand(
     sandbox: Sandbox,
-    authArgs: string[],
+    authEnvironment: Record<string, string> | undefined,
     safeUrl: string,
     worktree: string,
+    authorizedCommitId: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<{
@@ -283,17 +308,34 @@ export class GitPlugin implements IPlugin {
     stdout: string;
     stderr: string;
   }> {
-    return await this.runToolboxCommand(
-      sandbox,
-      {
-        command: "git",
-        args: [...authArgs, "clone", safeUrl, worktree],
-        runId,
-      },
-      ["git"],
-      toolboxContext,
-      "git.clone",
-    );
+    const runGit = async (
+      spec: Parameters<typeof withToolboxCommandContext>[0],
+    ) =>
+      await this.runToolboxCommand(
+        sandbox,
+        spec,
+        ["git"],
+        toolboxContext,
+        "git.clone",
+      );
+    if (authorizedCommitId) {
+      return await clonePinnedWorkspace(
+        {
+          url: safeUrl,
+          worktree,
+          authorizedCommitId,
+          authEnvironment,
+          runId,
+        },
+        runGit,
+      );
+    }
+    return await runGit({
+      command: "git",
+      args: ["clone", safeUrl, worktree],
+      env: authEnvironment,
+      runId,
+    });
   }
 
   private async getStatus(
@@ -562,6 +604,43 @@ export class GitPlugin implements IPlugin {
       success: true,
       output: JSON.stringify({ treeSha: snapshot.treeId }),
     };
+  }
+
+  private async diffWorktreeSnapshots(
+    sandbox: Sandbox,
+    worktree: string,
+    toolboxContext: ReturnType<typeof readToolboxCommandContext>,
+    runId: string,
+    startTree: string | undefined,
+    terminalTree: string | undefined,
+  ): Promise<PluginResult> {
+    if (!startTree || !terminalTree) {
+      return {
+        success: false,
+        error: "startTree and terminalTree are required",
+      };
+    }
+    const gitService = this.createGitService(
+      sandbox,
+      toolboxContext,
+      "git.snapshot_diff",
+    );
+    const diff = await gitService.getSnapshotDiff({
+      workspace: { runId, filesystemRoot: worktree },
+      start: {
+        runId: runId as never,
+        filesystemRoot: worktree,
+        headSha: startTree,
+        treeId: startTree,
+      },
+      terminal: {
+        runId: runId as never,
+        filesystemRoot: worktree,
+        headSha: terminalTree,
+        treeId: terminalTree,
+      },
+    });
+    return { success: true, output: JSON.stringify(diff) };
   }
 
   private async applyPatch(
@@ -1058,7 +1137,7 @@ export class GitPlugin implements IPlugin {
       };
     }
     const safeBranch = sanitizeRef(branch, "branch");
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -1072,7 +1151,7 @@ export class GitPlugin implements IPlugin {
           workingBranch: safeBranch,
         },
         remoteName: safeRemote,
-        authArgs,
+        authEnvironment,
       });
       return { success: true, output: "Changes pushed" };
     } catch (error) {
@@ -1100,7 +1179,7 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -1110,7 +1189,7 @@ export class GitPlugin implements IPlugin {
       workspace: { runId, filesystemRoot: worktree },
       remoteName: safeRemote,
       branchName: branch?.trim() ? sanitizeRef(branch, "branch") : undefined,
-      authArgs,
+      authEnvironment,
     });
     return { success: true, output: "Changes pulled successfully" };
   }
@@ -1124,7 +1203,7 @@ export class GitPlugin implements IPlugin {
     runId: string,
   ): Promise<PluginResult> {
     const safeRemote = sanitizeRef(remote || "origin", "remote");
-    const authArgs = this.buildGitAuthArgs(token);
+    const authEnvironment = this.buildGitAuthEnvironment(token);
     const gitService = this.createGitService(
       sandbox,
       toolboxContext,
@@ -1133,7 +1212,7 @@ export class GitPlugin implements IPlugin {
     await gitService.fetch({
       workspace: { runId, filesystemRoot: worktree },
       remoteName: safeRemote,
-      authArgs,
+      authEnvironment,
     });
     return { success: true, output: "Fetched successfully" };
   }
@@ -1142,6 +1221,7 @@ export class GitPlugin implements IPlugin {
     sandbox: Sandbox,
     worktree: string,
     branch: string | undefined,
+    startPoint: string | undefined,
     toolboxContext: ReturnType<typeof readToolboxCommandContext>,
     runId: string,
   ): Promise<PluginResult> {
@@ -1157,6 +1237,7 @@ export class GitPlugin implements IPlugin {
     const result = await gitService.createBranch({
       workspace: { runId, filesystemRoot: worktree },
       branchName: safeBranch,
+      startPoint,
     });
     return { success: true, output: result.message };
   }
@@ -1201,9 +1282,11 @@ export class GitPlugin implements IPlugin {
     return { success: true, output: result.output };
   }
 
-  private buildGitAuthArgs(token: string | undefined): string[] {
+  private buildGitAuthEnvironment(
+    token: string | undefined,
+  ): Record<string, string> | undefined {
     if (!token || token.trim().length === 0) {
-      return [];
+      return undefined;
     }
     if (containsIllegalTokenChars(token)) {
       throw new Error("Invalid token format");
@@ -1212,7 +1295,11 @@ export class GitPlugin implements IPlugin {
     const authValue = Buffer.from(`x-access-token:${token}`, "utf8").toString(
       "base64",
     );
-    return ["-c", `http.extraheader=AUTHORIZATION: basic ${authValue}`];
+    return {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.extraHeader",
+      GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${authValue}`,
+    };
   }
 
   private async runToolboxCommand(

@@ -128,12 +128,18 @@ import { Sandbox } from "@cloudflare/sandbox";
 import { LaunchRateLimiter } from "./runtime/LaunchRateLimiter";
 import {
   handleCreateSession,
+  handleResumeSession,
   handleExecuteTask,
-  handleStreamLogs,
+  handleCancelTask,
   handleDeleteSession,
 } from "./api/SessionAPI";
 import { getCorsHeaders, handleCorsPreflight } from "./lib/cors";
 import { sanitizeUnknownError } from "./core/security/LogSanitizer";
+import {
+  createSecureRequestContext,
+  createSecureRequestLogger,
+  withSecureObservabilityHeaders,
+} from "./core/observability/SecureRequestObservability";
 import {
   buildSecureRuntimeDebugPayload,
   getSecureRuntimeHeaders,
@@ -161,6 +167,7 @@ export interface Env {
   CORS_ALLOWED_ORIGINS?: string;
   CORS_ALLOW_DEV_ORIGINS?: "true" | "false";
   RUNTIME_GIT_SHA?: string;
+  ENVIRONMENT?: string;
   LAUNCH_RATE_LIMITER?: DurableObjectNamespace;
   LAUNCH_EMERGENCY_SHUTOFF_MODE?:
     | "off"
@@ -209,6 +216,9 @@ async function handleChatAppend(
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const requestContext = createSecureRequestContext(request);
+    request = requestContext.request;
+    const logger = createSecureRequestLogger(env, request);
     const url = new URL(request.url);
 
     const preflightResponse = handleCorsPreflight(request, env);
@@ -231,6 +241,7 @@ export default {
         url.pathname === "/api/v1/session" &&
         request.method === "POST"
       ) {
+        // Canonical Brain-to-secure-runtime session boundary.
         const authResponse = enforceInternalServiceBinding(request, env);
         if (authResponse) {
           response = authResponse;
@@ -246,6 +257,12 @@ export default {
             response = await handleCreateSession(request, stub);
           }
         }
+      } else if (
+        /^\/api\/v1\/session\/[^/]+\/resume$/u.test(url.pathname) &&
+        request.method === "POST"
+      ) {
+        const authResponse = enforceInternalServiceBinding(request, env);
+        response = authResponse ?? (await handleResumeSession(request, stub));
       } else if (
         url.pathname === "/api/v1/execute" &&
         request.method === "POST"
@@ -264,12 +281,11 @@ export default {
             createRuntimeEventClient(env),
           );
         }
-      } else if (url.pathname === "/api/v1/logs" && request.method === "GET") {
-        response = await handleStreamLogs(
-          request,
-          stub,
-          getCorsHeaders(request, env),
-        );
+      } else if (
+        url.pathname === "/api/v1/cancel" &&
+        request.method === "POST"
+      ) {
+        response = await handleCancelTask(request, stub);
       } else if (
         url.pathname.startsWith("/api/v1/session/") &&
         request.method === "DELETE"
@@ -376,12 +392,16 @@ export default {
       for (const [k, v] of Object.entries(runtimeHeaders)) {
         finalResponse.headers.set(k, v);
       }
-      return finalResponse;
+      logger.info("http.request.completed", { status: finalResponse.status });
+      return withSecureObservabilityHeaders(finalResponse, request);
     } catch (e: unknown) {
       const error = sanitizeUnknownError(e);
+      logger.captureException("http.request.failed", e);
       const headers = {
         ...getCorsHeaders(request, env),
         ...getSecureRuntimeHeaders(env),
+        "X-Correlation-Id": requestContext.correlationId,
+        traceparent: request.headers.get("traceparent")!,
       };
       return Response.json({ error }, { status: 500, headers });
     }

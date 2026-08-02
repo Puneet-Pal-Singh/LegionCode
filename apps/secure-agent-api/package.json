@@ -13,8 +13,8 @@
 		"test": "node --test test/**/*.test.js && vitest run --dir src"
 	},
 	"devDependencies": {
-		"@cloudflare/sandbox": "*",
-		"@cloudflare/workers-types": "^4.20260118.0",
+		"@cloudflare/sandbox": "^0.12.3",
+		"@cloudflare/workers-types": "^4.20260702.1",
 		"@repo/typescript-config": "workspace:*",
 		"@types/node": "^24.10.9",
 		"typescript": "^5.9.3",
@@ -24,6 +24,7 @@
 	},
 	"dependencies": {
 		"@repo/git-service": "workspace:*",
+		"@repo/observability": "workspace:*",
 		"@repo/shared-types": "workspace:*",
 		"zod": "^3.25.1"
 	},

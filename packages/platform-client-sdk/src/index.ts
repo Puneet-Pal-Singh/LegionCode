@@ -15,7 +15,32 @@ export {
   type PlatformHttpTransportOptions,
 } from "./platform/http-transport.js";
 export {
+  HookInvocationAuditEventSchema,
+  type HookInvocationAuditEvent,
+} from "@repo/hook-protocol";
+export {
+  HookAuditProjectionError,
+  applyHookAuditLifecycleEvent,
+  buildHookSettingsAuditReadModel,
+  createHookAuditProjection,
+  projectHookAuditLifecycleEvent,
+  replayHookAuditLifecycleEvents,
+  type HookAuditProjectionState,
+  type HookSettingsAuditReadModel,
+} from "./platform/hook-audit-projection.js";
+export {
   LifecycleEventSchema,
+  ApprovalIdSchema,
+  EventIdSchema,
+  ItemIdSchema,
+  RunAttemptIdSchema,
+  RunIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+  WorkspaceIdSchema,
+  ContextBudgetSnapshotSchema,
+  UsageCostSnapshotSchema,
+  TurnDiffPayloadSchema,
   type ApprovalId,
   type EventId,
   type EventIdempotencyKey,
@@ -26,7 +51,13 @@ export {
   type ThreadId,
   type TurnDiffPayload,
   type TurnId,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
 } from "@repo/platform-protocol";
+export {
+  turnIdFromRunId,
+  turnSeedFromLatestUserMessage,
+} from "@repo/platform-protocol/lifecycle-turn-routing";
 export { followLifecycleEvents } from "./platform/lifecycle-continuation.js";
 export {
   LifecycleContinuationError,
@@ -35,20 +66,26 @@ export {
   type LifecycleOrderingState,
 } from "./platform/lifecycle-ordering.js";
 export {
-  AttachLifecycleStreamRequestSchema,
   FollowLifecycleRequestSchema,
   GetTurnDiffRequestSchema,
   GetTurnDiffResponseSchema,
+  InterruptTurnRequestSchema,
+  InterruptTurnResponseSchema,
+  CompactTurnRequestSchema,
+  CompactTurnResponseSchema,
   ReplayLifecycleEventsRequestSchema,
   ReplayLifecycleEventsResponseSchema,
   StartTurnRequestSchema,
   StartTurnResponseSchema,
   SubmitLifecycleApprovalRequestSchema,
   SubmitUserInputResponseRequestSchema,
-  type AttachLifecycleStreamRequest,
   type FollowLifecycleRequest,
   type GetTurnDiffRequest,
   type GetTurnDiffResponse,
+  type InterruptTurnRequest,
+  type InterruptTurnResponse,
+  type CompactTurnRequest,
+  type CompactTurnResponse,
   type ReplayLifecycleEventsRequest,
   type ReplayLifecycleEventsResponse,
   type StartTurnRequest,
@@ -57,7 +94,6 @@ export {
   type SubmitUserInputResponseRequest,
 } from "./platform/lifecycle-types.js";
 export {
-  AttachRunStreamRequestSchema,
   CreateRunRequestSchema,
   CreateThreadRequestSchema,
   ListArtifactsRequestSchema,
@@ -66,9 +102,7 @@ export {
   ListThreadsResponseSchema,
   ReplayRunEventsRequestSchema,
   ReplayRunEventsResponseSchema,
-  StreamRetryPolicySchema,
   SubmitApprovalRequestSchema,
-  type AttachRunStreamRequest,
   type CreateRunRequest,
   type CreateThreadRequest,
   type ListArtifactsRequest,
@@ -81,7 +115,6 @@ export {
   type ReplayRunEventsRequest,
   type ReplayRunEventsResponse,
   type SubmitApprovalRequest,
-  type StreamRetryPolicy,
 } from "./platform/types.js";
 export {
   ProviderClient,
@@ -151,3 +184,22 @@ export {
   type BYOKResolveRequest,
   type ProviderRegistryEntry,
 } from "./providers/types.js";
+export {
+  createTurnWorkflowProjection,
+  applyLifecycleEvent,
+  replayTurnWorkflowProjection,
+  workflowPhaseLabel,
+  type TurnWorkflowProjection,
+  type WorkflowItem,
+  type WorkflowTerminal,
+  type WorkflowTerminalState,
+  type WorkflowPhase,
+  type WorkflowItemKind,
+  type WorkflowItemStatus,
+  type WorkflowApproval,
+} from "./workflow/turn-workflow-projection.js";
+export {
+  groupToolActivity,
+  buildSegmentTitle,
+  type ToolActivitySegment,
+} from "./workflow/tool-activity-grouping.js";

@@ -1,10 +1,19 @@
 import type {
+  DiffContent,
+  EditArtifactIdentity,
   FileStatus,
   PromptArtifactReviewSource,
 } from "@repo/shared-types";
 
-export type ReviewSourceKind = "live_git" | "prompt_artifact";
-export type ReviewScope = "git-changes" | "prompt-artifact";
+export interface CanonicalTurnReviewSource {
+  readonly turnId: string;
+  readonly files: FileStatus[];
+  readonly loadFileDiff: (file: FileStatus) => Promise<DiffContent>;
+  readonly error: string | null;
+}
+
+export type ReviewSourceKind = "live_git" | "prompt_artifact" | "turn_diff";
+export type ReviewScope = "git-changes" | "prompt-artifact" | "turn-diff";
 
 export const REVIEW_SOURCE_LABELS: Record<
   ReviewSourceKind,
@@ -15,6 +24,10 @@ export const REVIEW_SOURCE_LABELS: Record<
     badge: "Git changes",
   },
   prompt_artifact: {
+    scope: "Last turn changes",
+    badge: "Last turn",
+  },
+  turn_diff: {
     scope: "Last turn changes",
     badge: "Last turn",
   },
@@ -30,13 +43,20 @@ export type ReviewSourceSelection =
       kind: "prompt_artifact";
       artifactId: string;
       assistantMessageId?: string;
+      identity?: EditArtifactIdentity;
       /** Tracks whether a saved edit was explicitly requested or opened from chat. */
       reason: "explicit" | "chat_artifact";
+    }
+  | {
+      kind: "turn_diff";
+      turnId: string;
+      reason: "canonical_terminal";
     };
 
 export interface OpenedReviewArtifact {
   artifactId: string;
   assistantMessageId?: string;
+  identity?: EditArtifactIdentity;
 }
 
 interface ResolveReviewSourceInput {
@@ -44,6 +64,7 @@ interface ResolveReviewSourceInput {
   openedArtifact: OpenedReviewArtifact | null;
   liveGitFiles: FileStatus[];
   latestArtifactSource: PromptArtifactReviewSource | null;
+  canonicalTurnReview?: CanonicalTurnReviewSource | null;
 }
 
 export function resolveReviewSource(
@@ -57,11 +78,20 @@ export function resolveReviewSource(
     return resolveExplicitSavedEdit(input);
   }
 
+  if (input.canonicalTurnReview) {
+    return {
+      kind: "turn_diff",
+      turnId: input.canonicalTurnReview.turnId,
+      reason: "canonical_terminal",
+    };
+  }
+
   if (input.openedArtifact) {
     return {
       kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
       assistantMessageId: input.openedArtifact.assistantMessageId,
+      identity: input.openedArtifact.identity,
       reason: "chat_artifact",
     };
   }
@@ -81,6 +111,7 @@ function resolveExplicitSavedEdit(
       kind: "prompt_artifact",
       artifactId: input.openedArtifact.artifactId,
       assistantMessageId: input.openedArtifact.assistantMessageId,
+      identity: input.openedArtifact.identity,
       reason: "explicit",
     };
   }
@@ -100,6 +131,12 @@ function toSavedEditSelection(
     kind: "prompt_artifact",
     artifactId: source.artifactId,
     assistantMessageId: source.assistantMessageId,
+    identity: {
+      threadId: source.threadId,
+      turnId: source.turnId,
+      runAttemptId: source.runAttemptId,
+      workspaceId: source.workspaceId,
+    },
     reason,
   };
 }

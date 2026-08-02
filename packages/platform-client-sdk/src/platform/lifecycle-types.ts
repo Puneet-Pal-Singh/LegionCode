@@ -3,6 +3,7 @@ import {
   ApprovalDecisionSchema,
   ApprovalIdSchema,
   EventSequenceSchema,
+  InterruptTurnRequestSchema,
   JsonRecordSchema,
   LifecycleEventSchema,
   ModelIdSchema,
@@ -10,6 +11,7 @@ import {
   ProviderIdSchema,
   RunModeSchema,
   RunSchema,
+  RunIdSchema,
   ThreadIdSchema,
   TurnDiffPayloadSchema,
   TurnIdSchema,
@@ -17,6 +19,10 @@ import {
   UserIdSchema,
   WorkerIdSchema,
   WorkspaceIdSchema,
+  CompactTurnRequestSchema,
+  CompactTurnResponseSchema,
+  type CompactTurnRequest,
+  type CompactTurnResponse,
   type EventSequence,
   type LifecycleEvent,
   type Run,
@@ -74,16 +80,6 @@ export interface ReplayLifecycleEventsResponse {
   readonly nextSequence: EventSequence | null;
 }
 
-export const AttachLifecycleStreamRequestSchema = z
-  .object({
-    turnId: TurnIdSchema,
-    afterSequence: EventSequenceSchema.nullable().optional(),
-  })
-  .strict();
-export type AttachLifecycleStreamRequest = z.infer<
-  typeof AttachLifecycleStreamRequestSchema
->;
-
 export const FollowLifecycleRequestSchema =
   ReplayLifecycleEventsRequestSchema.omit({ limit: true })
     .extend({
@@ -131,6 +127,9 @@ export const GetTurnDiffRequestSchema = z
   .strict();
 export type GetTurnDiffRequest = z.infer<typeof GetTurnDiffRequestSchema>;
 
+export { CompactTurnRequestSchema, CompactTurnResponseSchema };
+export type { CompactTurnRequest, CompactTurnResponse };
+
 export const GetTurnDiffResponseSchema = z
   .object({
     diff: TurnDiffPayloadSchema.nullable(),
@@ -139,3 +138,21 @@ export const GetTurnDiffResponseSchema = z
 export interface GetTurnDiffResponse {
   readonly diff: TurnDiffPayload | null;
 }
+
+import {
+  InterruptTurnIdentitySchema,
+  type InterruptTurnIdentity,
+} from "@repo/platform-protocol";
+
+export { InterruptTurnIdentitySchema, type InterruptTurnIdentity };
+
+export { InterruptTurnRequestSchema };
+export type { InterruptTurnRequest } from "@repo/platform-protocol";
+
+export const InterruptTurnResponseSchema = z.object({
+  runId: RunIdSchema,
+  accepted: z.boolean(),
+  status: z.enum(["interrupt_requested", "settled"]).nullable(),
+  terminalEvent: LifecycleEventSchema.nullable().optional(),
+}).strict();
+export type InterruptTurnResponse = z.infer<typeof InterruptTurnResponseSchema>;

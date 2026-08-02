@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LifecycleToolDisplaySchema } from "./lifecycle.js";
 import {
   BranchIdSchema,
   EventSequenceSchema,
@@ -31,11 +32,15 @@ export type ThreadStatus = z.infer<typeof ThreadStatusSchema>;
 
 export const ThreadTitleSourceSchema = z.enum([
   "user",
+  "preview",
   "generated",
   "imported",
   "none",
 ]);
 export type ThreadTitleSource = z.infer<typeof ThreadTitleSourceSchema>;
+
+export const ThreadTitleStatusSchema = z.enum(["pending", "ready", "failed"]);
+export type ThreadTitleStatus = z.infer<typeof ThreadTitleStatusSchema>;
 
 export const RunStatusSchema = z.enum([
   "queued",
@@ -119,6 +124,9 @@ export const ThreadSchema = z
     workspaceId: WorkspaceIdSchema,
     title: z.string().min(1).max(300),
     titleSource: ThreadTitleSourceSchema,
+    titleVersion: z.number().int().positive().default(1),
+    titleStatus: ThreadTitleStatusSchema.default("ready"),
+    lastTerminalTurnId: TurnIdSchema.nullable().default(null),
     status: ThreadStatusSchema,
     pinnedAt: ProtocolTimestampSchema.nullable(),
     archivedAt: ProtocolTimestampSchema.nullable(),
@@ -173,6 +181,7 @@ export const ToolCallItemContentSchema = z
     toolCallId: ToolCallIdSchema,
     toolName: z.string().min(1).max(160),
     input: JsonRecordSchema,
+    display: LifecycleToolDisplaySchema.optional(),
   })
   .strict();
 export type ToolCallItemContent = z.infer<

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Sandbox } from "@cloudflare/sandbox";
 import { RustPlugin } from "./RustPlugin";
+import type { PluginExecutionContext } from "../interfaces/types";
 
 interface ExecResult {
   exitCode: number;
@@ -55,6 +56,19 @@ function asSandbox(mock: SandboxMock): Sandbox {
   return mock as unknown as Sandbox;
 }
 
+function testExecutionContext(runId: string): PluginExecutionContext {
+  return {
+    workspaceScope: {
+      runId,
+      workspaceId: "workspace-test",
+      threadId: "thread-test",
+      turnId: "turn-test",
+      runAttemptId: "attempt-test",
+      root: `/home/sandbox/checkouts/${runId}`,
+    },
+  };
+}
+
 describe("RustPlugin", () => {
   it("runs compile and execution steps from the run-scoped workspace", async () => {
     const plugin = new RustPlugin();
@@ -71,19 +85,19 @@ describe("RustPlugin", () => {
         callId: "task-rust-1",
         toolName: "rust.execute",
       },
-    } as { code: string });
+    } as { code: string }, undefined, testExecutionContext("run_rust_1"));
 
     expect(result.success).toBe(true);
     expect(sandbox.writeFileCalls[0]?.fileName).toBe(
-      "/home/sandbox/runs/run_rust_1/main.rs",
+      "/home/sandbox/checkouts/run_rust_1/main.rs",
     );
     expect(sandbox.execCalls[1]).toBe("'rustc' 'main.rs' '-o' 'main_bin'");
     expect(sandbox.execOptions[1]?.cwd).toBe(
-      "/home/sandbox/runs/run_rust_1",
+      "/home/sandbox/checkouts/run_rust_1",
     );
     expect(sandbox.execCalls[2]).toBe("'./main_bin'");
     expect(sandbox.execOptions[2]?.cwd).toBe(
-      "/home/sandbox/runs/run_rust_1",
+      "/home/sandbox/checkouts/run_rust_1",
     );
   });
 });

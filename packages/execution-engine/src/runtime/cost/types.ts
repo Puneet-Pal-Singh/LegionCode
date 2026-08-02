@@ -22,6 +22,8 @@ export interface LLMUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
   cost?: number;
   raw?: unknown;
 }

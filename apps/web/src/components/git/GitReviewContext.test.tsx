@@ -367,6 +367,66 @@ describe("GitReviewProvider", () => {
       expect.objectContaining({ enabled: false }),
     );
   });
+
+  it("does not load review data when passive review reads are disabled", () => {
+    mockGitStatusState.status = buildGitStatus([]);
+
+    render(
+      <GitReviewProvider
+        isReviewOpen
+        isReviewDataEnabled={false}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(latestArtifactHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+    expect(mockFetchArtifactDiff).not.toHaveBeenCalled();
+  });
+
+  it("loads an already-present canonical turn diff without enabling passive Git reads", async () => {
+    const loadFileDiff = vi.fn(async () => ({
+      oldPath: "src/app.ts",
+      newPath: "src/app.ts",
+      hunks: [],
+      isBinary: false,
+      isNewFile: false,
+      isDeleted: false,
+    }));
+
+    render(
+      <GitReviewProvider
+        isReviewOpen={false}
+        isReviewDataEnabled={false}
+        canonicalTurnReview={{
+          turnId: "trn_review001",
+          files: [buildFileStatus("src/app.ts")],
+          loadFileDiff,
+          error: null,
+        }}
+        onReviewOpenChange={vi.fn()}
+      >
+        <ReviewSourceProbe />
+      </GitReviewProvider>,
+    );
+
+    await waitFor(() => {
+      expect(loadFileDiff).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "src/app.ts" }),
+      );
+    });
+    expect(latestGitStatusHookInput()).toEqual(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(mockFetchLiveDiff).not.toHaveBeenCalled();
+  });
 });
 
 function ReviewCommentSelectionProbe() {
@@ -519,6 +579,9 @@ function buildArtifactSource(): PromptArtifactReviewSource {
     runId: "run-1",
     sessionId: "session-1",
     workspaceId: "workspace-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runAttemptId: "attempt-1",
     assistantMessageId: "assistant-1",
     status: "stored",
     files: [

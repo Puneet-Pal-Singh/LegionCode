@@ -10,6 +10,8 @@ import type {
   StreamChunk,
 } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import { normalizeProviderGenerationError } from "./ProviderGenerationError";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 
 export interface OpenAICompatibleConfig {
   apiKey: string;
@@ -54,6 +56,7 @@ export async function* streamGenerationHelper(
         yield {
           type: "tool-call",
           toolCall: {
+            toolCallId: readToolCallId(chunk),
             toolName: chunk.toolName,
             args: chunk.args,
           },
@@ -92,6 +95,7 @@ export async function* streamGenerationHelper(
     finishReason: finishReason ?? finalFinishReason,
     toolCalls: finalToolCalls?.map(
       (tc: { toolName: string; args: unknown }) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       }),
@@ -129,13 +133,24 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
   async generate(params: GenerationParams): Promise<GenerationResult> {
     const model = params.model ?? this.defaultModel;
 
-    const result = await generateText({
-      model: this.client(model),
-      messages: params.messages,
-      system: params.system,
-      tools: params.tools,
-      temperature: params.temperature,
-    });
+    let result: Awaited<ReturnType<typeof generateText>>;
+    try {
+      result = await generateText({
+        model: this.client(model),
+        messages: params.messages,
+        system: params.system,
+        tools: params.tools,
+        temperature: params.temperature,
+        abortSignal: params.signal,
+        maxRetries: PROVIDER_SDK_MAX_RETRIES,
+      });
+    } catch (error) {
+      throw normalizeProviderGenerationError({
+        error,
+        providerId: this.provider,
+        modelId: model,
+      });
+    }
 
     const usage = this.standardizeUsage(result.usage, model);
 
@@ -144,6 +159,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       usage,
       finishReason: result.finishReason,
       toolCalls: result.toolCalls?.map((tc) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       })),
@@ -161,6 +177,8 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     const standardizeUsageCb = (usage: {
@@ -186,6 +204,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
           yield {
             type: "tool-call",
             toolCall: {
+              toolCallId: readToolCallId(chunk),
               toolName: chunk.toolName,
               args: chunk.args,
             },
@@ -224,6 +243,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       finishReason: finishReason ?? finalFinishReason,
       toolCalls: finalToolCalls?.map(
         (tc: { toolName: string; args: unknown }) => ({
+          toolCallId: readToolCallId(tc),
           toolName: tc.toolName,
           args: tc.args,
         }),
@@ -235,4 +255,18 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
     usage: { promptTokens: number; completionTokens: number },
     model: string,
   ): LLMUsage;
+}
+
+function readToolCallId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as { toolCallId?: unknown; id?: unknown };
+  if (typeof record.toolCallId === "string" && record.toolCallId.trim()) {
+    return record.toolCallId.trim();
+  }
+  if (typeof record.id === "string" && record.id.trim()) {
+    return record.id.trim();
+  }
+  return undefined;
 }

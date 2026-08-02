@@ -14,18 +14,21 @@ export const FileSystemTools: ToolDefinition[] = [
   },
   {
     name: "read_file",
-    description: "Read a capped text window from a file.",
+    description:
+      "Read a capped, line-numbered text window from a file. Use offset/limit to continue from the nextOffset reported in truncated results.",
     parameters: {
       type: "object",
       properties: {
         path: { type: "string", description: "Path to the file" },
         offset: {
           type: "number",
-          description: "Zero-based line offset (default: 0)",
+          description:
+            "Zero-based line offset. Use the previous read_file result's nextOffset to continue.",
         },
         limit: {
           type: "number",
-          description: "Maximum lines to return",
+          description:
+            "Maximum lines to return. Defaults to 200 and is capped at 1000.",
         },
       },
       required: ["path"],

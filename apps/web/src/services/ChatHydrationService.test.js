@@ -1,8 +1,27 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { _resetEndpointCache } from "../lib/platform-endpoints";
 import { ChatHydrationService } from "./ChatHydrationService";
+import { createConversationScope } from "../hooks/conversationScope";
+
+function scopeFor(sessionId, runId) {
+  return createConversationScope({
+    workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+    threadId: `thr_${sessionId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    turnId: `trn_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    runAttemptId: `attempt_${runId.replace(/[^A-Za-z0-9]/g, "")}001`,
+    sessionId,
+    runId,
+  });
+}
 
 describe("ChatHydrationService", () => {
+  beforeEach(() => {
+    _resetEndpointCache();
+    vi.stubEnv("VITE_BRAIN_BASE_URL", "http://localhost:8787");
+  });
+
   afterEach(() => {
+    _resetEndpointCache();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -33,7 +52,7 @@ describe("ChatHydrationService", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const service = new ChatHydrationService("http://localhost:8787");
-    const result = await service.hydrateMessages(sessionId, runId);
+    const result = await service.hydrateMessages(scopeFor(sessionId, runId));
 
     expect(result.error).toBeUndefined();
     expect(result.messages).toHaveLength(2);
@@ -66,8 +85,10 @@ describe("ChatHydrationService", () => {
 
     const service = new ChatHydrationService("http://localhost:8787");
     const result = await service.hydrateMessages(
-      "agent-session-legacy",
-      "123e4567-e89b-42d3-a456-426614174001",
+      scopeFor(
+        "agent-session-legacy",
+        "123e4567-e89b-42d3-a456-426614174001",
+      ),
     );
 
     expect(result.messages).toHaveLength(0);
@@ -75,15 +96,19 @@ describe("ChatHydrationService", () => {
   });
 
   it("returns a hydration error for invalid history response shape", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ invalid: true }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ invalid: true }), { status: 200 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const service = new ChatHydrationService("http://localhost:8787");
     const result = await service.hydrateMessages(
-      "agent-session-invalid",
-      "123e4567-e89b-42d3-a456-426614174002",
+      scopeFor(
+        "agent-session-invalid",
+        "123e4567-e89b-42d3-a456-426614174002",
+      ),
     );
 
     expect(result.messages).toHaveLength(0);

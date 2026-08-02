@@ -71,6 +71,7 @@ export interface ModelPickerPopoverProps {
   onLoadMoreSelectedProviderModels?: (
     providerId: string,
   ) => Promise<ProviderModelOption[]>;
+  onEnsureSelectedProviderModels?: (providerId: string) => Promise<unknown>;
   onRefreshSelectedProviderModels?: (providerId: string) => Promise<void>;
   onConnectProvider: () => void;
   onManageModels: () => void;
@@ -257,6 +258,7 @@ export function ModelPickerPopover({
   onSelectModel,
   onSelectModelView,
   onLoadMoreSelectedProviderModels,
+  onEnsureSelectedProviderModels,
   onRefreshSelectedProviderModels,
   onConnectProvider,
   onManageModels,
@@ -462,7 +464,7 @@ export function ModelPickerPopover({
   };
 
   const handleLoadMore = async (): Promise<void> => {
-    const providerId = effectiveSelection.providerId ?? selectedProviderId;
+    const providerId = selectedProviderId ?? effectiveSelection.providerId;
     if (!providerId || !onLoadMoreSelectedProviderModels) {
       return;
     }
@@ -477,7 +479,7 @@ export function ModelPickerPopover({
   };
 
   const handleRefresh = async (): Promise<void> => {
-    const providerId = effectiveSelection.providerId ?? selectedProviderId;
+    const providerId = selectedProviderId ?? effectiveSelection.providerId;
     if (!providerId || !onRefreshSelectedProviderModels) {
       return;
     }
@@ -500,6 +502,28 @@ export function ModelPickerPopover({
     (isLoadingMoreSelectedProviderModels ||
       isRefreshingSelectedProviderModels ||
       isHydratingVisibleModels);
+
+  useEffect(() => {
+    if (!isOpen || !onEnsureSelectedProviderModels) {
+      return;
+    }
+    const providerId = selectedProviderId ?? effectiveSelection.providerId;
+    if (!providerId || providerModels[providerId]) {
+      return;
+    }
+    void onEnsureSelectedProviderModels(providerId).catch((error) => {
+      console.error(
+        "[model-picker/load-selected] Failed to load selected provider models:",
+        error,
+      );
+    });
+  }, [
+    effectiveSelection.providerId,
+    isOpen,
+    onEnsureSelectedProviderModels,
+    providerModels,
+    selectedProviderId,
+  ]);
 
   // Close on outside click
   useEffect(() => {

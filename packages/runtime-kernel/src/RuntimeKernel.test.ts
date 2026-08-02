@@ -9,7 +9,11 @@ import {
   RuntimeKernelError,
   RuntimeLifecycleSettlementError,
 } from "./errors.js";
-import type { RuntimeLifecycleEventStore } from "./ports.js";
+import type {
+  RuntimeHookOrchestrationPort,
+  ContextCompactionPort,
+  RuntimeLifecycleEventStore,
+} from "./ports.js";
 import { RuntimeKernel } from "./RuntimeKernel.js";
 import {
   MemoryLifecycleEventSink,
@@ -27,6 +31,56 @@ import {
 } from "./test-fixtures.js";
 
 describe("RuntimeKernel canonical lifecycle", () => {
+  it("runs distinct session and prompt hooks through the canonical audit appender before the provider", async () => {
+    const sink = createLifecycleSink();
+    const order: string[] = [];
+    const triggerIds: string[] = [];
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      order.push("provider");
+      return {
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      };
+    });
+    const hooks: RuntimeHookOrchestrationPort = {
+      async runSessionStart(input): Promise<void> {
+        order.push("session");
+        triggerIds.push(input.triggerEventId);
+        await input.auditAppender.appendHookAudit(
+          "hook.invocation.started",
+          { eventName: "SessionStart" },
+        );
+      },
+      async runUserPromptSubmit(input): Promise<void> {
+        order.push("prompt");
+        triggerIds.push(input.triggerEventId);
+        await input.auditAppender.appendHookAudit(
+          "hook.invocation.completed",
+          { eventName: "UserPromptSubmit" },
+        );
+      },
+    };
+    const kernel = await createKernel(sink, ports, createArtifactPorts(), hooks);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(order).toEqual(["session", "prompt", "provider"]);
+    expect(triggerIds).toEqual([
+      sink.events.find((event) => event.type === "turn.started")?.eventId,
+      sink.events.find((event) => event.type === "run_attempt.started")?.eventId,
+    ]);
+    expect(eventTypes(sink).slice(0, 6)).toEqual([
+      "turn.queued",
+      "turn.started",
+      "run_attempt.started",
+      "workspace.snapshot_captured",
+      "hook.invocation.started",
+      "hook.invocation.completed",
+    ]);
+  });
+
   it("settles a provider-only turn exactly once with the terminal event last", async () => {
     const sink = createLifecycleSink();
     const kernel = await createKernel(sink);
@@ -46,6 +100,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "run_attempt.started",
       "workspace.snapshot_captured",
       "workspace.snapshot_captured",
+      "turn.diff_updated",
       "artifact.created",
       "item.started",
       "assistant_message.delta",
@@ -56,6 +111,65 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(terminalEvents(sink)).toHaveLength(1);
   });
 
+  it("automatically compacts once at the model-aware threshold and replays its settlement", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.contextAssembly.assemble = vi.fn(async () => ({
+      instructions: "Implement the requested change",
+      metadata: {},
+      budgetSnapshot: {
+        providerId: "openai",
+        modelId: "gpt-5",
+        contextWindowLimit: 100,
+        systemTokens: 10,
+        conversationTokens: 55,
+        toolDefinitionTokens: 5,
+        attachmentTokens: null,
+        repositoryContextTokens: null,
+        reservedOutputTokens: 20,
+        safetyReserveTokens: 10,
+        effectiveInputBudget: 70,
+        tokensUsed: 65,
+        tokensRemaining: 5,
+        utilizationPercent: 92.85,
+        warningThresholdPercent: 70,
+        automaticCompactionThresholdPercent: 80,
+        measurementSource: "tokenizer" as const,
+      },
+    }));
+    const compaction: ContextCompactionPort = {
+      compact: vi.fn(async ({ context }) => ({
+        context: {
+          ...context,
+          budgetSnapshot: {
+            ...context.budgetSnapshot!,
+            tokensUsed: 10,
+            tokensRemaining: 60,
+            utilizationPercent: 14.28,
+          },
+        },
+        preservedContextReference: "context:trn_runtime001:compacted",
+        summary: "Preserved request and tool outcomes.",
+      })),
+    };
+    const kernel = await createKernel(
+      sink,
+      ports,
+      createArtifactPorts(),
+      undefined,
+      compaction,
+    );
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(compaction.compact).toHaveBeenCalledTimes(1);
+    expect(eventTypes(sink)).toContain("context_compaction.requested");
+    expect(eventTypes(sink)).toContain("context_compaction.completed");
+    expect(
+      eventTypes(sink).filter((type) => type === "context_compaction.completed"),
+    ).toHaveLength(1);
+  });
+
   it("settles failed tool work before the explicit failed turn outcome", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
@@ -63,6 +177,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     ports.worker.executeTool = vi.fn(async () => ({
       kind: "failed" as const,
       failure: protocolFailure("Write failed"),
+      disposition: "terminal" as const,
     }));
     const kernel = await createKernel(sink, ports);
 
@@ -72,15 +187,150 @@ describe("RuntimeKernel canonical lifecycle", () => {
       code: "worker_failed",
     });
 
-    expect(eventTypes(sink).slice(-6)).toEqual([
+    expect(eventTypes(sink).slice(-7)).toEqual([
       "tool_call.failed",
       "item.failed",
       "workspace.snapshot_captured",
+      "turn.diff_updated",
       "artifact.created",
       "run_attempt.failed",
       "turn.failed",
     ]);
     expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("persists one terminal sandbox infrastructure failure without provider relabeling", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => toolStep());
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "failed" as const,
+      disposition: "terminal" as const,
+      failure: {
+        code: "worker_unavailable" as const,
+        message: "Sandbox container became unavailable during execution",
+        retryable: true,
+        correlationId: "secure-correlation-1",
+        details: {
+          secureStatus: "sandbox_unavailable",
+          secureCode: "SANDBOX_UNAVAILABLE",
+          taskId: "secure-task-1",
+          leaseId: "lease-1",
+        },
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({ code: "worker_failed" });
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)).toMatchObject({
+      type: "turn.failed",
+      payload: {
+        outcome: {
+          failure: {
+            code: "worker_unavailable",
+            retryable: true,
+            correlationId: "secure-correlation-1",
+            details: {
+              secureStatus: "sandbox_unavailable",
+              secureCode: "SANDBOX_UNAVAILABLE",
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(sink.events)).not.toContain("provider_unavailable");
+  });
+
+  it("returns a recoverable tool failure to the provider loop before completing", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockImplementationOnce(async ({ toolResults }) => {
+        expect(toolResults).toEqual([
+          expect.objectContaining({
+            toolCallId: ToolCallIdSchema.parse("toolcall_runtime001"),
+            failure: expect.objectContaining({
+              code: "not_found",
+              message: "README.missing was not found",
+            }),
+          }),
+        ]);
+        return {
+          kind: "complete" as const,
+          itemId: finalItemId,
+          output: "I could not read that path, but the turn continued.",
+        };
+      });
+    ports.worker.executeTool = vi.fn(async () => ({
+      kind: "failed" as const,
+      disposition: "recoverable" as const,
+      failure: {
+        code: "not_found" as const,
+        message: "README.missing was not found",
+        retryable: false,
+        correlationId: null,
+        details: null,
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      output: "I could not read that path, but the turn continued.",
+      toolCallCount: 1,
+    });
+
+    expect(eventTypes(sink)).toContain("tool_call.failed");
+    expect(eventTypes(sink)).toContain("item.failed");
+    expect(sink.events.at(-1)?.type).toBe("turn.completed");
+    expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("starts tool lifecycle with the canonical display enriched by authorization", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete" as const,
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "authorized" as const,
+      toolCall: {
+        ...toolCall,
+        display: {
+          title: "Edit file",
+          family: "edit" as const,
+          namespace: "write_file",
+          inputSummary: "src/index.ts",
+        },
+      },
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(
+      sink.events.find((event) => event.type === "tool_call.started")?.payload,
+    ).toEqual({
+      display: {
+        title: "Edit file",
+        family: "edit",
+        namespace: "write_file",
+        inputSummary: "src/index.ts",
+      },
+    });
   });
 
   it("emits approval lifecycle events before policy-gated execution", async () => {
@@ -114,6 +364,51 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(sink.events.at(-1)?.type).toBe("turn.completed");
   });
 
+  it("settles an externally delivered approval once and resumes the waiting turn", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi
+      .fn()
+      .mockResolvedValueOnce(toolStep())
+      .mockResolvedValueOnce({
+        kind: "complete",
+        itemId: finalItemId,
+        output: "Done",
+      });
+    ports.toolAuthorization.authorize = vi.fn(async ({ toolCall }) => ({
+      status: "approval_required" as const,
+      toolCall,
+      request: approvalRequest,
+    }));
+    ports.approvals.waitForDecision = vi.fn(
+      () => new Promise(() => undefined),
+    );
+    const kernel = await createKernel(sink, ports);
+
+    const execution = kernel.startTurn({ run, turn, runAttemptId });
+    await vi.waitFor(() => {
+      expect(eventTypes(sink)).toContain("approval.requested");
+    });
+
+    await kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+      decision: "approved",
+      decidedBy: run.userId,
+      reason: null,
+    });
+
+    await expect(execution).resolves.toMatchObject({ status: "completed" });
+    expect(
+      eventTypes(sink).filter((type) => type === "approval.decided"),
+    ).toHaveLength(1);
+    await expect(
+      kernel.resolveApproval(turn.id, approvalRequest.approvalId, {
+        decision: "approved",
+        decidedBy: run.userId,
+        reason: null,
+      }),
+    ).rejects.toMatchObject({ code: "turn_not_active" });
+  });
+
   it("settles typed policy denial without calling the worker", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();
@@ -132,10 +427,11 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
 
     expect(ports.worker.executeTool).not.toHaveBeenCalled();
-    expect(eventTypes(sink).slice(-6)).toEqual([
+    expect(eventTypes(sink).slice(-7)).toEqual([
       "tool_call.failed",
       "item.failed",
       "workspace.snapshot_captured",
+      "turn.diff_updated",
       "artifact.created",
       "run_attempt.failed",
       "turn.failed",
@@ -232,7 +528,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
     await (await createKernel(sink)).startTurn({ run, turn, runAttemptId });
 
     expect(terminalEvents(sink)).toHaveLength(1);
-    expect(sink.events).toHaveLength(11);
+    expect(sink.events).toHaveLength(12);
   });
 
   it("settles provider disconnect as failure rather than completion", async () => {
@@ -248,7 +544,58 @@ describe("RuntimeKernel canonical lifecycle", () => {
     );
 
     expect(sink.events.at(-1)?.type).toBe("turn.failed");
+    expect(terminalEvents(sink)).toHaveLength(1);
     expect(eventTypes(sink)).not.toContain("turn.completed");
+  });
+
+  it("settles provider timeout as one failed terminal outcome", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new Error("provider timed out");
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "provider timed out",
+    );
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)?.type).toBe("turn.failed");
+  });
+
+  it("settles typed cancellation as one interrupted terminal outcome", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new RuntimeKernelError("turn_cancelled", "Run cancelled by user");
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).rejects.toMatchObject({
+      code: "turn_cancelled",
+    });
+
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)?.type).toBe("turn.interrupted");
+  });
+
+  it("settles a stop queued before kernel execution through the canonical lifecycle", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    const kernel = await createKernel(sink, ports);
+
+    kernel.requestInterruptBeforeStart(turn.id, "User stopped before execution");
+    await kernel.startTurn({ run, turn, runAttemptId });
+
+    expect(ports.provider.generateNext).not.toHaveBeenCalled();
+    expect(terminalEvents(sink)).toHaveLength(1);
+    expect(sink.events.at(-1)).toMatchObject({
+      type: "turn.interrupted",
+      payload: { outcome: { status: "interrupted", reason: "User stopped before execution" } },
+    });
   });
 
   it("interrupts active tool work and rejects its later completion write", async () => {
@@ -375,12 +722,16 @@ async function createKernel(
   lifecycleEvents: RuntimeLifecycleEventStore,
   ports = createPorts(),
   artifactPorts = createArtifactPorts(),
+  hooks?: RuntimeHookOrchestrationPort,
+  contextCompaction?: ContextCompactionPort,
 ): Promise<RuntimeKernel> {
   return new RuntimeKernel({
     lifecycleEvents,
     ...artifactPorts,
     workspaceManifests: await createManifestRepository(),
     ...ports,
+    hooks,
+    contextCompaction,
     producerId: "runtime-kernel-test",
     clock: { now: () => timestamp },
   });

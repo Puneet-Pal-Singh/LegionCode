@@ -10,6 +10,7 @@ import {
 import type { LLMGatewayDependencies } from "./LLMGateway.js";
 import type { ProviderCapabilityResolver } from "./types.js";
 import type { LLMUsage } from "../cost/index.js";
+import { projectVisibleTranscriptText } from "@repo/platform-protocol";
 
 const baseRequest = {
   context: {
@@ -95,8 +96,49 @@ describe("LLMGateway provider capabilities", () => {
 
     const response = await gateway.generateText(baseRequest);
 
-    expect(response.text).toBe("ok");
+    expect(projectVisibleTranscriptText(response.parts)).toBe("ok");
+    expect(response.usage.cost).toBe(0.01);
     expect(deps.aiService.generateText).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves provider tool call ids when the adapter supplies them", async () => {
+    const deps = createDependencies({
+      getCapabilities: () => ({
+        streaming: true,
+        tools: true,
+        structuredOutputs: true,
+        jsonMode: true,
+      }),
+      isModelAllowed: () => true,
+    });
+    deps.aiService.generateText.mockResolvedValueOnce({
+      text: "",
+      usage: {
+        provider: "openai",
+        model: "gpt-4o",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_readme",
+          toolName: "read_file",
+          args: { path: "README.md" },
+        },
+      ],
+    });
+    const gateway = new LLMGateway(deps);
+
+    const response = await gateway.generateText(baseRequest);
+
+    expect(response.toolCalls).toEqual([
+      {
+        id: "call_readme",
+        toolName: "read_file",
+        args: { path: "README.md" },
+      },
+    ]);
   });
 
   it("uses explicit providerId when estimating usage for preflight", async () => {
@@ -486,6 +528,7 @@ describe("LLMGateway provider capabilities", () => {
 
   it("uses the standard task timeout for standard-latency models", async () => {
     vi.useFakeTimers();
+    const timeoutLog = captureExpectedTimeoutLog();
     try {
       const deps = createDependencies({
         getCapabilities: () => ({
@@ -518,13 +561,21 @@ describe("LLMGateway provider capabilities", () => {
         operation: "text",
       });
       await rejection;
+      expect(timeoutLog).toHaveBeenCalledWith(
+        expect.stringContaining("[llm/gateway/text-timeout]"),
+      );
+      expect(timeoutLog).toHaveBeenCalledWith(
+        expect.stringContaining("timeoutMs=90000"),
+      );
     } finally {
+      timeoutLog.mockRestore();
       vi.useRealTimers();
     }
   });
 
   it("uses the fast task timeout for fast-latency models", async () => {
     vi.useFakeTimers();
+    const timeoutLog = captureExpectedTimeoutLog();
     try {
       const deps = createDependencies({
         getCapabilities: () => ({
@@ -557,13 +608,18 @@ describe("LLMGateway provider capabilities", () => {
       });
       await vi.advanceTimersByTimeAsync(60_000);
       await rejection;
+      expect(timeoutLog).toHaveBeenCalledWith(
+        expect.stringContaining("timeoutMs=60000"),
+      );
     } finally {
+      timeoutLog.mockRestore();
       vi.useRealTimers();
     }
   });
 
   it("clamps explicit task timeout overrides to the hard maximum", async () => {
     vi.useFakeTimers();
+    const timeoutLog = captureExpectedTimeoutLog();
     try {
       const deps = createDependencies({
         getCapabilities: () => ({
@@ -591,13 +647,18 @@ describe("LLMGateway provider capabilities", () => {
       });
       await vi.advanceTimersByTimeAsync(180_000);
       await rejection;
+      expect(timeoutLog).toHaveBeenCalledWith(
+        expect.stringContaining("timeoutMs=180000"),
+      );
     } finally {
+      timeoutLog.mockRestore();
       vi.useRealTimers();
     }
   });
 
   it("keeps non-task text calls on the standard default timeout", async () => {
     vi.useFakeTimers();
+    const timeoutLog = captureExpectedTimeoutLog();
     try {
       const deps = createDependencies({
         getCapabilities: () => ({
@@ -628,11 +689,19 @@ describe("LLMGateway provider capabilities", () => {
       });
       await vi.advanceTimersByTimeAsync(20_000);
       await rejection;
+      expect(timeoutLog).toHaveBeenCalledWith(
+        expect.stringContaining("phase=synthesis"),
+      );
     } finally {
+      timeoutLog.mockRestore();
       vi.useRealTimers();
     }
   });
 });
+
+function captureExpectedTimeoutLog() {
+  return vi.spyOn(console, "error").mockImplementation(() => undefined);
+}
 
 function createDependencies(
   resolver: ProviderCapabilityResolver,

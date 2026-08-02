@@ -1,5 +1,8 @@
 import type {
+  EventId,
   ItemId,
+  JsonRecord,
+  LifecycleEventType,
   Run,
   RunAttemptId,
   ToolCallItemContent,
@@ -18,11 +21,29 @@ import type {
   WorkerToolResult,
 } from "./types.js";
 
+export type ContextCompactionMode = "automatic" | "manual";
+
+export interface ContextCompactionPort {
+  compact(input: {
+    run: Run;
+    turn: Turn;
+    context: RuntimeContext;
+    mode: ContextCompactionMode;
+    signal?: AbortSignal;
+  }): Promise<{
+    context: RuntimeContext;
+    preservedContextReference: string;
+    summary: string;
+  }>;
+}
+
 export interface ContextAssemblyPort {
   assemble(input: {
     run: Run;
     turn: Turn;
     workspace: WorkspaceManifest;
+    toolResults?: readonly import("./types.js").ToolResult[];
+    signal?: AbortSignal;
   }): Promise<RuntimeContext>;
 }
 
@@ -46,6 +67,7 @@ export interface WorkerProtocolPort {
     workspace: WorkspaceManifest;
     toolCall: ToolCallItemContent;
     approval: ApprovalResolution | null;
+    signal?: AbortSignal;
   }): Promise<WorkerToolResult>;
 }
 
@@ -58,11 +80,47 @@ export interface ApprovalWaitPort {
       WorkerToolResult,
       { kind: "approval_required" }
     >["request"];
+    signal?: AbortSignal;
   }): Promise<ApprovalResolution>;
 }
 
 export interface RuntimeKernelClock {
   now(): string;
+}
+
+export type RuntimeHookAuditEventType = Extract<
+  LifecycleEventType,
+  | "hook.invocation.started"
+  | "hook.invocation.completed"
+  | "hook.invocation.failed"
+  | "hook.invocation.timed_out"
+  | "hook.invocation.cancelled"
+>;
+
+export interface RuntimeHookAuditAppender {
+  appendHookAudit(
+    eventType: RuntimeHookAuditEventType,
+    payload: JsonRecord,
+  ): Promise<void>;
+}
+
+export interface RuntimeHookTriggerInput {
+  readonly run: Run;
+  readonly turn: Turn;
+  readonly runAttemptId: RunAttemptId;
+  readonly workspace: WorkspaceManifest;
+  readonly triggerEventId: EventId;
+  readonly auditAppender: RuntimeHookAuditAppender;
+}
+
+/**
+ * Runtime owns trigger order and lifecycle truth. Implementations may execute
+ * handlers and append sanitized audits, but cannot settle a turn or apply an
+ * outcome.
+ */
+export interface RuntimeHookOrchestrationPort {
+  runSessionStart(input: RuntimeHookTriggerInput): Promise<void>;
+  runUserPromptSubmit(input: RuntimeHookTriggerInput): Promise<void>;
 }
 
 export type RuntimeLifecycleEventStore = LifecycleEventStore;

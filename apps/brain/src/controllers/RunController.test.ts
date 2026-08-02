@@ -26,6 +26,16 @@ vi.mock("../services/AuthService", () => ({
 
 import { RunController } from "./RunController";
 
+const INTERRUPT_PAYLOAD = {
+  runId: "run_123e4567e89b42d3a456426614174100",
+  workspaceId: "123e4567-e89b-42d3-a456-426614174111",
+  sessionId: "session-123456",
+  threadId: "thr_123456",
+  turnId: "trn_123456",
+  runAttemptId: "attempt_123456",
+  reason: "User interrupted the turn.",
+};
+
 describe("RunController", () => {
   beforeEach(() => {
     runtimeHelpers.fetchRunRuntimeRoute.mockReset();
@@ -54,12 +64,26 @@ describe("RunController", () => {
       id: "123e4567-e89b-42d3-a456-426614174100",
       status: "running",
     };
+    const canonicalEvent = {
+      version: 1,
+      eventId: "evt-1",
+      runId: run.id,
+      sessionId: "123e4567-e89b-42d3-a456-426614174200",
+      timestamp: "2026-03-24T12:00:00.000Z",
+      source: "brain",
+      type: "tool.requested",
+      payload: {
+        toolId: "tool-1",
+        toolName: "read_file",
+        arguments: { path: "README.md" },
+      },
+    };
     const event = {
       id: "evt-1",
       runId: run.id,
       sessionId: "123e4567-e89b-42d3-a456-426614174200",
       eventType: "tool.requested",
-      payload: { toolName: "read_file" },
+      payload: canonicalEvent,
       sequence: 1,
       idempotencyKey: "key-1",
       createdAt: "2026-03-24T12:00:00.000Z",
@@ -88,7 +112,7 @@ describe("RunController", () => {
     expect(listRunEvents).toHaveBeenCalledWith(run.id, "user-1");
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual([event]);
+    await expect(response.json()).resolves.toEqual([canonicalEvent]);
   });
 
   it("reconstructs run summary from Postgres steps and events", async () => {
@@ -149,6 +173,75 @@ describe("RunController", () => {
         failedStep: "npm_test",
         nextAction:
           "Review the changed files, then send the next task when ready.",
+      },
+    });
+  });
+
+  it("projects unresolved persisted approval requests into the run summary", async () => {
+    const env = {} as Env;
+    const run = {
+      id: "123e4567-e89b-42d3-a456-426614174100",
+      status: "paused",
+    };
+    const canonicalApprovalEvent = {
+      version: 1,
+      eventId: "evt-approval-requested",
+      runId: run.id,
+      sessionId: "123e4567-e89b-42d3-a456-426614174200",
+      timestamp: "2026-03-24T12:00:00.000Z",
+      source: "brain",
+      type: "approval.requested",
+      payload: {
+        request: {
+          requestId: "approval-1",
+          runId: run.id,
+          sessionId: "123e4567-e89b-42d3-a456-426614174200",
+          origin: "agent",
+          category: "shell_command",
+          title: "Approve bash",
+          reason: "Allow command action for cat package.json?",
+          command: "cat package.json",
+          actionFingerprint: "kernel:bash:cat-package",
+          availableDecisions: ["allow_once", "deny", "abort"],
+          createdAt: "2026-03-24T12:00:00.000Z",
+        },
+      },
+    };
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(run),
+        listRunEvents: vi.fn().mockResolvedValue([
+          {
+            id: canonicalApprovalEvent.eventId,
+            runId: run.id,
+            sessionId: canonicalApprovalEvent.sessionId,
+            eventType: canonicalApprovalEvent.type,
+            payload: canonicalApprovalEvent,
+            sequence: 1,
+            idempotencyKey: "approval-key-1",
+            createdAt: canonicalApprovalEvent.timestamp,
+          },
+        ]),
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
+    );
+
+    const response = await RunController.getSummary(
+      new Request(
+        "https://brain.local/api/run/summary?runId=123e4567-e89b-42d3-a456-426614174100",
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      runId: run.id,
+      status: "paused",
+      pendingApproval: {
+        requestId: "approval-1",
+        title: "Approve bash",
+        command: "cat package.json",
+        availableDecisions: ["allow_once", "deny", "abort"],
       },
     });
   });
@@ -244,76 +337,45 @@ describe("RunController", () => {
     });
   });
 
-  it("proxies the live run events stream through the brain worker route", async () => {
+  it("projects run activity snapshots from persisted canonical events", async () => {
     const env = {} as Env;
-    const runtimeResponse = new Response('{"eventId":"evt-live"}\n', {
-      status: 200,
-      headers: {
-        "Content-Type": "application/x-ndjson; charset=utf-8",
+    const run = {
+      id: "123e4567-e89b-42d3-a456-426614174101",
+      sessionId: "session-1",
+      status: "running",
+    };
+    const canonicalEvent = {
+      version: 1,
+      eventId: "evt-tool-requested",
+      runId: run.id,
+      sessionId: run.sessionId,
+      timestamp: "2026-03-24T12:00:00.000Z",
+      source: "brain",
+      type: "tool.requested",
+      payload: {
+        toolId: "tool-1",
+        toolName: "read_file",
+        arguments: { path: "README.md" },
       },
-    });
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(runtimeResponse);
-
-    const response = await RunController.getEventsStream(
-      new Request(
-        "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
-        { headers: { Origin: "http://localhost:5173" } },
-      ),
-      env,
-    );
-
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      "123e4567-e89b-42d3-a456-426614174100",
-      "execution-engine-v1",
+    };
+    const listRunEvents = vi.fn().mockResolvedValue([
       {
-        method: "GET",
-        path: "/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
-        headers: { Origin: "http://localhost:5173" },
+        id: "row-1",
+        runId: run.id,
+        sessionId: run.sessionId,
+        eventType: "tool.requested",
+        payload: canonicalEvent,
+        sequence: 1,
+        idempotencyKey: "key-1",
+        createdAt: "2026-03-24T12:00:00.000Z",
       },
-    );
-    expect(response).toBe(runtimeResponse);
-    expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toContain("evt-live");
-  });
-
-  it("proxies run activity snapshots through the brain worker route", async () => {
-    const env = {} as Env;
-    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          runId: "123e4567-e89b-42d3-a456-426614174101",
-          sessionId: "session-1",
-          status: "RUNNING",
-          items: [
-            {
-              id: "tool-1",
-              runId: "123e4567-e89b-42d3-a456-426614174101",
-              sessionId: "session-1",
-              kind: "tool",
-              createdAt: "2026-03-24T12:00:00.000Z",
-              updatedAt: "2026-03-24T12:00:01.000Z",
-              source: "brain",
-              toolId: "tool-1",
-              toolName: "read_file",
-              status: "completed",
-              metadata: {
-                family: "read",
-                count: 1,
-                truncated: false,
-                loadedPaths: ["README.md"],
-                path: "README.md",
-              },
-            },
-          ],
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      ),
+    ]);
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue(run),
+        listRunEvents,
+        listRunSteps: vi.fn().mockResolvedValue([]),
+      }),
     );
 
     const response = await RunController.getActivity(
@@ -323,15 +385,8 @@ describe("RunController", () => {
       env,
     );
 
-    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
-      env,
-      "123e4567-e89b-42d3-a456-426614174101",
-      "execution-engine-v1",
-      {
-        method: "GET",
-        path: "/activity?runId=123e4567-e89b-42d3-a456-426614174101",
-      },
-    );
+    expect(listRunEvents).toHaveBeenCalledWith(run.id, "user-1");
+    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({
       items: [{ toolName: "read_file" }],
     });
@@ -434,14 +489,14 @@ describe("RunController", () => {
     });
   });
 
-  it("rejects cancel without an authenticated session", async () => {
+  it("rejects interrupt without an authenticated session", async () => {
     authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
     const env = {} as Env;
 
-    const response = await RunController.cancel(
-      new Request("https://brain.local/api/run/cancel", {
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
         method: "POST",
-        body: JSON.stringify({ runId: "123e4567-e89b-42d3-a456-426614174100" }),
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
       }),
       env,
     );
@@ -450,7 +505,7 @@ describe("RunController", () => {
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
   });
 
-  it("rejects cancel when the run is not owned by the user", async () => {
+  it("rejects interrupt when the run is not owned by the user", async () => {
     runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
       callback({
         getRun: vi.fn().mockResolvedValue(null),
@@ -460,16 +515,57 @@ describe("RunController", () => {
     );
     const env = {} as Env;
 
-    const response = await RunController.cancel(
-      new Request("https://brain.local/api/run/cancel", {
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
         method: "POST",
-        body: JSON.stringify({ runId: "victim-run-id" }),
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
       }),
       env,
     );
 
     expect(response.status).toBe(404);
     expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
+  });
+
+  it("forwards only an authorized canonical interrupt identity to the runtime", async () => {
+    const env = {} as Env;
+    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
+      callback({
+        getRun: vi.fn().mockResolvedValue({
+          id: INTERRUPT_PAYLOAD.runId,
+          workspaceId: INTERRUPT_PAYLOAD.workspaceId,
+          sessionId: INTERRUPT_PAYLOAD.sessionId,
+        }),
+      }),
+    );
+    runtimeHelpers.fetchRunRuntimeRoute.mockResolvedValueOnce(
+      Response.json({
+        runId: INTERRUPT_PAYLOAD.runId,
+        accepted: true,
+        status: "interrupt_requested",
+      }),
+    );
+
+    const response = await RunController.interrupt(
+      new Request("https://brain.local/api/run/interrupt", {
+        method: "POST",
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
+      }),
+      env,
+    );
+
+    expect(runtimeHelpers.fetchRunRuntimeRoute).toHaveBeenCalledWith(
+      env,
+      INTERRUPT_PAYLOAD.runId,
+      "execution-engine-v1",
+      {
+        method: "POST",
+        path: "/interrupt",
+        body: JSON.stringify(INTERRUPT_PAYLOAD),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    await expect(response.json()).resolves.toMatchObject({ accepted: true });
   });
 
   it("rejects approve without an authenticated session", async () => {
@@ -511,44 +607,6 @@ describe("RunController", () => {
           decision: "allow_once",
         }),
       }),
-      env,
-    );
-
-    expect(response.status).toBe(404);
-    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
-  });
-
-  it("rejects getEventsStream without an authenticated session", async () => {
-    authHelpers.getAuthenticatedUserSession.mockResolvedValueOnce(null);
-    const env = {} as Env;
-
-    const response = await RunController.getEventsStream(
-      new Request(
-        "https://brain.local/api/run/events/stream?runId=123e4567-e89b-42d3-a456-426614174100",
-        { headers: { Origin: "http://localhost:5173" } },
-      ),
-      env,
-    );
-
-    expect(response.status).toBe(401);
-    expect(runtimeHelpers.fetchRunRuntimeRoute).not.toHaveBeenCalled();
-  });
-
-  it("rejects getEventsStream when the run is not owned by the user", async () => {
-    runtimeHelpers.withRunRepository.mockImplementationOnce((_env, callback) =>
-      callback({
-        getRun: vi.fn().mockResolvedValue(null),
-        listRunEvents: vi.fn().mockResolvedValue([]),
-        listRunSteps: vi.fn().mockResolvedValue([]),
-      }),
-    );
-    const env = {} as Env;
-
-    const response = await RunController.getEventsStream(
-      new Request(
-        "https://brain.local/api/run/events/stream?runId=victim-run-id",
-        { headers: { Origin: "http://localhost:5173" } },
-      ),
       env,
     );
 

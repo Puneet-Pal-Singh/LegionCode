@@ -120,7 +120,7 @@ export interface GitCommitResult {
 export interface GitPushInput {
   readonly workspace: GitWorkspaceContext;
   readonly remoteName: string;
-  readonly authArgs?: readonly string[];
+  readonly authEnvironment?: Readonly<Record<string, string>>;
 }
 
 export interface GitPushResult {
@@ -133,18 +133,19 @@ export interface GitPullInput {
   readonly workspace: GitFilesystemContext;
   readonly remoteName: string;
   readonly branchName?: string;
-  readonly authArgs?: readonly string[];
+  readonly authEnvironment?: Readonly<Record<string, string>>;
 }
 
 export interface GitFetchInput {
   readonly workspace: GitFilesystemContext;
   readonly remoteName: string;
-  readonly authArgs?: readonly string[];
+  readonly authEnvironment?: Readonly<Record<string, string>>;
 }
 
 export interface GitBranchInput {
   readonly workspace: GitFilesystemContext;
   readonly branchName: string;
+  readonly startPoint?: string;
 }
 
 export interface GitBranchResult {

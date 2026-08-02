@@ -1,3 +1,4 @@
+import { LifecycleTransitionError } from "@repo/platform-protocol";
 import type {
   ItemId,
   ProtocolError,
@@ -13,6 +14,7 @@ import type { ToolAuthorizationPort, WorkerProtocolPort } from "./ports.js";
 import { RuntimeLifecycleCoordinator } from "./RuntimeLifecycleCoordinator.js";
 import type {
   ApprovalResolution,
+  ToolAuthorizationResult,
   ToolResult,
   WorkerToolResult,
 } from "./types.js";
@@ -33,11 +35,22 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
+    signal?: AbortSignal,
   ): Promise<ToolResult> {
+    const authorization = await this.authorization.authorize({
+      run,
+      itemId,
+      toolCall,
+    });
+    const canonicalToolCall =
+      authorization.status === "rejected"
+        ? toolCall
+        : authorization.toolCall;
     await this.lifecycle.startToolCall(
       itemId,
-      toolCall.toolCallId,
-      toolCall.input,
+      canonicalToolCall.toolCallId,
+      canonicalToolCall.input,
+      canonicalToolCall.display,
     );
     try {
       return await this.executeAuthorizedTool(
@@ -46,9 +59,17 @@ export class ToolExecutionCoordinator {
         turn,
         workspace,
         itemId,
-        toolCall,
+        canonicalToolCall,
+        authorization,
+        signal,
       );
     } catch (error) {
+      if (
+        error instanceof RuntimeKernelError &&
+        error.code === "turn_cancelled"
+      ) {
+        throw error;
+      }
       if (
         error instanceof RuntimeKernelError &&
         error.code === "approval_denied"
@@ -74,12 +95,9 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     itemId: ItemId,
     toolCall: ToolCallItemContent,
+    authorization: ToolAuthorizationResult,
+    signal?: AbortSignal,
   ): Promise<ToolResult> {
-    const authorization = await this.authorization.authorize({
-      run,
-      itemId,
-      toolCall,
-    });
     if (authorization.status === "rejected") {
       throw new RuntimeKernelError(authorization.code, authorization.reason);
     }
@@ -91,6 +109,7 @@ export class ToolExecutionCoordinator {
             turn,
             itemId,
             authorization.request,
+            signal,
           )
         : null;
     const result = await this.executeToCompletion(
@@ -101,7 +120,33 @@ export class ToolExecutionCoordinator {
       itemId,
       authorization.toolCall,
       approval,
+      signal,
     );
+    if (result.kind === "failed") {
+      if (result.disposition === "terminal") {
+        throw this.workerFailure(result.failure);
+      }
+      await this.lifecycle.failToolCall(toolCall.toolCallId, result.failure);
+      return {
+        toolCallId: toolCall.toolCallId,
+        output: {
+          error: {
+            code: result.failure.code,
+            message: result.failure.message,
+            retryable: result.failure.retryable,
+          },
+        },
+        failure: result.failure,
+      };
+    }
+    if (signal?.aborted || this.lifecycle.isTerminal) {
+      throw new LifecycleTransitionError(
+        "tool_call",
+        "active",
+        "interrupted",
+        "turn was interrupted before tool completion",
+      );
+    }
     await this.emitWorkerResultEvents(
       run,
       itemId,
@@ -120,7 +165,10 @@ export class ToolExecutionCoordinator {
     itemId: ItemId,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
-  ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
+    signal?: AbortSignal,
+  ): Promise<
+    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
+  > {
     const initial = await this.callWorker(
       run,
       runAttemptId,
@@ -128,12 +176,16 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      signal,
     );
     if (initial.kind === "completed") {
       return initial;
     }
     if (initial.kind === "failed") {
-      throw this.workerFailure(initial.failure);
+      return initial;
+    }
+    if (initial.kind === "cancelled") {
+      throw new RuntimeKernelError("turn_cancelled", initial.reason);
     }
     if (approval !== null) {
       throw new RuntimeKernelError(
@@ -147,6 +199,7 @@ export class ToolExecutionCoordinator {
       turn,
       itemId,
       initial.request,
+      signal,
     );
     return await this.resolveApprovedRetry(
       run,
@@ -155,6 +208,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       workerApproval,
+      signal,
     );
   }
 
@@ -165,7 +219,10 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution,
-  ): Promise<Extract<WorkerToolResult, { kind: "completed" }>> {
+    signal?: AbortSignal,
+  ): Promise<
+    Extract<WorkerToolResult, { kind: "completed" | "failed" }>
+  > {
     const result = await this.callWorker(
       run,
       runAttemptId,
@@ -173,6 +230,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      signal,
     );
     if (result.kind === "approval_required") {
       throw new RuntimeKernelError(
@@ -181,7 +239,10 @@ export class ToolExecutionCoordinator {
       );
     }
     if (result.kind === "failed") {
-      throw this.workerFailure(result.failure);
+      return result;
+    }
+    if (result.kind === "cancelled") {
+      throw new RuntimeKernelError("turn_cancelled", result.reason);
     }
     return result;
   }
@@ -193,6 +254,7 @@ export class ToolExecutionCoordinator {
     workspace: WorkspaceManifest,
     toolCall: ToolCallItemContent,
     approval: ApprovalResolution | null,
+    signal?: AbortSignal,
   ): Promise<WorkerToolResult> {
     return await this.worker.executeTool({
       runId: run.id,
@@ -201,6 +263,7 @@ export class ToolExecutionCoordinator {
       workspace,
       toolCall,
       approval,
+      signal,
     });
   }
 

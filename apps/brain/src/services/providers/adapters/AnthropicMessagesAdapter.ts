@@ -8,6 +8,7 @@ import type {
   StreamChunk,
 } from "../base/ProviderAdapter";
 import { ProviderError } from "../base/ProviderAdapter";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 
 interface AnthropicMessagesConfig {
   apiKey: string;
@@ -46,6 +47,8 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     return {
@@ -53,6 +56,7 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       usage: this.standardizeUsage(result.usage, model),
       finishReason: result.finishReason,
       toolCalls: result.toolCalls?.map((toolCall) => ({
+        toolCallId: readToolCallId(toolCall),
         toolName: toolCall.toolName,
         args: toolCall.args,
       })),
@@ -69,6 +73,8 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     let fullText = "";
@@ -84,6 +90,7 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
         yield {
           type: "tool-call",
           toolCall: {
+            toolCallId: readToolCallId(chunk),
             toolName: chunk.toolName,
             args: chunk.args,
           },
@@ -114,6 +121,7 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       usage: finalUsage ?? this.standardizeUsage(usage, model),
       finishReason: finishReason ?? resolvedFinishReason,
       toolCalls: toolCalls?.map((toolCall) => ({
+        toolCallId: readToolCallId(toolCall),
         toolName: toolCall.toolName,
         args: toolCall.args,
       })),
@@ -151,4 +159,18 @@ function toAnthropicBaseURL(endpoint: string): string {
   return trimmed.endsWith("/messages")
     ? trimmed.slice(0, -"/messages".length)
     : trimmed;
+}
+
+function readToolCallId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as { toolCallId?: unknown; id?: unknown };
+  if (typeof record.toolCallId === "string" && record.toolCallId.trim()) {
+    return record.toolCallId.trim();
+  }
+  if (typeof record.id === "string" && record.id.trim()) {
+    return record.id.trim();
+  }
+  return undefined;
 }

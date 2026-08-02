@@ -7,7 +7,7 @@ vi.mock("../security/SafeCommand", () => ({
   runSafeCommand: vi.fn(),
 }));
 
-const WORKSPACE_ROOT = "/home/sandbox/runs/run-edit";
+const WORKSPACE_ROOT = "/home/sandbox/checkouts/run-edit";
 
 describe("WorkspaceEditService", () => {
   beforeEach(() => {

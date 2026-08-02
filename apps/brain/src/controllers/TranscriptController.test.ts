@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  MemoryEventStore,
+  MemoryThreadTitleRepository,
   MemoryRunRepository,
   MemoryTranscriptRepository,
 } from "@repo/persistence";
@@ -14,6 +16,7 @@ const TEST_WORKSPACE_ID = "default";
 describe("TranscriptController", () => {
   let repository: MemoryTranscriptRepository;
   let runRepository: MemoryRunRepository;
+  let titleEvents: MemoryEventStore;
   let env: Env;
 
   beforeEach(() => {
@@ -23,7 +26,10 @@ describe("TranscriptController", () => {
     runRepository = new MemoryRunRepository({
       now: () => new Date("2026-05-15T00:00:00.000Z"),
     });
-    env = createEnv(repository, runRepository);
+    titleEvents = new MemoryEventStore({
+      now: () => "2026-05-15T00:00:00.000Z",
+    });
+    env = createEnv(repository, runRepository, titleEvents);
   });
 
   it("creates and lists authenticated sessions from the transcript repository", async () => {
@@ -82,6 +88,7 @@ describe("TranscriptController", () => {
 
   it("renames, pins, and unarchives session metadata", async () => {
     await TranscriptController.createSession(createSessionRequest(), env);
+    await ensureCanonicalTitleScope(repository);
 
     const renameResponse = await TranscriptController.renameSessionTitle(
       authenticatedRequest(
@@ -124,6 +131,23 @@ describe("TranscriptController", () => {
     await expect(renameResponse.json()).resolves.toMatchObject({
       session: { title: "Custom Chat", titleSource: "user" },
     });
+    await expect(
+      titleEvents.replay({
+        scope: { scopeType: "thread", scopeId: "thr_title_scope" },
+        afterCursor: null,
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      events: [
+        expect.objectContaining({
+          type: "thread.title.updated",
+          payload: expect.objectContaining({
+            source: "user",
+            title: "Custom Chat",
+          }),
+        }),
+      ],
+    });
     expect(pinResponse.status).toBe(200);
     await expect(pinResponse.json()).resolves.toMatchObject({
       session: { pinnedAt: "2026-05-15T00:00:00.000Z" },
@@ -140,8 +164,9 @@ describe("TranscriptController", () => {
     });
   });
 
-  it("updates generated titles without converting them to user titles", async () => {
+  it("does not grant generated title authority to browser requests", async () => {
     await TranscriptController.createSession(createSessionRequest(), env);
+    await ensureCanonicalTitleScope(repository);
 
     const response = await TranscriptController.renameSessionTitle(
       authenticatedRequest(
@@ -159,7 +184,27 @@ describe("TranscriptController", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      session: { title: "Generated from prompt", titleSource: "generated" },
+      session: { title: "Generated from prompt", titleSource: "user" },
+    });
+  });
+
+  it("rejects a rename until the session has a persisted canonical title scope", async () => {
+    await TranscriptController.createSession(createSessionRequest(), env);
+
+    const response = await TranscriptController.renameSessionTitle(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/title`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ title: "Custom Chat" }),
+        },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TITLE_SCOPE_UNAVAILABLE",
     });
   });
 
@@ -196,7 +241,7 @@ describe("TranscriptController", () => {
     });
   });
 
-  it("hydrates assistant activity parts and terminal metadata", async () => {
+  it("hydrates terminal metadata without reconstructing legacy activity parts", async () => {
     await repository.appendMessage({
       sessionId: TEST_SESSION_ID,
       runId: TEST_RUN_ID,
@@ -263,15 +308,6 @@ describe("TranscriptController", () => {
           role: "assistant",
           data: {
             metadata: { terminalState: "completed" },
-            activityParts: [
-              {
-                type: "turn_activity",
-                events: [],
-                activitySnapshot: {
-                  items: [{ label: "Read files" }],
-                },
-              },
-            ],
           },
         },
       ],
@@ -302,14 +338,40 @@ function authenticatedRequest(url: string, init: RequestInit = {}): Request {
   });
 }
 
+async function ensureCanonicalTitleScope(
+  repository: MemoryTranscriptRepository,
+): Promise<void> {
+  await repository.ensureSession({
+    sessionId: TEST_SESSION_ID,
+    userId: TEST_USER_ID,
+    workspaceId: TEST_WORKSPACE_ID,
+    threadId: "thr_title_scope",
+    activeRunId: TEST_RUN_ID,
+  });
+  await repository.appendMessage({
+    sessionId: TEST_SESSION_ID,
+    runId: TEST_RUN_ID,
+    userId: TEST_USER_ID,
+    workspaceId: TEST_WORKSPACE_ID,
+    role: "user",
+    dedupeKey: "first-user-message",
+    parts: [{ type: "text", content: "Rename this task" }],
+  });
+}
+
 function createEnv(
   repository: MemoryTranscriptRepository,
   runRepository: MemoryRunRepository,
+  titleEvents: MemoryEventStore,
 ): Env {
   return {
     AI: {} as Env["AI"],
     AUTH_TRANSCRIPT_REPOSITORY: repository,
     AUTH_RUN_REPOSITORY: runRepository,
+    AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
+      repository,
+      titleEvents,
+    ),
     AUTH_IDENTITY_REPOSITORY: {
       createGitHubSession: async () => {
         throw new Error("not used");

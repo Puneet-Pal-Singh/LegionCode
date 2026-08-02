@@ -2,6 +2,8 @@ import type { CoreMessage, CoreTool } from "ai";
 import type { ZodSchema } from "zod";
 import type { ProviderModelTransport } from "@repo/shared-types";
 import type { LLMUsage } from "../cost/index.js";
+import type { TranscriptPart } from "@repo/platform-protocol";
+import type { ProviderTranscriptPart } from "./TranscriptPartNormalizer.js";
 
 export type LLMPhase = "planning" | "task" | "synthesis" | "memory";
 export type LLMExecutionLane =
@@ -17,6 +19,7 @@ export type LLMExecutionLatencyTier = "slow" | "standard" | "fast";
 export interface LLMCallContext {
   runId: string;
   sessionId: string;
+  turnId?: string;
   taskId?: string;
   agentType: string;
   phase: LLMPhase;
@@ -35,6 +38,7 @@ export interface LLMTextRequest {
   system?: string;
   tools?: Record<string, CoreTool>;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface LLMStructuredRequest<T> {
@@ -51,7 +55,7 @@ export interface LLMStructuredRequest<T> {
 }
 
 export interface LLMTextResponse {
-  text: string;
+  parts: TranscriptPart[];
   usage: LLMUsage;
   providerRequestId?: string;
   finishReason?: string;
@@ -112,14 +116,18 @@ export interface LLMRuntimeAIService {
     temperature?: number;
     system?: string;
     tools?: Record<string, CoreTool>;
+    signal?: AbortSignal;
+    transcriptParts?: readonly ProviderTranscriptPart[];
   }): Promise<{
     text: string;
     usage: LLMUsage;
     finishReason?: string;
     toolCalls?: Array<{
+      toolCallId?: string;
       toolName: string;
       args: unknown;
     }>;
+    transcriptParts?: readonly ProviderTranscriptPart[];
   }>;
   generateStructured<T>(input: {
     messages: CoreMessage[];

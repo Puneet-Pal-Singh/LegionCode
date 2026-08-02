@@ -10,7 +10,7 @@ describe("ChatMessage", () => {
       id: "assistant-1",
       role: "assistant",
       content: "**Final Report**\n\n- item one\n- item two",
-    } as Message;
+    } as unknown as Message;
 
     const { container } = render(<ChatMessage message={message} />);
 
@@ -19,7 +19,31 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("**Final Report**")).not.toBeInTheDocument();
   });
 
-  it("hides leaked assistant self-talk prefixes", () => {
+  it("renders typed visible assistant parts and skips reasoning parts", () => {
+    const message = {
+      id: "assistant-typed-parts",
+      role: "assistant",
+      content: [
+        {
+          type: "reasoning",
+          text: "The user is asking how the product works.",
+        },
+        {
+          type: "text",
+          text: "I inspected the canonical turn diff.",
+        },
+      ],
+    } as unknown as Message;
+
+    render(<ChatMessage message={message} />);
+
+    expect(screen.queryByText(/The user is asking/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/I inspected the canonical turn diff/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not repair leaked assistant self-talk prefixes from raw strings", () => {
     const message = {
       id: "assistant-self-talk",
       role: "assistant",
@@ -29,31 +53,13 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.queryByText(/The user is asking/)).not.toBeInTheDocument();
+    expect(screen.getByText(/The user is asking/)).toBeInTheDocument();
     expect(
       screen.getByText(/I am doing well and ready to help/),
     ).toBeInTheDocument();
   });
 
-  it("hides leaked greeting analysis before the final reply", () => {
-    const message = {
-      id: "assistant-greeting-self-talk",
-      role: "assistant",
-      content:
-        'The user is greeting me with "yoyo how are you?". This is a casual greeting and does not require tools. I should respond politely. I am doing great, thank you for asking!',
-    } as Message;
-
-    render(<ChatMessage message={message} />);
-
-    expect(screen.queryByText(/The user is greeting/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/casual greeting/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/I should respond/)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/I am doing great, thank you for asking/),
-    ).toBeInTheDocument();
-  });
-
-  it("hides malformed greeting analysis with orphan punctuation", () => {
+  it("does not repair malformed greeting analysis with orphan punctuation", () => {
     const message = {
       id: "assistant-malformed-greeting-self-talk",
       role: "assistant",
@@ -63,8 +69,8 @@ describe("ChatMessage", () => {
 
     render(<ChatMessage message={message} />);
 
-    expect(screen.queryByText(/This is a greeting/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/I should respond/)).not.toBeInTheDocument();
+    expect(screen.getByText(/This is a greeting/)).toBeInTheDocument();
+    expect(screen.getByText(/I should respond/)).toBeInTheDocument();
     expect(
       screen.getByText(
         /Hello! How can I help you with the career-crew project today/,
@@ -180,6 +186,86 @@ describe("ChatMessage", () => {
 
     expect(screen.getByText("12:40 AM")).toBeInTheDocument();
     expect(screen.queryByText("Build · Gemma 4 31B · 12:40 AM")).toBeNull();
+  });
+
+  it("renders code artifacts and forwards the open callback", () => {
+    const onArtifactOpen = vi.fn();
+    const message = {
+      id: "assistant-artifact",
+      role: "assistant",
+      content: "Here is the file.",
+      toolInvocations: [
+        {
+          toolCallId: "artifact-call",
+          toolName: "create_code_artifact",
+          args: { path: "src/index.ts", content: "export const value = 1;" },
+          state: "result",
+        },
+      ],
+    } as Message;
+
+    render(<ChatMessage message={message} onArtifactOpen={onArtifactOpen} />);
+
+    expect(screen.getByText("src/index.ts")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Open Full View"));
+    expect(onArtifactOpen).toHaveBeenCalledWith(
+      "src/index.ts",
+      "export const value = 1;",
+    );
+  });
+
+  it("forwards the changed-file review callback", () => {
+    const onReviewOpen = vi.fn();
+    const message = {
+      id: "assistant-review",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/index.ts",
+        status: "modified",
+        additions: 1,
+        deletions: 0,
+        isStaged: false,
+      },
+    ];
+
+    render(
+      <ChatMessage
+        message={message}
+        onReviewOpen={onReviewOpen}
+        changedFilesSummary={{ files }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(onReviewOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies assistant content through the action callback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const message = {
+      id: "assistant-copy",
+      role: "assistant",
+      content: "Copy this message.",
+    } as Message;
+
+    render(
+      <ChatMessage
+        message={message}
+        metadata={{ modeLabel: "Build", timeLabel: "12:42 AM" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Copy this message."),
+    );
   });
 
   it("renders a changed files summary for assistant messages", () => {
@@ -322,6 +408,44 @@ describe("ChatMessage", () => {
       expect(screen.getAllByText("+2").length).toBeGreaterThan(0);
       expect(screen.getAllByText("-1").length).toBeGreaterThan(0);
     });
+  });
+
+  it("renders loading and error states from the supplied diff loader", async () => {
+    const message = {
+      id: "assistant-changes-error",
+      role: "assistant",
+      content: "Done.",
+    } as Message;
+    const files: FileStatus[] = [
+      {
+        path: "src/index.tsx",
+        status: "modified",
+        additions: 0,
+        deletions: 0,
+        isStaged: false,
+      },
+    ];
+    let rejectDiff: ((error: Error) => void) | undefined;
+    const loadFileDiff = vi.fn(
+      () =>
+        new Promise<DiffContent>((_resolve, reject) => {
+          rejectDiff = reject;
+        }),
+    );
+
+    render(
+      <ChatMessage
+        message={message}
+        changedFilesSummary={{ files, loadFileDiff }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /src\/index\.tsx/ }));
+    expect(screen.getByText("Loading diff...")).toBeInTheDocument();
+    rejectDiff?.(new Error("Unable to load diff"));
+    await waitFor(() =>
+      expect(screen.getByText("Unable to load diff")).toBeInTheDocument(),
+    );
   });
 
   it("does not let an empty loaded diff erase known changed file stats", async () => {

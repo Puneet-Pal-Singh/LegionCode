@@ -3,6 +3,7 @@ import {
   PromptArtifactReviewSourceSchema,
   type EditArtifactDiffResponse,
   type PromptArtifactReviewSource,
+  type EditArtifactIdentity,
 } from "@repo/shared-types";
 import {
   editArtifactByMessagePath,
@@ -14,39 +15,70 @@ import { logClientEvent, logClientWarning } from "./client-logger.js";
 export async function getLatestEditArtifactReviewSource(input: {
   runId: string;
   sessionId?: string;
+  identity: EditArtifactIdentity;
 }): Promise<PromptArtifactReviewSource | null> {
-  const response = await fetch(latestEditArtifactPath(input), {
-    credentials: "include",
-  });
+  const response = await fetch(
+    latestEditArtifactPath({ ...input, ...input.identity }),
+    {
+      credentials: "include",
+    },
+  );
   return await readNullableArtifactResponse(response);
 }
 
 export async function getEditArtifactReviewSourceByMessage(input: {
   runId: string;
   assistantMessageId: string;
+  identity: EditArtifactIdentity;
 }): Promise<PromptArtifactReviewSource | null> {
+  const result = await getEditArtifactReviewSourceByMessageWithStatus(input);
+  return result.source;
+}
+
+export async function getEditArtifactReviewSourceByMessageWithStatus(input: {
+  runId: string;
+  assistantMessageId: string;
+  identity: EditArtifactIdentity;
+}): Promise<{
+  source: PromptArtifactReviewSource | null;
+  status: number;
+}> {
   logClientEvent("artifact/lookup", "requested", {
     runId: input.runId,
     assistantMessageId: input.assistantMessageId,
   });
-  const response = await fetch(editArtifactByMessagePath(input), {
-    credentials: "include",
-  });
+  const response = await fetch(
+    editArtifactByMessagePath({ ...input, ...input.identity }),
+    {
+      credentials: "include",
+    },
+  );
   const source = await readNullableArtifactResponse(response);
   logArtifactLookupResult(input, response.status, source);
-  if (source && source.assistantMessageId !== input.assistantMessageId) {
-    return null;
+  if (
+    source &&
+    (source.assistantMessageId !== input.assistantMessageId ||
+      source.threadId !== input.identity.threadId ||
+      source.turnId !== input.identity.turnId ||
+      source.runAttemptId !== input.identity.runAttemptId ||
+      source.workspaceId !== input.identity.workspaceId)
+  ) {
+    return { source: null, status: response.status };
   }
-  return source;
+  return { source, status: response.status };
 }
 
 export async function getEditArtifactDiff(input: {
   artifactId: string;
   path: string;
+  identity: EditArtifactIdentity;
 }): Promise<EditArtifactDiffResponse> {
-  const response = await fetch(editArtifactDiffPath(input), {
-    credentials: "include",
-  });
+  const response = await fetch(
+    editArtifactDiffPath({ ...input, ...input.identity }),
+    {
+      credentials: "include",
+    },
+  );
   if (!response.ok) {
     throw new Error(await readArtifactError(response, "Failed to fetch diff"));
   }
@@ -88,7 +120,11 @@ async function readArtifactError(
 }
 
 function logArtifactLookupResult(
-  input: { runId: string; assistantMessageId: string },
+  input: {
+    runId: string;
+    assistantMessageId: string;
+    identity: EditArtifactIdentity;
+  },
   status: number,
   source: PromptArtifactReviewSource | null,
 ): void {

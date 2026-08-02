@@ -40,10 +40,6 @@
         "class_name": "RunEngineRuntime",
       },
       {
-        "name": "RUN_ENGINE_AGENT",
-        "class_name": "RunEngineAgent",
-      },
-      {
         "name": "RUN_ADMISSION_LIMITER",
         "class_name": "RunAdmissionLimiter",
       },
@@ -53,6 +49,10 @@
     {
       "tag": "v1-run-engine-runtime",
       "new_classes": ["RunEngineRuntime"],
+    },
+    {
+      "tag": "v2-session-memory-runtime",
+      "new_classes": ["SessionMemoryRuntime"],
     },
     {
       "tag": "v3-run-engine-agent",
@@ -65,6 +65,10 @@
     {
       "tag": "v5-delete-session-memory-runtime",
       "deleted_classes": ["SessionMemoryRuntime"],
+    },
+    {
+      "tag": "v6-quarantine-run-engine-agent",
+      "deleted_classes": ["RunEngineAgent"],
     },
   ],
   "vars": {
@@ -81,6 +85,10 @@
     "RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS": "60",
     "MUTATION_RUN_SUBMISSION_RATE_LIMIT_MAX": "8",
     "MUTATION_RUN_SUBMISSION_RATE_LIMIT_WINDOW_SECONDS": "60",
+    "ACTIVE_EXPENSIVE_RUNS_PER_SESSION_MAX": "1",
+    "ACTIVE_EXPENSIVE_RUNS_PER_USER_MAX": "5",
+    "ACTIVE_EXPENSIVE_RUNS_PER_WORKSPACE_MAX": "5",
+    "CLOUDFLARE_SANDBOX_MAX_CONCURRENT_RUNS": "5",
   },
   "kv_namespaces": [
     {

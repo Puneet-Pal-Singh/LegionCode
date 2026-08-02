@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # # ==========================================
 # # 🔧 CONFIGURATION (Edit these lines only)
 # # ==========================================
@@ -102,23 +103,26 @@
 # ==========================================
 ARG GO_VERSION=1.23-bookworm
 ARG REDIS_REPO_URL=https://github.com/Puneet-Pal-Singh/go-redis.git
-ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.7.0
+ARG BASE_IMAGE=docker.io/cloudflare/sandbox:0.12.3
+ARG SANDBOX_IMAGE_PLATFORM=linux/amd64
 
 # ==========================================
 # Stage 1: The Go Builder (Go-Redis)
 # ==========================================
-FROM golang:${GO_VERSION} AS go-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS go-builder
 
 ARG REDIS_REPO_URL 
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 
 WORKDIR /app
 RUN git clone ${REDIS_REPO_URL} .
-RUN CGO_ENABLED=0 GOOS=linux go build -o redis-binary ./cmd/redis-server/
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o redis-binary ./cmd/redis-server/
 
 # ==========================================
 # Stage 2: Final Runtime Image
 # ==========================================
-FROM ${BASE_IMAGE}
+FROM --platform=${SANDBOX_IMAGE_PLATFORM} ${BASE_IMAGE}
 USER root
 
 ENV DEBIAN_FRONTEND=noninteractive

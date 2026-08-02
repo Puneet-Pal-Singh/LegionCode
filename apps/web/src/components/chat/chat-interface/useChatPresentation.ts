@@ -1,38 +1,21 @@
 import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
-import type {
-  FileStatus,
-  PromptArtifactReviewSource,
-} from "@repo/shared-types";
-import type { ActivityTurnViewModel } from "../../../services/activity/ActivityFeedViewModel.js";
 import {
   buildLifecycleTerminalViewModel,
-  collectLifecycleTurnDiffFiles,
 } from "../../../services/lifecycle/LifecycleTerminalViewModel";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
-import type { useRunEvents } from "../../../hooks/useRunEvents.js";
-import type { useRunSummary } from "../../../hooks/useRunSummary.js";
 import { buildConversationTurns } from "../messageMetadata";
-import {
-  hasArtifactChangedFileSnapshot,
-  hasChangedFileSnapshot,
-} from "./changedFiles";
 import { buildChatEntries } from "./chatEntries";
 
 interface ChatPresentationInput {
-  runId: string;
   messages: Message[];
   conversationTurns: ReturnType<typeof buildConversationTurns>;
-  activityTurns: ActivityTurnViewModel[];
-  summary: ReturnType<typeof useRunSummary>["summary"];
-  events: ReturnType<typeof useRunEvents>["events"];
-  snapshots: Record<string, FileStatus[]>;
-  artifacts: Record<string, PromptArtifactReviewSource>;
   hasHydrated: boolean;
   isLoading: boolean;
   hasPendingApproval: boolean;
   hasStartedSession: boolean;
   lifecycleProjection?: LifecycleProjection | null;
+  lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
 }
 
 export function useChatPresentation(input: ChatPresentationInput) {
@@ -40,29 +23,14 @@ export function useChatPresentation(input: ChatPresentationInput) {
     () =>
       buildChatEntries(
         input.conversationTurns,
-        input.activityTurns,
-        input.runId,
+        input.lifecycleProjectionsByTurnId,
       ),
-    [input.activityTurns, input.conversationTurns, input.runId],
+    [input.conversationTurns, input.lifecycleProjectionsByTurnId],
   );
-  const lifecycleTerminalFiles = useMemo(
-    () => collectLifecycleTurnDiffFiles(input.lifecycleProjection ?? null),
-    [input.lifecycleProjection],
-  );
-  const terminalFiles = lifecycleTerminalFiles;
   const terminalViewModel = useMemo(
-    () =>
-      buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
+    () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
     [input.lifecycleProjection],
   );
-  const hasFileSummary =
-    hasChangedFileSnapshot(input.snapshots) ||
-    hasArtifactChangedFileSnapshot(input.artifacts);
-  const terminalReviewFiles = terminalViewModel?.artifactId
-    ? terminalFiles
-    : hasFileSummary
-      ? []
-      : terminalFiles;
   const hasUserMessage = input.messages.some(
     (message) =>
       message.role === "user" &&
@@ -89,7 +57,6 @@ export function useChatPresentation(input: ChatPresentationInput) {
   return {
     chatEntries,
     terminalViewModel,
-    terminalReviewFiles,
     showHeroComposer,
     isTranscriptHydrating,
     showSessionPlaceholder,

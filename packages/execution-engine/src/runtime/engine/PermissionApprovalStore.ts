@@ -32,8 +32,10 @@ interface ApprovalState {
   resolvedDecisions: Record<
     string,
     {
+      request: ApprovalRequest;
       decision: ApprovalDecision["kind"];
       status: "approved" | "denied" | "aborted";
+      persistentRuleId?: string;
       resolvedAt: string;
     }
   >;
@@ -218,6 +220,18 @@ export class PermissionApprovalStore {
       const state = await this.loadState();
       const now = Date.now();
       const next = this.withPrunedApprovals(state, now);
+      const resolved = next.resolvedDecisions[decision.requestId];
+      if (resolved?.request) {
+        if (resolved.decision !== decision.kind) {
+          throw new Error("Approval request was already resolved differently.");
+        }
+        return {
+          request: resolved.request,
+          decision: resolved.decision,
+          status: resolved.status,
+          persistentRuleId: resolved.persistentRuleId,
+        };
+      }
       const pending = this.validatePendingDecision(
         next,
         decision,
@@ -238,6 +252,7 @@ export class PermissionApprovalStore {
         resolution.decision,
         resolution.status,
         now,
+        resolution.persistentRuleId,
       );
       await this.ctx.storage.put(this.key(), next);
       return resolution;
@@ -337,6 +352,7 @@ export class PermissionApprovalStore {
   }
 
   async getResolvedDecision(requestId: string): Promise<{
+    request?: ApprovalRequest;
     decision: ApprovalDecision["kind"];
     status: "approved" | "denied" | "aborted";
     resolvedAt: string;
@@ -347,6 +363,37 @@ export class PermissionApprovalStore {
       const resolved = next.resolvedDecisions[requestId] ?? null;
       await this.persistIfChanged(state, next);
       return resolved;
+    });
+  }
+
+  /**
+   * Removes a legacy permission decision when the canonical runtime rejected
+   * it before appending approval.decided. This prevents a dropped handoff from
+   * leaving a reusable allowance or stale decision without lifecycle truth.
+   */
+  async discardResolvedDecision(requestId: string): Promise<boolean> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const state = await this.loadState();
+      const next = this.withPrunedApprovals(state, Date.now());
+      const resolved = next.resolvedDecisions[requestId];
+      if (!resolved) {
+        return false;
+      }
+      if (
+        resolved.decision === "allow_once" ||
+        resolved.decision === "allow_for_run"
+      ) {
+        delete next.runAllowances[resolved.request.actionFingerprint];
+      }
+      if (resolved.persistentRuleId) {
+        next.persistentRules = next.persistentRules.filter(
+          (rule) => rule.ruleId !== resolved.persistentRuleId,
+        );
+      }
+      delete next.resolvedDecisions[requestId];
+      next.updatedAt = new Date().toISOString();
+      await this.ctx.storage.put(this.key(), next);
+      return true;
     });
   }
 
@@ -559,13 +606,16 @@ export class PermissionApprovalStore {
     decision: ApprovalDecision["kind"],
     status: PermissionDecisionResult["status"],
     now: number,
+    persistentRuleId?: string,
   ): void {
     if (status === "approved") {
       this.resetRiskyAttempt(state, pending.actionFingerprint);
     }
     state.resolvedDecisions[pending.requestId] = {
+      request: pending,
       decision,
       status,
+      persistentRuleId,
       resolvedAt: new Date(now).toISOString(),
     };
     delete state.pendingRequest;

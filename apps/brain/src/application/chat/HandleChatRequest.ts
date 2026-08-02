@@ -22,13 +22,21 @@ import {
   type WorkflowIntent,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
+import type { TurnScopeBootstrap } from "@repo/platform-protocol";
 import { ValidationError } from "../../domain/errors";
+import { formatDiagnosticLogLine } from "../../lib/diagnostic-log";
 import { PersistenceService } from "../../services/PersistenceService";
+import {
+  ThreadTitleGenerationCoordinator,
+  ThreadTitleService,
+  type BackgroundTaskOwner,
+} from "../../services/thread-titles";
 import type { SerializableToolDefinition } from "../../types/tools";
 import type {
   AgentType,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
+import { builtinProviderRegistry } from "@repo/provider-core";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -62,7 +70,10 @@ export interface HandleChatRequestInput {
   repositoryName?: string;
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
+  contextWindowTokens?: number;
   tools?: Record<string, SerializableToolDefinition>;
+  identity: TurnScopeBootstrap;
+  backgroundTaskOwner?: BackgroundTaskOwner;
 }
 
 export interface HandleChatRequestOutput {
@@ -94,6 +105,7 @@ export interface HandleChatRequestOutput {
     };
     messages: CoreMessage[];
     tools?: Record<string, SerializableToolDefinition>;
+    identity: TurnScopeBootstrap;
   };
 }
 
@@ -132,6 +144,7 @@ export class HandleChatRequest {
       repositoryName,
       repositoryBranch,
       repositoryBaseUrl,
+      identity,
     } = input;
 
     const runtimeSelections = this.resolveRuntimeSelections(input);
@@ -149,15 +162,30 @@ export class HandleChatRequest {
           ? `${repositoryOwner}/${repositoryName}`
           : undefined;
       const taskId = input.taskId ?? sessionId;
+      const contextWindowTokens = resolveContextWindowTokens(input);
 
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
       if (userId) {
         try {
+          console.log(
+            formatDiagnosticLogLine("chat/persistence", "ensure-started", {
+              correlationId,
+              runId,
+              sessionId,
+              userId,
+              workspaceId: workspaceId ?? null,
+              taskId,
+              repository: repositorySlug ?? null,
+              providerId: input.providerId ?? null,
+              modelId: input.modelId ?? null,
+            }),
+          );
           await this.persistenceService.ensureTranscriptSession({
             sessionId,
             userId,
             workspaceId,
+            threadId: identity.threadId,
             taskId,
             repository: repositorySlug,
           });
@@ -173,6 +201,16 @@ export class HandleChatRequest {
             modelId: input.modelId ?? null,
             branch: repositoryBranch ?? null,
           });
+          console.log(
+            formatDiagnosticLogLine("chat/persistence", "run-ensured", {
+              correlationId,
+              runId,
+              sessionId,
+              taskId,
+              mode,
+              branch: repositoryBranch ?? null,
+            }),
+          );
         } catch (ensureError) {
           const message =
             ensureError instanceof Error
@@ -185,20 +223,78 @@ export class HandleChatRequest {
         }
       }
 
-      await this.persistenceService.persistUserMessage(
-        sessionId,
-        runId,
-        lastUserMessage,
-        {
-          userId,
-          workspaceId,
-          repository: repositorySlug,
-        },
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-started", {
+          correlationId,
+          runId,
+          sessionId,
+          messageId: readMessageId(lastUserMessage),
+          role: lastUserMessage.role,
+          messageCount: messages.length,
+        }),
       );
+      const persistedUserMessage =
+        await this.persistenceService.persistUserMessage(
+          sessionId,
+          runId,
+          lastUserMessage,
+          {
+            userId,
+            workspaceId,
+            repository: repositorySlug,
+            identity,
+          },
+        );
+      console.log(
+        formatDiagnosticLogLine("chat/persistence", "user-message-finished", {
+          correlationId,
+          runId,
+          sessionId,
+          messageId: readMessageId(lastUserMessage),
+        }),
+      );
+
+      if (userId) {
+        const firstPersistedUserMessage =
+          await this.persistenceService.findFirstPersistedUserMessage({
+            sessionId,
+            userId,
+          });
+        if (firstPersistedUserMessage?.id === persistedUserMessage.id) {
+          const titleService = new ThreadTitleService(this.env);
+          const preview = await titleService.persistPreview({
+            sessionId,
+            threadId: identity.threadId,
+            runId,
+            workspaceId: identity.workspaceId,
+            userId,
+            firstMessageId: firstPersistedUserMessage.id,
+            prompt,
+          });
+          if (preview && input.backgroundTaskOwner) {
+            new ThreadTitleGenerationCoordinator(this.env).schedule(
+              input.backgroundTaskOwner,
+              {
+                sessionId,
+                threadId: identity.threadId,
+                runId,
+                workspaceId: identity.workspaceId,
+                userId,
+                firstMessageId: firstPersistedUserMessage.id,
+                prompt,
+                previewVersion: preview.titleVersion ?? 1,
+                providerId: input.providerId,
+                modelId: input.modelId,
+              },
+            );
+          }
+        }
+      }
 
       // Build execution payload with repository context
       const executionPayload = {
         runId,
+        identity,
         userId,
         workspaceId,
         sessionId,
@@ -217,6 +313,7 @@ export class HandleChatRequest {
           harnessMode: runtimeSelections.harnessMode,
           authMode: runtimeSelections.authMode,
           metadata: {
+            ...(contextWindowTokens ? { contextWindowTokens } : {}),
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),
@@ -256,7 +353,19 @@ export class HandleChatRequest {
       };
 
       console.log(
-        `[chat/usecase] ${correlationId}: Chat request prepared for RunEngine execution`,
+        formatDiagnosticLogLine("chat/usecase", "prepared-for-run-engine", {
+          correlationId,
+          runId,
+          sessionId,
+          mode,
+          providerId: input.providerId ?? null,
+          modelId: input.modelId ?? null,
+          harnessId: input.harnessId ?? null,
+          repository: repositorySlug ?? null,
+          branch: repositoryBranch ?? null,
+          toolCount: input.tools ? Object.keys(input.tools).length : 0,
+          messageCount: messages.length,
+        }),
       );
 
       return {
@@ -310,6 +419,11 @@ export class HandleChatRequest {
     const raw = this.env.FEATURE_FLAG_GH_CLI_PR_COMMENT_ENABLED;
     return raw === "1" || raw === "true";
   }
+}
+
+function readMessageId(message: CoreMessage): string | null {
+  const value = (message as Record<string, unknown>).id;
+  return typeof value === "string" ? value : null;
 }
 
 function validateSubmittedMessages(
@@ -384,4 +498,22 @@ function extractTextPart(part: unknown): string {
   }
 
   return "";
+}
+
+function resolveContextWindowTokens(
+  input: Pick<
+    HandleChatRequestInput,
+    "providerId" | "modelId" | "contextWindowTokens"
+  >,
+): number | undefined {
+  if (input.providerId && input.modelId) {
+    const catalogLimit = builtinProviderRegistry.getModel(
+      input.providerId,
+      input.modelId,
+    )?.contextWindow;
+    if (catalogLimit) {
+      return catalogLimit;
+    }
+  }
+  return input.contextWindowTokens;
 }

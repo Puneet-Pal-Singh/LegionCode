@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  MemoryEventStore,
   MemoryRunRepository,
+  MemoryThreadTitleRepository,
   MemoryTranscriptRepository,
 } from "@repo/persistence";
 import { ChatController } from "./ChatController";
@@ -8,46 +10,8 @@ import type { Env } from "../types/ai";
 
 const VALID_RUN_ID = "run_123e4567e89b42d3a456426614174000";
 const TEST_USER_ID = "user-123";
-const TEST_WORKSPACE_ID = "default";
-const mockCloudflareAgentExecute = vi.fn();
-
-vi.mock("@shadowbox/orchestrator-adapters-cloudflare-agents", () => ({
-  CloudflareAgent: class MockCloudflareAgent {},
-  CloudflareAgentsRunRuntimeClient: class MockRuntimeClient {
-    execute = mockCloudflareAgentExecute;
-    getSummary = vi.fn();
-    cancel = vi.fn();
-  },
-  parseCloudflareAgentsFeatureFlag: (value: string | undefined) =>
-    value === "true" || value === "1",
-  shouldActivateCloudflareAgentsAdapter: ({
-    requestedBackend,
-    featureFlagEnabled,
-  }: {
-    requestedBackend: string;
-    featureFlagEnabled: boolean;
-  }) => featureFlagEnabled && requestedBackend === "cloudflare_agents",
-}));
-
+const TEST_WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 describe("ChatController DO runtime migration", () => {
-  beforeEach(() => {
-    mockCloudflareAgentExecute.mockReset();
-    mockCloudflareAgentExecute.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shadowbox-Runtime-Name": "brain-run-engine-do",
-          "X-Shadowbox-Runtime-Git-Sha": "run-engine-sha",
-          "X-Shadowbox-Runtime-Started-At": "2026-03-23T00:00:00.000Z",
-          "X-Shadowbox-Runtime-Boot-Id": "run-engine-boot",
-          "X-Shadowbox-Runtime-Fingerprint":
-            "brain-run-engine-do:run-engine-sha:run-engine-boot",
-        },
-      }),
-    );
-  });
-
   it("routes execution through RUN_ENGINE_RUNTIME and tags response headers", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
@@ -76,6 +40,85 @@ describe("ChatController DO runtime migration", () => {
     );
   });
 
+  it("uses the server-issued thread and run attempt for admission and execution", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const admissionLimiter = createMockRunAdmissionLimiterNamespace();
+    const env = createEnv(runtime.namespace, {
+      runAdmissionLimiter: admissionLimiter.namespace,
+    });
+    const identity = {
+      workspaceId: TEST_WORKSPACE_ID,
+      threadId: "thr_server_scope",
+      turnId: "trn_server_scope",
+      runAttemptId: "attempt_server_scope",
+    };
+
+    const response = await ChatController.handle(
+      await createChatRequest(env, { identity }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const executionPayload = JSON.parse(
+      (runtime.fetch.mock.calls[0]?.[1] as { body: string }).body,
+    ) as { identity: typeof identity };
+    expect(executionPayload.identity).toEqual(identity);
+
+    const acquireCall = admissionLimiter.fetch.mock.calls.find(
+      ([input]) => new URL(String(input)).pathname === "/acquire-concurrency",
+    );
+    expect(acquireCall).toBeDefined();
+    const admissionBody = JSON.parse(
+      (acquireCall?.[1] as { body: string }).body,
+    ) as {
+      leaseId: string;
+      constraints: Array<{ scopeKey: string }>;
+    };
+    expect(admissionBody.leaseId).toBe("run-attempt:attempt_server_scope");
+    expect(admissionBody.constraints[0]?.scopeKey).toBe(
+      "thread:thr_server_scope",
+    );
+  });
+
+  it("rejects chat execution without a pre-stream bootstrap identity", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      await createChatRequest(env, { identity: undefined }),
+      env,
+    );
+
+    expect(response.status).toBe(428);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_BOOTSTRAP_REQUIRED",
+    });
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an identity outside the authorized workspace before execution", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      await createChatRequest(env, {
+        identity: {
+          workspaceId: "123e4567-e89b-42d3-a456-426614174999",
+          threadId: "thr_other_scope",
+          turnId: "trn_other_scope",
+          runAttemptId: "attempt_other_scope",
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "TURN_SCOPE_MISMATCH",
+    });
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
   it("fails fast when RUN_ENGINE_RUNTIME binding is unavailable", async () => {
     const envWithRuntime = createEnv(createMockRuntimeNamespace().namespace);
     const envWithoutRuntime = envWithRuntime as unknown as Record<
@@ -91,7 +134,8 @@ describe("ChatController DO runtime migration", () => {
 
     expect(response.status).toBe(500);
     const body = (await response.json()) as { error: string };
-    expect(body.error).toContain("RUN_ENGINE_RUNTIME binding is unavailable");
+    expect(body.error).toBe("Internal Server Error");
+    expect(body).toMatchObject({ code: "CHAT_REQUEST_FAILED" });
   });
 
   it("forwards provider/model override fields to runtime payload", async () => {
@@ -146,7 +190,7 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.authMode).toBe("api_key");
   });
 
-  it("fails fast when cloudflare_agents is requested without the feature flag", async () => {
+  it("fails fast when the quarantined cloudflare_agents route is requested", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
     const requestWithOverrides = await createChatRequest(env, {
@@ -161,53 +205,8 @@ describe("ChatController DO runtime migration", () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: string; code: string };
     expect(body.code).toBe("CLOUDFLARE_AGENTS_BACKEND_DISABLED");
-    expect(body.error).toContain("cloudflare_agents backend is not enabled");
+    expect(body.error).toContain("cloudflare_agents is quarantined");
     expect(runtime.fetch).not.toHaveBeenCalled();
-  });
-
-  it("routes cloudflare_agents requests through the SDK-backed agent binding", async () => {
-    const runtime = createMockRuntimeNamespace();
-    const agentNamespace = {} as Env["RUN_ENGINE_AGENT"];
-    const env = createEnv(runtime.namespace, {
-      runEngineAgent: agentNamespace,
-      cloudflareAgentsEnabled: "true",
-    });
-    const requestWithOverrides = await createChatRequest(env, {
-      mode: "plan",
-      orchestratorBackend: "cloudflare_agents",
-      executionBackend: "e2b",
-      harnessMode: "delegated",
-      authMode: "oauth",
-    });
-
-    const response = await ChatController.handle(requestWithOverrides, env);
-
-    expect(response.status).toBe(200);
-    expect(runtime.fetch).not.toHaveBeenCalled();
-    expect(mockCloudflareAgentExecute).toHaveBeenCalledTimes(1);
-    const payload = mockCloudflareAgentExecute.mock.calls[0]?.[0] as {
-      runId: string;
-      payload: {
-        input: {
-          mode: string;
-          orchestratorBackend: string;
-          executionBackend: string;
-          harnessMode: string;
-          authMode: string;
-        };
-      };
-    };
-
-    expect(agentNamespace).toBeDefined();
-    expect(payload.runId).toBe(VALID_RUN_ID);
-    expect(payload.payload.input.mode).toBe("plan");
-    expect(payload.payload.input.orchestratorBackend).toBe("cloudflare_agents");
-    expect(payload.payload.input.executionBackend).toBe("e2b");
-    expect(payload.payload.input.harnessMode).toBe("delegated");
-    expect(payload.payload.input.authMode).toBe("oauth");
-    expect(response.headers.get("X-Run-Engine-Runtime")).toBe(
-      "cloudflare_agents",
-    );
   });
 
   it("forwards repository context fields to runtime payload", async () => {
@@ -274,6 +273,61 @@ describe("ChatController DO runtime migration", () => {
     expect(payload.input.prompt).toBe("so? what is your name?");
   });
 
+  it("attaches envelope clientMessageId to the latest user message", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const request = await createChatRequest(env, {
+      clientMessageId: "client_msg_from_envelope",
+      messages: [
+        {
+          role: "user",
+          content: "persist this id",
+        },
+      ],
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+
+    const payloadStr = (fetchCall[1] as { body: string }).body;
+    const payload = JSON.parse(payloadStr) as {
+      messages: Array<{ id?: string; role: string; content: string }>;
+    };
+    expect(payload.messages).toEqual([
+      {
+        id: "client_msg_from_envelope",
+        role: "user",
+        content: "persist this id",
+      },
+    ]);
+  });
+
+  it("rejects mismatched envelope and latest user message ids", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+    const request = await createChatRequest(env, {
+      clientMessageId: "client_msg_envelope",
+      messages: [
+        {
+          id: "client_msg_message",
+          role: "user",
+          content: "do not split identity",
+        },
+      ],
+    });
+
+    const response = await ChatController.handle(request, env);
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: string; code: string };
+    expect(body.code).toBe("CLIENT_MESSAGE_ID_MISMATCH");
+    expect(body.error).toContain("does not match");
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
   it("returns validation error for unsupported agentId", async () => {
     const runtime = createMockRuntimeNamespace();
     const env = createEnv(runtime.namespace);
@@ -313,6 +367,12 @@ describe("ChatController DO runtime migration", () => {
       body: JSON.stringify({
         sessionId: "session-1",
         runId: VALID_RUN_ID,
+        identity: {
+          workspaceId: TEST_WORKSPACE_ID,
+          threadId: "thr_test001",
+          turnId: "trn_test001",
+          runAttemptId: "attempt_test001",
+        },
         messages: [],
       }),
     });
@@ -355,6 +415,12 @@ describe("ChatController DO runtime migration", () => {
       body: JSON.stringify({
         sessionId: "session-1",
         runId: VALID_RUN_ID,
+        identity: {
+          workspaceId: TEST_WORKSPACE_ID,
+          threadId: "thr_test001",
+          turnId: "trn_test001",
+          runAttemptId: "attempt_test001",
+        },
         messages: [
           {
             role: "user",
@@ -392,11 +458,21 @@ async function createChatRequest(
     executionBackend?: "cloudflare_sandbox" | "e2b" | "daytona";
     harnessMode?: "platform_owned" | "delegated";
     authMode?: "api_key" | "oauth";
+    clientMessageId?: string;
     repositoryOwner?: string;
     repositoryName?: string;
     repositoryBranch?: string;
     repositoryBaseUrl?: string;
+    identity?:
+      | {
+          workspaceId: string;
+          threadId: string;
+          turnId: string;
+          runAttemptId: string;
+        }
+      | undefined;
     messages?: Array<{
+      id?: string;
       role: string;
       content: unknown;
     }>;
@@ -414,6 +490,15 @@ async function createChatRequest(
     body: JSON.stringify({
       sessionId: "session-1",
       runId: runIdValue,
+      identity:
+        "identity" in overrides
+          ? overrides.identity
+          : {
+              workspaceId: TEST_WORKSPACE_ID,
+              threadId: "thr_test001",
+              turnId: "trn_test001",
+              runAttemptId: "attempt_test001",
+            },
       agentId: overrides.agentId,
       mode: overrides.mode,
       providerId: overrides.providerId,
@@ -422,6 +507,7 @@ async function createChatRequest(
       executionBackend: overrides.executionBackend,
       harnessMode: overrides.harnessMode,
       authMode: overrides.authMode,
+      clientMessageId: overrides.clientMessageId,
       repositoryOwner: overrides.repositoryOwner,
       repositoryName: overrides.repositoryName,
       repositoryBranch: overrides.repositoryBranch,
@@ -465,11 +551,13 @@ function createMockRuntimeNamespace() {
 function createEnv(
   runEngineRuntime: Env["RUN_ENGINE_RUNTIME"],
   options: {
-    runEngineAgent?: Env["RUN_ENGINE_AGENT"];
-    cloudflareAgentsEnabled?: Env["FEATURE_FLAG_CLOUDFLARE_AGENTS_V1"];
+    runAdmissionLimiter?: Env["RUN_ADMISSION_LIMITER"];
   } = {},
 ): Env {
   const oauthState = new Map<string, string>();
+  const transcripts = new MemoryTranscriptRepository();
+  const runs = new MemoryRunRepository();
+  const events = new MemoryEventStore();
 
   return {
     AI: {} as Env["AI"],
@@ -482,8 +570,12 @@ function createEnv(
         createIdentitySessionRecord(),
       revokeSession: async () => undefined,
     },
-    AUTH_TRANSCRIPT_REPOSITORY: new MemoryTranscriptRepository(),
-    AUTH_RUN_REPOSITORY: new MemoryRunRepository(),
+    AUTH_TRANSCRIPT_REPOSITORY: transcripts,
+    AUTH_RUN_REPOSITORY: runs,
+    AUTH_THREAD_TITLE_REPOSITORY: new MemoryThreadTitleRepository(
+      transcripts,
+      events,
+    ),
     SECURE_API: {
       fetch: vi.fn(async () => new Response(JSON.stringify({ success: true }))),
     } as unknown as Env["SECURE_API"],
@@ -503,10 +595,9 @@ function createEnv(
       },
     } as unknown as Env["SESSIONS"],
     RUN_ENGINE_RUNTIME: runEngineRuntime,
-    RUN_ADMISSION_LIMITER: createMockRunAdmissionLimiterNamespace(),
-    RUN_ENGINE_AGENT: options.runEngineAgent,
-    FEATURE_FLAG_CLOUDFLARE_AGENTS_V1:
-      options.cloudflareAgentsEnabled ?? "false",
+    RUN_ADMISSION_LIMITER:
+      options.runAdmissionLimiter ??
+      createMockRunAdmissionLimiterNamespace().namespace,
   };
 }
 
@@ -560,10 +651,11 @@ function createMockRunAdmissionLimiterNamespace(): Env["RUN_ADMISSION_LIMITER"] 
   const get = vi.fn(() => ({ fetch }));
   const idFromName = vi.fn(() => ({ toString: () => "mock-admission-id" }));
 
-  return {
+  const namespace = {
     idFromName,
     get,
   } as unknown as Env["RUN_ADMISSION_LIMITER"];
+  return { namespace, fetch };
 }
 
 async function createSessionToken(

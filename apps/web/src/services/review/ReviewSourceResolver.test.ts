@@ -22,6 +22,29 @@ describe("resolveReviewSource", () => {
     });
   });
 
+  it("uses canonical terminal turn diff before live git or saved artifacts", () => {
+    const source = resolveReviewSource({
+      requestedScope: null,
+      openedArtifact: null,
+      liveGitFiles: [buildFileStatus("src/live.ts")],
+      latestArtifactSource: buildArtifactSource(),
+      canonicalTurnReview: {
+        turnId: "trn_review001",
+        files: [buildFileStatus("src/turn.ts")],
+        loadFileDiff: async () => {
+          throw new Error("not used");
+        },
+        error: null,
+      },
+    });
+
+    expect(source).toEqual({
+      kind: "turn_diff",
+      turnId: "trn_review001",
+      reason: "canonical_terminal",
+    });
+  });
+
   it("returns empty live git when live git is empty and an artifact exists", () => {
     const source = resolveReviewSource({
       requestedScope: null,
@@ -56,6 +79,12 @@ describe("resolveReviewSource", () => {
       kind: "prompt_artifact",
       artifactId: "artifact-1",
       assistantMessageId: "assistant-1",
+      identity: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runAttemptId: "attempt-1",
+        workspaceId: "workspace-1",
+      },
       reason: "explicit",
     });
   });
@@ -133,6 +162,9 @@ function buildArtifactSource(): PromptArtifactReviewSource {
     runId: "run-1",
     sessionId: "session-1",
     workspaceId: "workspace-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runAttemptId: "attempt-1",
     assistantMessageId: "assistant-1",
     status: "stored",
     files: [

@@ -1,6 +1,7 @@
 import { createContext } from "react";
 import type {
   DiffContent,
+  EditArtifactIdentity,
   FileStatus,
   GitMutationErrorCode,
   GitMutationErrorMetadata,
@@ -9,6 +10,7 @@ import type {
 import type {
   ReviewScope,
   ReviewSourceSelection,
+  CanonicalTurnReviewSource,
 } from "../../services/review/ReviewSourceResolver";
 import type {
   CreateReviewCommentInput,
@@ -20,7 +22,10 @@ export interface GitReviewProviderProps {
   isReviewOpen: boolean;
   onReviewOpenChange: (open: boolean) => void;
   isReviewActive?: boolean;
+  isReviewDataEnabled?: boolean;
   isGitWorkspaceRecovering?: boolean;
+  canonicalTurnReview?: CanonicalTurnReviewSource | null;
+  artifactIdentity?: EditArtifactIdentity | null;
 }
 
 export interface GitReviewContextValue {
@@ -56,6 +61,7 @@ export interface GitReviewContextValue {
   openPromptArtifactReview: (
     artifactId: string,
     assistantMessageId?: string,
+    identity?: EditArtifactIdentity,
   ) => void;
   openLiveGitReview: () => void;
   closeReview: () => void;

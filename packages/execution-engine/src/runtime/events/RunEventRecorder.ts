@@ -26,6 +26,11 @@ import {
   toToolEventInput,
 } from "./RunEventFactory.js";
 import { RunEventRepository } from "./RunEventRepository.js";
+import {
+  sanitizeRuntimeEventRecord,
+  sanitizeRuntimeEventText,
+  sanitizeRuntimeEventValue,
+} from "./RuntimeEventSanitizer.js";
 
 export class RunEventRecorder {
   constructor(
@@ -123,7 +128,11 @@ export class RunEventRecorder {
     try {
       await this.eventListener(event);
     } catch (error) {
-      console.warn("[run/events] failed to emit live run event", error);
+      console.error(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-failed`,
+        error,
+      );
+      throw error;
     }
 
     return inserted;
@@ -164,7 +173,15 @@ export class RunEventRecorder {
     await this.append(
       createToolOutputAppendedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
-        chunk,
+        {
+          ...chunk,
+          stdoutDelta: chunk.stdoutDelta
+            ? sanitizeRuntimeEventText(chunk.stdoutDelta)
+            : undefined,
+          stderrDelta: chunk.stderrDelta
+            ? sanitizeRuntimeEventText(chunk.stderrDelta)
+            : undefined,
+        },
       ),
     );
   }
@@ -177,7 +194,7 @@ export class RunEventRecorder {
     await this.append(
       createToolCompletedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
-        result,
+        sanitizeRuntimeEventValue(result),
         executionTimeMs,
       ),
     );
@@ -191,7 +208,7 @@ export class RunEventRecorder {
     await this.append(
       createToolFailedEvent(
         toToolEventInput(this.runId, this.sessionId, task),
-        error,
+        sanitizeRuntimeEventText(error),
         executionTimeMs,
       ),
     );
@@ -232,15 +249,20 @@ export class RunEventRecorder {
   async recordRunCompleted(
     totalDurationMs: number,
     toolsUsed: number,
+    outcomeCode?: string,
   ): Promise<void> {
     await this.append(
-      createRunCompletedEvent(this.baseInput(), totalDurationMs, toolsUsed),
+      createRunCompletedEvent(this.baseInput(), totalDurationMs, toolsUsed, outcomeCode),
     );
   }
 
-  async recordRunFailed(error: string, totalDurationMs: number): Promise<void> {
+  async recordRunFailed(
+    error: string,
+    totalDurationMs: number,
+    outcomeCode?: string,
+  ): Promise<void> {
     await this.append(
-      createRunFailedEvent(this.baseInput(), error, totalDurationMs),
+      createRunFailedEvent(this.baseInput(), error, totalDurationMs, outcomeCode),
     );
   }
 
@@ -264,7 +286,11 @@ export class RunEventRecorder {
     try {
       await this.eventListener(event);
     } catch (error) {
-      console.warn("[run/events] failed to emit live run event", error);
+      console.error(
+        `[run/events-recorder] runId=${this.runId} sessionId=${this.sessionId} eventId=${event.eventId} type=${event.type} status=listener-failed`,
+        error,
+      );
+      throw error;
     }
   }
 }
@@ -276,7 +302,7 @@ function sanitizeEventArguments(
     return {};
   }
 
-  const args: Record<string, unknown> = { ...input };
+  const args = sanitizeRuntimeEventRecord(input);
   delete args.description;
   delete args.expectedOutput;
   delete args.displayText;
@@ -303,5 +329,12 @@ function extractToolRequestedPresentation(
     return undefined;
   }
 
-  return { description, displayText };
+  return {
+    description: description
+      ? sanitizeRuntimeEventText(description)
+      : undefined,
+    displayText: displayText
+      ? sanitizeRuntimeEventText(displayText)
+      : undefined,
+  };
 }

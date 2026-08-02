@@ -16,6 +16,7 @@ import {
 import { resolveAgentType } from "../policies/AgentTypePolicy";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";
+import type { SecureExecutionWorkspaceScope } from "../RuntimeWorkspaceScope";
 
 /**
  * Build agent registry, resolve requested agent type, and return resolved agent.
@@ -33,20 +34,25 @@ import type { Env } from "../../types/ai";
 export function resolveAgent(
   env: Env,
   llmGateway: LLMGateway,
-  _sessionId: string,
+  sessionId: string,
   runId: string,
   userId: string | undefined,
   requestedAgentType: AgentType,
+  workspaceScope: SecureExecutionWorkspaceScope,
   options: { strict?: boolean; correlationId?: string } = {},
+  executionService?: ExecutionService,
 ): IAgent | undefined {
-  const executionService = new ExecutionService(env, runId, runId, userId);
+  const resolvedExecutionService =
+    executionService ??
+    new ExecutionService(env, sessionId, runId, userId, workspaceScope);
 
   const runtimeExecutionService = {
     execute: (
       plugin: string,
       action: string,
       payloadData: Record<string, unknown>,
-    ) => executionService.execute(plugin, action, payloadData),
+      options?: Parameters<ExecutionService["execute"]>[3],
+    ) => resolvedExecutionService.execute(plugin, action, payloadData, options),
   };
 
   const registry = buildAgentRegistry(llmGateway, runtimeExecutionService);
@@ -75,6 +81,7 @@ function buildAgentRegistry(
       plugin: string,
       action: string,
       payloadData: Record<string, unknown>,
+      options?: Parameters<ExecutionService["execute"]>[3],
     ) => Promise<unknown>;
   },
 ): AgentRegistry {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { TurnIdSchema } from "@repo/platform-client-sdk";
 import {
   createLifecycleClient,
   type LifecycleClient,
@@ -76,7 +77,8 @@ function normalizeCanonicalTurnId(
   turnId: string | null | undefined,
 ): TurnId | null {
   const trimmed = turnId?.trim();
-  return trimmed?.startsWith("trn_") ? (trimmed as TurnId) : null;
+  const parsed = trimmed ? TurnIdSchema.safeParse(trimmed) : null;
+  return parsed?.success ? parsed.data : null;
 }
 
 interface FollowLifecycleInput {

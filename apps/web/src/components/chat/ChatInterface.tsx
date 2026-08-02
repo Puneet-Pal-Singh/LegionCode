@@ -1,13 +1,19 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import { useRef, useEffect, useMemo, useCallback } from "react";
+import {
+  RunIdSchema,
+  RunAttemptIdSchema,
+  ThreadIdSchema,
+  TurnIdSchema,
+  WorkspaceIdSchema,
+  type ContextBudgetSnapshot,
+  type UsageCostSnapshot,
+} from "@repo/platform-client-sdk";
 import type { ChatSubmitAttachments } from "./chatImageAttachments";
 import type { Message } from "@ai-sdk/react";
 import { type ProductMode, type RunMode } from "@repo/shared-types";
 import type { ProviderId } from "../../types/provider";
 import type { ChatDebugEvent } from "../../types/chat-debug.js";
-import { useRunSummary } from "../../hooks/useRunSummary.js";
-import { useRunEvents } from "../../hooks/useRunEvents.js";
-import { useRunActivityFeed } from "../../hooks/useRunActivityFeed.js";
-import { useTurnLifecycleProjection } from "../../hooks/useTurnLifecycleProjection.js";
+import type { ConversationScope } from "../../hooks/conversationScope";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery";
 import { useAuth } from "../../contexts/AuthContext";
 import { useProviderStore } from "../../hooks/useProviderStore.js";
@@ -16,31 +22,31 @@ import {
   buildChatMessageMetadata,
   buildConversationTurns,
 } from "./messageMetadata";
-import { ActivityTurn } from "./activity/ActivityTurn.js";
-import { WorkflowTimeline } from "./workflow/WorkflowTimeline.js";
-import type { ActivityTurnViewModel } from "../../services/activity/ActivityFeedViewModel.js";
-import {
-  isApprovalRequiredRunStatus,
-  isTerminalRunStatus,
-  normalizeRunStatus,
-} from "../../lib/run-status.js";
 import { useGitReview } from "../git/useGitReview";
 import { resolveModelLabel } from "./chat-interface/modelLabels";
 import { useChangedFilesController } from "./chat-interface/useChangedFilesController";
 import { useApprovalController } from "./chat-interface/useApprovalController";
+import {
+  useActiveTurnProjection,
+  type ActiveTurnProjection,
+} from "./chat-interface/useActiveTurnProjection.js";
+import { useCompletedTurnReview } from "./chat-interface/useCompletedTurnReview.js";
 import { useReviewCommentSubmission } from "./chat-interface/useReviewCommentSubmission";
 import {
   ChatComposerControls,
   type ComposerLayout,
 } from "./chat-interface/ChatComposerControls";
 import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
-import { useActivityPresentation } from "./chat-interface/useActivityPresentation";
-import { usePlanModeController } from "./chat-interface/usePlanModeController";
+import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
-import { derivePendingApprovalFromEvents } from "./chat-interface/approvals";
+import {
+  hasArtifactChangedFileSnapshot,
+  hasChangedFileSnapshot,
+} from "./chat-interface/changedFiles";
+import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
+import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
+import type { ArtifactOpenHandler } from "./artifactOpen";
 
-// Flip to true when you want to temporarily inspect the legacy workflow debug UI.
-const SHOW_WORKFLOW_DEBUG_PANEL = false;
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
@@ -53,11 +59,13 @@ interface ChatInterfaceProps {
     ) => Promise<boolean>;
     append: (message: { role: "user"; content: string }) => Promise<void>;
     stop: () => void;
-    canStop?: boolean;
     isLoading: boolean;
     hasHydrated?: boolean;
     error?: string | null;
     debugEvents?: ChatDebugEvent[];
+    conversationScope?: ConversationScope | null;
+    serverTurnId?: string | null;
+    activeTurnProjection?: ActiveTurnProjection;
   };
   sessionId: string;
   hasStartedSession?: boolean;
@@ -66,8 +74,12 @@ interface ChatInterfaceProps {
   permissionMode?: ProductMode;
   onPermissionModeChange?: (mode: ProductMode) => void;
   onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
-  onArtifactOpen?: (path: string, content: string) => void;
+  onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
+  onContextOpen?: (
+    budget: ContextBudgetSnapshot,
+    usage: UsageCostSnapshot | null,
+  ) => void;
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
@@ -84,6 +96,7 @@ export function ChatInterface({
   onPendingApprovalChange,
   onArtifactOpen,
   onReviewOpen,
+  onContextOpen,
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
@@ -96,42 +109,50 @@ export function ChatInterface({
     handleSubmit,
     append,
     stop,
-    canStop,
     isLoading,
     hasHydrated = true,
     error,
     debugEvents = [],
+    conversationScope,
+    serverTurnId,
   } = chatProps;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [expandedActivityTurns, setExpandedActivityTurns] = useState<
-    Record<string, boolean>
-  >({});
-  const [expandedActivityRows, setExpandedActivityRows] = useState<
-    Record<string, boolean>
-  >({});
 
-  const { projection: lifecycleProjection } = useTurnLifecycleProjection(
-    runId,
-    true,
-  );
-  const { summary } = useRunSummary(runId, isLoading);
-  const isLifecycleTerminalSettled = Boolean(lifecycleProjection?.terminal);
-  const isTerminalSummarySettled = Boolean(
-    summary?.status &&
-    isTerminalRunStatus(summary.status) &&
-    !isApprovalRequiredRunStatus(summary.status),
-  );
-  const normalizedSummaryStatus = normalizeRunStatus(summary?.status);
-  const isCanonicalRunActive =
-    normalizedSummaryStatus === "RUNNING" ||
-    isApprovalRequiredRunStatus(normalizedSummaryStatus) ||
-    Boolean(summary?.pendingApproval);
+  const localActiveTurn = useActiveTurnProjection({
+    turnId: serverTurnId,
+    transportLoading: isLoading,
+    enabled: !chatProps.activeTurnProjection,
+  });
+  const activeTurn = chatProps.activeTurnProjection ?? localActiveTurn;
+  const lifecycleProjection = activeTurn.projection;
+  const compactActiveTurn = useCallback(async () => {
+    const scope = conversationScope;
+    if (!scope) return;
+    await createLifecycleClient().compactTurn({
+      runId: RunIdSchema.parse(runId),
+      sessionId: scope.sessionId,
+      workspaceId: WorkspaceIdSchema.parse(scope.workspaceId),
+      threadId: ThreadIdSchema.parse(scope.threadId),
+      turnId: TurnIdSchema.parse(scope.turnId),
+      runAttemptId: RunAttemptIdSchema.parse(scope.runAttemptId),
+    });
+  }, [conversationScope, runId]);
+  // The canonical lifecycle projection is the only workflow/activity source.
+  // RunEvent and persisted activity backfills are deliberately not rendered.
+  const awaitingCanonicalLifecycle = isLoading && !activeTurn.hasReplay;
   const activeRunLoading =
-    !isLifecycleTerminalSettled &&
-    !isTerminalSummarySettled &&
-    (isLoading || isCanonicalRunActive);
+    activeTurn.isActive ||
+    activeTurn.isTransportPending ||
+    awaitingCanonicalLifecycle;
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "assistant") {
+        return messages[index]?.id ?? null;
+      }
+    }
+    return null;
+  }, [messages]);
   const {
-    status: gitStatus,
     selectedReviewComments,
     openPromptArtifactReview,
     toggleReviewCommentSelected,
@@ -139,8 +160,6 @@ export function ChatInterface({
     markReviewCommentsDispatched,
     markReviewCommentsDispatchFailed,
   } = useGitReview();
-  const { events } = useRunEvents(runId, Boolean(runId));
-  const { feed } = useRunActivityFeed(runId, activeRunLoading);
   const showDebugPanel =
     import.meta.env.VITE_ENABLE_CHAT_DEBUG_PANEL === "true";
   const { providerModels } = useProviderStore(runId);
@@ -162,6 +181,32 @@ export function ChatInterface({
     markDispatched: markReviewCommentsDispatched,
     markDispatchFailed: markReviewCommentsDispatchFailed,
   });
+  const submitComposer = useCallback(
+    async (attachments?: ChatSubmitAttachments): Promise<boolean> => {
+      if (input.trim() !== "/compact") {
+        return handleSubmit(undefined, attachments);
+      }
+      const budget = lifecycleProjection?.contextBudget;
+      if (
+        !lifecycleProjection ||
+        lifecycleProjection.terminal ||
+        !budget ||
+        budget.utilizationPercent < budget.warningThresholdPercent
+      ) {
+        return false;
+      }
+      await compactActiveTurn();
+      handleInputChangeWrapper("");
+      return true;
+    },
+    [
+      compactActiveTurn,
+      handleInputChangeWrapper,
+      handleSubmit,
+      input,
+      lifecycleProjection,
+    ],
+  );
   const previousScrollScopeKeyRef = useRef<string | null>(null);
 
   const messageMetadataById = useMemo(() => {
@@ -173,31 +218,6 @@ export function ChatInterface({
     );
   }, [messages, debugEvents, mode, providerModels]);
   const {
-    scopedFeed,
-    viewModel: activityViewModel,
-    scrollSignal: activityScrollSignal,
-  } = useActivityPresentation({
-    runId,
-    messages,
-    feed,
-    events,
-    isLoading: activeRunLoading,
-  });
-  const fallbackApproval = useMemo(() => {
-    if (summary?.pendingApproval) {
-      return summary.pendingApproval;
-    }
-    if (!isCanonicalRunActive && !activeRunLoading) {
-      return null;
-    }
-    return derivePendingApprovalFromEvents(events);
-  }, [
-    activeRunLoading,
-    events,
-    isCanonicalRunActive,
-    summary,
-  ]);
-  const {
     pendingApproval,
     decisions: displayedApprovalDecisions,
     busyDecision: approvalBusyDecision,
@@ -206,15 +226,40 @@ export function ChatInterface({
     isResolutionPending: isApprovalResolutionPending,
     resolve: resolveApprovalDecision,
   } = useApprovalController({
-    runId,
     lifecycleProjection,
-    fallbackApproval,
     onPendingApprovalChange,
   });
+  const completedTurnReview = useCompletedTurnReview(
+    lifecycleProjection,
+    latestAssistantMessageId,
+  );
   const conversationTurns = useMemo(
     () => buildConversationTurns(messages),
     [messages],
   );
+  const historicalLifecycleProjections = useConversationLifecycleProjections(
+    conversationTurns,
+    lifecycleProjection?.turnId,
+  );
+  const lifecycleProjectionsByTurnId = useMemo(
+    () =>
+      mergeLifecycleProjections(
+        historicalLifecycleProjections,
+        {},
+        lifecycleProjection,
+      ),
+    [historicalLifecycleProjections, lifecycleProjection],
+  );
+  const latestLifecycleProjection = useMemo(() => {
+    if (lifecycleProjection) return lifecycleProjection;
+    for (let index = conversationTurns.length - 1; index >= 0; index -= 1) {
+      const turnId = conversationTurns[index]?.turnId;
+      if (turnId && lifecycleProjectionsByTurnId[turnId]) {
+        return lifecycleProjectionsByTurnId[turnId];
+      }
+    }
+    return null;
+  }, [conversationTurns, lifecycleProjection, lifecycleProjectionsByTurnId]);
   const {
     snapshots: changedFileSnapshotsByAssistantMessageId,
     artifacts: artifactSourcesByAssistantMessageId,
@@ -223,36 +268,15 @@ export function ChatInterface({
   } = useChangedFilesController({
     messages,
     runId,
-    sessionId,
-    isLoading,
-    summaryStatus: summary?.status,
-    gitFiles: gitStatus?.files ?? [],
-    conversationTurns,
-    activityTurns: activityViewModel.turns,
-    hasScopedFeed: Boolean(scopedFeed),
+    isLoading: activeTurn.isTransportPending,
+    summaryStatus: null,
+    turnDiff: lifecycleProjection?.turnDiff ?? null,
+    artifactIdentity: conversationScope,
   });
-  useEffect(() => {
-    // Reset expansion preferences when the active run changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setExpandedActivityTurns({});
-    setExpandedActivityRows({});
-  }, [runId]);
-
-  const { usePlanInBuild: planHandoffAction } = usePlanModeController({
-    runId,
-    messages,
-    mode,
-    isLoading,
-    handoffPrompt: summary?.planArtifact?.handoff?.prompt,
-    append,
-    restoreInput: handleInputChangeWrapper,
-    onModeChange,
-  });
-
   const recoveryAdvice = getProviderRecoveryAdvice(error);
   const openProviderRecoverySurface = useCallback(() => {
     if (recoveryAdvice.recoveryTarget === "auth") {
-      login();
+      login(true);
       return;
     }
     dispatchOpenSettingsDialog(recoveryAdvice.recoveryTarget);
@@ -264,61 +288,34 @@ export function ChatInterface({
     }
     void refreshSession();
   }, [recoveryAdvice.recoveryTarget, refreshSession]);
-  const activeInlineTurn = activityViewModel.turns.find(
-    (turn) => turn.isActiveTurn && turn.hasVisibleRows,
-  );
   const {
     chatEntries,
     terminalViewModel,
-    terminalReviewFiles,
     showHeroComposer,
     isTranscriptHydrating,
     showSessionPlaceholder,
   } = useChatPresentation({
-    runId,
     messages,
     conversationTurns,
-    activityTurns: activityViewModel.turns,
-    summary,
-    events,
-    snapshots: changedFileSnapshotsByAssistantMessageId,
-    artifacts: artifactSourcesByAssistantMessageId,
     hasHydrated,
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
     lifecycleProjection,
+    lifecycleProjectionsByTurnId,
   });
-  const showThinking = Boolean(
-    lifecycleProjection?.activeThinking && !activeInlineTurn,
-  );
-  const renderActivityTurn = (turn: ActivityTurnViewModel) => (
-    <ActivityTurn
-      key={`activity:${turn.key}`}
-      turn={turn}
-      expanded={expandedActivityTurns[turn.key] ?? !turn.defaultCollapsed}
-      onToggleTurn={() =>
-        setExpandedActivityTurns((current) => ({
-          ...current,
-          [turn.key]: !(current[turn.key] ?? !turn.defaultCollapsed),
-        }))
-      }
-      expandedRows={expandedActivityRows}
-      onToggleRow={(rowKey, expanded) =>
-        setExpandedActivityRows((current) => ({
-          ...current,
-          [rowKey]: !expanded,
-        }))
-      }
-      onUsePlanInBuild={planHandoffAction}
-    />
-  );
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
       error={
         error
-          ? { ...recoveryAdvice, onOpen: openProviderRecoverySurface }
+          ? {
+              ...recoveryAdvice,
+              onOpen:
+                recoveryAdvice.recoveryTarget === "general"
+                  ? undefined
+                  : openProviderRecoverySurface,
+            }
           : null
       }
       approval={{
@@ -335,15 +332,16 @@ export function ChatInterface({
       onSubmit={
         selectedReviewComments.length > 0
           ? () => handleSubmitWithReviewComments()
-          : (attachments) => handleSubmit(undefined, attachments)
+          : submitComposer
       }
       reviewComments={selectedReviewComments}
       onRemoveReviewComment={handleRemoveReviewComment}
       reviewCommentError={reviewCommentError}
       onStop={stop}
-      canStop={activeRunLoading && (canStop ?? true)}
+      canStop={activeRunLoading}
       isLoading={activeRunLoading || isTranscriptHydrating}
       sessionId={sessionId}
+      runId={runId}
       mode={mode}
       onModeChange={onModeChange}
       hasMessages={messages.length > 0}
@@ -352,10 +350,28 @@ export function ChatInterface({
       isLoadingRepoTree={isLoadingRepoTree}
       permissionMode={permissionMode}
       onPermissionModeChange={onPermissionModeChange}
+      contextBudget={latestLifecycleProjection?.contextBudget ?? null}
+      usage={latestLifecycleProjection?.usage ?? null}
+      onCompact={
+        lifecycleProjection && !lifecycleProjection.terminal
+          ? () => void compactActiveTurn()
+          : undefined
+      }
+      onContextOpen={
+        latestLifecycleProjection?.contextBudget && onContextOpen
+          ? () =>
+              onContextOpen(
+                latestLifecycleProjection.contextBudget!,
+                latestLifecycleProjection.usage,
+              )
+          : undefined
+      }
     />
   );
 
-  // Auto-scroll to bottom on new messages and live activity updates.
+  const latestLifecycleSequence = latestLifecycleProjection?.lastSequence ?? 0;
+
+  // Keep the active turn visible as canonical lifecycle activity arrives.
   useEffect(() => {
     const scrollContainer = scrollRef.current;
     if (!scrollContainer) {
@@ -371,7 +387,7 @@ export function ChatInterface({
       top: scrollContainer.scrollHeight,
       behavior: isInitialScopeScroll ? "auto" : "smooth",
     });
-  }, [activityScrollSignal, isLoading, messages, runId, sessionId]);
+  }, [activeRunLoading, latestLifecycleSequence, messages, runId, sessionId]);
 
   return (
     <ChatInterfaceView
@@ -382,8 +398,11 @@ export function ChatInterface({
       showDebugPanel={showDebugPanel}
       debugEvents={debugEvents}
       chatEntries={chatEntries}
+      workspaceId={conversationScope?.workspaceId ?? null}
+      threadId={conversationScope?.threadId ?? null}
+      runAttemptId={conversationScope?.runAttemptId ?? null}
+      artifactIdentity={conversationScope}
       messageMetadataById={messageMetadataById}
-      renderActivityTurn={renderActivityTurn}
       onArtifactOpen={onArtifactOpen}
       onReviewOpen={onReviewOpen}
       snapshots={changedFileSnapshotsByAssistantMessageId}
@@ -391,32 +410,19 @@ export function ChatInterface({
       loadChangedFileDiff={loadChangedFileDiff}
       openPromptArtifactReview={openPromptArtifactReview}
       terminalViewModel={terminalViewModel}
-      terminalReviewFiles={terminalReviewFiles}
+      terminalReviewFiles={
+        terminalViewModel &&
+        (hasChangedFileSnapshot(changedFileSnapshotsByAssistantMessageId) ||
+          hasArtifactChangedFileSnapshot(artifactSourcesByAssistantMessageId))
+          ? []
+          : completedTurnReview.files
+      }
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
-      showThinking={showThinking}
-      workflowDebug={
-        SHOW_WORKFLOW_DEBUG_PANEL ? (
-          <details className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-3">
-            <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.2em] text-zinc-500">
-              Workflow Debug
-            </summary>
-            <div className="mt-4">
-              <WorkflowTimeline
-                events={events}
-                summary={summary}
-                isLoading={isLoading}
-                onJumpToLatest={() =>
-                  scrollRef.current?.scrollTo({
-                    top: scrollRef.current.scrollHeight,
-                    behavior: "smooth",
-                  })
-                }
-              />
-            </div>
-          </details>
-        ) : null
-      }
+      loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}
+      completedTurnReview={completedTurnReview}
+      lifecycleProjection={lifecycleProjection}
+      pendingWorkflow={awaitingCanonicalLifecycle}
     />
   );
 }

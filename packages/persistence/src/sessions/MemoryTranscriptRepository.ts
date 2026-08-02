@@ -47,7 +47,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     const task = this.upsertTask(input, now);
     const existing = this.sessions.get(input.sessionId);
     const titleSource =
-      existing?.titleSource ?? input.titleSource ?? "generated";
+      existing?.titleSource ?? input.titleSource ?? "preview";
     const session = {
       id: input.sessionId,
       userId: input.userId,
@@ -55,9 +55,11 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
         input.workspaceId,
         existing?.workspaceId ?? null,
       ),
+      threadId: readNullableInput(input.threadId, existing?.threadId ?? null),
       taskId: task.id,
       title: existing?.title ?? input.title ?? task.title,
       titleSource,
+      titleVersion: existing?.titleVersion ?? 1,
       repository: readNullableInput(
         input.repository,
         existing?.repository ?? null,
@@ -78,13 +80,15 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return session;
   }
 
-  async updateGeneratedSessionTitle(input: {
+  async updateAutomatedSessionTitle(input: {
     userId: string;
     sessionId: string;
     title: string;
-    titleSource: "generated";
+    titleSource: "preview" | "generated";
+    expectedTitleVersion?: number;
+    initialOnly?: boolean;
   }): Promise<SessionRecord | null> {
-    return this.updateSessionTitle(input, "generated");
+    return this.updateSessionTitle(input, input.titleSource);
   }
 
   async updateSessionStatus(input: {
@@ -235,7 +239,46 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
   async transaction<T>(
     callback: (repository: TranscriptRepository) => Promise<T>,
   ): Promise<T> {
-    return await callback(this);
+    const snapshot = this.createSnapshot();
+    try {
+      return await callback(this);
+    } catch (error) {
+      this.restoreSnapshot(snapshot);
+      throw error;
+    }
+  }
+
+  private createSnapshot() {
+    return {
+      tasks: new Map(this.tasks),
+      sessions: new Map(this.sessions),
+      messagesBySessionId: new Map(
+        Array.from(this.messagesBySessionId, ([sessionId, messages]) => [
+          sessionId,
+          messages.map((message) => ({ ...message, parts: [...message.parts] })),
+        ]),
+      ),
+      messageIdByDedupeKeyBySessionId: new Map(
+        Array.from(
+          this.messageIdByDedupeKeyBySessionId,
+          ([sessionId, messageIds]) => [sessionId, new Map(messageIds)],
+        ),
+      ),
+      sequenceBySessionId: new Map(this.sequenceBySessionId),
+      idCounter: this.idCounter,
+    };
+  }
+
+  private restoreSnapshot(snapshot: ReturnType<typeof this.createSnapshot>): void {
+    replaceMap(this.tasks, snapshot.tasks);
+    replaceMap(this.sessions, snapshot.sessions);
+    replaceMap(this.messagesBySessionId, snapshot.messagesBySessionId);
+    replaceMap(
+      this.messageIdByDedupeKeyBySessionId,
+      snapshot.messageIdByDedupeKeyBySessionId,
+    );
+    replaceMap(this.sequenceBySessionId, snapshot.sequenceBySessionId);
+    this.idCounter = snapshot.idCounter;
   }
 
   private upsertTask(
@@ -268,6 +311,8 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       sessionId: string;
       title: string;
       titleSource: SessionRecord["titleSource"];
+      expectedTitleVersion?: number;
+      initialOnly?: boolean;
     },
     titleSource: SessionRecord["titleSource"],
   ): SessionRecord | null {
@@ -275,7 +320,21 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     if (!session) {
       return null;
     }
-    if (titleSource === "generated" && session.titleSource !== "generated") {
+    const isAutomatedTitle =
+      titleSource === "preview" || titleSource === "generated";
+    if (isAutomatedTitle && session.titleSource === "user") {
+      return null;
+    }
+    if (
+      isAutomatedTitle &&
+      input.expectedTitleVersion !== undefined &&
+      session.titleVersion !== input.expectedTitleVersion
+    ) {
+      return null;
+    }
+    if (
+      isAutomatedTitle && input.initialOnly && session.titleVersion !== 1
+    ) {
       return null;
     }
     const now = this.clock.now().toISOString();
@@ -283,6 +342,7 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
       ...session,
       title: input.title,
       titleSource,
+      titleVersion: (session.titleVersion ?? 1) + 1,
       updatedAt: now,
     });
   }
@@ -393,4 +453,14 @@ function readNullableInput<T>(
   fallback: T | null,
 ): T | null {
   return value === undefined ? fallback : value;
+}
+
+function replaceMap<TKey, TValue>(
+  target: Map<TKey, TValue>,
+  source: Map<TKey, TValue>,
+): void {
+  target.clear();
+  for (const [key, value] of source) {
+    target.set(key, value);
+  }
 }

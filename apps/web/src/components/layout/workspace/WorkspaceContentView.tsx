@@ -76,6 +76,7 @@ export function WorkspaceContentView({
               isOpen
               title={selectedFile.path}
               content={selectedFile.content}
+              startingLineNumber={selectedFile.startingLineNumber}
               wordWrap={wordWrap}
               richPreview={richPreview}
             />

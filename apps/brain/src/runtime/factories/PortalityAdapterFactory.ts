@@ -8,11 +8,9 @@
 import type { Env } from "../../types/ai";
 import { CloudflareExecutionAdapter } from "../adapters/CloudflareExecutionAdapter";
 import { CloudflareProviderAdapter } from "../adapters/CloudflareProviderAdapter";
-import { CloudflareEventStreamAdapter } from "../adapters/CloudflareEventStreamAdapter";
 import type {
   ExecutionRuntimePort,
   ProviderResolutionPort,
-  RealtimeEventPort,
 } from "../ports";
 import type { AIService } from "../../services/AIService";
 import type { ProviderConfigService } from "../../services/providers";
@@ -23,7 +21,9 @@ import type { ProviderConfigService } from "../../services/providers";
  * @param ctx - Durable Object context (owns run/task state)
  * @returns ExecutionRuntimePort implementation
  */
-export function createCloudflareExecutionPort(ctx: unknown): ExecutionRuntimePort {
+export function createCloudflareExecutionPort(
+  ctx: unknown,
+): ExecutionRuntimePort {
   return new CloudflareExecutionAdapter(ctx);
 }
 
@@ -44,22 +44,12 @@ export function createCloudflareProviderPort(
 }
 
 /**
- * Create a Cloudflare-backed realtime event port.
- *
- * @returns RealtimeEventPort implementation
- */
-export function createCloudflareEventStreamPort(): RealtimeEventPort {
-  return new CloudflareEventStreamAdapter();
-}
-
-/**
  * Composite factory for all runtime ports.
  * Returns a complete set of adapter implementations.
  */
 export interface RuntimePorts {
   executionRuntime: ExecutionRuntimePort;
   providerResolution: ProviderResolutionPort;
-  eventStream: RealtimeEventPort;
 }
 
 /**
@@ -85,6 +75,5 @@ export function createRuntimePorts(
       aiService,
       providerConfigService,
     ),
-    eventStream: createCloudflareEventStreamPort(),
   };
 }

@@ -10,6 +10,7 @@ import type {
   StreamChunk,
 } from "../base/ProviderAdapter";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 
 interface AnthropicConfig {
   apiKey: string;
@@ -54,6 +55,8 @@ export class AnthropicAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     // Standardize usage to LLMUsage format
@@ -64,6 +67,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       usage,
       finishReason: result.finishReason,
       toolCalls: result.toolCalls?.map((tc) => ({
+        toolCallId: readToolCallId(tc),
         toolName: tc.toolName,
         args: tc.args,
       })),
@@ -81,6 +85,8 @@ export class AnthropicAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      abortSignal: params.signal,
+      maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
 
     let fullText = "";
@@ -101,6 +107,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           yield {
             type: "tool-call",
             toolCall: {
+              toolCallId: readToolCallId(chunk),
               toolName: chunk.toolName,
               args: chunk.args,
             },
@@ -141,6 +148,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       finishReason: finishReason ?? finalFinishReason,
       toolCalls: finalToolCalls?.map(
         (tc: { toolName: string; args: unknown }) => ({
+          toolCallId: readToolCallId(tc),
           toolName: tc.toolName,
           args: tc.args,
         }),
@@ -165,4 +173,18 @@ export class AnthropicAdapter implements ProviderAdapter {
       raw: usage,
     };
   }
+}
+
+function readToolCallId(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as { toolCallId?: unknown; id?: unknown };
+  if (typeof record.toolCallId === "string" && record.toolCallId.trim()) {
+    return record.toolCallId.trim();
+  }
+  if (typeof record.id === "string" && record.id.trim()) {
+    return record.id.trim();
+  }
+  return undefined;
 }

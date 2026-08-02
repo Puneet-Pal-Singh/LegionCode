@@ -18,6 +18,7 @@ interface ProjectionState {
   itemsById: Map<string, ThreadItem>;
   lastCursor: ThreadProjectionSnapshot["lastCursor"] | null;
   lastProjectionSequence: number;
+  lastTerminalTurnId: Thread["lastTerminalTurnId"];
 }
 
 export function projectThreadEvents(
@@ -29,6 +30,7 @@ export function projectThreadEvents(
     itemsById: new Map(),
     lastCursor: null,
     lastProjectionSequence: 0,
+    lastTerminalTurnId: null,
   };
 
   for (const input of inputs) {
@@ -40,7 +42,7 @@ export function projectThreadEvents(
   }
 
   return {
-    thread: state.thread,
+    thread: { ...state.thread, lastTerminalTurnId: state.lastTerminalTurnId },
     items: [...state.itemsById.values()].sort(sortItems),
     lastCursor: requireLastCursor(state),
     projectionVersion: THREAD_PROJECTION_VERSION,
@@ -57,7 +59,11 @@ function applyProjectionInput(
   state.lastProjectionSequence = input.projectionSequence;
 
   if (isThreadStateEvent(input.event)) {
-    state.thread = projectThreadState(input.event, input.projectionSequence);
+    state.thread = projectThreadState(
+      state.thread,
+      input.event,
+      input.projectionSequence,
+    );
     return;
   }
 
@@ -65,6 +71,18 @@ function applyProjectionInput(
     const item = projectThreadItem(input.event, input.projectionSequence);
     state.itemsById.set(item.id, item);
     state.thread = updateActiveLeafItem(state.thread, item);
+  }
+
+  if (isTerminalTurnEvent(input.event)) {
+    state.lastTerminalTurnId = input.event.payload.turn.id;
+    if (isFirstEligibleTitleTurn(state.thread, input.event)) {
+      state.thread = ThreadSchema.parse({
+        ...state.thread,
+        titleStatus: "pending",
+        lastTerminalTurnId: state.lastTerminalTurnId,
+        lastEventSequence: input.projectionSequence,
+      });
+    }
   }
 }
 
@@ -108,10 +126,48 @@ function isThreadItemEvent(
   return event.type.startsWith("item.");
 }
 
+function isTerminalTurnEvent(
+  event: PlatformEvent,
+): event is Extract<PlatformEvent, { type: "turn.completed" | "turn.failed" }> {
+  return event.type === "turn.completed" || event.type === "turn.failed";
+}
+
+function isFirstEligibleTitleTurn(
+  thread: Thread | null,
+  event: PlatformEvent,
+): boolean {
+  return (
+    event.type === "turn.completed" &&
+    thread?.titleSource === "generated" &&
+    thread.titleVersion === 1 &&
+    thread.titleStatus === "ready"
+  );
+}
+
 function projectThreadState(
+  current: Thread | null,
   event: Extract<PlatformEvent, { type: `thread.${string}` }>,
   projectionSequence: number,
 ): Thread {
+  if (event.type === "thread.title.updated") {
+    if (!current) {
+      throw new ThreadProjectionError(
+        "missing_thread_created",
+        "Thread title updates require a prior thread.created event",
+      );
+    }
+
+    return ThreadSchema.parse({
+      ...current,
+      title: event.payload.title,
+      titleSource: event.payload.source,
+      titleStatus: "ready",
+      titleVersion: event.payload.titleVersion,
+      updatedAt: event.payload.timestamp,
+      lastEventSequence: projectionSequence,
+    });
+  }
+
   return ThreadSchema.parse({
     ...event.payload.thread,
     lastEventSequence: projectionSequence,

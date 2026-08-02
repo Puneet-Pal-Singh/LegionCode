@@ -1,429 +1,410 @@
-/**
- * CloudflareSandboxExecutionAdapter - Implements SandboxExecutionPort using Cloudflare Sandbox.
- *
- * Adapts Cloudflare sandbox primitives to the canonical SandboxExecutionPort interface.
- * Encapsulates plugin execution, error handling, and health monitoring.
- *
- * Canonical alignment: ExecutionSandboxPort (Charter 46)
- */
-
-import { Sandbox } from "@cloudflare/sandbox";
-import {
+import type { Sandbox } from "@cloudflare/sandbox";
+import type { IPlugin, PluginExecutionContext } from "../interfaces/types";
+import type {
+  LeaseReleaseResult,
   SandboxExecutionPort,
   TaskExecutionHooks,
   TaskExecutionInput,
   TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
-import { IPlugin } from "../interfaces/types";
+import {
+  createSandboxLease,
+  isLeaseExpired,
+  workspaceLeaseKey,
+  type SandboxExecutionLease,
+  type SandboxExecutionLeaseRequest,
+} from "../ports/SandboxExecutionLease";
+import { sanitizeLogText } from "../core/security/LogSanitizer";
 
-/**
- * Maps task action to plugin name and method.
- * Ensures deterministic routing of tasks to correct plugins.
- */
 interface TaskActionMapping {
   pluginName: string;
   method: string;
 }
 
-/**
- * Tracks active task executions for cancellation support.
- */
+type TerminationReason = "cancelled" | "timeout";
+
 interface ActiveTaskExecution {
+  leaseId: string;
   taskId: string;
   abortController: AbortController;
-  startTime: number;
+  terminationReason?: TerminationReason;
 }
 
 interface ToolboxPayloadContext {
-  __toolbox: {
-    callId: string;
-    runId?: string;
-    toolName: string;
-  };
+  __toolbox: { callId: string; runId?: string; toolName: string };
 }
 
-function resolveExecutePayloadAction(
-  taskAction: string,
-  params: Record<string, unknown>,
-): string {
-  const requestedAction = params.action;
-  if (typeof requestedAction === "string") {
-    const normalizedAction = requestedAction.trim();
-    if (normalizedAction.length > 0) {
-      return normalizedAction;
-    }
+class TaskInterruptedError extends Error {
+  constructor(readonly reason: TerminationReason) {
+    super(reason === "timeout" ? "Sandbox task timed out" : "Sandbox task cancelled");
+    this.name = "TaskInterruptedError";
   }
-  if (!taskAction.includes(".")) {
-    return taskAction;
+}
+
+export class SandboxLeaseError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly retryable: boolean,
+    readonly correlationId: string,
+  ) {
+    super(message);
+    this.name = "SandboxLeaseError";
   }
-  throw {
-    code: "INVALID_INPUT",
-    message: "action is required for execute-style plugin routing",
-  };
 }
 
 export class CloudflareSandboxExecutionAdapter implements SandboxExecutionPort {
-  private activeExecutions = new Map<string, ActiveTaskExecution>();
-  private taskTimeouts = new Map<string, NodeJS.Timeout>();
+  private readonly activeExecutions = new Map<string, ActiveTaskExecution>();
+  private readonly taskTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly leases = new Map<string, SandboxExecutionLease>();
+  private readonly mutationTails = new Map<string, Promise<void>>();
 
   constructor(
-    private sandbox: Sandbox,
-    private plugins: Map<string, IPlugin>,
-  ) {}
+    private readonly sandbox: Sandbox,
+    private readonly plugins: Map<string, IPlugin>,
+    initialLease?: SandboxExecutionLease,
+  ) {
+    if (initialLease) this.registerLease(initialLease);
+  }
 
-  /**
-   * Execute a single task by routing to the appropriate plugin.
-   * Implements timeout, abort, and error handling.
-   */
+  registerLease(lease: SandboxExecutionLease): void {
+    const existing = this.leases.get(lease.leaseId);
+    if (existing && workspaceLeaseKey(existing) !== workspaceLeaseKey(lease)) {
+      throw new SandboxLeaseError(
+        "SANDBOX_LEASE_COLLISION",
+        "A lease id cannot be rebound to a different workspace run-attempt",
+        false,
+        lease.correlationId,
+      );
+    }
+    this.leases.set(lease.leaseId, lease);
+  }
+
+  async acquireLease(
+    request: SandboxExecutionLeaseRequest,
+  ): Promise<SandboxExecutionLease> {
+    const lease = await createSandboxLease(request);
+    this.registerLease(lease);
+    return lease;
+  }
+
   async executeTask(
-    sessionId: string,
+    leaseId: string,
     input: TaskExecutionInput,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
-    const startTime = Date.now();
-    const abortController = new AbortController();
-    const activeTask: ActiveTaskExecution = {
-      taskId: input.taskId,
-      abortController,
-      startTime,
-    };
-
-    this.activeExecutions.set(input.taskId, activeTask);
-
-    try {
-      // Determine timeout: use provided, or fallback to 30s
-      const timeout = input.timeout ?? 30000;
-
-      // Set up timeout cleanup
-      const timeoutHandle = setTimeout(() => {
-        abortController.abort();
-        this.activeExecutions.delete(input.taskId);
-      }, timeout);
-
-      this.taskTimeouts.set(input.taskId, timeoutHandle);
-
-      // Route task to appropriate plugin
-      const mapping = this.getTaskActionMapping(input.action);
-      if (!mapping) {
-        return {
-          taskId: input.taskId,
-          status: "failure",
-          error: {
-            code: "UNKNOWN_ACTION",
-            message: `Unknown task action: ${input.action}`,
-          },
-        };
-      }
-
-      const plugin = this.plugins.get(mapping.pluginName);
-      if (!plugin) {
-        return {
-          taskId: input.taskId,
-          status: "failure",
-          error: {
-            code: "PLUGIN_NOT_FOUND",
-            message: `Plugin not found: ${mapping.pluginName}`,
-          },
-        };
-      }
-
-      const output = await this.invokePlugin(
-        plugin,
-        mapping,
-        input.action,
-        input.taskId,
-        sessionId,
-        input.params,
-        abortController.signal,
-        hooks,
-      );
-
-      const duration = Date.now() - startTime;
-
-      return {
-        taskId: input.taskId,
-        status: "success",
-        output: typeof output === "string" ? output : JSON.stringify(output),
-        metrics: { duration },
-      };
-    } catch (err) {
-      const duration = Date.now() - startTime;
-      const error = this.normalizeError(err);
-
-      // Detect timeout vs other errors
-      let status: "failure" | "timeout" = "failure";
-      if (
-        abortController.signal.aborted &&
-        duration >= (input.timeout ?? 30000)
-      ) {
-        status = "timeout";
-      }
-
-      const normalizedError = {
-        code: error.code || "EXECUTION_ERROR",
-        message: error.message || "Unknown error",
-        details: error.details,
-      };
-
-      return {
-        taskId: input.taskId,
-        status,
-        error: normalizedError,
-        metrics: { duration },
-      };
-    } finally {
-      // Clean up
-      this.activeExecutions.delete(input.taskId);
-      const timeoutHandle = this.taskTimeouts.get(input.taskId);
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-        this.taskTimeouts.delete(input.taskId);
-      }
+    if (leaseId !== input.lease.leaseId || !this.isActiveLease(input.lease)) {
+      return this.leaseFailure(input);
     }
+    const execute = () => this.executeTaskWithLease(input, hooks);
+    return input.lease.mutationMode === "serialized"
+      ? this.withWorkspaceMutationLock(input.lease, execute)
+      : execute();
   }
 
-  /**
-   * Cancel an ongoing task execution.
-   * Signals the abort controller to stop the task.
-   */
-  async cancelTask(sessionId: string, taskId: string): Promise<boolean> {
-    const activeTask = this.activeExecutions.get(taskId);
-    if (!activeTask) {
-      return false; // Task not found or already completed
-    }
-
-    activeTask.abortController.abort();
+  async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
+    const active = this.activeExecutions.get(this.executionKey(leaseId, taskId));
+    if (!active) return false;
+    active.terminationReason = "cancelled";
+    active.abortController.abort();
     return true;
   }
 
-  /**
-   * Get sandbox health status.
-   * Checks if sandbox is operational and resources available.
-   */
-  async getHealth(
-    sessionId: string,
-  ): Promise<{ healthy: boolean; memoryUsed?: number; cpuUsage?: number }> {
-    try {
-      // Basic health check: if plugins are loaded, assume healthy
-      const healthy = this.plugins.size > 0;
-      return {
-        healthy,
-        // Cloudflare sandbox doesn't expose detailed metrics
-        // in a portable way, so we keep these optional
-      };
-    } catch {
-      return { healthy: false };
+  async getHealth(_leaseId: string): Promise<{ healthy: boolean }> {
+    return { healthy: this.plugins.size > 0 && this.leases.size > 0 };
+  }
+
+  async cleanup(leaseId: string): Promise<void> {
+    for (const [key, active] of this.activeExecutions) {
+      if (active.leaseId !== leaseId) continue;
+      active.terminationReason = "cancelled";
+      active.abortController.abort();
+      const timeout = this.taskTimeouts.get(key);
+      if (timeout) clearTimeout(timeout);
+      this.taskTimeouts.delete(key);
     }
   }
 
-  /**
-   * Clean up sandbox resources for a session.
-   * Called when session ends to free resources.
-   */
-  async cleanup(sessionId: string): Promise<void> {
-    // Cancel any active executions for this session
-    // (In a real implementation, we'd track session->taskId mappings)
-    // For now, we just ensure timeouts are cleared
-    this.taskTimeouts.forEach((timeout) => clearTimeout(timeout));
-    this.taskTimeouts.clear();
-    this.activeExecutions.clear();
+  async releaseLease(leaseId: string): Promise<LeaseReleaseResult> {
+    const lease = this.leases.get(leaseId);
+    if (!lease) return { released: false, sandboxReleased: false };
+    await this.cleanup(leaseId);
+    this.leases.delete(leaseId);
+    const sandboxReleased = this.leases.size === 0;
+    if (sandboxReleased) await destroySandbox(this.sandbox);
+    return { released: true, sandboxReleased };
   }
 
-  /**
-   * Maps task action strings to plugin method calls.
-   * Deterministic routing ensures same action always routes to same plugin.
-   */
-  private getTaskActionMapping(action: string): TaskActionMapping | null {
-    // Standard action patterns: "plugin.method"
-    const parts = action.split(".");
-    if (parts.length === 2 && parts[0] && parts[1]) {
-      return {
-        pluginName: parts[0],
-        method: parts[1],
-      };
-    }
-
-    // Legacy mappings for backward compatibility
-    const legacyMappings: Record<string, TaskActionMapping> = {
-      read_file: { pluginName: "filesystem", method: "execute" },
-      write_file: { pluginName: "filesystem", method: "execute" },
-      edit_file: { pluginName: "filesystem", method: "execute" },
-      multi_edit: { pluginName: "filesystem", method: "execute" },
-      format_file: { pluginName: "filesystem", method: "execute" },
-      language_diagnostics: { pluginName: "filesystem", method: "execute" },
-      list_files: { pluginName: "filesystem", method: "execute" },
-      make_dir: { pluginName: "filesystem", method: "execute" },
-      git_status: { pluginName: "git", method: "execute" },
-      git_diff: { pluginName: "git", method: "execute" },
-      git_commit: { pluginName: "git", method: "execute" },
-      git_push: { pluginName: "git", method: "execute" },
-      execute_python: { pluginName: "python", method: "execute" },
-      execute_node: { pluginName: "node", method: "execute" },
-      execute_rust: { pluginName: "rust", method: "execute" },
+  private async executeTaskWithLease(
+    input: TaskExecutionInput,
+    hooks?: TaskExecutionHooks,
+  ): Promise<TaskExecutionResult> {
+    const { lease } = input;
+    const startedAt = Date.now();
+    const active: ActiveTaskExecution = {
+      leaseId: lease.leaseId,
+      taskId: input.taskId,
+      abortController: new AbortController(),
     };
+    const key = this.executionKey(lease.leaseId, input.taskId);
+    this.activeExecutions.set(key, active);
+    const timeoutMs = input.timeout ?? 30_000;
+    this.taskTimeouts.set(
+      key,
+      setTimeout(() => {
+        active.terminationReason = "timeout";
+        active.abortController.abort();
+      }, timeoutMs),
+    );
 
-    return legacyMappings[action] ?? null;
+    try {
+      const mapping = getTaskActionMapping(input.action);
+      if (!mapping) return this.failure(input, "UNKNOWN_ACTION", `Unknown task action: ${input.action}`);
+      const plugin = this.plugins.get(mapping.pluginName);
+      if (!plugin) return this.failure(input, "PLUGIN_NOT_FOUND", `Plugin not found: ${mapping.pluginName}`);
+      const output = await raceWithAbort(
+        this.invokePlugin(plugin, mapping, input, active.abortController.signal, hooks),
+        active.abortController.signal,
+        () => new TaskInterruptedError(active.terminationReason ?? "cancelled"),
+      );
+      return {
+        taskId: input.taskId,
+        leaseId: lease.leaseId,
+        correlationId: lease.correlationId,
+        status: "success",
+        retryable: false,
+        output: typeof output === "string" ? output : JSON.stringify(output),
+        metrics: { duration: Date.now() - startedAt },
+      };
+    } catch (error) {
+      const duration = Date.now() - startedAt;
+      if (error instanceof TaskInterruptedError) {
+        return {
+          taskId: input.taskId,
+          leaseId: lease.leaseId,
+          correlationId: lease.correlationId,
+          status: error.reason,
+          retryable: error.reason === "timeout",
+          error: {
+            code: error.reason === "timeout" ? "SANDBOX_TIMEOUT" : "SANDBOX_ABORTED",
+            message: error.message,
+          },
+          metrics: { duration },
+        };
+      }
+      const normalized = normalizeError(error);
+      if (isSandboxUnavailable(error, normalized)) {
+        await this.releaseLease(lease.leaseId);
+        return {
+          taskId: input.taskId,
+          leaseId: lease.leaseId,
+          correlationId: lease.correlationId,
+          status: "sandbox_unavailable",
+          retryable: true,
+          error: {
+            code: "SANDBOX_UNAVAILABLE",
+            message: "Sandbox container became unavailable during execution",
+            details: normalized.details,
+          },
+          metrics: { duration },
+        };
+      }
+      return {
+        taskId: input.taskId,
+        leaseId: lease.leaseId,
+        correlationId: lease.correlationId,
+        status: "failure",
+        retryable: false,
+        error: normalized,
+        metrics: { duration },
+      };
+    } finally {
+      this.activeExecutions.delete(key);
+      const timeout = this.taskTimeouts.get(key);
+      if (timeout) clearTimeout(timeout);
+      this.taskTimeouts.delete(key);
+    }
+  }
+
+  private isActiveLease(lease: SandboxExecutionLease): boolean {
+    const stored = this.leases.get(lease.leaseId);
+    return (
+      stored !== undefined &&
+      stored.owner === lease.owner &&
+      stored.correlationId === lease.correlationId &&
+      stored.expiresAt === lease.expiresAt &&
+      stored.generation === lease.generation &&
+      workspaceLeaseKey(stored) === workspaceLeaseKey(lease) &&
+      !isLeaseExpired(stored)
+    );
+  }
+
+  private leaseFailure(input: TaskExecutionInput): TaskExecutionResult {
+    return {
+      taskId: input.taskId,
+      leaseId: input.lease.leaseId,
+      correlationId: input.lease.correlationId,
+      status: "sandbox_unavailable",
+      retryable: true,
+      error: {
+        code: "SANDBOX_LEASE_REQUIRED",
+        message: "An active sandbox execution lease is required",
+      },
+    };
+  }
+
+  private failure(
+    input: TaskExecutionInput,
+    code: string,
+    message: string,
+  ): TaskExecutionResult {
+    return {
+      taskId: input.taskId,
+      leaseId: input.lease.leaseId,
+      correlationId: input.lease.correlationId,
+      status: "failure",
+      retryable: false,
+      error: { code, message },
+    };
+  }
+
+  private executionKey(leaseId: string, taskId: string): string {
+    return `${leaseId}:${taskId}`;
+  }
+
+  private async withWorkspaceMutationLock<T>(
+    lease: SandboxExecutionLease,
+    execute: () => Promise<T>,
+  ): Promise<T> {
+    const workspaceKey = workspaceLeaseKey(lease);
+    const prior = this.mutationTails.get(workspaceKey) ?? Promise.resolve();
+    let release: (() => void) | undefined;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = prior.catch(() => undefined).then(() => current);
+    this.mutationTails.set(workspaceKey, tail);
+    await prior.catch(() => undefined);
+    try {
+      return await execute();
+    } finally {
+      release?.();
+      if (this.mutationTails.get(workspaceKey) === tail) {
+        this.mutationTails.delete(workspaceKey);
+      }
+    }
   }
 
   private async invokePlugin(
     plugin: IPlugin,
     mapping: TaskActionMapping,
-    action: string,
-    taskId: string,
-    sessionId: string,
-    params: Record<string, unknown>,
+    input: TaskExecutionInput,
     signal: AbortSignal,
     hooks?: TaskExecutionHooks,
   ): Promise<unknown> {
     if (mapping.method === "execute") {
-      const pluginAction = resolveExecutePayloadAction(action, params);
-      const runId = params.runId;
-      const payload: Record<string, unknown> & {
-        action: string;
-      } & ToolboxPayloadContext = {
-        ...params,
-        action: pluginAction,
-        __toolbox: {
-          callId: taskId,
-          runId: typeof runId === "string" ? runId : undefined,
-          toolName: `${mapping.pluginName}.${pluginAction}`,
-        },
-      };
+      const pluginAction = resolveExecutePayloadAction(input.action, input.params);
+      const runId = input.params.runId;
       if (typeof runId !== "string" || runId.length === 0) {
+        throw { code: "INVALID_INPUT", message: "runId is required for plugin execution" };
+      }
+      if (runId !== input.lease.workspaceScope.runId) {
         throw {
-          code: "INVALID_INPUT",
-          message: "runId is required for plugin execution",
+          code: "WORKSPACE_SCOPE_MISMATCH",
+          message: "Plugin run id does not match the active server-issued workspace scope",
         };
       }
+      const pluginContext: PluginExecutionContext = {
+        workspaceScope: input.lease.workspaceScope,
+      };
       let logDrain = Promise.resolve();
-      const result = await plugin.execute(this.sandbox, payload, (entry) => {
-        const normalized = normalizeLogEntry(entry);
-        if (!normalized) {
-          return;
-        }
-        logDrain = logDrain.then(async () => {
-          await hooks?.onLog?.(normalized);
-        });
-      });
+      const result = await plugin.execute(
+        this.sandbox,
+        {
+          ...input.params,
+          action: pluginAction,
+          __toolbox: { callId: input.taskId, runId, toolName: `${mapping.pluginName}.${pluginAction}` },
+        } as Record<string, unknown> & { action: string } & ToolboxPayloadContext,
+        (entry) => {
+          const normalized = normalizeLogEntry(entry);
+          if (normalized) logDrain = logDrain.then(() => hooks?.onLog?.(normalized));
+        },
+        pluginContext,
+      );
       await logDrain;
-      if (!result.success) {
-        throw {
-          code: "PLUGIN_EXECUTION_FAILED",
-          message:
-            result.error ?? `Plugin ${mapping.pluginName} execution failed`,
-          details: result.logs,
-        };
-      }
+      if (!result.success) throw { code: "PLUGIN_EXECUTION_FAILED", message: result.error ?? `Plugin ${mapping.pluginName} execution failed`, details: result.logs };
       return result.output ?? "";
     }
-
-    const methodValue = (plugin as unknown as Record<string, unknown>)[
-      mapping.method
-    ];
-    if (typeof methodValue !== "function") {
-      throw {
-        code: "METHOD_NOT_FOUND",
-        message: `Method ${mapping.method} not found on plugin ${mapping.pluginName}`,
-      };
-    }
-
-    const invoker = methodValue as (
-      sessionIdArg: string,
-      paramsArg: Record<string, unknown>,
-      options?: { signal?: AbortSignal },
-    ) => Promise<unknown>;
-    const payload: Record<string, unknown> & ToolboxPayloadContext = {
-      ...params,
-      __toolbox: {
-        callId: taskId,
-        runId: typeof params.runId === "string" ? params.runId : undefined,
-        toolName: action,
-      },
-    };
-    return invoker.call(plugin, sessionId, payload, { signal });
-  }
-
-  /**
-   * Normalize error objects to canonical TaskExecutionResult error format.
-   */
-  private normalizeError(err: unknown): {
-    code: string;
-    message: string;
-    details?: unknown;
-  } {
-    if (err instanceof Error) {
-      const errorLike = err as Error & { code?: unknown; details?: unknown };
-      const code =
-        typeof errorLike.code === "string" ? errorLike.code : "EXECUTION_ERROR";
-      return {
-        code,
-        message: err.message,
-        details: errorLike.details ?? err.stack,
-      };
-    }
-
-    if (typeof err === "string") {
-      return {
-        code: "EXECUTION_ERROR",
-        message: err,
-      };
-    }
-
-    if (isErrorShape(err)) {
-      return {
-        code: err.code,
-        message: err.message,
-        details: err.details,
-      };
-    }
-
-    return {
-      code: "EXECUTION_ERROR",
-      message: "Unknown error during task execution",
-      details: err,
-    };
+    const method = (plugin as unknown as Record<string, unknown>)[mapping.method];
+    if (typeof method !== "function") throw { code: "METHOD_NOT_FOUND", message: `Method ${mapping.method} not found on plugin ${mapping.pluginName}` };
+    return (method as (leaseId: string, params: Record<string, unknown>, options: { signal: AbortSignal }) => Promise<unknown>).call(
+      plugin,
+      input.lease.leaseId,
+      { ...input.params, __toolbox: { callId: input.taskId, runId: typeof input.params.runId === "string" ? input.params.runId : undefined, toolName: input.action } },
+      { signal },
+    );
   }
 }
 
-function normalizeLogEntry(
-  entry:
-    | string
-    | {
-        message: string;
-        source?: "stdout" | "stderr";
-      },
-): { message: string; source?: "stdout" | "stderr" } | null {
+function raceWithAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  createError: () => Error,
+): Promise<T> {
+  if (signal.aborted) return Promise.reject(createError());
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(createError());
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function destroySandbox(sandbox: Sandbox): Promise<void> {
+  await sandbox.destroy();
+}
+
+function resolveExecutePayloadAction(action: string, params: Record<string, unknown>): string {
+  const requested = params.action;
+  if (typeof requested === "string" && requested.trim().length > 0) return requested.trim();
+  if (!action.includes(".")) return action;
+  throw { code: "INVALID_INPUT", message: "action is required for execute-style plugin routing" };
+}
+
+function getTaskActionMapping(action: string): TaskActionMapping | null {
+  const parts = action.split(".");
+  if (parts.length === 2 && parts[0] && parts[1]) return { pluginName: parts[0], method: parts[1] };
+  const legacy: Record<string, TaskActionMapping> = {
+    read_file: { pluginName: "filesystem", method: "execute" }, write_file: { pluginName: "filesystem", method: "execute" },
+    edit_file: { pluginName: "filesystem", method: "execute" }, multi_edit: { pluginName: "filesystem", method: "execute" },
+    format_file: { pluginName: "filesystem", method: "execute" }, language_diagnostics: { pluginName: "filesystem", method: "execute" },
+    list_files: { pluginName: "filesystem", method: "execute" }, make_dir: { pluginName: "filesystem", method: "execute" },
+    git_status: { pluginName: "git", method: "execute" }, git_diff: { pluginName: "git", method: "execute" }, git_commit: { pluginName: "git", method: "execute" }, git_push: { pluginName: "git", method: "execute" },
+    execute_python: { pluginName: "python", method: "execute" }, execute_node: { pluginName: "node", method: "execute" }, execute_rust: { pluginName: "rust", method: "execute" },
+  };
+  return legacy[action] ?? null;
+}
+
+function normalizeLogEntry(entry: string | { message: string; source?: "stdout" | "stderr" }): { message: string; source?: "stdout" | "stderr" } | null {
   if (typeof entry === "string") {
-    if (entry.length === 0) {
-      return null;
-    }
-    return {
-      message: entry,
-    };
+    return entry.length > 0 ? { message: sanitizeLogText(entry) } : null;
   }
-
-  if (entry.message.length === 0) {
-    return null;
-  }
-
-  return {
-    message: entry.message,
-    source: entry.source,
-  };
+  return entry.message.length > 0
+    ? { ...entry, message: sanitizeLogText(entry.message) }
+    : null;
 }
 
-function isErrorShape(
-  value: unknown,
-): value is { code: string; message: string; details?: unknown } {
-  if (!value || typeof value !== "object") {
-    return false;
+function normalizeError(error: unknown): { code: string; message: string; details?: unknown } {
+  if (error instanceof Error) {
+    const typed = error as Error & { code?: unknown; details?: unknown };
+    return { code: typeof typed.code === "string" ? typed.code : "EXECUTION_ERROR", message: error.message, details: typed.details ?? error.stack };
   }
-  const candidate = value as {
-    code?: unknown;
-    message?: unknown;
-    details?: unknown;
-  };
-  return (
-    typeof candidate.code === "string" && typeof candidate.message === "string"
-  );
+  if (typeof error === "string") return { code: "EXECUTION_ERROR", message: error };
+  if (error && typeof error === "object" && "code" in error && "message" in error && typeof error.code === "string" && typeof error.message === "string") return { code: error.code, message: error.message, details: "details" in error ? error.details : undefined };
+  return { code: "EXECUTION_ERROR", message: "Unknown error during task execution", details: error };
+}
+
+function isSandboxUnavailable(error: unknown, normalized: { code: string; message: string }): boolean {
+  if (normalized.code === "SANDBOX_UNAVAILABLE" || normalized.code === "CONTAINER_EXITED") return true;
+  if (error && typeof error === "object" && "exitCode" in error && error.exitCode === 137) return true;
+  return /(?:exit|status|code)[ =:]*(?:137)\b/i.test(normalized.message);
 }

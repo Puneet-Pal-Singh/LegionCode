@@ -5,6 +5,7 @@ describe("provider recovery advice", () => {
   it("maps missing provider configuration to setup guidance", () => {
     const advice = getProviderRecoveryAdvice("No BYOK provider connected");
     expect(advice.actionLabel).toBe("Open Provider Setup");
+    expect(advice.recoveryTarget).toBe("connect");
     expect(advice.message).toContain("missing");
   });
 
@@ -37,6 +38,13 @@ describe("provider recovery advice", () => {
     expect(advice.remediation).toContain("concrete file path or command");
   });
 
+  it("does not route runtime failures to provider setup", () => {
+    const advice = getProviderRecoveryAdvice("SANDBOX_UNAVAILABLE");
+    expect(advice.actionLabel).toBe("Retry Request");
+    expect(advice.recoveryTarget).toBe("general");
+    expect(advice.remediation).toContain("changing provider settings");
+  });
+
   it("maps auth scope persistence issues to re-auth guidance", () => {
     const advice = getProviderRecoveryAdvice(
       "Unauthorized: missing or invalid authentication.",
@@ -56,7 +64,17 @@ describe("provider recovery advice", () => {
 
   it("returns default advice for unknown errors", () => {
     const advice = getProviderRecoveryAdvice("Unexpected backend error");
-    expect(advice.actionLabel).toBe("Open Provider Setup");
+    expect(advice.actionLabel).toBe("Retry Request");
+    expect(advice.recoveryTarget).toBe("general");
     expect(advice.message).toContain("Unexpected backend error");
+  });
+
+  it("does not misroute turn-scope reconstruction to provider setup", () => {
+    const advice = getProviderRecoveryAdvice(
+      "Turn scope reconstruction failed with HTTP 400",
+    );
+    expect(advice.recoveryTarget).toBe("general");
+    expect(advice.message).toContain("runtime scope");
+    expect(advice.remediation).toContain("not evidence of a provider");
   });
 });

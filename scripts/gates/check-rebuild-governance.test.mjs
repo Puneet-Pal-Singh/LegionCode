@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import {
   findFeatureFlags,
+  hasArchitectureSensitiveChange,
   hasLifecycleSensitiveChange,
   hasMigrationSensitiveChange,
   validateChangedPathGovernance,
@@ -73,6 +74,55 @@ test("detects lifecycle-sensitive paths", () => {
   assert.equal(hasLifecycleSensitiveChange(["scripts/readme.md"]), false);
 });
 
+test("detects architecture-sensitive current and future extension paths", () => {
+  assert.equal(
+    hasArchitectureSensitiveChange([
+      "packages/context-assembly-runtime/src/index.ts",
+    ]),
+    true,
+  );
+  assert.equal(
+    hasArchitectureSensitiveChange([
+      "packages/platform-client-sdk/src/client.ts",
+    ]),
+    true,
+  );
+  assert.equal(
+    hasArchitectureSensitiveChange(["apps/desktop/src/runtime.ts"]),
+    true,
+  );
+  assert.equal(
+    hasArchitectureSensitiveChange(["apps/landing/app/page.tsx"]),
+    false,
+  );
+});
+
+test("requires canonical wiring metadata for architecture-sensitive changes", () => {
+  const violations = [];
+  validatePullRequestMetadata(
+    {
+      changedFiles: ["packages/context-builder/src/index.ts"],
+      prBody: "## Description\nNo ownership or wiring details.\n",
+    },
+    violations,
+  );
+
+  assert.match(violations.join("\n"), /Canonical wiring metadata is missing/);
+});
+
+test("accepts complete canonical wiring metadata", () => {
+  const violations = [];
+  validatePullRequestMetadata(
+    {
+      changedFiles: ["packages/context-builder/src/index.ts"],
+      prBody: completeArchitectureBody(),
+    },
+    violations,
+  );
+
+  assert.deepEqual(violations, []);
+});
+
 test("requires lifecycle metadata for lifecycle-sensitive changes", () => {
   const violations = [];
   validatePullRequestMetadata(
@@ -91,7 +141,7 @@ test("accepts complete lifecycle metadata", () => {
   validatePullRequestMetadata(
     {
       changedFiles: ["apps/web/src/components/chat/ChatInterface.tsx"],
-      prBody: completeLifecycleBody(),
+      prBody: `${completeLifecycleBody()}\n${completeArchitectureBody()}`,
     },
     violations,
   );
@@ -193,5 +243,19 @@ function completeLifecycleBody() {
     "duplicate authority or fallback removed: removed web guess",
     "boundary regression test: runtime boundary test",
     "lifecycle/conformance regression test: lifecycle conformance test",
+  ].join("\n");
+}
+
+function completeArchitectureBody() {
+  return [
+    "product responsibility: context assembly",
+    "current owner(s): runtime prompt stub",
+    "canonical owner after change: context engine",
+    "active producers migrated: runtime kernel",
+    "active consumers migrated: provider gateway",
+    "code or path removed: prompt stub",
+    "replacement for removed behavior: context engine port",
+    "remaining duplicate authority: none",
+    "capability ownership ledger update: context assembly row",
   ].join("\n");
 }

@@ -9,6 +9,21 @@ import type { IBudgetManager } from "../cost/index.js";
 import type { TaskExecutor } from "../orchestration/index.js";
 import { AgenticLoop, type AgenticLoopConfig } from "./AgenticLoop.js";
 
+function visiblePart(text: string, sequence = 0) {
+  return {
+    id: `part-${sequence}`,
+    schemaVersion: 1 as const,
+    runId: "run-123",
+    turnId: "turn-123",
+    sequence,
+    createdAt: "2026-07-10T00:00:00.000Z",
+    type: "visible_text" as const,
+    visibility: "visible" as const,
+    text,
+    finalized: false,
+  };
+}
+
 describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
   let config: AgenticLoopConfig;
   let llmGateway: Partial<ILLMGateway>;
@@ -21,6 +36,8 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       maxSteps: 5,
       runId: "run-123",
       sessionId: "session-123",
+      workspaceRoot: "/home/sandbox/checkouts/run-123",
+      artifactRoot: "/home/sandbox/checkouts/run-123/artifacts",
     };
 
     llmGateway = {
@@ -47,7 +64,13 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
     it("should reject maxSteps < 1", () => {
       expect(() => {
         new AgenticLoop(
-          { maxSteps: 0, runId: "run-1", sessionId: "session-1" },
+          {
+            maxSteps: 0,
+            runId: "run-1",
+            sessionId: "session-1",
+            workspaceRoot: "/home/sandbox/checkouts/run-1",
+            artifactRoot: "/home/sandbox/checkouts/run-1/artifacts",
+          },
           llmGateway as ILLMGateway,
           executor as TaskExecutor,
         );
@@ -76,7 +99,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(result.stepsExecuted).toBe(1);
     });
 
-    it("keeps CI inspection read-only even when earlier turns asked for mutation", async () => {
+    it("does not derive mutation requirements from prompt intent", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "CI checks are currently green.",
         usage: { promptTokens: 11, completionTokens: 6 },
@@ -94,7 +117,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
 
       expect(result.stopReason).toBe("llm_stop");
       expect(result.requiresMutation).toBe(false);
-      expect(result.currentTurnIntent).toBe("read_only");
+      expect("currentTurnIntent" in result).toBe(false);
     });
 
     it("stops neutrally when an edit request ends without a mutating tool", async () => {
@@ -289,12 +312,74 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
       expect(executor.execute).toHaveBeenCalledTimes(0);
     });
+
+    it("stops while the model call is in flight when the run is cancelled", async () => {
+      vi.useFakeTimers();
+      try {
+        const isRunCancelled = vi
+          .fn<() => Promise<boolean>>()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+
+        vi.mocked(llmGateway.generateText!).mockReturnValue(
+          new Promise(() => undefined),
+        );
+
+        const resultPromise = loop.execute(
+          [{ role: "user", content: "update the footer" }],
+          {},
+          {
+            agentType: "coding",
+            isRunCancelled,
+          },
+        );
+
+        await vi.advanceTimersByTimeAsync(2_000);
+        const result = await resultPromise;
+
+        expect(result.stopReason).toBe("cancelled");
+        expect(llmGateway.generateText).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stops cancellation polling after the model returns", async () => {
+      vi.useFakeTimers();
+      try {
+        const isRunCancelled = vi
+          .fn<() => Promise<boolean>>()
+          .mockResolvedValue(false);
+        vi.mocked(llmGateway.generateText!).mockResolvedValue({
+          text: "Done",
+          usage: { promptTokens: 10, completionTokens: 5 },
+        });
+
+        const result = await loop.execute(
+          [{ role: "user", content: "inspect the repository" }],
+          {},
+          {
+            agentType: "coding",
+            isRunCancelled,
+          },
+        );
+        const callsAfterCompletion = isRunCancelled.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(6_000);
+
+        expect(result.stopReason).toBe("llm_stop");
+        expect(isRunCancelled).toHaveBeenCalledTimes(callsAfterCompletion);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("Message Handling", () => {
     it("should add LLM response to message history", async () => {
       vi.mocked(llmGateway.generateText!).mockResolvedValue({
         text: "Response text",
+        parts: [visiblePart("Response text")],
         usage: { promptTokens: 10, completionTokens: 5 },
       });
 
@@ -318,6 +403,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
           text: "I found the footer file and will read it now.",
+          parts: [visiblePart("I found the footer file and will read it now.")],
           toolCalls: [
             {
               id: "tool-call-1",
@@ -329,6 +415,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         })
         .mockResolvedValueOnce({
           text: "Done.",
+          parts: [visiblePart("Done.", 1)],
           toolCalls: [],
           usage: { promptTokens: 12, completionTokens: 6 },
         });
@@ -363,6 +450,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
       vi.mocked(llmGateway.generateText!)
         .mockResolvedValueOnce({
           text: "Calling tool",
+          parts: [visiblePart("Calling tool")],
           toolCalls: [
             {
               id: "tool-call-1",
@@ -374,6 +462,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         })
         .mockResolvedValueOnce({
           text: "Tool result processed",
+          parts: [visiblePart("Tool result processed", 1)],
           toolCalls: [],
           usage: { promptTokens: 12, completionTokens: 6 },
         });
@@ -1047,6 +1136,8 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
           maxSteps: 2,
           runId: "run-123",
           sessionId: "session-123",
+          workspaceRoot: "/home/sandbox/checkouts/run-123",
+          artifactRoot: "/home/sandbox/checkouts/run-123/artifacts",
         },
         llmGateway as ILLMGateway,
         executor as TaskExecutor,
@@ -1161,6 +1252,8 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
           maxSteps: 6,
           runId: "run-123",
           sessionId: "session-123",
+          workspaceRoot: "/home/sandbox/checkouts/run-123",
+          artifactRoot: "/home/sandbox/checkouts/run-123/artifacts",
         },
         llmGateway as ILLMGateway,
         executor as TaskExecutor,
@@ -1243,7 +1336,7 @@ describe("AgenticLoop - Bounded Agentic Tool Chaining", () => {
         .calls[4]?.[0] as {
         system?: string;
       };
-      expect(correctiveRequest.system).toContain("Edit-reporting rule:");
+      expect(correctiveRequest.system).not.toContain("Edit-reporting rule:");
       expect(correctiveRequest.system).not.toContain("Progress correction:");
       expect(correctiveRequest.system).not.toContain("Corrective retry:");
       expect(correctiveRequest.system).not.toContain(

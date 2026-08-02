@@ -43,6 +43,9 @@ export class PostgresArtifactRepository implements ArtifactRepository {
         input.workspaceId,
         input.sessionId,
         input.runId,
+        input.threadId,
+        input.turnId,
+        input.runAttemptId,
         input.repoOwner,
         input.repoName,
         input.repoUrl,
@@ -52,7 +55,6 @@ export class PostgresArtifactRepository implements ArtifactRepository {
         input.r2ObjectKey,
         input.userMessageId ?? null,
         input.assistantMessageId ?? null,
-        input.sourceTurnId ?? null,
         input.captureSequence ?? 0,
         input.patchParseStatus ?? "unknown",
         input.patchSha256 ?? null,
@@ -173,10 +175,19 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     runId: string;
     userId: string;
     sessionId?: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     const result = await this.client.query<ArtifactRow>(
       LATEST_REVIEW_ARTIFACT_SQL,
-      [input.runId, input.userId, input.sessionId ?? null],
+      [
+        input.runId,
+        input.userId,
+        input.sessionId ?? null,
+        input.identity.threadId,
+        input.identity.turnId,
+        input.identity.runAttemptId,
+        input.identity.workspaceId,
+      ],
     );
     const row = result.rows[0];
     return row ? mapArtifactRow(row) : null;
@@ -185,10 +196,18 @@ export class PostgresArtifactRepository implements ArtifactRepository {
   async getLatestReviewArtifactForRun(input: {
     runId: string;
     sessionId?: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     const result = await this.client.query<ArtifactRow>(
       LATEST_REVIEW_ARTIFACT_FOR_RUN_SQL,
-      [input.runId, input.sessionId ?? null],
+      [
+        input.runId,
+        input.sessionId ?? null,
+        input.identity.threadId,
+        input.identity.turnId,
+        input.identity.runAttemptId,
+        input.identity.workspaceId,
+      ],
     );
     const row = result.rows[0];
     return row ? mapArtifactRow(row) : null;
@@ -198,10 +217,19 @@ export class PostgresArtifactRepository implements ArtifactRepository {
     runId: string;
     userId: string;
     assistantMessageId: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     const result = await this.client.query<ArtifactRow>(
       REVIEW_ARTIFACT_BY_MESSAGE_SQL,
-      [input.runId, input.userId, input.assistantMessageId],
+      [
+        input.runId,
+        input.userId,
+        input.assistantMessageId,
+        input.identity.threadId,
+        input.identity.turnId,
+        input.identity.runAttemptId,
+        input.identity.workspaceId,
+      ],
     );
     const row = result.rows[0];
     return row ? mapArtifactRow(row) : null;
@@ -210,10 +238,18 @@ export class PostgresArtifactRepository implements ArtifactRepository {
   async getReviewArtifactByMessageForRun(input: {
     runId: string;
     assistantMessageId: string;
+    identity: import("@repo/shared-types").EditArtifactIdentity;
   }): Promise<EditArtifactRecord | null> {
     const result = await this.client.query<ArtifactRow>(
       REVIEW_ARTIFACT_BY_MESSAGE_FOR_RUN_SQL,
-      [input.runId, input.assistantMessageId],
+      [
+        input.runId,
+        input.assistantMessageId,
+        input.identity.threadId,
+        input.identity.turnId,
+        input.identity.runAttemptId,
+        input.identity.workspaceId,
+      ],
     );
     const row = result.rows[0];
     return row ? mapArtifactRow(row) : null;
@@ -229,8 +265,6 @@ export class PostgresArtifactRepository implements ArtifactRepository {
       input.userMessageId ?? null,
       hasOwn(input, "assistantMessageId"),
       input.assistantMessageId ?? null,
-      hasOwn(input, "sourceTurnId"),
-      input.sourceTurnId ?? null,
       hasOwn(input, "captureSequence"),
       input.captureSequence ?? null,
       hasOwn(input, "patchParseStatus"),
@@ -315,6 +349,9 @@ const ARTIFACT_COLUMNS = `
   a.workspace_id,
   a.session_id,
   a.run_id,
+  a.thread_id,
+  a.turn_id,
+  a.run_attempt_id,
   a.repo_owner,
   a.repo_name,
   a.repo_url,
@@ -328,7 +365,6 @@ const ARTIFACT_COLUMNS = `
   a.sha256,
   a.user_message_id,
   a.assistant_message_id,
-  a.source_turn_id,
   a.capture_sequence,
   a.patch_parse_status,
   a.patch_sha256,
@@ -361,6 +397,9 @@ const ARTIFACT_GROUP_BY = `
   a.workspace_id,
   a.session_id,
   a.run_id,
+  a.thread_id,
+  a.turn_id,
+  a.run_attempt_id,
   a.repo_owner,
   a.repo_name,
   a.repo_url,
@@ -374,7 +413,6 @@ const ARTIFACT_GROUP_BY = `
   a.sha256,
   a.user_message_id,
   a.assistant_message_id,
-  a.source_turn_id,
   a.capture_sequence,
   a.patch_parse_status,
   a.patch_sha256,
@@ -396,6 +434,9 @@ const INSERT_ARTIFACT_SQL = `
     workspace_id,
     session_id,
     run_id,
+    thread_id,
+    turn_id,
+    run_attempt_id,
     repo_owner,
     repo_name,
     repo_url,
@@ -405,7 +446,6 @@ const INSERT_ARTIFACT_SQL = `
     r2_object_key,
     user_message_id,
     assistant_message_id,
-    source_turn_id,
     capture_sequence,
     patch_parse_status,
     patch_sha256,
@@ -422,14 +462,16 @@ const INSERT_ARTIFACT_SQL = `
   VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23, 'pending', $24, $25, $25
+    $21, $22, $23, $24, $25, 'pending', $26, $27, $27
   )
   ON CONFLICT (id)
   DO UPDATE SET
     r2_object_key = EXCLUDED.r2_object_key,
+    thread_id = EXCLUDED.thread_id,
+    turn_id = EXCLUDED.turn_id,
+    run_attempt_id = EXCLUDED.run_attempt_id,
     user_message_id = EXCLUDED.user_message_id,
     assistant_message_id = EXCLUDED.assistant_message_id,
-    source_turn_id = EXCLUDED.source_turn_id,
     capture_sequence = EXCLUDED.capture_sequence,
     patch_parse_status = EXCLUDED.patch_parse_status,
     patch_sha256 = EXCLUDED.patch_sha256,
@@ -582,6 +624,10 @@ const LATEST_REVIEW_ARTIFACT_SQL = `
   WHERE a.run_id = $1
     AND a.user_id = $2
     AND ($3::uuid IS NULL OR a.session_id = $3::uuid)
+    AND a.thread_id = $4
+    AND a.turn_id = $5
+    AND a.run_attempt_id = $6
+    AND a.workspace_id = $7
     AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
     AND EXISTS (
       SELECT 1
@@ -599,6 +645,10 @@ const LATEST_REVIEW_ARTIFACT_FOR_RUN_SQL = `
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.run_id = $1
     AND ($2::uuid IS NULL OR a.session_id = $2::uuid)
+    AND a.thread_id = $3
+    AND a.turn_id = $4
+    AND a.run_attempt_id = $5
+    AND a.workspace_id = $6
     AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
     AND EXISTS (
       SELECT 1
@@ -617,6 +667,10 @@ const REVIEW_ARTIFACT_BY_MESSAGE_SQL = `
   WHERE a.run_id = $1
     AND a.user_id = $2
     AND a.assistant_message_id = $3
+    AND a.thread_id = $4
+    AND a.turn_id = $5
+    AND a.run_attempt_id = $6
+    AND a.workspace_id = $7
     AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
   GROUP BY ${ARTIFACT_GROUP_BY}
   ORDER BY a.capture_sequence DESC, a.created_at DESC
@@ -629,6 +683,10 @@ const REVIEW_ARTIFACT_BY_MESSAGE_FOR_RUN_SQL = `
   LEFT JOIN artifact_changed_files f ON f.artifact_id = a.id
   WHERE a.run_id = $1
     AND a.assistant_message_id = $2
+    AND a.thread_id = $3
+    AND a.turn_id = $4
+    AND a.run_attempt_id = $5
+    AND a.workspace_id = $6
     AND a.status IN ('stored', 'stored_with_secondary', 'secondary_write_failed', 'restored', 'requires_user_resolution')
   GROUP BY ${ARTIFACT_GROUP_BY}
   ORDER BY a.capture_sequence DESC, a.created_at DESC
@@ -640,16 +698,15 @@ const UPDATE_REVIEW_METADATA_SQL = `
   SET
     user_message_id = CASE WHEN $3::boolean THEN $4::text ELSE user_message_id END,
     assistant_message_id = CASE WHEN $5::boolean THEN $6::text ELSE assistant_message_id END,
-    source_turn_id = CASE WHEN $7::boolean THEN $8::text ELSE source_turn_id END,
-    capture_sequence = CASE WHEN $9::boolean THEN $10::integer ELSE capture_sequence END,
-    patch_parse_status = CASE WHEN $11::boolean THEN $12::text ELSE patch_parse_status END,
-    patch_sha256 = CASE WHEN $13::boolean THEN $14::text ELSE patch_sha256 END,
-    storage_backend = CASE WHEN $15::boolean THEN $16::text ELSE storage_backend END,
-    cf_artifact_repo = CASE WHEN $17::boolean THEN $18::text ELSE cf_artifact_repo END,
-    cf_artifact_commit_sha = CASE WHEN $19::boolean THEN $20::text ELSE cf_artifact_commit_sha END,
-    cf_artifact_path = CASE WHEN $21::boolean THEN $22::text ELSE cf_artifact_path END,
-    storage_reconciliation_status = CASE WHEN $23::boolean THEN $24::text ELSE storage_reconciliation_status END,
-    updated_at = $25
+    capture_sequence = CASE WHEN $7::boolean THEN $8::integer ELSE capture_sequence END,
+    patch_parse_status = CASE WHEN $9::boolean THEN $10::text ELSE patch_parse_status END,
+    patch_sha256 = CASE WHEN $11::boolean THEN $12::text ELSE patch_sha256 END,
+    storage_backend = CASE WHEN $13::boolean THEN $14::text ELSE storage_backend END,
+    cf_artifact_repo = CASE WHEN $15::boolean THEN $16::text ELSE cf_artifact_repo END,
+    cf_artifact_commit_sha = CASE WHEN $17::boolean THEN $18::text ELSE cf_artifact_commit_sha END,
+    cf_artifact_path = CASE WHEN $19::boolean THEN $20::text ELSE cf_artifact_path END,
+    storage_reconciliation_status = CASE WHEN $21::boolean THEN $22::text ELSE storage_reconciliation_status END,
+    updated_at = $23
   WHERE id = $1
     AND user_id = $2
 `;

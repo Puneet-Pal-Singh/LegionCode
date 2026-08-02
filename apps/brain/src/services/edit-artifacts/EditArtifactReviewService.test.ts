@@ -22,6 +22,13 @@ const PATCH = `diff --git a/src/main.ts b/src/main.ts
 +console.log("new");
 `;
 
+const IDENTITY = {
+  threadId: "thread-1",
+  turnId: "turn-1",
+  runAttemptId: "attempt-1",
+  workspaceId: "workspace-1",
+};
+
 describe("EditArtifactReviewService", () => {
   beforeEach(() => {
     artifactFactory.withArtifactRepository.mockReset();
@@ -42,6 +49,7 @@ describe("EditArtifactReviewService", () => {
       artifactId: artifact.id,
       userId: artifact.userId,
       path: "src/main.ts",
+      identity: IDENTITY,
     });
 
     expect(response.source).toBe("artifact_patch");
@@ -67,6 +75,7 @@ describe("EditArtifactReviewService", () => {
         artifactId: artifact.id,
         userId: artifact.userId,
         path: "src/main.ts",
+        identity: IDENTITY,
       }),
     ).rejects.toMatchObject({ code: "ARTIFACT_PATCH_CORRUPT" });
   });
@@ -87,6 +96,7 @@ describe("EditArtifactReviewService", () => {
         artifactId: artifact.id,
         userId: artifact.userId,
         path: "src/main.ts",
+        identity: IDENTITY,
       }),
     ).rejects.toMatchObject({ code: "ARTIFACT_PATCH_MISSING" });
   });
@@ -113,6 +123,7 @@ describe("EditArtifactReviewService", () => {
         artifactId: artifact.id,
         userId: "other-user",
         path: "src/main.ts",
+        identity: IDENTITY,
       }),
     ).rejects.toMatchObject({ code: "ARTIFACT_UNAUTHORIZED" });
   });
@@ -131,6 +142,7 @@ describe("EditArtifactReviewService", () => {
     const source = await service.getLatestReviewSource({
       runId: artifact.runId,
       userId: artifact.userId,
+      identity: IDENTITY,
     });
 
     expect(source).not.toBeNull();
@@ -154,6 +166,7 @@ describe("EditArtifactReviewService", () => {
       runId: "run-1",
       assistantMessageId: "missing-message",
       userId: "user-1",
+      identity: IDENTITY,
     });
 
     expect(source).toBeNull();
@@ -176,6 +189,7 @@ describe("EditArtifactReviewService", () => {
       runId: artifact.runId,
       assistantMessageId: "live-assistant-message",
       userId: artifact.userId,
+      identity: IDENTITY,
     });
 
     expect(source).toBeNull();
@@ -198,6 +212,9 @@ async function createStoredArtifact(
       runId: artifact.runId,
       sessionId: artifact.sessionId,
       workspaceId: artifact.workspaceId,
+      threadId: IDENTITY.threadId,
+      turnId: IDENTITY.turnId,
+      runAttemptId: IDENTITY.runAttemptId,
       repoOwner: artifact.repoOwner,
       repoName: artifact.repoName,
       branch: artifact.branch,
@@ -217,6 +234,9 @@ function createArtifact(sha256: string): EditArtifactRecord {
     runId: "run-1",
     sessionId: "session-1",
     workspaceId: "workspace-1",
+    threadId: "thread-1",
+    turnId: "turn-1",
+    runAttemptId: "attempt-1",
     repoOwner: "owner",
     repoName: "repo",
     repoUrl: "https://github.com/owner/repo",

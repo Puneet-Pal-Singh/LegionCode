@@ -26,7 +26,7 @@ export {
   type GoldenFlowToolName,
   type GoldenFlowToolInputByName,
   type ToolGatewayRoute,
-} from "./CodingToolGateway.js";
+} from "./LegacyGoldenFlowToolRegistryAdapter.js";
 export {
   buildCorrectionHintText,
   buildInvalidToolInputError,

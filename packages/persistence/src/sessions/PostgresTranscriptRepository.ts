@@ -38,9 +38,11 @@ interface TranscriptRow extends SqlRow {
   session_id?: string;
   session_user_id?: string;
   session_workspace_id?: string | null;
+  session_thread_id?: string | null;
   session_task_id?: string;
   session_title?: string;
   title_source?: string;
+  title_version?: number | string;
   repository?: string | null;
   active_run_id?: string | null;
   mode?: string;
@@ -105,16 +107,26 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
     });
   }
 
-  async updateGeneratedSessionTitle(input: {
+  async updateAutomatedSessionTitle(input: {
     userId: string;
     sessionId: string;
     title: string;
-    titleSource: "generated";
+    titleSource: "preview" | "generated";
+    expectedTitleVersion?: number;
+    initialOnly?: boolean;
   }): Promise<SessionRecord | null> {
     return await updateSessionWithClient(
       this.client,
       UPDATE_GENERATED_SESSION_TITLE_SQL,
-      [input.userId, input.sessionId, input.title, this.clock.now()],
+      [
+        input.userId,
+        input.sessionId,
+        input.title,
+        input.titleSource,
+        this.clock.now(),
+        input.expectedTitleVersion ?? null,
+        input.initialOnly ?? false,
+      ],
     );
   }
 
@@ -265,14 +277,16 @@ async function ensureSessionWithClient(
 ): Promise<SessionRecord> {
   const task = await upsertTask(client, input, now);
   const workspaceProvided = input.workspaceId !== undefined;
+  const threadIdProvided = input.threadId !== undefined;
   const taskIdProvided = input.taskId !== undefined && input.taskId !== null;
   const repositoryProvided = input.repository !== undefined;
   const activeRunIdProvided = input.activeRunId !== undefined;
-  const titleSource = input.titleSource ?? "generated";
+  const titleSource = input.titleSource ?? "preview";
   const result = await client.query<TranscriptRow>(UPSERT_SESSION_SQL, [
     input.sessionId,
     input.userId,
     input.workspaceId ?? null,
+    input.threadId ?? null,
     task.id,
     input.title ?? task.title,
     input.repository ?? null,
@@ -282,6 +296,7 @@ async function ensureSessionWithClient(
     titleSource,
     now,
     workspaceProvided,
+    threadIdProvided,
     taskIdProvided,
     repositoryProvided,
     activeRunIdProvided,
@@ -511,6 +526,7 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     id: requireString(row.session_id, "session_id"),
     userId: requireString(row.session_user_id, "session_user_id"),
     workspaceId: row.session_workspace_id ?? null,
+    threadId: row.session_thread_id ?? null,
     taskId: requireString(row.session_task_id, "session_task_id"),
     title: requireString(row.session_title, "session_title"),
     titleSource: mapChatTitleSource(
@@ -518,6 +534,7 @@ function mapSessionRow(row: TranscriptRow): SessionRecord {
     ),
     repository: row.repository ?? null,
     activeRunId: row.active_run_id ?? null,
+    titleVersion: toNumber(row.title_version ?? 1),
     mode: requireString(row.mode, "mode"),
     status: mapSessionStatus(
       requireString(row.session_status, "session_status"),
@@ -576,7 +593,11 @@ function mapSessionStatus(status: string): SessionRecord["status"] {
 }
 
 function mapChatTitleSource(titleSource: string): ChatTitleSource {
-  if (titleSource === "generated" || titleSource === "user") {
+  if (
+    titleSource === "preview" ||
+    titleSource === "generated" ||
+    titleSource === "user"
+  ) {
     return titleSource;
   }
   throw new Error(`Unsupported chat title source: ${titleSource}`);
@@ -685,9 +706,11 @@ const SESSION_COLUMNS = `
   id AS session_id,
   user_id AS session_user_id,
   workspace_id AS session_workspace_id,
+  thread_id AS session_thread_id,
   task_id AS session_task_id,
   title AS session_title,
   title_source,
+  title_version,
   repository,
   active_run_id,
   mode,
@@ -738,9 +761,11 @@ const UPSERT_SESSION_SQL = `
     id,
     user_id,
     workspace_id,
+    thread_id,
     task_id,
     title,
     title_source,
+    title_version,
     repository,
     active_run_id,
     mode,
@@ -748,23 +773,27 @@ const UPSERT_SESSION_SQL = `
     created_at,
     updated_at
   )
-  VALUES ($1, $2, $3, $4, $5, $10, $6, $7, $8, $9, $11, $11)
+  VALUES ($1, $2, $3, $4, $5, $6, $11, 1, $7, $8, $9, $10, $12, $12)
   ON CONFLICT (id)
   DO UPDATE SET
     workspace_id = CASE
-      WHEN $12::boolean THEN EXCLUDED.workspace_id
+      WHEN $13::boolean THEN EXCLUDED.workspace_id
       ELSE sessions.workspace_id
     END,
+    thread_id = CASE
+      WHEN $14::boolean THEN EXCLUDED.thread_id
+      ELSE sessions.thread_id
+    END,
     task_id = CASE
-      WHEN $13::boolean THEN EXCLUDED.task_id
+      WHEN $15::boolean THEN EXCLUDED.task_id
       ELSE sessions.task_id
     END,
     repository = CASE
-      WHEN $14::boolean THEN EXCLUDED.repository
+      WHEN $16::boolean THEN EXCLUDED.repository
       ELSE sessions.repository
     END,
     active_run_id = CASE
-      WHEN $15::boolean THEN EXCLUDED.active_run_id
+      WHEN $17::boolean THEN EXCLUDED.active_run_id
       ELSE sessions.active_run_id
     END,
     mode = EXCLUDED.mode,
@@ -783,12 +812,15 @@ const FIND_SESSION_SQL = `
 const UPDATE_GENERATED_SESSION_TITLE_SQL = `
   UPDATE sessions
   SET title = $3,
-      title_source = 'generated',
-      updated_at = $4
+      title_source = $4,
+      title_version = title_version + 1,
+      updated_at = $5
   WHERE user_id = $1
     AND id = $2
-    AND title_source = 'generated'
+    AND title_source IN ('preview', 'generated')
     AND archived_at IS NULL
+    AND ($6::integer IS NULL OR title_version = $6)
+    AND ($7::boolean = FALSE OR title_version = 1)
   RETURNING ${SESSION_COLUMNS}
 `;
 
@@ -806,6 +838,7 @@ const RENAME_SESSION_TITLE_SQL = `
   UPDATE sessions
   SET title = $3,
       title_source = 'user',
+      title_version = title_version + 1,
       updated_at = $4
   WHERE user_id = $1
     AND id = $2

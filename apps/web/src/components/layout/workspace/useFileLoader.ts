@@ -4,6 +4,7 @@ import { useGitHub } from "../../github/GitHubContextProvider";
 import { getFileContent } from "../../../services/GitHubService";
 import { terminalCommandPath } from "../../../lib/platform-endpoints";
 import type { SelectedFile } from "./useWorkspaceState";
+import { parseReadFileOutput } from "../../../services/lifecycle/ReadFileOutputParser";
 
 interface UseFileLoaderProps {
   sandboxId: string;
@@ -58,7 +59,12 @@ export function useFileLoader({
                 "// [LegionCode] This file is a binary and cannot be displayed in the text editor.",
             });
           } else {
-            openFileTab({ path, content: parsedData.data.output });
+            const parsedOutput = parseReadFileOutput(parsedData.data.output);
+            openFileTab({
+              path,
+              content: parsedOutput?.content ?? parsedData.data.output,
+              startingLineNumber: parsedOutput ? parsedOutput.offset + 1 : 1,
+            });
           }
         } else {
           setContentError("The file could not be opened.");

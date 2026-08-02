@@ -52,16 +52,6 @@ function mapReviewFileToStatus(
   };
 }
 
-export function mergeChangedFileSnapshots(
-  localSnapshots: Record<string, FileStatus[]>,
-  activitySnapshots: Record<string, FileStatus[]>,
-): Record<string, FileStatus[]> {
-  return {
-    ...localSnapshots,
-    ...activitySnapshots,
-  };
-}
-
 export function hasChangedFileSnapshot(
   snapshots: Record<string, FileStatus[]>,
 ): boolean {
@@ -72,13 +62,6 @@ export function hasArtifactChangedFileSnapshot(
   artifacts: Record<string, PromptArtifactReviewSource>,
 ): boolean {
   return Object.values(artifacts).some((artifact) => artifact.files.length > 0);
-}
-
-export function buildChangedFileDiffCacheKey(
-  messageId: string,
-  file: FileStatus,
-): string {
-  return `${messageId}:${file.path}:${file.isStaged ? "staged" : "unstaged"}`;
 }
 
 export function buildArtifactChangedFileDiffCacheKey(
@@ -137,82 +120,6 @@ async function loadTurnDiffFile(
     throw new Error(`Canonical turn diff is missing ${file.path}`);
   }
   return diff;
-}
-
-export function buildDiffFromActivityPreview(
-  file: FileStatus,
-): DiffContent | null {
-  const diffPreview = readActivityDiffPreview(file);
-  if (!diffPreview) {
-    return null;
-  }
-
-  const lines = buildDiffLinesFromActivityPreview(diffPreview);
-  if (!lines.some((line) => line.type === "added" || line.type === "deleted")) {
-    return null;
-  }
-
-  return {
-    oldPath: file.path,
-    newPath: file.path,
-    isBinary: false,
-    isNewFile: file.status === "added",
-    isDeleted: file.status === "deleted",
-    hunks: [
-      {
-        oldStart: 1,
-        oldLines: lines.filter((line) => line.type !== "added").length,
-        newStart: 1,
-        newLines: lines.filter((line) => line.type !== "deleted").length,
-        header: "Saved edit preview",
-        lines,
-      },
-    ],
-  };
-}
-
-function readActivityDiffPreview(file: FileStatus): string | null {
-  const candidate = file as FileStatus & { diffPreview?: unknown };
-  if (typeof candidate.diffPreview !== "string") {
-    return null;
-  }
-  const trimmed = candidate.diffPreview.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function buildDiffLinesFromActivityPreview(
-  diffPreview: string,
-): DiffContent["hunks"][number]["lines"] {
-  let oldLineNumber = 1;
-  let newLineNumber = 1;
-  return diffPreview
-    .split(/\r?\n/)
-    .filter((line) => line !== "")
-    .map((line) => {
-      if (line.startsWith("+")) {
-        return {
-          type: "added" as const,
-          content: line,
-          newLineNumber: newLineNumber++,
-        };
-      }
-      if (line.startsWith("-")) {
-        return {
-          type: "deleted" as const,
-          content: line,
-          oldLineNumber: oldLineNumber++,
-        };
-      }
-      const diffLine = {
-        type: "unchanged" as const,
-        content: line,
-        oldLineNumber,
-        newLineNumber,
-      };
-      oldLineNumber += 1;
-      newLineNumber += 1;
-      return diffLine;
-    });
 }
 
 export function collectChangedFilesSinceBaseline(

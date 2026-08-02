@@ -10,6 +10,7 @@ import {
   EventIdSchema,
   ItemIdSchema,
   RunAttemptIdSchema,
+  RunIdSchema,
   ThreadIdSchema,
   ToolCallIdSchema,
   TurnIdSchema,
@@ -27,6 +28,7 @@ export const LIFECYCLE_SCHEMA_VERSION = 1;
 export const TurnStatusSchema = z.enum([
   "queued",
   "in_progress",
+  "awaiting_approval",
   "completed",
   "interrupted",
   "failed",
@@ -139,6 +141,7 @@ export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
 
 export const ItemKindSchema = z.enum([
   "user_message",
+  "commentary",
   "reasoning",
   "plan",
   "assistant_message",
@@ -153,6 +156,218 @@ export const ItemKindSchema = z.enum([
   "warning",
 ]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
+
+const BoundedLifecycleTextSchema = z.string().max(4_000);
+const BoundedLifecycleDetailSchema = z.string().max(280);
+
+export const LifecycleToolFamilySchema = z.enum([
+  "read",
+  "search",
+  "shell",
+  "edit",
+  "git",
+  "web",
+  "image",
+  "skill",
+  "browser",
+  "mcp",
+  "dynamic",
+  "generic",
+]);
+export type LifecycleToolFamily = z.infer<typeof LifecycleToolFamilySchema>;
+
+export const LifecycleToolDisplaySchema = z
+  .object({
+    title: z.string().min(1).max(160),
+    family: LifecycleToolFamilySchema,
+    namespace: z.string().min(1).max(160).nullable(),
+    inputSummary: BoundedLifecycleDetailSchema.optional(),
+    outputSummary: BoundedLifecycleDetailSchema.optional(),
+  })
+  .strict();
+export type LifecycleToolDisplay = z.infer<typeof LifecycleToolDisplaySchema>;
+
+export const AssistantMessageDeltaPayloadSchema = z
+  .object({
+    phase: z.enum(["commentary", "final_answer"]),
+    delta: BoundedLifecycleTextSchema,
+  })
+  .strict();
+export type AssistantMessageDeltaPayload = z.infer<
+  typeof AssistantMessageDeltaPayloadSchema
+>;
+
+export const ReasoningSummaryDeltaPayloadSchema = z
+  .object({
+    delta: BoundedLifecycleTextSchema,
+    displaySafe: z.literal(true),
+  })
+  .strict();
+export type ReasoningSummaryDeltaPayload = z.infer<
+  typeof ReasoningSummaryDeltaPayloadSchema
+>;
+
+export const PlanStepSchema = z
+  .object({
+    stepId: z.string().min(1).max(160),
+    title: BoundedLifecycleDetailSchema,
+    status: z.enum(["pending", "in_progress", "completed"]),
+  })
+  .strict();
+export type PlanStep = z.infer<typeof PlanStepSchema>;
+
+export const PlanUpdatedPayloadSchema = z
+  .object({
+    explanation: BoundedLifecycleDetailSchema.nullable(),
+    steps: z.array(PlanStepSchema).max(100),
+  })
+  .strict();
+export type PlanUpdatedPayload = z.infer<typeof PlanUpdatedPayloadSchema>;
+
+export const ContextCompactionItemPayloadSchema = z
+  .object({
+    kind: z.literal("context_compaction"),
+    phase: z.enum(["compacting", "compacted", "failed"]),
+    mode: z.enum(["automatic", "manual"]),
+  })
+  .strict();
+export type ContextCompactionItemPayload = z.infer<
+  typeof ContextCompactionItemPayloadSchema
+>;
+
+const NonNegativeTokenSchema = z.number().int().safe().nonnegative();
+const NullableNonNegativeTokenSchema = NonNegativeTokenSchema.nullable();
+
+export const ContextMeasurementSourceSchema = z.enum([
+  "provider",
+  "tokenizer",
+  "estimate",
+]);
+export type ContextMeasurementSource = z.infer<
+  typeof ContextMeasurementSourceSchema
+>;
+
+export const ContextBudgetSnapshotSchema = z
+  .object({
+    providerId: z.string().min(1).max(160),
+    modelId: z.string().min(1).max(160),
+    contextWindowLimit: NonNegativeTokenSchema,
+    systemTokens: NullableNonNegativeTokenSchema,
+    conversationTokens: NullableNonNegativeTokenSchema,
+    toolDefinitionTokens: NullableNonNegativeTokenSchema,
+    attachmentTokens: NullableNonNegativeTokenSchema,
+    repositoryContextTokens: NullableNonNegativeTokenSchema,
+    reservedOutputTokens: NonNegativeTokenSchema,
+    safetyReserveTokens: NonNegativeTokenSchema,
+    effectiveInputBudget: NonNegativeTokenSchema,
+    tokensUsed: NonNegativeTokenSchema,
+    tokensRemaining: NonNegativeTokenSchema,
+    utilizationPercent: z.number().finite().min(0).max(100),
+    warningThresholdPercent: z.number().finite().min(0).max(100),
+    automaticCompactionThresholdPercent: z.number().finite().min(0).max(100),
+    measurementSource: ContextMeasurementSourceSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.tokensRemaining !== value.effectiveInputBudget - value.tokensUsed && value.tokensUsed <= value.effectiveInputBudget) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["tokensRemaining"], message: "tokensRemaining must match the effective input budget" });
+    }
+    if (value.warningThresholdPercent > value.automaticCompactionThresholdPercent) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["warningThresholdPercent"], message: "warning threshold cannot exceed automatic compaction threshold" });
+    }
+  });
+export type ContextBudgetSnapshot = z.infer<typeof ContextBudgetSnapshotSchema>;
+
+export const UsageMeasurementSourceSchema = z.enum(["provider", "estimate"]);
+export const UsageCostSnapshotSchema = z
+  .object({
+    providerId: z.string().min(1).max(160),
+    modelId: z.string().min(1).max(160),
+    inputTokens: NonNegativeTokenSchema,
+    outputTokens: NonNegativeTokenSchema,
+    cachedInputTokens: NullableNonNegativeTokenSchema,
+    reasoningTokens: NullableNonNegativeTokenSchema,
+    totalTokens: NonNegativeTokenSchema,
+    currentTurnCost: z.number().finite().nonnegative().nullable(),
+    cumulativeThreadTokens: NonNegativeTokenSchema,
+    cumulativeThreadCost: z.number().finite().nonnegative().nullable(),
+    currency: z.string().min(1).max(12),
+    measurementSource: UsageMeasurementSourceSchema,
+  })
+  .strict();
+export type UsageCostSnapshot = z.infer<typeof UsageCostSnapshotSchema>;
+
+export const ContextCompactionPhaseSchema = z.enum([
+  "requested",
+  "compacting",
+  "compacted",
+  "failed",
+]);
+export type ContextCompactionPhase = z.infer<
+  typeof ContextCompactionPhaseSchema
+>;
+export const ContextCompactionPayloadSchema = z
+  .object({
+    compactionId: z.string().min(1).max(160),
+    itemId: ItemIdSchema,
+    mode: z.enum(["automatic", "manual"]),
+    phase: ContextCompactionPhaseSchema,
+    preservedContextReference: z.string().min(1).max(512).nullable(),
+    summary: z.string().max(4_000).nullable(),
+    error: z.string().max(2_000).nullable(),
+  })
+  .strict();
+export type ContextCompactionPayload = z.infer<
+  typeof ContextCompactionPayloadSchema
+>;
+
+export const CompactTurnRequestSchema = z
+  .object({
+    runId: RunIdSchema,
+    sessionId: z.string().min(1).max(200),
+    workspaceId: WorkspaceIdSchema,
+    threadId: ThreadIdSchema,
+    turnId: TurnIdSchema,
+    runAttemptId: RunAttemptIdSchema,
+  })
+  .strict();
+export type CompactTurnRequest = z.infer<typeof CompactTurnRequestSchema>;
+
+export const CompactTurnResponseSchema = z
+  .object({
+    turnId: TurnIdSchema,
+    accepted: z.boolean(),
+    status: z.enum(["unsupported", "requested", "running", "completed", "failed"]),
+    itemId: ItemIdSchema.nullable(),
+    error: z.string().max(2_000).nullable(),
+  })
+  .strict();
+export type CompactTurnResponse = z.infer<typeof CompactTurnResponseSchema>;
+
+export const LifecycleItemPayloadSchema = z
+  .object({
+    kind: ItemKindSchema.optional(),
+    text: BoundedLifecycleTextSchema.optional(),
+    delta: BoundedLifecycleTextSchema.optional(),
+    phase: z.enum(["commentary", "final_answer"]).optional(),
+    displaySafe: z.literal(true).optional(),
+    explanation: BoundedLifecycleDetailSchema.nullable().optional(),
+    steps: z.array(PlanStepSchema).max(100).optional(),
+    compactionPhase: z.enum(["compacting", "compacted"]).optional(),
+    mode: z.enum(["automatic", "manual"]).optional(),
+    detail: BoundedLifecycleDetailSchema.optional(),
+    toolFamily: LifecycleToolFamilySchema.optional(),
+    display: LifecycleToolDisplaySchema.optional(),
+    parentItemId: ItemIdSchema.optional(),
+    input: JsonRecordSchema.optional(),
+    output: BoundedLifecycleTextSchema.optional(),
+    result: JsonRecordSchema.optional(),
+    failure: ProtocolErrorSchema.optional(),
+    reason: BoundedLifecycleDetailSchema.optional(),
+    status: z.string().min(1).max(80).optional(),
+  })
+  .strict();
+export type LifecycleItemPayload = z.infer<typeof LifecycleItemPayloadSchema>;
 
 export const TurnLifecycleSchema = z
   .object({
@@ -263,7 +478,14 @@ export class LifecycleTransitionError extends Error {
 
 const TURN_TRANSITIONS = {
   queued: ["in_progress", "interrupted", "failed"],
-  in_progress: ["in_progress", "completed", "interrupted", "failed"],
+  in_progress: [
+    "in_progress",
+    "awaiting_approval",
+    "completed",
+    "interrupted",
+    "failed",
+  ],
+  awaiting_approval: ["in_progress", "completed", "interrupted", "failed"],
   completed: [],
   interrupted: [],
   failed: [],
@@ -552,6 +774,12 @@ export const LifecycleEventTypeSchema = z.enum([
   "tool_call.interrupted",
   "command_execution.output_delta",
   "file_change.patch_updated",
+  "context_budget.updated",
+  "usage.updated",
+  "context_compaction.requested",
+  "context_compaction.started",
+  "context_compaction.completed",
+  "context_compaction.failed",
   "turn.diff_updated",
   "approval.requested",
   "approval.decided",
@@ -562,6 +790,11 @@ export const LifecycleEventTypeSchema = z.enum([
   "workspace.state_changed",
   "artifact.created",
   "artifact.finalized",
+  "hook.invocation.started",
+  "hook.invocation.completed",
+  "hook.invocation.failed",
+  "hook.invocation.timed_out",
+  "hook.invocation.cancelled",
 ]);
 export type LifecycleEventType = z.infer<typeof LifecycleEventTypeSchema>;
 
@@ -602,7 +835,7 @@ const ItemLifecycleEventSchema = z
     ...LifecycleEventEnvelopeShape,
     itemId: ItemIdSchema,
     type: ItemLifecycleEventTypeSchema,
-    payload: JsonRecordSchema,
+    payload: LifecycleItemPayloadSchema,
   })
   .strict();
 
@@ -652,7 +885,7 @@ const ToolCallLifecycleEventSchema = z
       "tool_call.input_delta",
       "tool_call.output_delta",
     ]),
-    payload: JsonRecordSchema,
+    payload: LifecycleItemPayloadSchema,
   })
   .strict();
 
@@ -757,6 +990,36 @@ const TurnFailedEventSchema = z
   })
   .strict();
 
+const ContextBudgetUpdatedEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    type: z.literal("context_budget.updated"),
+    payload: z.object({ snapshot: ContextBudgetSnapshotSchema }).strict(),
+  })
+  .strict();
+
+const UsageUpdatedEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    type: z.literal("usage.updated"),
+    payload: z.object({ usage: UsageCostSnapshotSchema }).strict(),
+  })
+  .strict();
+
+const ContextCompactionLifecycleEventSchema = z
+  .object({
+    ...LifecycleEventEnvelopeShape,
+    itemId: ItemIdSchema,
+    type: z.enum([
+      "context_compaction.requested",
+      "context_compaction.started",
+      "context_compaction.completed",
+      "context_compaction.failed",
+    ]),
+    payload: ContextCompactionPayloadSchema,
+  })
+  .strict();
+
 const TurnLifecycleEventSchema = z
   .object({
     ...LifecycleEventEnvelopeShape,
@@ -782,6 +1045,12 @@ const TurnLifecycleEventSchema = z
       "turn.completed",
       "turn.interrupted",
       "turn.failed",
+      "context_budget.updated",
+      "usage.updated",
+      "context_compaction.requested",
+      "context_compaction.started",
+      "context_compaction.completed",
+      "context_compaction.failed",
     ]),
     payload: JsonRecordSchema,
   })
@@ -800,6 +1069,9 @@ export const LifecycleEventSchema = z.union([
   ToolCallInterruptedEventSchema,
   ApprovalLifecycleEventSchema,
   RequestLifecycleEventSchema,
+  ContextBudgetUpdatedEventSchema,
+  UsageUpdatedEventSchema,
+  ContextCompactionLifecycleEventSchema,
   TurnCompletedEventSchema,
   TurnInterruptedEventSchema,
   TurnFailedEventSchema,

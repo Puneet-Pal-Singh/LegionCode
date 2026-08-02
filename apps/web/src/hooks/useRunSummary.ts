@@ -4,8 +4,10 @@ import {
   isApprovalRequiredRunStatus,
   isTerminalRunStatus,
 } from "../lib/run-status.js";
-import { RUN_SUMMARY_REFRESH_EVENT } from "../lib/run-summary-events.js";
-import { logClientEvent } from "../lib/client-logger.js";
+import {
+  RUN_SUMMARY_REFRESH_EVENT,
+  type RunSummaryRefreshDetail,
+} from "../lib/run-summary-events.js";
 import type {
   ApprovalRequest,
   PermissionRuntimeLabel,
@@ -68,8 +70,40 @@ interface UseRunSummaryResult {
 }
 
 const SUMMARY_ERROR_LOG_WINDOW_MS = 30_000;
-const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 1_200;
-const RUN_SUMMARY_POLL_INTERVAL_MS = 5_000;
+const RUN_SUMMARY_MIN_FETCH_INTERVAL_MS = 10_000;
+const RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS = 3_000;
+
+interface RunSummaryRequestState {
+  inFlight: Promise<RunSummaryFetchResult> | null;
+  lastFetchAt: number;
+  cachedSummary: RunSummary | null;
+  hasCachedSummary: boolean;
+}
+
+type RunSummaryFetchResult =
+  | {
+      kind: "summary";
+      summary: RunSummary;
+      status: number;
+      fromCache: boolean;
+    }
+  | {
+      kind: "unavailable";
+      status: number;
+      statusText: string;
+      fromCache: false;
+    }
+  | {
+      kind: "throttled";
+      summary: RunSummary | null;
+      fromCache: true;
+    };
+
+const runSummaryRequestsByRunId = new Map<string, RunSummaryRequestState>();
+
+export function __resetRunSummaryRequestCacheForTests(): void {
+  runSummaryRequestsByRunId.clear();
+}
 
 export function useRunSummary(
   runId: string,
@@ -78,22 +112,17 @@ export function useRunSummary(
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const activeRunIdRef = useRef(runId);
   const inFlightRef = useRef(false);
-  const inFlightRunIdRef = useRef<string | null>(null);
-  const lastFetchAtRef = useRef(0);
   const lastSummaryErrorLogRef = useRef<{
     timestamp: number;
     message: string;
   } | null>(null);
   const summaryStatusRef = useRef<string | null>(null);
-  const lastLoggedSummaryRef = useRef("");
   const pendingApprovalRequestId = summary?.pendingApproval?.requestId ?? null;
+  const summaryStatus = summary?.status ?? null;
 
   useEffect(() => {
     activeRunIdRef.current = runId;
     inFlightRef.current = false;
-    inFlightRunIdRef.current = null;
-    lastFetchAtRef.current = 0;
-    lastLoggedSummaryRef.current = "";
     setSummary(null);
   }, [runId]);
 
@@ -107,44 +136,27 @@ export function useRunSummary(
       if (inFlightRef.current) {
         return;
       }
-      const now = Date.now();
-      if (
-        !options?.force &&
-        now - lastFetchAtRef.current < RUN_SUMMARY_MIN_FETCH_INTERVAL_MS
-      ) {
-        return;
-      }
 
       try {
         inFlightRef.current = true;
-        inFlightRunIdRef.current = currentRunId;
-        lastFetchAtRef.current = now;
-        const response = await fetch(
-          `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(currentRunId)}`,
-          { credentials: "include" },
-        );
+        const result = await requestRunSummary(currentRunId, {
+          force: Boolean(options?.force),
+        });
         if (activeRunIdRef.current !== currentRunId) {
           return;
         }
-        if (!response.ok) {
+        if (result.kind === "unavailable") {
           return;
         }
-        const payload = (await response.json()) as RunSummary;
+        const payload = result.summary;
+        if (!payload) {
+          return;
+        }
         if (activeRunIdRef.current !== currentRunId) {
           return;
         }
         if (payload.runId !== currentRunId) {
           return;
-        }
-        const summarySignature = `${payload.status}:${payload.eventCount ?? 0}:${payload.pendingApproval?.requestId ?? ""}`;
-        if (lastLoggedSummaryRef.current !== summarySignature) {
-          lastLoggedSummaryRef.current = summarySignature;
-          logClientEvent("run/summary", "updated", {
-            runId: currentRunId,
-            status: payload.status,
-            eventCount: payload.eventCount,
-            hasPendingApproval: Boolean(payload.pendingApproval),
-          });
         }
         setSummary(payload);
       } catch (error) {
@@ -167,9 +179,8 @@ export function useRunSummary(
           };
         }
       } finally {
-        if (inFlightRunIdRef.current === currentRunId) {
+        if (activeRunIdRef.current === currentRunId) {
           inFlightRef.current = false;
-          inFlightRunIdRef.current = null;
         }
       }
     },
@@ -177,36 +188,43 @@ export function useRunSummary(
   );
 
   useEffect(() => {
-    summaryStatusRef.current = summary?.status ?? null;
-  }, [summary?.status]);
+    summaryStatusRef.current = summaryStatus;
+  }, [summaryStatus]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !shouldPoll) {
       return;
     }
     void fetchSummary();
-  }, [fetchSummary, runId]);
+  }, [fetchSummary, runId, shouldPoll]);
 
   useEffect(() => {
-    if (!runId) {
+    if (!runId || !shouldPoll) {
       return;
     }
 
     const handleRefreshEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<{ runId?: string }>;
+      const customEvent = event as CustomEvent<
+        Partial<RunSummaryRefreshDetail>
+      >;
       if (customEvent.detail?.runId !== runId) {
         return;
       }
+      if (customEvent.detail?.source === "run-event-stream") {
+        return;
+      }
 
-      const shouldSkipTerminalSummary =
-        !shouldPoll &&
-        isTerminalRunStatus(summary?.status) &&
-        !isApprovalRequiredRunStatus(summary?.status) &&
-        !pendingApprovalRequestId;
+      const shouldSkipTerminalSummary = isTerminalWithoutPendingApproval(
+        summaryStatus,
+        pendingApprovalRequestId,
+      );
       if (shouldSkipTerminalSummary || document.visibilityState !== "visible") {
         return;
       }
-      void fetchSummary({ force: true });
+      const approvalIsVisible =
+        isApprovalRequiredRunStatus(summaryStatus) ||
+        Boolean(pendingApprovalRequestId);
+      void fetchSummary({ force: approvalIsVisible });
     };
 
     window.addEventListener(RUN_SUMMARY_REFRESH_EVENT, handleRefreshEvent);
@@ -218,36 +236,91 @@ export function useRunSummary(
     pendingApprovalRequestId,
     runId,
     shouldPoll,
-    summary?.status,
+    summaryStatus,
   ]);
 
-  useEffect(() => {
-    const shouldSettleCanonicalStatus =
-      Boolean(summary?.status) &&
-      !isTerminalRunStatus(summary?.status) &&
-      !isApprovalRequiredRunStatus(summary?.status);
-    if (!runId || (!shouldPoll && !shouldSettleCanonicalStatus)) {
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
-        return;
-      }
-      if (inFlightRef.current) {
-        return;
-      }
-      const currentStatus = summaryStatusRef.current;
-      if (isTerminalRunStatus(currentStatus)) {
-        return;
-      }
-      void fetchSummary();
-    }, RUN_SUMMARY_POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [fetchSummary, runId, shouldPoll, summary?.status]);
-
   return { summary };
+}
+
+async function requestRunSummary(
+  runId: string,
+  options: { force: boolean },
+): Promise<RunSummaryFetchResult> {
+  const state = getRunSummaryRequestState(runId);
+  if (state.inFlight) {
+    return state.inFlight;
+  }
+
+  const now = Date.now();
+  const minInterval = options.force
+    ? RUN_SUMMARY_FORCE_MIN_FETCH_INTERVAL_MS
+    : RUN_SUMMARY_MIN_FETCH_INTERVAL_MS;
+  if (state.lastFetchAt > 0 && now - state.lastFetchAt < minInterval) {
+    return {
+      kind: "throttled",
+      summary: state.cachedSummary,
+      fromCache: true,
+    };
+  }
+
+  state.lastFetchAt = now;
+  const request = fetchRunSummary(runId).finally(() => {
+    const latest = runSummaryRequestsByRunId.get(runId);
+    if (latest) {
+      latest.inFlight = null;
+    }
+  });
+  state.inFlight = request;
+  return request;
+}
+
+function getRunSummaryRequestState(runId: string): RunSummaryRequestState {
+  const existing = runSummaryRequestsByRunId.get(runId);
+  if (existing) {
+    return existing;
+  }
+  const created: RunSummaryRequestState = {
+    inFlight: null,
+    lastFetchAt: 0,
+    cachedSummary: null,
+    hasCachedSummary: false,
+  };
+  runSummaryRequestsByRunId.set(runId, created);
+  return created;
+}
+
+async function fetchRunSummary(runId: string): Promise<RunSummaryFetchResult> {
+  const response = await fetch(
+    `${getBrainHttpBase()}/api/run/summary?runId=${encodeURIComponent(runId)}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    return {
+      kind: "unavailable",
+      status: response.status,
+      statusText: response.statusText,
+      fromCache: false,
+    };
+  }
+  const summary = (await response.json()) as RunSummary;
+  const state = getRunSummaryRequestState(runId);
+  state.cachedSummary = summary;
+  state.hasCachedSummary = true;
+  return {
+    kind: "summary",
+    summary,
+    status: response.status,
+    fromCache: false,
+  };
+}
+
+function isTerminalWithoutPendingApproval(
+  status: string | null,
+  pendingApprovalRequestId: string | null,
+): boolean {
+  return (
+    isTerminalRunStatus(status) &&
+    !isApprovalRequiredRunStatus(status) &&
+    !pendingApprovalRequestId
+  );
 }

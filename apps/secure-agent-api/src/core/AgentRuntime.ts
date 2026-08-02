@@ -33,6 +33,10 @@ import type {
   TaskExecutionInput,
   TaskExecutionResult,
 } from "../ports/SandboxExecutionPort";
+import {
+  workspaceLeaseKey,
+  type SandboxExecutionLease,
+} from "../ports/SandboxExecutionLease";
 import type { DurableObjectState as LegacyDurableObjectState } from "@cloudflare/workers-types";
 
 interface RuntimeSessionRecord {
@@ -42,6 +46,15 @@ interface RuntimeSessionRecord {
   expiresAt: number;
   token: string;
   createdAt: number;
+  workspaceScope: {
+    runId: string;
+    threadId: string;
+    turnId: string;
+    runAttemptId: string;
+    workspaceId: string;
+    root: string;
+  };
+  lease: SandboxExecutionLease;
 }
 
 interface RuntimeSessionLogEntry {
@@ -56,9 +69,7 @@ const EXECUTION_SESSION_KEY_PREFIX = "execution:session:";
 const EXECUTION_LOG_KEY_PREFIX = "execution:logs:";
 
 export class AgentRuntime extends DurableObject {
-  private sandbox: Sandbox | null = null;
-  private composedRuntime: ComposedRuntime | null = null;
-  private plugins: Map<string, IPlugin> = new Map();
+  private readonly workspaceRuntimes = new Map<string, ComposedRuntime>();
   private stream = new StreamHandler();
   private storageService: StorageService;
   private readonly artifactBucket: ComposeRuntimeInput["r2Bucket"];
@@ -67,12 +78,10 @@ export class AgentRuntime extends DurableObject {
     super(ctx, env);
     this.artifactBucket = env.ARTIFACTS as unknown as ComposeRuntimeInput["r2Bucket"];
     this.storageService = new StorageService(env.ARTIFACTS);
-    this.setupRegistry();
   }
 
-  // 1. SRP: Separate Registry logic
-  private setupRegistry() {
-    [
+  private createPluginRegistry(): Map<string, IPlugin> {
+    const plugins = [
       new PythonPlugin(),
       new RedisPlugin(),
       new FileSystemPlugin(),
@@ -82,56 +91,43 @@ export class AgentRuntime extends DurableObject {
       new BashPlugin(),
       new NodePlugin(),
       new RustPlugin(),
-    ].forEach((p) => this.plugins.set(p.name, p));
+    ];
+    return new Map(plugins.map((plugin) => [plugin.name, plugin]));
   }
 
-  // 2. SRP: Sandbox Lifecycle only
-  private async ensureSandbox(): Promise<Sandbox> {
-    if (!this.sandbox) {
-      const shortId = this.ctx.id.toString().substring(0, 50);
-      this.sandbox = getSandbox(this.env.Sandbox, shortId);
-
-      // Async boot - don't block the caller
-      this.bootPlugins();
-    }
-    return this.sandbox;
-  }
-
-  private async ensureComposedRuntime(): Promise<ComposedRuntime> {
-    if (this.composedRuntime) {
-      return this.composedRuntime;
+  private async ensureComposedRuntime(
+    lease: SandboxExecutionLease,
+  ): Promise<ComposedRuntime> {
+    const workspaceKey = workspaceLeaseKey(lease);
+    const existing = this.workspaceRuntimes.get(workspaceKey);
+    if (existing) {
+      existing.executionPort.registerLease(lease);
+      return existing;
     }
 
-    const sandbox = await this.ensureSandbox();
-    this.composedRuntime = composeRuntime({
+    const sandbox = getSandbox(this.env.Sandbox, lease.sandboxId);
+    const plugins = this.createPluginRegistry();
+    await this.bootPlugins(sandbox, plugins);
+    const runtime = composeRuntime({
       durableObjectState: this.ctx as unknown as LegacyDurableObjectState,
       sandbox,
-      plugins: this.plugins,
+      plugins,
       r2Bucket: this.artifactBucket,
+      executionLease: lease,
     });
-    return this.composedRuntime;
+    this.workspaceRuntimes.set(workspaceKey, runtime);
+    return runtime;
   }
 
-  private async bootPlugins() {
-    if (!this.sandbox) return;
+  private async bootPlugins(sandbox: Sandbox, plugins: Map<string, IPlugin>) {
+    console.log("[AgentRuntime] Booting plugins for scoped sandbox lease...");
 
-    // Log to terminal console for you, but don't spam the user's UI terminal
-    console.log("[AgentRuntime] Booting plugins in background...");
-
-    const promises = Array.from(this.plugins.values()).map(async (plugin) => {
+    const promises = Array.from(plugins.values()).map(async (plugin) => {
       if (plugin.setup) {
-        await plugin.setup(this.sandbox!);
+        await plugin.setup(sandbox);
       }
     });
-
-    await Promise.all(promises).catch((e) => {
-      this.stream.broadcast(
-        "error",
-        "One or more background services failed to start.",
-      );
-    });
-
-    // Only one clean message to the user
+    await Promise.all(promises);
     this.stream.broadcast("system", "Environment Optimized & Ready");
   }
 
@@ -158,12 +154,63 @@ export class AgentRuntime extends DurableObject {
     input: TaskExecutionInput,
     hooks?: TaskExecutionHooks,
   ): Promise<TaskExecutionResult> {
-    const runtime = await this.ensureComposedRuntime();
-    return runtime.executionPort.executeTask(sessionId, input, hooks);
+    if (!input.lease) {
+      return {
+        taskId: input.taskId,
+        leaseId: "",
+        correlationId: "",
+        status: "failure",
+        retryable: false,
+        error: {
+          code: "LEASE_REQUIRED",
+          message: "A scoped sandbox execution lease is required",
+        },
+      };
+    }
+    const runtime = await this.ensureComposedRuntime(input.lease);
+    const result = await runtime.executionPort.executeTask(
+      input.lease.leaseId,
+      input,
+      hooks,
+    );
+    if (result.status === "sandbox_unavailable") {
+      const health = await runtime.executionPort.getHealth(input.lease.leaseId);
+      if (!health.healthy) {
+        this.workspaceRuntimes.delete(workspaceLeaseKey(input.lease));
+      }
+    }
+    return result;
+  }
+
+  async cancelTask(leaseId: string, taskId: string): Promise<boolean> {
+    for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
+      const cancelled = await runtime.executionPort.cancelTask(leaseId, taskId);
+      if (cancelled) {
+        return true;
+      }
+      if (workspaceKey.includes(leaseId)) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  async releaseLease(leaseId: string): Promise<void> {
+    for (const [workspaceKey, runtime] of this.workspaceRuntimes) {
+      const release = await runtime.executionPort.releaseLease(leaseId);
+      if (release.sandboxReleased) {
+        this.workspaceRuntimes.delete(workspaceKey);
+      }
+      if (release.released) {
+        return;
+      }
+    }
   }
 
   getManifest() {
-    return Array.from(this.plugins.values()).flatMap((p) => p.tools);
+    return Array.from(this.createPluginRegistry().values()).flatMap(
+      (plugin) => plugin.tools,
+    );
   }
 
   async storeExecutionSession(

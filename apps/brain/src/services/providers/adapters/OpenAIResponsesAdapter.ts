@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CoreMessage } from "ai";
+import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type {
   GenerationParams,
@@ -37,6 +37,8 @@ const ResponsesOutputContentSchema = z
 const ResponsesOutputItemSchema = z
   .object({
     type: z.string().optional(),
+    id: z.string().optional(),
+    call_id: z.string().optional(),
     name: z.string().optional(),
     arguments: z.union([z.string(), z.record(z.unknown())]).optional(),
     content: z.array(ResponsesOutputContentSchema).optional(),
@@ -54,6 +56,12 @@ const ResponsesPayloadSchema = z
 
 type ResponsesPayload = z.infer<typeof ResponsesPayloadSchema>;
 type ResponsesOutputItem = z.infer<typeof ResponsesOutputItemSchema>;
+type ResponsesToolDefinition = {
+  type: string;
+  name: string;
+  description: string | undefined;
+  parameters: Record<string, unknown>;
+};
 
 export class OpenAIResponsesAdapter implements ProviderAdapter {
   readonly supportedModels: string[] = [];
@@ -79,6 +87,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       endpoint: this.endpoint,
       apiKey: this.apiKey,
       body: buildResponsesRequestBody(params, model),
+      signal: params.signal,
     });
     const usage = normalizeResponsesUsage(payload.usage, this.provider, model);
 
@@ -98,6 +107,12 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       yield {
         type: "text",
         content: result.content,
+      };
+    }
+    for (const toolCall of result.toolCalls ?? []) {
+      yield {
+        type: "tool-call",
+        toolCall,
       };
     }
     yield {
@@ -124,8 +139,11 @@ async function requestResponsesCompletion(input: {
   endpoint: string;
   apiKey: string;
   body: Record<string, unknown>;
+  signal?: AbortSignal;
 }): Promise<ResponsesPayload> {
   const abortController = new AbortController();
+  const abort = () => abortController.abort(input.signal?.reason);
+  input.signal?.addEventListener("abort", abort, { once: true });
   const timeoutId = setTimeout(
     () => abortController.abort(),
     OPENAI_RESPONSES_TIMEOUT_MS,
@@ -158,6 +176,7 @@ async function requestResponsesCompletion(input: {
     );
   } finally {
     clearTimeout(timeoutId);
+    input.signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -165,33 +184,99 @@ function buildResponsesRequestBody(
   params: GenerationParams,
   model: string,
 ): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     model,
     input: buildResponsesInput(params.messages, params.system),
     temperature: params.temperature,
   };
+  const tools = buildResponsesTools(params.tools);
+  if (tools) {
+    body.tools = tools;
+  }
+  return body;
 }
 
 function buildResponsesInput(
   messages: CoreMessage[],
   system: string | undefined,
-): Array<Record<string, string>> {
-  const systemMessages = system
-    ? [
-        {
-          role: "system",
-          content: system,
-        },
-      ]
-    : [];
-  return [...systemMessages, ...messages.map(toResponsesMessage)];
+): Array<Record<string, unknown>> {
+  const input: Array<Record<string, unknown>> = [];
+  if (system) {
+    input.push({ role: "system", content: system });
+  }
+  for (const message of messages) {
+    input.push(...toResponsesInputItems(message));
+  }
+  return input;
 }
 
-function toResponsesMessage(message: CoreMessage): Record<string, string> {
-  return {
-    role: message.role,
-    content: stringifyCoreMessageContent(message.content),
-  };
+function toResponsesInputItems(
+  message: CoreMessage,
+): Array<Record<string, unknown>> {
+  if (typeof message.content === "string") {
+    return [
+      {
+        role: message.role,
+        content: message.content,
+      },
+    ];
+  }
+
+  if (!Array.isArray(message.content)) {
+    return [
+      {
+        role: message.role,
+        content: stringifyCoreMessageContent(message.content),
+      },
+    ];
+  }
+
+  if (message.role === "assistant") {
+    const items: Array<Record<string, unknown>> = [];
+    const text = message.content
+      .flatMap((part) =>
+        isTextPart(part) && part.text.trim().length > 0 ? [part.text] : [],
+      )
+      .join("\n")
+      .trim();
+    if (text) {
+      items.push({ role: "assistant", content: text });
+    }
+    for (const part of message.content) {
+      if (!isToolCallPart(part)) {
+        continue;
+      }
+      items.push({
+        type: "function_call",
+        call_id: part.toolCallId,
+        name: part.toolName,
+        arguments: JSON.stringify(part.args ?? {}),
+      });
+    }
+    return items.length > 0 ? items : [{ role: "assistant", content: " " }];
+  }
+
+  if (message.role === "tool") {
+    return message.content.flatMap((part) => {
+      if (!isToolResultPart(part)) {
+        return [];
+      }
+      return [
+        {
+          type: "function_call_output",
+          call_id: part.toolCallId,
+          output: stringifyToolResult(part.result),
+        },
+      ];
+    });
+  }
+
+  return [
+    {
+      role: message.role,
+      content: stringifyCoreMessageContent(message.content),
+    },
+  ];
 }
 
 function stringifyCoreMessageContent(content: CoreMessage["content"]): string {
@@ -232,10 +317,110 @@ function extractResponsesToolCalls(
   const toolCalls = output
     ?.filter((item) => item.type === "function_call" && item.name)
     .map((item) => ({
+      toolCallId: item.call_id ?? item.id,
       toolName: item.name ?? "",
       args: parseToolArguments(item.arguments),
     }));
   return toolCalls && toolCalls.length > 0 ? toolCalls : undefined;
+}
+
+function buildResponsesTools(
+  tools: Record<string, CoreTool> | undefined,
+): ResponsesToolDefinition[] | undefined {
+  if (!tools) {
+    return undefined;
+  }
+
+  const entries = Object.entries(tools)
+    .map(([name, tool]) => {
+      const parameters = readToolParameters(tool);
+      if (!parameters) {
+        return null;
+      }
+      return {
+        type: "function",
+        name,
+        description: readToolDescription(tool),
+        parameters,
+      };
+    })
+    .filter((entry): entry is ResponsesToolDefinition => entry !== null);
+
+  return entries.length > 0 ? entries : undefined;
+}
+
+function readToolParameters(tool: CoreTool): Record<string, unknown> | null {
+  const record = tool as Record<string, unknown>;
+  return (
+    readJsonSchemaRecord(record.parameters) ??
+    readJsonSchemaRecord(record.inputSchema)
+  );
+}
+
+function readJsonSchemaRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.safeParse === "function" || "_def" in record) {
+    return null;
+  }
+  return record;
+}
+
+function readToolDescription(tool: CoreTool): string | undefined {
+  const description = (tool as Record<string, unknown>).description;
+  return typeof description === "string" && description.trim()
+    ? description.trim()
+    : undefined;
+}
+
+function isTextPart(value: unknown): value is { type: "text"; text: string } {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "text" &&
+    typeof (value as { text?: unknown }).text === "string"
+  );
+}
+
+function isToolCallPart(
+  value: unknown,
+): value is {
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+} {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "tool-call" &&
+    typeof (value as { toolCallId?: unknown }).toolCallId === "string" &&
+    typeof (value as { toolName?: unknown }).toolName === "string"
+  );
+}
+
+function isToolResultPart(
+  value: unknown,
+): value is {
+  type: "tool-result";
+  toolCallId: string;
+  result: unknown;
+} {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "tool-result" &&
+    typeof (value as { toolCallId?: unknown }).toolCallId === "string"
+  );
+}
+
+function stringifyToolResult(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value ?? null);
 }
 
 function parseToolArguments(value: unknown): unknown {

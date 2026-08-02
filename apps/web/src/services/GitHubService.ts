@@ -236,15 +236,27 @@ export function initiateGitHubLogin(): void {
 }
 
 /**
+ * Reauthorize GitHub after a revoked or insufficient OAuth grant.
+ * The callback replaces the persisted encrypted session through the normal
+ * control-plane OAuth flow; no token is kept in the browser URL or logs.
+ */
+export function initiateGitHubReauthorization(): void {
+  window.location.href = `${BRAIN_API_URL}/auth/github/reauthorize`;
+}
+
+/**
  * Logout user
  */
 export async function logout(): Promise<void> {
-  await fetch(
+  const response = await fetch(
     `${BRAIN_API_URL}/auth/logout`,
     getFetchOptions({
       method: "POST",
     }),
   );
+  if (!response.ok) {
+    throw new Error(`Logout failed with status ${response.status}`);
+  }
 }
 
 /**

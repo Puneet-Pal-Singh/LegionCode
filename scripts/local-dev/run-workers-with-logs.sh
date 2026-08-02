@@ -34,7 +34,28 @@ wait_for_worker_exit() {
   done
 }
 
+filter_worker_logs() {
+  awk '
+    /\[wrangler:info\].*(GET|POST|OPTIONS) \/api\/(run\/summary|run\/events|run\/activity|git\/status) 200 OK/ { next }
+    { print; fflush() }
+  '
+}
+
 trap cleanup EXIT INT TERM
+
+if ! (
+  cd "${ROOT_DIR}/apps/brain"
+  node ./scripts/validate-local-wrangler-config.mjs
+); then
+  exit 1
+fi
+
+if ! (
+  cd "${ROOT_DIR}/apps/secure-agent-api"
+  node ./scripts/validate-local-wrangler-config.mjs
+); then
+  exit 1
+fi
 
 echo "[local-dev] Writing Brain logs to ${BRAIN_LOG}"
 echo "[local-dev] Writing secure-agent-api logs to ${SECURE_API_LOG}"
@@ -47,7 +68,7 @@ echo "[local-dev] Also writing secure-agent-api logs to ${SECURE_API_ALIAS_LOG}"
     --config wrangler.local.jsonc \
     --port 8788 \
     --inspector-port 9230
-) 2>&1 | tee "${BRAIN_LOG}" "${BRAIN_ALIAS_LOG}" &
+) 2>&1 | filter_worker_logs | tee "${BRAIN_LOG}" "${BRAIN_ALIAS_LOG}" &
 BRAIN_PID=$!
 
 (
@@ -56,7 +77,7 @@ BRAIN_PID=$!
     --config wrangler.local.jsonc \
     --port 8787 \
     --inspector-port 9229
-) 2>&1 | tee "${SECURE_API_LOG}" "${SECURE_API_ALIAS_LOG}" &
+) 2>&1 | filter_worker_logs | tee "${SECURE_API_LOG}" "${SECURE_API_ALIAS_LOG}" &
 SECURE_API_PID=$!
 
 wait_for_worker_exit

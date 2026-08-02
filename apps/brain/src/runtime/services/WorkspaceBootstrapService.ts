@@ -8,6 +8,7 @@ import type {
 import { z } from "zod";
 import { ExecutionService } from "../../services/ExecutionService";
 import type { Env } from "../../types/ai";
+import type { SecureExecutionWorkspaceScope } from "../RuntimeWorkspaceScope";
 
 type GitAction =
   | "git_status"
@@ -29,6 +30,7 @@ interface GitExecutionClient {
     plugin: string,
     action: string,
     payload: Record<string, unknown>,
+    options?: { scope?: SecureExecutionWorkspaceScope },
   ): Promise<unknown>;
 }
 
@@ -105,16 +107,37 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   constructor(
     private executionClient: GitExecutionClient,
     private syncTtlMs: number = DEFAULT_SYNC_TTL_MS,
+    private readonly workspaceScope: SecureExecutionWorkspaceScope,
+    private readonly pinnedCheckout?: {
+      readonly authorizedCommitId: string;
+      readonly workingBranch: string;
+    },
   ) {}
 
   static fromEnv(
     env: Env,
-    _sessionId: string,
+    sessionId: string,
     runId: string,
     userId?: string,
+    workspaceScope?: SecureExecutionWorkspaceScope,
+    executionService?: ExecutionService,
+    pinnedCheckout?: {
+      readonly authorizedCommitId: string;
+      readonly workingBranch: string;
+    },
   ): WorkspaceBootstrapService {
-    const executionService = new ExecutionService(env, runId, runId, userId);
-    return new WorkspaceBootstrapService(executionService);
+    if (!workspaceScope) {
+      throw new Error("workspaceScope is required for workspace bootstrap");
+    }
+    const resolvedExecutionService =
+      executionService ??
+      new ExecutionService(env, sessionId, runId, userId, workspaceScope);
+    return new WorkspaceBootstrapService(
+      resolvedExecutionService,
+      DEFAULT_SYNC_TTL_MS,
+      workspaceScope,
+      pinnedCheckout,
+    );
   }
 
   async bootstrap(
@@ -208,13 +231,41 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
 
       const cloneResult = await this.executeGit(
         "git_clone",
-        { url: cloneUrl },
+        {
+          url: cloneUrl,
+          ...(this.pinnedCheckout
+            ? { startPoint: this.pinnedCheckout.authorizedCommitId }
+            : {}),
+        },
         request.runId,
       );
       if (!cloneResult.success) {
         const cloneError =
           cloneResult.error ?? "Failed to clone repository into workspace.";
         bootstrapResult = mapGitFailure(cloneError);
+        this.logBootstrapTiming(
+          request.runId,
+          bootstrapResult,
+          bootstrapStartedAt,
+        );
+        return bootstrapResult;
+      }
+
+      if (this.pinnedCheckout) {
+        const pinnedResult = await this.executeGit(
+          "git_branch_create",
+          {
+            branch: this.pinnedCheckout.workingBranch,
+            startPoint: this.pinnedCheckout.authorizedCommitId,
+          },
+          request.runId,
+        );
+        bootstrapResult = pinnedResult.success
+          ? { status: "ready", clonedDuringBootstrap: true }
+          : mapGitFailure(
+              pinnedResult.error ??
+                "Failed to create the isolated task branch from its authorized snapshot.",
+            );
         this.logBootstrapTiming(
           request.runId,
           bootstrapResult,
@@ -444,7 +495,14 @@ export class WorkspaceBootstrapService implements WorkspaceBootstrapper {
   ): Promise<GitPluginResult> {
     const startedAt = Date.now();
     try {
-      const result = await this.executionClient.execute("git", action, payload);
+      const result = await this.executionClient.execute(
+        "git",
+        action,
+        payload,
+        {
+          scope: this.workspaceScope,
+        },
+      );
       const parsedResult = toGitPluginResult(result);
       console.log(
         `[workspace/bootstrap/timing] run=${runId} action=${action} success=${parsedResult.success} elapsedMs=${Date.now() - startedAt}`,
@@ -570,9 +628,26 @@ function toGitPluginResult(result: unknown): GitPluginResult {
 
   return {
     success: candidate.success,
-    error: typeof candidate.error === "string" ? candidate.error : undefined,
+    error: readGitPluginErrorMessage(candidate.error),
     output: candidate.output,
   };
+}
+
+function readGitPluginErrorMessage(error: unknown): string | undefined {
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const candidate = error as { message?: unknown; code?: unknown };
+  if (typeof candidate.message === "string" && candidate.message.length > 0) {
+    return candidate.message;
+  }
+  if (typeof candidate.code === "string" && candidate.code.length > 0) {
+    return candidate.code;
+  }
+  return undefined;
 }
 
 function parseWorkspaceGitStatus(
