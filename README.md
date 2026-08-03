@@ -15,8 +15,6 @@
   </p>
 </div>
 
-![LegionCode workspace ready for a new coding task](.github/assets/legioncode-welcome.png)
-
 Give an agent a task, follow its work, and review the resulting code changes before taking a Git action.
 
 ## What you can do
@@ -36,7 +34,7 @@ LegionCode is open source. LegionCode Cloud is in private alpha and is not yet i
 
 [Request private-alpha access](https://legioncode.dev/cloud/) using the email associated with your GitHub account.
 
-Desktop and CLI clients, local execution, a public SDK, and orchestration for agent harnesses such as Codex, OpenCode, and Claude Code are in development.
+Desktop and CLI clients for local agent execution are in active development, along with orchestration for agent harnesses such as Codex, OpenCode, and Claude Code.
 
 ## Documentation
 
