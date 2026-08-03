@@ -13,7 +13,7 @@ toc:
     text: Runtime and storage
 ---
 
-Start with the part of the system that owns the failed behavior. Browser rendering belongs to the workspace UI, authentication and provider policy belong to the API service, and repository commands belong to the secure runner.
+Start with the part of the system that owns the failed behavior. Browser rendering belongs to the workspace UI, authentication and product access belong to Brain, lifecycle belongs to the runtime, and repository commands belong to the secure runtime.
 
 ## Authentication
 
@@ -29,7 +29,7 @@ Start with the part of the system that owns the failed behavior. Browser renderi
 
 **A model is missing:** refresh the provider catalog and check account access. Hidden, coming-soon, or transport-incompatible models are intentionally omitted.
 
-**Execution is rejected:** the selected model may lack the capabilities required by the run. Choose another model or provider and retry the task.
+**Execution is rejected:** the selected model may lack the capabilities required by the task. Choose another model or provider and retry the turn.
 
 ## Routing
 
@@ -41,14 +41,15 @@ Start with the part of the system that owns the failed behavior. Browser renderi
 
 ## Runtime and storage
 
-**Run commands hit the wrong service:** check `MUSCLE_BASE_URL` locally and compare runtime fingerprint endpoints on ports `8787` and `8788`.
+**Runtime commands hit the wrong service:** check `MUSCLE_BASE_URL` locally and compare runtime fingerprint endpoints on ports `8787` and `8788`.
 
 **Database operations fail immediately:** verify the database binding and connection string for the API service.
 
 **A migration fails:** stop deployment, inspect the exact migration and statement number, and verify the migration ledger. Do not mark a failed migration as applied manually.
 
 <Callout variant="tip" title="Keep correlation identifiers">
-  When reporting a runtime failure, include the run identifier, correlation
-  identifier, endpoint, status code, and sanitized error message. Never include
-  tokens, provider keys, or repository contents.
+  When reporting a runtime failure, include the relevant task, turn, or
+  run-attempt identifier, correlation identifier, endpoint, status code, and
+  sanitized error message. Never include tokens, provider keys, or repository
+  contents.
 </Callout>

@@ -1,12 +1,12 @@
 ---
 title: Quickstart
-description: Sign in, connect a repository and provider, then complete your first reviewed coding-agent run.
+description: Sign in, connect a repository and provider, then complete your first reviewed coding-agent task.
 category: Getting started
 toc:
   - id: prerequisites
     text: Prerequisites
-  - id: start-a-run
-    text: Start a run
+  - id: start-a-task
+    text: Start a task
   - id: review-the-result
     text: Review the result
 ---
@@ -27,7 +27,7 @@ You need:
   discard generated changes.
 </Callout>
 
-## Start a run
+## Start a task
 
 1. Open the agents workspace and select **Connect GitHub**.
 2. Complete GitHub authorization.
@@ -41,11 +41,11 @@ A useful first task is:
 Fix the empty-state copy in the repository picker. Reuse the existing component styles, do not change authentication behavior, and run its focused test.
 ```
 
-LegionCode prepares an isolated workspace, streams the agent response, and records changed files for review.
+LegionCode prepares an isolated workspace, streams the agent response and tool activity, and records changed files for review.
 
 ## Review the result
 
-Open **Review** after the run produces changes. Check:
+Open **Review** after the turn produces changes. Check:
 
 - every changed path belongs to the requested scope;
 - additions and deletions match the explanation;
