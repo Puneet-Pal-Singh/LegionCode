@@ -29,6 +29,7 @@ import {
   ProviderModelAvailabilitySchema,
   ProviderModelRuntimeRouteSchema,
   ProviderModelTransportSchema,
+  ReasoningEffortSchema,
 } from "./model-discovery.js";
 
 /**
@@ -125,6 +126,7 @@ export {
   BYOKModelPopularitySignalsSchema,
   BYOKModelPopularityScoreSchema,
   BYOKModelCapabilitySchema,
+  ReasoningEffortSchema,
   BYOKModelCapabilityConfidenceSchema,
   BYOKModelCapabilityMetadataSchema,
   BYOKModelCapabilitySourceSchema,
@@ -149,6 +151,7 @@ export type {
   BYOKModelPopularitySignals,
   BYOKModelPopularityScore,
   BYOKModelCapability,
+  ReasoningEffort,
   BYOKModelCapabilityConfidence,
   BYOKModelCapabilityMetadata,
   BYOKModelCapabilitySource,

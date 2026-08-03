@@ -63,6 +63,7 @@ export class ChatController {
           providerId: chatRequest.body.providerId ?? null,
           modelId: chatRequest.body.modelId ?? null,
           mode: chatRequest.body.mode ?? null,
+          productMode: chatRequest.body.productMode ?? null,
           messageCount: chatRequest.body.messages?.length ?? 0,
         })}`,
       );
@@ -236,6 +237,7 @@ export class ChatController {
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
           contextWindowTokens: body.contextWindowTokens,
+          reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,
           backgroundTaskOwner,

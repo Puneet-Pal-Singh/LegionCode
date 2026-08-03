@@ -265,6 +265,7 @@ interface CredentialRow extends SqlRow {
   label: string;
   key_fingerprint: string;
   encrypted_secret_json: string;
+  connection_config_json: string | null;
   key_version: string;
   status: string;
   last_validated_at: string | null;
@@ -369,11 +370,13 @@ class MemoryProviderSqlClient implements SqlClient {
       label: String(values[4]),
       key_fingerprint: String(values[5]),
       encrypted_secret_json: String(values[6]),
-      key_version: String(values[7]),
-      status: String(values[8]),
-      created_by: values[9] === null ? null : String(values[9]),
-      created_at: String(values[10]),
-      updated_at: String(values[10]),
+      connection_config_json:
+        values[7] === null ? null : String(values[7]),
+      key_version: String(values[8]),
+      status: String(values[9]),
+      created_by: values[10] === null ? null : String(values[10]),
+      created_at: String(values[11]),
+      updated_at: String(values[11]),
       last_validated_at: null,
       last_error_code: null,
       last_error_message: null,

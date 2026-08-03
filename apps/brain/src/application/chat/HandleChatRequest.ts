@@ -20,6 +20,7 @@ import {
   type RunMode,
   type WorkflowEntrypoint,
   type WorkflowIntent,
+  type ReasoningEffort,
 } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { TurnScopeBootstrap } from "@repo/platform-protocol";
@@ -37,6 +38,7 @@ import type {
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
 import { builtinProviderRegistry } from "@repo/provider-core";
+import { resolveProviderRuntimeRoute } from "../../services/providers/ProviderRuntimeRoutePolicy";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
@@ -71,6 +73,7 @@ export interface HandleChatRequestInput {
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
   contextWindowTokens?: number;
+  reasoningEffort?: ReasoningEffort;
   tools?: Record<string, SerializableToolDefinition>;
   identity: TurnScopeBootstrap;
   backgroundTaskOwner?: BackgroundTaskOwner;
@@ -95,6 +98,9 @@ export interface HandleChatRequestOutput {
       sessionId: string;
       providerId?: string;
       modelId?: string;
+      runtimeModelId?: string;
+      providerTransport?: import("@repo/shared-types").ProviderModelTransport;
+      providerEndpoint?: string;
       harnessId?: RuntimeHarnessId;
       orchestratorBackend: RuntimeOrchestratorBackend;
       executionBackend: RuntimeExecutionBackend;
@@ -163,6 +169,10 @@ export class HandleChatRequest {
           : undefined;
       const taskId = input.taskId ?? sessionId;
       const contextWindowTokens = resolveContextWindowTokens(input);
+      const providerRuntimeRoute = resolveProviderRuntimeRoute(
+        input.providerId,
+        input.modelId,
+      );
 
       // Create the task/session first with no active run, then create the run,
       // then persist the message and mark the run active on the session.
@@ -307,6 +317,9 @@ export class HandleChatRequest {
           sessionId,
           providerId: input.providerId,
           modelId: input.modelId,
+          runtimeModelId: providerRuntimeRoute?.runtimeModelId,
+          providerTransport: providerRuntimeRoute?.providerTransport,
+          providerEndpoint: providerRuntimeRoute?.providerEndpoint,
           harnessId: input.harnessId,
           orchestratorBackend: runtimeSelections.orchestratorBackend,
           executionBackend: runtimeSelections.executionBackend,
@@ -314,6 +327,9 @@ export class HandleChatRequest {
           authMode: runtimeSelections.authMode,
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
+            ...(input.reasoningEffort
+              ? { reasoningEffort: input.reasoningEffort }
+              : {}),
             featureFlags: {
               agenticLoopV1: this.isAgenticLoopEnabled(),
               reviewerPassV1: this.isReviewerPassEnabled(),

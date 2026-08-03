@@ -36,7 +36,6 @@ import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
-import { useActiveTurnProjection } from "../chat/chat-interface/useActiveTurnProjection.js";
 import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
 import {
   buildHookSettingsAuditReadModel,
@@ -177,6 +176,7 @@ export function Workspace({
     isModelConfigReady,
     scope: conversationScope,
     serverTurnId,
+    activeTurnProjection: activeTurn,
   } = useChat(
     sessionId,
     initialRunId,
@@ -186,10 +186,6 @@ export function Workspace({
     mode,
     productMode,
   );
-  const activeTurn = useActiveTurnProjection({
-    turnId: serverTurnId,
-    transportLoading: isLoading,
-  });
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {
       clearNonCanonicalError();

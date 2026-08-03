@@ -49,8 +49,23 @@ describe("ProviderCatalogService", () => {
     );
   });
 
-  it("serves static provider defaults from the registry without a provider call", async () => {
+  it("serves the complete OpenAI provider inventory through remote discovery", async () => {
     const discovery = createDiscoveryStub();
+    discovery.getDiscoveredModels.mockResolvedValue({
+      providerId: "openai",
+      view: "popular",
+      models: [
+        { id: "gpt-5.2", name: "GPT-5.2", providerId: "openai" },
+        { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", providerId: "openai" },
+      ],
+      page: { limit: 50, hasMore: false },
+      metadata: {
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        source: "provider_api",
+        status: "available",
+      },
+    });
     const service = new ProviderCatalogService(
       new ProviderRegistryService(),
       discovery as never,
@@ -63,12 +78,19 @@ describe("ProviderCatalogService", () => {
     });
 
     expect(response.metadata).toMatchObject({
-      source: "registry",
+      source: "provider_api",
       status: "available",
       stale: false,
     });
-    expect(response.models.map((model) => model.id)).toEqual(["gpt-4o"]);
-    expect(discovery.getDiscoveredModels).not.toHaveBeenCalled();
+    expect(response.models.map((model) => model.id)).toEqual([
+      "gpt-5.2",
+      "gpt-5.2-codex",
+    ]);
+    expect(discovery.getDiscoveredModels).toHaveBeenCalledWith("openai", {
+      view: "popular",
+      surface: "picker",
+      limit: 50,
+    });
   });
 
   it("returns stale cache metadata when selected-provider discovery is cached", async () => {

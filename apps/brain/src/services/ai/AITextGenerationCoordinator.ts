@@ -1,5 +1,6 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { ProviderModelTransport } from "@repo/shared-types";
+import type { ReasoningEffort } from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { ProviderAdapter, ProviderConfigService } from "../providers";
 import type { ModelSelection } from "./ModelSelectionPolicy";
@@ -29,6 +30,7 @@ interface TextGenerationInput extends ProviderGenerationInput {
   system?: string;
   tools?: Record<string, CoreTool>;
   temperature: number;
+  reasoningEffort?: ReasoningEffort;
   signal?: AbortSignal;
 }
 
@@ -49,6 +51,7 @@ export async function generateTextWithSelection(
     system: input.system,
     tools: input.tools,
     temperature: input.temperature,
+    reasoningEffort: input.reasoningEffort,
     signal: input.signal,
     model: input.runtimeModelId ?? input.selection.model,
   });

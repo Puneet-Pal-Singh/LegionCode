@@ -51,6 +51,26 @@ describe("buildChatEntries", () => {
       ),
     ).toEqual(["user-1", "workflow", "assistant-1"]);
   });
+
+  it("keeps the active canonical workflow visible while transcript identity catches up", () => {
+    const turnId = TurnIdSchema.parse("trn_activegap01");
+    const user = createMessage("user-1", "user", "Inspect the repo");
+    const projection = {
+      ...createLifecycleProjection(turnId),
+      lastSequence: 1,
+      phase: "working" as const,
+    };
+
+    expect(
+      buildChatEntries(
+        buildConversationTurns([user]),
+        { [turnId]: projection },
+        turnId,
+      ).map((entry) =>
+        entry.kind === "message" ? entry.message.id : entry.turnId,
+      ),
+    ).toEqual(["user-1", turnId]);
+  });
 });
 
 function withTurnIdentity(message: Message, turnId: string): Message {

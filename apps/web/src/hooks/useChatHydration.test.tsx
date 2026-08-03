@@ -26,6 +26,39 @@ describe("useChatHydration", () => {
     vi.useRealTimers();
   });
 
+  it("rehydrates the canonical transcript when terminal replay advances", async () => {
+    const setMessages = vi.fn<[Message[]], void>();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(createHistoryResponse([]))
+      .mockResolvedValueOnce(
+        createHistoryResponse([
+          { id: "canonical-user", role: "user", content: "Read README" },
+          {
+            id: "canonical-assistant",
+            role: "assistant",
+            content: "# LegionCode",
+          },
+        ]),
+      );
+    const scope = scopeFor("session-terminal", "run-terminal");
+    const { rerender } = renderHook(
+      ({ revision }) => useChatHydration(scope, [], setMessages, revision),
+      { initialProps: { revision: null as string | null } },
+    );
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    rerender({ revision: `${scope.turnId}:9` });
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(setMessages).toHaveBeenLastCalledWith([
+        expect.objectContaining({ id: "canonical-user" }),
+        expect.objectContaining({ id: "canonical-assistant" }),
+      ]);
+    });
+  });
+
   it("does not apply stale history after switching session scope", async () => {
     let resolveRunOneFetch: ((response: Response) => void) | null = null;
     const setMessages = vi.fn<[Message[]], void>();

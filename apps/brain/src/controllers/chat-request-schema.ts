@@ -3,6 +3,7 @@ import {
   RunModeSchema,
   WorkflowEntrypointSchema,
   WorkflowIntentSchema,
+  ReasoningEffortSchema,
 } from "@repo/shared-types";
 import { TurnScopeBootstrapSchema } from "@repo/platform-protocol";
 import { z } from "zod";
@@ -41,6 +42,7 @@ export const ChatRequestBodySchema = z.object({
   repositoryBranch: z.string().optional(),
   repositoryBaseUrl: z.string().optional(),
   contextWindowTokens: z.number().int().positive().optional(),
+  reasoningEffort: ReasoningEffortSchema.optional(),
 });
 
 export type ChatRequestBody = z.infer<typeof ChatRequestBodySchema>;

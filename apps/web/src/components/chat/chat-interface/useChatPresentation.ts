@@ -24,8 +24,13 @@ export function useChatPresentation(input: ChatPresentationInput) {
       buildChatEntries(
         input.conversationTurns,
         input.lifecycleProjectionsByTurnId,
+        input.lifecycleProjection?.turnId,
       ),
-    [input.conversationTurns, input.lifecycleProjectionsByTurnId],
+    [
+      input.conversationTurns,
+      input.lifecycleProjection?.turnId,
+      input.lifecycleProjectionsByTurnId,
+    ],
   );
   const terminalViewModel = useMemo(
     () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),

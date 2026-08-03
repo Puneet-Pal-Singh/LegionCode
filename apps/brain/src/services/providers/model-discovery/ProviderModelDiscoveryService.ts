@@ -35,7 +35,10 @@ import {
   type OpenRouterDiscoveryCategory,
 } from "./types";
 
-const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+// Demand-driven refresh keeps serverless runtimes current without relying on
+// background timers. A provider is revalidated on the first request after one
+// hour, while the explicit refresh action remains available to users.
+const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
 const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;

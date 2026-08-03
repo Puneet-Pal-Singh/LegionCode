@@ -141,6 +141,14 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
         system: params.system,
         tools: params.tools,
         temperature: params.temperature,
+        maxTokens: params.maxOutputTokens ?? 4096,
+        ...(isLegacySdkReasoningEffort(params.reasoningEffort)
+          ? {
+              experimental_providerMetadata: {
+                openai: { reasoningEffort: params.reasoningEffort },
+              },
+            }
+          : {}),
         abortSignal: params.signal,
         maxRetries: PROVIDER_SDK_MAX_RETRIES,
       });
@@ -177,6 +185,14 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      maxTokens: params.maxOutputTokens ?? 4096,
+      ...(isLegacySdkReasoningEffort(params.reasoningEffort)
+        ? {
+            experimental_providerMetadata: {
+              openai: { reasoningEffort: params.reasoningEffort },
+            },
+          }
+        : {}),
       abortSignal: params.signal,
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });
@@ -255,6 +271,12 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
     usage: { promptTokens: number; completionTokens: number },
     model: string,
   ): LLMUsage;
+}
+
+function isLegacySdkReasoningEffort(
+  value: GenerationParams["reasoningEffort"],
+): value is "low" | "medium" | "high" {
+  return value === "low" || value === "medium" || value === "high";
 }
 
 function readToolCallId(value: unknown): string | undefined {

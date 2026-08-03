@@ -8,6 +8,7 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type { ProviderAdapter, GenerationParams } from "../providers";
+import type { ReasoningEffort } from "@repo/shared-types";
 
 /**
  * Result from text generation with usage
@@ -37,6 +38,7 @@ export async function generateText(
     system?: string;
     tools?: Record<string, CoreTool>;
     temperature?: number;
+    reasoningEffort?: ReasoningEffort;
     model: string;
     signal?: AbortSignal;
   },
@@ -46,6 +48,7 @@ export async function generateText(
     system: params.system,
     tools: params.tools,
     temperature: params.temperature,
+    reasoningEffort: params.reasoningEffort,
     model: params.model,
     signal: params.signal,
   };

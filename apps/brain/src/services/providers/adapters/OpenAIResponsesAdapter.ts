@@ -187,13 +187,23 @@ function buildResponsesRequestBody(
   const body: Record<string, unknown> = {
     model,
     input: buildResponsesInput(params.messages, params.system),
-    temperature: params.temperature,
+    max_output_tokens: params.maxOutputTokens ?? 4096,
   };
+  if (!isOpenAIReasoningModel(model) && params.temperature !== undefined) {
+    body.temperature = params.temperature;
+  }
   const tools = buildResponsesTools(params.tools);
   if (tools) {
     body.tools = tools;
   }
+  if (params.reasoningEffort) {
+    body.reasoning = { effort: params.reasoningEffort };
+  }
   return body;
+}
+
+function isOpenAIReasoningModel(model: string): boolean {
+  return /^(?:gpt-5(?:[.-]|$)|o[1-9](?:[.-]|$))/i.test(model.trim());
 }
 
 function buildResponsesInput(

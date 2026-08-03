@@ -162,7 +162,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       structuredOutputs: true,
     },
     adapterFamily: "openai-compatible",
-    modelSource: "static",
+    modelSource: "remote",
     modelsEndpoint: "https://api.openai.com/v1/models",
     validation: {
       endpoint: "https://api.openai.com/v1/models",
@@ -188,7 +188,7 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderRegistryEntry> = {
       structuredOutputs: false,
     },
     adapterFamily: "openai-compatible",
-    modelSource: "static",
+    modelSource: "remote",
     modelsEndpoint: "https://api.groq.com/openai/v1/models",
     validation: {
       endpoint: "https://api.groq.com/openai/v1/models",

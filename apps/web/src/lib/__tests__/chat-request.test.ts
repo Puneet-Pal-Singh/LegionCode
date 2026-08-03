@@ -23,12 +23,14 @@ describe("parseChatRequestBody", () => {
         repositoryName: "repo",
         repositoryBranch: "main",
         repositoryBaseUrl: "https://github.com/owner/repo",
+        reasoningEffort: "high",
       }),
     ).toMatchObject({
       sessionId: "session-1",
       runId: "run-1",
       clientMessageId: "client_msg_1",
       repositoryBaseUrl: "https://github.com/owner/repo",
+      reasoningEffort: "high",
     });
   });
 

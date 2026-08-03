@@ -14,8 +14,10 @@ export type ChatInterfaceEntry =
 export function buildChatEntries(
   conversationTurns: ReturnType<typeof buildConversationTurns>,
   projectionsByTurnId: Readonly<Record<string, LifecycleProjection>> = {},
+  activeTurnId?: string | null,
 ): ChatInterfaceEntry[] {
   const entries: ChatInterfaceEntry[] = [];
+  const emittedWorkflowTurnIds = new Set<string>();
   for (const conversationTurn of conversationTurns) {
     if (conversationTurn.userMessage) {
       entries.push({ kind: "message", message: conversationTurn.userMessage });
@@ -29,6 +31,7 @@ export function buildChatEntries(
         turnId,
         projection,
       });
+      emittedWorkflowTurnIds.add(turnId);
     }
     if (shouldIncludeAssistantMessage(conversationTurn.assistantMessage)) {
       entries.push({
@@ -36,6 +39,21 @@ export function buildChatEntries(
         message: conversationTurn.assistantMessage,
       });
     }
+  }
+  const orphanedActiveProjection = activeTurnId
+    ? projectionsByTurnId[activeTurnId]
+    : undefined;
+  if (
+    orphanedActiveProjection &&
+    orphanedActiveProjection.lastSequence > 0 &&
+    !emittedWorkflowTurnIds.has(orphanedActiveProjection.turnId)
+  ) {
+    entries.push({
+      kind: "workflow",
+      key: `workflow:${orphanedActiveProjection.turnId}`,
+      turnId: orphanedActiveProjection.turnId,
+      projection: orphanedActiveProjection,
+    });
   }
   return entries;
 }

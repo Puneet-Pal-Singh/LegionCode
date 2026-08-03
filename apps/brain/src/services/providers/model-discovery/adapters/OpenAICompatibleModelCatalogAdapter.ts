@@ -1,5 +1,8 @@
 import { z } from "zod";
-import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
+import type {
+  BYOKDiscoveredProviderModel,
+  ReasoningEffort,
+} from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
   ProviderModelCredentialContext,
@@ -45,11 +48,9 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
       response,
       this.providerId,
     );
-    return payload.data.map((item) => ({
-      id: item.id,
-      name: item.id,
-      providerId: this.providerId,
-    }));
+    return payload.data.map((item) =>
+      toDiscoveredModel(this.providerId, item.id),
+    );
   }
 
   async fetchPage(
@@ -69,6 +70,50 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
       source: "provider_api",
     };
   }
+}
+
+function toDiscoveredModel(
+  providerId: string,
+  modelId: string,
+): BYOKDiscoveredProviderModel {
+  const reasoningEfforts =
+    providerId === "openai" ? resolveOpenAIReasoningEfforts(modelId) : [];
+  return {
+    id: modelId,
+    name: modelId,
+    providerId,
+    ...(reasoningEfforts.length > 0
+      ? {
+          capabilities: {
+            supportsReasoning: true,
+            reasoningEfforts,
+          },
+          capabilityMetadata: {
+            source: "static_override" as const,
+            confidence: "declared" as const,
+          },
+        }
+      : {}),
+  };
+}
+
+export function resolveOpenAIReasoningEfforts(
+  modelId: string,
+): ReasoningEffort[] {
+  const normalized = modelId.trim().toLowerCase();
+  if (/^gpt-5(?:\.[0-9]+)?-pro(?:[.-]|$)/.test(normalized)) {
+    return ["high"];
+  }
+  if (/^gpt-5\.1(?:[.-]|$)/.test(normalized)) {
+    return ["none", "low", "medium", "high"];
+  }
+  if (/^gpt-5(?:[.-]|$)/.test(normalized)) {
+    return ["none", "minimal", "low", "medium", "high", "xhigh"];
+  }
+  if (/^o[1-9](?:[.-]|$)/.test(normalized)) {
+    return ["low", "medium", "high"];
+  }
+  return [];
 }
 
 function parseCursor(cursor: string | undefined): number {

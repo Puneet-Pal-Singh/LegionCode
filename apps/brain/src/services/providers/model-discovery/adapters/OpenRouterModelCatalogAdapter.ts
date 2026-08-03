@@ -5,6 +5,7 @@ import type {
   BYOKModelCapabilityMetadata,
   BYOKModelInputModality,
   BYOKModelOutputModality,
+  ReasoningEffort,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
@@ -230,12 +231,27 @@ function toCapabilities(
     return undefined;
   }
   const inputModalities = toInputModalities(architecture);
+  const supportsReasoning =
+    settings?.reasoning === true ||
+    parameters?.some((parameter) =>
+      ["reasoning", "reasoning_effort"].includes(parameter),
+    ) === true;
   return {
     supportsTools: supportsTools(parameters),
     supportsVision: inputModalities?.image,
     supportsStructuredOutputs: settings?.structured_outputs,
-    supportsReasoning: settings?.reasoning,
+    supportsReasoning,
+    ...(supportsReasoning
+      ? { reasoningEfforts: resolveOpenRouterReasoningEfforts(parameters) }
+      : {}),
   };
+}
+
+function resolveOpenRouterReasoningEfforts(
+  parameters: string[] | undefined,
+): ReasoningEffort[] {
+  if (!parameters) return ["low", "medium", "high"];
+  return ["none", "minimal", "low", "medium", "high", "xhigh"];
 }
 
 function toInputModalities(

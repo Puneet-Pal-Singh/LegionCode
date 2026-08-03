@@ -52,11 +52,22 @@ export type BYOKModelPopularityScore = z.infer<
   typeof BYOKModelPopularityScoreSchema
 >;
 
+export const ReasoningEffortSchema = z.enum([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+]);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+
 export const BYOKModelCapabilitySchema = z.object({
   supportsTools: z.boolean().optional(),
   supportsVision: z.boolean().optional(),
   supportsStructuredOutputs: z.boolean().optional(),
   supportsReasoning: z.boolean().optional(),
+  reasoningEfforts: z.array(ReasoningEffortSchema).optional(),
 });
 export type BYOKModelCapability = z.infer<typeof BYOKModelCapabilitySchema>;
 

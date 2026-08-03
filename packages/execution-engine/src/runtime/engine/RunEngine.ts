@@ -630,6 +630,7 @@ export class RunEngine implements IRunEngine {
         providerTransport: input.providerTransport,
         providerEndpoint: input.providerEndpoint,
         temperature: 0.2,
+        reasoningEffort: parseRunReasoningEffort(input.metadata),
         onToolRequested: loopCallbacks.onToolRequested,
         onProgress: loopCallbacks.onProgress,
         onProviderRetry: loopCallbacks.onProviderRetry,
@@ -1017,6 +1018,18 @@ export class RunEngine implements IRunEngine {
       },
     });
   }
+}
+
+function parseRunReasoningEffort(metadata: RunInput["metadata"]) {
+  const value = metadata?.reasoningEffort;
+  return value === "none" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh"
+    ? value
+    : undefined;
 }
 
 function readLatestUserMessageId(messages: CoreMessage[]): string | null {

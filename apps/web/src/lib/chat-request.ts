@@ -1,4 +1,5 @@
 import type { ProductMode, RunMode } from "@repo/shared-types";
+import { ReasoningEffortSchema } from "@repo/shared-types";
 import { z } from "zod";
 import { TurnScopeBootstrapSchema } from "./turn-scope-contract";
 
@@ -23,6 +24,7 @@ export const ChatRequestBodySchema = z
     repositoryBranch: z.string().trim().min(1).optional(),
     repositoryBaseUrl: z.string().url().optional(),
     contextWindowTokens: z.number().int().positive().optional(),
+    reasoningEffort: ReasoningEffortSchema.optional(),
   })
   .strict();
 

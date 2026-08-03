@@ -29,7 +29,7 @@ import { useApprovalController } from "./chat-interface/useApprovalController";
 import {
   useActiveTurnProjection,
   type ActiveTurnProjection,
-} from "./chat-interface/useActiveTurnProjection.js";
+} from "../../hooks/useActiveTurnProjection.js";
 import { useCompletedTurnReview } from "./chat-interface/useCompletedTurnReview.js";
 import { useReviewCommentSubmission } from "./chat-interface/useReviewCommentSubmission";
 import {
@@ -139,7 +139,10 @@ export function ChatInterface({
   }, [conversationScope, runId]);
   // The canonical lifecycle projection is the only workflow/activity source.
   // RunEvent and persisted activity backfills are deliberately not rendered.
-  const awaitingCanonicalLifecycle = isLoading && !activeTurn.hasReplay;
+  const awaitingCanonicalLifecycle =
+    activeTurn.isTransportPending ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
+    (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
     activeTurn.isTransportPending ||

@@ -10,6 +10,7 @@ import {
   ApprovalDecisionKindSchema,
   ProviderModelTransportSchema,
   ProductModeSchema,
+  ReasoningEffortSchema,
   RunModeSchema,
   WorkflowEntrypointSchema,
   WorkflowIntentSchema,
@@ -102,6 +103,7 @@ export const ExecuteRunPayloadSchema = z.object({
       metadata: z
         .object({
           contextWindowTokens: z.number().int().safe().positive().optional(),
+          reasoningEffort: ReasoningEffortSchema.optional(),
           featureFlags: z
             .object({
               agenticLoopV1: z.boolean().optional(),

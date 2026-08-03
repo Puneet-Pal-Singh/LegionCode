@@ -47,6 +47,7 @@ import type {
 } from "@repo/platform-client-sdk";
 import { ContextWindowIndicator } from "./ContextWindowIndicator";
 import { useComposerPreferences } from "../../lib/composer-preferences";
+import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -742,9 +743,9 @@ export function ChatInputBar({
 
         <div
           className={`
-            ui-control-surface p-3
+            ui-control-surface composer-surface p-3
             transition-all duration-200
-            ${isFocused ? "shadow-lg shadow-black/20" : ""}
+            ${isFocused ? "composer-surface-focused shadow-lg shadow-black/20" : ""}
           `}
         >
           {hasReviewComments ? (
@@ -1024,6 +1025,17 @@ export function ChatInputBar({
                   isSelectedProviderModelHydrationPending
                 }
               />
+
+              {selectedProviderId &&
+              selectedModelId &&
+              selectedModel?.capabilities?.reasoningEfforts?.length ? (
+                <ReasoningEffortPicker
+                  providerId={selectedProviderId}
+                  modelId={selectedModelId}
+                  efforts={selectedModel.capabilities.reasoningEfforts}
+                  disabled={isComposerActiveRun}
+                />
+              ) : null}
 
               {selectedProviderId === AXIS_PROVIDER_ID &&
               axisQuota &&

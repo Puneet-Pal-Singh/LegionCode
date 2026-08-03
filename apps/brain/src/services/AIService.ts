@@ -2,7 +2,7 @@ import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import type { ProviderModelTransport } from "@repo/shared-types";
+import type { ProviderModelTransport, ReasoningEffort } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
 import { ProviderConfigService } from "./providers";
@@ -36,7 +36,6 @@ export class AIService {
   private adapter: ProviderAdapter;
   private defaultModel: string;
   private providerConfigService?: ProviderConfigService;
-
   constructor(
     private env: Env,
     providerConfigService?: ProviderConfigService,
@@ -49,7 +48,6 @@ export class AIService {
   getProvider(): string {
     return this.adapter.provider;
   }
-
   getDefaultModel(): string {
     return this.defaultModel;
   }
@@ -79,6 +77,7 @@ export class AIService {
     providerTransport,
     providerEndpoint,
     temperature = 0.7,
+    reasoningEffort,
     system,
     tools,
     signal,
@@ -90,6 +89,7 @@ export class AIService {
     providerTransport?: ProviderModelTransport;
     providerEndpoint?: string;
     temperature?: number;
+    reasoningEffort?: ReasoningEffort;
     system?: string;
     tools?: Record<string, CoreTool>;
     signal?: AbortSignal;
@@ -114,6 +114,7 @@ export class AIService {
       system,
       tools,
       temperature,
+      reasoningEffort,
       signal,
     });
   }

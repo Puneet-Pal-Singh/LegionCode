@@ -12,7 +12,17 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { ChevronDown, Search, Plus, Settings, RefreshCw } from "lucide-react";
+import {
+  BrainCircuit,
+  Check,
+  ChevronDown,
+  Image,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Wrench,
+} from "lucide-react";
 import {
   AXIS_PROVIDER_ID,
   BYOKCredential as ProviderCredential,
@@ -29,8 +39,8 @@ import { isProviderModelAvailable } from "./providerModelAvailability";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
-const ESTIMATED_POPOVER_HEIGHT_PX = 360;
-const PREFERRED_POPOVER_WIDTH_PX = 304;
+const ESTIMATED_POPOVER_HEIGHT_PX = 430;
+const PREFERRED_POPOVER_WIDTH_PX = 360;
 const MIN_POPOVER_WIDTH_PX = 248;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
@@ -624,16 +634,19 @@ export function ModelPickerPopover({
         type="button"
         onClick={handleToggle}
         className={`
-          inline-flex h-7 max-w-[min(16rem,calc(100vw-6rem))] items-center gap-1.5 rounded-md
-          bg-transparent px-2 text-xs font-medium text-neutral-400
-          transition-colors hover:bg-neutral-800/50 hover:text-neutral-200
+          inline-flex h-8 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-lg
+          border border-neutral-700/70 bg-neutral-900/70 px-2.5 text-xs font-medium text-neutral-300
+          transition-colors hover:border-neutral-600 hover:bg-neutral-800 hover:text-neutral-100
           focus:outline-none focus:ring-2 focus:ring-blue-500
         `}
         aria-label="Open model picker"
         aria-expanded={isOpen}
         title={triggerLabel}
       >
-        <span className="truncate max-w-[13rem]">{triggerLabel}</span>
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber-300/10 text-[9px] font-bold text-amber-300">
+          {effectiveSelection.providerId?.slice(0, 1).toUpperCase() ?? "L"}
+        </span>
+        <span className="truncate max-w-[14rem]">{triggerLabel}</span>
         <ChevronDown
           size={14}
           className={`shrink-0 transition-transform ${
@@ -647,8 +660,8 @@ export function ModelPickerPopover({
         <div
           data-testid="model-picker-popover"
           className={`
-            absolute z-50 flex max-h-[18rem] flex-col overflow-hidden rounded-xl
-            border border-neutral-700/80 bg-neutral-900/95 shadow-2xl backdrop-blur
+            absolute z-50 flex max-h-[26rem] flex-col overflow-hidden rounded-2xl
+            border border-neutral-700/80 bg-[#111112]/98 shadow-2xl shadow-black/70 backdrop-blur-xl
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             ${placement.horizontal === "start" ? "left-0" : "right-0"}
           `}
@@ -674,7 +687,7 @@ export function ModelPickerPopover({
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className={`
                       h-8 w-full rounded-md
-                      bg-neutral-800 border border-neutral-700
+                      bg-black/30 border border-neutral-700
                       pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
                       focus:outline-none focus:ring-2 focus:ring-blue-500
                     `}
@@ -815,7 +828,7 @@ export function ModelPickerPopover({
                             }
                             disabled={selectingModelId === model.id}
                             className={`
-                            w-full px-3 py-2 text-left text-xs
+                            w-full px-3 py-2.5 text-left text-xs
                             transition-colors disabled:opacity-50
                             ${
                               effectiveSelection.providerId ===
@@ -834,9 +847,10 @@ export function ModelPickerPopover({
                               {effectiveSelection.providerId ===
                                 axisDefaultGroup.providerId &&
                                 effectiveSelection.modelId === model.id && (
-                                  <span className="ml-auto text-neutral-200">
-                                    ✓
-                                  </span>
+                                  <>
+                                    <span className="sr-only">✓</span>
+                                    <Check className="ml-auto text-amber-300" size={14} />
+                                  </>
                                 )}
                             </div>
                           </button>
@@ -889,7 +903,7 @@ export function ModelPickerPopover({
                                 !isProviderModelAvailable(model)
                               }
                               className={`
-                              w-full px-3 py-2 text-left text-xs
+                              w-full px-3 py-2.5 text-left text-xs
                               transition-colors disabled:opacity-50
                               ${
                                 effectiveSelection.providerId ===
@@ -902,9 +916,12 @@ export function ModelPickerPopover({
                               title={`${model.name} (${model.id})`}
                             >
                               <div className="flex min-w-0 items-center gap-2">
-                                <p className="truncate font-medium">
-                                  {model.name}
-                                </p>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-medium text-neutral-200">
+                                    {model.name}
+                                  </p>
+                                  <ModelCapabilityBadges model={model} />
+                                </div>
                                 {!isProviderModelAvailable(model) && (
                                   <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
                                     Unavailable
@@ -913,9 +930,10 @@ export function ModelPickerPopover({
                                 {effectiveSelection.providerId ===
                                   group.providerId &&
                                   effectiveSelection.modelId === model.id && (
-                                    <span className="ml-auto text-neutral-200">
-                                      ✓
-                                    </span>
+                                    <>
+                                      <span className="sr-only">✓</span>
+                                      <Check className="ml-auto shrink-0 text-amber-300" size={14} />
+                                    </>
                                   )}
                               </div>
                             </button>
@@ -958,6 +976,34 @@ export function ModelPickerPopover({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ModelCapabilityBadges({ model }: { model: ProviderModelOption }) {
+  const badges = [
+    model.capabilities?.supportsReasoning
+      ? { label: "Reasoning", Icon: BrainCircuit }
+      : null,
+    model.capabilities?.supportsTools
+      ? { label: "Tools", Icon: Wrench }
+      : null,
+    model.inputModalities?.image
+      ? { label: "Vision", Icon: Image }
+      : null,
+  ].filter(
+    (badge): badge is { label: string; Icon: typeof BrainCircuit } =>
+      badge !== null,
+  );
+  if (badges.length === 0) return null;
+  return (
+    <div className="mt-1 flex items-center gap-2 text-[10px] text-neutral-500">
+      {badges.map(({ label, Icon }) => (
+        <span key={label} className="inline-flex items-center gap-1">
+          <Icon size={10} />
+          {label}
+        </span>
+      ))}
     </div>
   );
 }

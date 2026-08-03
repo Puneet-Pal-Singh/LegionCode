@@ -25,6 +25,7 @@ import {
 } from "@repo/platform-client-sdk";
 import type {
   BYOKModelCapabilityMetadata,
+  BYOKModelCapability,
   BYOKModelInputModality,
   BYOKModelDiscoverySource,
   BYOKModelDiscoverySurface,
@@ -46,6 +47,7 @@ export interface ProviderModelOption {
   unavailableReason?: string;
   inputModalities?: BYOKModelInputModality;
   capabilityMetadata?: BYOKModelCapabilityMetadata;
+  capabilities?: BYOKModelCapability;
 }
 
 export type ProviderModelDiscoveryView =
@@ -160,6 +162,7 @@ export class ProviderApiClient {
         unavailableReason: model.unavailableReason,
         inputModalities: model.inputModalities,
         capabilityMetadata: model.capabilityMetadata,
+        capabilities: model.capabilities,
       })),
       page: response.page,
       metadata: response.metadata,

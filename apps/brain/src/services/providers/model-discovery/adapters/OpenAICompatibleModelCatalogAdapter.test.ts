@@ -35,6 +35,37 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
     expect(models[0].id).toBe("gpt-4o");
   });
 
+  it("publishes model-specific reasoning efforts for new OpenAI families", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [{ id: "gpt-5.6-luna" }, { id: "gpt-5-pro" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    const models = await adapter.fetchAll("openai", {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      apiKey: "sk-test",
+    });
+
+    expect(models[0]?.capabilities?.reasoningEfforts).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+    expect(models[1]?.capabilities?.reasoningEfforts).toEqual(["high"]);
+  });
+
   it("wraps network failures into typed discovery errors", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
 

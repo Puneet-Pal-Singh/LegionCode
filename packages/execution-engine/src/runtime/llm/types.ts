@@ -1,6 +1,9 @@
 import type { CoreMessage, CoreTool } from "ai";
 import type { ZodSchema } from "zod";
-import type { ProviderModelTransport } from "@repo/shared-types";
+import type {
+  ProviderModelTransport,
+  ReasoningEffort,
+} from "@repo/shared-types";
 import type { LLMUsage } from "../cost/index.js";
 import type { TranscriptPart } from "@repo/platform-protocol";
 import type { ProviderTranscriptPart } from "./TranscriptPartNormalizer.js";
@@ -35,6 +38,7 @@ export interface LLMTextRequest {
   providerEndpoint?: string;
   messages: CoreMessage[];
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
   system?: string;
   tools?: Record<string, CoreTool>;
   timeoutMs?: number;
@@ -114,6 +118,7 @@ export interface LLMRuntimeAIService {
     providerTransport?: ProviderModelTransport;
     providerEndpoint?: string;
     temperature?: number;
+    reasoningEffort?: ReasoningEffort;
     system?: string;
     tools?: Record<string, CoreTool>;
     signal?: AbortSignal;
