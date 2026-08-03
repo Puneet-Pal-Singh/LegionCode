@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import type { Message } from "@ai-sdk/react";
-import {
-  buildLifecycleTerminalViewModel,
-} from "../../../services/lifecycle/LifecycleTerminalViewModel";
+import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
@@ -16,22 +14,42 @@ interface ChatPresentationInput {
   hasStartedSession: boolean;
   lifecycleProjection?: LifecycleProjection | null;
   lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
+  initialPromptSubmission?: { id: string; prompt: string } | null;
 }
 
 export function useChatPresentation(input: ChatPresentationInput) {
-  const chatEntries = useMemo(
-    () =>
-      buildChatEntries(
-        input.conversationTurns,
-        input.lifecycleProjectionsByTurnId,
-        input.lifecycleProjection?.turnId,
-      ),
-    [
+  const chatEntries = useMemo(() => {
+    const canonicalEntries = buildChatEntries(
       input.conversationTurns,
-      input.lifecycleProjection?.turnId,
       input.lifecycleProjectionsByTurnId,
-    ],
-  );
+      input.lifecycleProjection?.turnId,
+    );
+    const initialPrompt = input.initialPromptSubmission?.prompt.trim();
+    const alreadyProjected = input.messages.some(
+      (message) =>
+        message.role === "user" &&
+        typeof message.content === "string" &&
+        message.content.trim() === initialPrompt,
+    );
+    if (!initialPrompt || alreadyProjected) return canonicalEntries;
+    return [
+      {
+        kind: "message" as const,
+        message: {
+          id: `initial-prompt:${input.initialPromptSubmission?.id}`,
+          role: "user" as const,
+          content: initialPrompt,
+        },
+      },
+      ...canonicalEntries,
+    ];
+  }, [
+    input.conversationTurns,
+    input.initialPromptSubmission,
+    input.lifecycleProjection?.turnId,
+    input.lifecycleProjectionsByTurnId,
+    input.messages,
+  ]);
   const terminalViewModel = useMemo(
     () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
     [input.lifecycleProjection],
@@ -51,13 +69,7 @@ export function useChatPresentation(input: ChatPresentationInput) {
     !input.hasStartedSession;
   const isTranscriptHydrating =
     !input.hasHydrated && !hasConversation && !input.hasPendingApproval;
-  const showSessionPlaceholder =
-    isTranscriptHydrating ||
-    (input.hasStartedSession &&
-      input.hasHydrated &&
-      !hasConversation &&
-      !input.hasPendingApproval &&
-      !showHeroComposer);
+  const showSessionPlaceholder = isTranscriptHydrating;
 
   return {
     chatEntries,

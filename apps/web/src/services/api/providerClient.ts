@@ -48,6 +48,8 @@ export interface ProviderModelOption {
   inputModalities?: BYOKModelInputModality;
   capabilityMetadata?: BYOKModelCapabilityMetadata;
   capabilities?: BYOKModelCapability;
+  contextWindow?: number;
+  description?: string;
 }
 
 export type ProviderModelDiscoveryView =
@@ -163,6 +165,8 @@ export class ProviderApiClient {
         inputModalities: model.inputModalities,
         capabilityMetadata: model.capabilityMetadata,
         capabilities: model.capabilities,
+        contextWindow: model.contextWindow,
+        description: model.description,
       })),
       page: response.page,
       metadata: response.metadata,

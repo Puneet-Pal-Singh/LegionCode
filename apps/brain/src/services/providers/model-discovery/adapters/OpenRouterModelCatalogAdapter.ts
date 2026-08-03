@@ -202,6 +202,7 @@ function toDiscoveredModel(
     inputModalities: toInputModalities(entry.architecture),
     outputModalities: toOutputModalities(entry.architecture),
     capabilities: toCapabilities(
+      entry.id,
       entry.supported_parameters,
       entry.settings,
       entry.architecture,
@@ -212,6 +213,7 @@ function toDiscoveredModel(
 }
 
 function toCapabilities(
+  modelId: string,
   parameters: string[] | undefined,
   settings:
     | {
@@ -242,14 +244,23 @@ function toCapabilities(
     supportsStructuredOutputs: settings?.structured_outputs,
     supportsReasoning,
     ...(supportsReasoning
-      ? { reasoningEfforts: resolveOpenRouterReasoningEfforts(parameters) }
+      ? {
+          reasoningEfforts: resolveOpenRouterReasoningEfforts(
+            modelId,
+            parameters,
+          ),
+        }
       : {}),
   };
 }
 
 function resolveOpenRouterReasoningEfforts(
+  modelId: string,
   parameters: string[] | undefined,
 ): ReasoningEffort[] {
+  if (/(?:^|\/)openai\/gpt-5\.6(?:[.-]|$)/.test(modelId.toLowerCase())) {
+    return ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+  }
   if (!parameters) return ["low", "medium", "high"];
   return ["none", "minimal", "low", "medium", "high", "xhigh"];
 }

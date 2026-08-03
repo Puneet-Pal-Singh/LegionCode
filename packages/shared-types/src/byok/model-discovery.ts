@@ -59,6 +59,7 @@ export const ReasoningEffortSchema = z.enum([
   "medium",
   "high",
   "xhigh",
+  "max",
 ]);
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 

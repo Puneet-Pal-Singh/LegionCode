@@ -1,5 +1,9 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import {
+  ReasoningEffortSchema,
+  RUN_TERMINAL_STATES,
+  RUN_WORKFLOW_STEPS,
+} from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -101,9 +105,7 @@ import {
 } from "./RunEngineReliabilityPolicy.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
-import {
-  resolveGitTaskStrategyForRun,
-} from "./RunExecutionPreparationPolicy.js";
+import { resolveGitTaskStrategyForRun } from "./RunExecutionPreparationPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
   buildFinalSummaryFrame,
@@ -535,11 +537,12 @@ export class RunEngine implements IRunEngine {
           createRuntimeFinalText(buildPlanModeResponse(planArtifact)),
         );
       } catch (planError) {
-        const recoveryResponse = await this.finalizationService.tryHandlePlanningError(
-          run,
-          runId,
-          planError,
-        );
+        const recoveryResponse =
+          await this.finalizationService.tryHandlePlanningError(
+            run,
+            runId,
+            planError,
+          );
         if (recoveryResponse) {
           return recoveryResponse;
         }
@@ -778,7 +781,9 @@ export class RunEngine implements IRunEngine {
       memoryCoordinator: this.memoryCoordinator,
       persistConversationMessages: this.persistConversationMessages.bind(this),
       runEventRecorder: this.runEventRecorder,
-      readCanonicalRunEvents: this.runEventRepo.getByRun.bind(this.runEventRepo),
+      readCanonicalRunEvents: this.runEventRepo.getByRun.bind(
+        this.runEventRepo,
+      ),
       runRepo: this.runRepo,
       safeMemoryOperation: this.safeMemoryOperation.bind(this),
     };
@@ -816,10 +821,12 @@ export class RunEngine implements IRunEngine {
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
     );
-    if (isFinalSummaryContractEnabled(
-      run.input.metadata,
-      this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
-    )) {
+    if (
+      isFinalSummaryContractEnabled(
+        run.input.metadata,
+        this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
+      )
+    ) {
       const finalMessage = new FinalAssistantMessageService().build({
         terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
         outcomeCode: "INTERRUPTED",
@@ -1021,15 +1028,8 @@ export class RunEngine implements IRunEngine {
 }
 
 function parseRunReasoningEffort(metadata: RunInput["metadata"]) {
-  const value = metadata?.reasoningEffort;
-  return value === "none" ||
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh"
-    ? value
-    : undefined;
+  const parsed = ReasoningEffortSchema.safeParse(metadata?.reasoningEffort);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function readLatestUserMessageId(messages: CoreMessage[]): string | null {

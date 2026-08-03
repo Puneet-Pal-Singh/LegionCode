@@ -107,6 +107,9 @@ export function resolveOpenAIReasoningEfforts(
   if (/^gpt-5\.1(?:[.-]|$)/.test(normalized)) {
     return ["none", "low", "medium", "high"];
   }
+  if (/^gpt-5\.6(?:[.-]|$)/.test(normalized)) {
+    return ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+  }
   if (/^gpt-5(?:[.-]|$)/.test(normalized)) {
     return ["none", "minimal", "low", "medium", "high", "xhigh"];
   }

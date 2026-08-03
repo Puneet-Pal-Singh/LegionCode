@@ -273,11 +273,14 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
-    onInitialPromptHandled?.(initialPromptSubmission.id);
-    append({ role: "user", content: prompt }).catch((error) => {
-      console.error("[Workspace] Failed to submit setup prompt:", error);
-      onSessionStatusChange?.("failed");
-    });
+    void append({ role: "user", content: prompt })
+      .catch((error) => {
+        console.error("[Workspace] Failed to submit setup prompt:", error);
+        onSessionStatusChange?.("failed");
+      })
+      .finally(() => {
+        onInitialPromptHandled?.(initialPromptSubmission.id);
+      });
   }, [
     append,
     initialPromptSubmission,
@@ -468,6 +471,7 @@ export function Workspace({
                 activeTurnProjection: activeTurn,
               }}
               sessionId={sessionId}
+              initialPromptSubmission={initialPromptSubmission}
               hasStartedSession={hasStartedSession}
               mode={mode}
               onModeChange={onModeChange}

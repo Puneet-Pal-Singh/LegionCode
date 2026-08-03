@@ -340,6 +340,46 @@ describe("ModelPickerPopover", () => {
   });
 
   describe("Model Display", () => {
+    it("shows model metadata in a side panel on hover", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{
+            ...mockModels,
+            openai: [
+              {
+                id: "gpt-4",
+                name: "GPT-4",
+                contextWindow: 128000,
+                inputModalities: { text: true, image: true },
+                capabilities: { supportsReasoning: true },
+              },
+            ],
+          }}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+      const modelButton = (await screen.findByText("GPT-4")).closest("button");
+      expect(modelButton).not.toBeNull();
+      if (!modelButton) throw new Error("Model button was not rendered");
+      fireEvent.pointerEnter(modelButton);
+
+      expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
+        "OpenAI",
+      );
+      expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
+        "text, image",
+      );
+      expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
+        "128,000",
+      );
+    });
+
     it("shows included default axis models in a dedicated section", async () => {
       render(
         <ModelPickerPopover

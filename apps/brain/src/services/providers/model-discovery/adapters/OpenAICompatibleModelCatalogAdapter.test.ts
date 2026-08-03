@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenAICompatibleModelCatalogAdapter } from "./OpenAICompatibleModelCatalogAdapter";
+import {
+  OpenAICompatibleModelCatalogAdapter,
+  resolveOpenAIReasoningEfforts,
+} from "./OpenAICompatibleModelCatalogAdapter";
 import { ProviderModelDiscoveryApiError } from "../errors";
 
 describe("OpenAICompatibleModelCatalogAdapter", () => {
@@ -11,10 +14,7 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: [
-            { id: "gpt-4o" },
-            { id: "gpt-4o-mini" },
-          ],
+          data: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }],
         }),
         { status: 200 },
       ),
@@ -62,6 +62,7 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
       "medium",
       "high",
       "xhigh",
+      "max",
     ]);
     expect(models[1]?.capabilities?.reasoningEfforts).toEqual(["high"]);
   });
@@ -82,9 +83,24 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
     ).rejects.toThrow("network error");
   });
 
+  it("advertises max only for model families that support it", () => {
+    expect(resolveOpenAIReasoningEfforts("gpt-5.6-luna")).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(resolveOpenAIReasoningEfforts("gpt-5.1")).not.toContain("max");
+  });
+
   it("rejects invalid pagination cursors", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ data: [{ id: "gpt-4o" }] }), { status: 200 }),
+      new Response(JSON.stringify({ data: [{ id: "gpt-4o" }] }), {
+        status: 200,
+      }),
     );
 
     const adapter = new OpenAICompatibleModelCatalogAdapter(
@@ -130,9 +146,7 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
       throw new Error("Expected fetchAll to throw");
     } catch (error) {
       expect(error).toBeInstanceOf(ProviderModelDiscoveryApiError);
-      expect(
-        (error as ProviderModelDiscoveryApiError).retryable,
-      ).toBe(false);
+      expect((error as ProviderModelDiscoveryApiError).retryable).toBe(false);
       expect((error as ProviderModelDiscoveryApiError).status).toBe(401);
     }
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BrainCircuit, Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { ReasoningEffort } from "@repo/shared-types";
 import {
   loadReasoningEffortSelection,
@@ -53,9 +53,8 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
         aria-expanded={open}
         disabled={props.disabled}
         onClick={() => setOpen((current) => !current)}
-        className="flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700/80 bg-zinc-900/80 px-2.5 text-xs font-medium text-zinc-300 transition hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <BrainCircuit size={13} className="text-amber-300/90" />
         <span>{formatEffort(value)}</span>
         <ChevronDown size={12} className="text-zinc-500" />
       </button>
@@ -86,7 +85,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
             >
               <span>{formatEffort(option)}</span>
               {value === option ? (
-                <Check size={14} className="text-amber-300" />
+                <Check size={14} className="text-zinc-100" />
               ) : null}
             </button>
           ))}
@@ -97,6 +96,6 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
 }
 
 function formatEffort(value: ReasoningEffortSelection): string {
-  if (value === "xhigh") return "XHigh";
+  if (value === "xhigh") return "Xhigh";
   return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
 }

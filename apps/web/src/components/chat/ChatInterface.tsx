@@ -68,6 +68,7 @@ interface ChatInterfaceProps {
     activeTurnProjection?: ActiveTurnProjection;
   };
   sessionId: string;
+  initialPromptSubmission?: { id: string; prompt: string } | null;
   hasStartedSession?: boolean;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
@@ -88,6 +89,7 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   chatProps,
   sessionId,
+  initialPromptSubmission = null,
   hasStartedSession = false,
   mode = "build",
   onModeChange,
@@ -306,6 +308,7 @@ export function ChatInterface({
     hasStartedSession,
     lifecycleProjection,
     lifecycleProjectionsByTurnId,
+    initialPromptSubmission,
   });
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
