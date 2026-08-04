@@ -30,6 +30,7 @@ import {
   resolveStructuredRuntimeProvider,
 } from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
+import type { ChatStreamInput } from "./ai/ChatStreamInput";
 import { PROVIDER_SDK_MAX_RETRIES } from "./providers/ProviderRequestPolicy";
 
 export class AIService {
@@ -203,24 +204,10 @@ export class AIService {
     providerTransport,
     providerEndpoint,
     temperature = 0.7,
+    reasoningEffort,
     onFinish,
     onChunk,
-  }: {
-    messages: CoreMessage[];
-    system?: string;
-    tools?: Record<string, CoreTool>;
-    model?: string;
-    providerId?: string;
-    runtimeModelId?: string;
-    providerTransport?: ProviderModelTransport;
-    providerEndpoint?: string;
-    temperature?: number;
-    onFinish?: (result: GenerateTextResult) => Promise<void> | void;
-    onChunk?: (chunk: {
-      content?: string;
-      toolCall?: { toolName: string; args: unknown };
-    }) => void;
-  }): Promise<ReadableStream<Uint8Array>> {
+  }: ChatStreamInput): Promise<ReadableStream<Uint8Array>> {
     const selection = await resolveSelectionWithPreferences({
       providerId,
       modelId: model,
@@ -241,6 +228,7 @@ export class AIService {
       system,
       tools,
       temperature,
+      reasoningEffort,
       onFinish,
       onChunk,
     });

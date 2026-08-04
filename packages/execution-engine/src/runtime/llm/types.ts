@@ -154,6 +154,7 @@ export interface LLMRuntimeAIService {
     providerTransport?: ProviderModelTransport;
     providerEndpoint?: string;
     temperature?: number;
+    reasoningEffort?: ReasoningEffort;
     onFinish?: (result: { usage: LLMUsage }) => void | Promise<void>;
   }): Promise<ReadableStream<Uint8Array>>;
 }

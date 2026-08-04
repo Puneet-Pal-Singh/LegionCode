@@ -69,6 +69,7 @@ export async function createChatStreamWithSelection(
       system: input.system,
       tools: input.tools,
       temperature: input.temperature,
+      reasoningEffort: input.reasoningEffort,
       model: input.runtimeModelId ?? input.selection.model,
     },
     {
