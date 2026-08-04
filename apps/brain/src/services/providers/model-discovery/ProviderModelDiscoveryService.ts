@@ -30,6 +30,11 @@ import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCat
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
 import { enrichProviderReasoningVariants } from "./ProviderReasoningVariants";
+import {
+  enrichModelFromModelDev,
+  type ModelDevCatalog,
+  type ModelDevCatalogSource,
+} from "./ModelDevCatalog";
 import type { OpenRouterRecommendationInput } from "./types";
 import {
   OPENROUTER_DISCOVERY_CATEGORIES,
@@ -40,6 +45,9 @@ import {
 // background timers. A provider is revalidated on the first request after one
 // hour, while the explicit refresh action remains available to users.
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
+// The models.dev catalog changes rarely; a worker isolate refetches it at
+// most once per TTL.
+const MODEL_DEV_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
 const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
@@ -54,6 +62,9 @@ export class ProviderModelDiscoveryService {
   private readonly rankingService: ProviderModelRankingService;
   private readonly observability: ProviderModelDiscoveryObservability;
   private readonly registryService: ProviderRegistryService;
+  private readonly modelDevCatalogSource: ModelDevCatalogSource | null;
+  private catalogCache: { catalog: ModelDevCatalog | null; expiresAt: number } | null = null;
+  private catalogFetchPromise: Promise<ModelDevCatalog | null> | null = null;
 
   constructor(
     private readonly cacheStore: ProviderModelCacheStore,
@@ -68,6 +79,7 @@ export class ProviderModelDiscoveryService {
       | ProviderModelRankingService
       | ProviderModelDiscoveryObservability,
     maybeObservability?: ProviderModelDiscoveryObservability,
+    modelDevCatalogSource?: ModelDevCatalogSource,
   ) {
     const { registryService, adapters, rankingService, observability } =
       resolveConstructorArgs(
@@ -81,6 +93,7 @@ export class ProviderModelDiscoveryService {
     this.adapters = buildAdapterRegistry(this.registryService, adapters);
     this.rankingService = rankingService;
     this.observability = observability;
+    this.modelDevCatalogSource = modelDevCatalogSource ?? null;
   }
 
   async getOpenRouterModels(
@@ -276,46 +289,76 @@ export class ProviderModelDiscoveryService {
     return finalModels;
   }
 
+  private async enrichCatalogModels(
+    providerId: string,
+    models: ProviderModelCacheRecord["models"],
+  ): Promise<ProviderModelCacheRecord["models"]> {
+    const catalog = await this.getModelDevCatalog();
+    return models.map((model) =>
+      enrichProviderReasoningVariants(
+        providerId,
+        catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
+      ),
+    );
+  }
+
+  private async getModelDevCatalog(): Promise<ModelDevCatalog | null> {
+    if (!this.modelDevCatalogSource) {
+      return null;
+    }
+    if (this.catalogCache && this.catalogCache.expiresAt > Date.now()) {
+      return this.catalogCache.catalog;
+    }
+    if (!this.catalogFetchPromise) {
+      this.catalogFetchPromise = this.modelDevCatalogSource
+        .getCatalog()
+        .then((catalog) => {
+          this.catalogCache = {
+            catalog,
+            expiresAt: Date.now() + MODEL_DEV_CATALOG_TTL_MS,
+          };
+          return catalog;
+        })
+        .finally(() => {
+          this.catalogFetchPromise = null;
+        });
+    }
+    return this.catalogFetchPromise;
+  }
+
   private async getCatalogWithCache(
     providerId: string,
   ): Promise<ProviderModelCacheRecord & { staleReason?: string }> {
     const cached = await this.readCache(providerId);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(providerId);
-      return this.enrichReasoningVariants(providerId, cached);
+      return {
+        ...cached,
+        models: await this.enrichCatalogModels(providerId, cached.models),
+      };
     }
 
     try {
-      return this.enrichReasoningVariants(
-        providerId,
-        await this.fetchAndCacheModels(providerId),
-      );
+      const fresh = await this.fetchAndCacheModels(providerId);
+      return {
+        ...fresh,
+        models: await this.enrichCatalogModels(providerId, fresh.models),
+      };
     } catch (error) {
       this.observability.recordAdapterFailure(
         providerId,
         toDiscoveryErrorCode(error),
       );
       if (cached) {
-        return this.enrichReasoningVariants(providerId, {
+        return {
           ...cached,
           source: "cache",
           staleReason: "provider_api_unavailable",
-        });
+          models: await this.enrichCatalogModels(providerId, cached.models),
+        };
       }
       throw error;
     }
-  }
-
-  private enrichReasoningVariants(
-    providerId: string,
-    record: ProviderModelCacheRecord & { staleReason?: string },
-  ): ProviderModelCacheRecord & { staleReason?: string } {
-    return {
-      ...record,
-      models: record.models.map((model) =>
-        enrichProviderReasoningVariants(providerId, model),
-      ),
-    };
   }
 
   private async getOpenRouterRecommendedModels(
@@ -489,9 +532,7 @@ export class ProviderModelDiscoveryService {
     const cached = await this.readCache(cacheKey);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(cacheKey);
-      return cached.models.map((model) =>
-        enrichProviderReasoningVariants("openrouter", model),
-      );
+      return this.enrichCatalogModels("openrouter", cached.models);
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -506,9 +547,7 @@ export class ProviderModelDiscoveryService {
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return record.models.map((model) =>
-      enrichProviderReasoningVariants("openrouter", model),
-    );
+    return this.enrichCatalogModels("openrouter", record.models);
   }
 
   private async getOpenRouterUserInventory(
@@ -523,9 +562,7 @@ export class ProviderModelDiscoveryService {
       this.observability.recordCacheHit("openrouter");
       return {
         ...cached,
-        models: cached.models.map((model) =>
-          enrichProviderReasoningVariants("openrouter", model),
-        ),
+        models: await this.enrichCatalogModels("openrouter", cached.models),
       };
     }
 
@@ -546,9 +583,7 @@ export class ProviderModelDiscoveryService {
     );
     return {
       ...record,
-      models: record.models.map((model) =>
-        enrichProviderReasoningVariants("openrouter", model),
-      ),
+      models: await this.enrichCatalogModels("openrouter", record.models),
     };
   }
 
