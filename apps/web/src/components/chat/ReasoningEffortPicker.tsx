@@ -16,29 +16,29 @@ interface ReasoningEffortPickerProps {
 
 export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState<ReasoningEffortSelection>(() =>
-    loadReasoningEffortSelection(props.providerId, props.modelId),
+  const selectionKey = `${props.providerId}:${props.modelId}`;
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{
+    key: string;
+    value: ReasoningEffortSelection;
+  } | null>(null);
+  const stored = loadReasoningEffortSelection(
+    props.providerId,
+    props.modelId,
   );
+  const selected =
+    selection?.key === selectionKey ? selection.value : stored;
+  const value =
+    selected === "default" || props.efforts.includes(selected)
+      ? selected
+      : "default";
+  const open = openKey === selectionKey;
   const options: ReasoningEffortSelection[] = ["default", ...props.efforts];
-
-  useEffect(() => {
-    const stored = loadReasoningEffortSelection(
-      props.providerId,
-      props.modelId,
-    );
-    setValue(
-      stored === "default" || props.efforts.includes(stored)
-        ? stored
-        : "default",
-    );
-    setOpen(false);
-  }, [props.efforts, props.modelId, props.providerId]);
 
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) setOpenKey(null);
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
@@ -52,7 +52,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={props.disabled}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => setOpenKey(open ? null : selectionKey)}
         className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span>{formatEffort(value)}</span>
@@ -63,9 +63,6 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
           role="menu"
           className="absolute bottom-full left-0 z-50 mb-2 min-w-44 overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-950 p-1.5 shadow-2xl shadow-black/60"
         >
-          <div className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-            Reasoning effort
-          </div>
           {options.map((option) => (
             <button
               key={option}
@@ -73,13 +70,13 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
               role="menuitemradio"
               aria-checked={value === option}
               onClick={() => {
-                setValue(option);
+                setSelection({ key: selectionKey, value: option });
                 saveReasoningEffortSelection(
                   props.providerId,
                   props.modelId,
                   option,
                 );
-                setOpen(false);
+                setOpenKey(null);
               }}
               className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm text-zinc-200 transition hover:bg-zinc-800"
             >
@@ -96,6 +93,5 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
 }
 
 function formatEffort(value: ReasoningEffortSelection): string {
-  if (value === "xhigh") return "Xhigh";
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+  return value === "default" ? "Default" : value;
 }

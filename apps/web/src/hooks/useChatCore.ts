@@ -266,8 +266,21 @@ export function useChatCore(
     selectedCredentialId,
     selectedModelId,
     lastResolvedConfig,
+    providerModels,
+    manageProviderModels,
     resolveForChat,
   } = useProviderStore(runId);
+  const selectedModelEfforts =
+    selectedProviderId && selectedModelId
+      ? (
+          providerModels[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          ) ??
+          manageProviderModels[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          )
+        )?.capabilities?.reasoningEfforts
+      : undefined;
   const authenticatedChatFetch = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) =>
       fetchWithSessionAuth(input, init),
@@ -525,11 +538,16 @@ export function useChatCore(
         ...(config.contextWindow
           ? { contextWindowTokens: config.contextWindow }
           : {}),
-        ...(resolveReasoningEffortForRequest(config.providerId, config.modelId)
+        ...(resolveReasoningEffortForRequest(
+          config.providerId,
+          config.modelId,
+          selectedModelEfforts,
+        )
           ? {
               reasoningEffort: resolveReasoningEffortForRequest(
                 config.providerId,
                 config.modelId,
+                selectedModelEfforts,
               ),
             }
           : {}),
@@ -541,7 +559,7 @@ export function useChatCore(
         },
         ...loadRepositoryContextFields(sessionId),
       }),
-    [mode, productMode, runId, sessionId],
+    [mode, productMode, runId, selectedModelEfforts, sessionId],
   );
 
   const pushChatRequestDebugEvent = useCallback(

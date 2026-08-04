@@ -36,9 +36,13 @@ export function saveReasoningEffortSelection(
 export function resolveReasoningEffortForRequest(
   providerId: string,
   modelId: string,
+  providerEfforts?: readonly ReasoningEffort[],
 ): ReasoningEffort | undefined {
   const selection = loadReasoningEffortSelection(providerId, modelId);
-  return selection === "default" ? undefined : selection;
+  if (selection === "default" || !providerEfforts?.includes(selection)) {
+    return undefined;
+  }
+  return selection;
 }
 
 function storageKey(providerId: string, modelId: string): string {
