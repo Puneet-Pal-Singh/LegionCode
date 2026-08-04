@@ -78,6 +78,9 @@ importers:
       zod:
         specifier: ^3.22.4
         version: 3.25.1
+      zod-to-json-schema:
+        specifier: 3.25.1
+        version: 3.25.1(zod@3.25.1)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20240208.0

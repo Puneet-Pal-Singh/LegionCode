@@ -1,4 +1,5 @@
 import type { ProviderModelTransport } from "@repo/shared-types";
+import { ProviderRegistryService } from "./ProviderRegistryService";
 
 export interface ResolvedProviderRuntimeRoute {
   readonly runtimeModelId: string;
@@ -7,25 +8,24 @@ export interface ResolvedProviderRuntimeRoute {
 }
 
 /**
- * Resolves provider-owned transport requirements that are not exposed by the
- * provider's `/models` response. OpenAI's reasoning model families use the
- * Responses API so tool calls and reasoning share one supported contract.
+ * OpenAI's provider adapter uses the Responses API for every model. The
+ * provider's `/models` response does not expose transport metadata, and the
+ * Responses API is the common contract for text, tools, and reasoning.
  */
 export function resolveProviderRuntimeRoute(
   providerId: string | undefined,
   modelId: string | undefined,
+  registryService = new ProviderRegistryService(),
 ): ResolvedProviderRuntimeRoute | undefined {
-  if (providerId !== "openai" || !modelId || !usesOpenAIResponses(modelId)) {
+  const provider = providerId
+    ? registryService.getProvider(providerId)
+    : undefined;
+  if (providerId !== "openai" || !modelId?.trim() || !provider?.baseUrl) {
     return undefined;
   }
   return {
-    runtimeModelId: modelId,
+    runtimeModelId: modelId.replace(/^openai\//i, ""),
     providerTransport: "openai-responses",
-    providerEndpoint: "https://api.openai.com/v1/responses",
+    providerEndpoint: `${provider.baseUrl.replace(/\/$/, "")}/responses`,
   };
-}
-
-function usesOpenAIResponses(modelId: string): boolean {
-  const normalized = modelId.trim().toLowerCase();
-  return /^(?:gpt-5(?:[.-]|$)|o[1-9](?:[.-]|$))/.test(normalized);
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import zodToJsonSchema from "zod-to-json-schema";
 import type { CoreMessage, CoreTool } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
 import type {
@@ -189,9 +190,6 @@ function buildResponsesRequestBody(
     input: buildResponsesInput(params.messages, params.system),
     max_output_tokens: params.maxOutputTokens ?? 4096,
   };
-  if (!isOpenAIReasoningModel(model) && params.temperature !== undefined) {
-    body.temperature = params.temperature;
-  }
   const tools = buildResponsesTools(params.tools);
   if (tools) {
     body.tools = tools;
@@ -200,10 +198,6 @@ function buildResponsesRequestBody(
     body.reasoning = { effort: params.reasoningEffort };
   }
   return body;
-}
-
-function isOpenAIReasoningModel(model: string): boolean {
-  return /^(?:gpt-5(?:[.-]|$)|o[1-9](?:[.-]|$))/i.test(model.trim());
 }
 
 function buildResponsesInput(
@@ -372,8 +366,18 @@ function readJsonSchemaRecord(value: unknown): Record<string, unknown> | null {
     return null;
   }
   const record = value as Record<string, unknown>;
-  if (typeof record.safeParse === "function" || "_def" in record) {
-    return null;
+  if (typeof record.safeParse === "function" && "_def" in record) {
+    const schema = zodToJsonSchema(value as z.ZodTypeAny, {
+      $refStrategy: "none",
+    });
+    if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+      return null;
+    }
+    const { $schema: _schema, ...jsonSchema } = schema as Record<
+      string,
+      unknown
+    >;
+    return jsonSchema;
   }
   return record;
 }
