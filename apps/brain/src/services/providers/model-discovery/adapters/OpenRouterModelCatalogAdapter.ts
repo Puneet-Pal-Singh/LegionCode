@@ -396,14 +396,21 @@ function normalizeModalities(
     return [];
   }
   if (Array.isArray(modalities)) {
-    return modalities.map((value) => value.toLowerCase());
+    return modalities.map(normalizeModality);
   }
   return modalities
     .toLowerCase()
     .replace(/->/g, "+")
     .split("+")
     .map((value) => value.trim())
+    .map(normalizeModality)
     .filter((value) => value.length > 0);
+}
+
+function normalizeModality(value: string): string {
+  return value.trim().toLowerCase() === "pdf"
+    ? "file"
+    : value.trim().toLowerCase();
 }
 
 function parseCursor(cursor: string | undefined): number {

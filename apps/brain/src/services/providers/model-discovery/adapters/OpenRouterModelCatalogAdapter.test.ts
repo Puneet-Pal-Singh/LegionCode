@@ -23,7 +23,7 @@ describe("OpenRouterModelCatalogAdapter", () => {
               slug: "gpt-4o",
               description: "General-purpose multimodal model",
               architecture: {
-                input_modalities: ["text", "image"],
+                 input_modalities: ["text", "image", "pdf"],
                 output_modalities: ["text"],
               },
               settings: {
@@ -54,6 +54,7 @@ describe("OpenRouterModelCatalogAdapter", () => {
     expect(models[0].capabilities?.supportsReasoning).toBe(true);
     expect(models[0].inputModalities?.text).toBe(true);
     expect(models[0].inputModalities?.image).toBe(true);
+    expect(models[0].inputModalities?.file).toBe(true);
     expect(models[0].outputModalities?.text).toBe(true);
     expect(models[0].outputModalities?.image).toBe(false);
     expect(models[0].capabilityMetadata).toMatchObject({

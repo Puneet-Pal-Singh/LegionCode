@@ -378,6 +378,38 @@ describe("ModelPickerPopover", () => {
       expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
         "128,000",
       );
+      expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
+        "Allows reasoning",
+      );
+    });
+
+    it("does not invent inputs or reasoning for models without metadata", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          providerModels={{
+            ...mockModels,
+            openai: [{ id: "unknown-model", name: "Unknown Model" }],
+          }}
+          visibleModelIds={{ openai: new Set(["unknown-model"]) }}
+          selectedProviderId="openai"
+          selectedModelId="unknown-model"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+      const modelButton = (await screen.findByText("Unknown Model")).closest(
+        "button",
+      );
+      expect(modelButton).not.toBeNull();
+      if (!modelButton) throw new Error("Model button was not rendered");
+      fireEvent.pointerEnter(modelButton);
+
+      const details = screen.getByTestId("model-picker-details");
+      expect(details).toHaveTextContent("Not published");
+      expect(details).not.toHaveTextContent("No reasoning");
     });
 
     it("shows included default axis models in a dedicated section", async () => {

@@ -23,7 +23,6 @@ import {
 } from "./model-discovery/errors";
 import {
   AXIS_PROVIDER_ID,
-  getAxisCatalogModels,
   getAxisDiscoveredModels,
 } from "./axis";
 
@@ -80,26 +79,21 @@ export class ProviderCatalogService {
     }
 
     if (providerId === AXIS_PROVIDER_ID) {
-      return createRegistryResponse(
-        providerId,
-        query,
-        getAxisCatalogModels().map((model) => ({
-          id: model.id,
-          name: model.name,
+      const models = await withTimeout(
+        this.modelDiscoveryService.enrichModels(
           providerId,
-          contextWindow: model.contextWindow,
-          description: model.description,
-        })),
+          getAxisDiscoveredModels(),
+        ),
+        MODEL_DISCOVERY_TIMEOUT_MS,
       );
+      return createRegistryResponse(providerId, query, models);
     }
 
     if (provider.modelSource === "static") {
       const defaultModelId = provider.defaultModelId;
-      return createRegistryResponse(
-        providerId,
-        query,
-        defaultModelId
-          ? [
+      const models = defaultModelId
+        ? await withTimeout(
+            this.modelDiscoveryService.enrichModels(providerId, [
               {
                 id: defaultModelId,
                 name: defaultModelId,
@@ -109,8 +103,14 @@ export class ProviderCatalogService {
                   defaultModelId,
                 )?.contextWindow,
               },
-            ]
-          : [],
+            ]),
+            MODEL_DISCOVERY_TIMEOUT_MS,
+          )
+        : [];
+      return createRegistryResponse(
+        providerId,
+        query,
+        models,
       );
     }
 

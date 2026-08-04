@@ -11,19 +11,27 @@
  */
 
 import { z } from "zod";
-import type {
-  BYOKDiscoveredProviderModel,
-  ReasoningEffort,
+import {
+  ReasoningEffortSchema,
+  type BYOKDiscoveredProviderModel,
+  type ReasoningEffort,
 } from "@repo/shared-types";
 
 const MODEL_DEV_CATALOG_URL = "https://models.dev/api.json";
+const MODEL_DEV_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
+const MODEL_DEV_CATALOG_FAILURE_TTL_MS = 60 * 1000;
+
+let sharedCatalogCache:
+  | { catalog: ModelDevCatalog | null; expiresAt: number }
+  | null = null;
+let sharedCatalogFetchPromise: Promise<ModelDevCatalog | null> | null = null;
 
 const ModelDevModelSchema = z.object({
   limit: z
     .object({
-      context: z.number().int().positive().optional(),
-      input: z.number().int().positive().optional(),
-      output: z.number().int().positive().optional(),
+      context: z.number().int().nonnegative().optional(),
+      input: z.number().int().nonnegative().optional(),
+      output: z.number().int().nonnegative().optional(),
     })
     .optional(),
   modalities: z
@@ -37,7 +45,7 @@ const ModelDevModelSchema = z.object({
     .array(
       z.object({
         type: z.string(),
-        values: z.array(z.string()).optional(),
+        values: z.array(z.string().nullable()).optional(),
       }),
     )
     .optional(),
@@ -61,7 +69,10 @@ export interface ModelDevModel {
   limit?: { context?: number; input?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   reasoning?: boolean;
-  reasoning_options?: Array<{ type: string; values?: string[] }>;
+  reasoning_options?: Array<{
+    type: string;
+    values?: Array<string | null>;
+  }>;
   tool_call?: boolean;
   structured_output?: boolean;
   temperature?: boolean;
@@ -97,13 +108,54 @@ export class HttpModelDevCatalogSource implements ModelDevCatalogSource {
   ) {}
 
   async getCatalog(): Promise<ModelDevCatalog | null> {
-    try {
-      const raw = await this.fetchJson(this.url);
-      return parseModelDevCatalog(raw);
-    } catch (_error) {
-      return null;
+    if (
+      this.fetchJson === defaultFetchJson &&
+      this.url === MODEL_DEV_CATALOG_URL
+    ) {
+      return getSharedCatalog(this.url);
     }
+    return this.fetchCatalog();
   }
+
+  private async fetchCatalog(): Promise<ModelDevCatalog | null> {
+    return fetchAndParseCatalog(this.fetchJson, this.url);
+  }
+}
+
+async function fetchAndParseCatalog(
+  fetchJson: (url: string) => Promise<unknown>,
+  url: string,
+): Promise<ModelDevCatalog | null> {
+  try {
+    const raw = await fetchJson(url);
+    return parseModelDevCatalog(raw);
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function getSharedCatalog(url: string): Promise<ModelDevCatalog | null> {
+  if (sharedCatalogCache && sharedCatalogCache.expiresAt > Date.now()) {
+    return sharedCatalogCache.catalog;
+  }
+  if (!sharedCatalogFetchPromise) {
+    sharedCatalogFetchPromise = fetchAndParseCatalog(defaultFetchJson, url)
+      .then((catalog) => {
+        sharedCatalogCache = {
+          catalog,
+          expiresAt:
+            Date.now() +
+            (catalog
+              ? MODEL_DEV_CATALOG_TTL_MS
+              : MODEL_DEV_CATALOG_FAILURE_TTL_MS),
+        };
+        return catalog;
+      })
+      .finally(() => {
+        sharedCatalogFetchPromise = null;
+      });
+  }
+  return sharedCatalogFetchPromise;
 }
 
 async function defaultFetchJson(url: string): Promise<unknown> {
@@ -129,14 +181,22 @@ export function enrichModelFromModelDev(
   }
 
   const next: BYOKDiscoveredProviderModel = { ...model };
-  if (next.contextWindow === undefined && entry.limit?.context) {
+  let metadataChanged = false;
+  if (
+    next.contextWindow === undefined &&
+    entry.limit?.context !== undefined &&
+    entry.limit.context > 0
+  ) {
     next.contextWindow = entry.limit.context;
+    metadataChanged = true;
   }
   if (next.inputModalities === undefined && entry.modalities?.input?.length) {
     next.inputModalities = toInputModalities(entry.modalities.input);
+    metadataChanged = true;
   }
   if (next.outputModalities === undefined && entry.modalities?.output?.length) {
     next.outputModalities = toOutputModalities(entry.modalities.output);
+    metadataChanged = true;
   }
 
   const capabilities = { ...next.capabilities };
@@ -168,21 +228,22 @@ export function enrichModelFromModelDev(
   }
   if (
     capabilities.supportsVision === undefined &&
-    entry.modalities?.input?.includes("image")
+    entry.modalities?.input !== undefined
   ) {
-    capabilities.supportsVision = true;
+    capabilities.supportsVision = entry.modalities.input.includes("image");
     capabilityChanged = true;
   }
 
   if (capabilityChanged) {
     next.capabilities = capabilities;
-    if (next.capabilityMetadata === undefined) {
-      next.capabilityMetadata = {
-        source: "platform_registry",
-        confidence: "declared",
-        fetchedAt: catalog.fetchedAt,
-      };
-    }
+    metadataChanged = true;
+  }
+  if (metadataChanged && next.capabilityMetadata === undefined) {
+    next.capabilityMetadata = {
+      source: "platform_registry",
+      confidence: "declared",
+      fetchedAt: catalog.fetchedAt,
+    };
   }
 
   return next;
@@ -199,24 +260,14 @@ function findModelDevEntry(
     stripKnownProviderPrefix(normalized),
   ].filter((candidate): candidate is string => candidate !== undefined);
 
-  const provider = catalog.providers[providerId];
-  if (provider) {
-    for (const candidate of candidates) {
-      const entry = provider.models[candidate];
-      if (entry) {
-        return entry;
-      }
-    }
-    return undefined;
-  }
-
-  for (const providerId of priorityProviderIds(catalog)) {
-    const provider = catalog.providers[providerId];
+  const providerIds = resolveCatalogProviderIds(catalog, providerId);
+  for (const catalogProviderId of providerIds) {
+    const provider = catalog.providers[catalogProviderId];
     if (!provider) {
       continue;
     }
     for (const candidate of candidates) {
-      const entry = provider.models[candidate];
+      const entry = findModelById(provider.models, candidate);
       if (entry) {
         return entry;
       }
@@ -225,13 +276,38 @@ function findModelDevEntry(
   return undefined;
 }
 
-function priorityProviderIds(catalog: ModelDevCatalog): string[] {
-  const priority = ["openai", "google", "anthropic", "openrouter"];
-  const seen = new Set(priority);
-  return [
-    ...priority,
-    ...Object.keys(catalog.providers).filter((providerId) => !seen.has(providerId)),
-  ];
+function resolveCatalogProviderIds(
+  catalog: ModelDevCatalog,
+  providerId: string,
+): string[] {
+  const aliases: Record<string, readonly string[]> = {
+    axis: ["openrouter"],
+    together: ["togetherai"],
+    "cloudflare-ai": ["cloudflare-workers-ai", "cloudflare-ai-gateway"],
+    "local-openai-compatible": ["openai"],
+    "opencode-zen": ["opencode"],
+  };
+  const candidates = [providerId, ...(aliases[providerId] ?? [])];
+  return candidates.filter((candidate, index) => {
+    if (!catalog.providers[candidate]) {
+      return false;
+    }
+    return candidates.indexOf(candidate) === index;
+  });
+}
+
+function findModelById(
+  models: Record<string, ModelDevModel>,
+  candidate: string,
+): ModelDevModel | undefined {
+  const direct = models[candidate];
+  if (direct) {
+    return direct;
+  }
+  const matchingKey = Object.keys(models).find(
+    (modelId) => modelId.toLowerCase() === candidate,
+  );
+  return matchingKey ? models[matchingKey] : undefined;
 }
 
 function stripKnownProviderPrefix(
@@ -282,12 +358,17 @@ function toOutputModalities(output: string[]): Record<string, boolean> {
 }
 
 function toReasoningEfforts(
-  options: Array<{ type: string; values?: string[] }>,
+  options: Array<{ type: string; values?: Array<string | null> }>,
 ): ReasoningEffort[] {
   const efforts: ReasoningEffort[] = [];
   for (const option of options) {
     if (option.type === "effort" && option.values?.length) {
-      efforts.push(...option.values);
+      for (const value of option.values) {
+        const parsed = ReasoningEffortSchema.safeParse(value);
+        if (parsed.success) {
+          efforts.push(parsed.data);
+        }
+      }
     }
   }
   return Array.from(new Set(efforts));

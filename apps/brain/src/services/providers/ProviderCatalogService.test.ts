@@ -7,6 +7,7 @@ function createDiscoveryStub() {
   return {
     getDiscoveredModels: vi.fn(),
     refreshDiscoveredModels: vi.fn(),
+    enrichModels: vi.fn(),
   };
 }
 
@@ -91,6 +92,44 @@ describe("ProviderCatalogService", () => {
       surface: "picker",
       limit: 50,
     });
+  });
+
+  it("enriches static provider cards through the canonical metadata owner", async () => {
+    const discovery = createDiscoveryStub();
+    discovery.enrichModels.mockImplementation(async (_providerId, models) =>
+      models.map((model: Record<string, unknown>) => ({
+        ...model,
+        contextWindow: 200000,
+        inputModalities: { text: true, image: true },
+        capabilities: {
+          supportsReasoning: true,
+          supportsTools: true,
+        },
+      })),
+    );
+    const service = new ProviderCatalogService(
+      new ProviderRegistryService(),
+      discovery as never,
+    );
+
+    const response = await service.getDiscoveredModels("anthropic", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(response.models[0]).toMatchObject({
+      id: "claude-3-opus",
+      contextWindow: 200000,
+      inputModalities: { text: true, image: true },
+      capabilities: { supportsReasoning: true, supportsTools: true },
+    });
+    expect(discovery.enrichModels).toHaveBeenCalledWith(
+      "anthropic",
+      expect.arrayContaining([
+        expect.objectContaining({ id: "claude-3-opus" }),
+      ]),
+    );
   });
 
   it("returns stale cache metadata when selected-provider discovery is cached", async () => {

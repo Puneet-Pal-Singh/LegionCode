@@ -48,6 +48,7 @@ const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 // The models.dev catalog changes rarely; a worker isolate refetches it at
 // most once per TTL.
 const MODEL_DEV_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
+const MODEL_DEV_CATALOG_FAILURE_TTL_MS = 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
 const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
@@ -113,6 +114,13 @@ export class ProviderModelDiscoveryService {
       credential.apiKey,
     );
     return userInventory.models;
+  }
+
+  async enrichModels(
+    providerId: string,
+    models: BYOKDiscoveredProviderModel[],
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    return this.enrichCatalogModels(providerId, models);
   }
 
   async getDiscoveredModels(
@@ -315,7 +323,11 @@ export class ProviderModelDiscoveryService {
         .then((catalog) => {
           this.catalogCache = {
             catalog,
-            expiresAt: Date.now() + MODEL_DEV_CATALOG_TTL_MS,
+            expiresAt:
+              Date.now() +
+              (catalog
+                ? MODEL_DEV_CATALOG_TTL_MS
+                : MODEL_DEV_CATALOG_FAILURE_TTL_MS),
           };
           return catalog;
         })

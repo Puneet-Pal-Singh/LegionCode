@@ -73,6 +73,24 @@ describe("parseModelDevCatalog", () => {
     expect(parseModelDevCatalog(null)).toBeNull();
     expect(parseModelDevCatalog({ openai: { models: "broken" } })).toBeNull();
   });
+
+  it("accepts valid upstream zero limits and nullable effort values", () => {
+    const catalog = parseModelDevCatalog({
+      provider: {
+        models: {
+          "zero-limit": {
+            limit: { context: 0, output: 0 },
+            reasoning: true,
+            reasoning_options: [
+              { type: "effort", values: ["low", null, "high"] },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(catalog?.providers.provider.models["zero-limit"]).toBeDefined();
+  });
 });
 
 describe("HttpModelDevCatalogSource", () => {
@@ -180,6 +198,27 @@ describe("enrichModelFromModelDev", () => {
     ]);
   });
 
+  it("matches provider aliases used by the application registry", () => {
+    const catalog = parseModelDevCatalog({
+      togetherai: {
+        models: {
+          "Qwen/Qwen3.5-9B": {
+            limit: { context: 32768 },
+            modalities: { input: ["text"], output: ["text"] },
+          },
+        },
+      },
+    })!;
+    const model = enrichModelFromModelDev(catalog, "together", {
+      id: "qwen/qwen3.5-9b",
+      name: "Qwen/Qwen3.5-9B",
+      providerId: "together",
+    });
+
+    expect(model.contextWindow).toBe(32768);
+    expect(model.inputModalities).toEqual({ text: true });
+  });
+
   it("never overrides provider-declared fields", () => {
     const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE)!;
     const enriched = enrichModelFromModelDev(
@@ -207,6 +246,23 @@ describe("enrichModelFromModelDev", () => {
   it("leaves unknown models untouched", () => {
     const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE)!;
     const model = makeModel({ id: "custom-model" });
+    expect(enrichModelFromModelDev(catalog, "openai", model)).toBe(model);
+  });
+
+  it("does not borrow metadata from another provider with the same model id", () => {
+    const catalog = parseModelDevCatalog({
+      openai: { models: {} },
+      "opencode-go": {
+        models: {
+          "gpt-5.6-luna": {
+            limit: { context: 400000 },
+            modalities: { input: ["text"], output: ["text"] },
+          },
+        },
+      },
+    })!;
+    const model = makeModel({ id: "gpt-5.6-luna" });
+
     expect(enrichModelFromModelDev(catalog, "openai", model)).toBe(model);
   });
 });

@@ -1052,7 +1052,9 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
     .join(", ");
   const reasoning = details.model.capabilities?.supportsReasoning
     ? "Allows reasoning"
-    : "No reasoning";
+    : details.model.capabilities?.supportsReasoning === false
+      ? "No reasoning"
+      : "Not published";
   return (
     <div
       data-testid="model-picker-details"
@@ -1062,7 +1064,7 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
       <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2">
         <ModelDetail label="Model" value={details.model.name} />
         <ModelDetail label="Provider" value={details.providerName} />
-        <ModelDetail label="Inputs" value={inputs || "text"} />
+        <ModelDetail label="Inputs" value={inputs || "Not published"} />
         <ModelDetail label="Reasoning" value={reasoning} />
         <ModelDetail
           label="Context"
