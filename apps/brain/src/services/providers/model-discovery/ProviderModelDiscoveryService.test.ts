@@ -142,6 +142,55 @@ describe("ProviderModelDiscoveryService", () => {
     ).toBe(1);
   });
 
+  it("enriches cached OpenAI GPT-5 models with OpenCode-style variants", async () => {
+    const store = createStoreStub();
+    const now = Date.now();
+    await store.setModelCache({
+      providerId: "openai",
+      models: [
+        {
+          id: "gpt-5.6-luna",
+          name: "GPT-5.6 Luna",
+          providerId: "openai",
+        },
+      ],
+      fetchedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 60_000).toISOString(),
+      source: "provider_api",
+    });
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(),
+      fetchPage: vi.fn(),
+    };
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(result.models[0]?.capabilities?.reasoningEfforts).toEqual([
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+    expect(result.models[0]?.capabilityMetadata).toMatchObject({
+      source: "platform_registry",
+      confidence: "declared",
+    });
+  });
+
   it("applies launch-safe OpenRouter curation for popular model discovery", async () => {
     const store = createStoreStub();
     const credentialService = {

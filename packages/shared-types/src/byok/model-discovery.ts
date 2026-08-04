@@ -52,15 +52,9 @@ export type BYOKModelPopularityScore = z.infer<
   typeof BYOKModelPopularityScoreSchema
 >;
 
-export const ReasoningEffortSchema = z.enum([
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
+// Effort names are provider-owned. Do not normalize them to a platform enum:
+// providers may expose values such as "light", "high", or "max".
+export const ReasoningEffortSchema = z.string().trim().min(1).max(64);
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
 
 export const BYOKModelCapabilitySchema = z.object({

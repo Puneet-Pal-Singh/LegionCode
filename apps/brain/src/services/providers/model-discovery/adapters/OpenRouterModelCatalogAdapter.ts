@@ -7,6 +7,7 @@ import type {
   BYOKModelOutputModality,
   ReasoningEffort,
 } from "@repo/shared-types";
+import { ReasoningEffortSchema } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
   ProviderModelCredentialContext,
@@ -53,6 +54,8 @@ const OpenRouterModelsEnvelopeSchema = z.object({
         .partial()
         .optional(),
       supported_parameters: z.array(z.string()).optional(),
+      reasoning_efforts: z.array(z.string().min(1)).optional(),
+      reasoningEfforts: z.array(z.string().min(1)).optional(),
       architecture: z
         .object({
           input_modalities: z.array(z.string()).optional(),
@@ -65,6 +68,8 @@ const OpenRouterModelsEnvelopeSchema = z.object({
         .object({
           structured_outputs: z.boolean().optional(),
           reasoning: z.boolean().optional(),
+          reasoning_efforts: z.array(z.string().min(1)).optional(),
+          reasoningEfforts: z.array(z.string().min(1)).optional(),
         })
         .partial()
         .optional(),
@@ -202,10 +207,13 @@ function toDiscoveredModel(
     inputModalities: toInputModalities(entry.architecture),
     outputModalities: toOutputModalities(entry.architecture),
     capabilities: toCapabilities(
-      entry.id,
       entry.supported_parameters,
       entry.settings,
       entry.architecture,
+      entry.reasoning_efforts ??
+        entry.reasoningEfforts ??
+        entry.settings?.reasoning_efforts ??
+        entry.settings?.reasoningEfforts,
     ),
     capabilityMetadata: toCapabilityMetadata(entry.architecture, fetchedAt),
     expirationDate: entry.expires_at,
@@ -213,7 +221,6 @@ function toDiscoveredModel(
 }
 
 function toCapabilities(
-  modelId: string,
   parameters: string[] | undefined,
   settings:
     | {
@@ -228,8 +235,14 @@ function toCapabilities(
         output_modalities?: string[] | undefined;
       }
     | undefined,
+  providerReasoningEfforts: string[] | undefined,
 ): BYOKModelCapability | undefined {
-  if (!parameters?.length && !settings && !architecture) {
+  if (
+    !parameters?.length &&
+    !settings &&
+    !architecture &&
+    !providerReasoningEfforts?.length
+  ) {
     return undefined;
   }
   const inputModalities = toInputModalities(architecture);
@@ -238,31 +251,32 @@ function toCapabilities(
     parameters?.some((parameter) =>
       ["reasoning", "reasoning_effort"].includes(parameter),
     ) === true;
+  const reasoningEfforts = normalizeReasoningEfforts(providerReasoningEfforts);
   return {
     supportsTools: supportsTools(parameters),
     supportsVision: inputModalities?.image,
     supportsStructuredOutputs: settings?.structured_outputs,
     supportsReasoning,
-    ...(supportsReasoning
+    ...(reasoningEfforts.length > 0
       ? {
-          reasoningEfforts: resolveOpenRouterReasoningEfforts(
-            modelId,
-            parameters,
-          ),
+          reasoningEfforts,
         }
       : {}),
   };
 }
 
-function resolveOpenRouterReasoningEfforts(
-  modelId: string,
-  parameters: string[] | undefined,
+function normalizeReasoningEfforts(
+  efforts: readonly string[] | undefined,
 ): ReasoningEffort[] {
-  if (/(?:^|\/)openai\/gpt-5\.6(?:[.-]|$)/.test(modelId.toLowerCase())) {
-    return ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
-  }
-  if (!parameters) return ["low", "medium", "high"];
-  return ["none", "minimal", "low", "medium", "high", "xhigh"];
+  if (!efforts) return [];
+  return Array.from(
+    new Set(
+      efforts.filter(
+        (effort): effort is ReasoningEffort =>
+          ReasoningEffortSchema.safeParse(effort).success,
+      ),
+    ),
+  );
 }
 
 function toInputModalities(

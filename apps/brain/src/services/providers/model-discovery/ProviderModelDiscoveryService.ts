@@ -29,6 +29,7 @@ import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatal
 import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
+import { enrichProviderReasoningVariants } from "./ProviderReasoningVariants";
 import type { OpenRouterRecommendationInput } from "./types";
 import {
   OPENROUTER_DISCOVERY_CATEGORIES,
@@ -281,25 +282,40 @@ export class ProviderModelDiscoveryService {
     const cached = await this.readCache(providerId);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(providerId);
-      return cached;
+      return this.enrichReasoningVariants(providerId, cached);
     }
 
     try {
-      return await this.fetchAndCacheModels(providerId);
+      return this.enrichReasoningVariants(
+        providerId,
+        await this.fetchAndCacheModels(providerId),
+      );
     } catch (error) {
       this.observability.recordAdapterFailure(
         providerId,
         toDiscoveryErrorCode(error),
       );
       if (cached) {
-        return {
+        return this.enrichReasoningVariants(providerId, {
           ...cached,
           source: "cache",
           staleReason: "provider_api_unavailable",
-        };
+        });
       }
       throw error;
     }
+  }
+
+  private enrichReasoningVariants(
+    providerId: string,
+    record: ProviderModelCacheRecord & { staleReason?: string },
+  ): ProviderModelCacheRecord & { staleReason?: string } {
+    return {
+      ...record,
+      models: record.models.map((model) =>
+        enrichProviderReasoningVariants(providerId, model),
+      ),
+    };
   }
 
   private async getOpenRouterRecommendedModels(
@@ -473,7 +489,9 @@ export class ProviderModelDiscoveryService {
     const cached = await this.readCache(cacheKey);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(cacheKey);
-      return cached.models;
+      return cached.models.map((model) =>
+        enrichProviderReasoningVariants("openrouter", model),
+      );
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -488,7 +506,9 @@ export class ProviderModelDiscoveryService {
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return record.models;
+    return record.models.map((model) =>
+      enrichProviderReasoningVariants("openrouter", model),
+    );
   }
 
   private async getOpenRouterUserInventory(
@@ -501,7 +521,12 @@ export class ProviderModelDiscoveryService {
     });
     if (cached) {
       this.observability.recordCacheHit("openrouter");
-      return cached;
+      return {
+        ...cached,
+        models: cached.models.map((model) =>
+          enrichProviderReasoningVariants("openrouter", model),
+        ),
+      };
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -519,7 +544,12 @@ export class ProviderModelDiscoveryService {
       { providerId: "openrouter", credentialId: cacheKey },
       record,
     );
-    return record;
+    return {
+      ...record,
+      models: record.models.map((model) =>
+        enrichProviderReasoningVariants("openrouter", model),
+      ),
+    };
   }
 
   private async invalidateCurrentOpenRouterUserInventoryCache(): Promise<void> {

@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  OpenAICompatibleModelCatalogAdapter,
-  resolveOpenAIReasoningEfforts,
-} from "./OpenAICompatibleModelCatalogAdapter";
+import { OpenAICompatibleModelCatalogAdapter } from "./OpenAICompatibleModelCatalogAdapter";
 import { ProviderModelDiscoveryApiError } from "../errors";
 
 describe("OpenAICompatibleModelCatalogAdapter", () => {
@@ -35,7 +32,7 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
     expect(models[0].id).toBe("gpt-4o");
   });
 
-  it("publishes model-specific reasoning efforts for new OpenAI families", async () => {
+  it("does not invent reasoning efforts absent from provider metadata", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -55,16 +52,172 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
       apiKey: "sk-test",
     });
 
+    expect(models[0]?.capabilities).toBeUndefined();
+    expect(models[1]?.capabilities).toBeUndefined();
+  });
+
+  it("uses reasoning efforts explicitly returned by the provider", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "provider-reasoning-model",
+              reasoning_efforts: ["light", "medium", "high", "medium"],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    const models = await adapter.fetchAll("openai", {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      apiKey: "sk-test",
+    });
+
+    expect(models[0]?.capabilities?.reasoningEfforts).toEqual([
+      "light",
+      "medium",
+      "high",
+    ]);
+  });
+
+  it("normalizes camelCase provider capability metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "gpt-5.6-luna",
+              capabilities: {
+                reasoningEfforts: ["none", "low", "medium", "high"],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    const models = await adapter.fetchAll("openai", {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      apiKey: "sk-test",
+    });
+
     expect(models[0]?.capabilities?.reasoningEfforts).toEqual([
       "none",
-      "minimal",
       "low",
       "medium",
       "high",
-      "xhigh",
+    ]);
+    expect(models[0]?.capabilityMetadata).toMatchObject({
+      source: "provider_api",
+      confidence: "confirmed",
+    });
+  });
+
+  it("uses provider-declared reasoning variants when returned", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "gpt-5.6-luna",
+              variants: {
+                light: { reasoning_effort: "light" },
+                max: { reasoning_effort: "max" },
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    const models = await adapter.fetchAll("openai", {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      apiKey: "sk-test",
+    });
+
+    expect(models[0]?.capabilities?.reasoningEfforts).toEqual(["light", "max"]);
+  });
+
+  it("accepts the provider settings shape used by compatible catalogs", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "gpt-5.6-luna",
+              settings: { reasoningEfforts: ["low", "high"] },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    const models = await adapter.fetchAll("openai", {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      apiKey: "sk-test",
+    });
+
+    expect(models[0]?.capabilities?.reasoningEfforts).toEqual(["low", "high"]);
+  });
+
+  it("reads effort values from provider supported-parameter metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "gpt-5.6-luna",
+              supported_parameters: {
+                reasoning_effort: ["low", "high", "max"],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+    const adapter = new OpenAICompatibleModelCatalogAdapter(
+      "openai",
+      "https://api.openai.com/v1",
+    );
+
+    const models = await adapter.fetchAll("openai", {
+      userId: "user-1",
+      workspaceId: "ws-1",
+      apiKey: "sk-test",
+    });
+
+    expect(models[0]?.capabilities?.reasoningEfforts).toEqual([
+      "low",
+      "high",
       "max",
     ]);
-    expect(models[1]?.capabilities?.reasoningEfforts).toEqual(["high"]);
   });
 
   it("wraps network failures into typed discovery errors", async () => {
@@ -81,19 +234,6 @@ describe("OpenAICompatibleModelCatalogAdapter", () => {
         apiKey: "sk-test",
       }),
     ).rejects.toThrow("network error");
-  });
-
-  it("advertises max only for model families that support it", () => {
-    expect(resolveOpenAIReasoningEfforts("gpt-5.6-luna")).toEqual([
-      "none",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-    ]);
-    expect(resolveOpenAIReasoningEfforts("gpt-5.1")).not.toContain("max");
   });
 
   it("rejects invalid pagination cursors", async () => {
