@@ -78,6 +78,7 @@ import {
   CostTracker,
   PricingRegistry,
   PricingResolver,
+  registerRuntimeModelPricing,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -283,6 +284,12 @@ export class RuntimeKernelNativeRunner {
   async execute(input: RuntimeKernelNativeRunnerInput): Promise<Response> {
     this.beginActiveTurn(input.turnId);
     try {
+      registerRuntimeModelPricing(this.pricingRegistry, {
+        providerId: input.input.providerId,
+        modelId: input.input.modelId,
+        runtimeModelId: input.input.runtimeModelId,
+        pricing: input.input.metadata?.pricing,
+      });
       return await this.executeActiveTurn(input);
     } finally {
       this.endActiveTurn(input.turnId);

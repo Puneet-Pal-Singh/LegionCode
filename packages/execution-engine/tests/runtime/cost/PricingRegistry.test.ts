@@ -2,7 +2,11 @@
 // Phase 3.1: Unit tests for PricingRegistry three-tier pricing strategy
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { PricingRegistry, PricingError } from "../../../src/runtime/cost/PricingRegistry.js";
+import {
+  PricingRegistry,
+  PricingError,
+  registerRuntimeModelPricing,
+} from "../../../src/runtime/cost/PricingRegistry.js";
 import type { LLMUsage } from "../../../src/runtime/cost/types.js";
 
 describe("PricingRegistry", () => {
@@ -142,6 +146,48 @@ describe("PricingRegistry", () => {
 
       const price = registry.getPrice("openai", "gpt-4o");
       expect(price?.inputPrice).toBe(0.1);
+    });
+  });
+
+  describe("registerRuntimeModelPricing", () => {
+    it("converts provider-model catalog prices from per-million tokens", () => {
+      const registered = registerRuntimeModelPricing(registry, {
+        providerId: "openai",
+        modelId: "gpt-5",
+        runtimeModelId: "gpt-5",
+        pricing: {
+          inputPer1M: 1.25,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+      });
+
+      expect(registered).toBe(true);
+      expect(registry.getPrice("openai", "gpt-5")).toMatchObject({
+        inputPrice: 0.00125,
+        outputPrice: 0.01,
+        currency: "USD",
+      });
+      expect(
+        registry.calculateCost({
+          provider: "openai",
+          model: "gpt-5",
+          promptTokens: 1_000,
+          completionTokens: 1_000,
+          totalTokens: 2_000,
+        }).totalCost,
+      ).toBeCloseTo(0.01125, 8);
+    });
+
+    it("does not register incomplete pricing", () => {
+      expect(
+        registerRuntimeModelPricing(registry, {
+          providerId: "openai",
+          modelId: "gpt-5",
+          pricing: { inputPer1M: 1.25 },
+        }),
+      ).toBe(false);
+      expect(registry.getPrice("openai", "gpt-5")).toBeNull();
     });
   });
 

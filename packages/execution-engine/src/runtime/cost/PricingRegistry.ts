@@ -3,6 +3,7 @@
 
 import type { LLMUsage, CalculatedCost, PricingEntry } from "./types.js";
 import { DEFAULT_SEED_PRICING } from "./pricing.default.js";
+import { BYOKModelPricingSchema } from "@repo/shared-types";
 
 export interface PricingRegistryOptions {
   failOnUnseededPricing?: boolean;
@@ -313,6 +314,50 @@ export class PricingRegistry implements IPricingRegistry {
     const normalized = value.trim();
     return normalized.length > 0 ? normalized : undefined;
   }
+}
+
+/**
+ * Registers a selected model's catalog price. models.dev and provider model
+ * APIs publish USD per million tokens, while PricingRegistry calculates per
+ * thousand tokens, so conversion belongs at this boundary.
+ */
+export function registerRuntimeModelPricing(
+  registry: IPricingRegistry,
+  input: {
+    providerId?: string;
+    modelId?: string;
+    runtimeModelId?: string;
+    pricing?: unknown;
+  },
+): boolean {
+  const providerId = input.providerId?.trim();
+  const modelIds = [input.modelId, input.runtimeModelId]
+    .map((modelId) => modelId?.trim())
+    .filter((modelId): modelId is string => Boolean(modelId));
+  const parsedPricing = BYOKModelPricingSchema.safeParse(input.pricing);
+  if (
+    !providerId ||
+    modelIds.length === 0 ||
+    !parsedPricing.success ||
+    parsedPricing.data.inputPer1M === undefined ||
+    parsedPricing.data.outputPer1M === undefined
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const entry: PricingEntry = {
+    inputPrice: parsedPricing.data.inputPer1M / 1_000,
+    outputPrice: parsedPricing.data.outputPer1M / 1_000,
+    currency: parsedPricing.data.currency,
+    effectiveDate: now,
+    lastUpdated: now,
+    metadata: { source: "provider-model-catalog" },
+  };
+  for (const modelId of new Set(modelIds)) {
+    registry.registerPrice(providerId, modelId, entry);
+  }
+  return true;
 }
 
 function detectProductionEnvironment(): boolean {

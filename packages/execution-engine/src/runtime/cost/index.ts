@@ -11,6 +11,7 @@ export { CostLedger, type ICostLedger } from "./CostLedger.js";
 export {
   PricingRegistry,
   PricingError,
+  registerRuntimeModelPricing,
   type IPricingRegistry,
   type PricingRegistryOptions,
 } from "./PricingRegistry.js";

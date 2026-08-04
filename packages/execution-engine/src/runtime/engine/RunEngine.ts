@@ -12,6 +12,7 @@ import {
   CostTracker,
   PricingRegistry,
   PricingResolver,
+  registerRuntimeModelPricing,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -285,6 +286,12 @@ export class RunEngine implements IRunEngine {
     const { runId, sessionId } = this.options;
     const runStartedAt = Date.now();
     try {
+      registerRuntimeModelPricing(this.pricingRegistry, {
+        providerId: input.providerId,
+        modelId: input.modelId,
+        runtimeModelId: input.runtimeModelId,
+        pricing: input.metadata?.pricing,
+      });
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
       await this.runEventRecorder.ensureRunStarted(run.status);
