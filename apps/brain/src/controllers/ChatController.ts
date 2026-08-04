@@ -237,6 +237,7 @@ export class ChatController {
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
           contextWindowTokens: body.contextWindowTokens,
+          pricing: body.pricing,
           reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,

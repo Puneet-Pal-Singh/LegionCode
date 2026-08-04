@@ -27,6 +27,7 @@ import type {
   BYOKModelCapabilityMetadata,
   BYOKModelCapability,
   BYOKModelInputModality,
+  BYOKModelPricing,
   BYOKModelDiscoverySource,
   BYOKModelDiscoverySurface,
   ProviderModelAvailability,
@@ -49,6 +50,7 @@ export interface ProviderModelOption {
   capabilityMetadata?: BYOKModelCapabilityMetadata;
   capabilities?: BYOKModelCapability;
   contextWindow?: number;
+  pricing?: BYOKModelPricing;
   description?: string;
 }
 
@@ -166,6 +168,7 @@ export class ProviderApiClient {
         capabilityMetadata: model.capabilityMetadata,
         capabilities: model.capabilities,
         contextWindow: model.contextWindow,
+        pricing: model.pricing,
         description: model.description,
       })),
       page: response.page,

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { RunIdSchema, TurnScopeBootstrapSchema } from "@repo/platform-protocol";
 import {
   ApprovalDecisionKindSchema,
+  BYOKModelPricingSchema,
   ProviderModelTransportSchema,
   ProductModeSchema,
   ReasoningEffortSchema,
@@ -103,6 +104,7 @@ export const ExecuteRunPayloadSchema = z.object({
       metadata: z
         .object({
           contextWindowTokens: z.number().int().safe().positive().optional(),
+          pricing: BYOKModelPricingSchema.optional(),
           reasoningEffort: ReasoningEffortSchema.optional(),
           featureFlags: z
             .object({

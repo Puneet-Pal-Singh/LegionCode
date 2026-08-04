@@ -87,6 +87,38 @@ describe("resolveSelectedProviderConfig", () => {
       source: "store_selection",
     });
   });
+
+  it("uses selected model context and pricing metadata before cached resolution", () => {
+    expect(
+      resolveSelectedProviderConfig({
+        selectedProviderId: "openai",
+        selectedModelId: "gpt-5",
+        selectedCredentialId: "cred-a",
+        selectedModelContextWindow: 400_000,
+        selectedModelPricing: {
+          inputPer1M: 1.25,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+        lastResolvedConfig: {
+          providerId: "openai",
+          modelId: "gpt-5",
+          credentialId: "cred-a",
+        },
+      }),
+    ).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5",
+      credentialId: "cred-a",
+      contextWindow: 400_000,
+      pricing: {
+        inputPer1M: 1.25,
+        outputPer1M: 10,
+        currency: "USD",
+      },
+      source: "store_selection",
+    });
+  });
 });
 
 describe("requireResolvedProviderConfig", () => {

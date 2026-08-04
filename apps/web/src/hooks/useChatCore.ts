@@ -270,7 +270,7 @@ export function useChatCore(
     manageProviderModels,
     resolveForChat,
   } = useProviderStore(runId);
-  const selectedModelEfforts =
+  const selectedModel =
     selectedProviderId && selectedModelId
       ? (
           providerModels[selectedProviderId]?.find(
@@ -279,8 +279,11 @@ export function useChatCore(
           manageProviderModels[selectedProviderId]?.find(
             (model) => model.id === selectedModelId,
           )
-        )?.capabilities?.reasoningEfforts
+        )
       : undefined;
+  const selectedModelContextWindow = selectedModel?.contextWindow;
+  const selectedModelPricing = selectedModel?.pricing;
+  const selectedModelEfforts = selectedModel?.capabilities?.reasoningEfforts;
   const authenticatedChatFetch = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) =>
       fetchWithSessionAuth(input, init),
@@ -492,12 +495,16 @@ export function useChatCore(
         selectedProviderId,
         selectedModelId,
         selectedCredentialId,
+        selectedModelContextWindow,
+        selectedModelPricing,
         lastResolvedConfig,
       }),
     [
       lastResolvedConfig,
       selectedCredentialId,
       selectedModelId,
+      selectedModelContextWindow,
+      selectedModelPricing,
       selectedProviderId,
     ],
   );
@@ -514,6 +521,7 @@ export function useChatCore(
         modelId: resolvedConfig.modelId,
         credentialId: resolvedConfig.credentialId,
         contextWindow: resolvedConfig.contextWindow,
+        pricing: resolvedConfig.pricing,
         source: "provider_resolve_api",
       });
     },
@@ -538,6 +546,7 @@ export function useChatCore(
         ...(config.contextWindow
           ? { contextWindowTokens: config.contextWindow }
           : {}),
+        ...(config.pricing ? { pricing: config.pricing } : {}),
         ...(resolveReasoningEffortForRequest(
           config.providerId,
           config.modelId,

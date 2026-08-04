@@ -1,6 +1,7 @@
 import {
   ProductModeSchema,
   RunModeSchema,
+  BYOKModelPricingSchema,
   WorkflowEntrypointSchema,
   WorkflowIntentSchema,
   ReasoningEffortSchema,
@@ -42,6 +43,7 @@ export const ChatRequestBodySchema = z.object({
   repositoryBranch: z.string().optional(),
   repositoryBaseUrl: z.string().optional(),
   contextWindowTokens: z.number().int().positive().optional(),
+  pricing: BYOKModelPricingSchema.optional(),
   reasoningEffort: ReasoningEffortSchema.optional(),
 });
 

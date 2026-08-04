@@ -16,6 +16,7 @@
 import type { CoreMessage } from "ai";
 import {
   DEFAULT_RUN_MODE,
+  type BYOKModelPricing,
   type ProductMode,
   type RunMode,
   type WorkflowEntrypoint,
@@ -75,6 +76,7 @@ export interface HandleChatRequestInput {
   repositoryBranch?: string;
   repositoryBaseUrl?: string;
   contextWindowTokens?: number;
+  pricing?: BYOKModelPricing;
   reasoningEffort?: ReasoningEffort;
   tools?: Record<string, SerializableToolDefinition>;
   identity: TurnScopeBootstrap;
@@ -329,6 +331,7 @@ export class HandleChatRequest {
           authMode: runtimeSelections.authMode,
           metadata: {
             ...(contextWindowTokens ? { contextWindowTokens } : {}),
+            ...(input.pricing ? { pricing: input.pricing } : {}),
             ...(input.reasoningEffort
               ? { reasoningEffort: input.reasoningEffort }
               : {}),
@@ -524,6 +527,9 @@ function resolveContextWindowTokens(
     "providerId" | "modelId" | "contextWindowTokens"
   >,
 ): number | undefined {
+  if (input.contextWindowTokens) {
+    return input.contextWindowTokens;
+  }
   if (input.providerId && input.modelId) {
     const catalogLimit = builtinProviderRegistry.getModel(
       input.providerId,
@@ -533,5 +539,5 @@ function resolveContextWindowTokens(
       return catalogLimit;
     }
   }
-  return input.contextWindowTokens;
+  return undefined;
 }
