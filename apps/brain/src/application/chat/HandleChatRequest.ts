@@ -37,8 +37,10 @@ import type {
   AgentType,
   RepositoryContext,
 } from "@shadowbox/execution-engine/runtime";
-import { builtinProviderRegistry } from "@repo/provider-core";
-import { resolveProviderRuntimeRoute } from "../../services/providers/ProviderRuntimeRoutePolicy";
+import {
+  builtinProviderRegistry,
+  resolveProviderRuntimeRoute,
+} from "@repo/provider-core";
 
 type RuntimeHarnessId = "cloudflare-sandbox" | "local-sandbox";
 type RuntimeOrchestratorBackend = "execution-engine-v1" | "cloudflare_agents";
