@@ -636,14 +636,21 @@ export class ProviderController {
         correlationId,
         policy,
       );
+      const resolvedModelMetadata = await resolveSelectedModelMetadata(
+        req,
+        env,
+        scope,
+        correlationId,
+        resolution,
+      );
 
       const axisQuota =
-        resolution.providerId === AXIS_PROVIDER_ID
+        resolvedModelMetadata.providerId === AXIS_PROVIDER_ID
           ? await fetchRuntimeAxisQuota(req, env, scope, correlationId)
           : undefined;
 
       return withScopeJson(req, env, scope, {
-        ...resolution,
+        ...resolvedModelMetadata,
         ...(axisQuota ? { quota: axisQuota } : {}),
       });
     } catch (error) {
@@ -1349,6 +1356,66 @@ async function fetchRuntimeCatalog(
     ProviderCatalogResponseSchema,
     correlationId,
   );
+}
+
+async function resolveSelectedModelMetadata(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  resolution: BYOKResolution,
+): Promise<BYOKResolution> {
+  if (
+    resolution.providerId === AXIS_PROVIDER_ID ||
+    (resolution.contextWindow !== undefined && resolution.pricing !== undefined)
+  ) {
+    return resolution;
+  }
+
+  try {
+    const response = await proxyByokOperation(
+      req,
+      env,
+      {
+        scope,
+        method: "GET",
+        path: buildRuntimeModelsPath(resolution.providerId, {
+          view: "all",
+          surface: "picker",
+          limit: 200,
+        }),
+      },
+      BYOKDiscoveredProviderModelsResponseSchema,
+      correlationId,
+    );
+    const payload = await readProxyResponseJson<BYOKDiscoveredProviderModelsResponse>(
+      response,
+      BYOKDiscoveredProviderModelsResponseSchema,
+      correlationId,
+    );
+    const model = payload.models.find(
+      (candidate) => candidate.id === resolution.modelId,
+    );
+    if (!model) {
+      return resolution;
+    }
+    return {
+      ...resolution,
+      ...(model.contextWindow !== undefined
+        ? { contextWindow: model.contextWindow }
+        : {}),
+      ...(model.pricing
+        ? { pricing: model.pricing }
+        : {}),
+    };
+  } catch (error) {
+    console.warn("[provider/resolve] selected model metadata unavailable", {
+      providerId: resolution.providerId,
+      modelId: resolution.modelId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return resolution;
+  }
 }
 
 async function fetchRuntimeConnections(

@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   ReasoningEffortSchema,
   type BYOKDiscoveredProviderModel,
+  type BYOKModelPricing,
   type ReasoningEffort,
 } from "@repo/shared-types";
 
@@ -38,6 +39,12 @@ const ModelDevModelSchema = z.object({
     .object({
       input: z.array(z.string()).optional(),
       output: z.array(z.string()).optional(),
+    })
+    .optional(),
+  cost: z
+    .object({
+      input: z.number().nonnegative().optional(),
+      output: z.number().nonnegative().optional(),
     })
     .optional(),
   reasoning: z.boolean().optional(),
@@ -68,6 +75,7 @@ export interface ModelDevCatalog {
 export interface ModelDevModel {
   limit?: { context?: number; input?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
+  cost?: { input?: number; output?: number };
   reasoning?: boolean;
   reasoning_options?: Array<{
     type: string;
@@ -197,6 +205,13 @@ export function enrichModelFromModelDev(
   if (next.outputModalities === undefined && entry.modalities?.output?.length) {
     next.outputModalities = toOutputModalities(entry.modalities.output);
     metadataChanged = true;
+  }
+  if (next.pricing === undefined && entry.cost) {
+    const pricing = toPricing(entry.cost);
+    if (pricing) {
+      next.pricing = pricing;
+      metadataChanged = true;
+    }
   }
 
   const capabilities = { ...next.capabilities };
@@ -355,6 +370,20 @@ function toOutputModalities(output: string[]): Record<string, boolean> {
     }
   }
   return modalities;
+}
+
+function toPricing(cost: {
+  input?: number;
+  output?: number;
+}): BYOKModelPricing | undefined {
+  if (cost.input === undefined && cost.output === undefined) {
+    return undefined;
+  }
+  return {
+    ...(cost.input !== undefined ? { inputPer1M: cost.input } : {}),
+    ...(cost.output !== undefined ? { outputPer1M: cost.output } : {}),
+    currency: "USD",
+  };
 }
 
 function toReasoningEfforts(

@@ -13,6 +13,7 @@ const MODEL_DEV_FIXTURE = {
       "gpt-4o": {
         limit: { context: 128000, output: 16384 },
         modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+        cost: { input: 2.5, output: 10 },
         reasoning: false,
         tool_call: true,
         temperature: true,
@@ -21,6 +22,7 @@ const MODEL_DEV_FIXTURE = {
       "gpt-5": {
         limit: { context: 400000, input: 272000, output: 128000 },
         modalities: { input: ["text", "image"], output: ["text"] },
+        cost: { input: 1.25, output: 10 },
         reasoning: true,
         reasoning_options: [
           { type: "effort", values: ["minimal", "low", "medium", "high"] },
@@ -39,6 +41,7 @@ const MODEL_DEV_FIXTURE = {
           input: ["text", "image", "audio", "video", "pdf"],
           output: ["text"],
         },
+        cost: { input: 0.3, output: 2.5 },
         reasoning: true,
         reasoning_options: [
           { type: "toggle" },
@@ -133,6 +136,11 @@ describe("enrichModelFromModelDev", () => {
     expect(enriched.capabilities?.supportsTools).toBe(true);
     expect(enriched.capabilities?.supportsStructuredOutputs).toBe(true);
     expect(enriched.capabilities?.supportsVision).toBe(true);
+    expect(enriched.pricing).toEqual({
+      inputPer1M: 2.5,
+      outputPer1M: 10,
+      currency: "USD",
+    });
     expect(enriched.capabilities?.reasoningEfforts).toBeUndefined();
     expect(enriched.capabilityMetadata).toEqual({
       source: "platform_registry",
@@ -150,6 +158,11 @@ describe("enrichModelFromModelDev", () => {
     );
 
     expect(enriched.contextWindow).toBe(400000);
+    expect(enriched.pricing).toEqual({
+      inputPer1M: 1.25,
+      outputPer1M: 10,
+      currency: "USD",
+    });
     expect(enriched.capabilities?.supportsReasoning).toBe(true);
     expect(enriched.capabilities?.reasoningEfforts).toEqual([
       "minimal",
@@ -180,6 +193,11 @@ describe("enrichModelFromModelDev", () => {
       file: true,
     });
     expect(enriched.capabilities?.supportsReasoning).toBe(true);
+    expect(enriched.pricing).toEqual({
+      inputPer1M: 0.3,
+      outputPer1M: 2.5,
+      currency: "USD",
+    });
     expect(enriched.capabilities?.reasoningEfforts).toBeUndefined();
   });
 
