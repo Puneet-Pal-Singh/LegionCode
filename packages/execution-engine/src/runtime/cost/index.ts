@@ -39,6 +39,7 @@ export type {
   PricingSource,
   ProviderCost,
   PricingEntry,
+  PricingTierEntry,
   BudgetConfig,
   BudgetCheckResult,
 } from "./types.js";

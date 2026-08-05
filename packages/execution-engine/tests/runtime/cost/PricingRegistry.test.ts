@@ -189,6 +189,40 @@ describe("PricingRegistry", () => {
       ).toBe(false);
       expect(registry.getPrice("openai", "gpt-5")).toBeNull();
     });
+
+    it("uses cache and long-context tier rates", () => {
+      registerRuntimeModelPricing(registry, {
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        pricing: {
+          inputPer1M: 5,
+          outputPer1M: 30,
+          cacheReadPer1M: 0.5,
+          tiers: [
+            {
+              minimumContextTokens: 200_000,
+              inputPer1M: 10,
+              outputPer1M: 45,
+              cacheReadPer1M: 1,
+            },
+          ],
+          currency: "USD",
+        },
+      });
+
+      const cost = registry.calculateCost({
+        provider: "openai",
+        model: "gpt-5.5",
+        promptTokens: 300_000,
+        cachedInputTokens: 1_000,
+        completionTokens: 1_000,
+        totalTokens: 301_000,
+      });
+
+      expect(cost.inputCost).toBeCloseTo(2.99, 8);
+      expect(cost.outputCost).toBeCloseTo(0.045, 8);
+      expect(cost.totalCost).toBeCloseTo(3.036, 8);
+    });
   });
 
   describe("loadFromJSON", () => {
