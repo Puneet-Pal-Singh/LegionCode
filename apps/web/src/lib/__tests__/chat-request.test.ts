@@ -49,4 +49,21 @@ describe("parseChatRequestBody", () => {
       }),
     ).toThrow();
   });
+
+  it("rejects runtime-owned context and pricing metadata", () => {
+    expect(() =>
+      parseChatRequestBody({
+        sessionId: "session-1",
+        runId: "run-1",
+        identity: {
+          workspaceId: "123e4567-e89b-42d3-a456-426614174000",
+          threadId: "thr_test-1",
+          turnId: "trn_test-1",
+          runAttemptId: "attempt_test-1",
+        },
+        contextWindowTokens: 1,
+        pricing: { inputPer1M: 0, outputPer1M: 0 },
+      } as never),
+    ).toThrow();
+  });
 });

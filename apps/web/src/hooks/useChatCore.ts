@@ -543,10 +543,6 @@ export function useChatCore(
         harnessId: resolveRuntimeHarnessId(sessionId),
         providerId: config.providerId,
         modelId: config.modelId,
-        ...(config.contextWindow
-          ? { contextWindowTokens: config.contextWindow }
-          : {}),
-        ...(config.pricing ? { pricing: config.pricing } : {}),
         ...(resolveReasoningEffortForRequest(
           config.providerId,
           config.modelId,
