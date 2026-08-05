@@ -201,6 +201,68 @@ describe("enrichModelFromModelDev", () => {
     expect(enriched.capabilities?.reasoningEfforts).toBeUndefined();
   });
 
+  it("preserves models.dev cache and context-tier pricing", () => {
+    const catalog = parseModelDevCatalog({
+      openai: {
+        models: {
+          "gpt-5.5": {
+            limit: { context: 400000 },
+            cost: {
+              input: 5,
+              output: 30,
+              cache_read: 0.5,
+              cache_write: 1,
+              tiers: [
+                {
+                  input: 10,
+                  output: 45,
+                  cache_read: 1,
+                  cache_write: 2,
+                  tier: { type: "context", size: 272000 },
+                },
+              ],
+              context_over_200k: {
+                input: 10,
+                output: 45,
+                cache_read: 1,
+                cache_write: 2,
+              },
+            },
+          },
+        },
+      },
+    })!;
+    const enriched = enrichModelFromModelDev(catalog, "openai", {
+      id: "gpt-5.5",
+      name: "GPT-5.5",
+      providerId: "openai",
+    });
+
+    expect(enriched.pricing).toEqual({
+      inputPer1M: 5,
+      outputPer1M: 30,
+      cacheReadPer1M: 0.5,
+      cacheWritePer1M: 1,
+      tiers: [
+        {
+          minimumContextTokens: 200000,
+          inputPer1M: 10,
+          outputPer1M: 45,
+          cacheReadPer1M: 1,
+          cacheWritePer1M: 2,
+        },
+        {
+          minimumContextTokens: 272000,
+          inputPer1M: 10,
+          outputPer1M: 45,
+          cacheReadPer1M: 1,
+          cacheWritePer1M: 2,
+        },
+      ],
+      currency: "USD",
+    });
+  });
+
   it("matches prefixed model ids against the catalog", () => {
     const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE)!;
     const enriched = enrichModelFromModelDev(
@@ -261,6 +323,21 @@ describe("enrichModelFromModelDev", () => {
     expect(enriched.capabilityMetadata?.source).toBe("provider_api");
   });
 
+  it("fills missing pricing fields from the catalog", () => {
+    const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE)!;
+    const enriched = enrichModelFromModelDev(
+      catalog,
+      "openai",
+      makeModel({ pricing: { inputPer1M: 9, currency: "USD" } }),
+    );
+
+    expect(enriched.pricing).toEqual({
+      inputPer1M: 9,
+      outputPer1M: 10,
+      currency: "USD",
+    });
+  });
+
   it("leaves unknown models untouched", () => {
     const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE)!;
     const model = makeModel({ id: "custom-model" });
@@ -282,6 +359,49 @@ describe("enrichModelFromModelDev", () => {
     const model = makeModel({ id: "gpt-5.6-luna" });
 
     expect(enrichModelFromModelDev(catalog, "openai", model)).toBe(model);
+  });
+
+  it("does not borrow lab pricing for local OpenAI-compatible endpoints", () => {
+    const catalog = parseModelDevCatalog({
+      openai: {
+        models: {
+          "gpt-4o": {
+            limit: { context: 128000 },
+            cost: { input: 2.5, output: 10 },
+          },
+        },
+      },
+    })!;
+    const model = makeModel({
+      id: "gpt-4o",
+      providerId: "local-openai-compatible",
+    });
+
+    expect(
+      enrichModelFromModelDev(catalog, "local-openai-compatible", model),
+    ).toBe(model);
+  });
+
+  it("keeps Axis pricing platform-owned while borrowing model capabilities", () => {
+    const catalog = parseModelDevCatalog({
+      openrouter: {
+        models: {
+          "z-ai/glm-4.5-air:free": {
+            limit: { context: 131072 },
+            modalities: { input: ["text"], output: ["text"] },
+            cost: { input: 0.1, output: 0.2 },
+          },
+        },
+      },
+    })!;
+    const model = enrichModelFromModelDev(catalog, "axis", {
+      id: "z-ai/glm-4.5-air:free",
+      name: "z-ai/glm-4.5-air:free",
+      providerId: "axis",
+    });
+
+    expect(model.contextWindow).toBe(131072);
+    expect(model.pricing).toBeUndefined();
   });
 });
 

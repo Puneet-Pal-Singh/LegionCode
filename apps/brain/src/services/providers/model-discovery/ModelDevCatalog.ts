@@ -45,6 +45,30 @@ const ModelDevModelSchema = z.object({
     .object({
       input: z.number().nonnegative().optional(),
       output: z.number().nonnegative().optional(),
+      cache_read: z.number().nonnegative().optional(),
+      cache_write: z.number().nonnegative().optional(),
+      tiers: z
+        .array(
+          z.object({
+            input: z.number().nonnegative(),
+            output: z.number().nonnegative(),
+            cache_read: z.number().nonnegative().optional(),
+            cache_write: z.number().nonnegative().optional(),
+            tier: z.object({
+              type: z.string(),
+              size: z.number().nonnegative(),
+            }),
+          }),
+        )
+        .optional(),
+      context_over_200k: z
+        .object({
+          input: z.number().nonnegative(),
+          output: z.number().nonnegative(),
+          cache_read: z.number().nonnegative().optional(),
+          cache_write: z.number().nonnegative().optional(),
+        })
+        .optional(),
     })
     .optional(),
   reasoning: z.boolean().optional(),
@@ -75,7 +99,7 @@ export interface ModelDevCatalog {
 export interface ModelDevModel {
   limit?: { context?: number; input?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
-  cost?: { input?: number; output?: number };
+  cost?: ModelDevCost;
   reasoning?: boolean;
   reasoning_options?: Array<{
     type: string;
@@ -84,6 +108,28 @@ export interface ModelDevModel {
   tool_call?: boolean;
   structured_output?: boolean;
   temperature?: boolean;
+}
+
+interface ModelDevCostTier {
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+  tier: { type: string; size: number };
+}
+
+interface ModelDevCost {
+  input?: number;
+  output?: number;
+  cache_read?: number;
+  cache_write?: number;
+  tiers?: ModelDevCostTier[];
+  context_over_200k?: {
+    input: number;
+    output: number;
+    cache_read?: number;
+    cache_write?: number;
+  };
 }
 
 /**
@@ -206,8 +252,8 @@ export function enrichModelFromModelDev(
     next.outputModalities = toOutputModalities(entry.modalities.output);
     metadataChanged = true;
   }
-  if (next.pricing === undefined && entry.cost) {
-    const pricing = toPricing(entry.cost);
+  if (providerId !== "axis" && entry.cost) {
+    const pricing = mergePricing(next.pricing, toPricing(entry.cost));
     if (pricing) {
       next.pricing = pricing;
       metadataChanged = true;
@@ -299,8 +345,6 @@ function resolveCatalogProviderIds(
     axis: ["openrouter"],
     together: ["togetherai"],
     "cloudflare-ai": ["cloudflare-workers-ai", "cloudflare-ai-gateway"],
-    "local-openai-compatible": ["openai"],
-    "opencode-zen": ["opencode"],
   };
   const candidates = [providerId, ...(aliases[providerId] ?? [])];
   return candidates.filter((candidate, index) => {
@@ -372,17 +416,86 @@ function toOutputModalities(output: string[]): Record<string, boolean> {
   return modalities;
 }
 
-function toPricing(cost: {
-  input?: number;
-  output?: number;
-}): BYOKModelPricing | undefined {
-  if (cost.input === undefined && cost.output === undefined) {
+function toPricing(cost: ModelDevCost): BYOKModelPricing | undefined {
+  const tiers = [
+    ...(cost.tiers ?? [])
+      .filter((tier) => tier.tier.type === "context")
+      .map((tier) => toPricingTier(tier.tier.size, tier)),
+    ...(cost.context_over_200k
+      ? [toPricingTier(200_000, cost.context_over_200k)]
+      : []),
+  ].sort(
+    (first, second) =>
+      first.minimumContextTokens - second.minimumContextTokens,
+  );
+  if (
+    cost.input === undefined &&
+    cost.output === undefined &&
+    tiers.length === 0
+  ) {
     return undefined;
   }
   return {
     ...(cost.input !== undefined ? { inputPer1M: cost.input } : {}),
     ...(cost.output !== undefined ? { outputPer1M: cost.output } : {}),
+    ...(cost.cache_read !== undefined
+      ? { cacheReadPer1M: cost.cache_read }
+      : {}),
+    ...(cost.cache_write !== undefined
+      ? { cacheWritePer1M: cost.cache_write }
+      : {}),
+    ...(tiers.length ? { tiers } : {}),
     currency: "USD",
+  };
+}
+
+function mergePricing(
+  providerPricing: BYOKModelPricing | undefined,
+  catalogPricing: BYOKModelPricing | undefined,
+): BYOKModelPricing | undefined {
+  if (!providerPricing) {
+    return catalogPricing;
+  }
+  if (!catalogPricing) {
+    return providerPricing;
+  }
+  const inputPer1M = providerPricing.inputPer1M ?? catalogPricing.inputPer1M;
+  const outputPer1M =
+    providerPricing.outputPer1M ?? catalogPricing.outputPer1M;
+  const cacheReadPer1M =
+    providerPricing.cacheReadPer1M ?? catalogPricing.cacheReadPer1M;
+  const cacheWritePer1M =
+    providerPricing.cacheWritePer1M ?? catalogPricing.cacheWritePer1M;
+  const tiers = providerPricing.tiers ?? catalogPricing.tiers;
+  return {
+    ...(inputPer1M !== undefined ? { inputPer1M } : {}),
+    ...(outputPer1M !== undefined ? { outputPer1M } : {}),
+    ...(cacheReadPer1M !== undefined ? { cacheReadPer1M } : {}),
+    ...(cacheWritePer1M !== undefined ? { cacheWritePer1M } : {}),
+    ...(tiers ? { tiers } : {}),
+    currency: providerPricing.currency || catalogPricing.currency,
+  };
+}
+
+function toPricingTier(
+  minimumContextTokens: number,
+  cost: {
+    input: number;
+    output: number;
+    cache_read?: number;
+    cache_write?: number;
+  },
+) {
+  return {
+    minimumContextTokens,
+    inputPer1M: cost.input,
+    outputPer1M: cost.output,
+    ...(cost.cache_read !== undefined
+      ? { cacheReadPer1M: cost.cache_read }
+      : {}),
+    ...(cost.cache_write !== undefined
+      ? { cacheWritePer1M: cost.cache_write }
+      : {}),
   };
 }
 
