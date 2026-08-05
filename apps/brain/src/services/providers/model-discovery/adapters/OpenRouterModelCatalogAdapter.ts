@@ -50,6 +50,19 @@ const OpenRouterModelsEnvelopeSchema = z.object({
         .object({
           prompt: z.string().optional(),
           completion: z.string().optional(),
+          input_cache_read: z.string().optional(),
+          input_cache_write: z.string().optional(),
+          overrides: z
+            .array(
+              z.object({
+                min_prompt_tokens: z.number().int().nonnegative(),
+                prompt: z.string().optional(),
+                completion: z.string().optional(),
+                input_cache_read: z.string().optional(),
+                input_cache_write: z.string().optional(),
+              }),
+            )
+            .optional(),
         })
         .partial()
         .optional(),
@@ -353,6 +366,15 @@ function toPricing(
     | {
         prompt?: string | undefined;
         completion?: string | undefined;
+        input_cache_read?: string | undefined;
+        input_cache_write?: string | undefined;
+        overrides?: Array<{
+          min_prompt_tokens: number;
+          prompt?: string | undefined;
+          completion?: string | undefined;
+          input_cache_read?: string | undefined;
+          input_cache_write?: string | undefined;
+        }>;
       }
     | undefined,
 ) {
@@ -361,12 +383,43 @@ function toPricing(
   }
   const inputPer1M = parsePer1M(pricing.prompt);
   const outputPer1M = parsePer1M(pricing.completion);
-  if (inputPer1M === undefined && outputPer1M === undefined) {
+  const cacheReadPer1M = parsePer1M(pricing.input_cache_read);
+  const cacheWritePer1M = parsePer1M(pricing.input_cache_write);
+  const tiers = pricing.overrides
+    ?.map((override) => {
+      const tierInput = parsePer1M(override.prompt);
+      const tierOutput = parsePer1M(override.completion);
+      if (tierInput === undefined || tierOutput === undefined) {
+        return undefined;
+      }
+      const tierCacheRead = parsePer1M(override.input_cache_read);
+      const tierCacheWrite = parsePer1M(override.input_cache_write);
+      return {
+        minimumContextTokens: override.min_prompt_tokens,
+        inputPer1M: tierInput,
+        outputPer1M: tierOutput,
+        ...(tierCacheRead !== undefined
+          ? { cacheReadPer1M: tierCacheRead }
+          : {}),
+        ...(tierCacheWrite !== undefined
+          ? { cacheWritePer1M: tierCacheWrite }
+          : {}),
+      };
+    })
+    .filter((tier): tier is NonNullable<typeof tier> => tier !== undefined);
+  if (
+    inputPer1M === undefined &&
+    outputPer1M === undefined &&
+    tiers.length === 0
+  ) {
     return undefined;
   }
   return {
-    inputPer1M,
-    outputPer1M,
+    ...(inputPer1M !== undefined ? { inputPer1M } : {}),
+    ...(outputPer1M !== undefined ? { outputPer1M } : {}),
+    ...(cacheReadPer1M !== undefined ? { cacheReadPer1M } : {}),
+    ...(cacheWritePer1M !== undefined ? { cacheWritePer1M } : {}),
+    ...(tiers.length ? { tiers } : {}),
     currency: "USD",
   };
 }

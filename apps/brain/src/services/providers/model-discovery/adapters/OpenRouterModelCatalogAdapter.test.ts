@@ -18,6 +18,17 @@ describe("OpenRouterModelCatalogAdapter", () => {
               pricing: {
                 prompt: "0.000005",
                 completion: "0.000015",
+                input_cache_read: "0.000001",
+                input_cache_write: "0.000002",
+                overrides: [
+                  {
+                    min_prompt_tokens: 272000,
+                    prompt: "0.00001",
+                    completion: "0.000045",
+                    input_cache_read: "0.000002",
+                    input_cache_write: "0.000004",
+                  },
+                ],
               },
               supported_parameters: ["tools"],
               slug: "gpt-4o",
@@ -47,6 +58,22 @@ describe("OpenRouterModelCatalogAdapter", () => {
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("openai/gpt-4o");
     expect(models[0].providerId).toBe("openrouter");
+    expect(models[0].pricing).toEqual({
+      inputPer1M: 5,
+      outputPer1M: 15,
+      cacheReadPer1M: 1,
+      cacheWritePer1M: 2,
+      tiers: [
+        {
+          minimumContextTokens: 272000,
+          inputPer1M: 10,
+          outputPer1M: 45,
+          cacheReadPer1M: 2,
+          cacheWritePer1M: 4,
+        },
+      ],
+      currency: "USD",
+    });
     expect(models[0].canonicalSlug).toBe("gpt-4o");
     expect(models[0].capabilities?.supportsTools).toBe(true);
     expect(models[0].capabilities?.supportsVision).toBe(true);
