@@ -410,7 +410,7 @@ function toPricing(
   if (
     inputPer1M === undefined &&
     outputPer1M === undefined &&
-    tiers.length === 0
+    (tiers?.length ?? 0) === 0
   ) {
     return undefined;
   }
@@ -419,7 +419,7 @@ function toPricing(
     ...(outputPer1M !== undefined ? { outputPer1M } : {}),
     ...(cacheReadPer1M !== undefined ? { cacheReadPer1M } : {}),
     ...(cacheWritePer1M !== undefined ? { cacheWritePer1M } : {}),
-    ...(tiers.length ? { tiers } : {}),
+    ...(tiers?.length ? { tiers } : {}),
     currency: "USD",
   };
 }
