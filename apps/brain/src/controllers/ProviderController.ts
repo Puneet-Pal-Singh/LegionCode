@@ -49,6 +49,7 @@ import {
   type ProviderConnectionsResponse,
   type BYOKDiscoveredProviderModelsQuery,
   BYOKProviderSlugSchema,
+  ProviderIdSchema,
 } from "@repo/shared-types";
 import { builtinProviderRegistry } from "@repo/provider-core";
 import type { Env } from "../types/ai";
@@ -68,6 +69,7 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
+import { findDiscoveredChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 
 const PROVIDER_RUNTIME_TIMEOUT_MS = 15_000;
 
@@ -1373,41 +1375,23 @@ async function resolveSelectedModelMetadata(
   }
 
   try {
-    const response = await proxyByokOperation(
-      req,
-      env,
+    const providerId = ProviderIdSchema.parse(resolution.providerId);
+    const metadata = await findDiscoveredChatModelMetadata(
       {
-        scope,
-        method: "GET",
-        path: buildRuntimeModelsPath(resolution.providerId, {
-          view: "all",
-          surface: "picker",
-          limit: 200,
-        }),
+        getDiscoveredModels: (_providerId, query) =>
+          proxyDiscoveredModels(
+            req,
+            env,
+            scope,
+            correlationId,
+            providerId,
+            query,
+          ),
       },
-      BYOKDiscoveredProviderModelsResponseSchema,
-      correlationId,
+      providerId,
+      resolution.modelId,
     );
-    const payload = await readProxyResponseJson<BYOKDiscoveredProviderModelsResponse>(
-      response,
-      BYOKDiscoveredProviderModelsResponseSchema,
-      correlationId,
-    );
-    const model = payload.models.find(
-      (candidate) => candidate.id === resolution.modelId,
-    );
-    if (!model) {
-      return resolution;
-    }
-    return {
-      ...resolution,
-      ...(model.contextWindow !== undefined
-        ? { contextWindow: model.contextWindow }
-        : {}),
-      ...(model.pricing
-        ? { pricing: model.pricing }
-        : {}),
-    };
+    return { ...resolution, ...metadata };
   } catch (error) {
     console.warn("[provider/resolve] selected model metadata unavailable", {
       providerId: resolution.providerId,
@@ -1416,6 +1400,37 @@ async function resolveSelectedModelMetadata(
     });
     return resolution;
   }
+}
+
+async function proxyDiscoveredModels(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  providerId: string,
+  query: {
+    view: "all";
+    surface: "picker";
+    limit: number;
+    cursor?: string;
+  },
+): Promise<BYOKDiscoveredProviderModelsResponse> {
+  const response = await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "GET",
+      path: buildRuntimeModelsPath(providerId, query),
+    },
+    BYOKDiscoveredProviderModelsResponseSchema,
+    correlationId,
+  );
+  return readProxyResponseJson(
+    response,
+    BYOKDiscoveredProviderModelsResponseSchema,
+    correlationId,
+  );
 }
 
 async function fetchRuntimeConnections(

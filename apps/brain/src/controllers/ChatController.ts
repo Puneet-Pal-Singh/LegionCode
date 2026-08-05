@@ -11,10 +11,16 @@ import { mapAgentIdToType } from "./chat-request-helpers";
 import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
+  fetchRunProviderModels,
   resolveRuntimeTarget,
 } from "./chat-runtime-helpers";
 import { RunAdmissionService } from "../runtime/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
+import {
+  findDiscoveredChatModelMetadata,
+  type ChatModelMetadata,
+} from "../services/chat/ChatModelMetadataResolver";
+import { ProviderIdSchema } from "@repo/shared-types";
 import {
   applySubmittedClientMessageId,
   summarizeCoreMessages,
@@ -209,6 +215,38 @@ export class ChatController {
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
+      let trustedModelMetadata: ChatModelMetadata = {};
+      try {
+        const providerId = ProviderIdSchema.parse(body.providerId);
+        const modelId = body.modelId?.trim();
+        if (modelId) {
+          trustedModelMetadata = await findDiscoveredChatModelMetadata(
+            {
+              getDiscoveredModels: (_providerId, query) =>
+                fetchRunProviderModels(env, {
+                  runId,
+                  userId,
+                  workspaceId,
+                  providerId,
+                  query,
+                  requestedBackend:
+                    body.orchestratorBackend ?? "execution-engine-v1",
+                }),
+            },
+            providerId,
+            modelId,
+          );
+        }
+      } catch (metadataError) {
+        console.warn("[chat/model-metadata] unavailable", {
+          providerId: body.providerId ?? null,
+          modelId: body.modelId ?? null,
+          error:
+            metadataError instanceof Error
+              ? metadataError.message
+              : String(metadataError),
+        });
+      }
 
       const useCaseStartedAt = Date.now();
       const useCaseResult = await useCase.execute(
@@ -236,8 +274,8 @@ export class ChatController {
           repositoryName: body.repositoryName,
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
-          contextWindowTokens: body.contextWindowTokens,
-          pricing: body.pricing,
+          contextWindowTokens: trustedModelMetadata.contextWindow,
+          pricing: trustedModelMetadata.pricing,
           reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,
