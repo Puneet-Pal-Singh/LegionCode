@@ -26,9 +26,23 @@ export type BYOKModelDiscoverySource = z.infer<
   typeof BYOKModelDiscoverySourceSchema
 >;
 
+export const BYOKModelPricingTierSchema = z.object({
+  minimumContextTokens: z.number().int().nonnegative(),
+  inputPer1M: z.number().nonnegative(),
+  outputPer1M: z.number().nonnegative(),
+  cacheReadPer1M: z.number().nonnegative().optional(),
+  cacheWritePer1M: z.number().nonnegative().optional(),
+});
+export type BYOKModelPricingTier = z.infer<
+  typeof BYOKModelPricingTierSchema
+>;
+
 export const BYOKModelPricingSchema = z.object({
   inputPer1M: z.number().nonnegative().optional(),
   outputPer1M: z.number().nonnegative().optional(),
+  cacheReadPer1M: z.number().nonnegative().optional(),
+  cacheWritePer1M: z.number().nonnegative().optional(),
+  tiers: z.array(BYOKModelPricingTierSchema).max(32).optional(),
   currency: z.string().min(1).default("USD"),
 });
 export type BYOKModelPricing = z.infer<typeof BYOKModelPricingSchema>;
