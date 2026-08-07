@@ -1,6 +1,4 @@
-import {
-  isConcreteCommandInput,
-} from "../contracts/index.js";
+import { isConcreteCommandInput } from "../contracts/index.js";
 import {
   getCodingToolRoute,
   validateCodingToolInput,
@@ -314,7 +312,12 @@ async function executeWriteFileTool(
   const result = await executeGatewayPlugin(executionService, "write_file", {
     path,
     content: validatedInput.content,
-    expectedSha256: validatedInput.expectedSha256,
+    // A hash guard only describes content that already exists. Some providers
+    // synthesize a guard for creation requests; forwarding it makes the secure
+    // filesystem correctly reject the missing target before it can be created.
+    // Preserve guards for every existing file, including an empty one.
+    expectedSha256:
+      previousContent === null ? undefined : validatedInput.expectedSha256,
   });
   const failure = extractExecutionFailure(result);
   if (failure) {
@@ -324,7 +327,7 @@ async function executeWriteFileTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildWriteActivityMetadata(
       path,
-      previousContent,
+      previousContent ?? "",
       validatedInput.content,
     ),
   });
@@ -885,10 +888,7 @@ async function executeGitHubPullRequestGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput(
-    "github_pr_get",
-    taskInput,
-  );
+  const validatedInput = validateCodingToolInput("github_pr_get", taskInput);
   return executeGitHubReadTool(executionService, taskId, "github_pr_get", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -901,10 +901,7 @@ async function executeGitHubPullRequestListTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput(
-    "github_pr_list",
-    taskInput,
-  );
+  const validatedInput = validateCodingToolInput("github_pr_list", taskInput);
   return executeGitHubReadTool(executionService, taskId, "github_pr_list", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -960,10 +957,7 @@ async function executeGitHubIssueGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput(
-    "github_issue_get",
-    taskInput,
-  );
+  const validatedInput = validateCodingToolInput("github_issue_get", taskInput);
   return executeGitHubReadTool(executionService, taskId, "github_issue_get", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -1306,13 +1300,13 @@ async function executeGatewayPlugin(
 async function readExistingFileContent(
   executionService: RuntimeExecutionService,
   path: string,
-): Promise<string> {
+): Promise<string | null> {
   const result = await executeGatewayPlugin(executionService, "read_file", {
     path,
   });
   const failure = extractExecutionFailure(result);
   if (failure) {
-    return "";
+    return null;
   }
   return formatExecutionResult(result);
 }

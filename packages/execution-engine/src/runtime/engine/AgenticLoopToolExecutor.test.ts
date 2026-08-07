@@ -50,6 +50,91 @@ describe("AgenticLoopToolExecutor", () => {
     ]);
   });
 
+  it("drops a synthesized hash guard when write_file creates a new path", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        if (plugin === "filesystem" && action === "read_file") {
+          return { success: false, error: "File not found" };
+        }
+        return { success: true, output: "Wrote file" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-create-1",
+      toolName: "write_file",
+      toolInput: {
+        path: "local/new-file.txt",
+        content: "created",
+        expectedSha256: "0".repeat(64),
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls).toEqual([
+      {
+        plugin: "filesystem",
+        action: "read_file",
+        payload: { path: "local/new-file.txt" },
+      },
+      {
+        plugin: "filesystem",
+        action: "write_file",
+        payload: {
+          path: "local/new-file.txt",
+          content: "created",
+          expectedSha256: undefined,
+        },
+      },
+    ]);
+  });
+
+  it("preserves a hash guard when write_file replaces an empty file", async () => {
+    const calls: Array<{
+      plugin: string;
+      action: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const expectedSha256 =
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    const executionService: RuntimeExecutionService = {
+      execute: async (plugin, action, payload) => {
+        calls.push({ plugin, action, payload });
+        if (plugin === "filesystem" && action === "read_file") {
+          return { success: true, output: "" };
+        }
+        return { success: true, output: "Wrote file" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-replace-empty-1",
+      toolName: "write_file",
+      toolInput: {
+        path: "local/empty.txt",
+        content: "updated",
+        expectedSha256,
+      },
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(calls[1]).toEqual({
+      plugin: "filesystem",
+      action: "write_file",
+      payload: {
+        path: "local/empty.txt",
+        content: "updated",
+        expectedSha256,
+      },
+    });
+  });
+
   it("rejects traversal in edit paths before plugin execution", async () => {
     let executeCallCount = 0;
     const executionService: RuntimeExecutionService = {
