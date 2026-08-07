@@ -1144,6 +1144,10 @@ describe("RunEngineRequestHandler", () => {
     } as unknown as LifecycleEventStore;
     const approvalRegistry = new InMemoryRunApprovalResolutionRegistry();
     const resolve = vi.fn(async () => {
+      await expect(approvals.getResolvedDecision(approvalId)).resolves.toBeNull();
+      await expect(approvals.getPendingRequest()).resolves.toMatchObject({
+        requestId: approvalId,
+      });
       events.push({
         type: "approval.decided",
         approvalId,

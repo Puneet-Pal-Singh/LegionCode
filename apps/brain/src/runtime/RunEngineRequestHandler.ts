@@ -640,22 +640,13 @@ export class RunEngineRequestHandler {
     }
 
     const approvalStore = new PermissionApprovalStore(runtimeState, runId);
-    try {
-      await approvalStore.resolveDecision(
-        {
-          kind: mapLifecycleApprovalDecision(payload.decision),
-          requestId: payload.approvalId,
-        },
-        run.metadata.actorUserId,
-      );
-    } catch (error) {
+    const pendingApproval = await approvalStore.getPendingRequest();
+    if (!pendingApproval || pendingApproval.requestId !== payload.approvalId) {
       return runEngineErrorResponse(
         request,
         this.env,
-        error instanceof Error
-          ? error.message
-          : "Unable to resolve lifecycle approval decision",
-        mapApprovalResolutionErrorStatus(error),
+        "No matching pending approval request",
+        409,
       );
     }
 
@@ -671,7 +662,6 @@ export class RunEngineRequestHandler {
         },
       );
     } catch (error) {
-      await approvalStore.discardResolvedDecision(payload.approvalId);
       return runEngineErrorResponse(
         request,
         this.env,
@@ -682,12 +672,34 @@ export class RunEngineRequestHandler {
       );
     }
     if (!delivered) {
-      await approvalStore.discardResolvedDecision(payload.approvalId);
       return runEngineErrorResponse(
         request,
         this.env,
         "Approval decision could not be delivered to the active runtime turn.",
         409,
+      );
+    }
+
+    // RuntimeKernel owns canonical approval settlement. Persist the legacy
+    // permission allowance only after the kernel has appended approval.decided
+    // and woken its active loop; writing it first races the wait port and can
+    // settle the turn before the canonical resolver receives the decision.
+    try {
+      await approvalStore.resolveDecision(
+        {
+          kind: mapLifecycleApprovalDecision(payload.decision),
+          requestId: payload.approvalId,
+        },
+        run.metadata.actorUserId,
+      );
+    } catch (error) {
+      return runEngineErrorResponse(
+        request,
+        this.env,
+        error instanceof Error
+          ? error.message
+          : "Unable to persist lifecycle approval decision",
+        mapApprovalResolutionErrorStatus(error),
       );
     }
 
