@@ -5,7 +5,6 @@ import {
   enrichModelFromModelDev,
   parseModelDevCatalog,
 } from "./ModelDevCatalog";
-import { enrichProviderReasoningVariants } from "./ProviderReasoningVariants";
 
 const MODEL_DEV_FIXTURE = {
   openai: {
@@ -75,6 +74,20 @@ describe("parseModelDevCatalog", () => {
     expect(parseModelDevCatalog("nope")).toBeNull();
     expect(parseModelDevCatalog(null)).toBeNull();
     expect(parseModelDevCatalog({ openai: { models: "broken" } })).toBeNull();
+  });
+
+  it("keeps valid models when another upstream entry is malformed", () => {
+    const catalog = parseModelDevCatalog({
+      openai: {
+        models: {
+          "gpt-5.6-luna": MODEL_DEV_FIXTURE.openai.models["gpt-5"],
+          broken: { limit: { context: "many" } },
+        },
+      },
+    });
+
+    expect(catalog?.providers.openai.models["gpt-5.6-luna"]).toBeDefined();
+    expect(catalog?.providers.openai.models.broken).toBeUndefined();
   });
 
   it("accepts valid upstream zero limits and nullable effort values", () => {
@@ -405,14 +418,11 @@ describe("enrichModelFromModelDev", () => {
   });
 });
 
-describe("enrichment with reasoning variants", () => {
-  it("catalog efforts win over the regex variant fallback", () => {
+describe("catalog-owned reasoning variants", () => {
+  it("uses exactly the efforts declared by models.dev", () => {
     const catalog = parseModelDevCatalog(MODEL_DEV_FIXTURE)!;
     const base = makeModel({ id: "gpt-5" });
-    const enriched = enrichProviderReasoningVariants(
-      "openai",
-      enrichModelFromModelDev(catalog, "openai", base),
-    );
+    const enriched = enrichModelFromModelDev(catalog, "openai", base);
     expect(enriched.capabilities?.reasoningEfforts).toEqual([
       "minimal",
       "low",

@@ -19,8 +19,10 @@ import {
 } from "@repo/shared-types";
 
 const MODEL_DEV_CATALOG_URL = "https://models.dev/api.json";
-const MODEL_DEV_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
+const MODEL_DEV_CATALOG_TTL_MS = 60 * 60 * 1000;
 const MODEL_DEV_CATALOG_FAILURE_TTL_MS = 60 * 1000;
+const MODEL_DEV_REQUEST_TIMEOUT_MS = 10_000;
+const MODEL_DEV_REQUEST_ATTEMPTS = 3;
 
 let sharedCatalogCache:
   | { catalog: ModelDevCatalog | null; expiresAt: number }
@@ -85,12 +87,6 @@ const ModelDevModelSchema = z.object({
   temperature: z.boolean().optional(),
 });
 
-const ModelDevCatalogSchema = z.record(
-  z.object({
-    models: z.record(ModelDevModelSchema),
-  }),
-);
-
 export interface ModelDevCatalog {
   providers: Record<string, { models: Record<string, ModelDevModel> }>;
   fetchedAt: string;
@@ -140,11 +136,32 @@ export function parseModelDevCatalog(
   raw: unknown,
   fetchedAt = new Date().toISOString(),
 ): ModelDevCatalog | null {
-  const parsed = ModelDevCatalogSchema.safeParse(raw);
-  if (!parsed.success) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
-  return { providers: parsed.data, fetchedAt };
+  const providers: ModelDevCatalog["providers"] = {};
+  for (const [providerId, providerValue] of Object.entries(raw)) {
+    if (
+      !providerValue ||
+      typeof providerValue !== "object" ||
+      Array.isArray(providerValue)
+    ) {
+      continue;
+    }
+    const modelsValue = (providerValue as Record<string, unknown>).models;
+    if (!modelsValue || typeof modelsValue !== "object" || Array.isArray(modelsValue)) {
+      continue;
+    }
+    const models: Record<string, ModelDevModel> = {};
+    for (const [modelId, modelValue] of Object.entries(modelsValue)) {
+      const parsed = ModelDevModelSchema.safeParse(modelValue);
+      if (parsed.success) {
+        models[modelId] = parsed.data;
+      }
+    }
+    providers[providerId] = { models };
+  }
+  return Object.keys(providers).length > 0 ? { providers, fetchedAt } : null;
 }
 
 export interface ModelDevCatalogSource {
@@ -195,15 +212,16 @@ async function getSharedCatalog(url: string): Promise<ModelDevCatalog | null> {
   if (!sharedCatalogFetchPromise) {
     sharedCatalogFetchPromise = fetchAndParseCatalog(defaultFetchJson, url)
       .then((catalog) => {
+        const lastGoodCatalog = catalog ?? sharedCatalogCache?.catalog ?? null;
         sharedCatalogCache = {
-          catalog,
+          catalog: lastGoodCatalog,
           expiresAt:
             Date.now() +
             (catalog
               ? MODEL_DEV_CATALOG_TTL_MS
               : MODEL_DEV_CATALOG_FAILURE_TTL_MS),
         };
-        return catalog;
+        return lastGoodCatalog;
       })
       .finally(() => {
         sharedCatalogFetchPromise = null;
@@ -213,11 +231,42 @@ async function getSharedCatalog(url: string): Promise<ModelDevCatalog | null> {
 }
 
 async function defaultFetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`models.dev catalog request failed with ${response.status}`);
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MODEL_DEV_REQUEST_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      MODEL_DEV_REQUEST_TIMEOUT_MS,
+    );
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) {
+        const error = new Error(
+          `models.dev catalog request failed with ${response.status}`,
+        );
+        if (!isRetryableCatalogStatus(response.status)) {
+          throw error;
+        }
+        lastError = error;
+        continue;
+      }
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt === MODEL_DEV_REQUEST_ATTEMPTS) {
+        break;
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
-  return response.json();
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("models.dev catalog request failed");
+}
+
+function isRetryableCatalogStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 /**

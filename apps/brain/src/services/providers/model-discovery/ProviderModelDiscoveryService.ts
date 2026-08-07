@@ -29,10 +29,8 @@ import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatal
 import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
-import { enrichProviderReasoningVariants } from "./ProviderReasoningVariants";
 import {
   enrichModelFromModelDev,
-  type ModelDevCatalog,
   type ModelDevCatalogSource,
 } from "./ModelDevCatalog";
 import type { OpenRouterRecommendationInput } from "./types";
@@ -45,10 +43,6 @@ import {
 // background timers. A provider is revalidated on the first request after one
 // hour, while the explicit refresh action remains available to users.
 const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
-// The models.dev catalog changes rarely; a worker isolate refetches it at
-// most once per TTL.
-const MODEL_DEV_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
-const MODEL_DEV_CATALOG_FAILURE_TTL_MS = 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
 const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
@@ -64,8 +58,6 @@ export class ProviderModelDiscoveryService {
   private readonly observability: ProviderModelDiscoveryObservability;
   private readonly registryService: ProviderRegistryService;
   private readonly modelDevCatalogSource: ModelDevCatalogSource | null;
-  private catalogCache: { catalog: ModelDevCatalog | null; expiresAt: number } | null = null;
-  private catalogFetchPromise: Promise<ModelDevCatalog | null> | null = null;
 
   constructor(
     private readonly cacheStore: ProviderModelCacheStore,
@@ -303,39 +295,12 @@ export class ProviderModelDiscoveryService {
   ): Promise<ProviderModelCacheRecord["models"]> {
     const catalog = await this.getModelDevCatalog();
     return models.map((model) =>
-      enrichProviderReasoningVariants(
-        providerId,
-        catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
-      ),
+      catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
     );
   }
 
-  private async getModelDevCatalog(): Promise<ModelDevCatalog | null> {
-    if (!this.modelDevCatalogSource) {
-      return null;
-    }
-    if (this.catalogCache && this.catalogCache.expiresAt > Date.now()) {
-      return this.catalogCache.catalog;
-    }
-    if (!this.catalogFetchPromise) {
-      this.catalogFetchPromise = this.modelDevCatalogSource
-        .getCatalog()
-        .then((catalog) => {
-          this.catalogCache = {
-            catalog,
-            expiresAt:
-              Date.now() +
-              (catalog
-                ? MODEL_DEV_CATALOG_TTL_MS
-                : MODEL_DEV_CATALOG_FAILURE_TTL_MS),
-          };
-          return catalog;
-        })
-        .finally(() => {
-          this.catalogFetchPromise = null;
-        });
-    }
-    return this.catalogFetchPromise;
+  private async getModelDevCatalog() {
+    return (await this.modelDevCatalogSource?.getCatalog()) ?? null;
   }
 
   private async getCatalogWithCache(

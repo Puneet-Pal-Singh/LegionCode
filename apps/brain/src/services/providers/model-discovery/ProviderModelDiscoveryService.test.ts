@@ -4,6 +4,7 @@ import type { ProviderCredentialService } from "../ProviderCredentialService";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
 import { ProviderModelDiscoveryAuthError } from "./errors";
+import { parseModelDevCatalog } from "./ModelDevCatalog";
 
 function createStoreStub() {
   let cache: {
@@ -142,7 +143,7 @@ describe("ProviderModelDiscoveryService", () => {
     ).toBe(1);
   });
 
-  it("enriches cached OpenAI GPT-5 models with OpenCode-style variants", async () => {
+  it("enriches cached OpenAI models with catalog-declared variants", async () => {
     const store = createStoreStub();
     const now = Date.now();
     await store.setModelCache({
@@ -170,6 +171,28 @@ describe("ProviderModelDiscoveryService", () => {
       store as unknown as ProviderModelCacheStore,
       credentialService,
       { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      {
+        getCatalog: vi.fn(async () =>
+          parseModelDevCatalog({
+            openai: {
+              models: {
+                "gpt-5.6-luna": {
+                  reasoning: true,
+                  reasoning_options: [
+                    {
+                      type: "effort",
+                      values: ["none", "low", "medium", "high", "xhigh", "max"],
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+        ),
+      },
     );
 
     const result = await service.getDiscoveredModels("openai", {
@@ -184,6 +207,7 @@ describe("ProviderModelDiscoveryService", () => {
       "medium",
       "high",
       "xhigh",
+      "max",
     ]);
     expect(result.models[0]?.capabilityMetadata).toMatchObject({
       source: "platform_registry",
