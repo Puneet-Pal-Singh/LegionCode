@@ -14,13 +14,13 @@ export function buildLifecycleTerminalViewModel(
   if (!projection?.terminal) {
     return null;
   }
-  if (projection.terminal.state === "completed" && projection.assistantText) {
-    return null;
-  }
   return {
     id: `terminal:${projection.turnId}`,
     state: mapTerminalState(projection.terminal.state),
-    content: projection.terminal.content,
+    content:
+      projection.terminal.state === "completed"
+        ? projection.assistantText || projection.terminal.content
+        : projection.terminal.content,
     artifactId: null,
   };
 }

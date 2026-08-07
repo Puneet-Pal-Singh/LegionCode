@@ -28,7 +28,7 @@ describe("buildChatEntries", () => {
     ]);
   });
 
-  it("places canonical workflow between its user prompt and final answer", () => {
+  it("keeps canonical final output in its workflow instead of duplicating transcript output", () => {
     const turnId = TurnIdSchema.parse("trn_entries01");
     const user = withTurnIdentity(
       createMessage("user-1", "user", "Inspect the repo"),
@@ -41,6 +41,13 @@ describe("buildChatEntries", () => {
     const projection = {
       ...createLifecycleProjection(turnId),
       lastSequence: 1,
+      assistantText: "Done",
+      terminal: {
+        state: "completed" as const,
+        eventId: "evt_entries01",
+        content: "Done",
+        occurredAt: "2026-06-25T00:00:01.000Z",
+      },
     };
 
     expect(
@@ -49,7 +56,7 @@ describe("buildChatEntries", () => {
       }).map((entry) =>
         entry.kind === "message" ? entry.message.id : entry.kind,
       ),
-    ).toEqual(["user-1", "workflow", "assistant-1"]);
+    ).toEqual(["user-1", "workflow"]);
   });
 
   it("keeps the active canonical workflow visible while transcript identity catches up", () => {

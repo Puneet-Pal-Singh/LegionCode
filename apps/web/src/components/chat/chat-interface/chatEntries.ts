@@ -33,7 +33,12 @@ export function buildChatEntries(
       });
       emittedWorkflowTurnIds.add(turnId);
     }
-    if (shouldIncludeAssistantMessage(conversationTurn.assistantMessage)) {
+    if (
+      shouldIncludeAssistantMessage(
+        conversationTurn.assistantMessage,
+        projection,
+      )
+    ) {
       entries.push({
         kind: "message",
         message: conversationTurn.assistantMessage,
@@ -60,8 +65,15 @@ export function buildChatEntries(
 
 function shouldIncludeAssistantMessage(
   message: Message | undefined,
+  projection?: LifecycleProjection,
 ): message is Message {
   if (!message || message.role !== "assistant") return false;
+  if (
+    projection?.terminal?.state === "completed" &&
+    projection.assistantText.trim()
+  ) {
+    return false;
+  }
   const terminalState = readTerminalState(message);
   return terminalState == null || terminalState === "completed";
 }
