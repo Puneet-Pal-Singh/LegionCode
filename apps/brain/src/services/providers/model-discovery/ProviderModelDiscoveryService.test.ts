@@ -465,6 +465,16 @@ describe("ProviderModelDiscoveryService", () => {
       "high",
     ]);
     expect(modelDevCatalog.getCatalog).toHaveBeenCalledTimes(1);
+    expect(store.setModelCache).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.arrayContaining([
+          expect.objectContaining({
+            id: "gpt-5",
+            contextWindow: 400000,
+          }),
+        ]),
+      }),
+    );
   });
 
   it("serves un-enriched models when the models.dev catalog is unavailable", async () => {

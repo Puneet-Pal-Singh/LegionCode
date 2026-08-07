@@ -317,10 +317,7 @@ export class ProviderModelDiscoveryService {
 
     try {
       const fresh = await this.fetchAndCacheModels(providerId);
-      return {
-        ...fresh,
-        models: await this.enrichCatalogModels(providerId, fresh.models),
-      };
+      return fresh;
     } catch (error) {
       this.observability.recordAdapterFailure(
         providerId,
@@ -447,10 +444,15 @@ export class ProviderModelDiscoveryService {
         `${providerId} credentials are not connected for model discovery.`,
       );
     }
-    const models = await adapter.fetchAll(providerId, {
+    const discoveredModels = await adapter.fetchAll(providerId, {
       apiKey,
       connectionConfig,
     });
+    // Persist the canonical enriched model record, not the sparse provider
+    // inventory. Subsequent picker loads can then render context, pricing, and
+    // reasoning metadata immediately without waiting for another catalog
+    // request in a fresh worker isolate.
+    const models = await this.enrichCatalogModels(providerId, discoveredModels);
     const fetchedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
     const record: ProviderModelCacheRecord = {
