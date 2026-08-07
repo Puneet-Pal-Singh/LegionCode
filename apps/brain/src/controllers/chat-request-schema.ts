@@ -15,6 +15,10 @@ const SerializableToolDefinitionSchema = z.object({
 });
 
 export const ChatRequestBodySchema = z.object({
+  // The Vercel AI SDK adds its chat instance identifier to every request.
+  // Canonical thread/turn/run identity remains in `identity`; this transport
+  // identifier is accepted only so the adapter boundary can ignore it.
+  id: z.string().trim().min(1).optional(),
   messages: z.array(z.unknown()).optional(),
   clientMessageId: z.string().trim().min(1).optional(),
   tools: z.record(SerializableToolDefinitionSchema).optional(),

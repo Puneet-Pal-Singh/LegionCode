@@ -836,9 +836,11 @@ export function useChatCore(
         return;
       }
       restoreChatInput(originalInput);
-      setPendingUserMessage((current) =>
-        current?.scopeKey === requestScopeKey ? null : current,
-      );
+      // A successful bootstrap replaces the pre-admission scope key with the
+      // canonical turn scope. If the subsequent transport request is rejected,
+      // this handler still owns the only active submission and must clear that
+      // projection as well; otherwise the UI remains stuck on "Starting".
+      setPendingUserMessage(null);
       const message =
         error instanceof Error
           ? normalizeChatErrorMessage(error)

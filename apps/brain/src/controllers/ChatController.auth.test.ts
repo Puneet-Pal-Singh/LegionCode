@@ -79,6 +79,37 @@ describe("ChatController auth contract", () => {
     expect(response.status).toBe(400);
     expect(runtime.fetch).not.toHaveBeenCalled();
   });
+
+  it("accepts the AI SDK transport id without using it as lifecycle identity", async () => {
+    const runtime = createMockRuntimeNamespace();
+    const env = createEnv(runtime.namespace);
+
+    const response = await ChatController.handle(
+      createChatRequest({
+        headers: {
+          Cookie: `shadowbox_session=${TEST_SESSION_TOKEN}`,
+        },
+        body: { id: "web-chat-instance" },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const fetchCall = runtime.fetch.mock.calls[0];
+    expect(fetchCall).toBeDefined();
+    const payload = JSON.parse((fetchCall?.[1] as { body: string }).body) as {
+      identity?: {
+        threadId?: string;
+        turnId?: string;
+        runAttemptId?: string;
+      };
+    };
+    expect(payload.identity).toMatchObject({
+      threadId: "thr_test001",
+      turnId: "trn_test001",
+      runAttemptId: "attempt_test001",
+    });
+  });
 });
 
 function createChatRequest(options?: {
