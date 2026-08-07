@@ -168,11 +168,37 @@ describe("ProviderCatalogService", () => {
     });
   });
 
-  it("returns a typed unavailable state after the bounded selected-provider timeout", async () => {
+  it("does not preempt the discovery adapter's network deadline", async () => {
     vi.useFakeTimers();
     try {
       const discovery = createDiscoveryStub();
-      discovery.getDiscoveredModels.mockReturnValue(new Promise(() => {}));
+      discovery.getDiscoveredModels.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  providerId: "google",
+                  view: "popular",
+                  models: [
+                    {
+                      id: "gemini-2.5-flash",
+                      name: "Gemini 2.5 Flash",
+                      providerId: "google",
+                    },
+                  ],
+                  page: { limit: 50, hasMore: false },
+                  metadata: {
+                    fetchedAt: new Date().toISOString(),
+                    stale: false,
+                    source: "provider_api",
+                    status: "available",
+                  },
+                }),
+              5_100,
+            );
+          }),
+      );
       const service = new ProviderCatalogService(
         new ProviderRegistryService(),
         discovery as never,
@@ -183,15 +209,14 @@ describe("ProviderCatalogService", () => {
         surface: "picker",
         limit: 50,
       });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_100);
       const response = await request;
 
       expect(response).toMatchObject({
         providerId: "google",
-        models: [],
+        models: [{ id: "gemini-2.5-flash" }],
         metadata: {
-          status: "unavailable",
-          statusReason: "timeout",
+          status: "available",
           stale: false,
         },
       });
@@ -223,23 +248,38 @@ describe("ProviderCatalogService", () => {
     expect(response.metadata.statusReason).toBe("timeout");
   });
 
-  it("bounds explicit selected-provider refreshes", async () => {
+  it("lets explicit refresh use the discovery adapter's network deadline", async () => {
     vi.useFakeTimers();
     try {
       const discovery = createDiscoveryStub();
-      discovery.refreshDiscoveredModels.mockReturnValue(new Promise(() => {}));
+      discovery.refreshDiscoveredModels.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  providerId: "google",
+                  refreshedAt: new Date().toISOString(),
+                  source: "provider_api",
+                  cacheInvalidated: true,
+                  modelsCount: 3,
+                }),
+              5_100,
+            );
+          }),
+      );
       const service = new ProviderCatalogService(
         new ProviderRegistryService(),
         discovery as never,
       );
 
       const refresh = service.refreshDiscoveredModels("google");
-      const refreshExpectation = expect(refresh).rejects.toMatchObject({
-        status: 504,
-      });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_100);
 
-      await refreshExpectation;
+      await expect(refresh).resolves.toMatchObject({
+        providerId: "google",
+        modelsCount: 3,
+      });
     } finally {
       vi.useRealTimers();
     }
