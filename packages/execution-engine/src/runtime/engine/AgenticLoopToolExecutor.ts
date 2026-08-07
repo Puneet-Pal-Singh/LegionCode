@@ -37,6 +37,7 @@ import type {
   TaskInput,
   TaskResult,
 } from "../types.js";
+import { resolveWriteFileExpectedSha256 } from "./WriteFilePrecondition.js";
 
 const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
   /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
@@ -312,12 +313,10 @@ async function executeWriteFileTool(
   const result = await executeGatewayPlugin(executionService, "write_file", {
     path,
     content: validatedInput.content,
-    // A hash guard only describes content that already exists. Some providers
-    // synthesize a guard for creation requests; forwarding it makes the secure
-    // filesystem correctly reject the missing target before it can be created.
-    // Preserve guards for every existing file, including an empty one.
-    expectedSha256:
-      previousContent === null ? undefined : validatedInput.expectedSha256,
+    expectedSha256: resolveWriteFileExpectedSha256(
+      previousContent,
+      validatedInput.expectedSha256,
+    ),
   });
   const failure = extractExecutionFailure(result);
   if (failure) {

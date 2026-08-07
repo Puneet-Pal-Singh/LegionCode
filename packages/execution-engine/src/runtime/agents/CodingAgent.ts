@@ -38,6 +38,7 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
+import { resolveWriteFileExpectedSha256 } from "../engine/WriteFilePrecondition.js";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -143,7 +144,10 @@ export class CodingAgent extends BaseAgent {
         providerTransport: context.providerTransport,
         providerEndpoint: context.providerEndpoint,
       });
-      return projectVisibleTranscriptText(result.parts ?? []) || groundedSummary.fallbackSummary;
+      return (
+        projectVisibleTranscriptText(result.parts ?? []) ||
+        groundedSummary.fallbackSummary
+      );
     } catch (error) {
       console.warn(
         `[agents/coding] Falling back to grounded summary for run ${context.runId}`,
@@ -405,14 +409,21 @@ VALIDATION RULES:
     const result = await this.executeGatewayPlugin("write_file", {
       path,
       content,
-      expectedSha256: validatedInput.expectedSha256,
+      expectedSha256: resolveWriteFileExpectedSha256(
+        existingContent,
+        validatedInput.expectedSha256,
+      ),
     });
     const failure = extractExecutionFailure(result);
     if (failure) {
       return this.buildFailureResult(task.id, failure);
     }
     return this.buildSuccessResult(task.id, formatExecutionResult(result), {
-      activity: buildWriteActivityMetadata(path, existingContent, content),
+      activity: buildWriteActivityMetadata(
+        path,
+        existingContent ?? "",
+        content,
+      ),
     });
   }
 
@@ -876,11 +887,11 @@ VALIDATION RULES:
     return this.executionService.execute(route.plugin, route.action, payload);
   }
 
-  private async readExistingFileContent(path: string): Promise<string> {
+  private async readExistingFileContent(path: string): Promise<string | null> {
     const readResult = await this.executeGatewayPlugin("read_file", { path });
     const failure = extractExecutionFailure(readResult);
     if (failure) {
-      return "";
+      return null;
     }
     return formatExecutionResult(readResult);
   }
@@ -923,7 +934,10 @@ VALIDATION RULES:
       providerTransport: context.providerTransport,
       providerEndpoint: context.providerEndpoint,
     });
-    return this.buildSuccessResult(task.id, projectVisibleTranscriptText(result.parts ?? []));
+    return this.buildSuccessResult(
+      task.id,
+      projectVisibleTranscriptText(result.parts ?? []),
+    );
   }
 
   private buildSuccessResult(

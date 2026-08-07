@@ -21,7 +21,10 @@ describe("CodingAgent task-phase model selection", () => {
           type: "analyze",
           status: "DONE",
           dependencies: [],
-          input: { description: "Read PendingJobCard.tsx", path: "PendingJobCard.tsx" },
+          input: {
+            description: "Read PendingJobCard.tsx",
+            path: "PendingJobCard.tsx",
+          },
           output: { content: "Read file successfully" },
           retryCount: 0,
           maxRetries: 0,
@@ -34,7 +37,9 @@ describe("CodingAgent task-phase model selection", () => {
     });
 
     expect(synthesis).toContain("I'm not done with that change yet.");
-    expect(synthesis).toContain("did not record any successful edit/write task");
+    expect(synthesis).toContain(
+      "did not record any successful edit/write task",
+    );
     expect(llmGateway.generateText).not.toHaveBeenCalled();
   });
 
@@ -58,7 +63,10 @@ describe("CodingAgent task-phase model selection", () => {
           type: "write_file",
           status: "DONE",
           dependencies: [],
-          input: { description: "Update landing page", path: "src/app/page.tsx" },
+          input: {
+            description: "Update landing page",
+            path: "src/app/page.tsx",
+          },
           output: {
             content: "Wrote 100 bytes to src/app/page.tsx",
             metadata: {
@@ -367,6 +375,40 @@ describe("CodingAgent task-phase model selection", () => {
     });
   });
 
+  it("drops a provider-synthesized hash guard when write_file creates a path", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ success: false, error: "File not found" })
+      .mockResolvedValueOnce({ success: true, output: "Wrote file" });
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const task = {
+      id: "task-create-file",
+      runId: "run-1",
+      type: "write_file",
+      input: {
+        path: "local/new-file.txt",
+        content: "created",
+        expectedSha256: "0".repeat(64),
+      },
+    } as unknown as Task;
+
+    const result = await agent.executeTask(task, {
+      runId: "run-1",
+      sessionId: "session-1",
+      dependencies: [],
+    });
+
+    expect(result.status).toBe("DONE");
+    expect(execute).toHaveBeenNthCalledWith(2, "filesystem", "write_file", {
+      path: "local/new-file.txt",
+      content: "created",
+      expectedSha256: undefined,
+    });
+  });
+
   it("uses discovery-first analyze flow for ambiguous targets", async () => {
     const llmGateway = createLLMGatewayMock();
     const execute = vi.fn(async () => ({
@@ -442,9 +484,7 @@ describe("CodingAgent task-phase model selection", () => {
     const result = await agent.executeTask(task, context);
 
     expect(result.status).toBe("FAILED");
-    expect(result.error?.message).toContain(
-      "unexpected call filesystem:grep",
-    );
+    expect(result.error?.message).toContain("unexpected call filesystem:grep");
   });
 
   it("rejects invalid grep input types via golden-flow schema validation", async () => {
@@ -480,9 +520,7 @@ describe("CodingAgent task-phase model selection", () => {
   });
 });
 
-function createLLMGatewayMock(
-  overrides?: Partial<ILLMGateway>,
-): ILLMGateway {
+function createLLMGatewayMock(overrides?: Partial<ILLMGateway>): ILLMGateway {
   return {
     generateText: vi.fn(async () => ({
       text: "reviewed",
