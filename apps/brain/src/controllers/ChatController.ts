@@ -248,6 +248,20 @@ export class ChatController {
         });
       }
 
+      if (
+        body.reasoningEffort &&
+        trustedModelMetadata.reasoningEfforts &&
+        !trustedModelMetadata.reasoningEfforts.includes(body.reasoningEffort)
+      ) {
+        return errorResponse(
+          req,
+          env,
+          `Reasoning effort "${body.reasoningEffort}" is not supported by the selected model.`,
+          400,
+          "UNSUPPORTED_REASONING_EFFORT",
+        );
+      }
+
       const useCaseStartedAt = Date.now();
       const useCaseResult = await useCase.execute(
         {
