@@ -148,6 +148,7 @@ import type {
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
+import { requirePersistedPermissionContext } from "./RuntimePermissionContext.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
@@ -867,18 +868,6 @@ export class RuntimeKernelNativeRunner {
       });
     }
   }
-}
-
-export function requirePersistedPermissionContext(
-  run: Run,
-): NonNullable<Run["metadata"]["permissionContext"]> {
-  const permissionContext = run.metadata.permissionContext;
-  if (!permissionContext) {
-    throw new Error(
-      `[runtime-kernel/native] Run ${run.id} is missing persisted permission context`,
-    );
-  }
-  return permissionContext;
 }
 
 function describeRuntimeErrorCause(error: unknown): string | null {

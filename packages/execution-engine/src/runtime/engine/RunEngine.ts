@@ -87,6 +87,7 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { PermissionGateError } from "./PermissionGateError.js";
+import { readLatestUserMessageId } from "./RunInputMessages.js";
 import {
   buildApprovalDecisionMessage,
   extractApprovalDecision,
@@ -1047,17 +1048,6 @@ export function parseRunReasoningEffort(metadata: RunInput["metadata"]) {
   return parsed.data;
 }
 
-function readLatestUserMessageId(messages: CoreMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== "user") {
-      continue;
-    }
-    const id = (message as CoreMessage & { id?: unknown }).id;
-    return typeof id === "string" && id.trim() ? id.trim() : null;
-  }
-  return null;
-}
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requirePersistedPermissionContext } from "./RuntimeKernelNativeRunner.js";
+import { requirePersistedPermissionContext } from "./RuntimePermissionContext.js";
 
 describe("requirePersistedPermissionContext", () => {
   it("fails closed when a resumed run lacks persisted policy context", () => {
