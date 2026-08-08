@@ -379,6 +379,7 @@ export class ProviderStore {
           this.ensureProviderModelsFresh(providerId),
         loadManageModels: (providerId) =>
           this.loadManageProviderModels(providerId),
+        isCurrent: () => epoch === this.workspaceEpoch,
       });
     } catch (error) {
       if (this.isWorkspaceEpochStale("bootstrap", epoch)) {

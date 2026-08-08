@@ -82,10 +82,10 @@
 
 @keyframes shimmer {
   0% {
-    background-position: 200% 0;
+    background-position: -200% 0;
   }
   100% {
-    background-position: -200% 0;
+    background-position: 200% 0;
   }
 }
 
@@ -99,7 +99,7 @@
   background-size: 220% 100%;
   background-clip: text;
   color: transparent;
-  animation: shimmer 2.4s linear infinite;
+  animation: shimmer 3.2s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

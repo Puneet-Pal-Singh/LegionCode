@@ -5,6 +5,7 @@ interface ConnectedProviderModelPreloaderInput {
   readonly credentials: readonly BYOKCredential[];
   readonly loadPickerModels: (providerId: string) => Promise<unknown>;
   readonly loadManageModels: (providerId: string) => Promise<unknown>;
+  readonly isCurrent: () => boolean;
 }
 
 /**
@@ -33,9 +34,15 @@ export async function preloadConnectedProviderModels(
 
   await Promise.allSettled(
     connectedProviderIds.map(async (providerId) => {
+      if (!input.isCurrent()) {
+        return;
+      }
       // Prioritize the picker and let the management request reuse the
       // provider cache instead of racing two cold inference API requests.
       await Promise.allSettled([input.loadPickerModels(providerId)]);
+      if (!input.isCurrent()) {
+        return;
+      }
       await input.loadManageModels(providerId);
     }),
   );

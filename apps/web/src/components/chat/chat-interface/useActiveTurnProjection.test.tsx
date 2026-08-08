@@ -4,6 +4,7 @@ import { createLifecycleProjection } from "../../../services/lifecycle/Lifecycle
 import type { TurnId } from "../../../services/api/lifecycleClient";
 import {
   deriveCanonicalRunLoading,
+  resolveActiveProjectionTurnId,
   useActiveTurnProjection,
 } from "../../../hooks/useActiveTurnProjection";
 
@@ -16,6 +17,23 @@ vi.mock("../../../hooks/useTurnLifecycleProjection.js", () => ({
 }));
 
 describe("useActiveTurnProjection", () => {
+  it("keeps a newly submitted scope from projecting a stale terminal turn", () => {
+    expect(
+      resolveActiveProjectionTurnId({
+        activeTurnId: null,
+        serverTurnId: "trn_previous001",
+        isSubmitting: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveActiveProjectionTurnId({
+        activeTurnId: "trn_current001",
+        serverTurnId: "trn_previous001",
+        isSubmitting: true,
+      }),
+    ).toBe("trn_current001");
+  });
+
   it("keeps transport loading pre-lifecycle and does not create workflow truth", () => {
     lifecycleMock.projection = null;
     const { result } = renderHook(() =>

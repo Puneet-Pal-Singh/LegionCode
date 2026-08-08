@@ -61,6 +61,7 @@ import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailur
 import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
+  resolveActiveProjectionTurnId,
   type ActiveTurnProjection,
 } from "./useActiveTurnProjection.js";
 
@@ -409,7 +410,11 @@ export function useChatCore(
   });
 
   const activeTurnProjection = useActiveTurnProjection({
-    turnId: serverTurnId,
+    turnId: resolveActiveProjectionTurnId({
+      activeTurnId: activeConversationScope?.turnId,
+      serverTurnId,
+      isSubmitting,
+    }),
     transportLoading: isTransportLoading || isSubmitting,
   });
   const isAwaitingTurnAdmission =
@@ -647,6 +652,11 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      // The previous scope may already be terminal. Clear it before admission
+      // so a lagging serverTurnId cannot make a fresh submission look settled.
+      setConversationScope(null);
+      activeConversationScopeRef.current = null;
+      activeScopeKeyRef.current = bootstrapScopeKey;
       preAdmissionStopKeyRef.current = null;
       stopRequestedRef.current = false;
       setPendingUserMessage({
@@ -1121,15 +1131,10 @@ function hasEquivalentLatestUserMessage(
   messages: Message[],
   pending: Message,
 ): boolean {
-  const pendingContent = pending.content.trim();
-  if (messages.some((message) => message.id === pending.id)) {
-    return true;
-  }
-  const latest = messages.at(-1);
-  return (
-    latest?.role === "user" &&
-    extractMessageText(latest.content).trim() === pendingContent
-  );
+  // Content equality is not an acknowledgement: two consecutive prompts can
+  // intentionally contain the same text. Only the client message id proves
+  // that the canonical transcript contains this pending submission.
+  return messages.some((message) => message.id === pending.id);
 }
 
 function extractMessageText(content: Message["content"]): string {

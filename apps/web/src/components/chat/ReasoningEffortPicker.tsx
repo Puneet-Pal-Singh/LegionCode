@@ -69,6 +69,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
               type="button"
               role="menuitemradio"
               aria-checked={value === option}
+              disabled={props.disabled}
               onClick={() => {
                 setSelection({ key: selectionKey, value: option });
                 saveReasoningEffortSelection(

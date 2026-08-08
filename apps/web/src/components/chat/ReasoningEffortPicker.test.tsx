@@ -27,4 +27,32 @@ describe("ReasoningEffortPicker", () => {
     fireEvent.click(screen.getByRole("menuitemradio", { name: "light" }));
     expect(picker).toHaveTextContent("light");
   });
+
+  it("does not allow an open menu to change selection after disabling", () => {
+    const { rerender } = render(
+      <ReasoningEffortPicker
+        providerId="openai"
+        modelId="gpt-5.6-luna"
+        efforts={["low", "high"]}
+        disabled={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reasoning effort" }));
+    rerender(
+      <ReasoningEffortPicker
+        providerId="openai"
+        modelId="gpt-5.6-luna"
+        efforts={["low", "high"]}
+        disabled
+      />,
+    );
+
+    const option = screen.getByRole("menuitemradio", { name: "high" });
+    expect(option).toBeDisabled();
+    fireEvent.click(option);
+    expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveTextContent(
+      "Default",
+    );
+  });
 });

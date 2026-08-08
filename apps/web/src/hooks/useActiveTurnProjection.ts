@@ -22,6 +22,17 @@ export function deriveCanonicalRunLoading(
     : transportPending;
 }
 
+export function resolveActiveProjectionTurnId(input: {
+  activeTurnId: string | null | undefined;
+  serverTurnId: string | null;
+  isSubmitting: boolean;
+}): string | null {
+  if (input.activeTurnId) {
+    return input.activeTurnId;
+  }
+  return input.isSubmitting ? null : input.serverTurnId;
+}
+
 export function useActiveTurnProjection(input: {
   turnId: string | null | undefined;
   transportLoading: boolean;
