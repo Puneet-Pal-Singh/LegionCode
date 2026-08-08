@@ -94,6 +94,11 @@ describe("ProviderApiClient", () => {
           id: "openai/gpt-4o-mini",
           name: "GPT-4o Mini",
           providerId: "openrouter",
+          pricing: {
+            inputPer1M: 0.15,
+            outputPer1M: 0.6,
+            currency: "USD",
+          },
         },
       ];
       fetchSpy.mockResolvedValueOnce({
@@ -135,11 +140,16 @@ describe("ProviderApiClient", () => {
       expect(models.providerId).toBe("openrouter");
       expect(models.view).toBe("popular");
       expect(models.models).toEqual([
-        {
-          id: "openai/gpt-4o-mini",
-          name: "GPT-4o Mini",
-          provider: "openrouter",
-        },
+          {
+            id: "openai/gpt-4o-mini",
+            name: "GPT-4o Mini",
+            provider: "openrouter",
+            pricing: {
+              inputPer1M: 0.15,
+              outputPer1M: 0.6,
+              currency: "USD",
+            },
+          },
       ]);
       expect(models.page.hasMore).toBe(false);
       expect(models.metadata.stale).toBe(false);

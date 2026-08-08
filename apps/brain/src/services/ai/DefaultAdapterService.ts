@@ -46,7 +46,7 @@ class MissingProviderConfigAdapter implements ProviderAdapter {
   private readonly configurationError: ValidationError;
 
   constructor(env: Env) {
-    this.provider = env.LLM_PROVIDER ?? "litellm";
+    this.provider = env.LLM_PROVIDER ?? "openai";
     this.configurationError = new ValidationError(
       "No default provider key is configured. Connect a BYOK provider in Settings or configure explicit runtime provider credentials.",
       "INFERENCE_PROVIDER_NOT_CONFIGURED",

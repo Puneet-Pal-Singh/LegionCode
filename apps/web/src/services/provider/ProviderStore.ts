@@ -32,6 +32,7 @@ import {
   type ProviderModelsQuery,
 } from "../api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import { preloadConnectedProviderModels } from "./ConnectedProviderModelPreloader.js";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 const PROVIDER_MODEL_CACHE_MAX_AGE_MS = 60 * 60 * 1_000;
@@ -369,6 +370,16 @@ export class ProviderStore {
       this.log("[bootstrap] Success", {
         providers: catalog.length,
         credentials: credentials.length,
+      });
+
+      void preloadConnectedProviderModels({
+        catalog,
+        credentials,
+        loadPickerModels: (providerId) =>
+          this.ensureProviderModelsFresh(providerId),
+        loadManageModels: (providerId) =>
+          this.loadManageProviderModels(providerId),
+        isCurrent: () => epoch === this.workspaceEpoch,
       });
     } catch (error) {
       if (this.isWorkspaceEpochStale("bootstrap", epoch)) {

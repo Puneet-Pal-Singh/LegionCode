@@ -23,11 +23,8 @@ import {
 } from "./model-discovery/errors";
 import {
   AXIS_PROVIDER_ID,
-  getAxisCatalogModels,
   getAxisDiscoveredModels,
 } from "./axis";
-
-const MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 
 type ProviderCatalogVisibilityResolver = (
   provider: ProviderRegistryEntry,
@@ -80,45 +77,38 @@ export class ProviderCatalogService {
     }
 
     if (providerId === AXIS_PROVIDER_ID) {
-      return createRegistryResponse(
+      const models = await this.modelDiscoveryService.enrichModels(
         providerId,
-        query,
-        getAxisCatalogModels().map((model) => ({
-          id: model.id,
-          name: model.name,
-          providerId,
-          contextWindow: model.contextWindow,
-          description: model.description,
-        })),
+        getAxisDiscoveredModels(),
       );
+      return createRegistryResponse(providerId, query, models);
     }
 
     if (provider.modelSource === "static") {
       const defaultModelId = provider.defaultModelId;
+      const models = defaultModelId
+        ? await this.modelDiscoveryService.enrichModels(providerId, [
+            {
+              id: defaultModelId,
+              name: defaultModelId,
+              providerId,
+              contextWindow: builtinProviderRegistry.getModel(
+                providerId,
+                defaultModelId,
+              )?.contextWindow,
+            },
+          ])
+        : [];
       return createRegistryResponse(
         providerId,
         query,
-        defaultModelId
-          ? [
-              {
-                id: defaultModelId,
-                name: defaultModelId,
-                providerId,
-                contextWindow: builtinProviderRegistry.getModel(
-                  providerId,
-                  defaultModelId,
-                )?.contextWindow,
-              },
-            ]
-          : [],
+        models,
       );
     }
 
     try {
-      const discovered = await withTimeout(
-        this.modelDiscoveryService.getDiscoveredModels(providerId, query),
-        MODEL_DISCOVERY_TIMEOUT_MS,
-      );
+      const discovered =
+        await this.modelDiscoveryService.getDiscoveredModels(providerId, query);
       return {
         ...discovered,
         metadata: {
@@ -147,10 +137,7 @@ export class ProviderCatalogService {
         modelsCount: getAxisDiscoveredModels().length,
       };
     }
-    return withTimeout(
-      this.modelDiscoveryService.refreshDiscoveredModels(providerId),
-      MODEL_DISCOVERY_TIMEOUT_MS,
-    );
+    return this.modelDiscoveryService.refreshDiscoveredModels(providerId);
   }
 
   private async isProviderVisible(providerId: string): Promise<boolean> {
@@ -226,32 +213,6 @@ function createUnavailableResponse(
       statusReason,
     },
   };
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(
-      () =>
-        reject(
-          new ProviderModelDiscoveryApiError(
-            "Provider model discovery timed out.",
-            { status: 504, retryable: true },
-          ),
-        ),
-      timeoutMs,
-    );
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
 }
 
 function toUnavailableReason(

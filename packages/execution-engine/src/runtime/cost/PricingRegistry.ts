@@ -1,8 +1,14 @@
 // apps/brain/src/core/cost/PricingRegistry.ts
 // Phase 3.1: Registry pricing with boot-time seed loading
 
-import type { LLMUsage, CalculatedCost, PricingEntry } from "./types.js";
+import type {
+  LLMUsage,
+  CalculatedCost,
+  PricingEntry,
+  PricingTierEntry,
+} from "./types.js";
 import { DEFAULT_SEED_PRICING } from "./pricing.default.js";
+import { BYOKModelPricingSchema } from "@repo/shared-types";
 
 export interface PricingRegistryOptions {
   failOnUnseededPricing?: boolean;
@@ -70,13 +76,29 @@ export class PricingRegistry implements IPricingRegistry {
       };
     }
 
-    const inputCost = (usage.promptTokens / 1000) * pricing.inputPrice;
-    const outputCost = (usage.completionTokens / 1000) * pricing.outputPrice;
+    const activePricing = resolvePricingTier(pricing, usage.promptTokens);
+    const cachedInputTokens = Math.min(
+      usage.cachedInputTokens ?? 0,
+      usage.promptTokens,
+    );
+    const uncachedInputTokens = Math.max(
+      0,
+      usage.promptTokens - cachedInputTokens,
+    );
+    const cacheReadPrice =
+      activePricing.cacheReadPrice ??
+      pricing.cacheReadPrice ??
+      activePricing.inputPrice;
+    const inputCost =
+      (uncachedInputTokens / 1000) * activePricing.inputPrice;
+    const cacheReadCost = (cachedInputTokens / 1000) * cacheReadPrice;
+    const outputCost =
+      (usage.completionTokens / 1000) * activePricing.outputPrice;
 
     return {
       inputCost,
       outputCost,
-      totalCost: inputCost + outputCost,
+      totalCost: inputCost + cacheReadCost + outputCost,
       currency: pricing.currency,
       pricingSource: "registry",
     };
@@ -129,13 +151,28 @@ export class PricingRegistry implements IPricingRegistry {
 
   private normalizePricingEntry(key: string, entry: PricingEntry): PricingEntry {
     const rawEntry = this.parsePricingDataEntry(key, entry);
-    const inputPrice = this.parseFiniteNumber(rawEntry.inputPrice, key, "inputPrice");
+    const inputPrice = this.parseFiniteNumber(
+      rawEntry.inputPrice,
+      key,
+      "inputPrice",
+    );
     const outputPrice = this.parseFiniteNumber(
       rawEntry.outputPrice,
       key,
       "outputPrice",
     );
     const currency = this.parseCurrency(rawEntry.currency, key);
+    const cacheReadPrice = this.parseOptionalFiniteNumber(
+      rawEntry.cacheReadPrice,
+      key,
+      "cacheReadPrice",
+    );
+    const cacheWritePrice = this.parseOptionalFiniteNumber(
+      rawEntry.cacheWritePrice,
+      key,
+      "cacheWritePrice",
+    );
+    const tiers = this.parsePricingTiers(rawEntry.tiers, key);
     const effectiveDateCandidate = this.parseOptionalString(rawEntry.effectiveDate);
     const lastUpdatedCandidate = this.parseOptionalString(rawEntry.lastUpdated);
     const effectiveDate = effectiveDateCandidate ?? lastUpdatedCandidate;
@@ -149,6 +186,9 @@ export class PricingRegistry implements IPricingRegistry {
     return {
       inputPrice,
       outputPrice,
+      ...(cacheReadPrice !== undefined ? { cacheReadPrice } : {}),
+      ...(cacheWritePrice !== undefined ? { cacheWritePrice } : {}),
+      ...(tiers ? { tiers } : {}),
       currency,
       effectiveDate,
       lastUpdated: lastUpdatedCandidate ?? effectiveDate,
@@ -248,7 +288,7 @@ export class PricingRegistry implements IPricingRegistry {
   private parseFiniteNumber(
     value: unknown,
     key: string,
-    fieldName: "inputPrice" | "outputPrice",
+    fieldName: string,
   ): number {
     const parsed =
       typeof value === "number"
@@ -256,10 +296,84 @@ export class PricingRegistry implements IPricingRegistry {
         : typeof value === "string"
           ? Number(value)
           : Number.NaN;
-    if (!Number.isFinite(parsed)) {
+    if (!Number.isFinite(parsed) || parsed < 0) {
       throw new PricingError(`Pricing entry ${key} has invalid ${fieldName}`);
     }
     return parsed;
+  }
+
+  private parseOptionalFiniteNumber(
+    value: unknown,
+    key: string,
+    fieldName: string,
+  ): number | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    return this.parseFiniteNumber(value, key, fieldName);
+  }
+
+  private parsePricingTiers(
+    value: unknown,
+    key: string,
+  ): PricingTierEntry[] | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (!Array.isArray(value)) {
+      throw new PricingError(`Pricing entry ${key} has invalid tiers`);
+    }
+    return value
+      .map((tier, index) => {
+        if (!tier || typeof tier !== "object" || Array.isArray(tier)) {
+          throw new PricingError(
+            `Pricing entry ${key} has invalid tier at index ${index}`,
+          );
+        }
+        const rawTier = tier as Record<string, unknown>;
+        const minimumContextTokens = this.parseFiniteNumber(
+          rawTier.minimumContextTokens,
+          key,
+          "minimumContextTokens",
+        );
+        if (
+          !Number.isSafeInteger(minimumContextTokens) ||
+          minimumContextTokens < 0
+        ) {
+          throw new PricingError(
+            `Pricing entry ${key} has invalid minimumContextTokens`,
+          );
+        }
+        const cacheReadPrice = this.parseOptionalFiniteNumber(
+          rawTier.cacheReadPrice,
+          key,
+          "tier.cacheReadPrice",
+        );
+        const cacheWritePrice = this.parseOptionalFiniteNumber(
+          rawTier.cacheWritePrice,
+          key,
+          "tier.cacheWritePrice",
+        );
+        return {
+          minimumContextTokens,
+          inputPrice: this.parseFiniteNumber(
+            rawTier.inputPrice,
+            key,
+            "tier.inputPrice",
+          ),
+          outputPrice: this.parseFiniteNumber(
+            rawTier.outputPrice,
+            key,
+            "tier.outputPrice",
+          ),
+          ...(cacheReadPrice !== undefined ? { cacheReadPrice } : {}),
+          ...(cacheWritePrice !== undefined ? { cacheWritePrice } : {}),
+        };
+      })
+      .sort(
+        (first, second) =>
+          first.minimumContextTokens - second.minimumContextTokens,
+      );
   }
 
   private parseCurrency(value: unknown, key: string): string {
@@ -313,6 +427,86 @@ export class PricingRegistry implements IPricingRegistry {
     const normalized = value.trim();
     return normalized.length > 0 ? normalized : undefined;
   }
+}
+
+function resolvePricingTier(
+  pricing: PricingEntry,
+  contextTokens: number,
+): PricingEntry | PricingTierEntry {
+  const tiers = pricing.tiers;
+  if (!tiers?.length) {
+    return pricing;
+  }
+  return (
+    [...tiers]
+      .filter((tier) => tier.minimumContextTokens <= contextTokens)
+      .sort(
+        (first, second) =>
+          second.minimumContextTokens - first.minimumContextTokens,
+      )[0] ?? pricing
+  );
+}
+
+/**
+ * Registers a selected model's catalog price. models.dev and provider model
+ * APIs publish USD per million tokens, while PricingRegistry calculates per
+ * thousand tokens, so conversion belongs at this boundary.
+ */
+export function registerRuntimeModelPricing(
+  registry: IPricingRegistry,
+  input: {
+    providerId?: string;
+    modelId?: string;
+    runtimeModelId?: string;
+    pricing?: unknown;
+  },
+): boolean {
+  const providerId = input.providerId?.trim();
+  const modelIds = [input.modelId, input.runtimeModelId]
+    .map((modelId) => modelId?.trim())
+    .filter((modelId): modelId is string => Boolean(modelId));
+  const parsedPricing = BYOKModelPricingSchema.safeParse(input.pricing);
+  if (
+    !providerId ||
+    modelIds.length === 0 ||
+    !parsedPricing.success ||
+    parsedPricing.data.inputPer1M === undefined ||
+    parsedPricing.data.outputPer1M === undefined
+  ) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const tiers = parsedPricing.data.tiers?.map((tier) => ({
+    minimumContextTokens: tier.minimumContextTokens,
+    inputPrice: tier.inputPer1M / 1_000,
+    outputPrice: tier.outputPer1M / 1_000,
+    ...(tier.cacheReadPer1M !== undefined
+      ? { cacheReadPrice: tier.cacheReadPer1M / 1_000 }
+      : {}),
+    ...(tier.cacheWritePer1M !== undefined
+      ? { cacheWritePrice: tier.cacheWritePer1M / 1_000 }
+      : {}),
+  }));
+  const entry: PricingEntry = {
+    inputPrice: parsedPricing.data.inputPer1M / 1_000,
+    outputPrice: parsedPricing.data.outputPer1M / 1_000,
+    currency: parsedPricing.data.currency,
+    ...(parsedPricing.data.cacheReadPer1M !== undefined
+      ? { cacheReadPrice: parsedPricing.data.cacheReadPer1M / 1_000 }
+      : {}),
+    ...(parsedPricing.data.cacheWritePer1M !== undefined
+      ? { cacheWritePrice: parsedPricing.data.cacheWritePer1M / 1_000 }
+      : {}),
+    ...(tiers?.length ? { tiers } : {}),
+    effectiveDate: now,
+    lastUpdated: now,
+    metadata: { source: "provider-model-catalog" },
+  };
+  for (const modelId of new Set(modelIds)) {
+    registry.registerPrice(providerId, modelId, entry);
+  }
+  return true;
 }
 
 function detectProductionEnvironment(): boolean {

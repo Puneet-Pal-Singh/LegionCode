@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
+import {
+  ReasoningEffortSchema,
+  type BYOKDiscoveredProviderModel,
+  type ReasoningEffort,
+} from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
   ProviderModelCredentialContext,
@@ -15,6 +19,56 @@ const OpenAICompatibleModelsSchema = z.object({
   data: z.array(
     z.object({
       id: z.string().min(1),
+      reasoning_efforts: z.array(z.string().min(1)).optional(),
+      reasoningEfforts: z.array(z.string().min(1)).optional(),
+      supported_reasoning_efforts: z.array(z.string().min(1)).optional(),
+      supportedReasoningEfforts: z.array(z.string().min(1)).optional(),
+      supported_parameters: supportedParametersSchema().optional(),
+      efforts: z.array(z.string().min(1)).optional(),
+      reasoning: z
+        .union([
+          z.array(z.string().min(1)),
+          z.object({
+            efforts: z.array(z.string().min(1)).optional(),
+            levels: z.array(z.string().min(1)).optional(),
+            variants: z.record(z.unknown()).optional(),
+          }),
+        ])
+        .optional(),
+      settings: z
+        .object({
+          reasoning_efforts: z.array(z.string().min(1)).optional(),
+          reasoningEfforts: z.array(z.string().min(1)).optional(),
+          efforts: z.array(z.string().min(1)).optional(),
+        })
+        .optional(),
+      variants: z.record(z.unknown()).optional(),
+      capabilities: z
+        .object({
+          reasoning_efforts: z.array(z.string().min(1)).optional(),
+          reasoningEfforts: z.array(z.string().min(1)).optional(),
+          supported_reasoning_efforts: z.array(z.string().min(1)).optional(),
+          supportedReasoningEfforts: z.array(z.string().min(1)).optional(),
+          supported_parameters: supportedParametersSchema().optional(),
+          reasoning: z
+            .union([
+              z.array(z.string().min(1)),
+              z.object({
+                efforts: z.array(z.string().min(1)).optional(),
+                levels: z.array(z.string().min(1)).optional(),
+                variants: z.record(z.unknown()).optional(),
+              }),
+            ])
+            .optional(),
+          settings: z
+            .object({
+              reasoning_efforts: z.array(z.string().min(1)).optional(),
+              reasoningEfforts: z.array(z.string().min(1)).optional(),
+              efforts: z.array(z.string().min(1)).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
     }),
   ),
 });
@@ -45,11 +99,7 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
       response,
       this.providerId,
     );
-    return payload.data.map((item) => ({
-      id: item.id,
-      name: item.id,
-      providerId: this.providerId,
-    }));
+    return payload.data.map((item) => toDiscoveredModel(this.providerId, item));
   }
 
   async fetchPage(
@@ -69,6 +119,142 @@ export class OpenAICompatibleModelCatalogAdapter implements ProviderModelCatalog
       source: "provider_api",
     };
   }
+}
+
+function toDiscoveredModel(
+  providerId: string,
+  model: z.infer<typeof OpenAICompatibleModelsSchema>["data"][number],
+): BYOKDiscoveredProviderModel {
+  const reasoningEfforts = normalizeReasoningEfforts(
+    model.reasoning_efforts ??
+      model.reasoningEfforts ??
+      model.supported_reasoning_efforts ??
+      model.supportedReasoningEfforts ??
+      supportedParameterEfforts(model.supported_parameters) ??
+      model.efforts ??
+      reasoningArray(model.reasoning) ??
+      reasoningObject(model.reasoning)?.efforts ??
+      reasoningObject(model.reasoning)?.levels ??
+      model.settings?.reasoning_efforts ??
+      model.settings?.reasoningEfforts ??
+      model.settings?.efforts ??
+      model.capabilities?.reasoning_efforts ??
+      model.capabilities?.reasoningEfforts ??
+      model.capabilities?.supported_reasoning_efforts ??
+      model.capabilities?.supportedReasoningEfforts ??
+      supportedParameterEfforts(model.capabilities?.supported_parameters) ??
+      reasoningArray(model.capabilities?.reasoning) ??
+      reasoningObject(model.capabilities?.reasoning)?.efforts ??
+      reasoningObject(model.capabilities?.reasoning)?.levels ??
+      model.capabilities?.settings?.reasoning_efforts ??
+      model.capabilities?.settings?.reasoningEfforts ??
+      model.capabilities?.settings?.efforts ??
+      variantKeys(reasoningObject(model.reasoning)?.variants) ??
+      variantKeys(reasoningObject(model.capabilities?.reasoning)?.variants) ??
+      variantKeys(model.variants),
+  );
+  return {
+    id: model.id,
+    name: model.id,
+    providerId,
+    ...(reasoningEfforts.length > 0
+      ? {
+          capabilities: {
+            supportsReasoning: true,
+            reasoningEfforts,
+          },
+          capabilityMetadata: {
+            source: "provider_api" as const,
+            confidence: "confirmed" as const,
+          },
+        }
+      : {}),
+  };
+}
+
+function normalizeReasoningEfforts(
+  efforts: readonly string[] | undefined,
+): ReasoningEffort[] {
+  if (!efforts) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      efforts.filter(
+        (effort): effort is ReasoningEffort =>
+          ReasoningEffortSchema.safeParse(effort).success,
+      ),
+    ),
+  );
+}
+
+function supportedParametersSchema() {
+  return z.union([
+    z.array(z.string().min(1)),
+    z.object({
+      reasoning_effort: z.array(z.string().min(1)).optional(),
+      reasoningEffort: z.array(z.string().min(1)).optional(),
+      reasoning_efforts: z.array(z.string().min(1)).optional(),
+      reasoningEfforts: z.array(z.string().min(1)).optional(),
+    }),
+  ]);
+}
+
+function supportedParameterEfforts(
+  parameters:
+    | readonly string[]
+    | {
+        reasoning_effort?: string[];
+        reasoningEffort?: string[];
+        reasoning_efforts?: string[];
+        reasoningEfforts?: string[];
+      }
+    | undefined,
+): readonly string[] | undefined {
+  if (!parameters) return undefined;
+  if (Array.isArray(parameters)) {
+    const efforts = parameters.flatMap((parameter) => {
+      const match = /^(?:reasoning_effort|reasoningEffort)[:=](.+)$/.exec(
+        parameter,
+      );
+      return match?.[1] ? [match[1]] : [];
+    });
+    return efforts.length > 0 ? efforts : undefined;
+  }
+  const object = parameters as Exclude<typeof parameters, readonly string[]>;
+  return (
+    object.reasoning_effort ??
+    object.reasoningEffort ??
+    object.reasoning_efforts ??
+    object.reasoningEfforts
+  );
+}
+
+function variantKeys(
+  variants: Record<string, unknown> | undefined,
+): string[] | undefined {
+  const keys = variants ? Object.keys(variants) : [];
+  return keys.length > 0 ? keys : undefined;
+}
+
+type ReasoningMetadata = {
+  efforts?: string[];
+  levels?: string[];
+  variants?: Record<string, unknown>;
+};
+
+function reasoningArray(
+  reasoning: readonly string[] | ReasoningMetadata | undefined,
+): readonly string[] | undefined {
+  return Array.isArray(reasoning) ? reasoning : undefined;
+}
+
+function reasoningObject(
+  reasoning: readonly string[] | ReasoningMetadata | undefined,
+): ReasoningMetadata | undefined {
+  return reasoning && !Array.isArray(reasoning)
+    ? (reasoning as ReasoningMetadata)
+    : undefined;
 }
 
 function parseCursor(cursor: string | undefined): number {

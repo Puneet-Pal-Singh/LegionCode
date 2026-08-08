@@ -111,10 +111,6 @@ export async function evaluateToolPermission(
     return mutationEvidenceDenial;
   }
 
-  if (await hasPreapprovedAction(input.approvalStore, classified)) {
-    return { kind: "allow" };
-  }
-
   const policyDecision = decidePolicyOutcome({
     origin: input.origin,
     productMode: input.productMode,
@@ -123,6 +119,15 @@ export async function evaluateToolPermission(
   });
   if (policyDecision.kind !== "ask") {
     return policyDecision;
+  }
+
+  // Supervised mode is intentionally per-action. A prior run-scoped grant must
+  // not silently downgrade the user's explicit "ask always" selection.
+  if (
+    input.productMode !== "ask_always" &&
+    (await hasPreapprovedAction(input.approvalStore, classified))
+  ) {
+    return { kind: "allow" };
   }
 
   return await createApprovalAskResult(input, classified);

@@ -7,8 +7,8 @@
  * Strict Mode (default):
  *   - Unknown default provider throws error
  *
- * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
- *   - Unknown provider falls back to LiteLLM with warning
+ * No generic provider fallback is allowed. Provider identity selects the
+ * direct registered adapter.
  */
 
 import type { Env } from "../../types/ai";
@@ -35,8 +35,7 @@ import { ValidationError } from "../../domain/errors";
  * Strict Mode (default):
  *   - Unknown LLM_PROVIDER throws ProviderError
  *
- * Compat Mode (BRAIN_RUNTIME_COMPAT_MODE=1):
- *   - Unknown provider falls back to LiteLLM with warning
+ * Provider identity is required for runtime adapter dispatch.
  *
  * @param env - Cloudflare environment
  * @returns Configured ProviderAdapter

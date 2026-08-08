@@ -4,6 +4,7 @@ import type { ProviderCredentialService } from "../ProviderCredentialService";
 import type { ProviderModelCatalogPort } from "./ProviderModelCatalogPort";
 import { ProviderModelDiscoveryService } from "./ProviderModelDiscoveryService";
 import { ProviderModelDiscoveryAuthError } from "./errors";
+import { parseModelDevCatalog } from "./ModelDevCatalog";
 
 function createStoreStub() {
   let cache: {
@@ -140,6 +141,78 @@ describe("ProviderModelDiscoveryService", () => {
     expect(
       metrics.model_discovery_requests_total.openrouter_provider_api_success,
     ).toBe(1);
+  });
+
+  it("enriches cached OpenAI models with catalog-declared variants", async () => {
+    const store = createStoreStub();
+    const now = Date.now();
+    await store.setModelCache({
+      providerId: "openai",
+      models: [
+        {
+          id: "gpt-5.6-luna",
+          name: "GPT-5.6 Luna",
+          providerId: "openai",
+        },
+      ],
+      fetchedAt: new Date(now - 1_000).toISOString(),
+      expiresAt: new Date(now + 60_000).toISOString(),
+      source: "provider_api",
+    });
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(),
+      fetchPage: vi.fn(),
+    };
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      {
+        getCatalog: vi.fn(async () =>
+          parseModelDevCatalog({
+            openai: {
+              models: {
+                "gpt-5.6-luna": {
+                  reasoning: true,
+                  reasoning_options: [
+                    {
+                      type: "effort",
+                      values: ["none", "low", "medium", "high", "xhigh", "max"],
+                    },
+                  ],
+                },
+              },
+            },
+          }),
+        ),
+      },
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(result.models[0]?.capabilities?.reasoningEfforts).toEqual([
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(result.models[0]?.capabilityMetadata).toMatchObject({
+      source: "platform_registry",
+      confidence: "declared",
+    });
   });
 
   it("applies launch-safe OpenRouter curation for popular model discovery", async () => {
@@ -319,5 +392,121 @@ describe("ProviderModelDiscoveryService", () => {
       "kimi-k2.6",
       "qwen3.6-plus",
     ]);
+  });
+
+  it("enriches provider-omitted card metadata from the models.dev catalog", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        { id: "gpt-5", name: "GPT-5", providerId: "openai" },
+        { id: "gpt-4o", name: "GPT-4o", providerId: "openai" },
+      ]),
+      fetchPage: vi.fn(),
+    };
+    const modelDevCatalog = {
+      getCatalog: vi.fn(async () => ({
+        providers: {
+          openai: {
+            models: {
+              "gpt-4o": {
+                limit: { context: 128000, output: 16384 },
+                modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+                reasoning: false,
+                tool_call: true,
+              },
+              "gpt-5": {
+                limit: { context: 400000, input: 272000, output: 128000 },
+                modalities: { input: ["text", "image"], output: ["text"] },
+                reasoning: true,
+                reasoning_options: [
+                  { type: "effort", values: ["minimal", "low", "medium", "high"] },
+                ],
+                tool_call: true,
+              },
+            },
+          },
+        },
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+      })),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      modelDevCatalog,
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      limit: 50,
+    });
+
+    const gpt4o = result.models.find((model) => model.id === "gpt-4o");
+    expect(gpt4o?.contextWindow).toBe(128000);
+    expect(gpt4o?.inputModalities).toEqual({ text: true, image: true, file: true });
+    expect(gpt4o?.capabilities?.supportsReasoning).toBe(false);
+    expect(gpt4o?.capabilities?.supportsTools).toBe(true);
+
+    const gpt5 = result.models.find((model) => model.id === "gpt-5");
+    expect(gpt5?.contextWindow).toBe(400000);
+    expect(gpt5?.capabilities?.supportsReasoning).toBe(true);
+    expect(gpt5?.capabilities?.reasoningEfforts).toEqual([
+      "minimal",
+      "low",
+      "medium",
+      "high",
+    ]);
+    expect(modelDevCatalog.getCatalog).toHaveBeenCalledTimes(1);
+    expect(store.setModelCache).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: expect.arrayContaining([
+          expect.objectContaining({
+            id: "gpt-5",
+            contextWindow: 400000,
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("serves un-enriched models when the models.dev catalog is unavailable", async () => {
+    const store = createStoreStub();
+    const credentialService = {
+      getApiKey: vi.fn(async () => "sk-test"),
+      getConnectionConfig: vi.fn(async () => undefined),
+    } as unknown as ProviderCredentialService;
+    const adapter: ProviderModelCatalogPort = {
+      fetchAll: vi.fn(async () => [
+        { id: "gpt-4o", name: "GPT-4o", providerId: "openai" },
+      ]),
+      fetchPage: vi.fn(),
+    };
+
+    const service = new ProviderModelDiscoveryService(
+      store as unknown as ProviderModelCacheStore,
+      credentialService,
+      { openai: adapter },
+      undefined,
+      undefined,
+      undefined,
+      { getCatalog: vi.fn(async () => null) },
+    );
+
+    const result = await service.getDiscoveredModels("openai", {
+      view: "all",
+      limit: 50,
+    });
+
+    expect(result.models[0]?.contextWindow).toBeUndefined();
+    expect(result.models[0]?.capabilities).toBeUndefined();
+    expect(result.models).toHaveLength(1);
   });
 });

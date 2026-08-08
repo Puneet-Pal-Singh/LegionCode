@@ -5,7 +5,9 @@ import type {
   BYOKModelCapabilityMetadata,
   BYOKModelInputModality,
   BYOKModelOutputModality,
+  ReasoningEffort,
 } from "@repo/shared-types";
+import { ReasoningEffortSchema } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
   ProviderModelCredentialContext,
@@ -48,10 +50,25 @@ const OpenRouterModelsEnvelopeSchema = z.object({
         .object({
           prompt: z.string().optional(),
           completion: z.string().optional(),
+          input_cache_read: z.string().optional(),
+          input_cache_write: z.string().optional(),
+          overrides: z
+            .array(
+              z.object({
+                min_prompt_tokens: z.number().int().nonnegative(),
+                prompt: z.string().optional(),
+                completion: z.string().optional(),
+                input_cache_read: z.string().optional(),
+                input_cache_write: z.string().optional(),
+              }),
+            )
+            .optional(),
         })
         .partial()
         .optional(),
       supported_parameters: z.array(z.string()).optional(),
+      reasoning_efforts: z.array(z.string().min(1)).optional(),
+      reasoningEfforts: z.array(z.string().min(1)).optional(),
       architecture: z
         .object({
           input_modalities: z.array(z.string()).optional(),
@@ -64,6 +81,8 @@ const OpenRouterModelsEnvelopeSchema = z.object({
         .object({
           structured_outputs: z.boolean().optional(),
           reasoning: z.boolean().optional(),
+          reasoning_efforts: z.array(z.string().min(1)).optional(),
+          reasoningEfforts: z.array(z.string().min(1)).optional(),
         })
         .partial()
         .optional(),
@@ -204,6 +223,10 @@ function toDiscoveredModel(
       entry.supported_parameters,
       entry.settings,
       entry.architecture,
+      entry.reasoning_efforts ??
+        entry.reasoningEfforts ??
+        entry.settings?.reasoning_efforts ??
+        entry.settings?.reasoningEfforts,
     ),
     capabilityMetadata: toCapabilityMetadata(entry.architecture, fetchedAt),
     expirationDate: entry.expires_at,
@@ -225,17 +248,48 @@ function toCapabilities(
         output_modalities?: string[] | undefined;
       }
     | undefined,
+  providerReasoningEfforts: string[] | undefined,
 ): BYOKModelCapability | undefined {
-  if (!parameters?.length && !settings && !architecture) {
+  if (
+    !parameters?.length &&
+    !settings &&
+    !architecture &&
+    !providerReasoningEfforts?.length
+  ) {
     return undefined;
   }
   const inputModalities = toInputModalities(architecture);
+  const supportsReasoning =
+    settings?.reasoning === true ||
+    parameters?.some((parameter) =>
+      ["reasoning", "reasoning_effort"].includes(parameter),
+    ) === true;
+  const reasoningEfforts = normalizeReasoningEfforts(providerReasoningEfforts);
   return {
     supportsTools: supportsTools(parameters),
     supportsVision: inputModalities?.image,
     supportsStructuredOutputs: settings?.structured_outputs,
-    supportsReasoning: settings?.reasoning,
+    supportsReasoning,
+    ...(reasoningEfforts.length > 0
+      ? {
+          reasoningEfforts,
+        }
+      : {}),
   };
+}
+
+function normalizeReasoningEfforts(
+  efforts: readonly string[] | undefined,
+): ReasoningEffort[] {
+  if (!efforts) return [];
+  return Array.from(
+    new Set(
+      efforts.filter(
+        (effort): effort is ReasoningEffort =>
+          ReasoningEffortSchema.safeParse(effort).success,
+      ),
+    ),
+  );
 }
 
 function toInputModalities(
@@ -312,6 +366,15 @@ function toPricing(
     | {
         prompt?: string | undefined;
         completion?: string | undefined;
+        input_cache_read?: string | undefined;
+        input_cache_write?: string | undefined;
+        overrides?: Array<{
+          min_prompt_tokens: number;
+          prompt?: string | undefined;
+          completion?: string | undefined;
+          input_cache_read?: string | undefined;
+          input_cache_write?: string | undefined;
+        }>;
       }
     | undefined,
 ) {
@@ -320,12 +383,43 @@ function toPricing(
   }
   const inputPer1M = parsePer1M(pricing.prompt);
   const outputPer1M = parsePer1M(pricing.completion);
-  if (inputPer1M === undefined && outputPer1M === undefined) {
+  const cacheReadPer1M = parsePer1M(pricing.input_cache_read);
+  const cacheWritePer1M = parsePer1M(pricing.input_cache_write);
+  const tiers = pricing.overrides
+    ?.map((override) => {
+      const tierInput = parsePer1M(override.prompt);
+      const tierOutput = parsePer1M(override.completion);
+      if (tierInput === undefined || tierOutput === undefined) {
+        return undefined;
+      }
+      const tierCacheRead = parsePer1M(override.input_cache_read);
+      const tierCacheWrite = parsePer1M(override.input_cache_write);
+      return {
+        minimumContextTokens: override.min_prompt_tokens,
+        inputPer1M: tierInput,
+        outputPer1M: tierOutput,
+        ...(tierCacheRead !== undefined
+          ? { cacheReadPer1M: tierCacheRead }
+          : {}),
+        ...(tierCacheWrite !== undefined
+          ? { cacheWritePer1M: tierCacheWrite }
+          : {}),
+      };
+    })
+    .filter((tier): tier is NonNullable<typeof tier> => tier !== undefined);
+  if (
+    inputPer1M === undefined &&
+    outputPer1M === undefined &&
+    (tiers?.length ?? 0) === 0
+  ) {
     return undefined;
   }
   return {
-    inputPer1M,
-    outputPer1M,
+    ...(inputPer1M !== undefined ? { inputPer1M } : {}),
+    ...(outputPer1M !== undefined ? { outputPer1M } : {}),
+    ...(cacheReadPer1M !== undefined ? { cacheReadPer1M } : {}),
+    ...(cacheWritePer1M !== undefined ? { cacheWritePer1M } : {}),
+    ...(tiers?.length ? { tiers } : {}),
     currency: "USD",
   };
 }
@@ -355,14 +449,21 @@ function normalizeModalities(
     return [];
   }
   if (Array.isArray(modalities)) {
-    return modalities.map((value) => value.toLowerCase());
+    return modalities.map(normalizeModality);
   }
   return modalities
     .toLowerCase()
     .replace(/->/g, "+")
     .split("+")
     .map((value) => value.trim())
+    .map(normalizeModality)
     .filter((value) => value.length > 0);
+}
+
+function normalizeModality(value: string): string {
+  return value.trim().toLowerCase() === "pdf"
+    ? "file"
+    : value.trim().toLowerCase();
 }
 
 function parseCursor(cursor: string | undefined): number {

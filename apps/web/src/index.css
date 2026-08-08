@@ -99,7 +99,7 @@
   background-size: 220% 100%;
   background-clip: text;
   color: transparent;
-  animation: shimmer 1.7s linear infinite;
+  animation: shimmer 3.2s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -198,6 +198,25 @@
 
   .ui-control-surface {
     @apply rounded-xl border border-zinc-800 bg-[#171717];
+  }
+
+  .composer-surface {
+    background:
+      radial-gradient(circle at 8% 0%, rgb(251 191 36 / 0.035), transparent 30%),
+      linear-gradient(180deg, #181819 0%, #141415 100%);
+    border-color: rgb(63 63 70 / 0.9);
+    border-radius: 1rem;
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.025) inset,
+      0 16px 40px rgb(0 0 0 / 0.16);
+  }
+
+  .composer-surface-focused {
+    border-color: rgb(113 113 122 / 0.95);
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.04) inset,
+      0 0 0 1px rgb(251 191 36 / 0.08),
+      0 18px 50px rgb(0 0 0 / 0.24);
   }
 
   .ui-input {

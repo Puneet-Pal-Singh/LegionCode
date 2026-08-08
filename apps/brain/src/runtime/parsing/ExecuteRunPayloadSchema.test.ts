@@ -100,10 +100,20 @@ describe("ExecuteRunPayloadSchema tools validation", () => {
     const payload = createValidPayload();
     payload.input.metadata = {
       contextWindowTokens: 128_000,
+      pricing: {
+        inputPer1M: 2.5,
+        outputPer1M: 10,
+        currency: "USD",
+      },
     };
 
     const result = ExecuteRunPayloadSchema.parse(payload);
     expect(result.input.metadata?.contextWindowTokens).toBe(128_000);
+    expect(result.input.metadata?.pricing).toEqual({
+      inputPer1M: 2.5,
+      outputPer1M: 10,
+      currency: "USD",
+    });
   });
 
   it("accepts explicit plan mode", () => {

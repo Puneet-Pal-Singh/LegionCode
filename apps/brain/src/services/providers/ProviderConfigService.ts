@@ -40,7 +40,10 @@ import { ProviderCatalogService } from "./ProviderCatalogService";
 import { ProviderConnectionService } from "./ProviderConnectionService";
 import { ProviderRegistryService } from "./ProviderRegistryService";
 import { AXIS_DAILY_LIMIT } from "./axis";
-import { ProviderModelDiscoveryService } from "./model-discovery";
+import {
+  HttpModelDevCatalogSource,
+  ProviderModelDiscoveryService,
+} from "./model-discovery";
 import type { ProviderModelDiscoveryService as ProviderModelDiscoveryServiceType } from "./model-discovery";
 import { isDomainError } from "../../domain/errors";
 
@@ -304,6 +307,10 @@ export class ProviderConfigService {
         this.options.modelCacheStore,
         this.credentialService,
         this.registryService,
+        undefined,
+        undefined,
+        undefined,
+        new HttpModelDevCatalogSource(),
       );
     }
     return this.modelDiscoveryService;

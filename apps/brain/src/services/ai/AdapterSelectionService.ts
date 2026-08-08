@@ -21,7 +21,6 @@ import {
   createOpenAIAdapter,
   createAnthropicAdapter,
   createGoogleAdapter,
-  createLiteLLMAdapter,
 } from "./ProviderAdapterFactory";
 import type { Env } from "../../types/ai";
 import {
@@ -143,7 +142,10 @@ const ADAPTER_FAMILY_FACTORIES: Record<
     createAnthropicAdapter(env, overrideApiKey),
   "openai-compatible": (providerId, env, overrideApiKey) => {
     if (!providerId) {
-      return createLiteLLMAdapter(env, overrideApiKey);
+      throw new ValidationError(
+        "OpenAI-compatible runtime dispatch requires an explicit provider ID.",
+        "INVALID_PROVIDER_SELECTION",
+      );
     }
     const providerEntry = providerRegistryService.getProvider(providerId);
     if (!providerEntry) {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { OpenAIResponsesAdapter } from "./OpenAIResponsesAdapter";
 
 describe("OpenAIResponsesAdapter", () => {
@@ -93,6 +94,82 @@ describe("OpenAIResponsesAdapter", () => {
         args: { path: "README.md" },
       },
     ]);
+  });
+
+  it("sends reasoning and a bounded output budget for OpenAI reasoning models", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ output_text: "Done", status: "completed" }),
+          { status: 200 },
+        ),
+      );
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/responses",
+      providerId: "openai",
+    });
+
+    await adapter.generate({
+      messages: [{ role: "user", content: "hello" }],
+      tools: {},
+      model: "gpt-5.6-luna",
+      temperature: 0.2,
+      reasoningEffort: "high",
+    });
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      model: "gpt-5.6-luna",
+      max_output_tokens: 4096,
+      reasoning: { effort: "high" },
+    });
+    expect(body).not.toHaveProperty("temperature");
+  });
+
+  it("converts Zod coding-tool schemas for Responses function tools", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ output_text: "Done", status: "completed" }),
+          { status: 200 },
+        ),
+      );
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/responses",
+      providerId: "openai",
+    });
+
+    await adapter.generate({
+      messages: [{ role: "user", content: "read the readme" }],
+      tools: {
+        read_file: {
+          description: "Read a file",
+          parameters: z.object({ path: z.string() }),
+        },
+      },
+      model: "gpt-5.6-luna",
+      reasoningEffort: "high",
+    });
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        name: "read_file",
+        description: "Read a file",
+        parameters: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+          additionalProperties: false,
+        },
+      },
+    ]);
+    expect(body.reasoning).toEqual({ effort: "high" });
   });
 
   it("preserves structured assistant/tool history when building responses input", async () => {

@@ -1,6 +1,4 @@
-import {
-  isConcreteCommandInput,
-} from "../contracts/index.js";
+import { isConcreteCommandInput } from "../contracts/index.js";
 import {
   getCodingToolRoute,
   validateCodingToolInput,
@@ -39,6 +37,11 @@ import type {
   TaskInput,
   TaskResult,
 } from "../types.js";
+import {
+  classifyWriteFilePreflightFailure,
+  resolveWriteFileExpectedSha256,
+  type WriteFilePreflight,
+} from "./WriteFilePrecondition.js";
 
 const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
   /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
@@ -310,11 +313,17 @@ async function executeWriteFileTool(
   validateToolPath(path);
   validateSafePath(path);
 
-  const previousContent = await readExistingFileContent(executionService, path);
+  const preflight = await readExistingFileContent(executionService, path);
+  if (preflight.kind === "error") {
+    return buildFailureResult(taskId, preflight.message);
+  }
   const result = await executeGatewayPlugin(executionService, "write_file", {
     path,
     content: validatedInput.content,
-    expectedSha256: validatedInput.expectedSha256,
+    expectedSha256: resolveWriteFileExpectedSha256(
+      preflight,
+      validatedInput.expectedSha256,
+    ),
   });
   const failure = extractExecutionFailure(result);
   if (failure) {
@@ -324,7 +333,7 @@ async function executeWriteFileTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildWriteActivityMetadata(
       path,
-      previousContent,
+      preflight.kind === "present" ? preflight.content : "",
       validatedInput.content,
     ),
   });
@@ -885,10 +894,7 @@ async function executeGitHubPullRequestGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput(
-    "github_pr_get",
-    taskInput,
-  );
+  const validatedInput = validateCodingToolInput("github_pr_get", taskInput);
   return executeGitHubReadTool(executionService, taskId, "github_pr_get", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -901,10 +907,7 @@ async function executeGitHubPullRequestListTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput(
-    "github_pr_list",
-    taskInput,
-  );
+  const validatedInput = validateCodingToolInput("github_pr_list", taskInput);
   return executeGitHubReadTool(executionService, taskId, "github_pr_list", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -960,10 +963,7 @@ async function executeGitHubIssueGetTool(
   taskId: string,
   taskInput: TaskInput,
 ): Promise<TaskResult> {
-  const validatedInput = validateCodingToolInput(
-    "github_issue_get",
-    taskInput,
-  );
+  const validatedInput = validateCodingToolInput("github_issue_get", taskInput);
   return executeGitHubReadTool(executionService, taskId, "github_issue_get", {
     owner: validatedInput.owner.trim(),
     repo: validatedInput.repo.trim(),
@@ -1306,15 +1306,15 @@ async function executeGatewayPlugin(
 async function readExistingFileContent(
   executionService: RuntimeExecutionService,
   path: string,
-): Promise<string> {
+): Promise<WriteFilePreflight> {
   const result = await executeGatewayPlugin(executionService, "read_file", {
     path,
   });
   const failure = extractExecutionFailure(result);
   if (failure) {
-    return "";
+    return classifyWriteFilePreflightFailure(failure);
   }
-  return formatExecutionResult(result);
+  return { kind: "present", content: formatExecutionResult(result) };
 }
 
 function isGitCommitIdentityConfigShellCommand(command: string): boolean {

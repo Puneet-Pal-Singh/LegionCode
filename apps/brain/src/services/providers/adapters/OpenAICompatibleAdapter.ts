@@ -141,6 +141,14 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
         system: params.system,
         tools: params.tools,
         temperature: params.temperature,
+        maxTokens: params.maxOutputTokens ?? 4096,
+        ...(params.reasoningEffort
+          ? {
+              experimental_providerMetadata: {
+                openai: { reasoningEffort: params.reasoningEffort },
+              },
+            }
+          : {}),
         abortSignal: params.signal,
         maxRetries: PROVIDER_SDK_MAX_RETRIES,
       });
@@ -177,6 +185,14 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       system: params.system,
       tools: params.tools,
       temperature: params.temperature,
+      maxTokens: params.maxOutputTokens ?? 4096,
+      ...(params.reasoningEffort
+        ? {
+            experimental_providerMetadata: {
+              openai: { reasoningEffort: params.reasoningEffort },
+            },
+          }
+        : {}),
       abortSignal: params.signal,
       maxRetries: PROVIDER_SDK_MAX_RETRIES,
     });

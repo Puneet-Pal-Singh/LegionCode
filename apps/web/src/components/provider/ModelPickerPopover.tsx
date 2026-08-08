@@ -12,7 +12,14 @@
  */
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
-import { ChevronDown, Search, Plus, Settings, RefreshCw } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+} from "lucide-react";
 import {
   AXIS_PROVIDER_ID,
   BYOKCredential as ProviderCredential,
@@ -29,9 +36,10 @@ import { isProviderModelAvailable } from "./providerModelAvailability";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
-const ESTIMATED_POPOVER_HEIGHT_PX = 360;
-const PREFERRED_POPOVER_WIDTH_PX = 304;
+const ESTIMATED_POPOVER_HEIGHT_PX = 352;
+const PREFERRED_POPOVER_WIDTH_PX = 320;
 const MIN_POPOVER_WIDTH_PX = 248;
+const MODEL_DETAILS_WIDTH_PX = 272;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
@@ -97,6 +105,13 @@ interface FilteredProviderGroup extends ProviderGroup {
 interface EffectiveSelection {
   providerId: string | null;
   modelId: string | null;
+}
+
+interface HoveredModelDetails {
+  model: ProviderModelOption;
+  providerName: string;
+  topPx: number;
+  leftPx: number;
 }
 
 function formatProviderDisplayName(
@@ -274,6 +289,9 @@ export function ModelPickerPopover({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
   const [isSwitchingView, setIsSwitchingView] = useState(false);
+  const [hoveredModel, setHoveredModel] = useState<HoveredModelDetails | null>(
+    null,
+  );
   const popoverRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -590,7 +608,33 @@ export function ModelPickerPopover({
     if (!isOpen) {
       setPlacement(resolvePlacement());
     }
+    setHoveredModel(null);
     setIsOpen((current) => !current);
+  };
+
+  const showModelDetails = (
+    element: HTMLElement,
+    model: ProviderModelOption,
+    providerName: string,
+  ): void => {
+    const rect = element.getBoundingClientRect();
+    const fitsRight =
+      rect.right + POPOVER_GAP_PX + MODEL_DETAILS_WIDTH_PX <=
+      window.innerWidth - VIEWPORT_PADDING_PX;
+    setHoveredModel({
+      model,
+      providerName,
+      topPx: Math.max(
+        VIEWPORT_PADDING_PX,
+        Math.min(rect.top, window.innerHeight - 220),
+      ),
+      leftPx: fitsRight
+        ? rect.right + POPOVER_GAP_PX
+        : Math.max(
+            VIEWPORT_PADDING_PX,
+            rect.left - MODEL_DETAILS_WIDTH_PX - POPOVER_GAP_PX,
+          ),
+    });
   };
 
   useEffect(() => {
@@ -624,16 +668,16 @@ export function ModelPickerPopover({
         type="button"
         onClick={handleToggle}
         className={`
-          inline-flex h-7 max-w-[min(16rem,calc(100vw-6rem))] items-center gap-1.5 rounded-md
-          bg-transparent px-2 text-xs font-medium text-neutral-400
-          transition-colors hover:bg-neutral-800/50 hover:text-neutral-200
+          inline-flex h-8 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-lg
+          px-2 text-xs font-medium text-neutral-400
+          transition-colors hover:bg-neutral-800/70 hover:text-neutral-100
           focus:outline-none focus:ring-2 focus:ring-blue-500
         `}
         aria-label="Open model picker"
         aria-expanded={isOpen}
         title={triggerLabel}
       >
-        <span className="truncate max-w-[13rem]">{triggerLabel}</span>
+        <span className="truncate max-w-[14rem]">{triggerLabel}</span>
         <ChevronDown
           size={14}
           className={`shrink-0 transition-transform ${
@@ -647,8 +691,8 @@ export function ModelPickerPopover({
         <div
           data-testid="model-picker-popover"
           className={`
-            absolute z-50 flex max-h-[18rem] flex-col overflow-hidden rounded-xl
-            border border-neutral-700/80 bg-neutral-900/95 shadow-2xl backdrop-blur
+            absolute z-50 flex max-h-[22rem] flex-col overflow-hidden rounded-xl
+            border border-neutral-700/80 bg-[#111112]/98 shadow-2xl shadow-black/70 backdrop-blur-xl
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             ${placement.horizontal === "start" ? "left-0" : "right-0"}
           `}
@@ -674,7 +718,7 @@ export function ModelPickerPopover({
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className={`
                       h-8 w-full rounded-md
-                      bg-neutral-800 border border-neutral-700
+                      bg-black/30 border border-neutral-700
                       pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
                       focus:outline-none focus:ring-2 focus:ring-blue-500
                     `}
@@ -814,8 +858,22 @@ export function ModelPickerPopover({
                               )
                             }
                             disabled={selectingModelId === model.id}
+                            onPointerEnter={(event) =>
+                              showModelDetails(
+                                event.currentTarget,
+                                model,
+                                axisDefaultGroup.displayName,
+                              )
+                            }
+                            onFocus={(event) =>
+                              showModelDetails(
+                                event.currentTarget,
+                                model,
+                                axisDefaultGroup.displayName,
+                              )
+                            }
                             className={`
-                            w-full px-3 py-2 text-left text-xs
+                            w-full px-3 py-2 text-left text-sm
                             transition-colors disabled:opacity-50
                             ${
                               effectiveSelection.providerId ===
@@ -834,9 +892,13 @@ export function ModelPickerPopover({
                               {effectiveSelection.providerId ===
                                 axisDefaultGroup.providerId &&
                                 effectiveSelection.modelId === model.id && (
-                                  <span className="ml-auto text-neutral-200">
-                                    ✓
-                                  </span>
+                                  <>
+                                    <span className="sr-only">✓</span>
+                                    <Check
+                                      className="ml-auto text-neutral-100"
+                                      size={14}
+                                    />
+                                  </>
                                 )}
                             </div>
                           </button>
@@ -888,8 +950,22 @@ export function ModelPickerPopover({
                                 selectingModelId === model.id ||
                                 !isProviderModelAvailable(model)
                               }
+                              onPointerEnter={(event) =>
+                                showModelDetails(
+                                  event.currentTarget,
+                                  model,
+                                  group.displayName,
+                                )
+                              }
+                              onFocus={(event) =>
+                                showModelDetails(
+                                  event.currentTarget,
+                                  model,
+                                  group.displayName,
+                                )
+                              }
                               className={`
-                              w-full px-3 py-2 text-left text-xs
+                              w-full px-3 py-2 text-left text-sm
                               transition-colors disabled:opacity-50
                               ${
                                 effectiveSelection.providerId ===
@@ -902,7 +978,7 @@ export function ModelPickerPopover({
                               title={`${model.name} (${model.id})`}
                             >
                               <div className="flex min-w-0 items-center gap-2">
-                                <p className="truncate font-medium">
+                                <p className="min-w-0 flex-1 truncate font-medium text-neutral-200">
                                   {model.name}
                                 </p>
                                 {!isProviderModelAvailable(model) && (
@@ -913,9 +989,13 @@ export function ModelPickerPopover({
                                 {effectiveSelection.providerId ===
                                   group.providerId &&
                                   effectiveSelection.modelId === model.id && (
-                                    <span className="ml-auto text-neutral-200">
-                                      ✓
-                                    </span>
+                                    <>
+                                      <span className="sr-only">✓</span>
+                                      <Check
+                                        className="ml-auto shrink-0 text-neutral-100"
+                                        size={14}
+                                      />
+                                    </>
                                   )}
                               </div>
                             </button>
@@ -958,6 +1038,55 @@ export function ModelPickerPopover({
           </div>
         </div>
       )}
+      {isOpen && hoveredModel ? (
+        <ModelDetailsPanel details={hoveredModel} />
+      ) : null}
     </div>
+  );
+}
+
+function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
+  const inputs = Object.entries(details.model.inputModalities ?? {})
+    .filter(([, supported]) => supported)
+    .map(([name]) => name)
+    .join(", ");
+  const reasoning = details.model.capabilities?.supportsReasoning
+    ? "Allows reasoning"
+    : details.model.capabilities?.supportsReasoning === false
+      ? "No reasoning"
+      : "Not published";
+  return (
+    <div
+      data-testid="model-picker-details"
+      className="pointer-events-none fixed z-[60] w-[272px] rounded-lg border border-neutral-700/80 bg-[#151516] p-3 text-sm shadow-2xl shadow-black/70"
+      style={{ top: details.topPx, left: details.leftPx }}
+    >
+      <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2">
+        <ModelDetail label="Model" value={details.model.name} />
+        <ModelDetail label="Provider" value={details.providerName} />
+        <ModelDetail label="Inputs" value={inputs || "Not published"} />
+        <ModelDetail label="Reasoning" value={reasoning} />
+        <ModelDetail
+          label="Context"
+          value={
+            details.model.contextWindow?.toLocaleString() ?? "Not published"
+          }
+        />
+      </dl>
+    </div>
+  );
+}
+
+function ModelDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-neutral-500">{label}</dt>
+      <dd
+        className="truncate text-right font-medium text-neutral-100"
+        title={value}
+      >
+        {value}
+      </dd>
+    </>
   );
 }

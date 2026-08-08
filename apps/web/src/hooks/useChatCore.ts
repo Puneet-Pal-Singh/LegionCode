@@ -39,6 +39,7 @@ import {
   resolveRuntimeHarnessId,
   type ChatRequestBody,
 } from "../lib/chat-request";
+import { resolveReasoningEffortForRequest } from "../lib/model-reasoning-preferences";
 import { loadRepositoryContextFields } from "../lib/chat-repository-context";
 import {
   toImageParts,
@@ -57,6 +58,12 @@ import {
 } from "./conversationScope";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
+import {
+  useActiveTurnProjection,
+  deriveCanonicalRunLoading,
+  resolveActiveProjectionTurnId,
+  type ActiveTurnProjection,
+} from "./useActiveTurnProjection.js";
 
 type ChatUserContent =
   | string
@@ -96,6 +103,7 @@ interface UseChatCoreResult {
   runId: string;
   scope: ConversationScope | null;
   serverTurnId: string | null;
+  activeTurnProjection: ActiveTurnProjection;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
@@ -259,8 +267,24 @@ export function useChatCore(
     selectedCredentialId,
     selectedModelId,
     lastResolvedConfig,
+    providerModels,
+    manageProviderModels,
     resolveForChat,
   } = useProviderStore(runId);
+  const selectedModel =
+    selectedProviderId && selectedModelId
+      ? (
+          providerModels[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          ) ??
+          manageProviderModels[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          )
+        )
+      : undefined;
+  const selectedModelContextWindow = selectedModel?.contextWindow;
+  const selectedModelPricing = selectedModel?.pricing;
+  const selectedModelEfforts = selectedModel?.capabilities?.reasoningEfforts;
   const authenticatedChatFetch = useCallback(
     (input: RequestInfo | URL, init?: RequestInit) =>
       fetchWithSessionAuth(input, init),
@@ -276,7 +300,7 @@ export function useChatCore(
     messages,
     input,
     handleInputChange,
-    isLoading,
+    isLoading: isTransportLoading,
     stop: stopStream,
     setMessages,
     append,
@@ -384,6 +408,35 @@ export function useChatCore(
     credentials: "include",
     fetch: authenticatedChatFetch,
   });
+
+  const activeTurnProjection = useActiveTurnProjection({
+    turnId: resolveActiveProjectionTurnId({
+      activeTurnId: activeConversationScope?.turnId,
+      serverTurnId,
+      isSubmitting,
+    }),
+    transportLoading: isTransportLoading || isSubmitting,
+  });
+  const isAwaitingTurnAdmission =
+    isSubmitting && pendingUserMessage?.scopeKey === runScopeKey;
+  const canonicalRunLoading =
+    isAwaitingTurnAdmission ||
+    deriveCanonicalRunLoading(
+      activeTurnProjection,
+      isTransportLoading || isSubmitting || isStopping,
+    );
+
+  useEffect(() => {
+    if (!activeTurnProjection.isTerminal) {
+      return;
+    }
+    // Canonical terminal settlement owns the loading state. Do not stop the
+    // text transport here: the terminal event can arrive before its final
+    // transcript frame, and cancelling it races away the user/final messages.
+    // Terminal replay hydration reconciles the canonical transcript.
+    setIsSubmitting(false);
+    setIsStopping(false);
+  }, [activeTurnProjection.isTerminal, activeTurnProjection.turnId]);
   const scopedMessagesBase = messages;
   const presentationScopeKey = scopeKey ?? runScopeKey;
   const scopedMessages = useMemo(
@@ -396,6 +449,21 @@ export function useChatCore(
       ),
     [pendingUserMessage, presentationScopeKey, scopedMessagesBase],
   );
+  useEffect(() => {
+    if (
+      !pendingUserMessage ||
+      pendingUserMessage.scopeKey !== presentationScopeKey ||
+      !hasEquivalentLatestUserMessage(
+        scopedMessagesBase,
+        pendingUserMessage.message,
+      )
+    ) {
+      return;
+    }
+    setPendingUserMessage((current) =>
+      current === pendingUserMessage ? null : current,
+    );
+  }, [pendingUserMessage, presentationScopeKey, scopedMessagesBase]);
   useEffect(() => {
     logClientEvent("chat/messages", "scoped-derived", {
       runId,
@@ -432,12 +500,16 @@ export function useChatCore(
         selectedProviderId,
         selectedModelId,
         selectedCredentialId,
+        selectedModelContextWindow,
+        selectedModelPricing,
         lastResolvedConfig,
       }),
     [
       lastResolvedConfig,
       selectedCredentialId,
       selectedModelId,
+      selectedModelContextWindow,
+      selectedModelPricing,
       selectedProviderId,
     ],
   );
@@ -454,6 +526,7 @@ export function useChatCore(
         modelId: resolvedConfig.modelId,
         credentialId: resolvedConfig.credentialId,
         contextWindow: resolvedConfig.contextWindow,
+        pricing: resolvedConfig.pricing,
         source: "provider_resolve_api",
       });
     },
@@ -475,8 +548,18 @@ export function useChatCore(
         harnessId: resolveRuntimeHarnessId(sessionId),
         providerId: config.providerId,
         modelId: config.modelId,
-        ...(config.contextWindow
-          ? { contextWindowTokens: config.contextWindow }
+        ...(resolveReasoningEffortForRequest(
+          config.providerId,
+          config.modelId,
+          selectedModelEfforts,
+        )
+          ? {
+              reasoningEffort: resolveReasoningEffortForRequest(
+                config.providerId,
+                config.modelId,
+                selectedModelEfforts,
+              ),
+            }
           : {}),
         identity: {
           workspaceId: identity.workspaceId,
@@ -486,7 +569,7 @@ export function useChatCore(
         },
         ...loadRepositoryContextFields(sessionId),
       }),
-    [mode, productMode, runId, sessionId],
+    [mode, productMode, runId, selectedModelEfforts, sessionId],
   );
 
   const pushChatRequestDebugEvent = useCallback(
@@ -569,6 +652,11 @@ export function useChatCore(
       setError(null);
       setIsSubmitting(true);
       setIsStopping(false);
+      // The previous scope may already be terminal. Clear it before admission
+      // so a lagging serverTurnId cannot make a fresh submission look settled.
+      setConversationScope(null);
+      activeConversationScopeRef.current = null;
+      activeScopeKeyRef.current = bootstrapScopeKey;
       preAdmissionStopKeyRef.current = null;
       stopRequestedRef.current = false;
       setPendingUserMessage({
@@ -640,7 +728,7 @@ export function useChatCore(
         publishConversationScopeReady(requestScope);
         setPendingUserMessage({
           scopeKey: requestScopeKey,
-          message: buildPendingUserMessage(submittedMessage),
+          message: buildPendingUserMessage(submittedMessage, requestScope),
         });
 
         if (
@@ -700,7 +788,6 @@ export function useChatCore(
       } finally {
         if (isActiveRunScope(runScopeKey)) {
           const settledScopeKey = activeScopeKeyRef.current;
-          setPendingUserMessage(null);
           setIsSubmitting(false);
           logClientEvent("chat/pending-user", "cleared", {
             runId,
@@ -720,7 +807,6 @@ export function useChatCore(
     [
       buildChatRequestBody,
       isActiveRunScope,
-      isActiveRunScope,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
@@ -735,11 +821,9 @@ export function useChatCore(
   const shouldBlockSubmit = useCallback(
     (content: string, hasImages: boolean) =>
       (!content && !hasImages) ||
-      isLoading ||
-      isSubmitting ||
-      isStopping ||
+      canonicalRunLoading ||
       !isModelConfigReady,
-    [isLoading, isModelConfigReady, isStopping, isSubmitting],
+    [canonicalRunLoading, isModelConfigReady],
   );
 
   const clearChatInput = useCallback(() => {
@@ -762,9 +846,11 @@ export function useChatCore(
         return;
       }
       restoreChatInput(originalInput);
-      setPendingUserMessage((current) =>
-        current?.scopeKey === requestScopeKey ? null : current,
-      );
+      // A successful bootstrap replaces the pre-admission scope key with the
+      // canonical turn scope. If the subsequent transport request is rejected,
+      // this handler still owns the only active submission and must clear that
+      // projection as well; otherwise the UI remains stuck on "Starting".
+      setPendingUserMessage(null);
       const message =
         error instanceof Error
           ? normalizeChatErrorMessage(error)
@@ -827,7 +913,7 @@ export function useChatCore(
           sessionId,
           hasText: Boolean(trimmedInput),
           imageCount: imageAttachments.length,
-          isLoading,
+          isLoading: canonicalRunLoading,
           isSubmitting,
           isStopping,
           isModelConfigReady,
@@ -845,7 +931,7 @@ export function useChatCore(
     [
       clearChatInput,
       input,
-      isLoading,
+      canonicalRunLoading,
       isModelConfigReady,
       isStopping,
       isSubmitting,
@@ -906,12 +992,13 @@ const stop = useCallback(() => {
     handleInputChange,
     handleSubmit,
     append: appendWithResolution,
-    isLoading: isLoading || isSubmitting || isStopping,
+    isLoading: canonicalRunLoading,
     stop,
     setMessages,
     runId,
     scope: activeConversationScope,
     serverTurnId,
+    activeTurnProjection,
     resetRun,
     isModelConfigReady,
     error,
@@ -988,14 +1075,31 @@ function extractTextContent(content: ChatUserContent): string {
     .join("\n");
 }
 
-function buildPendingUserMessage(message: ChatAppendMessage): Message {
+function buildPendingUserMessage(
+  message: ChatAppendMessage,
+  identity?: ConversationScope,
+): Message {
   const content = extractTextContent(message.content).trim();
   return {
     id: message.id ?? createClientMessageId(),
     role: "user",
     content: content || "Analyze the attached image(s).",
     createdAt: new Date(),
-  };
+    ...(identity
+      ? {
+          data: {
+            metadata: {
+              canonicalIdentity: {
+                workspaceId: identity.workspaceId,
+                threadId: identity.threadId,
+                turnId: identity.turnId,
+                runAttemptId: identity.runAttemptId,
+              },
+            },
+          },
+        }
+      : {}),
+  } as Message;
 }
 
 function ensureClientMessageId(
@@ -1027,15 +1131,10 @@ function hasEquivalentLatestUserMessage(
   messages: Message[],
   pending: Message,
 ): boolean {
-  const pendingContent = pending.content.trim();
-  if (messages.some((message) => message.id === pending.id)) {
-    return true;
-  }
-  const latest = messages.at(-1);
-  return (
-    latest?.role === "user" &&
-    extractMessageText(latest.content).trim() === pendingContent
-  );
+  // Content equality is not an acknowledgement: two consecutive prompts can
+  // intentionally contain the same text. Only the client message id proves
+  // that the canonical transcript contains this pending submission.
+  return messages.some((message) => message.id === pending.id);
 }
 
 function extractMessageText(content: Message["content"]): string {

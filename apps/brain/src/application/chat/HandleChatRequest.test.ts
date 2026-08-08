@@ -72,7 +72,7 @@ describe("HandleChatRequest", () => {
     expect(result.executionPayload.input.harnessMode).toBe("platform_owned");
     expect(result.executionPayload.input.authMode).toBe("api_key");
     expect(result.executionPayload.input.metadata).toEqual({
-      contextWindowTokens: 128_000,
+      contextWindowTokens: 999,
       featureFlags: {
         agenticLoopV1: false,
         reviewerPassV1: false,
@@ -101,6 +101,52 @@ describe("HandleChatRequest", () => {
         workspaceId: undefined,
       },
     );
+  });
+
+  it("routes new OpenAI reasoning models and preserves selected effort", async () => {
+    vi.spyOn(PersistenceService.prototype, "persistUserMessage").mockResolvedValue(
+      { id: "message-luna" } as Awaited<
+        ReturnType<PersistenceService["persistUserMessage"]>
+      >,
+    );
+    const result = await new HandleChatRequest(createEnv()).execute({
+      sessionId: "session-luna",
+      runId: "123e4567-e89b-42d3-a456-426614174000",
+      correlationId: "corr-luna",
+      agentType: "coding",
+      prompt: "inspect",
+      messages: [{ role: "user", content: "inspect" }],
+      providerId: "openai",
+      modelId: "gpt-5.6-luna",
+      contextWindowTokens: 400_000,
+      pricing: {
+        inputPer1M: 1.25,
+        outputPer1M: 10,
+        currency: "USD",
+      },
+      reasoningEffort: "high",
+      identity: {
+        workspaceId: "123e4567-e89b-42d3-a456-426614174003",
+        threadId: "thr_luna01",
+        turnId: "trn_luna01",
+        runAttemptId: "attempt_luna01",
+      },
+    });
+
+    expect(result.executionPayload.input).toMatchObject({
+      runtimeModelId: "gpt-5.6-luna",
+      providerTransport: "openai-responses",
+      providerEndpoint: "https://api.openai.com/v1/responses",
+      metadata: {
+        contextWindowTokens: 400_000,
+        pricing: {
+          inputPer1M: 1.25,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+        reasoningEffort: "high",
+      },
+    });
   });
 
   it("ensures authenticated sessions and runs before persisting transcript messages", async () => {

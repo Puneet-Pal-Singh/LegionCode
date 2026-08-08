@@ -7,6 +7,7 @@ function createDiscoveryStub() {
   return {
     getDiscoveredModels: vi.fn(),
     refreshDiscoveredModels: vi.fn(),
+    enrichModels: vi.fn(),
   };
 }
 
@@ -49,8 +50,23 @@ describe("ProviderCatalogService", () => {
     );
   });
 
-  it("serves static provider defaults from the registry without a provider call", async () => {
+  it("serves the complete OpenAI provider inventory through remote discovery", async () => {
     const discovery = createDiscoveryStub();
+    discovery.getDiscoveredModels.mockResolvedValue({
+      providerId: "openai",
+      view: "popular",
+      models: [
+        { id: "gpt-5.2", name: "GPT-5.2", providerId: "openai" },
+        { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", providerId: "openai" },
+      ],
+      page: { limit: 50, hasMore: false },
+      metadata: {
+        fetchedAt: new Date().toISOString(),
+        stale: false,
+        source: "provider_api",
+        status: "available",
+      },
+    });
     const service = new ProviderCatalogService(
       new ProviderRegistryService(),
       discovery as never,
@@ -63,12 +79,57 @@ describe("ProviderCatalogService", () => {
     });
 
     expect(response.metadata).toMatchObject({
-      source: "registry",
+      source: "provider_api",
       status: "available",
       stale: false,
     });
-    expect(response.models.map((model) => model.id)).toEqual(["gpt-4o"]);
-    expect(discovery.getDiscoveredModels).not.toHaveBeenCalled();
+    expect(response.models.map((model) => model.id)).toEqual([
+      "gpt-5.2",
+      "gpt-5.2-codex",
+    ]);
+    expect(discovery.getDiscoveredModels).toHaveBeenCalledWith("openai", {
+      view: "popular",
+      surface: "picker",
+      limit: 50,
+    });
+  });
+
+  it("enriches static provider cards through the canonical metadata owner", async () => {
+    const discovery = createDiscoveryStub();
+    discovery.enrichModels.mockImplementation(async (_providerId, models) =>
+      models.map((model: Record<string, unknown>) => ({
+        ...model,
+        contextWindow: 200000,
+        inputModalities: { text: true, image: true },
+        capabilities: {
+          supportsReasoning: true,
+          supportsTools: true,
+        },
+      })),
+    );
+    const service = new ProviderCatalogService(
+      new ProviderRegistryService(),
+      discovery as never,
+    );
+
+    const response = await service.getDiscoveredModels("anthropic", {
+      view: "all",
+      surface: "picker",
+      limit: 50,
+    });
+
+    expect(response.models[0]).toMatchObject({
+      id: "claude-3-opus",
+      contextWindow: 200000,
+      inputModalities: { text: true, image: true },
+      capabilities: { supportsReasoning: true, supportsTools: true },
+    });
+    expect(discovery.enrichModels).toHaveBeenCalledWith(
+      "anthropic",
+      expect.arrayContaining([
+        expect.objectContaining({ id: "claude-3-opus" }),
+      ]),
+    );
   });
 
   it("returns stale cache metadata when selected-provider discovery is cached", async () => {
@@ -107,11 +168,37 @@ describe("ProviderCatalogService", () => {
     });
   });
 
-  it("returns a typed unavailable state after the bounded selected-provider timeout", async () => {
+  it("does not preempt the discovery adapter's network deadline", async () => {
     vi.useFakeTimers();
     try {
       const discovery = createDiscoveryStub();
-      discovery.getDiscoveredModels.mockReturnValue(new Promise(() => {}));
+      discovery.getDiscoveredModels.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  providerId: "google",
+                  view: "popular",
+                  models: [
+                    {
+                      id: "gemini-2.5-flash",
+                      name: "Gemini 2.5 Flash",
+                      providerId: "google",
+                    },
+                  ],
+                  page: { limit: 50, hasMore: false },
+                  metadata: {
+                    fetchedAt: new Date().toISOString(),
+                    stale: false,
+                    source: "provider_api",
+                    status: "available",
+                  },
+                }),
+              5_100,
+            );
+          }),
+      );
       const service = new ProviderCatalogService(
         new ProviderRegistryService(),
         discovery as never,
@@ -122,15 +209,14 @@ describe("ProviderCatalogService", () => {
         surface: "picker",
         limit: 50,
       });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_100);
       const response = await request;
 
       expect(response).toMatchObject({
         providerId: "google",
-        models: [],
+        models: [{ id: "gemini-2.5-flash" }],
         metadata: {
-          status: "unavailable",
-          statusReason: "timeout",
+          status: "available",
           stale: false,
         },
       });
@@ -162,23 +248,38 @@ describe("ProviderCatalogService", () => {
     expect(response.metadata.statusReason).toBe("timeout");
   });
 
-  it("bounds explicit selected-provider refreshes", async () => {
+  it("lets explicit refresh use the discovery adapter's network deadline", async () => {
     vi.useFakeTimers();
     try {
       const discovery = createDiscoveryStub();
-      discovery.refreshDiscoveredModels.mockReturnValue(new Promise(() => {}));
+      discovery.refreshDiscoveredModels.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  providerId: "google",
+                  refreshedAt: new Date().toISOString(),
+                  source: "provider_api",
+                  cacheInvalidated: true,
+                  modelsCount: 3,
+                }),
+              5_100,
+            );
+          }),
+      );
       const service = new ProviderCatalogService(
         new ProviderRegistryService(),
         discovery as never,
       );
 
       const refresh = service.refreshDiscoveredModels("google");
-      const refreshExpectation = expect(refresh).rejects.toMatchObject({
-        status: 504,
-      });
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5_100);
 
-      await refreshExpectation;
+      await expect(refresh).resolves.toMatchObject({
+        providerId: "google",
+        modelsCount: 3,
+      });
     } finally {
       vi.useRealTimers();
     }

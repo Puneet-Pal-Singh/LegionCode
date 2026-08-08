@@ -60,6 +60,29 @@ describe("WorkspaceEditService", () => {
     expect(result.metadata).toMatchObject({ bytes: 3 });
   });
 
+  it("creates a new file without probing permissions on a missing target", async () => {
+    vi.mocked(runSafeCommand).mockImplementation(async (_sandbox, spec) => ({
+      exitCode: spec.command === "test" ? 1 : 0,
+      stdout:
+        spec.command === "realpath"
+          ? `${spec.args?.at(-1) ?? WORKSPACE_ROOT}\n`
+          : "",
+      stderr: "",
+    }));
+    const sandbox = createSandbox({});
+
+    const result = await new WorkspaceEditService().write(
+      createContext(sandbox),
+      { path: "local/new.txt", content: "created" },
+    );
+
+    expect(result.success).toBe(true);
+    expect(findCommand("stat")).toBeUndefined();
+    expect(findCommand("mv")?.args?.at(-1)).toBe(
+      `${WORKSPACE_ROOT}/local/new.txt`,
+    );
+  });
+
   it("rejects resolved paths outside the workspace", async () => {
     vi.mocked(runSafeCommand).mockResolvedValue({
       exitCode: 0,
