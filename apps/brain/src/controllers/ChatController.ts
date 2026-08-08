@@ -20,6 +20,7 @@ import {
   findDiscoveredChatModelMetadata,
   type ChatModelMetadata,
 } from "../services/chat/ChatModelMetadataResolver";
+import { validateChatReasoningEffort } from "../services/chat/ChatReasoningEffortPolicy";
 import { ProviderIdSchema } from "@repo/shared-types";
 import {
   applySubmittedClientMessageId,
@@ -248,15 +249,15 @@ export class ChatController {
         });
       }
 
-      if (
-        body.reasoningEffort &&
-        trustedModelMetadata.reasoningEfforts &&
-        !trustedModelMetadata.reasoningEfforts.includes(body.reasoningEffort)
-      ) {
+      const reasoningEffortError = validateChatReasoningEffort(
+        body.reasoningEffort,
+        trustedModelMetadata,
+      );
+      if (reasoningEffortError) {
         return errorResponse(
           req,
           env,
-          `Reasoning effort "${body.reasoningEffort}" is not supported by the selected model.`,
+          reasoningEffortError,
           400,
           "UNSUPPORTED_REASONING_EFFORT",
         );
