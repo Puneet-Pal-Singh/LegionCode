@@ -1034,9 +1034,17 @@ export class RunEngine implements IRunEngine {
   }
 }
 
-function parseRunReasoningEffort(metadata: RunInput["metadata"]) {
-  const parsed = ReasoningEffortSchema.safeParse(metadata?.reasoningEffort);
-  return parsed.success ? parsed.data : undefined;
+export function parseRunReasoningEffort(metadata: RunInput["metadata"]) {
+  if (metadata?.reasoningEffort === undefined) {
+    return undefined;
+  }
+  const parsed = ReasoningEffortSchema.safeParse(metadata.reasoningEffort);
+  if (!parsed.success) {
+    throw new RunEngineError(
+      `Invalid reasoning effort: ${String(metadata.reasoningEffort)}`,
+    );
+  }
+  return parsed.data;
 }
 
 function readLatestUserMessageId(messages: CoreMessage[]): string | null {

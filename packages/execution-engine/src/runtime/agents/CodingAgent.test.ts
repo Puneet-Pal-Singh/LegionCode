@@ -409,6 +409,41 @@ describe("CodingAgent task-phase model selection", () => {
     });
   });
 
+  it("does not overwrite a target when write preflight fails", async () => {
+    const llmGateway = createLLMGatewayMock();
+    const execute = vi.fn().mockResolvedValue({
+      success: false,
+      error: "permission denied",
+    });
+    const executionService = { execute } as unknown as RuntimeExecutionService;
+    const agent = new CodingAgent(llmGateway, executionService);
+
+    const result = await agent.executeTask(
+      {
+        id: "task-preflight-denied",
+        runId: "run-1",
+        type: "write_file",
+        input: {
+          path: "local/protected.txt",
+          content: "replacement",
+          expectedSha256: "0".repeat(64),
+        },
+      } as unknown as Task,
+      {
+        runId: "run-1",
+        sessionId: "session-1",
+        dependencies: [],
+      },
+    );
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("permission denied");
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith("filesystem", "read_file", {
+      path: "local/protected.txt",
+    });
+  });
+
   it("uses discovery-first analyze flow for ambiguous targets", async () => {
     const llmGateway = createLLMGatewayMock();
     const execute = vi.fn(async () => ({

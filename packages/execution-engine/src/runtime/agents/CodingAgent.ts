@@ -38,7 +38,11 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
-import { resolveWriteFileExpectedSha256 } from "../engine/WriteFilePrecondition.js";
+import {
+  classifyWriteFilePreflightFailure,
+  resolveWriteFileExpectedSha256,
+  type WriteFilePreflight,
+} from "../engine/WriteFilePrecondition.js";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -404,13 +408,16 @@ VALIDATION RULES:
     validateTaskPath(path);
     validateSafePath(path);
     const { content } = validatedInput;
-    const existingContent = await this.readExistingFileContent(path);
+    const preflight = await this.readExistingFileContent(path);
+    if (preflight.kind === "error") {
+      return this.buildFailureResult(task.id, preflight.message);
+    }
 
     const result = await this.executeGatewayPlugin("write_file", {
       path,
       content,
       expectedSha256: resolveWriteFileExpectedSha256(
-        existingContent,
+        preflight,
         validatedInput.expectedSha256,
       ),
     });
@@ -421,7 +428,7 @@ VALIDATION RULES:
     return this.buildSuccessResult(task.id, formatExecutionResult(result), {
       activity: buildWriteActivityMetadata(
         path,
-        existingContent ?? "",
+        preflight.kind === "present" ? preflight.content : "",
         content,
       ),
     });
@@ -887,13 +894,15 @@ VALIDATION RULES:
     return this.executionService.execute(route.plugin, route.action, payload);
   }
 
-  private async readExistingFileContent(path: string): Promise<string | null> {
+  private async readExistingFileContent(
+    path: string,
+  ): Promise<WriteFilePreflight> {
     const readResult = await this.executeGatewayPlugin("read_file", { path });
     const failure = extractExecutionFailure(readResult);
     if (failure) {
-      return null;
+      return classifyWriteFilePreflightFailure(failure);
     }
-    return formatExecutionResult(readResult);
+    return { kind: "present", content: formatExecutionResult(readResult) };
   }
 
   private validateCodingToolInput<T extends CodingToolId>(

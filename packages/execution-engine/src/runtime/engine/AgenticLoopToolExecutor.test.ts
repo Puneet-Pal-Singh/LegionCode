@@ -135,6 +135,33 @@ describe("AgenticLoopToolExecutor", () => {
     });
   });
 
+  it("fails closed when the write preflight cannot read an existing target", async () => {
+    const calls: Array<{ action: string; payload: Record<string, unknown> }> = [];
+    const executionService: RuntimeExecutionService = {
+      execute: async (_plugin, action, payload) => {
+        calls.push({ action, payload });
+        return action === "read_file"
+          ? { success: false, error: "permission denied" }
+          : { success: true, output: "should not write" };
+      },
+    };
+
+    const result = await executeAgenticLoopTool(executionService, {
+      taskId: "task-preflight-denied",
+      toolName: "write_file",
+      toolInput: {
+        path: "local/protected.txt",
+        content: "replacement",
+        expectedSha256: "0".repeat(64),
+      },
+    });
+
+    expect(result.status).toBe("FAILED");
+    expect(result.error?.message).toContain("permission denied");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.action).toBe("read_file");
+  });
+
   it("rejects traversal in edit paths before plugin execution", async () => {
     let executeCallCount = 0;
     const executionService: RuntimeExecutionService = {

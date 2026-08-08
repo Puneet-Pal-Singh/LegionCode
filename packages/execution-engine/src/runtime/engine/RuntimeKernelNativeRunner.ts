@@ -405,7 +405,7 @@ export class RuntimeKernelNativeRunner {
       worker,
       toolAuthorization: new RegistryToolAuthorization(
         new NativePermissionPolicyResolver(
-          resolveRunPermissionContext(input.input).state.productMode,
+          requirePersistedPermissionContext(run).state.productMode,
         ),
       ),
       approvals: new NativeApprovalWaitPort({
@@ -867,6 +867,18 @@ export class RuntimeKernelNativeRunner {
       });
     }
   }
+}
+
+export function requirePersistedPermissionContext(
+  run: Run,
+): NonNullable<Run["metadata"]["permissionContext"]> {
+  const permissionContext = run.metadata.permissionContext;
+  if (!permissionContext) {
+    throw new Error(
+      `[runtime-kernel/native] Run ${run.id} is missing persisted permission context`,
+    );
+  }
+  return permissionContext;
 }
 
 function describeRuntimeErrorCause(error: unknown): string | null {

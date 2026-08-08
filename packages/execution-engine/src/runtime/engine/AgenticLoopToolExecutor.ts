@@ -37,7 +37,11 @@ import type {
   TaskInput,
   TaskResult,
 } from "../types.js";
-import { resolveWriteFileExpectedSha256 } from "./WriteFilePrecondition.js";
+import {
+  classifyWriteFilePreflightFailure,
+  resolveWriteFileExpectedSha256,
+  type WriteFilePreflight,
+} from "./WriteFilePrecondition.js";
 
 const GIT_COMMIT_IDENTITY_CONFIG_SEGMENT_PATTERN =
   /\bgit(?:\s+-C\s+\S+)?\s+config\b.*\buser\.(?:name|email)\b/i;
@@ -309,12 +313,15 @@ async function executeWriteFileTool(
   validateToolPath(path);
   validateSafePath(path);
 
-  const previousContent = await readExistingFileContent(executionService, path);
+  const preflight = await readExistingFileContent(executionService, path);
+  if (preflight.kind === "error") {
+    return buildFailureResult(taskId, preflight.message);
+  }
   const result = await executeGatewayPlugin(executionService, "write_file", {
     path,
     content: validatedInput.content,
     expectedSha256: resolveWriteFileExpectedSha256(
-      previousContent,
+      preflight,
       validatedInput.expectedSha256,
     ),
   });
@@ -326,7 +333,7 @@ async function executeWriteFileTool(
   return buildSuccessResult(taskId, formatExecutionResult(result), {
     activity: buildWriteActivityMetadata(
       path,
-      previousContent ?? "",
+      preflight.kind === "present" ? preflight.content : "",
       validatedInput.content,
     ),
   });
@@ -1299,15 +1306,15 @@ async function executeGatewayPlugin(
 async function readExistingFileContent(
   executionService: RuntimeExecutionService,
   path: string,
-): Promise<string | null> {
+): Promise<WriteFilePreflight> {
   const result = await executeGatewayPlugin(executionService, "read_file", {
     path,
   });
   const failure = extractExecutionFailure(result);
   if (failure) {
-    return null;
+    return classifyWriteFilePreflightFailure(failure);
   }
-  return formatExecutionResult(result);
+  return { kind: "present", content: formatExecutionResult(result) };
 }
 
 function isGitCommitIdentityConfigShellCommand(command: string): boolean {
