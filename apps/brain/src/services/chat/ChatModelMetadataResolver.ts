@@ -2,6 +2,7 @@ import {
   type BYOKModelPricing,
   type BYOKDiscoveredProviderModelsResponse,
   type ProviderId,
+  type ReasoningEffort,
 } from "@repo/shared-types";
 
 const MODEL_PAGE_SIZE = 200;
@@ -10,6 +11,7 @@ const MAX_MODEL_PAGES = 50;
 export interface ChatModelMetadata {
   contextWindow?: number;
   pricing?: BYOKModelPricing;
+  reasoningEfforts?: readonly ReasoningEffort[];
 }
 
 export async function findDiscoveredChatModelMetadata(
@@ -43,6 +45,9 @@ export async function findDiscoveredChatModelMetadata(
           ? { contextWindow: model.contextWindow }
           : {}),
         ...(model.pricing ? { pricing: model.pricing } : {}),
+        ...(model.capabilities?.reasoningEfforts
+          ? { reasoningEfforts: model.capabilities.reasoningEfforts }
+          : {}),
       };
     }
     if (!response.page.hasMore || !response.page.nextCursor) {

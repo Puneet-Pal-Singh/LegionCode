@@ -36,6 +36,7 @@ export class InMemoryRunApprovalResolutionRegistry
   implements RunApprovalResolutionRegistry
 {
   private readonly resolvers = new Map<TurnId, ActiveTurnApprovalResolver>();
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   register(turnId: TurnId, resolve: ActiveTurnApprovalResolver): void {
     this.resolvers.set(turnId, resolve);
@@ -54,7 +55,21 @@ export class InMemoryRunApprovalResolutionRegistry
     if (!resolver) {
       return false;
     }
-    await resolver(approvalId, resolution);
+    const key = `${turnId}:${approvalId}:${resolution.decision}`;
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      await existing;
+      return true;
+    }
+    const delivery = resolver(approvalId, resolution);
+    this.inFlight.set(key, delivery);
+    try {
+      await delivery;
+    } finally {
+      if (this.inFlight.get(key) === delivery) {
+        this.inFlight.delete(key);
+      }
+    }
     return true;
   }
 

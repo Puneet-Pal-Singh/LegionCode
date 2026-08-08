@@ -245,7 +245,8 @@ async function defaultFetchJson(url: string): Promise<unknown> {
           `models.dev catalog request failed with ${response.status}`,
         );
         if (!isRetryableCatalogStatus(response.status)) {
-          throw error;
+          lastError = error;
+          break;
         }
         lastError = error;
         continue;

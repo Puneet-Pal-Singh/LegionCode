@@ -46,6 +46,9 @@ export class GoogleModelCatalogAdapter implements ProviderModelCatalogPort {
         id: stripModelsPrefix(model.name),
         name: model.displayName || stripModelsPrefix(model.name),
         providerId: "google",
+        ...(model.inputTokenLimit !== undefined
+          ? { contextWindow: model.inputTokenLimit }
+          : {}),
         description: model.description,
       }));
   }

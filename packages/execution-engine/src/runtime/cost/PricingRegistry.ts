@@ -88,7 +88,7 @@ export class PricingRegistry implements IPricingRegistry {
     const cacheReadPrice =
       activePricing.cacheReadPrice ??
       pricing.cacheReadPrice ??
-      pricing.inputPrice;
+      activePricing.inputPrice;
     const inputCost =
       (uncachedInputTokens / 1000) * activePricing.inputPrice;
     const cacheReadCost = (cachedInputTokens / 1000) * cacheReadPrice;
@@ -296,7 +296,7 @@ export class PricingRegistry implements IPricingRegistry {
         : typeof value === "string"
           ? Number(value)
           : Number.NaN;
-    if (!Number.isFinite(parsed)) {
+    if (!Number.isFinite(parsed) || parsed < 0) {
       throw new PricingError(`Pricing entry ${key} has invalid ${fieldName}`);
     }
     return parsed;
