@@ -16,12 +16,9 @@ import {
 } from "./chat-runtime-helpers";
 import { RunAdmissionService } from "../runtime/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
-import {
-  findDiscoveredChatModelMetadata,
-  type ChatModelMetadata,
-} from "../services/chat/ChatModelMetadataResolver";
+import { resolveChatModelMetadata } from "../services/chat/ChatModelMetadataResolution";
+import type { ChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 import { validateChatReasoningEffort } from "../services/chat/ChatReasoningEffortPolicy";
-import { ProviderIdSchema } from "@repo/shared-types";
 import {
   applySubmittedClientMessageId,
   summarizeCoreMessages,
@@ -216,38 +213,21 @@ export class ChatController {
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
-      let trustedModelMetadata: ChatModelMetadata = {};
-      try {
-        const providerId = ProviderIdSchema.parse(body.providerId);
-        const modelId = body.modelId?.trim();
-        if (modelId) {
-          trustedModelMetadata = await findDiscoveredChatModelMetadata(
-            {
-              getDiscoveredModels: (_providerId, query) =>
-                fetchRunProviderModels(env, {
-                  runId,
-                  userId,
-                  workspaceId,
-                  providerId,
-                  query,
-                  requestedBackend:
-                    body.orchestratorBackend ?? "execution-engine-v1",
-                }),
-            },
-            providerId,
-            modelId,
-          );
-        }
-      } catch (metadataError) {
-        console.warn("[chat/model-metadata] unavailable", {
-          providerId: body.providerId ?? null,
-          modelId: body.modelId ?? null,
-          error:
-            metadataError instanceof Error
-              ? metadataError.message
-              : String(metadataError),
+      const trustedModelMetadata: ChatModelMetadata =
+        await resolveChatModelMetadata({
+          providerId: body.providerId,
+          modelId: body.modelId,
+          fetchModels: (_providerId, query) =>
+            fetchRunProviderModels(env, {
+              runId,
+              userId,
+              workspaceId,
+              providerId: _providerId,
+              query,
+              requestedBackend:
+                body.orchestratorBackend ?? "execution-engine-v1",
+            }),
         });
-      }
 
       const reasoningEffortError = validateChatReasoningEffort(
         body.reasoningEffort,
