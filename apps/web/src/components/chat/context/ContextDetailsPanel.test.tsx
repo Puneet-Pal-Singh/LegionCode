@@ -46,10 +46,11 @@ describe("ContextDetailsPanel", () => {
     render(<ContextDetailsPanel budget={budget} usage={usage} />);
 
     expect(screen.getByText("258,000")).toBeInTheDocument();
-    expect(screen.getAllByText("108,000")).toHaveLength(2);
-    expect(screen.getByText("USD 0.44")).toBeInTheDocument();
+    expect(screen.getByText("228,000")).toBeInTheDocument();
+    expect(screen.getByText("$0.44")).toBeInTheDocument();
+    expect(screen.getByText("Conversation 83%")).toBeInTheDocument();
     expect(
-      screen.getByText(/automatic compaction starts at 80%/i),
+      screen.getByText(/automatic\s+compaction starts at\s+80%/i),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /compact context/i }),
@@ -59,6 +60,6 @@ describe("ContextDetailsPanel", () => {
   it("shows unavailable instead of estimating missing provider usage", () => {
     render(<ContextDetailsPanel budget={budget} usage={null} />);
 
-    expect(screen.getAllByText("Unavailable")).toHaveLength(6);
+    expect(screen.getAllByText("Unavailable")).toHaveLength(10);
   });
 });

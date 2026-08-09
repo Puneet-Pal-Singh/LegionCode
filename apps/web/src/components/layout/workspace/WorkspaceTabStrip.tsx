@@ -2,6 +2,7 @@ import { FileDiff, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "../../../lib/utils";
 import { FileTypeIcon } from "../../ui/FileTypeIcon";
+import { ContextUsageRing } from "../../chat/context/ContextUsageRing";
 import type { SidebarContentTab } from "./useWorkspaceState";
 
 interface WorkspaceTabStripProps {
@@ -49,7 +50,17 @@ export function WorkspaceTabStrip({
         <WorkspaceTab
           key={tab.id}
           label={formatContentTitle(tab.path)}
-          icon={<FileTypeIcon path={tab.path} size={15} />}
+          icon={
+            tab.kind === "context" ? (
+              <ContextUsageRing
+                percent={Math.round(tab.budget.utilizationPercent)}
+                size={16}
+                className="text-current"
+              />
+            ) : (
+              <FileTypeIcon path={tab.path} size={15} />
+            )
+          }
           active={!reviewActive && activeContentTabId === tab.id}
           size={size}
           onSelect={() => onSelectContent(tab.id)}
