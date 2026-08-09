@@ -23,6 +23,10 @@ Breaking changes: <!-- None, or describe the migration required. -->
 
 Dependencies / merge order: <!-- None, or link public prerequisite PRs. -->
 
+- Merge independence:
+- Remaining integration:
+- Temporary mechanism deletion criteria:
+
 ## Architecture and ownership
 
 <!--
@@ -31,13 +35,28 @@ persistence, Git, execution backends, harnesses, SDKs, and client-state changes.
 For other PRs, write N/A.
 -->
 
+Canonical wiring: <!-- Complete for architecture-sensitive changes; otherwise N/A. -->
+
 - Product responsibility:
-- Canonical owner after this change:
-- Producers and consumers migrated:
-- Removed authority or fallback and its replacement:
-- Remaining temporary path, owner, and deletion trigger:
+- Current owner(s):
+- Canonical owner after change:
+- Active producers migrated:
+- Active consumers migrated:
+- Code or path removed:
+- Replacement for removed behavior:
+- Remaining duplicate authority: <!-- Include owner and deletion trigger when applicable. -->
 - Capability ownership ledger update: <!-- Updated row, or why ownership is unchanged. -->
-- Lifecycle invariant / root cause: <!-- Required for lifecycle fixes; otherwise N/A. -->
+
+Lifecycle evidence: <!-- Complete for lifecycle fixes; otherwise N/A. -->
+
+- User-visible symptom:
+- Full affected lifecycle:
+- Canonical owner:
+- Violated invariant:
+- Architectural root cause:
+- Duplicate authority or fallback removed:
+- Boundary regression test:
+- Lifecycle/conformance regression test:
 
 ## Verification
 
