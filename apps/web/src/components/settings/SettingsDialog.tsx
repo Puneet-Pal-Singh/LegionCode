@@ -10,7 +10,10 @@ import {
   Archive,
   CheckCircle2,
   Cable,
+  ChevronRight,
+  Cpu,
   Plus,
+  Search,
   Settings2,
   Sparkles,
   X,
@@ -333,7 +336,11 @@ export function SettingsDialog({
               <SettingsNavSection
                 label="Server"
                 items={[
-                  { id: "connect", label: "Connect", icon: <Plus size={16} /> },
+                  {
+                    id: "connect",
+                    label: "Providers",
+                    icon: <Cpu size={16} />,
+                  },
                   {
                     id: "models",
                     label: "Models",
@@ -660,9 +667,9 @@ function SettingsConnectPanel({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <section>
-        <h3 className="mb-3 text-lg font-medium text-zinc-100">
+        <h3 className="mb-4 text-base font-semibold text-zinc-100">
           Connected providers
         </h3>
         <div className="ui-surface-section">
@@ -674,17 +681,20 @@ function SettingsConnectPanel({
             connectedProviders.map((provider, index) => (
               <div
                 key={provider.providerId}
-                className={`flex items-center justify-between px-4 py-4 ${
+                className={`flex min-h-20 items-center justify-between gap-4 px-5 py-4 ${
                   index > 0 ? "border-t border-zinc-800/70" : ""
                 }`}
               >
-                <div>
-                  <p className="text-lg font-medium text-zinc-100">
-                    {provider.displayName}
-                  </p>
-                  <span className="mt-1 inline-block rounded-md border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-300">
-                    API key
-                  </span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <ProviderMark name={provider.displayName} />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="truncate text-sm font-medium text-zinc-100">
+                      {provider.displayName}
+                    </p>
+                    <span className="rounded border border-zinc-700 bg-zinc-800/70 px-1.5 py-0.5 text-xs text-zinc-400">
+                      API key
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -695,7 +705,7 @@ function SettingsConnectPanel({
                     disconnectingCredentialId ===
                     provider.credential.credentialId
                   }
-                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {disconnectingCredentialId ===
                   provider.credential.credentialId
@@ -709,7 +719,7 @@ function SettingsConnectPanel({
       </section>
 
       <section>
-        <h3 className="mb-3 text-lg font-medium text-zinc-100">
+        <h3 className="mb-4 text-base font-semibold text-zinc-100">
           Popular providers
         </h3>
         <div className="ui-surface-section">
@@ -721,18 +731,21 @@ function SettingsConnectPanel({
             availableProviders.map((provider, index) => (
               <div
                 key={provider.providerId}
-                className={`flex items-center justify-between gap-4 px-4 py-4 ${
+                className={`flex min-h-20 items-center justify-between gap-4 px-5 py-4 ${
                   index > 0 ? "border-t border-zinc-800/70" : ""
                 }`}
               >
-                <div>
-                  <p className="text-lg font-medium text-zinc-100">
-                    {provider.displayName}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    {provider.keyFormat?.description ??
-                      "Connect using your API key"}
-                  </p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <ProviderMark name={provider.displayName} />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-zinc-100">
+                      {provider.displayName}
+                    </p>
+                    <p className="mt-1 truncate text-sm text-zinc-500">
+                      {provider.keyFormat?.description ??
+                        "Connect using your API key"}
+                    </p>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -774,6 +787,9 @@ function SettingsModelsPanel({
   onSetProviderVisibleModels: (providerId: string, modelIds: string[]) => void;
 }): React.ReactElement {
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedProviderIds, setExpandedProviderIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   useEffect(() => {
     const connectedProviderIds = new Set(
@@ -803,15 +819,29 @@ function SettingsModelsPanel({
     [providerGroups, searchQuery],
   );
 
+  const toggleExpanded = (providerId: string): void => {
+    setExpandedProviderIds((current) => {
+      const next = new Set(current);
+      if (next.has(providerId)) next.delete(providerId);
+      else next.add(providerId);
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-4">
-      <div>
+      <div className="relative">
+        <Search
+          size={16}
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+          aria-hidden="true"
+        />
         <input
           type="text"
           placeholder="Search models"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
-          className="ui-input h-10 w-full px-3 text-sm"
+          className="ui-input h-11 w-full pl-10 pr-3 text-sm"
         />
       </div>
 
@@ -822,66 +852,74 @@ function SettingsModelsPanel({
             : "No providers connected"}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-1">
           {filteredGroups.map((group) => {
             const visibleSet = visibleModelIds[group.providerId];
             const filteredModels = group.filteredModels;
+            const isExpanded =
+              searchQuery.trim().length > 0 ||
+              expandedProviderIds.has(group.providerId);
             const isProviderVisible = visibleSet
               ? visibleSet.size > 0
               : group.models.length > 0;
             const canToggleProviderVisibility = group.models.length > 0;
 
             return (
-              <section key={group.providerId} className="ui-surface-section">
-                <div className="flex items-center justify-between px-4 py-3">
-                  <div>
-                    <p className="text-lg font-semibold text-zinc-100">
-                      {group.displayName}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      {group.isModelListLoaded
-                        ? `${group.models.length} models`
-                        : "Loading models..."}
-                    </p>
-                  </div>
+              <section key={group.providerId}>
+                <div className="flex min-h-14 items-center gap-3 rounded-lg px-3 transition hover:bg-zinc-800/55">
                   <button
                     type="button"
+                    onClick={() => toggleExpanded(group.providerId)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    aria-expanded={isExpanded}
+                  >
+                    <ChevronRight
+                      size={14}
+                      className={`shrink-0 text-zinc-600 transition-transform ${
+                        isExpanded ? "rotate-90" : ""
+                      }`}
+                    />
+                    <ProviderMark name={group.displayName} />
+                    <span className="truncate text-sm font-medium text-zinc-100">
+                      {group.displayName}
+                    </span>
+                    <span className="text-xs text-zinc-600">
+                      {group.isModelListLoaded
+                        ? `${group.models.length} models`
+                        : "Loading"}
+                    </span>
+                  </button>
+                  <input
+                    type="checkbox"
+                    aria-label={`Show ${group.displayName} models`}
                     disabled={!canToggleProviderVisibility}
-                    onClick={() => {
-                      if (!canToggleProviderVisibility) {
-                        return;
-                      }
+                    checked={isProviderVisible}
+                    onChange={() => {
                       if (isProviderVisible) {
                         onSetProviderVisibleModels(group.providerId, []);
-                        return;
+                      } else {
+                        onSetProviderVisibleModels(
+                          group.providerId,
+                          group.models.map((model) => model.id),
+                        );
                       }
-                      onSetProviderVisibleModels(
-                        group.providerId,
-                        group.models.map((model) => model.id),
-                      );
                     }}
-                    className={`rounded-md border px-2 py-1 text-xs transition ${
-                      canToggleProviderVisibility
-                        ? "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-                        : "border-zinc-800 text-zinc-600"
-                    }`}
-                  >
-                    {isProviderVisible ? "Hide all" : "Show all"}
-                  </button>
+                    className="h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full border border-zinc-600 bg-zinc-800 p-0.5 transition before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition before:content-[''] checked:border-zinc-300 checked:bg-zinc-100 checked:before:translate-x-4 checked:before:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
+                  />
                 </div>
 
-                {!group.isModelListLoaded ? (
-                  <div className="px-4 pb-4 text-sm text-zinc-500">
+                {isExpanded && !group.isModelListLoaded ? (
+                  <div className="ml-10 px-4 py-4 text-sm text-zinc-500">
                     Loading models...
                   </div>
-                ) : filteredModels.length === 0 ? (
-                  <div className="px-4 pb-4 text-sm text-zinc-500">
+                ) : isExpanded && filteredModels.length === 0 ? (
+                  <div className="ml-10 px-4 py-4 text-sm text-zinc-500">
                     {searchQuery
                       ? "No models match your search"
                       : "No models available"}
                   </div>
-                ) : (
-                  <div className="border-t border-zinc-800/70">
+                ) : isExpanded ? (
+                  <div className="ui-surface-section ml-10 overflow-hidden">
                     {filteredModels.map((model, index) => {
                       const enabled = visibleSet
                         ? visibleSet.has(model.id)
@@ -890,7 +928,7 @@ function SettingsModelsPanel({
                       return (
                         <label
                           key={model.id}
-                          className={`flex items-center justify-between gap-3 px-4 py-2 ${
+                          className={`flex min-h-16 items-center justify-between gap-3 px-5 py-3 ${
                             index > 0 ? "border-t border-zinc-800/50" : ""
                           }`}
                         >
@@ -906,19 +944,37 @@ function SettingsModelsPanel({
                                 model.id,
                               )
                             }
-                            className="h-4 w-4 accent-zinc-100"
+                            className="h-5 w-9 cursor-pointer appearance-none rounded-full border border-zinc-600 bg-zinc-800 p-0.5 transition before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition before:content-[''] checked:border-zinc-300 checked:bg-zinc-100 checked:before:translate-x-4 checked:before:bg-zinc-900"
                           />
                         </label>
                       );
                     })}
                   </div>
-                )}
+                ) : null}
               </section>
             );
           })}
         </div>
       )}
     </div>
+  );
+}
+
+function ProviderMark({ name }: { name: string }): React.ReactElement {
+  const mark = name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[10px] font-semibold text-zinc-400"
+    >
+      {mark}
+    </span>
   );
 }
 

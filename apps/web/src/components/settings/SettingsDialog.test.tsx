@@ -54,7 +54,7 @@ describe("SettingsDialog", () => {
     );
   });
 
-  it("switches between General, Connect, Models, and Hooks sections", () => {
+  it("switches between General, Providers, Models, and Hooks sections", () => {
     render(
       <SettingsDialog
         isOpen={true}
@@ -67,7 +67,7 @@ describe("SettingsDialog", () => {
       screen.getByRole("heading", { name: "General" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Providers" }));
     expect(
       screen.getByRole("heading", { name: "Providers" }),
     ).toBeInTheDocument();
