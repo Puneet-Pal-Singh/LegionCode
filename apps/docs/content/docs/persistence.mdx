@@ -1,44 +1,48 @@
 ---
 title: Data and storage
-description: Understand what LegionCode stores for product state, credentials, run history, and review.
+description: Understand how LegionCode stores product records, lifecycle events, credentials, and review artifacts.
 category: Architecture
 toc:
+  - id: source-of-truth
+    text: Source of truth
   - id: product-data
     text: Product data
-  - id: runtime-data
-    text: Runtime data
+  - id: secrets
+    text: Secrets
   - id: migrations
     text: Migrations
 ---
 
-LegionCode stores enough state to authenticate users, connect repositories, run tasks, and reconstruct review history. Browser storage may cache UI state, but product state lives on the server.
+LegionCode stores enough state to authenticate users, connect repositories, run tasks, and reconstruct conversation and review history. Browser storage may cache preferences, but it is not the source of truth for product or runtime state.
+
+## Source of truth
+
+The runtime writes turn, tool, approval, artifact, and terminal lifecycle events through one append path. The same durable history supports replay after a refresh and live continuation while work is active.
+
+Transcripts, workflow activity, sidebar status, usage, and review state are projections over canonical records. A projection can present or group state; it does not change the underlying lifecycle.
 
 ## Product data
 
-Server-side product data includes:
+Server-side data includes:
 
 - user identity and session records;
 - connected repositories and selected branches;
-- encrypted provider credential records and connection status;
-- run metadata, transcripts, tool activity, and review artifacts;
-- permission decisions and Git action metadata.
+- workspace, task, turn, and run-attempt identities;
+- transcripts and lifecycle events;
+- permission decisions and tool-call records;
+- finalized artifacts and Git action metadata;
+- provider credential records and connection status.
 
-Secrets are stored separately from the metadata returned to the browser. API responses should expose status and fingerprints, not secret values.
+If a turn fails or is interrupted, its durable history should remain available for review and troubleshooting.
 
-## Runtime data
+## Secrets
 
-Runtime state tracks active execution, streaming events, and run-specific coordination. Keep bug reports focused on sanitized identifiers and error messages; do not include private repository contents or provider credentials.
+Secrets are stored separately from metadata returned to clients. API responses expose connection status and safe identifiers, not credential values.
 
-If a run fails, its transcript and review metadata should remain available so you can understand what happened before retrying.
+Do not include provider credentials, cookies, private repository contents, or environment values in logs or bug reports.
 
 ## Migrations
 
-Database migrations live in the repository and should be applied deliberately before deploying code that depends on new schema.
+Database migrations live in the repository and must be applied before deploying code that depends on a new schema.
 
-For production, prefer a manual migration step with verification. Do not mark a failed migration as complete without inspecting the exact statement that failed.
-
-The supported Cloudflare production procedure is the scheduled-only migration
-worker documented in [Deployment](/docs/deployment/#deploy-order). It has no
-HTTP handler or public route. Keep the main Brain Worker in
-`DATABASE_MIGRATIONS_MODE=manual`; do not temporarily enable automatic
-migrations on live request handlers.
+The supported Cloudflare production procedure is the scheduled-only migration worker documented in [Deployment](/docs/deployment/#deploy-order). It has no HTTP handler or public route. Keep the main Brain Worker in `DATABASE_MIGRATIONS_MODE=manual`; do not enable automatic migrations on live request handlers.
