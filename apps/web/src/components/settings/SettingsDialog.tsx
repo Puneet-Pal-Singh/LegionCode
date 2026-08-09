@@ -22,6 +22,8 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
+import { ProviderIcon } from "../provider/ProviderIcon.js";
+import { Switch } from "../ui/Switch.js";
 import { formatModelDisplayName } from "../provider/modelDisplayName.js";
 import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";
 import { HooksSettingsPanel } from "./HooksSettingsPanel.js";
@@ -557,15 +559,14 @@ function SettingsGeneralPanel(): React.ReactElement {
               panel.
             </span>
           </span>
-          <input
-            type="checkbox"
+          <Switch
+            label="Show context window usage"
             checked={composerPreferences.showContextWindowUsage}
-            onChange={(event) =>
+            onCheckedChange={(checked) =>
               updateComposerPreferences({
-                showContextWindowUsage: event.currentTarget.checked,
+                showContextWindowUsage: checked,
               })
             }
-            className="h-5 w-9 cursor-pointer appearance-none rounded-full border border-zinc-600 bg-zinc-800 p-0.5 transition checked:border-zinc-300 checked:bg-zinc-100 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-300 before:transition before:content-[''] checked:before:translate-x-4 checked:before:bg-zinc-900"
           />
         </label>
       </div>
@@ -686,7 +687,7 @@ function SettingsConnectPanel({
                 }`}
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <ProviderMark name={provider.displayName} />
+                  <ProviderIcon providerId={provider.providerId} />
                   <div className="flex min-w-0 items-center gap-2">
                     <p className="truncate text-sm font-medium text-zinc-100">
                       {provider.displayName}
@@ -736,7 +737,7 @@ function SettingsConnectPanel({
                 }`}
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <ProviderMark name={provider.displayName} />
+                  <ProviderIcon providerId={provider.providerId} />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-zinc-100">
                       {provider.displayName}
@@ -879,7 +880,7 @@ function SettingsModelsPanel({
                         isExpanded ? "rotate-90" : ""
                       }`}
                     />
-                    <ProviderMark name={group.displayName} />
+                    <ProviderIcon providerId={group.providerId} />
                     <span className="truncate text-sm font-medium text-zinc-100">
                       {group.displayName}
                     </span>
@@ -889,12 +890,11 @@ function SettingsModelsPanel({
                         : "Loading"}
                     </span>
                   </button>
-                  <input
-                    type="checkbox"
-                    aria-label={`Show ${group.displayName} models`}
+                  <Switch
+                    label={`Show ${group.displayName} models`}
                     disabled={!canToggleProviderVisibility}
                     checked={isProviderVisible}
-                    onChange={() => {
+                    onCheckedChange={() => {
                       if (isProviderVisible) {
                         onSetProviderVisibleModels(group.providerId, []);
                       } else {
@@ -904,7 +904,6 @@ function SettingsModelsPanel({
                         );
                       }
                     }}
-                    className="h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full border border-zinc-600 bg-zinc-800 p-0.5 transition before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition before:content-[''] checked:border-zinc-300 checked:bg-zinc-100 checked:before:translate-x-4 checked:before:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-40"
                   />
                 </div>
 
@@ -935,16 +934,15 @@ function SettingsModelsPanel({
                           <p className="text-sm font-medium text-zinc-200">
                             {formatModelDisplayName(model)}
                           </p>
-                          <input
-                            type="checkbox"
+                          <Switch
+                            label={`Show ${formatModelDisplayName(model)}`}
                             checked={enabled}
-                            onChange={() =>
+                            onCheckedChange={() =>
                               onToggleModelVisibility(
                                 group.providerId,
                                 model.id,
                               )
                             }
-                            className="h-5 w-9 cursor-pointer appearance-none rounded-full border border-zinc-600 bg-zinc-800 p-0.5 transition before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition before:content-[''] checked:border-zinc-300 checked:bg-zinc-100 checked:before:translate-x-4 checked:before:bg-zinc-900"
                           />
                         </label>
                       );
@@ -957,24 +955,6 @@ function SettingsModelsPanel({
         </div>
       )}
     </div>
-  );
-}
-
-function ProviderMark({ name }: { name: string }): React.ReactElement {
-  const mark = name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[10px] font-semibold text-zinc-400"
-    >
-      {mark}
-    </span>
   );
 }
 

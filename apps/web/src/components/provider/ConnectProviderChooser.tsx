@@ -17,6 +17,7 @@ import {
 } from "@repo/shared-types";
 import { getProviderRecoveryAdvice } from "../../lib/provider-recovery.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
+import { ProviderIcon } from "./ProviderIcon";
 
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
@@ -57,14 +58,6 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
   openrouter: "Models from multiple providers",
   "together-ai": "Open-source hosted models",
 };
-
-function getProviderMonogram(option: ProviderOption): string {
-  const words = option.displayName.split(/\s+/).filter(Boolean);
-  return words
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase())
-    .join("");
-}
 
 /**
  * ConnectProviderChooser Component
@@ -301,9 +294,7 @@ export function ConnectProviderChooser({
                     disabled={isConnecting}
                     className="grid min-h-14 w-full grid-cols-[2rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-neutral-800/70 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <span className="flex size-8 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-800 text-xs font-semibold text-neutral-300">
-                      {getProviderMonogram(option)}
-                    </span>
+                    <ProviderIcon providerId={option.entry.providerId} />
                     <span className="min-w-0">
                       <span className="block text-sm font-medium text-neutral-100">
                         {option.displayName}

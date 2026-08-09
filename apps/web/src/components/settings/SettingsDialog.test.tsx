@@ -43,7 +43,7 @@ describe("SettingsDialog", () => {
       />,
     );
 
-    const toggle = screen.getByRole("checkbox", {
+    const toggle = screen.getByRole("switch", {
       name: /show context window usage/i,
     });
     expect(toggle).toBeChecked();
