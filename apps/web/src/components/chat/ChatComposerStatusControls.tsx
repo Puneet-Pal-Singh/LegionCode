@@ -1,8 +1,5 @@
 import { PRODUCT_MODES, type ProductMode } from "@repo/shared-types";
-import type {
-  ContextBudgetSnapshot,
-  UsageCostSnapshot,
-} from "@repo/platform-client-sdk";
+import type { ComponentProps } from "react";
 import { ContextWindowIndicator } from "./ContextWindowIndicator";
 import { PermissionModeControl } from "./PermissionModeControl";
 
@@ -27,12 +24,10 @@ export function ChatComposerPermissionControl({
   );
 }
 
-interface ChatComposerContextControlProps {
-  budget: ContextBudgetSnapshot | null;
-  usage: UsageCostSnapshot | null;
-  onCompact?: () => void;
-  onOpenDetails?: () => void;
-}
+type ChatComposerContextControlProps = Pick<
+  ComponentProps<typeof ContextWindowIndicator>,
+  "budget" | "usage" | "onCompact" | "onOpenDetails"
+>;
 
 export function ChatComposerContextControl(
   props: ChatComposerContextControlProps,
