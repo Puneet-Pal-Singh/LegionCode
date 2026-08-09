@@ -25,7 +25,11 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
-import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
+import {
+  logAgenticLoopToolFinished,
+  logAgenticLoopToolStarted,
+  logAgenticLoopToolThrew,
+} from "./AgenticLoopToolDiagnostics.js";
 import {
   buildFailureResult,
   buildMutationResult,
@@ -62,45 +66,20 @@ export async function executeAgenticLoopTool(
 ): Promise<TaskResult> {
   const startedAt = Date.now();
   const route = getCodingToolRoute(input.toolName);
-  console.log(
-    formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "started", {
-      taskId: input.taskId,
-      toolName: input.toolName,
-      routePlugin: route?.plugin ?? "missing",
-      routeAction: route?.action ?? "missing",
-      argKeys: Object.keys(input.toolInput).sort(),
-    }),
-  );
+  const diagnosticContext = {
+    taskId: input.taskId,
+    toolName: input.toolName,
+    routePlugin: route?.plugin ?? "missing",
+    routeAction: route?.action ?? "missing",
+    startedAt,
+  };
+  logAgenticLoopToolStarted(diagnosticContext, input.toolInput);
   try {
     const result = await dispatchAgenticLoopTool(executionService, input);
-    console.log(
-      formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "finished", {
-        taskId: input.taskId,
-        toolName: input.toolName,
-        routePlugin: route?.plugin ?? "missing",
-        routeAction: route?.action ?? "missing",
-        status: result.status,
-        elapsedMs: Date.now() - startedAt,
-        outputChars: result.output?.content.length ?? 0,
-        errorCode: result.error?.code ?? null,
-        errorMessage: result.error?.message
-          ? boundLogText(result.error.message)
-          : null,
-      }),
-    );
+    logAgenticLoopToolFinished(diagnosticContext, result, boundLogText);
     return result;
   } catch (error) {
-    console.error(
-      formatRuntimeDiagnosticLogLine("agentic-loop/tool-executor", "threw", {
-        taskId: input.taskId,
-        toolName: input.toolName,
-        routePlugin: route?.plugin ?? "missing",
-        routeAction: route?.action ?? "missing",
-        elapsedMs: Date.now() - startedAt,
-        errorMessage:
-          error instanceof Error ? boundLogText(error.message) : String(error),
-      }),
-    );
+    logAgenticLoopToolThrew(diagnosticContext, error, boundLogText);
     throw error;
   }
 }
