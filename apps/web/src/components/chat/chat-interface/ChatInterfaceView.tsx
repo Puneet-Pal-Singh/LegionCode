@@ -128,6 +128,7 @@ function Transcript(props: ChatInterfaceViewProps) {
               props,
               entry.message.id,
             )}
+            hookAudits={entry.projection?.hookAudits}
           />
         );
       })}
@@ -180,6 +181,7 @@ function TurnWorkflowEntry({
             {...props}
             terminalViewModel={terminalViewModel}
             includeCurrentTurnReview={isCurrentTurn}
+            hookAudits={entry.projection.hookAudits}
           />
         </div>
       ) : null}
@@ -211,6 +213,7 @@ function TerminalMessage(
   props: ChatInterfaceViewProps & {
     terminalViewModel: LifecycleTerminalViewModel;
     includeCurrentTurnReview: boolean;
+    hookAudits: LifecycleProjection["hookAudits"];
   },
 ) {
   const terminal = props.terminalViewModel;
@@ -260,6 +263,7 @@ function TerminalMessage(
             })
           : undefined
       }
+      hookAudits={props.hookAudits}
     />
   );
 }
