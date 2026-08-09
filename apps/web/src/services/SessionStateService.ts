@@ -17,6 +17,7 @@ import { DEFAULT_RUN_MODE, type RunMode } from "@repo/shared-types";
 import {
   archivedSessionsPath,
   sessionArchivePath,
+  sessionDeletePath,
   sessionPinPath,
   sessionTitlePath,
   sessionReadReceiptPath,
@@ -244,6 +245,16 @@ export class SessionStateService {
       sessionUnarchivePath(sessionId),
       "Session unarchive",
     );
+  }
+
+  static async deleteArchivedSession(sessionId: string): Promise<void> {
+    const response = await fetch(sessionDeletePath(sessionId), {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!response.ok) {
+      throw new Error(`Archived session deletion failed: ${response.status}`);
+    }
   }
 
   static async hydrateArchivedSessionsFromServer(): Promise<AgentSession[]> {

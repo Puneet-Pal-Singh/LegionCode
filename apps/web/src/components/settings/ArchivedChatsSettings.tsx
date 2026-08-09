@@ -1,4 +1,4 @@
-import { Folder, RotateCcw, Search } from "lucide-react";
+import { Folder, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useArchivedSessions } from "../../hooks/useArchivedSessions";
 import type { AgentSession } from "../../types/session";
@@ -12,13 +12,24 @@ export function ArchivedChatsSettings({
   isActive,
   onUnarchiveSession,
 }: ArchivedChatsSettingsProps): React.ReactElement {
-  const { sessions, isLoading, error, removeSession } =
-    useArchivedSessions(isActive);
+  const {
+    sessions,
+    isLoading,
+    error,
+    removeSession,
+    deleteSession,
+    deleteAllSessions,
+  } = useArchivedSessions(isActive);
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(
     null,
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+    null,
+  );
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const projects = useMemo(
     () =>
@@ -69,6 +80,29 @@ export function ArchivedChatsSettings({
 
   return (
     <div className="space-y-7">
+      {sessions.length > 0 ? (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => {
+              if (!confirmingDeleteAll) {
+                setConfirmingDeleteAll(true);
+                return;
+              }
+              setDeleting(true);
+              void deleteAllSessions().finally(() => {
+                setDeleting(false);
+                setConfirmingDeleteAll(false);
+              });
+            }}
+            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+            {confirmingDeleteAll ? "Confirm delete all" : "Delete all"}
+          </button>
+        </div>
+      ) : null}
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
         <label className="relative">
           <Search
@@ -140,15 +174,44 @@ export function ArchivedChatsSettings({
                     {formatArchivedDate(session)}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  disabled={restoringSessionId === session.id}
-                  onClick={() => void restoreSession(session)}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-zinc-800/70 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <RotateCcw size={14} />
-                  Unarchive
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={
+                      confirmingDeleteId === session.id
+                        ? `Confirm delete ${session.name}`
+                        : `Delete ${session.name}`
+                    }
+                    disabled={deleting}
+                    onClick={() => {
+                      if (confirmingDeleteId !== session.id) {
+                        setConfirmingDeleteId(session.id);
+                        return;
+                      }
+                      setDeleting(true);
+                      void deleteSession(session.id).finally(() => {
+                        setDeleting(false);
+                        setConfirmingDeleteId(null);
+                      });
+                    }}
+                    className={`rounded-lg p-2 transition disabled:opacity-50 ${
+                      confirmingDeleteId === session.id
+                        ? "bg-red-500/10 text-red-400"
+                        : "text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
+                    }`}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={restoringSessionId === session.id || deleting}
+                    onClick={() => void restoreSession(session)}
+                    className="inline-flex items-center gap-2 rounded-lg bg-zinc-800/70 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} />
+                    Unarchive
+                  </button>
+                </div>
               </div>
             ))}
           </div>

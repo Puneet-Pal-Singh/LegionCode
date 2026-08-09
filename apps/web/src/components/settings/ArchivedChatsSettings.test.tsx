@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "../../types/session";
 import { ArchivedChatsSettings } from "./ArchivedChatsSettings";
@@ -40,6 +40,8 @@ describe("ArchivedChatsSettings", () => {
       isLoading: false,
       error: null,
       removeSession: vi.fn(),
+      deleteSession: vi.fn(async () => undefined),
+      deleteAllSessions: vi.fn(async () => undefined),
     });
   });
 
@@ -59,5 +61,39 @@ describe("ArchivedChatsSettings", () => {
     });
     expect(screen.getByText("Fix model picker")).toBeVisible();
     expect(screen.queryByText("Document agents")).not.toBeInTheDocument();
+  });
+
+  it("requires confirmation before deleting one chat or all chats", async () => {
+    const deleteSession = vi.fn(async () => undefined);
+    const deleteAllSessions = vi.fn(async () => undefined);
+    mockUseArchivedSessions.mockReturnValue({
+      ...mockUseArchivedSessions(),
+      deleteSession,
+      deleteAllSessions,
+    });
+    render(
+      <ArchivedChatsSettings
+        isActive={true}
+        onUnarchiveSession={vi.fn(async () => undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Fix model picker" }));
+    expect(deleteSession).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm delete Fix model picker" }),
+      );
+    });
+    expect(deleteSession).toHaveBeenCalledWith("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    expect(deleteAllSessions).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm delete all" }),
+      );
+    });
+    expect(deleteAllSessions).toHaveBeenCalledOnce();
   });
 });
