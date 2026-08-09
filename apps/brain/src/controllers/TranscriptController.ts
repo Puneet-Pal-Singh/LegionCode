@@ -182,6 +182,30 @@ export class TranscriptController {
     );
   }
 
+  static async deleteArchivedSession(
+    request: Request,
+    env: Env,
+  ): Promise<Response> {
+    try {
+      const auth = await getAuthenticatedUserSession(request, env);
+      if (!auth) {
+        return errorResponse(request, env, "Unauthorized", 401);
+      }
+      const { sessionId } = ArchiveSessionParamsSchema.parse(
+        readSessionParams(request.url),
+      );
+      const deleted = await withTranscriptRepository(env, (repository) =>
+        repository.deleteArchivedSession(auth.userId, sessionId),
+      );
+      if (!deleted) {
+        return errorResponse(request, env, "Archived session not found", 404);
+      }
+      return jsonResponse(request, env, { deleted: true });
+    } catch (error) {
+      return transcriptErrorResponse(request, env, error);
+    }
+  }
+
   static async listArchivedSessions(
     request: Request,
     env: Env,
@@ -369,7 +393,9 @@ function formatSessionMutationLog(
 }
 
 function readSessionParams(url: string): { sessionId: string | null } {
-  const match = new URL(url).pathname.match(/^\/api\/sessions\/([^/]+)\//);
+  const match = new URL(url).pathname.match(
+    /^\/api\/sessions\/([^/]+)(?:\/|$)/,
+  );
   return { sessionId: match?.[1] ?? null };
 }
 
