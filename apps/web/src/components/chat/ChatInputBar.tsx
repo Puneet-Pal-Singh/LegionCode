@@ -925,7 +925,7 @@ export function ChatInputBar({
           {/* Toolbar */}
           <div className="flex items-center justify-between mt-2 pt-2">
             {/* Left: Add button + Model picker */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <ChatComposerPlusMenu
                 mode={mode}
                 disabled={isComposerActiveRun}
