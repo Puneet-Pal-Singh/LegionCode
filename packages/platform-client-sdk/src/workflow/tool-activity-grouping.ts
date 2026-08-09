@@ -14,7 +14,6 @@ export interface ToolActivitySegment {
 
 const HARD_BOUNDARY_KINDS: ReadonlySet<WorkflowItemKind> = new Set([
   "commentary",
-  "approval_request",
   "context_compaction",
   "warning",
 ]);
@@ -28,6 +27,10 @@ export function groupToolActivity(
 
   for (const sourceItem of items) {
     const item = enrichEditFromCanonicalTurnDiff(sourceItem, turnDiff);
+    if (item.kind === "approval_request") {
+      current = null;
+      continue;
+    }
     if (item.toolName === "multi_edit") {
       continue;
     }
@@ -209,8 +212,6 @@ function deriveFamilyLabels(
 
 function getItemFamilyLabel(item: WorkflowItem): string {
   switch (item.kind) {
-    case "approval_request":
-      return "approval";
     case "context_compaction":
       return "context compaction";
     case "warning":
@@ -244,8 +245,6 @@ function toActivityPhrase(label: string): string {
     case "web":
     case "browser":
       return "searched the web";
-    case "approval":
-      return "requested approval";
     case "context compaction":
       return "compacted context";
     case "warning":
