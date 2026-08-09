@@ -100,7 +100,7 @@ export function PermissionModeControl({
         disabled={disabled}
         className={cn(
           appearance === "ghost"
-            ? "inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-all duration-200 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
+            ? "inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-zinc-500 transition-all duration-200 hover:bg-zinc-800/50 hover:text-zinc-200"
             : "inline-flex items-center gap-1.5 rounded-full border border-zinc-700/70 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium text-zinc-300 transition",
           appearance === "pill" &&
             "hover:border-zinc-500/70 hover:bg-zinc-800/70 hover:text-zinc-100",
@@ -158,7 +158,7 @@ export function PermissionModeControl({
                 }}
                 disabled={disabled}
                 className={cn(
-                  "flex w-full items-start justify-between rounded-2xl px-3 py-2 text-left transition",
+                  "flex min-h-12 w-full items-start justify-between rounded-md px-3 py-2.5 text-left transition",
                   isSelected
                     ? "bg-zinc-800/70 text-zinc-100"
                     : "text-zinc-200 hover:bg-zinc-800/50",

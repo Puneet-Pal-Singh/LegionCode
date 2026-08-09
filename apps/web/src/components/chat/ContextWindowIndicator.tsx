@@ -11,6 +11,7 @@ interface ContextWindowIndicatorProps {
   usage: UsageCostSnapshot | null;
   onCompact?: () => void;
   onOpenDetails?: () => void;
+  compact?: boolean;
 }
 
 export function ContextWindowIndicator({
@@ -18,6 +19,7 @@ export function ContextWindowIndicator({
   usage,
   onCompact,
   onOpenDetails,
+  compact = false,
 }: ContextWindowIndicatorProps) {
   const percent = budget ? Math.round(budget.utilizationPercent) : null;
   const remainingPercent = percent === null ? null : Math.max(0, 100 - percent);
@@ -37,7 +39,8 @@ export function ContextWindowIndicator({
         }
         onClick={onOpenDetails}
         className={cn(
-          "relative flex size-7 items-center justify-center rounded-md transition-colors",
+          "relative flex items-center justify-center rounded-md transition-colors",
+          compact ? "size-6" : "size-7",
           onOpenDetails
             ? "cursor-pointer hover:bg-zinc-800/90"
             : "cursor-default",
@@ -45,7 +48,7 @@ export function ContextWindowIndicator({
       >
         <ContextUsageRing
           percent={percent}
-          size={16}
+          size={compact ? 12 : 16}
           className="text-zinc-400"
         />
       </button>
