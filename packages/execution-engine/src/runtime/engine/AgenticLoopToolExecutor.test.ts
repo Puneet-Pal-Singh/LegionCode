@@ -77,6 +77,13 @@ describe("AgenticLoopToolExecutor", () => {
     });
 
     expect(result.status).toBe("DONE");
+    expect(result.output?.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        family: "edit",
+        change: "created",
+        filePath: "local/new-file.txt",
+      }),
+    });
     expect(calls).toEqual([
       {
         plugin: "filesystem",
@@ -124,6 +131,13 @@ describe("AgenticLoopToolExecutor", () => {
     });
 
     expect(result.status).toBe("DONE");
+    expect(result.output?.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        family: "edit",
+        change: "modified",
+        filePath: "local/empty.txt",
+      }),
+    });
     expect(calls[1]).toEqual({
       plugin: "filesystem",
       action: "write_file",

@@ -687,6 +687,7 @@ function buildToolMetadata(
       return {
         family: TOOL_ACTIVITY_FAMILIES.EDIT,
         displayText: displayText ?? toolPresentation.displayText ?? undefined,
+        change: "modified",
         filePath: readString(input?.path) ?? "unknown",
         additions: 0,
         deletions: 0,

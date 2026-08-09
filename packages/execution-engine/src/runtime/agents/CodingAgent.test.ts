@@ -368,6 +368,7 @@ describe("CodingAgent task-phase model selection", () => {
     expect(result.output?.metadata).toMatchObject({
       activity: expect.objectContaining({
         family: "edit",
+        change: "modified",
         filePath: "notes.txt",
         additions: 1,
         deletions: 1,
@@ -402,6 +403,13 @@ describe("CodingAgent task-phase model selection", () => {
     });
 
     expect(result.status).toBe("DONE");
+    expect(result.output?.metadata).toMatchObject({
+      activity: expect.objectContaining({
+        family: "edit",
+        change: "created",
+        filePath: "local/new-file.txt",
+      }),
+    });
     expect(execute).toHaveBeenNthCalledWith(2, "filesystem", "write_file", {
       path: "local/new-file.txt",
       content: "created",

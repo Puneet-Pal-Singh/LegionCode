@@ -428,6 +428,7 @@ VALIDATION RULES:
     return this.buildSuccessResult(task.id, formatExecutionResult(result), {
       activity: buildWriteActivityMetadata(
         path,
+        preflight.kind === "missing" ? "created" : "modified",
         preflight.kind === "present" ? preflight.content : "",
         content,
       ),
@@ -995,6 +996,7 @@ function validateShellCommand(command: string): void {
 
 function buildWriteActivityMetadata(
   path: string,
+  change: "created" | "modified",
   previousContent: string,
   nextContent: string,
 ): Record<string, unknown> {
@@ -1002,6 +1004,7 @@ function buildWriteActivityMetadata(
   const deletions = countChangedLines(previousContent, nextContent);
   return {
     family: "edit",
+    change,
     filePath: path,
     additions,
     deletions,
