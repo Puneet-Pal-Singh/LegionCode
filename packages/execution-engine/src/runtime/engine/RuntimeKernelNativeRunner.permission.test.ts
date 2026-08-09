@@ -13,7 +13,14 @@ describe("requirePersistedPermissionContext", () => {
 
   it("returns the persisted context without consulting current input", () => {
     const permissionContext = {
-      state: { productMode: "supervised" },
+      state: {
+        productMode: "auto_for_safe",
+        workflowIntent: "build",
+        approvalPolicy: "ask_on_request",
+        executionScope: "workspace_safe",
+      },
+      label: "Default permissions",
+      resolverInput: { runMode: "build" },
       resolvedAt: "2026-08-08T00:00:00.000Z",
     };
     expect(
@@ -22,5 +29,19 @@ describe("requirePersistedPermissionContext", () => {
         metadata: { permissionContext },
       } as never),
     ).toEqual(permissionContext);
+  });
+
+  it("fails closed when persisted policy context is malformed", () => {
+    expect(() =>
+      requirePersistedPermissionContext({
+        id: "run_malformed_context",
+        metadata: {
+          permissionContext: {
+            state: { productMode: "auto_for_safe" },
+            resolvedAt: "not-a-date",
+          },
+        },
+      } as never),
+    ).toThrow(/malformed persisted permission context/);
   });
 });
