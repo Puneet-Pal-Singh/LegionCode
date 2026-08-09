@@ -1,14 +1,14 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   workflowPhaseLabel,
   type TurnWorkflowProjection,
 } from "@repo/platform-client-sdk";
-import { cn } from "../../../lib/utils.js";
 
 interface WorkflowSummaryButtonProps {
   expanded: boolean;
   phase: TurnWorkflowProjection["phase"];
   title: string;
+  collapsible: boolean;
   onToggle: () => void;
 }
 
@@ -16,8 +16,27 @@ export function WorkflowSummaryButton({
   expanded,
   phase,
   title,
+  collapsible,
   onToggle,
 }: WorkflowSummaryButtonProps) {
+  const content = (
+    <>
+      <span className="truncate font-medium text-zinc-300">{title}</span>
+      <span className="sr-only">{workflowPhaseLabel(phase)}</span>
+    </>
+  );
+
+  if (!collapsible) {
+    return (
+      <div
+        role="status"
+        className="flex w-full max-w-full items-center border-b border-zinc-800/90 py-2 text-left text-sm text-zinc-400"
+      >
+        {content}
+      </div>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -25,16 +44,22 @@ export function WorkflowSummaryButton({
       aria-expanded={expanded}
       onClick={onToggle}
     >
-      <span className="truncate font-medium text-zinc-300">{title}</span>
-      <span className="sr-only">{workflowPhaseLabel(phase)}</span>
-      <ChevronDown
-        aria-hidden="true"
-        size={14}
-        className={cn(
-          "shrink-0 text-zinc-600 transition-transform group-hover:text-zinc-400",
-          expanded && "rotate-180",
-        )}
-      />
+      {content}
+      {expanded ? (
+        <ChevronDown
+          aria-hidden="true"
+          data-testid="workflow-summary-chevron-down"
+          size={15}
+          className="shrink-0 text-zinc-600 group-hover:text-zinc-400"
+        />
+      ) : (
+        <ChevronRight
+          aria-hidden="true"
+          data-testid="workflow-summary-chevron-right"
+          size={15}
+          className="shrink-0 text-zinc-600 group-hover:text-zinc-400"
+        />
+      )}
     </button>
   );
 }
