@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseChatRequestBody } from "../chat-request";
+import { parseChatRequestBody } from "./chat-request";
 
 describe("parseChatRequestBody", () => {
   it("accepts a complete outbound chat request body", () => {

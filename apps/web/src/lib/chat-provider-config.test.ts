@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   requireResolvedProviderConfig,
   resolveSelectedProviderConfig,
-} from "../chat-provider-config";
+} from "./chat-provider-config";
 
 describe("resolveSelectedProviderConfig", () => {
   it("uses the complete selected provider tuple before cached config", () => {

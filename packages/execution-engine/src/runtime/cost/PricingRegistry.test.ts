@@ -6,8 +6,8 @@ import {
   PricingRegistry,
   PricingError,
   registerRuntimeModelPricing,
-} from "../../../src/runtime/cost/PricingRegistry.js";
-import type { LLMUsage } from "../../../src/runtime/cost/types.js";
+} from "./PricingRegistry.js";
+import type { LLMUsage } from "./types.js";
 
 describe("PricingRegistry", () => {
   let registry: PricingRegistry;

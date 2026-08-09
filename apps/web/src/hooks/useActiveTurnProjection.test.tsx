@@ -1,18 +1,18 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { createLifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
-import type { TurnId } from "../../../services/api/lifecycleClient";
+import { createLifecycleProjection } from "../services/lifecycle/LifecycleProjection";
+import type { TurnId } from "../services/api/lifecycleClient";
 import {
   deriveCanonicalRunLoading,
   resolveActiveProjectionTurnId,
   useActiveTurnProjection,
-} from "../../../hooks/useActiveTurnProjection";
+} from "./useActiveTurnProjection";
 
 const lifecycleMock = vi.hoisted(() => ({
   projection: null as ReturnType<typeof createLifecycleProjection> | null,
 }));
 
-vi.mock("../../../hooks/useTurnLifecycleProjection.js", () => ({
+vi.mock("./useTurnLifecycleProjection.js", () => ({
   useTurnLifecycleProjection: () => ({ projection: lifecycleMock.projection }),
 }));
 
