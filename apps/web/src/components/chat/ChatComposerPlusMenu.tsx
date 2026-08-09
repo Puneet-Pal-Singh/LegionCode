@@ -83,7 +83,7 @@ export function ChatComposerPlusMenu({
               onAddFiles();
               setIsOpen(false);
             }}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] text-zinc-200 transition-colors hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-zinc-200"
+            className="ui-popover-item gap-3 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-zinc-200"
           >
             <Paperclip size={16} className="text-zinc-400" />
             Add photos & files
@@ -91,8 +91,8 @@ export function ChatComposerPlusMenu({
 
           <div className="my-2 h-px bg-zinc-800" />
 
-          <div className="flex items-center justify-between gap-2 rounded-lg px-3 py-2">
-            <div className="flex items-center gap-3 text-[13px] text-zinc-200">
+          <div className="flex min-h-10 items-center justify-between gap-2 rounded-md px-3 py-2">
+            <div className="flex items-center gap-3 text-sm text-zinc-200">
               <Sparkles size={16} className="text-zinc-400" />
               <span>Plan mode</span>
             </div>
