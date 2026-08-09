@@ -444,13 +444,13 @@ export function SettingsDialog({
           {disconnectToasts.map((toast) => (
             <div
               key={toast.id}
-              className="pointer-events-auto rounded-xl border border-zinc-700/80 bg-[#0f1117]/95 px-4 py-3 text-zinc-100 shadow-2xl"
+              className="ui-surface-popover pointer-events-auto px-4 py-3 text-zinc-100"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2.5">
                   <CheckCircle2 className="mt-0.5 text-zinc-300" size={16} />
                   <div>
-                    <p className="text-lg font-medium leading-tight">
+                    <p className="text-sm font-medium leading-tight">
                       {toast.providerName} disconnected
                     </p>
                     <p className="mt-1 text-sm text-zinc-300">
@@ -502,7 +502,7 @@ function SettingsNavSection({
             }`}
           >
             <span className="text-zinc-500">{item.icon}</span>
-            <span className="text-base font-medium leading-none">
+            <span className="text-sm font-medium leading-none">
               {item.label}
             </span>
           </button>
@@ -534,7 +534,7 @@ function SettingsGeneralPanel(): React.ReactElement {
       />
       <div className="ui-surface-section px-5 py-4">
         <div className="mb-4">
-          <p className="text-base font-medium text-zinc-100">Composer</p>
+          <p className="text-sm font-medium text-zinc-100">Composer</p>
           <p className="mt-1 text-sm text-zinc-400">
             Choose which runtime-reported information appears beside the model.
           </p>
@@ -557,7 +557,7 @@ function SettingsGeneralPanel(): React.ReactElement {
                 showContextWindowUsage: event.currentTarget.checked,
               })
             }
-            className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-zinc-700 p-0.5 transition checked:bg-blue-600 before:block before:h-4 before:w-4 before:rounded-full before:bg-white before:transition before:content-[''] checked:before:translate-x-4"
+            className="h-5 w-9 cursor-pointer appearance-none rounded-full border border-zinc-600 bg-zinc-800 p-0.5 transition checked:border-zinc-300 checked:bg-zinc-100 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-300 before:transition before:content-[''] checked:before:translate-x-4 checked:before:bg-zinc-900"
           />
         </label>
       </div>
@@ -578,7 +578,7 @@ function SettingCard({
     <div className="ui-surface-section px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-base font-medium text-zinc-100">{title}</p>
+          <p className="text-sm font-medium text-zinc-100">{title}</p>
           <p className="mt-1 text-sm text-zinc-400">{description}</p>
         </div>
         <span className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
