@@ -63,7 +63,7 @@ describe("ArchivedChatsSettings", () => {
     expect(screen.queryByText("Document agents")).not.toBeInTheDocument();
   });
 
-  it("requires confirmation before deleting one chat or all chats", async () => {
+  it("deletes one chat directly and confirms bulk deletion", async () => {
     const deleteSession = vi.fn(async () => undefined);
     const deleteAllSessions = vi.fn(async () => undefined);
     mockUseArchivedSessions.mockReturnValue({
@@ -78,11 +78,9 @@ describe("ArchivedChatsSettings", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Fix model picker" }));
-    expect(deleteSession).not.toHaveBeenCalled();
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Confirm delete Fix model picker" }),
+        screen.getByRole("button", { name: "Delete Fix model picker" }),
       );
     });
     expect(deleteSession).toHaveBeenCalledWith("1");
@@ -91,7 +89,7 @@ describe("ArchivedChatsSettings", () => {
     expect(deleteAllSessions).not.toHaveBeenCalled();
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Confirm delete all" }),
+        screen.getByRole("button", { name: "Confirm all" }),
       );
     });
     expect(deleteAllSessions).toHaveBeenCalledOnce();

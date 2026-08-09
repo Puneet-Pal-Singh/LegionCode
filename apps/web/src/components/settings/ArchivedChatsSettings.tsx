@@ -25,9 +25,6 @@ export function ArchivedChatsSettings({
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
-  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
-    null,
-  );
   const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -74,36 +71,9 @@ export function ArchivedChatsSettings({
     return <p className="text-sm text-zinc-500">Loading archived chats...</p>;
   }
 
-  if (error) {
-    return <p className="text-sm text-red-300">{error}</p>;
-  }
-
   return (
     <div className="space-y-7">
-      {sessions.length > 0 ? (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            disabled={deleting}
-            onClick={() => {
-              if (!confirmingDeleteAll) {
-                setConfirmingDeleteAll(true);
-                return;
-              }
-              setDeleting(true);
-              void deleteAllSessions().finally(() => {
-                setDeleting(false);
-                setConfirmingDeleteAll(false);
-              });
-            }}
-            className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
-          >
-            <Trash2 size={14} />
-            {confirmingDeleteAll ? "Confirm delete all" : "Delete all"}
-          </button>
-        </div>
-      ) : null}
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+      <div className="grid items-center gap-3 md:grid-cols-[minmax(16rem,1fr)_220px_auto]">
         <label className="relative">
           <Search
             size={16}
@@ -115,7 +85,7 @@ export function ArchivedChatsSettings({
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.currentTarget.value)}
             placeholder="Search archived chats"
-            className="ui-input h-11 w-full pl-10 pr-3 text-sm"
+            className="ui-input h-10 w-full pl-10 pr-3 text-sm"
           />
         </label>
         <label className="relative">
@@ -128,7 +98,7 @@ export function ArchivedChatsSettings({
             aria-label="Filter archived chats by project"
             value={projectFilter}
             onChange={(event) => setProjectFilter(event.currentTarget.value)}
-            className="ui-input h-11 w-full appearance-none pl-10 pr-3 text-sm"
+            className="ui-input h-10 w-full appearance-none pl-10 pr-3 text-sm"
           >
             <option value="all">All projects</option>
             {projects.map((project) => (
@@ -138,7 +108,36 @@ export function ArchivedChatsSettings({
             ))}
           </select>
         </label>
+        {sessions.length > 0 ? (
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => {
+              if (!confirmingDeleteAll) {
+                setConfirmingDeleteAll(true);
+                return;
+              }
+              setDeleting(true);
+              void deleteAllSessions()
+                .catch(() => undefined)
+                .finally(() => {
+                  setDeleting(false);
+                  setConfirmingDeleteAll(false);
+                });
+            }}
+            className="inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-sm text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+            {confirmingDeleteAll ? "Confirm all" : "Delete all"}
+          </button>
+        ) : null}
       </div>
+
+      {error ? (
+        <p role="alert" className="text-sm text-red-300">
+          {error}
+        </p>
+      ) : null}
 
       {groupedSessions.length === 0 ? (
         <div className="py-12 text-center text-sm text-zinc-500">
@@ -177,28 +176,15 @@ export function ArchivedChatsSettings({
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
-                    aria-label={
-                      confirmingDeleteId === session.id
-                        ? `Confirm delete ${session.name}`
-                        : `Delete ${session.name}`
-                    }
+                    aria-label={`Delete ${session.name}`}
                     disabled={deleting}
                     onClick={() => {
-                      if (confirmingDeleteId !== session.id) {
-                        setConfirmingDeleteId(session.id);
-                        return;
-                      }
                       setDeleting(true);
-                      void deleteSession(session.id).finally(() => {
-                        setDeleting(false);
-                        setConfirmingDeleteId(null);
-                      });
+                      void deleteSession(session.id)
+                        .catch(() => undefined)
+                        .finally(() => setDeleting(false));
                     }}
-                    className={`rounded-lg p-2 transition disabled:opacity-50 ${
-                      confirmingDeleteId === session.id
-                        ? "bg-red-500/10 text-red-400"
-                        : "text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
-                    }`}
+                    className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-800 hover:text-red-400 disabled:opacity-50"
                   >
                     <Trash2 size={15} />
                   </button>
