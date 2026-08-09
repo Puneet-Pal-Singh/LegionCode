@@ -75,6 +75,7 @@ interface WorkspaceProps {
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
   summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
+  onOpenRepositoryPicker?: () => void;
 }
 
 export function Workspace({
@@ -103,6 +104,7 @@ export function Workspace({
   onGitReviewOpenChange,
   onTabChange,
   summaryActionRequest,
+  onOpenRepositoryPicker,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
@@ -492,6 +494,8 @@ export function Workspace({
               onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
+              projectName={repository.split("/").filter(Boolean).at(-1)}
+              onProjectClick={onOpenRepositoryPicker}
               onArtifactOpen={(path, content, options) => {
                 if (options?.refreshFromWorkspace) {
                   void handleFileClick(path);

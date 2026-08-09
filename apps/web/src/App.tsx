@@ -1218,6 +1218,7 @@ function AppContent() {
                   }}
                   onTabChange={setActiveTab}
                   summaryActionRequest={summaryActionRequest}
+                  onOpenRepositoryPicker={handleOpenRepositoryPicker}
                 />
               </motion.div>
             ) : isPreparingSetupShell ? (

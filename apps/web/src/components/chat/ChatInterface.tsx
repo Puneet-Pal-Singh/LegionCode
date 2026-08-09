@@ -85,6 +85,8 @@ interface ChatInterfaceProps {
   onModelSelect?: (providerId: ProviderId, modelId: string) => void;
   repoTree?: Array<{ path: string; type: string; sha: string }>;
   isLoadingRepoTree?: boolean;
+  projectName?: string;
+  onProjectClick?: () => void;
 }
 
 export function ChatInterface({
@@ -103,6 +105,8 @@ export function ChatInterface({
   onModelSelect,
   repoTree = [],
   isLoadingRepoTree = false,
+  projectName,
+  onProjectClick,
 }: ChatInterfaceProps) {
   const {
     messages,
@@ -396,6 +400,8 @@ export function ChatInterface({
     <ChatInterfaceView
       ref={scrollRef}
       showHeroComposer={showHeroComposer}
+      projectName={projectName}
+      onProjectClick={onProjectClick}
       showSessionPlaceholder={showSessionPlaceholder}
       renderComposer={renderComposerControls}
       showDebugPanel={showDebugPanel}
