@@ -74,8 +74,8 @@ function BranchSelectorTrigger({
 }) {
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-zinc-500">
-        <Loader2 size={12} className="animate-spin" />
+      <div className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-zinc-500">
+        <Loader2 size={14} className="animate-spin" />
         Loading...
       </div>
     );
@@ -87,14 +87,14 @@ function BranchSelectorTrigger({
       aria-label="Select branch"
       aria-expanded={isOpen}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200",
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200",
         isOpen && "bg-zinc-800/50 text-zinc-200",
       )}
     >
-      <GitBranch size={12} />
+      <GitBranch size={14} />
       <span className="max-w-40 truncate">{branch}</span>
       <ChevronDown
-        size={12}
+        size={14}
         className={cn("transition-transform", isOpen && "rotate-180")}
       />
     </button>

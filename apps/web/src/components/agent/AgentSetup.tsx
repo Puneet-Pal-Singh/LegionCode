@@ -646,6 +646,17 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onRepoClick}
+                aria-label={`Select project, current project ${repoName}`}
+                className="flex min-w-0 max-w-48 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-100"
+              >
+                <Folder size={14} className="shrink-0" />
+                <span className="truncate">{repoName}</span>
+                <ChevronDown size={14} className="shrink-0 text-zinc-600" />
+              </button>
+              <div className="h-4 w-px bg-zinc-800/80" />
               <ChatBranchSelector placement="below" />
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
