@@ -96,11 +96,13 @@ export function WorkspaceSection({
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="flex h-10 min-w-0 items-center gap-3 rounded-xl px-3 text-left text-zinc-500 transition hover:text-zinc-200"
+          className="grid h-10 min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-zinc-500 transition hover:text-zinc-200"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
-          <FolderIcon size={16} aria-hidden="true" className="shrink-0" />
+          <span className="flex size-8 items-center justify-center">
+            <FolderIcon size={16} aria-hidden="true" />
+          </span>
           {!isRenaming ? (
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
               {workspaceName}

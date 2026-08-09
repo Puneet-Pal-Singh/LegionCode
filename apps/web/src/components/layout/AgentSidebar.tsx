@@ -326,7 +326,7 @@ export function AgentSidebar({
         <button
           type="button"
           onClick={() => setIsSearchOpen(true)}
-          className="grid h-10 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-sm text-zinc-300 transition hover:bg-zinc-800/55 hover:text-zinc-100"
+          className="grid h-10 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-sm font-medium text-zinc-100 transition hover:bg-zinc-800/55 hover:text-white"
         >
           <span className="flex size-8 items-center justify-center">
             <Search size={16} aria-hidden="true" />
@@ -335,7 +335,8 @@ export function AgentSidebar({
         </button>
       )}
 
-      <div className="group/projects flex h-8 items-center justify-between px-3">
+      <div className="group/projects grid h-8 grid-cols-[2rem_minmax(0,1fr)_auto] items-center">
+        <span aria-hidden="true" />
         <span className="text-sm font-medium text-zinc-500">Projects</span>
         <div className="flex items-center gap-1">
           <button

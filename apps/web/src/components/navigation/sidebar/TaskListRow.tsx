@@ -177,7 +177,7 @@ export function TaskListRow({
           onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
         )}
       >
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pl-8 pr-3">
           <span
             className={cn(
               "truncate text-sm",

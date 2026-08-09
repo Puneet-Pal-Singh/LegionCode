@@ -39,8 +39,8 @@ export function SidebarShell({
         ) : null}
       </div>
 
-      <div className="px-4 pb-4">{utility}</div>
-      <div className="flex-1 overflow-y-auto px-4 py-3">{children}</div>
+      <div className="px-4 pb-1">{utility}</div>
+      <div className="flex-1 overflow-y-auto px-4 pb-3 pt-1">{children}</div>
 
       {footer ? (
         <div className="border-t ui-muted-divider px-4 py-2">{footer}</div>
