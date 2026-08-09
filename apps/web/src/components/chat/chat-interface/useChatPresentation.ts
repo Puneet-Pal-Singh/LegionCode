@@ -4,6 +4,7 @@ import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/Lif
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { buildConversationTurns } from "../messageMetadata";
 import { buildChatEntries } from "./chatEntries";
+import type { InitialPromptSubmission } from "../../../lib/initial-prompt-submission";
 
 interface ChatPresentationInput {
   messages: Message[];
@@ -14,7 +15,7 @@ interface ChatPresentationInput {
   hasStartedSession: boolean;
   lifecycleProjection?: LifecycleProjection | null;
   lifecycleProjectionsByTurnId?: Readonly<Record<string, LifecycleProjection>>;
-  initialPromptSubmission?: { id: string; prompt: string } | null;
+  initialPromptSubmission?: InitialPromptSubmission | null;
 }
 
 function buildPresentedChatEntries(input: ChatPresentationInput) {

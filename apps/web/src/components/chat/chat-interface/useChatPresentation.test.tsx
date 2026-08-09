@@ -1,4 +1,5 @@
 import { renderHook } from "@testing-library/react";
+import { createInitialPromptSubmissionId } from "../../../lib/initial-prompt-submission";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { useChatPresentation } from "./useChatPresentation";
 
@@ -13,7 +14,7 @@ describe("useChatPresentation", () => {
         hasPendingApproval: false,
         hasStartedSession: true,
         initialPromptSubmission: {
-          id: "setup-1",
+          id: createInitialPromptSubmissionId("setup-1"),
           prompt: "Inspect the README",
         },
       }),
@@ -48,7 +49,7 @@ describe("useChatPresentation", () => {
         hasPendingApproval: false,
         hasStartedSession: true,
         initialPromptSubmission: {
-          id: "setup-1",
+          id: createInitialPromptSubmissionId("setup-1"),
           prompt: "Inspect the README",
         },
       }),

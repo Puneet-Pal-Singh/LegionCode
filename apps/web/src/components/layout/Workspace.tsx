@@ -36,6 +36,10 @@ import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
+import type {
+  InitialPromptSubmission,
+  InitialPromptSubmissionId,
+} from "../../lib/initial-prompt-submission";
 import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
 import {
   buildHookSettingsAuditReadModel,
@@ -52,8 +56,8 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
-  initialPromptSubmission?: { id: string; prompt: string } | null;
-  onInitialPromptHandled?: (id: string) => void;
+  initialPromptSubmission?: InitialPromptSubmission | null;
+  onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   onHookSettingsContextChange?: (context: {
     workspaceId: string;
@@ -249,7 +253,9 @@ export function Workspace({
       activeTurn.isActive,
     ],
   );
-  const handledInitialPromptIdRef = useRef<string | null>(null);
+  const handledInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!initialPromptSubmission) {

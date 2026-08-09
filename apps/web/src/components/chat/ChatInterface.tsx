@@ -39,6 +39,7 @@ import {
 import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
+import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import {
   hasArtifactChangedFileSnapshot,
   hasChangedFileSnapshot,
@@ -68,7 +69,7 @@ interface ChatInterfaceProps {
     activeTurnProjection?: ActiveTurnProjection;
   };
   sessionId: string;
-  initialPromptSubmission?: { id: string; prompt: string } | null;
+  initialPromptSubmission?: InitialPromptSubmission | null;
   hasStartedSession?: boolean;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
