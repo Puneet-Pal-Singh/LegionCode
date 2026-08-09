@@ -227,8 +227,6 @@ export function ChatInterface({
     decisions: displayedApprovalDecisions,
     busyDecision: approvalBusyDecision,
     error: approvalError,
-    notice: approvalNoticeText,
-    isResolutionPending: isApprovalResolutionPending,
     resolve: resolveApprovalDecision,
   } = useApprovalController({
     lifecycleProjection,
@@ -329,8 +327,6 @@ export function ChatInterface({
         decisions: displayedApprovalDecisions,
         busyDecision: approvalBusyDecision,
         error: approvalError,
-        notice: approvalNoticeText,
-        isResolutionPending: isApprovalResolutionPending,
         onResolve: resolveApprovalDecision,
       }}
       input={input}
