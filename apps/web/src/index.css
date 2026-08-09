@@ -89,6 +89,15 @@
   }
 }
 
+@keyframes turn-lifecycle-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 .turn-lifecycle-shimmer {
   background-image: linear-gradient(
     90deg,
@@ -99,7 +108,7 @@
   background-size: 220% 100%;
   background-clip: text;
   color: transparent;
-  animation: shimmer 3.2s linear infinite;
+  animation: turn-lifecycle-shimmer 3.2s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
