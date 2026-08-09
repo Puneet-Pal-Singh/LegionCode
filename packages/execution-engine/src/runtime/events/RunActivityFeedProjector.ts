@@ -648,79 +648,118 @@ function buildToolMetadata(
 
   const outputText = getResultContent(result);
   const toolPresentation = getToolPresentation(toolName, input);
+  return buildToolFamilyMetadata({
+    toolName,
+    input,
+    description,
+    displayText: displayText ?? toolPresentation.displayText,
+    outputText,
+    error,
+    presentationDescription: toolPresentation.description,
+  });
+}
+
+interface ToolMetadataBuildContext {
+  toolName: string;
+  input: Record<string, unknown> | undefined;
+  description: string | undefined;
+  displayText: string | undefined;
+  outputText: string;
+  error: string | undefined;
+  presentationDescription: string | undefined;
+}
+
+function buildToolFamilyMetadata(
+  context: ToolMetadataBuildContext,
+): ToolActivityMetadata {
+  const { toolName, input, outputText, displayText } = context;
   switch (toolName) {
     case "read_file":
-      return buildReadMetadata(
-        input,
-        outputText,
-        displayText ?? toolPresentation.displayText,
-      );
+      return buildReadMetadata(input, outputText, displayText);
     case "list_files":
-      return buildListMetadata(
-        input,
-        outputText,
-        displayText ?? toolPresentation.displayText,
-      );
+      return buildListMetadata(input, outputText, displayText);
     case "glob":
     case "grep":
-      return buildSearchMetadata(
-        toolName,
-        input,
-        outputText,
-        displayText ?? toolPresentation.displayText,
-      );
+      return buildSearchMetadata(toolName, input, outputText, displayText);
     case "bash":
-      return {
-        family: TOOL_ACTIVITY_FAMILIES.SHELL,
-        displayText: displayText ?? toolPresentation.displayText ?? undefined,
-        command: readString(input?.command) ?? toolName,
-        description: description ?? toolPresentation.description,
-        cwd: readString(input?.cwd) ?? ".",
-        origin: "agent_tool",
-        stdout: outputText || undefined,
-        stderr: error,
-        outputTail: buildShellOutputTail(outputText, error ?? "") || undefined,
-        exitCode: error ? 1 : 0,
-        truncated: false,
-      };
+      return buildShellMetadata(context);
     case "write_file":
-      return {
-        family: TOOL_ACTIVITY_FAMILIES.EDIT,
-        displayText: displayText ?? toolPresentation.displayText ?? undefined,
-        change: "modified",
-        filePath: readString(input?.path) ?? "unknown",
-        additions: 0,
-        deletions: 0,
-        diffPreview: outputText || undefined,
-      };
-    case "git_stage":
-    case "git_commit":
-    case "git_push":
-    case "git_pull":
-    case "git_create_pull_request":
-    case "git_branch_create":
-    case "git_branch_switch":
-    case "git_status":
-    case "git_diff":
-    case "github_pr_list":
-    case "github_pr_get":
-    case "github_pr_checks_get":
-    case "github_review_threads_get":
-    case "github_issue_get":
-    case "github_actions_run_get":
-    case "github_actions_job_logs_get":
-      return buildGitMetadata(
-        input,
-        outputText,
-        displayText ?? toolPresentation.displayText,
-      );
+      return buildWriteMetadata(context);
     default:
-      return {
-        family: TOOL_ACTIVITY_FAMILIES.GENERIC,
-        displayText: displayText ?? toolPresentation.displayText ?? undefined,
-        summary: outputText || error || undefined,
-      };
+      return GIT_TOOL_NAMES.has(toolName)
+        ? buildGitMetadata(input, outputText, displayText)
+        : buildGenericMetadata(context);
   }
+}
+
+const GIT_TOOL_NAMES = new Set([
+  "git_stage",
+  "git_commit",
+  "git_push",
+  "git_pull",
+  "git_create_pull_request",
+  "git_branch_create",
+  "git_branch_switch",
+  "git_status",
+  "git_diff",
+  "github_pr_list",
+  "github_pr_get",
+  "github_pr_checks_get",
+  "github_review_threads_get",
+  "github_issue_get",
+  "github_actions_run_get",
+  "github_actions_job_logs_get",
+]);
+
+function buildShellMetadata(
+  context: ToolMetadataBuildContext,
+): ToolActivityMetadata {
+  const {
+    input,
+    toolName,
+    description,
+    presentationDescription,
+    displayText,
+    outputText,
+    error,
+  } = context;
+  return {
+    family: TOOL_ACTIVITY_FAMILIES.SHELL,
+    displayText: displayText ?? undefined,
+    command: readString(input?.command) ?? toolName,
+    description: description ?? presentationDescription,
+    cwd: readString(input?.cwd) ?? ".",
+    origin: "agent_tool",
+    stdout: outputText || undefined,
+    stderr: error,
+    outputTail: buildShellOutputTail(outputText, error ?? "") || undefined,
+    exitCode: error ? 1 : 0,
+    truncated: false,
+  };
+}
+
+function buildWriteMetadata(
+  context: ToolMetadataBuildContext,
+): ToolActivityMetadata {
+  return {
+    family: TOOL_ACTIVITY_FAMILIES.EDIT,
+    displayText: context.displayText ?? undefined,
+    change: "modified",
+    filePath: readString(context.input?.path) ?? "unknown",
+    additions: 0,
+    deletions: 0,
+    diffPreview: context.outputText || undefined,
+  };
+}
+
+function buildGenericMetadata(
+  context: ToolMetadataBuildContext,
+): ToolActivityMetadata {
+  return {
+    family: TOOL_ACTIVITY_FAMILIES.GENERIC,
+    displayText: context.displayText ?? undefined,
+    summary: context.outputText || context.error || undefined,
+  };
 }
 
 function mergeToolMetadata(
