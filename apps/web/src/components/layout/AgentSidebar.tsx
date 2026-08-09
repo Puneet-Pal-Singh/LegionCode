@@ -2,9 +2,9 @@ import {
   Check,
   FolderPlus,
   MoreHorizontal,
-  PenLine,
   Pin,
   Search,
+  SquarePen,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -282,10 +282,12 @@ export function AgentSidebar({
       <button
         type="button"
         onClick={() => onCreate()}
-        className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800/65 hover:text-white"
+        className="grid h-10 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800/65 hover:text-white"
       >
-        <PenLine size={17} aria-hidden="true" />
-        New chat
+        <span className="flex size-8 items-center justify-center">
+          <SquarePen size={16} aria-hidden="true" />
+        </span>
+        <span>New chat</span>
       </button>
 
       {isSearchOpen ? (
@@ -324,10 +326,12 @@ export function AgentSidebar({
         <button
           type="button"
           onClick={() => setIsSearchOpen(true)}
-          className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm text-zinc-400 transition hover:bg-zinc-800/55 hover:text-zinc-100"
+          className="grid h-10 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-sm text-zinc-400 transition hover:bg-zinc-800/55 hover:text-zinc-100"
         >
-          <Search size={16} aria-hidden="true" />
-          Search
+          <span className="flex size-8 items-center justify-center">
+            <Search size={16} aria-hidden="true" />
+          </span>
+          <span>Search</span>
         </button>
       )}
 
@@ -416,13 +420,15 @@ export function AgentSidebar({
       <div className="space-y-3">
         {pinnedTasks.length > 0 ? (
           <section className="space-y-1.5">
-            <div className="flex items-center gap-2 px-1 py-0.5">
-              <Pin size={14} aria-hidden="true" className="text-zinc-500" />
+            <div className="grid h-9 grid-cols-[2rem_minmax(0,1fr)] items-center">
+              <span className="flex size-8 items-center justify-center text-zinc-500">
+                <Pin size={14} aria-hidden="true" />
+              </span>
               <span className="text-sm font-semibold text-zinc-100">
                 Pinned
               </span>
             </div>
-            <div className="pl-5">
+            <div>
               <TaskList
                 tasks={pinnedTasks}
                 onSelectTask={onSelect}

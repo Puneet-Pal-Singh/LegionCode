@@ -169,7 +169,7 @@ export function TaskListRow({
         onClick={onSelect}
         onKeyDown={(event) => handleRowKeyDown(event, onSelect, onMoveFocus)}
         className={cn(
-          "h-9 w-full rounded-lg px-2 text-left transition-all duration-150",
+          "h-9 w-full rounded-lg text-left transition-all duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
           task.isActive
             ? "bg-zinc-800/70 text-zinc-100"
@@ -177,19 +177,19 @@ export function TaskListRow({
           onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
         )}
       >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
+        <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center">
+          <span className="flex size-8 items-center justify-center">
             <StatusDot status={task.status} />
-            <span
-              className={cn(
-                "truncate text-sm",
-                task.isActive ? "font-semibold" : "font-medium",
-              )}
-              title={task.title}
-            >
-              {task.title}
-            </span>
-          </div>
+          </span>
+          <span
+            className={cn(
+              "truncate text-sm",
+              task.isActive ? "font-semibold" : "font-medium",
+            )}
+            title={task.title}
+          >
+            {task.title}
+          </span>
           <div className="flex shrink-0 items-center gap-2 text-xs">
             {metricLabel ? (
               <span

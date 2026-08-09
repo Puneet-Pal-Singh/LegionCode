@@ -1,14 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ChevronDown,
   Edit2,
   Folder,
+  FolderOpen,
   MoreHorizontal,
   Plus,
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "../../../lib/utils";
 import { TaskList } from "./TaskList";
 import type { SidebarTaskItem } from "./types";
 
@@ -76,6 +75,7 @@ export function WorkspaceSection({
   }, [isConfirmingWorkspaceRemove]);
 
   const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
+  const FolderIcon = isExpanded ? FolderOpen : Folder;
 
   const confirmRename = () => {
     const trimmedName = newName.trim();
@@ -92,15 +92,15 @@ export function WorkspaceSection({
 
   return (
     <section className="space-y-1.5">
-      <div className="group/project flex h-10 items-center gap-1 rounded-xl px-1 transition hover:bg-zinc-800/35">
+      <div className="group/project grid h-10 grid-cols-[2rem_minmax(0,1fr)_auto] items-center rounded-xl transition hover:bg-zinc-800/35">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-200"
+          className="flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-200"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
-          <Folder size={16} aria-hidden="true" className="shrink-0" />
+          <FolderIcon size={16} aria-hidden="true" className="shrink-0" />
         </button>
         {!isRenaming ? (
           <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
@@ -140,23 +140,6 @@ export function WorkspaceSection({
               <Plus size={14} aria-hidden="true" />
             </button>
           ) : null}
-
-          <button
-            type="button"
-            onClick={() => setIsExpanded((value) => !value)}
-            className="rounded p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/70 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
-            aria-expanded={isExpanded}
-            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${workspaceName}`}
-          >
-            <ChevronDown
-              size={14}
-              aria-hidden="true"
-              className={cn(
-                "transition-transform",
-                !isExpanded && "-rotate-90",
-              )}
-            />
-          </button>
 
           <button
             type="button"
@@ -253,7 +236,7 @@ export function WorkspaceSection({
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.15 }}
-            className="mt-1 overflow-hidden pl-5"
+            className="mt-1 overflow-hidden"
           >
             <TaskList
               tasks={sortedTasks}

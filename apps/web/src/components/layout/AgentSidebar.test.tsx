@@ -100,6 +100,28 @@ describe("AgentSidebar", () => {
     );
   });
 
+  it("uses the project folder as the only disclosure control", () => {
+    render(
+      <AgentSidebar
+        sessions={[createSession()]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Toggle shadowbox" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.queryByRole("button", { name: "Collapse shadowbox" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the awaiting approval filter option in the sidebar menu", () => {
     render(
       <AgentSidebar
