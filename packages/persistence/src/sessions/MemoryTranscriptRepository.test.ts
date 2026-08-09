@@ -106,6 +106,31 @@ describe("MemoryTranscriptRepository", () => {
     ]);
   });
 
+  it("only permanently deletes archived sessions owned by the user", async () => {
+    const repository = new MemoryTranscriptRepository();
+    await repository.appendMessage(
+      createMessageInput("active-message", "user"),
+    );
+
+    await expect(
+      repository.deleteArchivedSession("user-1", "session-1"),
+    ).resolves.toBe(false);
+    await repository.archiveSession("user-1", "session-1");
+    await expect(
+      repository.deleteArchivedSession("another-user", "session-1"),
+    ).resolves.toBe(false);
+    await expect(
+      repository.deleteArchivedSession("user-1", "session-1"),
+    ).resolves.toBe(true);
+    await expect(repository.listArchivedSessions("user-1")).resolves.toEqual(
+      [],
+    );
+    await expect(repository.listSessions("user-1")).resolves.toEqual({
+      tasks: [],
+      sessions: [],
+    });
+  });
+
   it("tracks title source and blocks generated overwrites after rename", async () => {
     const repository = new MemoryTranscriptRepository();
     await repository.ensureSession({
