@@ -39,7 +39,11 @@ export function resolveReasoningEffortForRequest(
   providerEfforts?: readonly ReasoningEffort[],
 ): ReasoningEffort | undefined {
   const selection = loadReasoningEffortSelection(providerId, modelId);
-  if (selection === "default" || !providerEfforts?.includes(selection)) {
+  if (selection === "default") {
+    return undefined;
+  }
+  if (!providerEfforts?.includes(selection)) {
+    saveReasoningEffortSelection(providerId, modelId, "default");
     return undefined;
   }
   return selection;
