@@ -1,6 +1,5 @@
 import {
   Archive,
-  Check,
   Circle,
   CircleAlert,
   Clock3,
@@ -50,8 +49,8 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
     kind: "icon",
   },
   completed: {
-    icon: Check,
-    indicatorClass: "text-zinc-500",
+    icon: Circle,
+    indicatorClass: "fill-sky-400 text-sky-400",
     kind: "icon",
   },
   needs_approval: {
@@ -113,7 +112,8 @@ function handleRowKeyDown(
   }
 }
 
-function StatusDot({ status }: { status: SidebarTaskStatus }) {
+function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
+  if (status === "idle") return null;
   const visual = STATUS_VISUALS[status];
   const StatusIcon = visual.icon;
 
@@ -177,10 +177,7 @@ export function TaskListRow({
           onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
         )}
       >
-        <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center">
-          <span className="flex size-8 items-center justify-center">
-            <StatusDot status={task.status} />
-          </span>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3">
           <span
             className={cn(
               "truncate text-sm",
@@ -191,6 +188,7 @@ export function TaskListRow({
             {task.title}
           </span>
           <div className="flex shrink-0 items-center gap-2 text-xs">
+            <StatusIndicator status={task.status} />
             {metricLabel ? (
               <span
                 className={cn(

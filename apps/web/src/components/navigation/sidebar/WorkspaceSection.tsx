@@ -92,21 +92,22 @@ export function WorkspaceSection({
 
   return (
     <section className="space-y-1.5">
-      <div className="group/project grid h-10 grid-cols-[2rem_minmax(0,1fr)_auto] items-center rounded-xl transition hover:bg-zinc-800/35">
+      <div className="group/project grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl transition hover:bg-zinc-800/35">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-200"
+          className="flex h-10 min-w-0 items-center gap-3 rounded-xl px-3 text-left text-zinc-500 transition hover:text-zinc-200"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
           <FolderIcon size={16} aria-hidden="true" className="shrink-0" />
+          {!isRenaming ? (
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
+              {workspaceName}
+            </span>
+          ) : null}
         </button>
-        {!isRenaming ? (
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
-            {workspaceName}
-          </span>
-        ) : (
+        {isRenaming ? (
           <input
             autoFocus
             value={newName}
@@ -121,8 +122,10 @@ export function WorkspaceSection({
                 setIsRenaming(false);
               }
             }}
-            className="h-7 min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none"
+            className="h-7 min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none"
           />
+        ) : (
+          null
         )}
 
         <div className="relative flex items-center" ref={menuRef}>

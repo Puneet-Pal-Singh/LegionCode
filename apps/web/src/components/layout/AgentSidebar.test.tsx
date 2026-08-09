@@ -226,7 +226,7 @@ describe("AgentSidebar", () => {
     expect(screen.getByTestId("task-status-completed")).toBeInTheDocument();
   });
 
-  it("shows completed active sessions as idle status", () => {
+  it("hides status decoration for completed active sessions", () => {
     render(
       <AgentSidebar
         sessions={[
@@ -245,10 +245,11 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-status-idle")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-status-idle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
   });
 
-  it("shows stale completed sessions as idle status after highlight window", () => {
+  it("hides status decoration after the completed highlight window", () => {
     const staleDate = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
     render(
@@ -270,7 +271,8 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    expect(screen.getByTestId("task-status-idle")).toBeInTheDocument();
+    expect(screen.queryByTestId("task-status-idle")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
   });
 
   it("orders tasks by recent activity regardless of status", () => {
