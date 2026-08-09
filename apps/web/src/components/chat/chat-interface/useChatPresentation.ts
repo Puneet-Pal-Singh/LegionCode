@@ -65,13 +65,7 @@ function derivePresentationVisibility(
 }
 
 export function useChatPresentation(input: ChatPresentationInput) {
-  const chatEntries = useMemo(() => buildPresentedChatEntries(input), [
-    input.conversationTurns,
-    input.initialPromptSubmission,
-    input.lifecycleProjection?.turnId,
-    input.lifecycleProjectionsByTurnId,
-    input.messages,
-  ]);
+  const chatEntries = buildPresentedChatEntries(input);
   const terminalViewModel = useMemo(
     () => buildLifecycleTerminalViewModel(input.lifecycleProjection ?? null),
     [input.lifecycleProjection],
