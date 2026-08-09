@@ -3,18 +3,28 @@ import {
   SiAnthropic,
   SiCloudflare,
   SiGoogle,
+  SiOpencode,
   SiOpenrouter,
   SiVercel,
 } from "react-icons/si";
-import { Bot, Cpu, Sparkles } from "lucide-react";
+import { AiOutlineOpenAI } from "react-icons/ai";
+import { Cpu } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 const BRAND_ICONS: Record<string, IconType> = {
   anthropic: SiAnthropic,
   "cloudflare-ai": SiCloudflare,
   google: SiGoogle,
+  openai: AiOutlineOpenAI,
+  "opencode-go": SiOpencode,
+  "opencode-zen": SiOpencode,
   openrouter: SiOpenrouter,
   vercel: SiVercel,
+};
+
+const PROVIDER_MONOGRAMS: Record<string, string> = {
+  cerebras: "C",
+  together: "T",
 };
 
 export function ProviderIcon({
@@ -25,12 +35,7 @@ export function ProviderIcon({
   className?: string;
 }): React.ReactElement {
   const BrandIcon = BRAND_ICONS[providerId];
-  const FallbackIcon =
-    providerId === "openai"
-      ? Bot
-      : providerId.includes("opencode")
-        ? Sparkles
-        : Cpu;
+  const monogram = PROVIDER_MONOGRAMS[providerId];
 
   return (
     <span
@@ -40,7 +45,13 @@ export function ProviderIcon({
         className,
       )}
     >
-      {BrandIcon ? <BrandIcon size={17} /> : <FallbackIcon size={17} />}
+      {BrandIcon ? (
+        <BrandIcon size={17} />
+      ) : monogram ? (
+        <span className="text-sm font-semibold tracking-tight">{monogram}</span>
+      ) : (
+        <Cpu size={17} />
+      )}
     </span>
   );
 }
