@@ -20,6 +20,18 @@ describe("formatModelDisplayName", () => {
     );
   });
 
+  it("preserves common model-family brand casing", () => {
+    expect(
+      formatModelDisplayName({
+        id: "deepseek-v4-flash",
+        name: "deepseek-v4-flash",
+      }),
+    ).toBe("DeepSeek V4 Flash");
+    expect(formatModelDisplayName({ id: "mimo-v2.5", name: "mimo-v2.5" })).toBe(
+      "MiMo V2.5",
+    );
+  });
+
   it("drops provider qualification from raw ids", () => {
     expect(
       formatModelDisplayName({
