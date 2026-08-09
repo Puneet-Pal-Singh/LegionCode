@@ -27,55 +27,69 @@ export function groupToolActivity(
 
   for (const sourceItem of items) {
     const item = enrichEditFromCanonicalTurnDiff(sourceItem, turnDiff);
-    if (item.kind === "approval_request") {
-      current = null;
-      continue;
-    }
-    if (item.toolName === "multi_edit") {
-      continue;
-    }
-    if (item.kind === "reasoning" || item.kind === "plan") {
-      if (
-        (item.safeSummary?.trim() || item.text.trim()) &&
-        (item.status === "active" || item.status === "completed")
-      ) {
-        current = createSegment(item);
-        segments.push(current);
-      }
-      continue;
-    }
-
-    if (isToolItem(item)) {
-      if (
-        !current ||
-        (current.children.length > 0 &&
-          !current.children.some((c) => isToolItem(c)))
-      ) {
-        current = createSegment(item);
-        segments.push(current);
-      }
-      const children = coalesceRepeatedFileActivity(current.children, item);
-      current = {
-        key: current.key,
-        reasoning: current.reasoning,
-        children,
-        familyLabels: deriveFamilyLabels(children.slice(0, -1), item),
-        isActive: current.isActive || item.status === "active",
-      };
-      segments[segments.length - 1] = current;
-      continue;
-    }
-
-    if (HARD_BOUNDARY_KINDS.has(item.kind)) {
-      current = null;
-      segments.push(createStandaloneSegment(item));
-      continue;
-    }
-
-    current = null;
+    current = groupWorkflowItem(segments, current, item);
   }
 
   return segments;
+}
+
+function groupWorkflowItem(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment | null {
+  if (item.kind === "approval_request") return null;
+  if (item.toolName === "multi_edit") return current;
+  if (item.kind === "reasoning" || item.kind === "plan") {
+    return appendReasoningSegment(segments, item) ?? current;
+  }
+  if (isToolItem(item)) {
+    return appendToolItem(segments, current, item);
+  }
+  if (HARD_BOUNDARY_KINDS.has(item.kind)) {
+    segments.push(createStandaloneSegment(item));
+  }
+  return null;
+}
+
+function appendReasoningSegment(
+  segments: ToolActivitySegment[],
+  item: WorkflowItem,
+): ToolActivitySegment | null {
+  const hasContent = Boolean(item.safeSummary?.trim() || item.text.trim());
+  if (!hasContent || (item.status !== "active" && item.status !== "completed")) {
+    return null;
+  }
+  const segment = createSegment(item);
+  segments.push(segment);
+  return segment;
+}
+
+function appendToolItem(
+  segments: ToolActivitySegment[],
+  current: ToolActivitySegment | null,
+  item: WorkflowItem,
+): ToolActivitySegment {
+  const segment = shouldStartToolSegment(current)
+    ? createSegment(item)
+    : current!;
+  if (segment !== current) segments.push(segment);
+  const children = coalesceRepeatedFileActivity(segment.children, item);
+  const next = {
+    ...segment,
+    children,
+    familyLabels: deriveFamilyLabels(children.slice(0, -1), item),
+    isActive: segment.isActive || item.status === "active",
+  };
+  segments[segments.length - 1] = next;
+  return next;
+}
+
+function shouldStartToolSegment(current: ToolActivitySegment | null): boolean {
+  return (
+    !current ||
+    (current.children.length > 0 && !current.children.some(isToolItem))
+  );
 }
 
 function enrichEditFromCanonicalTurnDiff(

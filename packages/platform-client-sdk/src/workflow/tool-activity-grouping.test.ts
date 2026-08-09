@@ -16,11 +16,19 @@ describe("groupToolActivity", () => {
         kind: "approval_request",
         toolFamily: null,
       }),
+      workflowItem({
+        itemId: "item_write" as ItemId,
+        kind: "tool_call",
+        toolFamily: "edit",
+      }),
     ]);
 
-    expect(segments).toHaveLength(1);
+    expect(segments).toHaveLength(2);
     expect(segments[0]?.children.map((item) => item.itemId)).toEqual([
       "item_read",
+    ]);
+    expect(segments[1]?.children.map((item) => item.itemId)).toEqual([
+      "item_write",
     ]);
   });
 });
