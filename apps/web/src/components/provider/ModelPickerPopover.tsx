@@ -37,9 +37,9 @@ import { formatModelDisplayName } from "./modelDisplayName";
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 352;
-const PREFERRED_POPOVER_WIDTH_PX = 320;
+const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
-const MODEL_DETAILS_WIDTH_PX = 272;
+const MODEL_DETAILS_WIDTH_PX = 256;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
@@ -635,7 +635,7 @@ export function ModelPickerPopover({
         <div
           data-testid="model-picker-popover"
           className={`
-            ui-surface-popover absolute z-50 flex max-h-[26rem] flex-col overflow-hidden
+            ui-surface-popover absolute z-50 flex max-h-96 flex-col overflow-hidden
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             ${placement.horizontal === "start" ? "left-0" : "right-0"}
           `}
@@ -711,7 +711,7 @@ export function ModelPickerPopover({
                   {axisDefaultGroup && (
                     <div className="border-b border-neutral-800/80">
                       <div className="sticky top-0 bg-[#111112] px-3 py-2">
-                        <h3 className="text-sm font-medium text-neutral-500">
+                        <h3 className="text-xs font-medium text-neutral-500">
                           LegionCode Axis
                         </h3>
                       </div>
@@ -742,7 +742,7 @@ export function ModelPickerPopover({
                               )
                             }
                             className={`
-                            min-h-10 w-full px-3 py-2 text-left text-sm
+                            min-h-9 w-full px-3 py-1.5 text-left text-sm
                             transition-colors disabled:opacity-50
                             ${
                               effectiveSelection.providerId ===
@@ -783,7 +783,7 @@ export function ModelPickerPopover({
                         className="border-b border-neutral-800/80 last:border-b-0"
                       >
                         <div className="sticky top-0 bg-[#111112] px-3 py-2">
-                          <h3 className="text-sm font-medium text-neutral-500">
+                          <h3 className="text-xs font-medium text-neutral-500">
                             {group.displayName}
                           </h3>
                         </div>
@@ -834,7 +834,7 @@ export function ModelPickerPopover({
                                 )
                               }
                               className={`
-                              min-h-10 w-full px-3 py-2 text-left text-sm
+                              min-h-9 w-full px-3 py-1.5 text-left text-sm
                               transition-colors disabled:opacity-50
                               ${
                                 effectiveSelection.providerId ===
@@ -955,10 +955,10 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
   return (
     <div
       data-testid="model-picker-details"
-      className="pointer-events-none fixed z-[60] w-[272px] rounded-lg border border-neutral-700/80 bg-[#151516] p-3 text-sm shadow-2xl shadow-black/70"
+      className="ui-surface-popover pointer-events-none fixed z-[60] w-64 p-3 text-sm"
       style={{ top: details.topPx, left: details.leftPx }}
     >
-      <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2">
+      <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1.5">
         <ModelDetail
           label="Model"
           value={formatModelDisplayName(details.model)}
@@ -980,7 +980,7 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
 function ModelDetail({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <dt className="text-neutral-500">{label}</dt>
+      <dt className="text-xs text-neutral-500">{label}</dt>
       <dd
         className="truncate text-right font-medium text-neutral-100"
         title={value}

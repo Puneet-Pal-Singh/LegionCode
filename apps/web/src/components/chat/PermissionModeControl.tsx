@@ -135,7 +135,7 @@ export function PermissionModeControl({
         <div
           role="menu"
           className={cn(
-            "ui-surface-popover absolute left-0 z-40 w-[19rem] p-2",
+            "ui-surface-popover absolute left-0 z-40 w-[19rem] p-1.5",
             menuPlacement === "below" ? "top-full mt-2" : "bottom-full mb-2",
           )}
           data-testid="permission-mode-menu"
@@ -158,7 +158,7 @@ export function PermissionModeControl({
                 }}
                 disabled={disabled}
                 className={cn(
-                  "flex min-h-12 w-full items-start justify-between rounded-md px-3 py-2.5 text-left transition",
+                  "flex min-h-12 w-full items-start justify-between rounded-md px-2.5 py-2 text-left transition",
                   isSelected
                     ? "bg-zinc-800/70 text-zinc-100"
                     : "text-zinc-200 hover:bg-zinc-800/50",
@@ -166,20 +166,20 @@ export function PermissionModeControl({
               >
                 <span className="flex items-start gap-2.5">
                   <OptionIcon
-                    size={16}
+                    size={15}
                     className="mt-0.5 shrink-0 text-zinc-400"
                   />
                   <span className="space-y-0.5">
                     <span className="block text-sm font-medium">
                       {option.label}
                     </span>
-                    <span className="block text-xs text-zinc-400">
+                    <span className="block text-xs leading-4 text-zinc-400">
                       {option.description}
                     </span>
                   </span>
                 </span>
                 {isSelected ? (
-                  <Check size={17} className="mt-0.5 shrink-0 text-zinc-100" />
+                  <Check size={15} className="mt-0.5 shrink-0 text-zinc-100" />
                 ) : null}
               </button>
             );
