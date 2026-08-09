@@ -22,6 +22,7 @@ import {
   getProviderModelUnavailableReason,
   isProviderModelAvailable,
 } from "./providerModelAvailability";
+import { formatModelDisplayName } from "./modelDisplayName";
 
 /**
  * Provider group with visibility state
@@ -398,7 +399,7 @@ export function ManageModelsDialog({
                           >
                             <div className="min-w-0 text-left">
                               <p className="text-xs font-medium text-neutral-300">
-                                {model.name}
+                                {formatModelDisplayName(model)}
                               </p>
                               {!isAvailable && (
                                 <p className="mt-0.5 text-[11px] text-amber-300">
@@ -410,7 +411,7 @@ export function ManageModelsDialog({
                               type="button"
                               role="switch"
                               aria-checked={isVisible}
-                              aria-label={`${model.name} visibility`}
+                              aria-label={`${formatModelDisplayName(model)} visibility`}
                               disabled={!isAvailable}
                               onClick={() => {
                                 onToggleModelVisibility(

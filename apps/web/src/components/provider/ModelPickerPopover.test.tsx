@@ -160,7 +160,7 @@ describe("ModelPickerPopover", () => {
 
       expect(
         screen.getByRole("button", { name: /open model picker/i }),
-      ).toHaveTextContent("Axis (Free): z-ai/glm-4.5-air:free");
+      ).toHaveTextContent("Axis (Free): GLM 4.5 Air Free");
     });
 
     it("renders trigger button with selected model label", () => {
@@ -428,7 +428,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(screen.getByText("LegionCode Axis")).toBeInTheDocument();
-        expect(screen.getByText("z-ai/glm-4.5-air:free")).toBeInTheDocument();
+        expect(screen.getByText("GLM 4.5 Air Free")).toBeInTheDocument();
       });
     });
 

@@ -33,6 +33,7 @@ import {
 } from "../../services/api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { isProviderModelAvailable } from "./providerModelAvailability";
+import { formatModelDisplayName } from "./modelDisplayName";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
@@ -431,7 +432,7 @@ export function ModelPickerPopover({
       return "Select Model";
     }
 
-    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
+    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${formatModelDisplayName(model)}`;
   }, [connectedProviderIds, effectiveSelection, catalog, providerModels]);
   const modelLoadingLabel = isHydratingVisibleModels
     ? "Loading selected models..."
@@ -883,11 +884,11 @@ export function ModelPickerPopover({
                                 : "text-neutral-400 hover:bg-neutral-800/50"
                             }
                           `}
-                            title={`${model.name} (${model.id})`}
+                            title={`${formatModelDisplayName(model)} (${model.id})`}
                           >
                             <div className="flex min-w-0 items-center gap-2">
                               <p className="truncate font-medium">
-                                {model.name}
+                                {formatModelDisplayName(model)}
                               </p>
                               {effectiveSelection.providerId ===
                                 axisDefaultGroup.providerId &&
@@ -975,11 +976,11 @@ export function ModelPickerPopover({
                                   : "text-neutral-400 hover:bg-neutral-800/50"
                               }
                             `}
-                              title={`${model.name} (${model.id})`}
+                              title={`${formatModelDisplayName(model)} (${model.id})`}
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 <p className="min-w-0 flex-1 truncate font-medium text-neutral-200">
-                                  {model.name}
+                                  {formatModelDisplayName(model)}
                                 </p>
                                 {!isProviderModelAvailable(model) && (
                                   <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
@@ -1062,7 +1063,10 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
       style={{ top: details.topPx, left: details.leftPx }}
     >
       <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2">
-        <ModelDetail label="Model" value={details.model.name} />
+        <ModelDetail
+          label="Model"
+          value={formatModelDisplayName(details.model)}
+        />
         <ModelDetail label="Provider" value={details.providerName} />
         <ModelDetail label="Inputs" value={inputs || "Not published"} />
         <ModelDetail label="Reasoning" value={reasoning} />
