@@ -1156,7 +1156,7 @@ function AppContent() {
               </motion.div>
             ) : showWorkspace ? (
               <motion.div
-                key="workspace"
+                key={`workspace-${activeSessionId}-${activeSession.activeRunId}`}
                 initial={false}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 1 }}
