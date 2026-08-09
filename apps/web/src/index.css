@@ -235,7 +235,7 @@
   }
 
   .ui-input {
-    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-blue-500;
+    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400;
   }
 
   .ui-muted-divider {
