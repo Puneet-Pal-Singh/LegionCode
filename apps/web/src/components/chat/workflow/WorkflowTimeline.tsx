@@ -394,6 +394,9 @@ function resolveItemLabel(item: WorkflowItem): string {
     return `${item.status === "active" ? "Reading" : "Read"} ${target}`;
   }
   if (target && item.toolFamily === "edit") {
+    if (item.editChange === "created") {
+      return `${item.status === "active" ? "Creating" : "Created"} ${target}`;
+    }
     return `${item.status === "active" ? "Editing" : "Edited"} ${target}`;
   }
   if (item.toolFamily === "shell") {
