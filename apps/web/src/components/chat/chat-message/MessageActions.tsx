@@ -15,7 +15,6 @@ export function MessageActions({
   isUser: boolean;
   hookAudits?: readonly HookInvocationAuditEvent[];
 }) {
-  if (!metadata && hookAudits.length === 0) return null;
   const metadataText = metadata
     ? isUser
       ? (metadata.timeLabel ?? "")
@@ -23,7 +22,7 @@ export function MessageActions({
           .filter((value): value is string => Boolean(value?.trim()))
           .join(" · ")
     : "";
-  if (!metadataText && hookAudits.length === 0) return null;
+  if (isUser && !metadataText) return null;
   return (
     <MessageActionRow
       content={content}
@@ -57,7 +56,7 @@ function MessageActionRow({
   return (
     <div
       className={cn(
-        "mt-2 flex items-center gap-2 text-xs text-zinc-500 opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+        "mt-2 flex items-center gap-2 text-xs text-zinc-500",
         isUser ? "justify-end" : "justify-start",
       )}
     >

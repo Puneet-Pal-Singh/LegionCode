@@ -7,7 +7,7 @@ describe("ReasoningEffortPicker", () => {
     localStorage.clear();
   });
 
-  it("renders provider-owned effort labels without rewriting them", () => {
+  it("renders provider-owned effort values as readable labels", () => {
     render(
       <ReasoningEffortPicker
         providerId="openai"
@@ -21,11 +21,11 @@ describe("ReasoningEffortPicker", () => {
     expect(picker).toHaveTextContent("Default");
 
     fireEvent.click(picker);
-    expect(screen.getByRole("menuitemradio", { name: "light" })).toBeVisible();
-    expect(screen.getByRole("menuitemradio", { name: "max" })).toBeVisible();
+    expect(screen.getByRole("menuitemradio", { name: "Light" })).toBeVisible();
+    expect(screen.getByRole("menuitemradio", { name: "Max" })).toBeVisible();
 
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "light" }));
-    expect(picker).toHaveTextContent("light");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Light" }));
+    expect(picker).toHaveTextContent("Light");
   });
 
   it("does not allow an open menu to change selection after disabling", () => {
@@ -48,7 +48,7 @@ describe("ReasoningEffortPicker", () => {
       />,
     );
 
-    const option = screen.getByRole("menuitemradio", { name: "high" });
+    const option = screen.getByRole("menuitemradio", { name: "High" });
     expect(option).toBeDisabled();
     fireEvent.click(option);
     expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveTextContent(

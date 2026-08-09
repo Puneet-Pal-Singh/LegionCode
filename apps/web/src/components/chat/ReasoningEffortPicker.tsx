@@ -90,5 +90,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
 }
 
 function formatEffort(value: ReasoningEffortSelection): string {
-  return value === "default" ? "Default" : value;
+  if (value === "default") return "Default";
+  if (value === "xhigh") return "XHigh";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
