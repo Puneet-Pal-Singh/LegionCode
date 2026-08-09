@@ -1151,6 +1151,9 @@ function AppContent() {
               >
                 <Workspace
                   sessionId={activeSessionId}
+                  sessionTitle={activeSession.name}
+                  sessionCreatedAt={activeSession.createdAt}
+                  sessionUpdatedAt={activeSession.updatedAt}
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}
                   mode={activeSession?.mode}

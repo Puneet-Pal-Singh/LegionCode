@@ -48,6 +48,9 @@ import {
 
 interface WorkspaceProps {
   sessionId: string;
+  sessionTitle?: string;
+  sessionCreatedAt?: string;
+  sessionUpdatedAt?: string;
   runId: string;
   repository: string;
   mode?: RunMode;
@@ -76,6 +79,9 @@ interface WorkspaceProps {
 
 export function Workspace({
   sessionId,
+  sessionTitle,
+  sessionCreatedAt,
+  sessionUpdatedAt,
   runId: initialRunId,
   repository,
   mode = "build",
@@ -503,7 +509,18 @@ export function Workspace({
                 setIsViewingContent(false);
               }}
               onContextOpen={(budget, usage) => {
-                openContextTab(budget, usage);
+                openContextTab(budget, usage, {
+                  title: sessionTitle ?? sessionId,
+                  messageCount: messages.length,
+                  userMessageCount: messages.filter(
+                    (message) => message.role === "user",
+                  ).length,
+                  assistantMessageCount: messages.filter(
+                    (message) => message.role === "assistant",
+                  ).length,
+                  createdAt: sessionCreatedAt ?? "",
+                  updatedAt: sessionUpdatedAt ?? "",
+                });
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("review");
               }}

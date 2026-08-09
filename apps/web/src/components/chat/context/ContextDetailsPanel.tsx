@@ -7,22 +7,33 @@ import { formatCost, formatTokenCount } from "./context-format";
 interface ContextDetailsPanelProps {
   budget: ContextBudgetSnapshot;
   usage: UsageCostSnapshot | null;
+  session: ContextSessionSnapshot;
+}
+
+export interface ContextSessionSnapshot {
+  title: string;
+  messageCount: number;
+  userMessageCount: number;
+  assistantMessageCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export function ContextDetailsPanel({
   budget,
   usage,
+  session,
 }: ContextDetailsPanelProps) {
   const breakdown = buildContextBreakdown(budget);
 
   return (
     <div className="h-full overflow-y-auto px-6 py-7 text-sm text-zinc-300">
-      <h2 className="font-semibold text-zinc-100">Context</h2>
-      <p className="mt-1 text-zinc-500">
-        Canonical runtime context and provider usage for the current thread.
-      </p>
-
-      <MetricSection title="Model">
+      <dl className="grid grid-cols-2 gap-x-8 gap-y-5">
+        <Metric label="Session" value={session.title} />
+        <Metric
+          label="Messages"
+          value={formatTokenCount(session.messageCount)}
+        />
         <Metric label="Provider" value={budget.providerId} />
         <Metric label="Model" value={budget.modelId} />
         <Metric
@@ -30,18 +41,65 @@ export function ContextDetailsPanel({
           value={formatTokenCount(budget.contextWindowLimit)}
         />
         <Metric
-          label="Effective input budget"
-          value={formatTokenCount(budget.effectiveInputBudget)}
+          label="Total tokens"
+          value={formatTokenCount(budget.tokensUsed)}
         />
         <Metric
-          label="Context used"
+          label="Usage"
           value={`${Math.round(budget.utilizationPercent)}%`}
         />
         <Metric
           label="Tokens remaining"
           value={formatTokenCount(budget.tokensRemaining)}
         />
-      </MetricSection>
+        <Metric
+          label="Input tokens"
+          value={formatOptional(usage?.inputTokens)}
+        />
+        <Metric
+          label="Output tokens"
+          value={formatOptional(usage?.outputTokens)}
+        />
+        {usage?.reasoningTokens != null ? (
+          <Metric
+            label="Reasoning tokens"
+            value={formatTokenCount(usage.reasoningTokens)}
+          />
+        ) : null}
+        {usage?.cachedInputTokens != null ? (
+          <Metric
+            label="Cache tokens (read/write)"
+            value={`${formatTokenCount(usage.cachedInputTokens)} / —`}
+          />
+        ) : null}
+        <Metric
+          label="User messages"
+          value={formatTokenCount(session.userMessageCount)}
+        />
+        <Metric
+          label="Assistant messages"
+          value={formatTokenCount(session.assistantMessageCount)}
+        />
+        <Metric
+          label="Thread tokens"
+          value={formatOptional(usage?.cumulativeThreadTokens)}
+        />
+        <Metric
+          label="Total cost"
+          value={formatOptionalCost(
+            usage?.cumulativeThreadCost,
+            usage?.currency,
+          )}
+        />
+        <Metric
+          label="Session created"
+          value={formatTimestamp(session.createdAt)}
+        />
+        <Metric
+          label="Last activity"
+          value={formatTimestamp(session.updatedAt)}
+        />
+      </dl>
 
       <section className="mt-8 border-t border-zinc-800 pt-6">
         <div className="flex items-center justify-between gap-4">
@@ -71,97 +129,12 @@ export function ContextDetailsPanel({
         </div>
       </section>
 
-      <MetricSection title="Context composition">
-        <Metric
-          label="System instructions"
-          value={formatOptional(budget.systemTokens)}
-        />
-        <Metric
-          label="Conversation"
-          value={formatOptional(budget.conversationTokens)}
-        />
-        <Metric
-          label="Tool definitions"
-          value={formatOptional(budget.toolDefinitionTokens)}
-        />
-        <Metric
-          label="Attachments"
-          value={formatOptional(budget.attachmentTokens)}
-        />
-        <Metric
-          label="Repository context"
-          value={formatOptional(budget.repositoryContextTokens)}
-        />
-        <Metric
-          label="Output reserve"
-          value={formatTokenCount(budget.reservedOutputTokens)}
-        />
-        <Metric
-          label="Safety reserve"
-          value={formatTokenCount(budget.safetyReserveTokens)}
-        />
-        <Metric label="Measured by" value={budget.measurementSource} />
-      </MetricSection>
-
-      <MetricSection title="Latest turn usage">
-        <Metric
-          label="Input tokens"
-          value={formatOptional(usage?.inputTokens)}
-        />
-        <Metric
-          label="Output tokens"
-          value={formatOptional(usage?.outputTokens)}
-        />
-        <Metric
-          label="Reasoning tokens"
-          value={formatOptional(usage?.reasoningTokens)}
-        />
-        <Metric
-          label="Cached input"
-          value={formatOptional(usage?.cachedInputTokens)}
-        />
-        <Metric
-          label="Total tokens"
-          value={formatOptional(usage?.totalTokens)}
-        />
-        <Metric
-          label="Turn cost"
-          value={formatOptionalCost(usage?.currentTurnCost, usage?.currency)}
-        />
-        <Metric
-          label="Thread tokens"
-          value={formatOptional(usage?.cumulativeThreadTokens)}
-        />
-        <Metric
-          label="Thread cost"
-          value={formatOptionalCost(
-            usage?.cumulativeThreadCost,
-            usage?.currency,
-          )}
-        />
-      </MetricSection>
-
       <p className="mt-8 border-t border-zinc-800 pt-5 text-zinc-500">
         Warning at {Math.round(budget.warningThresholdPercent)}%. Automatic
         compaction starts at{" "}
         {Math.round(budget.automaticCompactionThresholdPercent)}%.
       </p>
     </div>
-  );
-}
-
-function MetricSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="mt-8 border-t border-zinc-800 pt-6">
-      <h3 className="font-medium text-zinc-100">{title}</h3>
-      <dl className="mt-4 grid grid-cols-2 gap-x-8 gap-y-5">{children}</dl>
-    </section>
   );
 }
 
@@ -183,6 +156,15 @@ function formatOptionalCost(
   currency: string | undefined,
 ): string {
   return value == null ? "Unavailable" : formatCost(value, currency);
+}
+
+function formatTimestamp(value: string): string {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return "Unavailable";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(timestamp);
 }
 
 interface ContextBreakdownSegment {
@@ -208,7 +190,11 @@ function buildContextBreakdown(
   );
   const withOther = [
     ...known,
-    ["Other", Math.max(0, budget.tokensUsed - knownTotal), "bg-zinc-500"] as const,
+    [
+      "Other",
+      Math.max(0, budget.tokensUsed - knownTotal),
+      "bg-zinc-500",
+    ] as const,
   ];
   const denominator = Math.max(1, budget.tokensUsed);
 
