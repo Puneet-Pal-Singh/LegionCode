@@ -6,14 +6,12 @@ import { approvalDecisionButtonClassName } from "./approvalStyles";
 interface ApprovalActionsProps {
   decisions: ApprovalDecisionKind[];
   busyDecision: ApprovalDecisionKind | null;
-  isResolutionPending: boolean;
   onResolve: (decision: ApprovalDecisionKind) => Promise<void>;
 }
 
 export function ApprovalActions({
   decisions,
   busyDecision,
-  isResolutionPending,
   onResolve,
 }: ApprovalActionsProps) {
   // The whole dock is single-flight: a click on any decision disables
@@ -22,7 +20,7 @@ export function ApprovalActions({
   // is treated as a global "any decision in flight" signal here so two
   // rapid clicks across different decisions cannot both fire.
   const isSubmittingDecision = busyDecision !== null;
-  const isDisabled = isSubmittingDecision || isResolutionPending;
+  const isDisabled = isSubmittingDecision;
 
   return (
     <div className="flex flex-wrap gap-2">
