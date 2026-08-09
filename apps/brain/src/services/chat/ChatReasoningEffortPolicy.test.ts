@@ -15,4 +15,9 @@ describe("validateChatReasoningEffort", () => {
       }),
     ).toMatch(/not supported/);
   });
+
+  it("rejects defined efforts when provider metadata does not advertise any", () => {
+    expect(validateChatReasoningEffort("high", {})).toMatch(/not supported/);
+    expect(validateChatReasoningEffort("", {})).toMatch(/not supported/);
+  });
 });
