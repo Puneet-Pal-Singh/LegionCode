@@ -577,7 +577,7 @@ export function Workspace({
                 onResizeEnd={() => setIsResizing(false)}
                 onResize={(delta) =>
                   setSidebarWidth((prev) =>
-                    Math.max(280, Math.min(600, prev + delta)),
+                    Math.max(320, Math.min(720, prev + delta)),
                   )
                 }
               />

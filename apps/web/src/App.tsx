@@ -47,6 +47,18 @@ import {
   type InitialPromptSubmission,
 } from "./lib/initial-prompt-submission";
 
+const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
+const MIN_RIGHT_SIDEBAR_WIDTH = 420;
+const MAX_RIGHT_SIDEBAR_WIDTH = 720;
+
+function getInitialRightSidebarWidth(): number {
+  const availableWidth = window.innerWidth - DEFAULT_LEFT_SIDEBAR_WIDTH;
+  return Math.max(
+    MIN_RIGHT_SIDEBAR_WIDTH,
+    Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
+  );
+}
+
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
     return "shadowbox:startup-onboarding:seen:anonymous";
@@ -655,8 +667,10 @@ function AppContent() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
-  const [sidebarWidth, setSidebarWidth] = useState(320);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_LEFT_SIDEBAR_WIDTH);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+    getInitialRightSidebarWidth,
+  );
   const [initialPromptSubmission, setInitialPromptSubmission] = useState<
     (InitialPromptSubmission & { sessionId: string }) | null
   >(null);
