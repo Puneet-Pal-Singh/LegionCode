@@ -4,6 +4,7 @@ import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
 } from "@repo/platform-client-sdk";
+import type { ContextSessionSnapshot } from "../../chat/context/ContextDetailsPanel";
 
 export type TabType = "review" | "changes" | "files";
 
@@ -28,6 +29,7 @@ export type SidebarContentTab =
       path: "Context";
       budget: ContextBudgetSnapshot;
       usage: UsageCostSnapshot | null;
+      session: ContextSessionSnapshot;
     }
   | ({ id: string; kind: "file" } & SelectedFile)
   | ({ id: string; kind: "diff" } & SelectedDiff);
@@ -106,13 +108,18 @@ export function useWorkspaceState() {
   }, [openContentTab]);
 
   const openContextTab = useCallback(
-    (budget: ContextBudgetSnapshot, usage: UsageCostSnapshot | null) => {
+    (
+      budget: ContextBudgetSnapshot,
+      usage: UsageCostSnapshot | null,
+      session: ContextSessionSnapshot,
+    ) => {
       openContentTab({
         id: "context",
         kind: "context",
         path: "Context",
         budget,
         usage,
+        session,
       });
     },
     [openContentTab],

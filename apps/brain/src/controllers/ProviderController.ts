@@ -49,6 +49,7 @@ import {
   type ProviderConnectionsResponse,
   type BYOKDiscoveredProviderModelsQuery,
   BYOKProviderSlugSchema,
+  ProviderIdSchema,
 } from "@repo/shared-types";
 import { builtinProviderRegistry } from "@repo/provider-core";
 import type { Env } from "../types/ai";
@@ -68,6 +69,7 @@ import {
   type AuthorizedProviderScope,
 } from "./provider/ProviderAuthScopeService";
 import { resolveBrainProviderProductPolicy } from "../lib/provider-product-policy";
+import { findDiscoveredChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 
 const PROVIDER_RUNTIME_TIMEOUT_MS = 15_000;
 
@@ -636,14 +638,21 @@ export class ProviderController {
         correlationId,
         policy,
       );
+      const resolvedModelMetadata = await resolveSelectedModelMetadata(
+        req,
+        env,
+        scope,
+        correlationId,
+        resolution,
+      );
 
       const axisQuota =
-        resolution.providerId === AXIS_PROVIDER_ID
+        resolvedModelMetadata.providerId === AXIS_PROVIDER_ID
           ? await fetchRuntimeAxisQuota(req, env, scope, correlationId)
           : undefined;
 
       return withScopeJson(req, env, scope, {
-        ...resolution,
+        ...resolvedModelMetadata,
         ...(axisQuota ? { quota: axisQuota } : {}),
       });
     } catch (error) {
@@ -1347,6 +1356,79 @@ async function fetchRuntimeCatalog(
   return await readProxyResponseJson(
     response,
     ProviderCatalogResponseSchema,
+    correlationId,
+  );
+}
+
+async function resolveSelectedModelMetadata(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  resolution: BYOKResolution,
+): Promise<BYOKResolution> {
+  if (
+    resolution.providerId === AXIS_PROVIDER_ID ||
+    (resolution.contextWindow !== undefined && resolution.pricing !== undefined)
+  ) {
+    return resolution;
+  }
+
+  try {
+    const providerId = ProviderIdSchema.parse(resolution.providerId);
+    const metadata = await findDiscoveredChatModelMetadata(
+      {
+        getDiscoveredModels: (_providerId, query) =>
+          proxyDiscoveredModels(
+            req,
+            env,
+            scope,
+            correlationId,
+            providerId,
+            query,
+          ),
+      },
+      providerId,
+      resolution.modelId,
+    );
+    return { ...resolution, ...metadata };
+  } catch (error) {
+    console.warn("[provider/resolve] selected model metadata unavailable", {
+      providerId: resolution.providerId,
+      modelId: resolution.modelId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return resolution;
+  }
+}
+
+async function proxyDiscoveredModels(
+  req: Request,
+  env: Env,
+  scope: AuthorizedProviderScope,
+  correlationId: string,
+  providerId: string,
+  query: {
+    view: "all";
+    surface: "picker";
+    limit: number;
+    cursor?: string;
+  },
+): Promise<BYOKDiscoveredProviderModelsResponse> {
+  const response = await proxyByokOperation(
+    req,
+    env,
+    {
+      scope,
+      method: "GET",
+      path: buildRuntimeModelsPath(providerId, query),
+    },
+    BYOKDiscoveredProviderModelsResponseSchema,
+    correlationId,
+  );
+  return readProxyResponseJson(
+    response,
+    BYOKDiscoveredProviderModelsResponseSchema,
     correlationId,
   );
 }

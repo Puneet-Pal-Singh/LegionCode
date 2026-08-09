@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { BYOKModelPricingSchema } from "./model-discovery.js";
 
 /**
  * BYOKResolution - Resolved effective provider + model for a chat request
@@ -29,6 +30,7 @@ export const BYOKResolutionSchema = z.object({
   /** Resolved model ID */
   modelId: z.string().min(1),
   contextWindow: z.number().int().positive().optional(),
+  pricing: BYOKModelPricingSchema.optional(),
 
   /** Which resolution step was used */
   resolvedAt: z.enum([

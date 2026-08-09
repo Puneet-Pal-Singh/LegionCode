@@ -613,7 +613,7 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4");
     });
 
-    it("does not discover models for unrelated providers during bootstrap", async () => {
+    it("preloads picker and manage models for every connected provider", async () => {
       vi.mocked(mockApiClient.getCredentials).mockResolvedValueOnce([
         {
           credentialId: credential1Id,
@@ -649,7 +649,23 @@ describe("ProviderStore", () => {
       await store.bootstrap();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(mockApiClient.getProviderModels).not.toHaveBeenCalled();
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledTimes(4);
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "openai",
+        expect.objectContaining({ surface: "picker", view: "popular" }),
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "openai",
+        expect.objectContaining({ surface: "manage", view: "all" }),
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "google",
+        expect.objectContaining({ surface: "picker", view: "popular" }),
+      );
+      expect(mockApiClient.getProviderModels).toHaveBeenCalledWith(
+        "google",
+        expect.objectContaining({ surface: "manage", view: "all" }),
+      );
     });
 
     it("sets status to error on failure", async () => {

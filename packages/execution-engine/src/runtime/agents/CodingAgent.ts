@@ -38,6 +38,11 @@ import {
   normalizeWorkspaceShellCommand,
   resolveWorkspaceRelativeShellPath,
 } from "../lib/WorkspaceShellCommand.js";
+import {
+  classifyWriteFilePreflightFailure,
+  resolveWriteFileExpectedSha256,
+  type WriteFilePreflight,
+} from "../engine/WriteFilePrecondition.js";
 
 export class CodingAgent extends BaseAgent {
   readonly type: AgentType = "coding";
@@ -143,7 +148,10 @@ export class CodingAgent extends BaseAgent {
         providerTransport: context.providerTransport,
         providerEndpoint: context.providerEndpoint,
       });
-      return projectVisibleTranscriptText(result.parts ?? []) || groundedSummary.fallbackSummary;
+      return (
+        projectVisibleTranscriptText(result.parts ?? []) ||
+        groundedSummary.fallbackSummary
+      );
     } catch (error) {
       console.warn(
         `[agents/coding] Falling back to grounded summary for run ${context.runId}`,
@@ -400,19 +408,30 @@ VALIDATION RULES:
     validateTaskPath(path);
     validateSafePath(path);
     const { content } = validatedInput;
-    const existingContent = await this.readExistingFileContent(path);
+    const preflight = await this.readExistingFileContent(path);
+    if (preflight.kind === "error") {
+      return this.buildFailureResult(task.id, preflight.message);
+    }
 
     const result = await this.executeGatewayPlugin("write_file", {
       path,
       content,
-      expectedSha256: validatedInput.expectedSha256,
+      expectedSha256: resolveWriteFileExpectedSha256(
+        preflight,
+        validatedInput.expectedSha256,
+      ),
     });
     const failure = extractExecutionFailure(result);
     if (failure) {
       return this.buildFailureResult(task.id, failure);
     }
     return this.buildSuccessResult(task.id, formatExecutionResult(result), {
-      activity: buildWriteActivityMetadata(path, existingContent, content),
+      activity: buildWriteActivityMetadata(
+        path,
+        preflight.kind === "missing" ? "created" : "modified",
+        preflight.kind === "present" ? preflight.content : "",
+        content,
+      ),
     });
   }
 
@@ -876,13 +895,15 @@ VALIDATION RULES:
     return this.executionService.execute(route.plugin, route.action, payload);
   }
 
-  private async readExistingFileContent(path: string): Promise<string> {
+  private async readExistingFileContent(
+    path: string,
+  ): Promise<WriteFilePreflight> {
     const readResult = await this.executeGatewayPlugin("read_file", { path });
     const failure = extractExecutionFailure(readResult);
     if (failure) {
-      return "";
+      return classifyWriteFilePreflightFailure(failure);
     }
-    return formatExecutionResult(readResult);
+    return { kind: "present", content: formatExecutionResult(readResult) };
   }
 
   private validateCodingToolInput<T extends CodingToolId>(
@@ -923,7 +944,10 @@ VALIDATION RULES:
       providerTransport: context.providerTransport,
       providerEndpoint: context.providerEndpoint,
     });
-    return this.buildSuccessResult(task.id, projectVisibleTranscriptText(result.parts ?? []));
+    return this.buildSuccessResult(
+      task.id,
+      projectVisibleTranscriptText(result.parts ?? []),
+    );
   }
 
   private buildSuccessResult(
@@ -972,6 +996,7 @@ function validateShellCommand(command: string): void {
 
 function buildWriteActivityMetadata(
   path: string,
+  change: "created" | "modified",
   previousContent: string,
   nextContent: string,
 ): Record<string, unknown> {
@@ -979,6 +1004,7 @@ function buildWriteActivityMetadata(
   const deletions = countChangedLines(previousContent, nextContent);
   return {
     family: "edit",
+    change,
     filePath: path,
     additions,
     deletions,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { Workspace } from "./Workspace";
 import { clearInitialPromptSubmissionClaimsForTests } from "./workspace/initialPromptSubmissionGuard";
+import { createInitialPromptSubmissionId } from "../../lib/initial-prompt-submission";
 
 const mockRefetchGitStatus = vi.hoisted(() => vi.fn(async () => {}));
 const mockUseGitStatusInputs = vi.hoisted(
@@ -23,6 +24,16 @@ const mockChatState = vi.hoisted(() => ({
   isHydrating: false,
   hasHydrated: true,
   runId: "run-123",
+  activeTurnProjection: {
+    scope: null,
+    serverTurnId: null,
+    projection: null,
+    hasCanonicalTurn: false,
+    hasReplay: false,
+    isActive: false,
+    isTerminal: false,
+    isTransportPending: false,
+  },
   isModelConfigReady: true,
   error: null as string | null,
   debugEvents: [],
@@ -281,7 +292,7 @@ describe("Workspace", () => {
     mockChatState.append.mockResolvedValue(undefined);
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
-      id: "setup-prompt-1",
+      id: createInitialPromptSubmissionId("setup-prompt-1"),
       prompt: "Hey, read my readme and tell what do you think of this project??",
     };
     const firstRender = render(
@@ -325,7 +336,7 @@ describe("Workspace", () => {
     mockChatState.append.mockClear();
     mockChatState.isModelConfigReady = false;
     const initialPromptSubmission = {
-      id: "setup-prompt-2",
+      id: createInitialPromptSubmissionId("setup-prompt-2"),
       prompt: "Read README",
     };
     const { rerender } = render(

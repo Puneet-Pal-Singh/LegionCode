@@ -18,5 +18,8 @@ describe("buildAgenticLoopSystemPrompt", () => {
     expect(prompt).toContain(
       'phrases such as "The user is asking" or "I should"',
     );
+    expect(prompt).toContain(
+      "When write_file creates a new path, omit expectedSha256.",
+    );
   });
 });

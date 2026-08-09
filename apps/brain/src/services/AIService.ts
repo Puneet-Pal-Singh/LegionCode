@@ -2,7 +2,7 @@ import { generateObject, type CoreMessage, type CoreTool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import type { ProviderModelTransport } from "@repo/shared-types";
+import type { ProviderModelTransport, ReasoningEffort } from "@repo/shared-types";
 import type { Env } from "../types/ai";
 import type { ProviderAdapter } from "./providers";
 import { ProviderConfigService } from "./providers";
@@ -30,13 +30,13 @@ import {
   resolveStructuredRuntimeProvider,
 } from "./ai/ProviderRouteMetadata";
 import type { StructuredGenerationInput } from "./ai/StructuredGenerationInput";
+import type { ChatStreamInput } from "./ai/ChatStreamInput";
 import { PROVIDER_SDK_MAX_RETRIES } from "./providers/ProviderRequestPolicy";
 
 export class AIService {
   private adapter: ProviderAdapter;
   private defaultModel: string;
   private providerConfigService?: ProviderConfigService;
-
   constructor(
     private env: Env,
     providerConfigService?: ProviderConfigService,
@@ -49,7 +49,6 @@ export class AIService {
   getProvider(): string {
     return this.adapter.provider;
   }
-
   getDefaultModel(): string {
     return this.defaultModel;
   }
@@ -79,6 +78,7 @@ export class AIService {
     providerTransport,
     providerEndpoint,
     temperature = 0.7,
+    reasoningEffort,
     system,
     tools,
     signal,
@@ -90,6 +90,7 @@ export class AIService {
     providerTransport?: ProviderModelTransport;
     providerEndpoint?: string;
     temperature?: number;
+    reasoningEffort?: ReasoningEffort;
     system?: string;
     tools?: Record<string, CoreTool>;
     signal?: AbortSignal;
@@ -114,6 +115,7 @@ export class AIService {
       system,
       tools,
       temperature,
+      reasoningEffort,
       signal,
     });
   }
@@ -202,24 +204,10 @@ export class AIService {
     providerTransport,
     providerEndpoint,
     temperature = 0.7,
+    reasoningEffort,
     onFinish,
     onChunk,
-  }: {
-    messages: CoreMessage[];
-    system?: string;
-    tools?: Record<string, CoreTool>;
-    model?: string;
-    providerId?: string;
-    runtimeModelId?: string;
-    providerTransport?: ProviderModelTransport;
-    providerEndpoint?: string;
-    temperature?: number;
-    onFinish?: (result: GenerateTextResult) => Promise<void> | void;
-    onChunk?: (chunk: {
-      content?: string;
-      toolCall?: { toolName: string; args: unknown };
-    }) => void;
-  }): Promise<ReadableStream<Uint8Array>> {
+  }: ChatStreamInput): Promise<ReadableStream<Uint8Array>> {
     const selection = await resolveSelectionWithPreferences({
       providerId,
       modelId: model,
@@ -240,6 +228,7 @@ export class AIService {
       system,
       tools,
       temperature,
+      reasoningEffort,
       onFinish,
       onChunk,
     });

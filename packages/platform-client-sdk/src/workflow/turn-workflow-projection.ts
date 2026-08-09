@@ -62,6 +62,7 @@ export interface WorkflowItem {
   readonly diffPreview: string | null;
   readonly additions: number | null;
   readonly deletions: number | null;
+  readonly editChange?: "created" | "modified";
   readonly planSteps: readonly PlanWorkflowStep[];
   readonly compactionPhase: "compacting" | "compacted" | "failed" | null;
   readonly startedAt: string;
@@ -675,6 +676,7 @@ type WorkflowToolDetails = Pick<
   | "diffPreview"
   | "additions"
   | "deletions"
+  | "editChange"
 >;
 
 function readToolDetails(
@@ -695,6 +697,7 @@ function readToolDetails(
     diffPreview: readBoundedString(activity?.diffPreview, 16_000),
     additions: readFiniteNumber(activity?.additions),
     deletions: readFiniteNumber(activity?.deletions),
+    editChange: readEditChange(activity?.change),
   };
 }
 
@@ -710,7 +713,12 @@ function mergeToolDetails(
     diffPreview: next.diffPreview ?? current.diffPreview,
     additions: next.additions ?? current.additions,
     deletions: next.deletions ?? current.deletions,
+    editChange: next.editChange ?? current.editChange,
   };
+}
+
+function readEditChange(value: unknown): "created" | "modified" | undefined {
+  return value === "created" || value === "modified" ? value : undefined;
 }
 
 function readFiniteNumber(value: unknown): number | null {

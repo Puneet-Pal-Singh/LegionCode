@@ -25,6 +25,7 @@ export function useChatHydration(
   scope: ConversationScope | null,
   messages: Message[],
   setMessages: (messages: Message[]) => void,
+  replayRevision: string | null = null,
 ): UseChatHydrationResult {
   const sessionId = scope?.sessionId ?? null;
   const runId = scope?.runId ?? null;
@@ -34,6 +35,9 @@ export function useChatHydration(
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeRef = useRef(scope);
   const scopeKey = scope ? conversationScopeKey(scope) : null;
+  const hydrationKey = scopeKey
+    ? `${scopeKey}:${replayRevision ?? "initial"}`
+    : null;
   const activeScopeKeyRef = useRef(scopeKey);
   const messagesRef = useRef(messages);
 
@@ -52,7 +56,7 @@ export function useChatHydration(
   } = useRetry({
     delayMs: HYDRATION_RETRY_DELAY_MS,
     maxAttempts: MAX_HYDRATION_ATTEMPTS,
-    scopeKey,
+    scopeKey: hydrationKey,
   });
 
   useEffect(() => {
@@ -64,7 +68,7 @@ export function useChatHydration(
       runId,
       liveMessageCount: messagesRef.current.length,
     });
-  }, [runId, scopeKey]);
+  }, [hydrationKey, replayRevision, runId, scopeKey]);
 
   // Perform hydration
   useEffect(() => {
@@ -78,6 +82,7 @@ export function useChatHydration(
       runId,
       liveMessageCount: requestStartMessageIds.length,
       retrySignal,
+      replayRevision,
     });
     const isCurrentScope = () =>
       !cancelled && activeScopeKeyRef.current === requestScopeKey;
@@ -166,6 +171,7 @@ export function useChatHydration(
   }, [
     resetRetry,
     retrySignal,
+    replayRevision,
     runId,
     scheduleRetry,
     scopeKey,

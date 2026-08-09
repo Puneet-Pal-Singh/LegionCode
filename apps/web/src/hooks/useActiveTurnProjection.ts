@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { TurnIdSchema } from "@repo/platform-client-sdk";
-import { useTurnLifecycleProjection } from "../../../hooks/useTurnLifecycleProjection.js";
-import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
+import { useTurnLifecycleProjection } from "./useTurnLifecycleProjection.js";
+import type { LifecycleProjection } from "../services/lifecycle/LifecycleProjection";
 
 export interface ActiveTurnProjection {
   readonly turnId: string | null;
@@ -11,6 +11,26 @@ export interface ActiveTurnProjection {
   readonly isActive: boolean;
   readonly isTerminal: boolean;
   readonly isTransportPending: boolean;
+}
+
+export function deriveCanonicalRunLoading(
+  activeTurn: ActiveTurnProjection,
+  transportPending: boolean,
+): boolean {
+  return activeTurn.hasCanonicalTurn
+    ? !activeTurn.isTerminal
+    : transportPending;
+}
+
+export function resolveActiveProjectionTurnId(input: {
+  activeTurnId: string | null | undefined;
+  serverTurnId: string | null;
+  isSubmitting: boolean;
+}): string | null {
+  if (input.activeTurnId) {
+    return input.activeTurnId;
+  }
+  return input.isSubmitting ? null : input.serverTurnId;
 }
 
 export function useActiveTurnProjection(input: {

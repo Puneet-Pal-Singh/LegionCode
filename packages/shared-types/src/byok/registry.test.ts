@@ -102,6 +102,11 @@ describe("Provider Capabilities", () => {
     }
   });
 
+  it("discovers OpenAI and Groq inventories from their model APIs", () => {
+    expect(BUILTIN_PROVIDERS.openai?.modelSource).toBe("remote");
+    expect(BUILTIN_PROVIDERS.groq?.modelSource).toBe("remote");
+  });
+
   it("axis uses platform managed auth mode", () => {
     const axis = BUILTIN_PROVIDERS["axis"];
     expect(axis).toBeDefined();

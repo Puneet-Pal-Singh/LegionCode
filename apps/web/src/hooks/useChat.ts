@@ -9,6 +9,7 @@ import type { ArtifactState } from "../types/chat";
 import type { ChatDebugEvent } from "../types/chat-debug.js";
 import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
 import type { ConversationScope } from "./conversationScope";
+import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 interface UseChatResult {
   messages: Message[];
@@ -27,6 +28,7 @@ interface UseChatResult {
   runId: string;
   scope: ConversationScope | null;
   serverTurnId: string | null;
+  activeTurnProjection: ActiveTurnProjection;
   resetRun: () => void;
   isModelConfigReady: boolean;
   error: string | null;
@@ -59,6 +61,7 @@ export function useChat(
     runId: activeRunId,
     scope,
     serverTurnId,
+    activeTurnProjection,
     resetRun,
     isModelConfigReady,
     error,
@@ -71,6 +74,9 @@ export function useChat(
     scope,
     messages,
     setMessages,
+    activeTurnProjection.isTerminal && activeTurnProjection.projection
+      ? `${activeTurnProjection.turnId}:${activeTurnProjection.projection.lastSequence}`
+      : null,
   );
 
   // Handle message persistence
@@ -99,6 +105,7 @@ export function useChat(
     runId: activeRunId,
     scope,
     serverTurnId,
+    activeTurnProjection,
     resetRun,
     isModelConfigReady,
     error,

@@ -10,6 +10,7 @@ import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/Lif
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
+import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
@@ -148,6 +149,7 @@ function TurnWorkflowEntry({
     : null;
   const isCurrentTurn = props.lifecycleProjection?.turnId === turnId;
   const terminal = entry.projection.terminal;
+  const terminalViewModel = buildLifecycleTerminalViewModel(entry.projection);
   return (
     <section
       data-testid={surfaceId ?? undefined}
@@ -172,9 +174,13 @@ function TurnWorkflowEntry({
           {terminal.errorCode}
         </span>
       ) : null}
-      {props.terminalViewModel && isCurrentTurn ? (
+      {terminalViewModel ? (
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
-          <TerminalMessage {...props} />
+          <TerminalMessage
+            {...props}
+            terminalViewModel={terminalViewModel}
+            includeCurrentTurnReview={isCurrentTurn}
+          />
         </div>
       ) : null}
     </section>
@@ -201,7 +207,12 @@ function resolveMessageChangedFilesSummary(
   });
 }
 
-function TerminalMessage(props: ChatInterfaceViewProps) {
+function TerminalMessage(
+  props: ChatInterfaceViewProps & {
+    terminalViewModel: LifecycleTerminalViewModel;
+    includeCurrentTurnReview: boolean;
+  },
+) {
   const terminal = props.terminalViewModel;
   if (!terminal) return null;
 
@@ -229,22 +240,26 @@ function TerminalMessage(props: ChatInterfaceViewProps) {
         role: "assistant",
         content: terminal.content,
       }}
-      changedFilesSummary={resolveTerminalChangedFilesSummary({
-        terminalViewModel: terminal,
-        files: props.terminalReviewFiles,
-        turnDiff: props.terminalTurnDiff,
-        loadArtifactFileDiff: (_artifactId, file) =>
-          props.loadCompletedTurnFileDiff(file),
-        onPromptArtifactReview: (artifactId) => {
-          props.openPromptArtifactReview(
-            artifactId,
-            undefined,
-            props.artifactIdentity ?? undefined,
-          );
-          props.onReviewOpen?.();
-        },
-        onReviewOpen: props.onReviewOpen,
-      })}
+      changedFilesSummary={
+        props.includeCurrentTurnReview
+          ? resolveTerminalChangedFilesSummary({
+              terminalViewModel: terminal,
+              files: props.terminalReviewFiles,
+              turnDiff: props.terminalTurnDiff,
+              loadArtifactFileDiff: (_artifactId, file) =>
+                props.loadCompletedTurnFileDiff(file),
+              onPromptArtifactReview: (artifactId) => {
+                props.openPromptArtifactReview(
+                  artifactId,
+                  undefined,
+                  props.artifactIdentity ?? undefined,
+                );
+                props.onReviewOpen?.();
+              },
+              onReviewOpen: props.onReviewOpen,
+            })
+          : undefined
+      }
     />
   );
 }

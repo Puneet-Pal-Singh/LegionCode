@@ -42,11 +42,11 @@ import type {
 import { RuntimeKernel, RuntimeKernelError } from "@repo/runtime-kernel";
 import {
   RISKY_ACTION_CATEGORIES,
+  ReasoningEffortSchema,
   RUN_WORKFLOW_STEPS,
   type ApprovalRequest,
   RUN_TERMINAL_STATES,
 } from "@repo/shared-types";
-import type { PermissionPolicy, RuleSetPolicy } from "@repo/permission-policy";
 import { BaseAgent } from "../agents/BaseAgent.js";
 import {
   enforceCodingToolFloor,
@@ -78,6 +78,7 @@ import {
   CostTracker,
   PricingRegistry,
   PricingResolver,
+  registerRuntimeModelPricing,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -125,6 +126,7 @@ import {
   persistPlanArtifact,
 } from "./RunPlanModePolicy.js";
 import { PermissionApprovalStore } from "./PermissionApprovalStore.js";
+import { NativePermissionPolicyResolver } from "./NativePermissionPolicyResolver.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import {
   buildNativeKernelTerminalMessage,
@@ -146,6 +148,7 @@ import type {
 import { RegistryToolAuthorization } from "../contracts/RegistryToolAuthorization.js";
 import { resetRecyclableRun } from "./RunRecyclableResetPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
+import { requirePersistedPermissionContext } from "./RuntimePermissionContext.js";
 import { formatRuntimeDiagnosticLogLine } from "../lib/RuntimeDiagnosticLog.js";
 import { createCloudSandboxRunCapabilityManifest } from "../capabilities/RuntimeCapabilityManifest.js";
 import { RuntimeToolGateway } from "./RuntimeToolGateway.js";
@@ -282,6 +285,12 @@ export class RuntimeKernelNativeRunner {
   async execute(input: RuntimeKernelNativeRunnerInput): Promise<Response> {
     this.beginActiveTurn(input.turnId);
     try {
+      registerRuntimeModelPricing(this.pricingRegistry, {
+        providerId: input.input.providerId,
+        modelId: input.input.modelId,
+        runtimeModelId: input.input.runtimeModelId,
+        pricing: input.input.metadata?.pricing,
+      });
       return await this.executeActiveTurn(input);
     } finally {
       this.endActiveTurn(input.turnId);
@@ -396,7 +405,9 @@ export class RuntimeKernelNativeRunner {
       provider,
       worker,
       toolAuthorization: new RegistryToolAuthorization(
-        new NativePermissionPolicyResolver(),
+        new NativePermissionPolicyResolver(
+          requirePersistedPermissionContext(run).state.productMode,
+        ),
       ),
       approvals: new NativeApprovalWaitPort({
         env: this.options.env,
@@ -1024,6 +1035,9 @@ class KernelAgenticProvider implements ProviderPort {
             providerTransport: this.options.input.providerTransport,
             providerEndpoint: this.options.input.providerEndpoint,
             temperature: 0.2,
+            reasoningEffort: parseReasoningEffort(
+              this.options.input.metadata?.reasoningEffort,
+            ),
             signal: input.signal,
           }),
           this.options.isRunCancelled,
@@ -1324,6 +1338,11 @@ class KernelAgenticProvider implements ProviderPort {
       args: repairToolCallArgs(toolCall, this.lastToolArgsByName),
     }));
   }
+}
+
+function parseReasoningEffort(value: unknown) {
+  const parsed = ReasoningEffortSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function repairToolCallArgs(
@@ -1744,23 +1763,6 @@ class NativeApprovalWaitPort implements ApprovalWaitPort {
   }
 }
 
-class NativePermissionPolicyResolver {
-  async resolve(): Promise<PermissionPolicy> {
-    const allowLow = ruleSet("allow", "low");
-    const askHigh = ruleSet("ask", "high");
-    return {
-      commands: askHigh,
-      paths: allowLow,
-      network: askHigh,
-      git: askHigh,
-      packageManagers: askHigh,
-      secrets: ruleSet("deny", "critical"),
-      externalServices: askHigh,
-      tools: allowLow,
-    };
-  }
-}
-
 function mapSharedApprovalDecision(
   outcome: Awaited<ReturnType<typeof waitForApprovalDecision>>,
   resolution: ApprovalResolution,
@@ -1778,14 +1780,6 @@ function mapSharedApprovalStatus(
     return "approved";
   }
   return resolution.decision === "cancelled" ? "aborted" : "denied";
-}
-
-function ruleSet(
-  defaultEffect: RuleSetPolicy["defaultEffect"],
-  defaultRiskLevel: RuleSetPolicy["defaultRiskLevel"],
-  rules: RuleSetPolicy["rules"] = [],
-): RuleSetPolicy {
-  return { defaultEffect, defaultRiskLevel, rules };
 }
 
 function buildProtocolEnvelope(input: {

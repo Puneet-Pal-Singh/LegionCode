@@ -25,6 +25,7 @@ import { Resizer } from "../ui/Resizer";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
+import { ReasoningEffortPicker } from "../chat/ReasoningEffortPicker.js";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import {
   applyFileMention,
@@ -120,6 +121,18 @@ export function AgentSetup({
         selectedProviderId,
       }),
     [status, providerModels, selectedProviderId],
+  );
+  const selectedModel = useMemo(
+    () =>
+      selectedProviderId && selectedModelId
+        ? (providerModels[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          ) ??
+          manageProviderModels?.[selectedProviderId]?.find(
+            (model) => model.id === selectedModelId,
+          ))
+        : undefined,
+    [manageProviderModels, providerModels, selectedModelId, selectedProviderId],
   );
   const { isSelectedProviderModelHydrationPending } =
     useSelectedProviderModelHydration({
@@ -592,6 +605,16 @@ export function AgentSetup({
                   }
                 />
               </div>
+              {selectedProviderId &&
+              selectedModelId &&
+              selectedModel?.capabilities?.reasoningEfforts?.length ? (
+                <ReasoningEffortPicker
+                  providerId={selectedProviderId}
+                  modelId={selectedModelId}
+                  efforts={selectedModel.capabilities.reasoningEfforts}
+                  disabled={false}
+                />
+              ) : null}
             </div>
 
             <div className="flex items-center gap-1.5">

@@ -11,10 +11,14 @@ import { mapAgentIdToType } from "./chat-request-helpers";
 import {
   executeViaRunEngineDurableObject,
   extractPromptFromMessages,
+  fetchRunProviderModels,
   resolveRuntimeTarget,
 } from "./chat-runtime-helpers";
 import { RunAdmissionService } from "../runtime/RunAdmissionService";
 import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
+import { resolveChatModelMetadata } from "../services/chat/ChatModelMetadataResolution";
+import type { ChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
+import { validateChatReasoningEffort } from "../services/chat/ChatReasoningEffortPolicy";
 import {
   applySubmittedClientMessageId,
   summarizeCoreMessages,
@@ -63,6 +67,7 @@ export class ChatController {
           providerId: chatRequest.body.providerId ?? null,
           modelId: chatRequest.body.modelId ?? null,
           mode: chatRequest.body.mode ?? null,
+          productMode: chatRequest.body.productMode ?? null,
           messageCount: chatRequest.body.messages?.length ?? 0,
         })}`,
       );
@@ -208,6 +213,35 @@ export class ChatController {
 
       const executionStartedAt = Date.now();
       const useCase = new HandleChatRequest(env);
+      const trustedModelMetadata: ChatModelMetadata =
+        await resolveChatModelMetadata({
+          providerId: body.providerId,
+          modelId: body.modelId,
+          fetchModels: (_providerId, query) =>
+            fetchRunProviderModels(env, {
+              runId,
+              userId,
+              workspaceId,
+              providerId: _providerId,
+              query,
+              requestedBackend:
+                body.orchestratorBackend ?? "execution-engine-v1",
+            }),
+        });
+
+      const reasoningEffortError = validateChatReasoningEffort(
+        body.reasoningEffort,
+        trustedModelMetadata,
+      );
+      if (reasoningEffortError) {
+        return errorResponse(
+          req,
+          env,
+          reasoningEffortError,
+          400,
+          "UNSUPPORTED_REASONING_EFFORT",
+        );
+      }
 
       const useCaseStartedAt = Date.now();
       const useCaseResult = await useCase.execute(
@@ -235,7 +269,9 @@ export class ChatController {
           repositoryName: body.repositoryName,
           repositoryBranch: body.repositoryBranch,
           repositoryBaseUrl: body.repositoryBaseUrl,
-          contextWindowTokens: body.contextWindowTokens,
+          contextWindowTokens: trustedModelMetadata.contextWindow,
+          pricing: trustedModelMetadata.pricing,
+          reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,
           backgroundTaskOwner,

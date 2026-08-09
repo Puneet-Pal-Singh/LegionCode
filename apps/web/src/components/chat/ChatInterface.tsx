@@ -29,7 +29,7 @@ import { useApprovalController } from "./chat-interface/useApprovalController";
 import {
   useActiveTurnProjection,
   type ActiveTurnProjection,
-} from "./chat-interface/useActiveTurnProjection.js";
+} from "../../hooks/useActiveTurnProjection.js";
 import { useCompletedTurnReview } from "./chat-interface/useCompletedTurnReview.js";
 import { useReviewCommentSubmission } from "./chat-interface/useReviewCommentSubmission";
 import {
@@ -39,6 +39,7 @@ import {
 import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
+import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
 import {
   hasArtifactChangedFileSnapshot,
   hasChangedFileSnapshot,
@@ -68,6 +69,7 @@ interface ChatInterfaceProps {
     activeTurnProjection?: ActiveTurnProjection;
   };
   sessionId: string;
+  initialPromptSubmission?: InitialPromptSubmission | null;
   hasStartedSession?: boolean;
   mode?: RunMode;
   onModeChange?: (mode: RunMode) => void;
@@ -88,6 +90,7 @@ interface ChatInterfaceProps {
 export function ChatInterface({
   chatProps,
   sessionId,
+  initialPromptSubmission = null,
   hasStartedSession = false,
   mode = "build",
   onModeChange,
@@ -139,7 +142,10 @@ export function ChatInterface({
   }, [conversationScope, runId]);
   // The canonical lifecycle projection is the only workflow/activity source.
   // RunEvent and persisted activity backfills are deliberately not rendered.
-  const awaitingCanonicalLifecycle = isLoading && !activeTurn.hasReplay;
+  const awaitingCanonicalLifecycle =
+    activeTurn.isTransportPending ||
+    (activeTurn.hasCanonicalTurn && !activeTurn.hasReplay) ||
+    (isLoading && activeTurn.isTerminal);
   const activeRunLoading =
     activeTurn.isActive ||
     activeTurn.isTransportPending ||
@@ -222,8 +228,6 @@ export function ChatInterface({
     decisions: displayedApprovalDecisions,
     busyDecision: approvalBusyDecision,
     error: approvalError,
-    notice: approvalNoticeText,
-    isResolutionPending: isApprovalResolutionPending,
     resolve: resolveApprovalDecision,
   } = useApprovalController({
     lifecycleProjection,
@@ -303,6 +307,7 @@ export function ChatInterface({
     hasStartedSession,
     lifecycleProjection,
     lifecycleProjectionsByTurnId,
+    initialPromptSubmission,
   });
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
@@ -323,8 +328,6 @@ export function ChatInterface({
         decisions: displayedApprovalDecisions,
         busyDecision: approvalBusyDecision,
         error: approvalError,
-        notice: approvalNoticeText,
-        isResolutionPending: isApprovalResolutionPending,
         onResolve: resolveApprovalDecision,
       }}
       input={input}

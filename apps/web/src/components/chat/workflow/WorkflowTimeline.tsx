@@ -136,10 +136,7 @@ function ActivityDisclosure({
   active: boolean;
   children: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(active);
-  useEffect(() => {
-    setExpanded(active);
-  }, [active]);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div>
@@ -150,7 +147,14 @@ function ActivityDisclosure({
         className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-100"
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
-        <span className="first-letter:uppercase">{title}</span>
+        <span
+          className={cn(
+            "first-letter:uppercase",
+            active && "turn-lifecycle-shimmer",
+          )}
+        >
+          {title}
+        </span>
         <ChevronDown
           className={cn(
             "h-3.5 w-3.5 transition-transform",
@@ -210,7 +214,7 @@ function WorkflowItemRow({
     <div
       data-item-id={item.itemId}
       data-item-status={item.status}
-      className="group py-0.5 text-[13px]"
+      className="group py-0.5 text-sm"
     >
       <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-2">
         <WorkflowStatusIcon item={item} />
@@ -390,6 +394,9 @@ function resolveItemLabel(item: WorkflowItem): string {
     return `${item.status === "active" ? "Reading" : "Read"} ${target}`;
   }
   if (target && item.toolFamily === "edit") {
+    if (item.editChange === "created") {
+      return `${item.status === "active" ? "Creating" : "Created"} ${target}`;
+    }
     return `${item.status === "active" ? "Editing" : "Edited"} ${target}`;
   }
   if (item.toolFamily === "shell") {

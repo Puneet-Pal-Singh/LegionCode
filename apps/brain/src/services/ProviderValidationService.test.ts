@@ -12,8 +12,8 @@ const withSecurityConfig = (env: Partial<Env>): Env => ({
 });
 
 const baseEnv: Env = withSecurityConfig({
-  GROQ_API_KEY: "test-key",
-  DEFAULT_MODEL: "llama-3.3-70b-versatile",
+  OPENAI_API_KEY: "test-api-key",
+  DEFAULT_MODEL: "gpt-4",
 });
 
 describe("ProviderValidationService", () => {
@@ -248,11 +248,11 @@ describe("ProviderValidationService", () => {
     });
   });
 
-  describe("Default provider (LiteLLM)", () => {
-    it("should validate as LiteLLM when LLM_PROVIDER not set", () => {
+  describe("Default provider (OpenAI)", () => {
+    it("should validate as OpenAI when LLM_PROVIDER not set", () => {
       const env: Env = {
         ...baseEnv,
-        // LLM_PROVIDER not set, should default to litellm
+        // LLM_PROVIDER not set, should default to openai
       };
 
       const result = ProviderValidationService.validate(env);

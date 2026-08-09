@@ -26,9 +26,23 @@ export type BYOKModelDiscoverySource = z.infer<
   typeof BYOKModelDiscoverySourceSchema
 >;
 
+export const BYOKModelPricingTierSchema = z.object({
+  minimumContextTokens: z.number().int().nonnegative(),
+  inputPer1M: z.number().nonnegative(),
+  outputPer1M: z.number().nonnegative(),
+  cacheReadPer1M: z.number().nonnegative().optional(),
+  cacheWritePer1M: z.number().nonnegative().optional(),
+});
+export type BYOKModelPricingTier = z.infer<
+  typeof BYOKModelPricingTierSchema
+>;
+
 export const BYOKModelPricingSchema = z.object({
   inputPer1M: z.number().nonnegative().optional(),
   outputPer1M: z.number().nonnegative().optional(),
+  cacheReadPer1M: z.number().nonnegative().optional(),
+  cacheWritePer1M: z.number().nonnegative().optional(),
+  tiers: z.array(BYOKModelPricingTierSchema).max(32).optional(),
   currency: z.string().min(1).default("USD"),
 });
 export type BYOKModelPricing = z.infer<typeof BYOKModelPricingSchema>;
@@ -52,11 +66,17 @@ export type BYOKModelPopularityScore = z.infer<
   typeof BYOKModelPopularityScoreSchema
 >;
 
+// Effort names are provider-owned. Do not normalize them to a platform enum:
+// providers may expose values such as "light", "high", or "max".
+export const ReasoningEffortSchema = z.string().trim().min(1).max(64);
+export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>;
+
 export const BYOKModelCapabilitySchema = z.object({
   supportsTools: z.boolean().optional(),
   supportsVision: z.boolean().optional(),
   supportsStructuredOutputs: z.boolean().optional(),
   supportsReasoning: z.boolean().optional(),
+  reasoningEfforts: z.array(ReasoningEffortSchema).optional(),
 });
 export type BYOKModelCapability = z.infer<typeof BYOKModelCapabilitySchema>;
 

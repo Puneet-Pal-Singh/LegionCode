@@ -38,6 +38,7 @@
     "@shadowbox/github-bridge": "workspace:*",
     "@repo/persistence": "workspace:*",
     "ai": "4.1.0",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "zod-to-json-schema": "3.25.1"
   }
 }

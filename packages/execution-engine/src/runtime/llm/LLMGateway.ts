@@ -157,6 +157,7 @@ export class LLMGateway implements ILLMGateway {
           providerTransport: req.providerTransport,
           providerEndpoint: req.providerEndpoint,
           temperature: req.temperature,
+          reasoningEffort: req.reasoningEffort,
           system: req.system,
           tools: req.tools,
           signal: req.signal,
@@ -387,6 +388,7 @@ export class LLMGateway implements ILLMGateway {
       providerTransport: req.providerTransport,
       providerEndpoint: req.providerEndpoint,
       temperature: req.temperature,
+      reasoningEffort: req.reasoningEffort,
       onFinish: async (finalResult) => {
         const usage = this.normalizeUsage(finalResult.usage, req.model);
         await persistOnce(usage);

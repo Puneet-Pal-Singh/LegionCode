@@ -36,7 +36,10 @@ import type { SessionStatus } from "../../types/session";
 import { deriveWorkspaceRunUiState } from "./workspace/runUiState";
 import { logClientEvent } from "../../lib/client-logger.js";
 import { claimInitialPromptSubmission } from "./workspace/initialPromptSubmissionGuard";
-import { useActiveTurnProjection } from "../chat/chat-interface/useActiveTurnProjection.js";
+import type {
+  InitialPromptSubmission,
+  InitialPromptSubmissionId,
+} from "../../lib/initial-prompt-submission";
 import { useCompletedTurnReview } from "../chat/chat-interface/useCompletedTurnReview.js";
 import {
   buildHookSettingsAuditReadModel,
@@ -45,6 +48,9 @@ import {
 
 interface WorkspaceProps {
   sessionId: string;
+  sessionTitle?: string;
+  sessionCreatedAt?: string;
+  sessionUpdatedAt?: string;
   runId: string;
   repository: string;
   mode?: RunMode;
@@ -53,8 +59,8 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
-  initialPromptSubmission?: { id: string; prompt: string } | null;
-  onInitialPromptHandled?: (id: string) => void;
+  initialPromptSubmission?: InitialPromptSubmission | null;
+  onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
   onHookSettingsContextChange?: (context: {
     workspaceId: string;
@@ -73,6 +79,9 @@ interface WorkspaceProps {
 
 export function Workspace({
   sessionId,
+  sessionTitle,
+  sessionCreatedAt,
+  sessionUpdatedAt,
   runId: initialRunId,
   repository,
   mode = "build",
@@ -177,6 +186,7 @@ export function Workspace({
     isModelConfigReady,
     scope: conversationScope,
     serverTurnId,
+    activeTurnProjection: activeTurn,
   } = useChat(
     sessionId,
     initialRunId,
@@ -186,10 +196,6 @@ export function Workspace({
     mode,
     productMode,
   );
-  const activeTurn = useActiveTurnProjection({
-    turnId: serverTurnId,
-    transportLoading: isLoading,
-  });
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {
       clearNonCanonicalError();
@@ -253,7 +259,9 @@ export function Workspace({
       activeTurn.isActive,
     ],
   );
-  const handledInitialPromptIdRef = useRef<string | null>(null);
+  const handledInitialPromptIdRef = useRef<InitialPromptSubmissionId | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!initialPromptSubmission) {
@@ -277,11 +285,14 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
-    onInitialPromptHandled?.(initialPromptSubmission.id);
-    append({ role: "user", content: prompt }).catch((error) => {
-      console.error("[Workspace] Failed to submit setup prompt:", error);
-      onSessionStatusChange?.("failed");
-    });
+    void append({ role: "user", content: prompt })
+      .catch((error) => {
+        console.error("[Workspace] Failed to submit setup prompt:", error);
+        onSessionStatusChange?.("failed");
+      })
+      .finally(() => {
+        onInitialPromptHandled?.(initialPromptSubmission.id);
+      });
   }, [
     append,
     initialPromptSubmission,
@@ -472,6 +483,7 @@ export function Workspace({
                 activeTurnProjection: activeTurn,
               }}
               sessionId={sessionId}
+              initialPromptSubmission={initialPromptSubmission}
               hasStartedSession={hasStartedSession}
               mode={mode}
               onModeChange={onModeChange}
@@ -497,7 +509,18 @@ export function Workspace({
                 setIsViewingContent(false);
               }}
               onContextOpen={(budget, usage) => {
-                openContextTab(budget, usage);
+                openContextTab(budget, usage, {
+                  title: sessionTitle ?? sessionId,
+                  messageCount: messages.length,
+                  userMessageCount: messages.filter(
+                    (message) => message.role === "user",
+                  ).length,
+                  assistantMessageCount: messages.filter(
+                    (message) => message.role === "assistant",
+                  ).length,
+                  createdAt: sessionCreatedAt ?? "",
+                  updatedAt: sessionUpdatedAt ?? "",
+                });
                 setIsRightSidebarOpen?.(true);
                 setActiveTab("review");
               }}

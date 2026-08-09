@@ -38,6 +38,7 @@ describe("GoogleModelCatalogAdapter", () => {
     expect(models).toHaveLength(1);
     expect(models[0].id).toBe("gemini-1.5-pro");
     expect(models[0].providerId).toBe("google");
+    expect(models[0].contextWindow).toBe(1048576);
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://generativelanguage.googleapis.com/v1beta/models",
       expect.objectContaining({

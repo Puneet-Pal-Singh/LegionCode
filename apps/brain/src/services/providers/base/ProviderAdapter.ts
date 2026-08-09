@@ -3,6 +3,7 @@
 
 import type { CoreMessage, CoreTool, TextStreamPart } from "ai";
 import type { LLMUsage } from "@shadowbox/execution-engine/runtime/cost";
+import type { ReasoningEffort } from "@repo/shared-types";
 
 /**
  * Parameters for generation
@@ -12,6 +13,8 @@ export interface GenerationParams {
   system?: string;
   tools?: Record<string, CoreTool>;
   temperature?: number;
+  maxOutputTokens?: number;
+  reasoningEffort?: ReasoningEffort;
   model?: string;
   signal?: AbortSignal;
 }

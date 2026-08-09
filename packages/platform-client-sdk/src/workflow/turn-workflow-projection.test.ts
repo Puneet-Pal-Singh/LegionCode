@@ -97,6 +97,7 @@ describe("turn workflow projection", () => {
             content: "Applied patch.",
             metadata: {
               activity: {
+                change: "created",
                 filePath: "src/Hero.tsx",
                 diffPreview: "-old\\n+new",
                 additions: 1,
@@ -132,6 +133,7 @@ describe("turn workflow projection", () => {
       diffPreview: "-old\\n+new",
       additions: 1,
       deletions: 1,
+      editChange: "created",
     });
     expect(projection.items[1]).toMatchObject({
       toolName: "bash",

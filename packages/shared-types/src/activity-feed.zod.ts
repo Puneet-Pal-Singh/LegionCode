@@ -95,6 +95,7 @@ const ShellToolMetadataSchema = z.object({
 const EditToolMetadataSchema = z.object({
   family: z.literal(TOOL_ACTIVITY_FAMILIES.EDIT),
   displayText: z.string().optional(),
+  change: z.enum(["created", "modified"]).optional(),
   filePath: z.string().min(1),
   additions: z.number().int().min(0),
   deletions: z.number().int().min(0),

@@ -29,13 +29,20 @@ import { OpenCodeZenModelCatalogAdapter } from "./adapters/OpenCodeZenModelCatal
 import { CloudflareAIModelCatalogAdapter } from "./adapters/CloudflareAIModelCatalogAdapter";
 import { ProviderModelRankingService } from "./ProviderModelRankingService";
 import { ProviderModelDiscoveryObservability } from "./ProviderModelDiscoveryObservability";
+import {
+  enrichModelFromModelDev,
+  type ModelDevCatalogSource,
+} from "./ModelDevCatalog";
 import type { OpenRouterRecommendationInput } from "./types";
 import {
   OPENROUTER_DISCOVERY_CATEGORIES,
   type OpenRouterDiscoveryCategory,
 } from "./types";
 
-const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+// Demand-driven refresh keeps serverless runtimes current without relying on
+// background timers. A provider is revalidated on the first request after one
+// hour, while the explicit refresh action remains available to users.
+const MODEL_CACHE_TTL_MS = 60 * 60 * 1000;
 const OPENROUTER_RECOMMENDED_MAX = 10;
 const OPENROUTER_MANAGE_MODELS_MAX = 150;
 const OPENROUTER_TOP_FREE_MAX = 10;
@@ -50,6 +57,7 @@ export class ProviderModelDiscoveryService {
   private readonly rankingService: ProviderModelRankingService;
   private readonly observability: ProviderModelDiscoveryObservability;
   private readonly registryService: ProviderRegistryService;
+  private readonly modelDevCatalogSource: ModelDevCatalogSource | null;
 
   constructor(
     private readonly cacheStore: ProviderModelCacheStore,
@@ -64,6 +72,7 @@ export class ProviderModelDiscoveryService {
       | ProviderModelRankingService
       | ProviderModelDiscoveryObservability,
     maybeObservability?: ProviderModelDiscoveryObservability,
+    modelDevCatalogSource?: ModelDevCatalogSource,
   ) {
     const { registryService, adapters, rankingService, observability } =
       resolveConstructorArgs(
@@ -77,6 +86,7 @@ export class ProviderModelDiscoveryService {
     this.adapters = buildAdapterRegistry(this.registryService, adapters);
     this.rankingService = rankingService;
     this.observability = observability;
+    this.modelDevCatalogSource = modelDevCatalogSource ?? null;
   }
 
   async getOpenRouterModels(
@@ -96,6 +106,13 @@ export class ProviderModelDiscoveryService {
       credential.apiKey,
     );
     return userInventory.models;
+  }
+
+  async enrichModels(
+    providerId: string,
+    models: BYOKDiscoveredProviderModel[],
+  ): Promise<BYOKDiscoveredProviderModel[]> {
+    return this.enrichCatalogModels(providerId, models);
   }
 
   async getDiscoveredModels(
@@ -272,17 +289,35 @@ export class ProviderModelDiscoveryService {
     return finalModels;
   }
 
+  private async enrichCatalogModels(
+    providerId: string,
+    models: ProviderModelCacheRecord["models"],
+  ): Promise<ProviderModelCacheRecord["models"]> {
+    const catalog = await this.getModelDevCatalog();
+    return models.map((model) =>
+      catalog ? enrichModelFromModelDev(catalog, providerId, model) : model,
+    );
+  }
+
+  private async getModelDevCatalog() {
+    return (await this.modelDevCatalogSource?.getCatalog()) ?? null;
+  }
+
   private async getCatalogWithCache(
     providerId: string,
   ): Promise<ProviderModelCacheRecord & { staleReason?: string }> {
     const cached = await this.readCache(providerId);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(providerId);
-      return cached;
+      return {
+        ...cached,
+        models: await this.enrichCatalogModels(providerId, cached.models),
+      };
     }
 
     try {
-      return await this.fetchAndCacheModels(providerId);
+      const fresh = await this.fetchAndCacheModels(providerId);
+      return fresh;
     } catch (error) {
       this.observability.recordAdapterFailure(
         providerId,
@@ -293,6 +328,7 @@ export class ProviderModelDiscoveryService {
           ...cached,
           source: "cache",
           staleReason: "provider_api_unavailable",
+          models: await this.enrichCatalogModels(providerId, cached.models),
         };
       }
       throw error;
@@ -408,10 +444,15 @@ export class ProviderModelDiscoveryService {
         `${providerId} credentials are not connected for model discovery.`,
       );
     }
-    const models = await adapter.fetchAll(providerId, {
+    const discoveredModels = await adapter.fetchAll(providerId, {
       apiKey,
       connectionConfig,
     });
+    // Persist the canonical enriched model record, not the sparse provider
+    // inventory. Subsequent picker loads can then render context, pricing, and
+    // reasoning metadata immediately without waiting for another catalog
+    // request in a fresh worker isolate.
+    const models = await this.enrichCatalogModels(providerId, discoveredModels);
     const fetchedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + MODEL_CACHE_TTL_MS).toISOString();
     const record: ProviderModelCacheRecord = {
@@ -470,7 +511,7 @@ export class ProviderModelDiscoveryService {
     const cached = await this.readCache(cacheKey);
     if (cached && !isExpired(cached.expiresAt)) {
       this.observability.recordCacheHit(cacheKey);
-      return cached.models;
+      return this.enrichCatalogModels("openrouter", cached.models);
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -485,7 +526,7 @@ export class ProviderModelDiscoveryService {
       source: "provider_api",
     };
     await this.cacheStore.setModelCache(record);
-    return record.models;
+    return this.enrichCatalogModels("openrouter", record.models);
   }
 
   private async getOpenRouterUserInventory(
@@ -498,7 +539,10 @@ export class ProviderModelDiscoveryService {
     });
     if (cached) {
       this.observability.recordCacheHit("openrouter");
-      return cached;
+      return {
+        ...cached,
+        models: await this.enrichCatalogModels("openrouter", cached.models),
+      };
     }
 
     const adapter = this.getOpenRouterAdapter();
@@ -516,7 +560,10 @@ export class ProviderModelDiscoveryService {
       { providerId: "openrouter", credentialId: cacheKey },
       record,
     );
-    return record;
+    return {
+      ...record,
+      models: await this.enrichCatalogModels("openrouter", record.models),
+    };
   }
 
   private async invalidateCurrentOpenRouterUserInventoryCache(): Promise<void> {

@@ -31,8 +31,6 @@ interface ChatComposerControlsProps {
     decisions: ApprovalDecisionKind[];
     busyDecision: ApprovalDecisionKind | null;
     error: string | null;
-    notice: string | null;
-    isResolutionPending: boolean;
     onResolve: (decision: ApprovalDecisionKind) => Promise<void>;
   };
   input: string;
@@ -74,8 +72,6 @@ export function ChatComposerControls(props: ChatComposerControlsProps) {
           decisions={props.approval.decisions}
           busyDecision={props.approval.busyDecision}
           error={props.approval.error}
-          notice={props.approval.notice}
-          isResolutionPending={props.approval.isResolutionPending}
           onResolve={props.approval.onResolve}
         />
       ) : (

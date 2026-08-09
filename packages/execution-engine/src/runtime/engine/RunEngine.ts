@@ -1,5 +1,9 @@
 import type { CoreMessage, CoreTool } from "ai";
-import { RUN_TERMINAL_STATES, RUN_WORKFLOW_STEPS } from "@repo/shared-types";
+import {
+  ReasoningEffortSchema,
+  RUN_TERMINAL_STATES,
+  RUN_WORKFLOW_STEPS,
+} from "@repo/shared-types";
 import { Run, RunRepository, RunStateMachine } from "../run/index.js";
 import { Task, TaskRepository } from "../task/index.js";
 import {
@@ -8,6 +12,7 @@ import {
   CostTracker,
   PricingRegistry,
   PricingResolver,
+  registerRuntimeModelPricing,
   type BudgetPolicy,
   type IBudgetManager,
   type ICostLedger,
@@ -82,6 +87,7 @@ import {
 } from "./RunMetadataPolicy.js";
 import { resolveRunPermissionContext } from "./RunPermissionContextPolicy.js";
 import { PermissionGateError } from "./PermissionGateError.js";
+import { readLatestUserMessageId } from "./RunInputMessages.js";
 import {
   buildApprovalDecisionMessage,
   extractApprovalDecision,
@@ -101,9 +107,7 @@ import {
 } from "./RunEngineReliabilityPolicy.js";
 import { describeWorkspaceBootstrapSummary } from "./RunWorkspaceBootstrapSummaryPolicy.js";
 import { buildAgenticLoopCallbacks } from "./RunAgenticLoopCallbacksPolicy.js";
-import {
-  resolveGitTaskStrategyForRun,
-} from "./RunExecutionPreparationPolicy.js";
+import { resolveGitTaskStrategyForRun } from "./RunExecutionPreparationPolicy.js";
 import { recordInitialTurnActivity } from "./RunInitialActivityPolicy.js";
 import {
   buildFinalSummaryFrame,
@@ -283,6 +287,12 @@ export class RunEngine implements IRunEngine {
     const { runId, sessionId } = this.options;
     const runStartedAt = Date.now();
     try {
+      registerRuntimeModelPricing(this.pricingRegistry, {
+        providerId: input.providerId,
+        modelId: input.modelId,
+        runtimeModelId: input.runtimeModelId,
+        pricing: input.metadata?.pricing,
+      });
       await this.sessionCostsLoaded;
       const run = await this.getOrCreateRun(input, runId, sessionId);
       await this.runEventRecorder.ensureRunStarted(run.status);
@@ -535,11 +545,12 @@ export class RunEngine implements IRunEngine {
           createRuntimeFinalText(buildPlanModeResponse(planArtifact)),
         );
       } catch (planError) {
-        const recoveryResponse = await this.finalizationService.tryHandlePlanningError(
-          run,
-          runId,
-          planError,
-        );
+        const recoveryResponse =
+          await this.finalizationService.tryHandlePlanningError(
+            run,
+            runId,
+            planError,
+          );
         if (recoveryResponse) {
           return recoveryResponse;
         }
@@ -630,6 +641,7 @@ export class RunEngine implements IRunEngine {
         providerTransport: input.providerTransport,
         providerEndpoint: input.providerEndpoint,
         temperature: 0.2,
+        reasoningEffort: parseRunReasoningEffort(input.metadata),
         onToolRequested: loopCallbacks.onToolRequested,
         onProgress: loopCallbacks.onProgress,
         onProviderRetry: loopCallbacks.onProviderRetry,
@@ -777,7 +789,9 @@ export class RunEngine implements IRunEngine {
       memoryCoordinator: this.memoryCoordinator,
       persistConversationMessages: this.persistConversationMessages.bind(this),
       runEventRecorder: this.runEventRecorder,
-      readCanonicalRunEvents: this.runEventRepo.getByRun.bind(this.runEventRepo),
+      readCanonicalRunEvents: this.runEventRepo.getByRun.bind(
+        this.runEventRepo,
+      ),
       runRepo: this.runRepo,
       safeMemoryOperation: this.safeMemoryOperation.bind(this),
     };
@@ -815,10 +829,12 @@ export class RunEngine implements IRunEngine {
       RUN_WORKFLOW_STEPS.EXECUTION,
       "user_cancelled",
     );
-    if (isFinalSummaryContractEnabled(
-      run.input.metadata,
-      this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
-    )) {
+    if (
+      isFinalSummaryContractEnabled(
+        run.input.metadata,
+        this.options.env.FEATURE_FLAG_FINAL_SUMMARY_CONTRACT_V1,
+      )
+    ) {
       const finalMessage = new FinalAssistantMessageService().build({
         terminalState: RUN_TERMINAL_STATES.INTERRUPTED,
         outcomeCode: "INTERRUPTED",
@@ -1019,17 +1035,19 @@ export class RunEngine implements IRunEngine {
   }
 }
 
-function readLatestUserMessageId(messages: CoreMessage[]): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== "user") {
-      continue;
-    }
-    const id = (message as CoreMessage & { id?: unknown }).id;
-    return typeof id === "string" && id.trim() ? id.trim() : null;
+export function parseRunReasoningEffort(metadata: RunInput["metadata"]) {
+  if (metadata?.reasoningEffort === undefined) {
+    return undefined;
   }
-  return null;
+  const parsed = ReasoningEffortSchema.safeParse(metadata.reasoningEffort);
+  if (!parsed.success) {
+    throw new RunEngineError(
+      `Invalid reasoning effort: ${String(metadata.reasoningEffort)}`,
+    );
+  }
+  return parsed.data;
 }
+
 export class RunEngineError extends Error {
   constructor(message: string) {
     super(`[run/engine] ${message}`);

@@ -1,14 +1,69 @@
 import { renderHook } from "@testing-library/react";
+import { createInitialPromptSubmissionId } from "../../../lib/initial-prompt-submission";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 import { useChatPresentation } from "./useChatPresentation";
 
 describe("useChatPresentation", () => {
+  it("renders the submitted setup prompt instead of a centered session spinner", () => {
+    const { result } = renderHook(() =>
+      useChatPresentation({
+        messages: [],
+        conversationTurns: [],
+        hasHydrated: true,
+        isLoading: true,
+        hasPendingApproval: false,
+        hasStartedSession: true,
+        initialPromptSubmission: {
+          id: createInitialPromptSubmissionId("setup-1"),
+          prompt: "Inspect the README",
+        },
+      }),
+    );
+
+    expect(result.current.showSessionPlaceholder).toBe(false);
+    expect(result.current.chatEntries[0]).toMatchObject({
+      kind: "message",
+      message: { role: "user", content: "Inspect the README" },
+    });
+  });
+
+  it("does not duplicate the setup prompt after the canonical chat projects it", () => {
+    const userMessage = {
+      id: "user-1",
+      role: "user" as const,
+      content: "Inspect the README",
+    };
+    const { result } = renderHook(() =>
+      useChatPresentation({
+        messages: [userMessage],
+        conversationTurns: [
+          {
+            key: "turn:user-1",
+            userMessage,
+            assistantMessage: undefined,
+            turnId: undefined,
+          },
+        ],
+        hasHydrated: true,
+        isLoading: true,
+        hasPendingApproval: false,
+        hasStartedSession: true,
+        initialPromptSubmission: {
+          id: createInitialPromptSubmissionId("setup-1"),
+          prompt: "Inspect the README",
+        },
+      }),
+    );
+
+    expect(
+      result.current.chatEntries.filter((entry) => entry.kind === "message"),
+    ).toHaveLength(1);
+  });
+
   it("keeps a canonical failed terminal visible instead of replacing it with a final-output placeholder", () => {
     const { result } = renderHook(() =>
       useChatPresentation({
-        messages: [
-          { id: "user-1", role: "user", content: "Read the project" },
-        ],
+        messages: [{ id: "user-1", role: "user", content: "Read the project" }],
         conversationTurns: [],
         hasHydrated: true,
         isLoading: false,

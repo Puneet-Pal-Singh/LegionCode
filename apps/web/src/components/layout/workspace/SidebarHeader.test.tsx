@@ -52,7 +52,7 @@ describe("SidebarHeader", () => {
     ).toHaveClass("ml-4");
     expect(
       screen.getByRole("button", { name: "Close Review tab" }),
-    ).toHaveClass("rounded-full", "opacity-0", "group-hover:opacity-100");
+    ).toHaveClass("rounded-md", "opacity-0", "group-hover:opacity-100");
     expect(
       screen.getByRole("tab", { name: "DiffViewer.test.tsx" }),
     ).toHaveAttribute("aria-selected", "true");

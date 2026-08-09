@@ -41,15 +41,31 @@ const usage: UsageCostSnapshot = {
   measurementSource: "provider",
 };
 
+const session = {
+  title: "Review provider context",
+  messageCount: 12,
+  userMessageCount: 5,
+  assistantMessageCount: 7,
+  createdAt: "2026-08-04T14:11:00.000Z",
+  updatedAt: "2026-08-05T14:53:00.000Z",
+};
+
 describe("ContextDetailsPanel", () => {
   it("renders only canonical runtime context and usage facts", () => {
-    render(<ContextDetailsPanel budget={budget} usage={usage} />);
+    render(
+      <ContextDetailsPanel budget={budget} usage={usage} session={session} />,
+    );
 
     expect(screen.getByText("258,000")).toBeInTheDocument();
-    expect(screen.getAllByText("108,000")).toHaveLength(2);
-    expect(screen.getByText("USD 0.44")).toBeInTheDocument();
+    expect(screen.getByText("Review provider context")).toBeInTheDocument();
+    expect(screen.getByText("12,000")).toBeInTheDocument();
+    expect(screen.getByText("5,000 / —")).toBeInTheDocument();
+    expect(screen.getByText("$0.44")).toBeInTheDocument();
+    expect(screen.getByText("Conversation 83%")).toBeInTheDocument();
+    expect(screen.queryByText("Context composition")).not.toBeInTheDocument();
+    expect(screen.queryByText("Latest turn usage")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/automatic compaction starts at 80%/i),
+      screen.getByText(/automatic\s+compaction starts at\s+80%/i),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /compact context/i }),
@@ -57,8 +73,14 @@ describe("ContextDetailsPanel", () => {
   });
 
   it("shows unavailable instead of estimating missing provider usage", () => {
-    render(<ContextDetailsPanel budget={budget} usage={null} />);
+    render(
+      <ContextDetailsPanel budget={budget} usage={null} session={session} />,
+    );
 
-    expect(screen.getAllByText("Unavailable")).toHaveLength(6);
+    expect(screen.getAllByText("Unavailable")).toHaveLength(4);
+    expect(screen.queryByText("Reasoning tokens")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Cache tokens (read/write)"),
+    ).not.toBeInTheDocument();
   });
 });

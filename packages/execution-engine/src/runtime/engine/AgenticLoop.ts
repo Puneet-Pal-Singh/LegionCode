@@ -6,7 +6,10 @@
  */
 
 import type { CoreMessage, CoreTool } from "ai";
-import type { ProviderModelTransport } from "@repo/shared-types";
+import type {
+  ProviderModelTransport,
+  ReasoningEffort,
+} from "@repo/shared-types";
 import { safeParseToolActivityMetadata, type ToolActivityMetadata } from "@repo/shared-types";
 import {
   BudgetExceededError,
@@ -190,6 +193,7 @@ export class AgenticLoop {
       providerTransport?: ProviderModelTransport;
       providerEndpoint?: string;
       temperature?: number;
+      reasoningEffort?: ReasoningEffort;
     } & AgenticLoopHooks,
   ): Promise<AgenticLoopResult> {
     this.reset();
@@ -301,6 +305,7 @@ export class AgenticLoop {
               providerTransport: context.providerTransport,
               providerEndpoint: context.providerEndpoint,
               temperature: context.temperature,
+              reasoningEffort: context.reasoningEffort,
             },
             step,
             context,

@@ -42,6 +42,10 @@ import {
   type SettingsSection,
 } from "./lib/settings-dialog-events";
 import type { HookSettingsAuditReadModel } from "./services/api/lifecycleClient.js";
+import {
+  createInitialPromptSubmissionId,
+  type InitialPromptSubmission,
+} from "./lib/initial-prompt-submission";
 
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
@@ -653,11 +657,9 @@ function AppContent() {
   });
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
-  const [initialPromptSubmission, setInitialPromptSubmission] = useState<{
-    id: string;
-    sessionId: string;
-    prompt: string;
-  } | null>(null);
+  const [initialPromptSubmission, setInitialPromptSubmission] = useState<
+    (InitialPromptSubmission & { sessionId: string }) | null
+  >(null);
 
   const scopedApprovalStatesBySessionId = useMemo(() => {
     const validSessionIds = new Set(sessions.map((session) => session.id));
@@ -1102,7 +1104,9 @@ function AppContent() {
                         mode: config.mode,
                       });
                       setInitialPromptSubmission({
-                        id: crypto.randomUUID(),
+                        id: createInitialPromptSubmissionId(
+                          crypto.randomUUID(),
+                        ),
                         sessionId: activeSessionId,
                         prompt: config.task,
                       });
@@ -1147,6 +1151,9 @@ function AppContent() {
               >
                 <Workspace
                   sessionId={activeSessionId}
+                  sessionTitle={activeSession.name}
+                  sessionCreatedAt={activeSession.createdAt}
+                  sessionUpdatedAt={activeSession.updatedAt}
                   runId={activeSession?.activeRunId || ""}
                   repository={activeSession?.repository || ""}
                   mode={activeSession?.mode}

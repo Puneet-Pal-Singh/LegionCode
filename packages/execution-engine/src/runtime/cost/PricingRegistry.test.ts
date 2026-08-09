@@ -2,8 +2,12 @@
 // Phase 3.1: Unit tests for PricingRegistry three-tier pricing strategy
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { PricingRegistry, PricingError } from "../../../src/runtime/cost/PricingRegistry.js";
-import type { LLMUsage } from "../../../src/runtime/cost/types.js";
+import {
+  PricingRegistry,
+  PricingError,
+  registerRuntimeModelPricing,
+} from "./PricingRegistry.js";
+import type { LLMUsage } from "./types.js";
 
 describe("PricingRegistry", () => {
   let registry: PricingRegistry;
@@ -142,6 +146,123 @@ describe("PricingRegistry", () => {
 
       const price = registry.getPrice("openai", "gpt-4o");
       expect(price?.inputPrice).toBe(0.1);
+    });
+  });
+
+  describe("registerRuntimeModelPricing", () => {
+    it("converts provider-model catalog prices from per-million tokens", () => {
+      const registered = registerRuntimeModelPricing(registry, {
+        providerId: "openai",
+        modelId: "gpt-5",
+        runtimeModelId: "gpt-5",
+        pricing: {
+          inputPer1M: 1.25,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+      });
+
+      expect(registered).toBe(true);
+      expect(registry.getPrice("openai", "gpt-5")).toMatchObject({
+        inputPrice: 0.00125,
+        outputPrice: 0.01,
+        currency: "USD",
+      });
+      expect(
+        registry.calculateCost({
+          provider: "openai",
+          model: "gpt-5",
+          promptTokens: 1_000,
+          completionTokens: 1_000,
+          totalTokens: 2_000,
+        }).totalCost,
+      ).toBeCloseTo(0.01125, 8);
+    });
+
+    it("does not register incomplete pricing", () => {
+      expect(
+        registerRuntimeModelPricing(registry, {
+          providerId: "openai",
+          modelId: "gpt-5",
+          pricing: { inputPer1M: 1.25 },
+        }),
+      ).toBe(false);
+      expect(registry.getPrice("openai", "gpt-5")).toBeNull();
+    });
+
+    it("uses cache and long-context tier rates", () => {
+      registerRuntimeModelPricing(registry, {
+        providerId: "openai",
+        modelId: "gpt-5.5",
+        pricing: {
+          inputPer1M: 5,
+          outputPer1M: 30,
+          cacheReadPer1M: 0.5,
+          tiers: [
+            {
+              minimumContextTokens: 200_000,
+              inputPer1M: 10,
+              outputPer1M: 45,
+              cacheReadPer1M: 1,
+            },
+          ],
+          currency: "USD",
+        },
+      });
+
+      const cost = registry.calculateCost({
+        provider: "openai",
+        model: "gpt-5.5",
+        promptTokens: 300_000,
+        cachedInputTokens: 1_000,
+        completionTokens: 1_000,
+        totalTokens: 301_000,
+      });
+
+      expect(cost.inputCost).toBeCloseTo(2.99, 8);
+      expect(cost.outputCost).toBeCloseTo(0.045, 8);
+      expect(cost.totalCost).toBeCloseTo(3.036, 8);
+    });
+
+    it("uses the active context tier when cache pricing is omitted", () => {
+      registerRuntimeModelPricing(registry, {
+        providerId: "openai",
+        modelId: "gpt-5.6-luna",
+        pricing: {
+          inputPer1M: 5,
+          outputPer1M: 30,
+          tiers: [
+            {
+              minimumContextTokens: 200_000,
+              inputPer1M: 10,
+              outputPer1M: 45,
+            },
+          ],
+          currency: "USD",
+        },
+      });
+
+      const cost = registry.calculateCost({
+        provider: "openai",
+        model: "gpt-5.6-luna",
+        promptTokens: 300_000,
+        cachedInputTokens: 1_000,
+        completionTokens: 1_000,
+        totalTokens: 301_000,
+      });
+
+      expect(cost.inputCost).toBeCloseTo(2.99, 8);
+    });
+
+    it("rejects negative pricing values", () => {
+      expect(() =>
+        registry.registerPrice("openai", "invalid", {
+          inputPrice: -1,
+          outputPrice: 1,
+          currency: "USD",
+          effectiveDate: "2026-01-01",
+        }),
+      ).toThrow(/invalid inputPrice/);
     });
   });
 

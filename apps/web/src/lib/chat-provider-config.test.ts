@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   requireResolvedProviderConfig,
   resolveSelectedProviderConfig,
-} from "../chat-provider-config";
+} from "./chat-provider-config";
 
 describe("resolveSelectedProviderConfig", () => {
   it("uses the complete selected provider tuple before cached config", () => {
@@ -84,6 +84,38 @@ describe("resolveSelectedProviderConfig", () => {
       providerId: "openai",
       modelId: "gpt-4o",
       credentialId: "cred-a",
+      source: "store_selection",
+    });
+  });
+
+  it("uses selected model context and pricing metadata before cached resolution", () => {
+    expect(
+      resolveSelectedProviderConfig({
+        selectedProviderId: "openai",
+        selectedModelId: "gpt-5",
+        selectedCredentialId: "cred-a",
+        selectedModelContextWindow: 400_000,
+        selectedModelPricing: {
+          inputPer1M: 1.25,
+          outputPer1M: 10,
+          currency: "USD",
+        },
+        lastResolvedConfig: {
+          providerId: "openai",
+          modelId: "gpt-5",
+          credentialId: "cred-a",
+        },
+      }),
+    ).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5",
+      credentialId: "cred-a",
+      contextWindow: 400_000,
+      pricing: {
+        inputPer1M: 1.25,
+        outputPer1M: 10,
+        currency: "USD",
+      },
       source: "store_selection",
     });
   });
