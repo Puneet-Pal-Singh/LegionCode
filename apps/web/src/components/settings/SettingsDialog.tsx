@@ -19,6 +19,7 @@ import { useProviderStore } from "../../hooks/useProviderStore.js";
 import type { SettingsSection } from "../../lib/settings-dialog-events.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { ConnectProviderChooser } from "../provider/ConnectProviderChooser.js";
+import { formatModelDisplayName } from "../provider/modelDisplayName.js";
 import { ArchivedChatsSettings } from "./ArchivedChatsSettings.js";
 import { HooksSettingsPanel } from "./HooksSettingsPanel.js";
 import type { ProviderModelOption } from "../../services/api/providerClient.js";
@@ -893,12 +894,9 @@ function SettingsModelsPanel({
                             index > 0 ? "border-t border-zinc-800/50" : ""
                           }`}
                         >
-                          <div>
-                            <p className="text-sm font-medium text-zinc-200">
-                              {model.name}
-                            </p>
-                            <p className="text-xs text-zinc-500">{model.id}</p>
-                          </div>
+                          <p className="text-sm font-medium text-zinc-200">
+                            {formatModelDisplayName(model)}
+                          </p>
                           <input
                             type="checkbox"
                             checked={enabled}
@@ -908,7 +906,7 @@ function SettingsModelsPanel({
                                 model.id,
                               )
                             }
-                            className="h-4 w-4 accent-blue-500"
+                            className="h-4 w-4 accent-zinc-100"
                           />
                         </label>
                       );
