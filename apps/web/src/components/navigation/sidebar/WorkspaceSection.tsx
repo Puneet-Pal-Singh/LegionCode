@@ -1,5 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, Edit2, Folder, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  Edit2,
+  Folder,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../../lib/utils";
 import { TaskList } from "./TaskList";
@@ -37,7 +44,8 @@ export function WorkspaceSection({
   const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const [showMenu, setShowMenu] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
-  const [isConfirmingWorkspaceRemove, setIsConfirmingWorkspaceRemove] = useState(false);
+  const [isConfirmingWorkspaceRemove, setIsConfirmingWorkspaceRemove] =
+    useState(false);
   const [newName, setNewName] = useState(workspaceName);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -84,7 +92,7 @@ export function WorkspaceSection({
 
   return (
     <section className="space-y-1.5">
-      <div className="flex items-center gap-1">
+      <div className="group/project flex items-center gap-1">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
@@ -100,7 +108,11 @@ export function WorkspaceSection({
               !isExpanded && "-rotate-90",
             )}
           />
-          <Folder size={15} aria-hidden="true" className="shrink-0 text-zinc-500" />
+          <Folder
+            size={15}
+            aria-hidden="true"
+            className="shrink-0 text-zinc-500"
+          />
           {!isRenaming ? (
             <span className="truncate text-sm font-semibold text-zinc-100">
               {workspaceName}
@@ -135,7 +147,7 @@ export function WorkspaceSection({
                 event.stopPropagation();
                 onAddTask();
               }}
-              className="mr-1 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+              className="mr-1 rounded p-1 text-zinc-500 opacity-0 transition-all hover:bg-zinc-800/50 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
               title={`New task in ${workspaceName}`}
             >
               <Plus size={14} aria-hidden="true" />

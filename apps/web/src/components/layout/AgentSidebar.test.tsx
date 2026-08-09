@@ -22,6 +22,33 @@ function createSession(overrides?: Partial<AgentSession>): AgentSession {
 }
 
 describe("AgentSidebar", () => {
+  it("prioritizes creating tasks and uses project language", () => {
+    const onCreate = vi.fn();
+
+    render(
+      <AgentSidebar
+        sessions={[]}
+        repositories={[]}
+        activeSessionId={null}
+        onSelect={vi.fn()}
+        onCreate={onCreate}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
+    expect(onCreate).toHaveBeenCalledWith();
+    expect(screen.getByText("Projects")).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("Search tasks and projects"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add project" }),
+    ).toBeInTheDocument();
+  });
+
   it("opens the account menu and logs out the authenticated user", async () => {
     const onLogout = vi.fn().mockResolvedValue(undefined);
 

@@ -23,8 +23,7 @@ export function SidebarShell({
       className="ui-sidebar-surface flex h-full flex-col overflow-hidden border-r"
       style={{ width }}
     >
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="font-mono text-sm text-zinc-300">&gt;_</div>
+      <div className="flex h-12 items-center px-4">
         {onClose ? (
           <motion.button
             type="button"
@@ -40,10 +39,12 @@ export function SidebarShell({
         ) : null}
       </div>
 
-      <div className="border-b ui-muted-divider px-4 pb-3">{utility}</div>
+      <div className="border-b ui-muted-divider px-4 pb-4">{utility}</div>
       <div className="flex-1 overflow-y-auto px-4 py-3">{children}</div>
 
-      {footer ? <div className="border-t ui-muted-divider px-4 py-2">{footer}</div> : null}
+      {footer ? (
+        <div className="border-t ui-muted-divider px-4 py-2">{footer}</div>
+      ) : null}
       {version ? (
         <div className="border-t ui-muted-divider px-4 py-2 text-[10px] text-zinc-600">
           {version}

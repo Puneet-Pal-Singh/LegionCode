@@ -1,4 +1,11 @@
-import { Check, FolderPlus, ListFilter, Pin, Search } from "lucide-react";
+import {
+  Check,
+  FolderPlus,
+  MoreHorizontal,
+  PenLine,
+  Pin,
+  Search,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
@@ -263,32 +270,39 @@ export function AgentSidebar({
   ]);
 
   const utility = (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => onCreate()}
+        className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-800/60 hover:text-white"
+      >
+        <PenLine size={16} aria-hidden="true" />
+        New task
+      </button>
+
       <div className="relative">
         <Search
-          className="pointer-events-none absolute left-2 top-2 text-zinc-600"
-          size={13}
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
+          size={14}
         />
         <input
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search tasks and workspaces"
-          className="ui-input h-8 w-full pl-7 pr-2 text-xs text-zinc-300"
+          placeholder="Search tasks and projects"
+          className="ui-input h-9 w-full pl-8 pr-2 text-sm text-zinc-300"
           aria-label="Search tasks"
         />
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-          Workspaces
-        </span>
+      <div className="group/projects flex items-center justify-between pt-2">
+        <span className="text-sm font-medium text-zinc-500">Projects</span>
         <div className="flex items-center gap-1">
           <button
             type="button"
-            aria-label="Add workspace"
+            aria-label="Add project"
             onClick={onAddRepository}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
-            title="Add workspace"
+            className="rounded-md p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
+            title="Add project"
           >
             <FolderPlus size={14} aria-hidden="true" />
           </button>
@@ -302,7 +316,7 @@ export function AgentSidebar({
               aria-haspopup="menu"
               aria-expanded={isFilterMenuOpen}
             >
-              <ListFilter
+              <MoreHorizontal
                 size={14}
                 aria-hidden="true"
                 className={
@@ -316,8 +330,8 @@ export function AgentSidebar({
                 role="menu"
                 className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
               >
-                <div className="px-1 pb-1 text-xs font-medium text-zinc-400">
-                  Show
+                <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">
+                  Show tasks
                 </div>
                 {FILTER_OPTIONS.map((option) => (
                   <button
@@ -327,7 +341,7 @@ export function AgentSidebar({
                       setStatusFilter(option.value);
                       setIsFilterMenuOpen(false);
                     }}
-                    className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                    className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
                     role="menuitemradio"
                     aria-checked={statusFilter === option.value}
                   >
@@ -346,15 +360,7 @@ export function AgentSidebar({
   );
 
   const footer = (
-    <div className="space-y-1.5">
-      <button
-        type="button"
-        onClick={onAddRepository}
-        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
-      >
-        <FolderPlus size={15} className="text-zinc-400" />
-        Add repository
-      </button>
+    <div>
       <SidebarAccountMenu
         user={accountUser}
         onOpenSettings={onOpenSettings}
@@ -406,7 +412,7 @@ export function AgentSidebar({
 
         {repositorySections.length === 0 ? (
           <p className="px-2 py-3 text-xs italic text-zinc-600">
-            No matching tasks or workspaces
+            No matching tasks or projects
           </p>
         ) : null}
       </div>
