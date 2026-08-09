@@ -95,8 +95,8 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
           >
             ← Back to repositories
           </button>
-          <h2 className="text-2xl font-semibold text-white mb-2">
-            Select Branch
+          <h2 className="mb-2 text-2xl font-semibold text-white">
+            Choose a starting branch
           </h2>
           <p className="text-zinc-400">
             Choose a branch to work on for{" "}
@@ -161,14 +161,14 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
               onClick={onSkip}
               className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
             >
-              Skip
+              Not now
             </button>
             <button
               onClick={handleConfirm}
               disabled={!selectedBranch}
               className="px-6 py-2 bg-white text-black rounded-md hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Connect Repository
+              Create project
             </button>
           </div>
         </div>
@@ -182,12 +182,12 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
         <div className="inline-flex items-center justify-center w-16 h-16 bg-zinc-900 rounded-2xl mb-4">
           <Github className="w-8 h-8 text-white" />
         </div>
-        <h2 className="text-2xl font-semibold text-white mb-2">
-          Connect Your Repository
+        <h2 className="mb-2 text-2xl font-semibold text-white">
+          Add a project
         </h2>
         <p className="text-zinc-400 max-w-lg mx-auto">
-          Select a GitHub repository to start working with LegionCode. You can
-          also skip this step and connect later.
+          Choose the GitHub repository LegionCode should use for this cloud
+          project.
         </p>
       </div>
 
@@ -196,10 +196,11 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search your repositories..."
+            aria-label="Search repositories"
+            placeholder="Search repositories"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
+            className="ui-input w-full py-3 pl-10 pr-4 text-sm text-white"
           />
         </div>
       </div>
@@ -266,7 +267,7 @@ export function RepoPicker({ onRepoSelect, onSkip }: RepoPickerProps) {
           onClick={onSkip}
           className="px-4 py-2 text-zinc-400 hover:text-white transition-colors"
         >
-          Skip for now
+          Not now
         </button>
       </div>
     </div>
