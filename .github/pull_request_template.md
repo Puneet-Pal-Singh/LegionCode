@@ -11,31 +11,52 @@ Do not include private/internal IDs, links, file names, or paths.
 
 ## Summary
 
-<!-- What changed, and why is it needed? Keep this to a few sentences. -->
+<!-- Briefly describe the outcome of this PR. -->
 
-## Scope
+## Why
 
-<!-- List the important changes and any deliberate exclusions or follow-up work. -->
+<!-- What problem does this solve, and why is this approach appropriate? -->
+
+## What changed
+
+<!-- List the meaningful changes and deliberate exclusions. -->
 
 -
 
-Breaking changes: <!-- None, or describe the migration required. -->
+Breaking changes: <!-- None, or describe the required migration. -->
 
-Dependencies / merge order: <!-- None, or link public prerequisite PRs. -->
+Related public issues / PRs: <!-- N/A, or add links. -->
+
+## Verification
+
+<!-- Include focused tests, type checks, gates, and relevant manual/E2E evidence. -->
+
+- [ ] Tests:
+- [ ] Type / lint / build:
+- [ ] Architecture or conformance gates:
+- [ ] Manual or product-path verification:
+
+## Risks and rollback
+
+<!-- State meaningful risks and the safe rollback/recovery path. Write None when not applicable. -->
+
+<details>
+<summary>Architecture and lifecycle details (required only when applicable)</summary>
+
+<!--
+Complete this section for runtime, lifecycle, workflow, tools, approvals,
+context, persistence, Git, execution backends, harnesses, SDKs, or client-state
+changes. Otherwise write N/A. Keep answers concise and link architecture docs
+when deeper explanation is needed.
+-->
+
+Coordination:
 
 - Merge independence:
 - Remaining integration:
 - Temporary mechanism deletion criteria:
 
-## Architecture and ownership
-
-<!--
-Required for runtime, lifecycle, workflow, tools, approvals, context,
-persistence, Git, execution backends, harnesses, SDKs, and client-state changes.
-For other PRs, write N/A.
--->
-
-Canonical wiring: <!-- Complete for architecture-sensitive changes; otherwise N/A. -->
+Canonical wiring:
 
 - Product responsibility:
 - Current owner(s):
@@ -58,19 +79,4 @@ Lifecycle evidence: <!-- Complete for lifecycle fixes; otherwise N/A. -->
 - Boundary regression test:
 - Lifecycle/conformance regression test:
 
-## Verification
-
-<!-- Include focused tests, type checks, gates, and relevant manual/E2E evidence. -->
-
-- [ ] Tests:
-- [ ] Type / lint / build:
-- [ ] Architecture or conformance gates:
-- [ ] Manual or product-path verification:
-
-## Risks and rollback
-
-<!-- State meaningful risks and the safe rollback/recovery path. Write None when not applicable. -->
-
-## Related
-
-<!-- Public GitHub PRs/issues only. Write N/A when there are none. -->
+</details>
