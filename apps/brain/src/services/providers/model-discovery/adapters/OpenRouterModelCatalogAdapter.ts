@@ -5,10 +5,9 @@ import type {
   BYOKModelCapabilityMetadata,
   BYOKModelInputModality,
   BYOKModelOutputModality,
-  ReasoningEffort,
 } from "@repo/shared-types";
-import { ReasoningEffortSchema } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
+import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts";
 import type {
   ProviderModelCredentialContext,
   OpenRouterDiscoveryCategory,
@@ -276,20 +275,6 @@ function toCapabilities(
         }
       : {}),
   };
-}
-
-function normalizeReasoningEfforts(
-  efforts: readonly string[] | undefined,
-): ReasoningEffort[] {
-  if (!efforts) return [];
-  return Array.from(
-    new Set(
-      efforts.filter(
-        (effort): effort is ReasoningEffort =>
-          ReasoningEffortSchema.safeParse(effort).success,
-      ),
-    ),
-  );
 }
 
 function toInputModalities(

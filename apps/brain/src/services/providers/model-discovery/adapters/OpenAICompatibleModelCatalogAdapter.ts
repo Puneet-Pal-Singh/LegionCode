@@ -1,10 +1,7 @@
 import { z } from "zod";
-import {
-  ReasoningEffortSchema,
-  type BYOKDiscoveredProviderModel,
-  type ReasoningEffort,
-} from "@repo/shared-types";
+import type { BYOKDiscoveredProviderModel } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
+import { normalizeReasoningEfforts } from "../normalizeReasoningEfforts";
 import type {
   ProviderModelCredentialContext,
   ProviderModelFetchPageInput,
@@ -170,22 +167,6 @@ function toDiscoveredModel(
         }
       : {}),
   };
-}
-
-function normalizeReasoningEfforts(
-  efforts: readonly string[] | undefined,
-): ReasoningEffort[] {
-  if (!efforts) {
-    return [];
-  }
-  return Array.from(
-    new Set(
-      efforts.filter(
-        (effort): effort is ReasoningEffort =>
-          ReasoningEffortSchema.safeParse(effort).success,
-      ),
-    ),
-  );
 }
 
 function supportedParametersSchema() {
