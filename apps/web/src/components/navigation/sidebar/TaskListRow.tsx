@@ -9,7 +9,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { formatTimeAgo } from "../../../lib/timeFormat";
 import { cn } from "../../../lib/utils";
 import type { SidebarTaskItem, SidebarTaskStatus } from "./types";
 
@@ -64,7 +63,13 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
 
 function getRelativeTime(updatedAt: string): string {
   const date = new Date(updatedAt);
-  return Number.isNaN(date.getTime()) ? "--" : formatTimeAgo(date);
+  if (Number.isNaN(date.getTime())) return "--";
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "now";
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h`;
+  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d`;
+  return `${Math.floor(seconds / 604_800)}w`;
 }
 
 function getMetricsLabel(task: SidebarTaskItem): string | null {
@@ -164,7 +169,7 @@ export function TaskListRow({
         onClick={onSelect}
         onKeyDown={(event) => handleRowKeyDown(event, onSelect, onMoveFocus)}
         className={cn(
-          "h-10 w-full rounded-xl px-2.5 text-left transition-all duration-150",
+          "h-9 w-full rounded-lg px-2 text-left transition-all duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
           task.isActive
             ? "bg-zinc-800/70 text-zinc-100"
@@ -202,7 +207,10 @@ export function TaskListRow({
                 {metricLabel}
               </span>
             ) : null}
-            <span className="text-zinc-500" title={relativeTime}>
+            <span
+              className="text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+              title={relativeTime}
+            >
               {relativeTime}
             </span>
           </div>

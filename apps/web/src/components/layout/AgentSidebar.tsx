@@ -5,6 +5,7 @@ import {
   PenLine,
   Pin,
   Search,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
@@ -155,9 +156,11 @@ export function AgentSidebar({
   width = 280,
 }: AgentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedQuery = normalizeSearch(searchQuery);
 
   useEffect(() => {
@@ -173,6 +176,10 @@ export function AgentSidebar({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isSearchOpen) searchInputRef.current?.focus();
+  }, [isSearchOpen]);
 
   const repositorySource = useMemo(() => {
     const combined = new Set<string>();
@@ -206,8 +213,9 @@ export function AgentSidebar({
           status: approvalStatesBySessionId[session.id]
             ? "needs_approval"
             : mapSessionStatus(session, activeSessionId),
-          updatedAt: session.createdAt,
+          updatedAt: session.updatedAt,
           isActive: session.id === activeSessionId,
+          context: getRepositoryLabel(repository),
           metrics: buildTaskMetrics(
             session,
             Boolean(approvalStatesBySessionId[session.id]),
@@ -270,31 +278,60 @@ export function AgentSidebar({
   ]);
 
   const utility = (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <button
         type="button"
         onClick={() => onCreate()}
-        className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-800/60 hover:text-white"
+        className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800/65 hover:text-white"
       >
-        <PenLine size={16} aria-hidden="true" />
-        New task
+        <PenLine size={17} aria-hidden="true" />
+        New chat
       </button>
 
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600"
-          size={14}
-        />
-        <input
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search tasks and projects"
-          className="ui-input h-9 w-full pl-8 pr-2 text-sm text-zinc-300"
-          aria-label="Search tasks"
-        />
-      </div>
+      {isSearchOpen ? (
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+            size={15}
+          />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchQuery("");
+                setIsSearchOpen(false);
+              }
+            }}
+            placeholder="Search tasks and projects"
+            className="ui-input h-10 w-full rounded-xl pl-9 pr-9 text-sm text-zinc-300"
+            aria-label="Search tasks"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("");
+              setIsSearchOpen(false);
+            }}
+            aria-label="Close search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-300"
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsSearchOpen(true)}
+          className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-sm text-zinc-400 transition hover:bg-zinc-800/55 hover:text-zinc-100"
+        >
+          <Search size={16} aria-hidden="true" />
+          Search
+        </button>
+      )}
 
-      <div className="group/projects flex items-center justify-between pt-2">
+      <div className="group/projects flex h-10 items-center justify-between px-3 pt-1">
         <span className="text-sm font-medium text-zinc-500">Projects</span>
         <div className="flex items-center gap-1">
           <button
@@ -311,7 +348,7 @@ export function AgentSidebar({
               type="button"
               aria-label="Filter tasks"
               onClick={() => setIsFilterMenuOpen((value) => !value)}
-              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
+              className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
               title="Filter tasks"
               aria-haspopup="menu"
               aria-expanded={isFilterMenuOpen}

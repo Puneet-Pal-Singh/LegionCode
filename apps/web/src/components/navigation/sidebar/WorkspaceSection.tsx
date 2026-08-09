@@ -92,34 +92,21 @@ export function WorkspaceSection({
 
   return (
     <section className="space-y-1.5">
-      <div className="group/project flex items-center gap-1">
+      <div className="group/project flex h-10 items-center gap-1 rounded-xl px-1 transition hover:bg-zinc-800/35">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/40"
+          className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/70 hover:text-zinc-200"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
-          <ChevronDown
-            size={14}
-            aria-hidden="true"
-            className={cn(
-              "text-zinc-500 transition-transform",
-              !isExpanded && "-rotate-90",
-            )}
-          />
-          <Folder
-            size={15}
-            aria-hidden="true"
-            className="shrink-0 text-zinc-500"
-          />
-          {!isRenaming ? (
-            <span className="truncate text-sm font-semibold text-zinc-100">
-              {workspaceName}
-            </span>
-          ) : null}
+          <Folder size={16} aria-hidden="true" className="shrink-0" />
         </button>
-        {isRenaming ? (
+        {!isRenaming ? (
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
+            {workspaceName}
+          </span>
+        ) : (
           <input
             autoFocus
             value={newName}
@@ -134,11 +121,11 @@ export function WorkspaceSection({
                 setIsRenaming(false);
               }
             }}
-            className="h-6 flex-1 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-100 outline-none"
+            className="h-7 min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none"
           />
-        ) : null}
+        )}
 
-        <div className="relative" ref={menuRef}>
+        <div className="relative flex items-center" ref={menuRef}>
           {onAddTask ? (
             <button
               type="button"
@@ -147,12 +134,29 @@ export function WorkspaceSection({
                 event.stopPropagation();
                 onAddTask();
               }}
-              className="mr-1 rounded p-1 text-zinc-500 opacity-0 transition-all hover:bg-zinc-800/50 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
+              className="rounded p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/70 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
               title={`New task in ${workspaceName}`}
             >
               <Plus size={14} aria-hidden="true" />
             </button>
           ) : null}
+
+          <button
+            type="button"
+            onClick={() => setIsExpanded((value) => !value)}
+            className="rounded p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/70 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
+            aria-expanded={isExpanded}
+            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${workspaceName}`}
+          >
+            <ChevronDown
+              size={14}
+              aria-hidden="true"
+              className={cn(
+                "transition-transform",
+                !isExpanded && "-rotate-90",
+              )}
+            />
+          </button>
 
           <button
             type="button"
@@ -167,7 +171,7 @@ export function WorkspaceSection({
                 return next;
               });
             }}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+            className="rounded p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/70 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
             title={`Actions for ${workspaceName}`}
           >
             <MoreHorizontal size={14} aria-hidden="true" />
