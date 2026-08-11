@@ -210,6 +210,8 @@ describe("AgentSidebar", () => {
             id: "session-2",
             status: "completed",
             updatedAt: new Date().toISOString(),
+            lastTerminalTurnId: "turn-completed",
+            lastAcknowledgedTerminalTurnId: null,
           }),
         ]}
         repositories={["shadowbox/shadowbox"]}
@@ -223,6 +225,29 @@ describe("AgentSidebar", () => {
     );
 
     expect(screen.getByTestId("task-status-completed")).toBeInTheDocument();
+  });
+
+  it("does not show terminal notifications without a durable terminal turn", () => {
+    render(
+      <AgentSidebar
+        sessions={[
+          createSession({
+            status: "failed",
+            updatedAt: new Date().toISOString(),
+            lastTerminalTurnId: null,
+          }),
+        ]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="different-session"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("task-status-failed")).not.toBeInTheDocument();
   });
 
   it("hides status decoration for completed active sessions", () => {
