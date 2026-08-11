@@ -10,7 +10,10 @@ import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/Lif
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
-import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
+import {
+  buildLifecycleTerminalViewModel,
+  collectLifecycleTurnDiffFiles,
+} from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
@@ -187,9 +190,10 @@ function TurnWorkflowEntry({
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <TerminalMessage
             {...props}
-            terminalViewModel={terminalViewModel}
-            includeCurrentTurnReview={isCurrentTurn}
-            hookAudits={entry.projection.hookAudits}
+          terminalViewModel={terminalViewModel}
+          includeCurrentTurnReview={isCurrentTurn}
+          projection={entry.projection}
+          hookAudits={entry.projection.hookAudits}
           />
         </div>
       ) : null}
@@ -221,6 +225,7 @@ function TerminalMessage(
   props: ChatInterfaceViewProps & {
     terminalViewModel: LifecycleTerminalViewModel;
     includeCurrentTurnReview: boolean;
+    projection: LifecycleProjection;
     hookAudits: LifecycleProjection["hookAudits"];
   },
 ) {
@@ -269,7 +274,22 @@ function TerminalMessage(
               },
               onReviewOpen: props.onReviewOpen,
             })
-          : undefined
+          : resolveTerminalChangedFilesSummary({
+              terminalViewModel: terminal,
+              files: collectLifecycleTurnDiffFiles(props.projection),
+              turnDiff: props.projection.turnDiff,
+              loadArtifactFileDiff: (artifactId, file) =>
+                props.loadArtifactChangedFileDiff(artifactId, file),
+              onPromptArtifactReview: (artifactId) => {
+                props.openPromptArtifactReview(
+                  artifactId,
+                  undefined,
+                  props.artifactIdentity ?? undefined,
+                );
+                props.onReviewOpen?.();
+              },
+              onReviewOpen: props.onReviewOpen,
+            })
       }
       hookAudits={props.hookAudits}
     />
