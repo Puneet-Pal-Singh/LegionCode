@@ -102,11 +102,16 @@ function mapSessionStatus(
   if (status === "waiting_for_approval") return "needs_approval";
   if (status === "paused") return "paused";
   if (status === "completed") {
-    return shouldHighlightCompleted(session, activeSessionId)
+    return (!session.lastTerminalTurnId || selectSessionUnread(session)) &&
+      shouldHighlightCompleted(session, activeSessionId)
       ? "completed"
       : "idle";
   }
-  if (status === "failed") return "failed";
+  if (status === "failed") {
+    return !session.lastTerminalTurnId || selectSessionUnread(session)
+      ? "failed"
+      : "idle";
+  }
   return "idle";
 }
 
