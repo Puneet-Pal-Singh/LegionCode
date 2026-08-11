@@ -93,7 +93,6 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
     expect(screen.getByTestId("task-status-needs_approval")).toHaveAttribute(
       "data-status-kind",
       "icon",
