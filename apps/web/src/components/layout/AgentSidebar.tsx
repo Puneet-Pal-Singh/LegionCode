@@ -324,18 +324,9 @@ export function AgentSidebar({
   );
 
   const projectsHeader = (
-    <div className="group/projects flex h-10 items-center justify-between px-2">
-      <span className="text-sm font-medium text-zinc-500">Projects</span>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          aria-label="Add project"
-          onClick={onAddRepository}
-          className="rounded-md p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
-          title="Add project"
-        >
-          <FolderPlus size={14} aria-hidden="true" />
-        </button>
+    <div className="group/projects flex h-7 items-center justify-between px-2">
+      <span className="text-xs font-medium text-zinc-500">Projects</span>
+      <div className="flex items-center">
         <div className="relative" ref={filterMenuRef}>
           <button
             type="button"
@@ -358,6 +349,19 @@ export function AgentSidebar({
               role="menu"
               className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
             >
+              <button
+                type="button"
+                onClick={() => {
+                  onAddRepository();
+                  setIsFilterMenuOpen(false);
+                }}
+                className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                role="menuitem"
+              >
+                <FolderPlus size={14} className="text-zinc-500" />
+                <span>Add project</span>
+              </button>
+              <div className="mx-2 my-1 border-t border-zinc-800" />
               <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">
                 Show tasks
               </div>
@@ -409,7 +413,7 @@ export function AgentSidebar({
       footer={footer}
       onClose={onClose}
     >
-      <div className="space-y-3">
+      <div className="space-y-2">
         {projectsHeader}
         {pinnedTasks.length > 0 ? (
           <section className="space-y-1">

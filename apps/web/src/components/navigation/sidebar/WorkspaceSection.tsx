@@ -93,7 +93,7 @@ export function WorkspaceSection({
   };
 
   return (
-    <section className="space-y-1">
+    <section className="space-y-0.5">
       <div className="group/project grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg transition hover:bg-zinc-800/35">
         <button
           type="button"

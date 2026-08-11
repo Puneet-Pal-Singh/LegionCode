@@ -175,11 +175,11 @@ export function TaskListRow({
         onClick={onSelect}
         onKeyDown={(event) => handleRowKeyDown(event, onSelect, onMoveFocus)}
         className={cn(
-          "h-9 w-full rounded-lg text-left transition-colors duration-150",
+          "h-[34px] w-full rounded-md text-left transition-colors duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
           task.isActive
-            ? "bg-zinc-800/70 text-zinc-100"
-            : "text-zinc-300 hover:bg-zinc-800/45 hover:text-zinc-100",
+            ? "bg-zinc-800/55 text-zinc-100"
+            : "text-zinc-300 hover:bg-zinc-800/35 hover:text-zinc-100",
           onRemove && isConfirmingDelete ? "pr-28" : undefined,
         )}
       >
