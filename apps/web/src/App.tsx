@@ -1200,7 +1200,13 @@ function AppContent() {
                     updateSession(activeSessionId, { mode })
                   }
                   onSessionStatusChange={(status) => {
-                    updateSession(activeSessionId, { status });
+                    // Lifecycle replay changes status, but it is not new task
+                    // activity. The server thread projection owns ordering.
+                    updateSession(
+                      activeSessionId,
+                      { status },
+                      { preserveActivityTimestamp: true },
+                    );
                     if (status === "completed" || status === "failed") {
                       void refreshSessionProjection(activeSessionId);
                     }

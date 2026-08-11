@@ -524,28 +524,74 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     [reconcileSessionMutation],
   );
 
-  const acknowledgeSession = useCallback(
-    async (id: string): Promise<void> => {
-      const session = sessionsRef.current.find((candidate) => candidate.id === id);
-      const terminalTurnId = session?.lastTerminalTurnId;
-      if (
-        !terminalTurnId ||
-        terminalTurnId === session?.lastAcknowledgedTerminalTurnId
-      ) {
-        return;
-      }
+  const acknowledgeSession = useCallback(async (id: string): Promise<void> => {
+    const session = sessionsRef.current.find(
+      (candidate) => candidate.id === id,
+    );
+    const terminalTurnId = session?.lastTerminalTurnId;
+    if (
+      !terminalTurnId ||
+      terminalTurnId === session?.lastAcknowledgedTerminalTurnId
+    ) {
+      return;
+    }
 
-      await reconcileSessionMutation(
-        id,
-        (current) => ({
-          ...current,
-          lastAcknowledgedTerminalTurnId: terminalTurnId,
-        }),
-        () => SessionStateService.acknowledgeSession(id, terminalTurnId),
+    const previousAcknowledgedTurnId =
+      session.lastAcknowledgedTerminalTurnId ?? null;
+    const updateAcknowledgement = (
+      current: AgentSession,
+      acknowledgedTurnId: string | null,
+    ): AgentSession => ({
+      ...current,
+      lastAcknowledgedTerminalTurnId: acknowledgedTurnId,
+    });
+
+    // A read receipt is not thread activity. Keep title ordering metadata
+    // untouched while optimistically clearing the unread marker.
+    setSessions((current) => {
+      const next = current.map((candidate) =>
+        candidate.id === id
+          ? updateAcknowledgement(candidate, terminalTurnId)
+          : candidate,
       );
-    },
-    [reconcileSessionMutation],
-  );
+      sessionsRef.current = next;
+      return next;
+    });
+
+    try {
+      const serverSession = await SessionStateService.acknowledgeSession(
+        id,
+        terminalTurnId,
+      );
+      if (serverSession.id !== id) {
+        throw new Error("Session read receipt response id mismatch");
+      }
+      setSessions((current) => {
+        const next = current.map((candidate) =>
+          candidate.id === id
+            ? updateAcknowledgement(
+                candidate,
+                serverSession.lastAcknowledgedTerminalTurnId ?? terminalTurnId,
+              )
+            : candidate,
+        );
+        sessionsRef.current = next;
+        return next;
+      });
+    } catch (error) {
+      console.warn("[useSessionManager] Failed to acknowledge session:", error);
+      setSessions((current) => {
+        const next = current.map((candidate) =>
+          candidate.id === id &&
+          candidate.lastAcknowledgedTerminalTurnId === terminalTurnId
+            ? updateAcknowledgement(candidate, previousAcknowledgedTurnId)
+            : candidate,
+        );
+        sessionsRef.current = next;
+        return next;
+      });
+    }
+  }, []);
 
   /**
    * Update session metadata
@@ -553,7 +599,11 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
    * Prevents accidental corruption by disallowing id overwrites
    */
   const updateSession = useCallback(
-    (id: string, updates: Partial<Omit<AgentSession, "id">>) => {
+    (
+      id: string,
+      updates: Partial<Omit<AgentSession, "id">>,
+      options?: { preserveActivityTimestamp?: boolean },
+    ) => {
       setSessions((prev) =>
         prev.map((s) => {
           if (s.id !== id) return s;
@@ -565,7 +615,9 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
             ...s,
             ...updates,
             id: s.id, // Preserve original id
-            updatedAt: new Date().toISOString(),
+            updatedAt: options?.preserveActivityTimestamp
+              ? s.updatedAt
+              : new Date().toISOString(),
           };
           // Validate session invariants
           if (!SessionStateService.validateSession(updated)) {
