@@ -2,6 +2,7 @@ import {
   Archive,
   Circle,
   Clock3,
+  GitBranch,
   LoaderCircle,
   Pause,
   type LucideIcon,
@@ -15,6 +16,7 @@ interface TaskListRowProps {
   tabIndex: number;
   onFocus: () => void;
   onSelect: () => void;
+  onOpenReview?: () => void;
   onRemove?: () => void;
   onMoveFocus: (delta: number) => void;
   buttonRef?: (element: HTMLButtonElement | null) => void;
@@ -115,16 +117,20 @@ function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
   if (status === "idle") return null;
   const visual = STATUS_VISUALS[status];
   const StatusIcon = visual.icon;
+  const isNotification = status === "failed" || status === "completed";
 
   return (
     <span
-      className="inline-flex h-3.5 w-3.5 items-center justify-center"
+      className="inline-flex size-4 items-center justify-center"
       aria-hidden="true"
     >
       <StatusIcon
         data-testid={`task-status-${status}`}
         data-status-kind={visual.kind}
-        className={cn("h-3.5 w-3.5", visual.indicatorClass)}
+        className={cn(
+          isNotification ? "size-1.5" : "size-3.5",
+          visual.indicatorClass,
+        )}
       />
     </span>
   );
@@ -135,6 +141,7 @@ export function TaskListRow({
   tabIndex,
   onFocus,
   onSelect,
+  onOpenReview,
   onRemove,
   onMoveFocus,
   buttonRef,
@@ -168,26 +175,34 @@ export function TaskListRow({
         onClick={onSelect}
         onKeyDown={(event) => handleRowKeyDown(event, onSelect, onMoveFocus)}
         className={cn(
-          "h-9 w-full rounded-lg text-left transition-all duration-150",
+          "h-9 w-full rounded-lg text-left transition-colors duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
           task.isActive
             ? "bg-zinc-800/70 text-zinc-100"
             : "text-zinc-300 hover:bg-zinc-800/45 hover:text-zinc-100",
-          onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
+          onRemove && isConfirmingDelete ? "pr-28" : undefined,
         )}
       >
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 pl-8 pr-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-1.5 pl-8 pr-2">
           <span
             className={cn(
-              "truncate text-sm",
+              "min-w-0 truncate text-sm",
               task.isActive ? "font-medium" : "font-normal",
             )}
             title={task.title}
           >
             {task.title}
           </span>
-          <div className="flex min-w-12 shrink-0 items-center justify-end gap-2 text-xs">
-            <StatusIndicator status={task.status} />
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-end gap-1.5 text-xs transition-[margin]",
+              (onOpenReview || onRemove) && !isConfirmingDelete
+                ? onOpenReview && onRemove
+                  ? "group-hover:mr-12 group-focus-within:mr-12"
+                  : "group-hover:mr-6 group-focus-within:mr-6"
+                : undefined,
+            )}
+          >
             {metricLabel ? (
               <span
                 className={cn(
@@ -205,11 +220,12 @@ export function TaskListRow({
               </span>
             ) : null}
             <span
-              className="text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+              className="w-0 overflow-hidden whitespace-nowrap text-zinc-500 opacity-0 transition-[width,opacity] group-hover:w-auto group-hover:opacity-100 group-focus-within:w-auto group-focus-within:opacity-100"
               title={relativeTime}
             >
               {relativeTime}
             </span>
+            <StatusIndicator status={task.status} />
           </div>
         </div>
       </button>
@@ -240,19 +256,36 @@ export function TaskListRow({
             Confirm
           </button>
         </div>
-      ) : onRemove ? (
-        <button
-          type="button"
-          aria-label={`Archive ${task.title}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsConfirmingDelete(true);
-          }}
-          className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded p-0.5 text-zinc-500 opacity-0 transition focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 group-hover:opacity-100 hover:bg-zinc-800 hover:text-red-300"
-        >
-          <Archive size={12} aria-hidden="true" />
-        </button>
-      ) : null}
+      ) : (
+        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {onOpenReview ? (
+            <button
+              type="button"
+              aria-label={`Open review for ${task.title}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenReview();
+              }}
+              className="grid size-5 place-items-center rounded text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+            >
+              <GitBranch size={12} aria-hidden="true" />
+            </button>
+          ) : null}
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label={`Archive ${task.title}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsConfirmingDelete(true);
+              }}
+              className="grid size-5 place-items-center rounded text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+            >
+              <Archive size={12} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      )}
     </li>
   );
 }

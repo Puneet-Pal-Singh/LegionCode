@@ -942,6 +942,15 @@ function AppContent() {
     void acknowledgeSession(sessionId);
   };
 
+  const handleOpenSessionReview = (sessionId: string) => {
+    handleSelectSession(sessionId);
+    setIsGitReviewOpen(false);
+    setGitReviewSessionId(null);
+    setActiveTab("review");
+    setIsRightSidebarOpen(true);
+    focusReviewSidebar();
+  };
+
   /**
    * Handle repository selection from RepoPicker
    * Creates a session immediately for the selected repository
@@ -1015,6 +1024,7 @@ function AppContent() {
             activeSessionId={activeSessionId}
             approvalStatesBySessionId={scopedApprovalStatesBySessionId}
             onSelect={handleSelectSession}
+            onOpenReview={handleOpenSessionReview}
             onCreate={handleNewTask}
             onRemove={removeSession}
             onRemoveRepository={removeRepository}

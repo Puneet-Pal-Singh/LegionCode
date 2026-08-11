@@ -15,6 +15,7 @@ interface WorkspaceSectionProps {
   workspaceName: string;
   tasks: SidebarTaskItem[];
   onSelectTask: (taskId: string) => void;
+  onOpenTaskReview?: (taskId: string) => void;
   onAddTask?: () => void;
   onRemoveTask?: (taskId: string) => void;
   onRenameWorkspace?: (newName: string) => void;
@@ -34,6 +35,7 @@ export function WorkspaceSection({
   workspaceName,
   tasks,
   onSelectTask,
+  onOpenTaskReview,
   onAddTask,
   onRemoveTask,
   onRenameWorkspace,
@@ -246,6 +248,7 @@ export function WorkspaceSection({
             <TaskList
               tasks={sortedTasks}
               onSelectTask={onSelectTask}
+              onOpenTaskReview={onOpenTaskReview}
               onRemoveTask={onRemoveTask}
             />
           </motion.div>

@@ -32,6 +32,7 @@ interface AgentSidebarProps {
   activeSessionId: string | null;
   approvalStatesBySessionId?: Record<string, boolean>;
   onSelect: (id: string) => void;
+  onOpenReview?: (id: string) => void;
   onCreate: (repo?: string) => void;
   onRemove: (id: string) => void;
   onRemoveRepository?: (repo: string) => void;
@@ -64,20 +65,6 @@ const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
 ];
 
 const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
-
-function buildTaskMetrics(
-  session: AgentSession,
-  hasPendingApproval: boolean,
-): SidebarTaskItem["metrics"] {
-  const metrics: NonNullable<SidebarTaskItem["metrics"]> = {};
-  if (hasPendingApproval) {
-    metrics.label = "Awaiting approval";
-  }
-  if (selectSessionUnread(session)) {
-    metrics.unreadCount = 1;
-  }
-  return Object.keys(metrics).length > 0 ? metrics : undefined;
-}
 
 function shouldHighlightCompleted(
   session: AgentSession,
@@ -149,6 +136,7 @@ export function AgentSidebar({
   activeSessionId,
   approvalStatesBySessionId = {},
   onSelect,
+  onOpenReview,
   onCreate,
   onRemove,
   onRemoveRepository,
@@ -221,10 +209,6 @@ export function AgentSidebar({
           updatedAt: session.updatedAt,
           isActive: session.id === activeSessionId,
           context: getRepositoryLabel(repository),
-          metrics: buildTaskMetrics(
-            session,
-            Boolean(approvalStatesBySessionId[session.id]),
-          ),
         }));
 
         const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
@@ -266,10 +250,6 @@ export function AgentSidebar({
           : mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
-        metrics: buildTaskMetrics(
-          session,
-          Boolean(approvalStatesBySessionId[session.id]),
-        ),
       })),
       normalizedQuery,
       statusFilter,
@@ -444,6 +424,7 @@ export function AgentSidebar({
               <TaskList
                 tasks={pinnedTasks}
                 onSelectTask={onSelect}
+                onOpenTaskReview={onOpenReview}
                 onRemoveTask={onRemove}
               />
             </div>
@@ -456,6 +437,7 @@ export function AgentSidebar({
             workspaceName={section.repositoryLabel}
             tasks={section.tasks}
             onSelectTask={onSelect}
+            onOpenTaskReview={onOpenReview}
             onAddTask={() => onCreate(section.repository)}
             onRemoveTask={onRemove}
             onRemoveWorkspace={() => onRemoveRepository?.(section.repository)}
