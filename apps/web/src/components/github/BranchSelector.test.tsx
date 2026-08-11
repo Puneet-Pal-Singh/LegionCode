@@ -22,7 +22,7 @@ describe("BranchSelector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select branch" }));
     expect(screen.getByRole("dialog", { name: "Switch branch" })).toHaveClass(
       "top-full",
-      "w-80",
+      "w-[min(20rem,calc(100vw-1rem))]",
     );
     fireEvent.click(screen.getByRole("button", { name: "feat/summary" }));
     expect(onBranchSelect).toHaveBeenCalledWith("feat/summary");

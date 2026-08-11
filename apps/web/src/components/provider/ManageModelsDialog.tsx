@@ -22,6 +22,7 @@ import {
   getProviderModelUnavailableReason,
   isProviderModelAvailable,
 } from "./providerModelAvailability";
+import { formatModelDisplayName } from "./modelDisplayName";
 
 /**
  * Provider group with visibility state
@@ -41,9 +42,9 @@ interface FilteredProviderGroup extends ProviderGroup {
 }
 
 const CONNECT_PROVIDER_BUTTON_CLASS =
-  "inline-flex items-center gap-1 rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200 transition hover:bg-neutral-800";
+  "inline-flex h-10 items-center gap-2 rounded-md border border-neutral-700 px-3 text-sm text-neutral-200 transition hover:bg-neutral-800";
 const VISIBILITY_ROW_CLASS =
-  "grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3 px-2";
+  "grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-4";
 
 function getProviderCompanySortKey(
   providerId: string,
@@ -244,7 +245,7 @@ export function ManageModelsDialog({
   return (
     <div
       data-testid="manage-models-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3"
+      className="ui-overlay fixed inset-0 z-50 flex items-center justify-center p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -253,22 +254,22 @@ export function ManageModelsDialog({
       role="presentation"
     >
       <div
-        className="flex w-full max-w-2xl max-h-[82vh] flex-col overflow-hidden rounded-xl border border-neutral-700 bg-neutral-900 text-neutral-100 shadow-2xl"
+        className="ui-surface-modal flex max-h-[86vh] w-full max-w-4xl flex-col overflow-hidden"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="manage-models-title"
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-neutral-700 px-6 py-4">
+        <div className="flex items-start justify-between gap-6 px-7 pb-4 pt-6">
           <div className="space-y-1">
             <h2
               id="manage-models-title"
-              className="text-base font-semibold tracking-tight"
+              className="text-xl font-semibold tracking-tight"
             >
               Manage models
             </h2>
-            <p className="text-xs text-neutral-400">
+            <p className="text-sm text-neutral-400">
               Customize which models appear in the model selector.
             </p>
           </div>
@@ -278,7 +279,7 @@ export function ManageModelsDialog({
             )}
             <button
               onClick={onClose}
-              className="text-neutral-500 transition hover:text-neutral-300"
+              className="flex size-9 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-300"
               aria-label="Close"
             >
               ✕
@@ -287,11 +288,11 @@ export function ManageModelsDialog({
         </div>
 
         {/* Search */}
-        <div className="px-6 py-3">
+        <div className="px-7 pb-4">
           {guidanceBanner ? (
             <div className="mb-3 rounded-lg border border-blue-900 bg-blue-950/30 px-4 py-3 text-blue-100">
               <p className="text-sm font-medium">{guidanceBanner.title}</p>
-              <p className="mt-1 text-xs text-blue-200">
+              <p className="mt-1 text-sm text-blue-200">
                 {guidanceBanner.description}
               </p>
             </div>
@@ -299,20 +300,20 @@ export function ManageModelsDialog({
           <div className="relative">
             <Search
               size={16}
-              className="absolute left-3 top-2.5 text-neutral-500"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
             />
             <input
               type="text"
               placeholder="Search models"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-10 w-full rounded-md border border-neutral-700 bg-neutral-800/80 pl-9 pr-3 text-sm text-neutral-100 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="ui-input h-11 w-full bg-black/20 pl-9 pr-3 text-sm"
             />
           </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto px-6 pb-4">
+        <div className="flex-1 overflow-auto px-7 pb-7">
           {filteredGroups.length === 0 ? (
             <div className="py-8 text-center text-neutral-500 space-y-3">
               <p>
@@ -325,7 +326,7 @@ export function ManageModelsDialog({
               )}
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-6">
               {filteredGroups.map((group) => {
                 const visibleSet = visibleModelIds[group.providerId];
                 const filteredModels = group.filteredModels;
@@ -335,11 +336,11 @@ export function ManageModelsDialog({
                 const canToggleProviderVisibility = group.models.length > 0;
 
                 return (
-                  <div key={group.providerId} className="space-y-2.5">
+                  <section key={group.providerId} className="space-y-2.5">
                     {/* Provider Header */}
-                    <div className={`${VISIBILITY_ROW_CLASS} py-0.5`}>
+                    <div className={`${VISIBILITY_ROW_CLASS} px-2 py-1`}>
                       <div className="min-w-0 text-left">
-                        <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                        <h3 className="text-sm font-medium text-neutral-300">
                           {group.displayName}
                         </h3>
                       </div>
@@ -359,24 +360,24 @@ export function ManageModelsDialog({
                         }
                         className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition ${
                           isProviderVisible
-                            ? "border-blue-500 bg-blue-600"
+                            ? "border-neutral-100 bg-neutral-100"
                             : "border-neutral-600 bg-neutral-800"
                         }`}
                       >
                         <span
-                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition ${
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full transition ${
                             isProviderVisible
-                              ? "translate-x-4"
-                              : "translate-x-0.5"
+                              ? "translate-x-4 bg-black"
+                              : "translate-x-0.5 bg-white"
                           }`}
                         />
                       </button>
                     </div>
 
                     {/* Models */}
-                    <div className="space-y-1">
+                    <div className="divide-y divide-neutral-800 overflow-hidden rounded-xl border border-neutral-800 bg-black/20">
                       {filteredModels.length === 0 && (
-                        <div className="px-2 py-1.5 text-xs text-neutral-500">
+                        <div className="px-4 py-5 text-sm text-neutral-500">
                           {group.isModelListLoaded
                             ? "No models available yet."
                             : "Models loading..."}
@@ -390,18 +391,18 @@ export function ManageModelsDialog({
                         return (
                           <div
                             key={model.id}
-                            className={`${VISIBILITY_ROW_CLASS} rounded-md py-1.5 transition-colors ${
+                            className={`${VISIBILITY_ROW_CLASS} min-h-14 px-4 py-3 transition-colors ${
                               isAvailable
                                 ? "hover:bg-neutral-800/60"
                                 : "opacity-70"
                             }`}
                           >
                             <div className="min-w-0 text-left">
-                              <p className="text-xs font-medium text-neutral-300">
-                                {model.name}
+                              <p className="text-sm font-medium text-neutral-200">
+                                {formatModelDisplayName(model)}
                               </p>
                               {!isAvailable && (
-                                <p className="mt-0.5 text-[11px] text-amber-300">
+                                <p className="mt-1 text-sm text-amber-300">
                                   {getProviderModelUnavailableReason(model)}
                                 </p>
                               )}
@@ -410,7 +411,7 @@ export function ManageModelsDialog({
                               type="button"
                               role="switch"
                               aria-checked={isVisible}
-                              aria-label={`${model.name} visibility`}
+                              aria-label={`${formatModelDisplayName(model)} visibility`}
                               disabled={!isAvailable}
                               onClick={() => {
                                 onToggleModelVisibility(
@@ -420,15 +421,15 @@ export function ManageModelsDialog({
                               }}
                               className={`relative inline-flex h-5 w-8 shrink-0 items-center justify-self-end rounded-full border transition disabled:cursor-not-allowed disabled:opacity-50 ${
                                 isVisible
-                                  ? "border-blue-500 bg-blue-600"
+                                  ? "border-neutral-100 bg-neutral-100"
                                   : "border-neutral-600 bg-neutral-800"
                               }`}
                             >
                               <span
-                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition ${
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full transition ${
                                   isVisible
-                                    ? "translate-x-4"
-                                    : "translate-x-0.5"
+                                    ? "translate-x-4 bg-black"
+                                    : "translate-x-0.5 bg-white"
                                 }`}
                               />
                             </button>
@@ -436,21 +437,11 @@ export function ManageModelsDialog({
                         );
                       })}
                     </div>
-                  </div>
+                  </section>
                 );
               })}
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end border-t border-neutral-700 px-6 py-3">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:bg-neutral-800"
-          >
-            Done
-          </button>
         </div>
       </div>
     </div>

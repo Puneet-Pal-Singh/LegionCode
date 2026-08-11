@@ -125,6 +125,9 @@ describe("EnvironmentSummaryMenu", () => {
       ).queryByPlaceholderText("Find a branch..."),
     ).not.toBeInTheDocument();
     await waitFor(() => screen.getByRole("button", { name: "feat/menu" }));
+    expect(screen.getByRole("dialog", { name: "Switch branch" })).toHaveClass(
+      "right-[348px]",
+    );
     fireEvent.click(screen.getByRole("button", { name: "feat/menu" }));
     expect(onBranchChange).toHaveBeenCalledWith("feat/menu");
   });

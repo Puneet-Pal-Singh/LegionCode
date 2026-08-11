@@ -86,6 +86,39 @@ describe("TranscriptController", () => {
     });
   });
 
+  it("permanently deletes only authenticated archived sessions", async () => {
+    await TranscriptController.createSession(createSessionRequest(), env);
+
+    const activeDelete = await TranscriptController.deleteArchivedSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}`,
+        { method: "DELETE" },
+      ),
+      env,
+    );
+    await TranscriptController.archiveSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}/archive`,
+        { method: "POST" },
+      ),
+      env,
+    );
+    const deleted = await TranscriptController.deleteArchivedSession(
+      authenticatedRequest(
+        `https://brain.local/api/sessions/${TEST_SESSION_ID}`,
+        { method: "DELETE" },
+      ),
+      env,
+    );
+
+    expect(activeDelete.status).toBe(404);
+    expect(deleted.status).toBe(200);
+    await expect(deleted.json()).resolves.toEqual({ deleted: true });
+    await expect(repository.listArchivedSessions(TEST_USER_ID)).resolves.toEqual(
+      [],
+    );
+  });
+
   it("renames, pins, and unarchives session metadata", async () => {
     await TranscriptController.createSession(createSessionRequest(), env);
     await ensureCanonicalTitleScope(repository);

@@ -174,6 +174,29 @@ export class MemoryTranscriptRepository implements TranscriptRepository {
     return this.storeSession({ ...session, archivedAt: null, updatedAt: now });
   }
 
+  async deleteArchivedSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<boolean> {
+    const session = this.readUserSession(userId, sessionId);
+    if (!session?.archivedAt) {
+      return false;
+    }
+
+    this.sessions.delete(sessionId);
+    this.messagesBySessionId.delete(sessionId);
+    this.messageIdByDedupeKeyBySessionId.delete(sessionId);
+    this.sequenceBySessionId.delete(sessionId);
+
+    const taskHasSessions = Array.from(this.sessions.values()).some(
+      (candidate) => candidate.taskId === session.taskId,
+    );
+    if (!taskHasSessions) {
+      this.tasks.delete(session.taskId);
+    }
+    return true;
+  }
+
   async appendMessage(
     input: AppendTranscriptMessageInput,
   ): Promise<TranscriptMessageRecord> {

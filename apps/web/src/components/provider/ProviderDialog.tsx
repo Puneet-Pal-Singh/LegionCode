@@ -269,7 +269,7 @@ export function ProviderDialog({
   ): React.ReactElement => (
     <div
       data-testid="provider-dialog-overlay"
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
+      className="ui-overlay fixed inset-0 z-50 flex items-center justify-center p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           handleClose();
@@ -278,29 +278,29 @@ export function ProviderDialog({
       role="presentation"
     >
       <div
-        className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col"
+        className="ui-surface-modal flex max-h-[86vh] w-full max-w-4xl flex-col overflow-hidden"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="connect-provider-dialog-title"
       >
-        <div className="px-5 py-3.5 flex items-center justify-between">
+        <div className="flex items-center justify-between px-7 pb-4 pt-6">
           <h2
             id="connect-provider-dialog-title"
-            className="text-lg font-semibold tracking-tight"
+            className="text-xl font-semibold tracking-tight"
           >
             Connect provider
           </h2>
           <button
             onClick={handleClose}
-            className="text-neutral-500 hover:text-neutral-300"
+            className="flex size-9 items-center justify-center rounded-md text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-300"
             aria-label="Close"
           >
             ✕
           </button>
         </div>
 
-        <div className="px-5 pb-5 overflow-auto">
+        <div className="overflow-auto px-7 pb-7">
           {status === "error" && error && (
             <div className="mb-4 bg-red-950/40 border border-red-800 px-4 py-3 text-red-200 text-sm space-y-1 rounded-lg">
               <p>{statusRecovery.message}</p>
@@ -396,7 +396,7 @@ export function ProviderDialog({
   return (
     <div
       data-testid="provider-dialog-overlay"
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-3"
+      className="ui-overlay fixed inset-0 z-50 flex items-center justify-center p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
@@ -405,7 +405,7 @@ export function ProviderDialog({
       role="presentation"
     >
       <div
-        className="bg-neutral-900 text-neutral-100 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        className="ui-surface-modal flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"

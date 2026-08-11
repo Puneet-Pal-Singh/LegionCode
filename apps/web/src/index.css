@@ -59,6 +59,23 @@
   background: #52525b;
 }
 
+.sidebar-scroll-region {
+  scrollbar-color: #27272a transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-scroll-region::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll-region::-webkit-scrollbar-thumb {
+  background: #27272a;
+}
+
+.sidebar-scroll-region:hover::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
 /* Animations */
 @keyframes pulse-slow {
   0%,
@@ -194,11 +211,19 @@
   }
 
   .ui-surface-modal {
-    @apply rounded-2xl border border-zinc-800 bg-[#0f1013]/95 text-zinc-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)];
+    @apply rounded-2xl border border-zinc-800 bg-[#151516]/98 text-zinc-100 shadow-[0_28px_90px_rgba(0,0,0,0.62)];
   }
 
   .ui-surface-popover {
-    @apply rounded-xl border border-zinc-800 bg-[#171717]/95 text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.38)] backdrop-blur-md;
+    @apply rounded-xl border border-zinc-800 bg-[#111112]/98 text-zinc-100 shadow-[0_12px_30px_rgba(0,0,0,0.42)] backdrop-blur-md;
+  }
+
+  .ui-popover-label {
+    @apply px-3 py-2 text-sm font-medium text-zinc-500;
+  }
+
+  .ui-popover-item {
+    @apply flex min-h-10 w-full items-center rounded-md px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800/70;
   }
 
   .ui-surface-section {
@@ -210,9 +235,7 @@
   }
 
   .composer-surface {
-    background:
-      radial-gradient(circle at 8% 0%, rgb(251 191 36 / 0.035), transparent 30%),
-      linear-gradient(180deg, #181819 0%, #141415 100%);
+    background: #171717;
     border-color: rgb(63 63 70 / 0.9);
     border-radius: 1rem;
     box-shadow:
@@ -221,15 +244,15 @@
   }
 
   .composer-surface-focused {
-    border-color: rgb(113 113 122 / 0.95);
+    border-color: rgb(228 228 231 / 0.72);
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.04) inset,
-      0 0 0 1px rgb(251 191 36 / 0.08),
+      0 0 0 1px rgb(255 255 255 / 0.06),
       0 18px 50px rgb(0 0 0 / 0.24);
   }
 
   .ui-input {
-    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-600 focus:ring-1 focus:ring-blue-500;
+    @apply rounded-lg border border-zinc-700 bg-zinc-900/80 text-zinc-100 placeholder-zinc-500 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400;
   }
 
   .ui-muted-divider {

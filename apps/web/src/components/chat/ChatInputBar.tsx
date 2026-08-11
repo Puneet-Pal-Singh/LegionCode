@@ -14,6 +14,7 @@ import {
   AXIS_PROVIDER_ID,
   canShowProviderInPrimaryUi,
   DEFAULT_RUN_MODE,
+  type ProductMode,
   type ProviderId,
   type RunMode,
 } from "@repo/shared-types";
@@ -45,9 +46,12 @@ import type {
   ContextBudgetSnapshot,
   UsageCostSnapshot,
 } from "@repo/platform-client-sdk";
-import { ContextWindowIndicator } from "./ContextWindowIndicator";
 import { useComposerPreferences } from "../../lib/composer-preferences";
 import { ReasoningEffortPicker } from "./ReasoningEffortPicker";
+import {
+  ChatComposerContextControl,
+  ChatComposerPermissionControl,
+} from "./ChatComposerStatusControls";
 
 const IDLE_SWITCH_WARNING =
   "Changing models mid-conversation will degrade performance.";
@@ -86,6 +90,8 @@ interface ChatInputBarProps {
   usage?: UsageCostSnapshot | null;
   onCompact?: () => void;
   onContextOpen?: () => void;
+  permissionMode?: ProductMode;
+  onPermissionModeChange?: (mode: ProductMode) => void;
 }
 
 export function ChatInputBar({
@@ -112,6 +118,8 @@ export function ChatInputBar({
   usage = null,
   onCompact,
   onContextOpen,
+  permissionMode,
+  onPermissionModeChange,
 }: ChatInputBarProps) {
   const composerPreferences = useComposerPreferences();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1037,6 +1045,12 @@ export function ChatInputBar({
                 />
               ) : null}
 
+              <ChatComposerPermissionControl
+                value={permissionMode}
+                onChange={onPermissionModeChange}
+                disabled={isComposerActiveRun}
+              />
+
               {selectedProviderId === AXIS_PROVIDER_ID &&
               axisQuota &&
               canShowProviderInPrimaryUi(
@@ -1055,7 +1069,7 @@ export function ChatInputBar({
             {/* Attachment and voice actions stay hidden until they trigger real flows. */}
             <div className="flex items-center gap-1.5">
               {composerPreferences.showContextWindowUsage ? (
-                <ContextWindowIndicator
+                <ChatComposerContextControl
                   budget={contextBudget}
                   usage={usage}
                   onCompact={onCompact}

@@ -1,28 +1,34 @@
-import { useCallback } from "react";
+import { Anchor } from "lucide-react";
+import { useCallback, useState } from "react";
 import { cn } from "../../../lib/utils";
+import type { HookInvocationAuditEvent } from "../../../services/api/lifecycleClient";
 import type { ChatMessageMetadata } from "../messageMetadata";
 
 export function MessageActions({
   content,
   metadata,
   isUser,
+  hookAudits = [],
 }: {
   content: string;
   metadata?: ChatMessageMetadata;
   isUser: boolean;
+  hookAudits?: readonly HookInvocationAuditEvent[];
 }) {
-  if (!metadata) return null;
-  const metadataText = isUser
-    ? (metadata.timeLabel ?? "")
-    : [metadata.modeLabel, metadata.modelLabel, metadata.timeLabel]
-        .filter((value): value is string => Boolean(value?.trim()))
-        .join(" · ");
-  if (!metadataText) return null;
+  const metadataText = metadata
+    ? isUser
+      ? (metadata.timeLabel ?? "")
+      : [metadata.modeLabel, metadata.modelLabel, metadata.timeLabel]
+          .filter((value): value is string => Boolean(value?.trim()))
+          .join(" · ")
+    : "";
+  if (isUser && !metadataText) return null;
   return (
     <MessageActionRow
       content={content}
       metadataText={metadataText}
       isUser={isUser}
+      hookAudits={hookAudits}
     />
   );
 }
@@ -31,10 +37,12 @@ function MessageActionRow({
   content,
   metadataText,
   isUser,
+  hookAudits,
 }: {
   content: string;
   metadataText: string;
   isUser: boolean;
+  hookAudits: readonly HookInvocationAuditEvent[];
 }) {
   const canCopy = content.length > 0;
   const handleCopy = useCallback(async () => {
@@ -48,15 +56,71 @@ function MessageActionRow({
   return (
     <div
       className={cn(
-        "mt-2 flex items-center gap-2 text-xs text-zinc-500 opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+        "mt-2 flex items-center gap-2 text-xs text-zinc-500",
         isUser ? "justify-end" : "justify-start",
       )}
     >
       {!isUser && canCopy && <CopyButton onCopy={handleCopy} />}
-      <span>{metadataText}</span>
+      {!isUser && hookAudits.length > 0 ? (
+        <HookAuditAction audits={hookAudits} />
+      ) : null}
+      {metadataText ? <span>{metadataText}</span> : null}
       {isUser && canCopy && <CopyButton onCopy={handleCopy} />}
     </div>
   );
+}
+
+function HookAuditAction({
+  audits,
+}: {
+  audits: readonly HookInvocationAuditEvent[];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((value) => !value)}
+        className={cn(
+          "rounded p-1 transition hover:bg-zinc-800 hover:text-zinc-200",
+          isOpen ? "bg-zinc-800 text-zinc-200" : "text-zinc-500",
+        )}
+        aria-label="View hook activity"
+        aria-expanded={isOpen}
+      >
+        <Anchor size={14} aria-hidden="true" />
+      </button>
+      {isOpen ? (
+        <span className="ui-surface-popover absolute bottom-8 left-0 z-40 block min-w-64 p-3 text-left text-sm text-zinc-200">
+          <span className="mb-2 block font-medium">Hooks</span>
+          <span className="space-y-1.5">
+            {audits.map((audit) => (
+              <span
+                key={audit.invocation.invocationId}
+                className="flex items-center justify-between gap-5"
+              >
+                <span className="text-zinc-200">
+                  {formatHookEventName(audit.invocation.eventName)}
+                </span>
+                <span className="capitalize text-zinc-500">
+                  {audit.invocation.source} ·{" "}
+                  {formatHookStatus(audit.invocation.status)}
+                </span>
+              </span>
+            ))}
+          </span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function formatHookEventName(eventName: string): string {
+  return eventName.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+function formatHookStatus(status: string): string {
+  return status.replaceAll("_", " ");
 }
 
 function CopyButton({ onCopy }: { onCopy: () => Promise<void> }) {

@@ -55,8 +55,7 @@ function derivePresentationVisibility(
     !input.isLoading &&
     !input.hasPendingApproval &&
     !input.hasStartedSession;
-  const isTranscriptHydrating =
-    !input.hasHydrated && !hasConversation && !input.hasPendingApproval;
+  const isTranscriptHydrating = !input.hasHydrated;
   return {
     showHeroComposer,
     isTranscriptHydrating,

@@ -74,8 +74,8 @@ function BranchSelectorTrigger({
 }) {
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-zinc-500">
-        <Loader2 size={12} className="animate-spin" />
+      <div className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-zinc-500">
+        <Loader2 size={14} className="animate-spin" />
         Loading...
       </div>
     );
@@ -87,14 +87,14 @@ function BranchSelectorTrigger({
       aria-label="Select branch"
       aria-expanded={isOpen}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200",
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800/50 hover:text-zinc-100",
         isOpen && "bg-zinc-800/50 text-zinc-200",
       )}
     >
-      <GitBranch size={12} />
+      <GitBranch size={14} />
       <span className="max-w-40 truncate">{branch}</span>
       <ChevronDown
-        size={12}
+        size={14}
         className={cn("transition-transform", isOpen && "rotate-180")}
       />
     </button>
@@ -135,11 +135,11 @@ export function BranchSelectorPanel({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -4, scale: 0.98 }}
       className={cn(
-        "ui-surface-popover absolute z-50 w-80 overflow-hidden rounded-xl",
+        "ui-surface-popover absolute z-50 w-[min(20rem,calc(100vw-1rem))] overflow-hidden",
         className,
       )}
     >
-      <div className="border-b border-zinc-800 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+      <div className="border-b border-zinc-800 px-3 py-2.5 text-sm font-medium text-zinc-500">
         Switch branch
       </div>
       <label className="relative block border-b border-zinc-800 p-2">
@@ -152,7 +152,7 @@ export function BranchSelectorPanel({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Find a branch..."
           autoFocus
-          className="ui-input w-full py-2 pl-8 pr-3 text-xs"
+          className="ui-input w-full py-2 pl-8 pr-3 text-sm"
         />
       </label>
       <BranchSelectorList
@@ -161,7 +161,7 @@ export function BranchSelectorPanel({
         isLoading={isLoading}
         onSelect={onBranchSelect}
       />
-      <div className="border-t border-zinc-800 bg-zinc-900/30 px-3 py-2 text-[11px] text-zinc-600">
+      <div className="border-t border-zinc-800 bg-zinc-900/30 px-3 py-2 text-sm text-zinc-600">
         {branches.length} branches total
       </div>
     </motion.div>
@@ -199,7 +199,7 @@ function BranchSelectorList({
           key={branch.name}
           onClick={() => onSelect(branch.name)}
           className={cn(
-            "flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800/70",
+            "flex min-h-10 w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-800/70",
             branch.name === currentBranch && "bg-zinc-800/60 text-white",
           )}
         >

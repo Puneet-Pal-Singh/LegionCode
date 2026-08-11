@@ -81,8 +81,8 @@ export function TaskList({
   }
 
   return (
-    <div className="space-y-1">
-      <ul role="listbox" aria-label="Tasks" className="space-y-1">
+    <div className="space-y-0.5">
+      <ul role="listbox" aria-label="Tasks" className="space-y-0.5">
         {visibleTasks.map((task, index) => (
           <TaskListRow
             key={task.id}
@@ -103,7 +103,7 @@ export function TaskList({
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="px-2.5 py-1 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
+          className="h-7 pl-8 pr-2 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-300"
         >
           {isExpanded ? "Show less" : `Show ${tasks.length - maxRows} more`}
         </button>

@@ -1,4 +1,12 @@
-import { Check, FolderPlus, ListFilter, Pin, Search } from "lucide-react";
+import {
+  Check,
+  FolderPlus,
+  MoreHorizontal,
+  Pin,
+  Search,
+  SquarePen,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentSession } from "../../hooks/useSessionManager";
 import {
@@ -57,20 +65,6 @@ const FILTER_OPTIONS: Array<{ value: TaskStatusFilter; label: string }> = [
 
 const COMPLETED_HIGHLIGHT_WINDOW_MS = 5 * 60 * 1000;
 
-function buildTaskMetrics(
-  session: AgentSession,
-  hasPendingApproval: boolean,
-): SidebarTaskItem["metrics"] {
-  const metrics: NonNullable<SidebarTaskItem["metrics"]> = {};
-  if (hasPendingApproval) {
-    metrics.label = "Awaiting approval";
-  }
-  if (selectSessionUnread(session)) {
-    metrics.unreadCount = 1;
-  }
-  return Object.keys(metrics).length > 0 ? metrics : undefined;
-}
-
 function shouldHighlightCompleted(
   session: AgentSession,
   activeSessionId: string | null,
@@ -94,11 +88,17 @@ function mapSessionStatus(
   if (status === "waiting_for_approval") return "needs_approval";
   if (status === "paused") return "paused";
   if (status === "completed") {
-    return shouldHighlightCompleted(session, activeSessionId)
+    return Boolean(session.lastTerminalTurnId) &&
+      selectSessionUnread(session) &&
+      shouldHighlightCompleted(session, activeSessionId)
       ? "completed"
       : "idle";
   }
-  if (status === "failed") return "failed";
+  if (status === "failed") {
+    return session.lastTerminalTurnId && selectSessionUnread(session)
+      ? "failed"
+      : "idle";
+  }
   return "idle";
 }
 
@@ -148,9 +148,11 @@ export function AgentSidebar({
   width = 280,
 }: AgentSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("all");
   const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
   const filterMenuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const normalizedQuery = normalizeSearch(searchQuery);
 
   useEffect(() => {
@@ -166,6 +168,10 @@ export function AgentSidebar({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isSearchOpen) searchInputRef.current?.focus();
+  }, [isSearchOpen]);
 
   const repositorySource = useMemo(() => {
     const combined = new Set<string>();
@@ -199,12 +205,9 @@ export function AgentSidebar({
           status: approvalStatesBySessionId[session.id]
             ? "needs_approval"
             : mapSessionStatus(session, activeSessionId),
-          updatedAt: session.createdAt,
+          updatedAt: session.updatedAt,
           isActive: session.id === activeSessionId,
-          metrics: buildTaskMetrics(
-            session,
-            Boolean(approvalStatesBySessionId[session.id]),
-          ),
+          context: getRepositoryLabel(repository),
         }));
 
         const statusFilteredTasks = filterTasks(allTasks, "", statusFilter);
@@ -246,10 +249,6 @@ export function AgentSidebar({
           : mapSessionStatus(session, activeSessionId),
         updatedAt: session.pinnedAt ?? session.updatedAt,
         isActive: session.id === activeSessionId,
-        metrics: buildTaskMetrics(
-          session,
-          Boolean(approvalStatesBySessionId[session.id]),
-        ),
       })),
       normalizedQuery,
       statusFilter,
@@ -263,98 +262,130 @@ export function AgentSidebar({
   ]);
 
   const utility = (
-    <div className="space-y-2.5">
-      <div className="relative">
-        <Search
-          className="pointer-events-none absolute left-2 top-2 text-zinc-600"
-          size={13}
-        />
-        <input
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search tasks and workspaces"
-          className="ui-input h-8 w-full pl-7 pr-2 text-xs text-zinc-300"
-          aria-label="Search tasks"
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
-          Workspaces
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => onCreate()}
+        className="grid h-9 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800/65 hover:text-white"
+      >
+        <span className="flex size-8 items-center justify-center">
+          <SquarePen size={16} aria-hidden="true" />
         </span>
-        <div className="flex items-center gap-1">
+        <span>New task</span>
+      </button>
+
+      {isSearchOpen ? (
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+            size={15}
+          />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchQuery("");
+                setIsSearchOpen(false);
+              }
+            }}
+            placeholder="Search tasks and projects"
+            className="ui-input h-9 w-full rounded-lg pl-9 pr-9 text-sm text-zinc-300"
+            aria-label="Search tasks"
+          />
           <button
             type="button"
-            aria-label="Add workspace"
-            onClick={onAddRepository}
-            className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
-            title="Add workspace"
+            onClick={() => {
+              setSearchQuery("");
+              setIsSearchOpen(false);
+            }}
+            aria-label="Close search"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-300"
           >
-            <FolderPlus size={14} aria-hidden="true" />
+            <X size={14} aria-hidden="true" />
           </button>
-          <div className="relative" ref={filterMenuRef}>
-            <button
-              type="button"
-              aria-label="Filter tasks"
-              onClick={() => setIsFilterMenuOpen((value) => !value)}
-              className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800/60 hover:text-zinc-200"
-              title="Filter tasks"
-              aria-haspopup="menu"
-              aria-expanded={isFilterMenuOpen}
-            >
-              <ListFilter
-                size={14}
-                aria-hidden="true"
-                className={
-                  statusFilter !== "all" ? "text-emerald-300" : undefined
-                }
-              />
-            </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsSearchOpen(true)}
+          className="grid h-9 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-sm font-medium text-zinc-100 transition hover:bg-zinc-800/55 hover:text-white"
+        >
+          <span className="flex size-8 items-center justify-center">
+            <Search size={16} aria-hidden="true" />
+          </span>
+          <span>Search</span>
+        </button>
+      )}
+    </div>
+  );
 
-            {isFilterMenuOpen ? (
-              <div
-                role="menu"
-                className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
-              >
-                <div className="px-1 pb-1 text-xs font-medium text-zinc-400">
-                  Show
-                </div>
-                {FILTER_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setStatusFilter(option.value);
-                      setIsFilterMenuOpen(false);
-                    }}
-                    className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                    role="menuitemradio"
-                    aria-checked={statusFilter === option.value}
-                  >
-                    <span>{option.label}</span>
-                    {statusFilter === option.value ? (
-                      <Check size={14} className="text-zinc-300" />
-                    ) : null}
-                  </button>
-                ))}
+  const projectsHeader = (
+    <div className="group/projects flex h-8 items-center justify-between px-2">
+      <span className="text-sm font-medium text-zinc-500">Projects</span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="Add project"
+          onClick={onAddRepository}
+          className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
+          title="Add project"
+        >
+          <FolderPlus size={14} aria-hidden="true" />
+        </button>
+        <div className="relative" ref={filterMenuRef}>
+          <button
+            type="button"
+            aria-label="Filter tasks"
+            onClick={() => setIsFilterMenuOpen((value) => !value)}
+            className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
+            title="Filter tasks"
+            aria-haspopup="menu"
+            aria-expanded={isFilterMenuOpen}
+          >
+            <MoreHorizontal
+              size={14}
+              aria-hidden="true"
+              className={statusFilter !== "all" ? "text-emerald-300" : undefined}
+            />
+          </button>
+
+          {isFilterMenuOpen ? (
+            <div
+              role="menu"
+              className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
+            >
+              <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">
+                Show tasks
               </div>
-            ) : null}
-          </div>
+              {FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(option.value);
+                    setIsFilterMenuOpen(false);
+                  }}
+                  className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                  role="menuitemradio"
+                  aria-checked={statusFilter === option.value}
+                >
+                  <span>{option.label}</span>
+                  {statusFilter === option.value ? (
+                    <Check size={14} className="text-zinc-300" />
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 
   const footer = (
-    <div className="space-y-1.5">
-      <button
-        type="button"
-        onClick={onAddRepository}
-        className="inline-flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-zinc-100"
-      >
-        <FolderPlus size={15} className="text-zinc-400" />
-        Add repository
-      </button>
+    <div>
       <SidebarAccountMenu
         user={accountUser}
         onOpenSettings={onOpenSettings}
@@ -366,20 +397,29 @@ export function AgentSidebar({
   return (
     <SidebarShell
       width={width}
+      header={
+        <div className="truncate pl-2 text-lg font-semibold tracking-tight">
+          <span className="text-zinc-100">Legion</span>
+          <span className="text-zinc-500">Code</span>
+        </div>
+      }
       utility={utility}
       footer={footer}
       onClose={onClose}
     >
-      <div className="space-y-3">
+      <div className="space-y-2">
+        {projectsHeader}
         {pinnedTasks.length > 0 ? (
-          <section className="space-y-1.5">
-            <div className="flex items-center gap-2 px-1 py-0.5">
-              <Pin size={14} aria-hidden="true" className="text-zinc-500" />
+          <section className="space-y-1">
+            <div className="grid h-9 grid-cols-[2rem_minmax(0,1fr)] items-center">
+              <span className="flex size-8 items-center justify-center text-zinc-500">
+                <Pin size={14} aria-hidden="true" />
+              </span>
               <span className="text-sm font-semibold text-zinc-100">
                 Pinned
               </span>
             </div>
-            <div className="pl-5">
+            <div>
               <TaskList
                 tasks={pinnedTasks}
                 onSelectTask={onSelect}
@@ -406,7 +446,7 @@ export function AgentSidebar({
 
         {repositorySections.length === 0 ? (
           <p className="px-2 py-3 text-xs italic text-zinc-600">
-            No matching tasks or workspaces
+            No matching tasks or projects
           </p>
         ) : null}
       </div>

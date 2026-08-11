@@ -1,15 +1,12 @@
 import {
   Archive,
-  Check,
   Circle,
-  CircleAlert,
   Clock3,
   LoaderCircle,
   Pause,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { formatTimeAgo } from "../../../lib/timeFormat";
 import { cn } from "../../../lib/utils";
 import type { SidebarTaskItem, SidebarTaskStatus } from "./types";
 
@@ -46,13 +43,13 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
     kind: "icon",
   },
   failed: {
-    icon: CircleAlert,
-    indicatorClass: "text-zinc-400",
+    icon: Circle,
+    indicatorClass: "fill-red-400 text-red-400",
     kind: "icon",
   },
   completed: {
-    icon: Check,
-    indicatorClass: "text-zinc-500",
+    icon: Circle,
+    indicatorClass: "fill-sky-400 text-sky-400",
     kind: "icon",
   },
   needs_approval: {
@@ -64,7 +61,13 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
 
 function getRelativeTime(updatedAt: string): string {
   const date = new Date(updatedAt);
-  return Number.isNaN(date.getTime()) ? "--" : formatTimeAgo(date);
+  if (Number.isNaN(date.getTime())) return "--";
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "now";
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h`;
+  if (seconds < 604_800) return `${Math.floor(seconds / 86_400)}d`;
+  return `${Math.floor(seconds / 604_800)}w`;
 }
 
 function getMetricsLabel(task: SidebarTaskItem): string | null {
@@ -108,19 +111,24 @@ function handleRowKeyDown(
   }
 }
 
-function StatusDot({ status }: { status: SidebarTaskStatus }) {
+function StatusIndicator({ status }: { status: SidebarTaskStatus }) {
+  if (status === "idle") return null;
   const visual = STATUS_VISUALS[status];
   const StatusIcon = visual.icon;
+  const isNotification = status === "failed" || status === "completed";
 
   return (
     <span
-      className="inline-flex h-3.5 w-3.5 items-center justify-center"
+      className="inline-flex size-4 items-center justify-center"
       aria-hidden="true"
     >
       <StatusIcon
         data-testid={`task-status-${status}`}
         data-status-kind={visual.kind}
-        className={cn("h-3.5 w-3.5", visual.indicatorClass)}
+        className={cn(
+          isNotification ? "size-1.5" : "size-3.5",
+          visual.indicatorClass,
+        )}
       />
     </span>
   );
@@ -164,28 +172,32 @@ export function TaskListRow({
         onClick={onSelect}
         onKeyDown={(event) => handleRowKeyDown(event, onSelect, onMoveFocus)}
         className={cn(
-          "h-10 w-full rounded-xl px-2.5 text-left transition-all duration-150",
+          "h-[34px] w-full rounded-md text-left transition-colors duration-150",
           "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500",
           task.isActive
-            ? "bg-zinc-800/70 text-zinc-100"
-            : "text-zinc-300 hover:bg-zinc-800/45 hover:text-zinc-100",
-          onRemove && (isConfirmingDelete ? "pr-28" : "pr-8"),
+            ? "bg-zinc-800/55 text-zinc-100"
+            : "text-zinc-300 hover:bg-zinc-800/35 hover:text-zinc-100",
+          onRemove && isConfirmingDelete ? "pr-28" : undefined,
         )}
       >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <StatusDot status={task.status} />
-            <span
-              className={cn(
-                "truncate text-sm",
-                task.isActive ? "font-semibold" : "font-medium",
-              )}
-              title={task.title}
-            >
-              {task.title}
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 text-xs">
+        <div className="grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-1.5 pl-8 pr-2">
+          <span
+            className={cn(
+              "min-w-0 truncate text-sm",
+              task.isActive ? "font-medium" : "font-normal",
+            )}
+            title={task.title}
+          >
+            {task.title}
+          </span>
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-end gap-1.5 text-xs transition-[margin]",
+              onRemove && !isConfirmingDelete
+                ? "group-hover:mr-6 group-focus-within:mr-6"
+                : undefined,
+            )}
+          >
             {metricLabel ? (
               <span
                 className={cn(
@@ -202,9 +214,13 @@ export function TaskListRow({
                 {metricLabel}
               </span>
             ) : null}
-            <span className="text-zinc-500" title={relativeTime}>
+            <span
+              className="w-0 overflow-hidden whitespace-nowrap text-zinc-500 opacity-0 transition-[width,opacity] group-hover:w-auto group-hover:opacity-100 group-focus-within:w-auto group-focus-within:opacity-100"
+              title={relativeTime}
+            >
               {relativeTime}
             </span>
+            <StatusIndicator status={task.status} />
           </div>
         </div>
       </button>
@@ -235,19 +251,23 @@ export function TaskListRow({
             Confirm
           </button>
         </div>
-      ) : onRemove ? (
-        <button
-          type="button"
-          aria-label={`Archive ${task.title}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsConfirmingDelete(true);
-          }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 hover:bg-zinc-800 hover:text-red-300"
-        >
-          <Archive size={12} aria-hidden="true" />
-        </button>
-      ) : null}
+      ) : (
+        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label={`Archive ${task.title}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                setIsConfirmingDelete(true);
+              }}
+              className="grid size-5 place-items-center rounded text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+            >
+              <Archive size={12} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      )}
     </li>
   );
 }

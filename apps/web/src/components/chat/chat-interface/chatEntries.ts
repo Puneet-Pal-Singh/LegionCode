@@ -3,7 +3,11 @@ import { buildConversationTurns } from "../messageMetadata";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection";
 
 export type ChatInterfaceEntry =
-  | { kind: "message"; message: Message }
+  | {
+      kind: "message";
+      message: Message;
+      projection?: LifecycleProjection;
+    }
   | {
       kind: "workflow";
       key: string;
@@ -42,6 +46,7 @@ export function buildChatEntries(
       entries.push({
         kind: "message",
         message: conversationTurn.assistantMessage,
+        ...(projection ? { projection } : {}),
       });
     }
   }

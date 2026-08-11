@@ -24,6 +24,10 @@ class CapturingSqlClient implements SqlClient {
       return createResult<Row>(createSessionRow(params));
     }
 
+    if (statement.includes("DELETE FROM sessions")) {
+      return createResult<Row>({ task_id: "task-1" });
+    }
+
     return { rows: [], rowCount: 0 };
   }
 
@@ -99,6 +103,29 @@ describe("PostgresTranscriptRepository", () => {
     expect(statement).toContain("SET archived_at = $3");
     expect(statement).toContain("pinned_at = NULL");
     expect(statement).not.toContain("UPDATE tasks");
+  });
+
+  it("permanently deletes only archived user sessions and cleans orphan tasks", async () => {
+    const client = new CapturingSqlClient();
+    const repository = new PostgresTranscriptRepository(client);
+
+    await expect(
+      repository.deleteArchivedSession(
+        "123e4567-e89b-42d3-a456-426614174001",
+        "123e4567-e89b-42d3-a456-426614174000",
+      ),
+    ).resolves.toBe(true);
+
+    expect(client.queries[0]?.statement).toContain("archived_at IS NOT NULL");
+    expect(client.queries[0]?.params).toEqual([
+      "123e4567-e89b-42d3-a456-426614174001",
+      "123e4567-e89b-42d3-a456-426614174000",
+    ]);
+    expect(client.queries[1]?.statement).toContain("NOT EXISTS");
+    expect(client.queries[1]?.params).toEqual([
+      "123e4567-e89b-42d3-a456-426614174001",
+      "task-1",
+    ]);
   });
 
   it("keeps session upserts from overwriting titles", async () => {

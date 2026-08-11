@@ -176,6 +176,11 @@ function createRouter(): Router {
     TranscriptController.unarchiveSession,
     "POST",
   );
+  router.add(
+    /^\/api\/sessions\/[^/]+$/,
+    TranscriptController.deleteArchivedSession,
+    "DELETE",
+  );
 
   // Git local routes (for sidebar)
   router.add(/\/api\/git\/status/, GitController.getStatus);

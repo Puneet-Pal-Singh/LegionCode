@@ -10,7 +10,10 @@ import type { LifecycleTerminalViewModel } from "../../../services/lifecycle/Lif
 import type { TurnDiffPayload } from "../../../services/api/lifecycleClient.js";
 import type { EditArtifactIdentity } from "@repo/shared-types";
 import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleProjection.js";
-import { buildLifecycleTerminalViewModel } from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
+import {
+  buildLifecycleTerminalViewModel,
+  collectLifecycleTurnDiffFiles,
+} from "../../../services/lifecycle/LifecycleTerminalViewModel.js";
 import type { CompletedTurnReview } from "./useCompletedTurnReview.js";
 import { ChatMessage } from "../ChatMessage";
 import { lifecyclePhaseLabel } from "../../../services/lifecycle/LifecycleProjection.js";
@@ -24,6 +27,7 @@ import {
 import type { ChatInterfaceEntry } from "./chatEntries";
 import type { ComposerLayout } from "./ChatComposerControls";
 import type { ArtifactOpenHandler } from "../artifactOpen";
+import { ChevronDown, Folder } from "lucide-react";
 
 interface ChatInterfaceViewProps {
   workspaceId: string | null;
@@ -31,6 +35,8 @@ interface ChatInterfaceViewProps {
   runAttemptId: string | null;
   artifactIdentity?: EditArtifactIdentity | null;
   showHeroComposer: boolean;
+  projectName?: string;
+  onProjectClick?: () => void;
   showSessionPlaceholder: boolean;
   renderComposer: (layout: ComposerLayout) => ReactNode;
   showDebugPanel: boolean;
@@ -85,7 +91,12 @@ export const ChatInterfaceView = forwardRef<
       ) : null}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         {props.showHeroComposer ? (
-          <HeroComposer>{props.renderComposer("hero")}</HeroComposer>
+          <HeroComposer
+            projectName={props.projectName}
+            onProjectClick={props.onProjectClick}
+          >
+            {props.renderComposer("hero")}
+          </HeroComposer>
         ) : props.showSessionPlaceholder ? (
           <ChatLoadingIndicator />
         ) : (
@@ -97,7 +108,7 @@ export const ChatInterfaceView = forwardRef<
           </div>
         )}
       </div>
-      {props.showHeroComposer ? null : (
+      {props.showHeroComposer || props.showSessionPlaceholder ? null : (
         <div className="px-3 pb-4 sm:px-6">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}
@@ -128,6 +139,7 @@ function Transcript(props: ChatInterfaceViewProps) {
               props,
               entry.message.id,
             )}
+            hookAudits={entry.projection?.hookAudits}
           />
         );
       })}
@@ -180,6 +192,8 @@ function TurnWorkflowEntry({
             {...props}
             terminalViewModel={terminalViewModel}
             includeCurrentTurnReview={isCurrentTurn}
+            projection={entry.projection}
+            hookAudits={entry.projection.hookAudits}
           />
         </div>
       ) : null}
@@ -211,6 +225,8 @@ function TerminalMessage(
   props: ChatInterfaceViewProps & {
     terminalViewModel: LifecycleTerminalViewModel;
     includeCurrentTurnReview: boolean;
+    projection: LifecycleProjection;
+    hookAudits: LifecycleProjection["hookAudits"];
   },
 ) {
   const terminal = props.terminalViewModel;
@@ -258,19 +274,67 @@ function TerminalMessage(
               },
               onReviewOpen: props.onReviewOpen,
             })
-          : undefined
+          : resolveTerminalChangedFilesSummary({
+              terminalViewModel: terminal,
+              files: collectLifecycleTurnDiffFiles(props.projection),
+              turnDiff: props.projection.turnDiff,
+              loadArtifactFileDiff: (artifactId, file) =>
+                props.loadArtifactChangedFileDiff(artifactId, file),
+              onPromptArtifactReview: (artifactId) => {
+                props.openPromptArtifactReview(
+                  artifactId,
+                  undefined,
+                  props.artifactIdentity ?? undefined,
+                );
+                props.onReviewOpen?.();
+              },
+              onReviewOpen: props.onReviewOpen,
+            })
       }
+      hookAudits={props.hookAudits}
     />
   );
 }
 
-function HeroComposer({ children }: { children: ReactNode }) {
+function HeroComposer({
+  children,
+  projectName,
+  onProjectClick,
+}: {
+  children: ReactNode;
+  projectName?: string;
+  onProjectClick?: () => void;
+}) {
   return (
     <div className="mx-auto flex min-h-full w-full max-w-4xl items-center justify-center py-8">
       <div className="w-full">
-        <h1 className="mb-8 text-center text-5xl font-semibold tracking-tight text-zinc-100">
-          What should we build?
+        <h1 className="mb-5 text-center text-5xl font-semibold tracking-tight text-zinc-100">
+          What should we build{projectName ? " in " : "?"}
+          {projectName ? (
+            <button
+              type="button"
+              onClick={onProjectClick}
+              className="inline-flex items-center gap-2 text-zinc-400 underline decoration-zinc-700 decoration-dotted underline-offset-8 transition hover:text-zinc-100"
+              aria-label={`Change project from ${projectName}`}
+            >
+              {projectName}?
+              <ChevronDown size={22} aria-hidden="true" />
+            </button>
+          ) : null}
         </h1>
+        {projectName ? (
+          <div className="mb-4 flex justify-center">
+            <button
+              type="button"
+              onClick={onProjectClick}
+              className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800"
+            >
+              <Folder size={15} aria-hidden="true" />
+              {projectName}
+              <ChevronDown size={14} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
         {children}
       </div>
     </div>

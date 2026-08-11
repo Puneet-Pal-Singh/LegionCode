@@ -8,6 +8,7 @@ import { MessageArtifacts } from "./chat-message/MessageArtifacts";
 import { MessageContent } from "./chat-message/MessageContent";
 import type { ChangedFilesSummary } from "./chat-message/types";
 import { useMessageDisplayContent } from "./chat-message/useMessageDisplayContent";
+import type { HookInvocationAuditEvent } from "../../services/api/lifecycleClient";
 
 interface ChatMessageProps {
   message: Message;
@@ -15,6 +16,7 @@ interface ChatMessageProps {
   onArtifactOpen?: ArtifactOpenHandler;
   onReviewOpen?: () => void;
   changedFilesSummary?: ChangedFilesSummary;
+  hookAudits?: readonly HookInvocationAuditEvent[];
 }
 
 export function ChatMessage({
@@ -23,6 +25,7 @@ export function ChatMessage({
   onArtifactOpen,
   onReviewOpen,
   changedFilesSummary,
+  hookAudits = [],
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const displayContent = useMessageDisplayContent(
@@ -61,6 +64,7 @@ export function ChatMessage({
           content={displayContent}
           metadata={metadata}
           isUser={isUser}
+          hookAudits={hookAudits}
         />
       </div>
     </div>

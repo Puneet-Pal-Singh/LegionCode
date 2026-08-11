@@ -16,9 +16,8 @@ import {
   Check,
   ChevronDown,
   Plus,
-  RefreshCw,
   Search,
-  Settings,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   AXIS_PROVIDER_ID,
@@ -33,13 +32,14 @@ import {
 } from "../../services/api/providerClient.js";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { isProviderModelAvailable } from "./providerModelAvailability";
+import { formatModelDisplayName } from "./modelDisplayName";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 352;
-const PREFERRED_POPOVER_WIDTH_PX = 320;
+const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
-const MODEL_DETAILS_WIDTH_PX = 272;
+const MODEL_DETAILS_WIDTH_PX = 256;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
@@ -119,16 +119,6 @@ function formatProviderDisplayName(
   displayName: string,
 ): string {
   return providerId === AXIS_PROVIDER_ID ? "Axis (Free)" : displayName;
-}
-
-function getViewLabel(
-  view: ProviderModelDiscoveryView,
-  providerId: string | null,
-): string {
-  if (view === "popular") {
-    return providerId === "openrouter" ? "Recommended" : "Popular";
-  }
-  return "All";
 }
 
 function resolveEffectiveSelection(
@@ -266,15 +256,11 @@ export function ModelPickerPopover({
   visibleModelIds,
   selectedProviderId,
   selectedModelId,
-  selectedModelView = "popular",
   hasMoreSelectedProviderModels = false,
   isLoadingMoreSelectedProviderModels = false,
-  isRefreshingSelectedProviderModels = false,
   onSelectModel,
-  onSelectModelView,
   onLoadMoreSelectedProviderModels,
   onEnsureSelectedProviderModels,
-  onRefreshSelectedProviderModels,
   onConnectProvider,
   onManageModels,
   isLoading = false,
@@ -288,7 +274,6 @@ export function ModelPickerPopover({
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectingModelId, setSelectingModelId] = useState<string | null>(null);
-  const [isSwitchingView, setIsSwitchingView] = useState(false);
   const [hoveredModel, setHoveredModel] = useState<HoveredModelDetails | null>(
     null,
   );
@@ -431,7 +416,7 @@ export function ModelPickerPopover({
       return "Select Model";
     }
 
-    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${model.name}`;
+    return `${formatProviderDisplayName(provider.providerId, provider.displayName)}: ${formatModelDisplayName(model)}`;
   }, [connectedProviderIds, effectiveSelection, catalog, providerModels]);
   const modelLoadingLabel = isHydratingVisibleModels
     ? "Loading selected models..."
@@ -458,29 +443,6 @@ export function ModelPickerPopover({
     }
   };
 
-  const handleModelViewChange = async (
-    nextView: ProviderModelDiscoveryView,
-  ): Promise<void> => {
-    if (
-      !onSelectModelView ||
-      nextView === selectedModelView ||
-      isSwitchingView
-    ) {
-      return;
-    }
-    setIsSwitchingView(true);
-    try {
-      await onSelectModelView(nextView);
-    } catch (error) {
-      console.error(
-        "[model-picker/view-change] Failed to switch model view:",
-        error,
-      );
-    } finally {
-      setIsSwitchingView(false);
-    }
-  };
-
   const handleLoadMore = async (): Promise<void> => {
     const providerId = selectedProviderId ?? effectiveSelection.providerId;
     if (!providerId || !onLoadMoreSelectedProviderModels) {
@@ -496,30 +458,12 @@ export function ModelPickerPopover({
     }
   };
 
-  const handleRefresh = async (): Promise<void> => {
-    const providerId = selectedProviderId ?? effectiveSelection.providerId;
-    if (!providerId || !onRefreshSelectedProviderModels) {
-      return;
-    }
-    try {
-      await onRefreshSelectedProviderModels(providerId);
-    } catch (error) {
-      console.error("[model-picker/refresh] Failed to refresh models:", error);
-    }
-  };
-
-  const canSelectModelView = Boolean(onSelectModelView);
-  const canRefreshSelectedProviderModels = Boolean(
-    onRefreshSelectedProviderModels,
-  );
   const canLoadMoreSelectedProviderModels = Boolean(
     onLoadMoreSelectedProviderModels,
   );
   const isLoadingModelsInline =
     !isLoading &&
-    (isLoadingMoreSelectedProviderModels ||
-      isRefreshingSelectedProviderModels ||
-      isHydratingVisibleModels);
+    (isLoadingMoreSelectedProviderModels || isHydratingVisibleModels);
 
   useEffect(() => {
     if (!isOpen || !onEnsureSelectedProviderModels) {
@@ -669,9 +613,9 @@ export function ModelPickerPopover({
         onClick={handleToggle}
         className={`
           inline-flex h-8 max-w-[min(18rem,calc(100vw-6rem))] items-center gap-2 rounded-lg
-          px-2 text-xs font-medium text-neutral-400
+          px-2 text-sm font-medium text-neutral-400
           transition-colors hover:bg-neutral-800/70 hover:text-neutral-100
-          focus:outline-none focus:ring-2 focus:ring-blue-500
+          focus:outline-none focus:ring-1 focus:ring-zinc-400
         `}
         aria-label="Open model picker"
         aria-expanded={isOpen}
@@ -691,8 +635,7 @@ export function ModelPickerPopover({
         <div
           data-testid="model-picker-popover"
           className={`
-            absolute z-50 flex max-h-[22rem] flex-col overflow-hidden rounded-xl
-            border border-neutral-700/80 bg-[#111112]/98 shadow-2xl shadow-black/70 backdrop-blur-xl
+            ui-surface-popover absolute z-50 flex max-h-96 flex-col overflow-hidden
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             ${placement.horizontal === "start" ? "left-0" : "right-0"}
           `}
@@ -703,12 +646,11 @@ export function ModelPickerPopover({
         >
           {!isLoading && (
             <>
-              {/* Search + Actions */}
-              <div className="flex items-center gap-1.5 border-b border-neutral-800 p-1.5">
+              <div className="border-b border-neutral-800 p-2">
                 <div className="relative flex-1">
                   <Search
-                    size={14}
-                    className="absolute left-2.5 top-2.5 text-neutral-500"
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
                   />
                   <input
                     ref={searchInputRef}
@@ -717,83 +659,10 @@ export function ModelPickerPopover({
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className={`
-                      h-8 w-full rounded-md
-                      bg-black/30 border border-neutral-700
-                      pl-8 pr-3 text-xs text-neutral-100 placeholder-neutral-500
-                      focus:outline-none focus:ring-2 focus:ring-blue-500
+                      ui-input h-9 w-full bg-black/20
+                      pl-9 pr-3 text-sm text-neutral-100 placeholder-neutral-500
                     `}
                   />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    onConnectProvider();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-                  aria-label="Connect provider"
-                  title="Connect provider"
-                >
-                  <Plus size={12} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    onManageModels();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
-                  aria-label="Manage model visibility"
-                  title="Manage model visibility"
-                >
-                  <Settings size={12} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between gap-2 border-b border-neutral-800 px-2 py-1.5">
-                <div className="inline-flex rounded-md border border-neutral-700 p-0.5">
-                  {(["popular", "all"] as const).map((view) => (
-                    <button
-                      key={view}
-                      type="button"
-                      onClick={() => {
-                        void handleModelViewChange(view);
-                      }}
-                      disabled={
-                        !canSelectModelView || isSwitchingView || isLoading
-                      }
-                      className={`rounded px-2 py-1 text-[11px] font-medium transition ${
-                        selectedModelView === view
-                          ? "bg-neutral-200 text-neutral-900"
-                          : "text-neutral-300 hover:bg-neutral-800"
-                      }`}
-                    >
-                      {getViewLabel(view, selectedProviderId)}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleRefresh();
-                    }}
-                    disabled={
-                      !canRefreshSelectedProviderModels ||
-                      !(effectiveSelection.providerId ?? selectedProviderId) ||
-                      isRefreshingSelectedProviderModels ||
-                      isLoading
-                    }
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-neutral-700 px-2 text-[11px] text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      size={11}
-                      className={
-                        isRefreshingSelectedProviderModels ? "animate-spin" : ""
-                      }
-                    />
-                    Refresh
-                  </button>
                 </div>
               </div>
             </>
@@ -841,8 +710,8 @@ export function ModelPickerPopover({
                 <>
                   {axisDefaultGroup && (
                     <div className="border-b border-neutral-800/80">
-                      <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                        <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                      <div className="sticky top-0 bg-[#111112] px-3 py-2">
+                        <h3 className="text-xs font-medium text-neutral-500">
                           LegionCode Axis
                         </h3>
                       </div>
@@ -873,7 +742,7 @@ export function ModelPickerPopover({
                               )
                             }
                             className={`
-                            w-full px-3 py-2 text-left text-sm
+                            min-h-9 w-full px-3 py-1.5 text-left text-sm
                             transition-colors disabled:opacity-50
                             ${
                               effectiveSelection.providerId ===
@@ -883,11 +752,11 @@ export function ModelPickerPopover({
                                 : "text-neutral-400 hover:bg-neutral-800/50"
                             }
                           `}
-                            title={`${model.name} (${model.id})`}
+                            title={`${formatModelDisplayName(model)} (${model.id})`}
                           >
                             <div className="flex min-w-0 items-center gap-2">
                               <p className="truncate font-medium">
-                                {model.name}
+                                {formatModelDisplayName(model)}
                               </p>
                               {effectiveSelection.providerId ===
                                 axisDefaultGroup.providerId &&
@@ -913,8 +782,8 @@ export function ModelPickerPopover({
                         key={group.providerId}
                         className="border-b border-neutral-800/80 last:border-b-0"
                       >
-                        <div className="sticky top-0 bg-neutral-900/95 px-3 py-2">
-                          <h3 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                        <div className="sticky top-0 bg-[#111112] px-3 py-2">
+                          <h3 className="text-xs font-medium text-neutral-500">
                             {group.displayName}
                           </h3>
                         </div>
@@ -965,7 +834,7 @@ export function ModelPickerPopover({
                                 )
                               }
                               className={`
-                              w-full px-3 py-2 text-left text-sm
+                              min-h-9 w-full px-3 py-1.5 text-left text-sm
                               transition-colors disabled:opacity-50
                               ${
                                 effectiveSelection.providerId ===
@@ -975,11 +844,11 @@ export function ModelPickerPopover({
                                   : "text-neutral-400 hover:bg-neutral-800/50"
                               }
                             `}
-                              title={`${model.name} (${model.id})`}
+                              title={`${formatModelDisplayName(model)} (${model.id})`}
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 <p className="min-w-0 flex-1 truncate font-medium text-neutral-200">
-                                  {model.name}
+                                  {formatModelDisplayName(model)}
                                 </p>
                                 {!isProviderModelAvailable(model) && (
                                   <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
@@ -1035,6 +904,34 @@ export function ModelPickerPopover({
                   </button>
                 </div>
               )}
+            {!isLoading ? (
+              <div className="flex items-center justify-between border-t border-neutral-800 p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onManageModels();
+                  }}
+                  className="ui-popover-item flex-1 gap-2"
+                  aria-label="Manage model visibility"
+                >
+                  <SlidersHorizontal size={15} className="text-neutral-400" />
+                  Manage models
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onConnectProvider();
+                  }}
+                  className="flex size-9 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+                  aria-label="Connect provider"
+                  title="Connect provider"
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -1058,11 +955,14 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
   return (
     <div
       data-testid="model-picker-details"
-      className="pointer-events-none fixed z-[60] w-[272px] rounded-lg border border-neutral-700/80 bg-[#151516] p-3 text-sm shadow-2xl shadow-black/70"
+      className="ui-surface-popover pointer-events-none fixed z-[60] w-64 p-3 text-sm"
       style={{ top: details.topPx, left: details.leftPx }}
     >
-      <dl className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-2">
-        <ModelDetail label="Model" value={details.model.name} />
+      <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1.5">
+        <ModelDetail
+          label="Model"
+          value={formatModelDisplayName(details.model)}
+        />
         <ModelDetail label="Provider" value={details.providerName} />
         <ModelDetail label="Inputs" value={inputs || "Not published"} />
         <ModelDetail label="Reasoning" value={reasoning} />
@@ -1080,7 +980,7 @@ function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
 function ModelDetail({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <dt className="text-neutral-500">{label}</dt>
+      <dt className="text-xs text-neutral-500">{label}</dt>
       <dd
         className="truncate text-right font-medium text-neutral-100"
         title={value}

@@ -75,6 +75,7 @@ interface WorkspaceProps {
   onGitReviewOpenChange?: (open: boolean) => void;
   onTabChange?: (tab: TabType) => void;
   summaryActionRequest?: { id: number; action: "changes" | "commit" } | null;
+  onOpenRepositoryPicker?: () => void;
 }
 
 export function Workspace({
@@ -103,6 +104,7 @@ export function Workspace({
   onGitReviewOpenChange,
   onTabChange,
   summaryActionRequest,
+  onOpenRepositoryPicker,
 }: WorkspaceProps) {
   const explorerRef = useRef<FileExplorerHandle>(null);
   const sandboxId = sessionId;
@@ -110,6 +112,8 @@ export function Workspace({
     loadStoredProductMode(sessionId),
   );
   const [isGitCommitOpen, setIsGitCommitOpen] = useState(false);
+  const [isConversationSurfaceReady, setIsConversationSurfaceReady] =
+    useState(false);
 
   // Custom Hooks
   const {
@@ -492,6 +496,9 @@ export function Workspace({
               onPendingApprovalChange={onPendingApprovalStateChange}
               repoTree={repoTree}
               isLoadingRepoTree={isLoadingTree || isHydrating}
+              projectName={repository.split("/").filter(Boolean).at(-1)}
+              onProjectClick={onOpenRepositoryPicker}
+              onPresentationReadyChange={setIsConversationSurfaceReady}
               onArtifactOpen={(path, content, options) => {
                 if (options?.refreshFromWorkspace) {
                   void handleFileClick(path);
@@ -504,9 +511,8 @@ export function Workspace({
                 });
               }}
               onReviewOpen={() => {
-                setIsRightSidebarOpen?.(true);
-                setActiveTab("review");
                 setIsViewingContent(false);
+                onGitReviewOpenChange?.(true);
               }}
               onContextOpen={(budget, usage) => {
                 openContextTab(budget, usage, {
@@ -527,7 +533,7 @@ export function Workspace({
             />
           </main>
 
-          {isRightSidebarOpen ? (
+          {isConversationSurfaceReady && isRightSidebarOpen ? (
             <SidebarHeader
               sidebarWidth={sidebarWidth}
               isViewingContent={isViewingContent}
@@ -570,14 +576,14 @@ export function Workspace({
               !isRightSidebarOpen && "border-transparent",
             )}
           >
-            {isRightSidebarOpen && (
+            {isConversationSurfaceReady && isRightSidebarOpen && (
               <Resizer
                 side="right"
                 onResizeStart={() => setIsResizing(true)}
                 onResizeEnd={() => setIsResizing(false)}
                 onResize={(delta) =>
                   setSidebarWidth((prev) =>
-                    Math.max(280, Math.min(600, prev + delta)),
+                    Math.max(320, Math.min(720, prev + delta)),
                   )
                 }
               />
@@ -612,35 +618,45 @@ export function Workspace({
               />
             </div>
           </motion.aside>
-          <GitReviewDialog
-            key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
-            contentTabs={contentTabs}
-            isLoadingContent={isLoadingContent}
-            contentError={contentError}
-            onSelectContent={selectContentTab}
-            onCloseContent={closeContentTab}
-            onOpenFilesTab={openFilesTab}
-            renderFilesRail={(onFileOpened) => (
-              <WorkspaceFilesTree
-                repo={repo}
-                isGitHubLoaded={isGitHubLoaded}
-                branch={branch}
-                repoTree={repoTree}
-                isLoadingTree={Boolean(isLoadingTree)}
-                onGitHubFileSelect={(path) => {
-                  onFileOpened(path);
-                  void handleFullscreenGitHubFileSelect(path);
-                }}
-                explorerRef={explorerRef}
-                sandboxId={sandboxId}
-                runId={activeRunId}
-                onLocalFileSelect={(path) => {
-                  onFileOpened(path);
-                  void handleFullscreenFileClick(path);
-                }}
+          {isConversationSurfaceReady ? (
+            <GitReviewDialog
+              key={`${activeRunId}:${isGitReviewOpen ? "open" : "closed"}`}
+              contentTabs={contentTabs}
+              isLoadingContent={isLoadingContent}
+              contentError={contentError}
+              onSelectContent={selectContentTab}
+              onCloseContent={closeContentTab}
+              onOpenFilesTab={openFilesTab}
+              renderFilesRail={(onFileOpened) => (
+                <WorkspaceFilesTree
+                  repo={repo}
+                  isGitHubLoaded={isGitHubLoaded}
+                  branch={branch}
+                  repoTree={repoTree}
+                  isLoadingTree={Boolean(isLoadingTree)}
+                  onGitHubFileSelect={(path) => {
+                    onFileOpened(path);
+                    void handleFullscreenGitHubFileSelect(path);
+                  }}
+                  explorerRef={explorerRef}
+                  sandboxId={sandboxId}
+                  runId={activeRunId}
+                  onLocalFileSelect={(path) => {
+                    onFileOpened(path);
+                    void handleFullscreenFileClick(path);
+                  }}
+                />
+              )}
+            />
+          ) : null}
+          {!isConversationSurfaceReady ? (
+            <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black">
+              <div
+                aria-hidden="true"
+                className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-800 border-t-zinc-300"
               />
-            )}
-          />
+            </div>
+          ) : null}
           <GitCommitDialog
             isOpen={isGitCommitOpen}
             onClose={() => setIsGitCommitOpen(false)}

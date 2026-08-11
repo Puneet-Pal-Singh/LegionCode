@@ -37,6 +37,7 @@ import { GitReviewProvider } from "../git/GitReviewContext";
 import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootstrap-loading.js";
 import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
+import { ProjectChooser } from "./ProjectChooser";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -53,6 +54,9 @@ interface AgentSetupProps {
     mode: RunMode;
   }) => void;
   onRepoClick?: () => void;
+  projects?: readonly string[];
+  onProjectSelect?: (project: string) => void;
+  onNoProject?: () => void;
 }
 
 export function AgentSetup({
@@ -65,6 +69,9 @@ export function AgentSetup({
   showOnboardingHighlights = false,
   onStart,
   onRepoClick,
+  projects = [],
+  onProjectSelect,
+  onNoProject,
 }: AgentSetupProps) {
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
@@ -646,6 +653,24 @@ export function AgentSetup({
         <div className="relative -mt-1 px-0.5">
           <div className="rounded-b-xl border-x border-b border-zinc-800/90 bg-[#101114] px-3 pb-2 pt-3">
             <div className="flex items-center gap-2">
+              <ProjectChooser
+                currentProject={repo?.full_name}
+                projects={projects}
+                onSelect={(project) => onProjectSelect?.(project)}
+                onNewProject={() => onRepoClick?.()}
+                onNoProject={() => onNoProject?.()}
+              >
+                <button
+                  type="button"
+                  aria-label={`Select project, current project ${repoName}`}
+                  className="flex min-w-0 max-w-48 items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800/50 hover:text-zinc-100"
+                >
+                  <Folder size={14} className="shrink-0" />
+                  <span className="truncate">{repoName}</span>
+                  <ChevronDown size={14} className="shrink-0 text-zinc-500" />
+                </button>
+              </ProjectChooser>
+              <div className="h-4 w-px bg-zinc-800/80" />
               <ChatBranchSelector placement="below" />
               <div className="h-4 w-px bg-zinc-800/80" />
               <PermissionModeControl
@@ -749,23 +774,31 @@ export function AgentSetup({
               </h1>
 
               {/* Project Name with Dropdown */}
-              <motion.button
-                onClick={onRepoClick}
-                data-onboarding-target="setup-repo"
-                className={`flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group ${
-                  showOnboardingHighlights
-                    ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black px-1.5 py-0.5"
-                    : ""
-                }`}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+              <ProjectChooser
+                currentProject={repo?.full_name}
+                projects={projects}
+                onSelect={(project) => onProjectSelect?.(project)}
+                onNewProject={() => onRepoClick?.()}
+                onNoProject={() => onNoProject?.()}
               >
-                <span>{repoName}</span>
-                <ChevronDown
-                  size={18}
-                  className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
-                />
-              </motion.button>
+                <motion.button
+                  type="button"
+                  data-onboarding-target="setup-repo"
+                  className={`flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group ${
+                    showOnboardingHighlights
+                      ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black px-1.5 py-0.5"
+                      : ""
+                  }`}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <span>{repoName}</span>
+                  <ChevronDown
+                    size={18}
+                    className="text-zinc-600 group-hover:text-zinc-500 transition-colors duration-200"
+                  />
+                </motion.button>
+              </ProjectChooser>
             </motion.div>
 
             <div className="mb-6 w-full max-w-4xl">

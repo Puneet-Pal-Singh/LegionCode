@@ -1,7 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, Edit2, Folder, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import {
+  Edit2,
+  Folder,
+  FolderOpen,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { cn } from "../../../lib/utils";
 import { TaskList } from "./TaskList";
 import type { SidebarTaskItem } from "./types";
 
@@ -37,7 +43,8 @@ export function WorkspaceSection({
   const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
   const [showMenu, setShowMenu] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
-  const [isConfirmingWorkspaceRemove, setIsConfirmingWorkspaceRemove] = useState(false);
+  const [isConfirmingWorkspaceRemove, setIsConfirmingWorkspaceRemove] =
+    useState(false);
   const [newName, setNewName] = useState(workspaceName);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +75,7 @@ export function WorkspaceSection({
   }, [isConfirmingWorkspaceRemove]);
 
   const sortedTasks = useMemo(() => sortTasks(tasks), [tasks]);
+  const FolderIcon = isExpanded ? FolderOpen : Folder;
 
   const confirmRename = () => {
     const trimmedName = newName.trim();
@@ -83,26 +91,20 @@ export function WorkspaceSection({
   };
 
   return (
-    <section className="space-y-1.5">
-      <div className="flex items-center gap-1">
+    <section className="space-y-0.5">
+      <div className="group/project grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg transition hover:bg-zinc-800/35">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-zinc-800/40"
+          className="grid h-9 min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-zinc-500 transition hover:text-zinc-200"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
-          <ChevronDown
-            size={14}
-            aria-hidden="true"
-            className={cn(
-              "text-zinc-500 transition-transform",
-              !isExpanded && "-rotate-90",
-            )}
-          />
-          <Folder size={15} aria-hidden="true" className="shrink-0 text-zinc-500" />
+          <span className="flex size-8 items-center justify-center">
+            <FolderIcon size={16} aria-hidden="true" />
+          </span>
           {!isRenaming ? (
-            <span className="truncate text-sm font-semibold text-zinc-100">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">
               {workspaceName}
             </span>
           ) : null}
@@ -122,11 +124,13 @@ export function WorkspaceSection({
                 setIsRenaming(false);
               }
             }}
-            className="h-6 flex-1 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-100 outline-none"
+            className="h-7 min-w-0 rounded border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none"
           />
-        ) : null}
+        ) : (
+          null
+        )}
 
-        <div className="relative" ref={menuRef}>
+        <div className="relative flex items-center" ref={menuRef}>
           {onAddTask ? (
             <button
               type="button"
@@ -135,7 +139,7 @@ export function WorkspaceSection({
                 event.stopPropagation();
                 onAddTask();
               }}
-              className="mr-1 rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+              className="rounded p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/70 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
               title={`New task in ${workspaceName}`}
             >
               <Plus size={14} aria-hidden="true" />
@@ -155,7 +159,7 @@ export function WorkspaceSection({
                 return next;
               });
             }}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+            className="rounded p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/70 hover:text-zinc-200 focus-visible:opacity-100 group-hover/project:opacity-100"
             title={`Actions for ${workspaceName}`}
           >
             <MoreHorizontal size={14} aria-hidden="true" />
@@ -237,7 +241,7 @@ export function WorkspaceSection({
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.15 }}
-            className="mt-1 overflow-hidden pl-5"
+            className="overflow-hidden"
           >
             <TaskList
               tasks={sortedTasks}

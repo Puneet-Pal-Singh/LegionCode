@@ -22,12 +22,8 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
     key: string;
     value: ReasoningEffortSelection;
   } | null>(null);
-  const stored = loadReasoningEffortSelection(
-    props.providerId,
-    props.modelId,
-  );
-  const selected =
-    selection?.key === selectionKey ? selection.value : stored;
+  const stored = loadReasoningEffortSelection(props.providerId, props.modelId);
+  const selected = selection?.key === selectionKey ? selection.value : stored;
   const value =
     selected === "default" || props.efforts.includes(selected)
       ? selected
@@ -53,7 +49,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
         aria-expanded={open}
         disabled={props.disabled}
         onClick={() => setOpenKey(open ? null : selectionKey)}
-        className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-zinc-400 transition hover:bg-zinc-800/70 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span>{formatEffort(value)}</span>
         <ChevronDown size={12} className="text-zinc-500" />
@@ -61,7 +57,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
       {open ? (
         <div
           role="menu"
-          className="absolute bottom-full left-0 z-50 mb-2 min-w-44 overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-950 p-1.5 shadow-2xl shadow-black/60"
+          className="ui-surface-popover absolute bottom-full left-0 z-50 mb-2 min-w-44 overflow-hidden p-2"
         >
           {options.map((option) => (
             <button
@@ -79,7 +75,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
                 );
                 setOpenKey(null);
               }}
-              className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm text-zinc-200 transition hover:bg-zinc-800"
+              className="ui-popover-item justify-between"
             >
               <span>{formatEffort(option)}</span>
               {value === option ? (
@@ -94,5 +90,7 @@ export function ReasoningEffortPicker(props: ReasoningEffortPickerProps) {
 }
 
 function formatEffort(value: ReasoningEffortSelection): string {
-  return value === "default" ? "Default" : value;
+  if (value === "default") return "Default";
+  if (value === "xhigh") return "XHigh";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }

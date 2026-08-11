@@ -47,6 +47,18 @@ import {
   type InitialPromptSubmission,
 } from "./lib/initial-prompt-submission";
 
+const DEFAULT_LEFT_SIDEBAR_WIDTH = 320;
+const MIN_RIGHT_SIDEBAR_WIDTH = 420;
+const MAX_RIGHT_SIDEBAR_WIDTH = 720;
+
+function getInitialRightSidebarWidth(): number {
+  const availableWidth = window.innerWidth - DEFAULT_LEFT_SIDEBAR_WIDTH;
+  return Math.max(
+    MIN_RIGHT_SIDEBAR_WIDTH,
+    Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.round(availableWidth * 0.42)),
+  );
+}
+
 function buildOnboardingSeenKey(userId: string | null): string {
   if (!userId) {
     return "shadowbox:startup-onboarding:seen:anonymous";
@@ -177,6 +189,7 @@ function AppContent() {
     unpinSession,
     archiveSession,
     unarchiveSession,
+    acknowledgeSession,
     updateSession,
     repositories,
     removeRepository,
@@ -655,8 +668,10 @@ function AppContent() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
     return localStorage.getItem("shadowbox_right_sidebar_open") === "true";
   });
-  const [sidebarWidth, setSidebarWidth] = useState(320);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(520);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_LEFT_SIDEBAR_WIDTH);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(
+    getInitialRightSidebarWidth,
+  );
   const [initialPromptSubmission, setInitialPromptSubmission] = useState<
     (InitialPromptSubmission & { sessionId: string }) | null
   >(null);
@@ -895,6 +910,16 @@ function AppContent() {
     }
   };
 
+  const handleChooseExistingProject = (repository: string) => {
+    handleNewTask(repository);
+  };
+
+  const handleChooseNoProject = () => {
+    clearContext();
+    clearSetupSessionState();
+    createSession("New Task", "New Project");
+  };
+
   const focusReviewSidebar = () => {
     setReviewSidebarFocusRequest((previous) => previous + 1);
   };
@@ -924,6 +949,7 @@ function AppContent() {
       setGitReviewSessionId(null);
     }
     setActiveSessionId(sessionId);
+    void acknowledgeSession(sessionId);
   };
 
   /**
@@ -1098,6 +1124,11 @@ function AppContent() {
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
+                    projects={repositories.filter(
+                      (repository) => repository !== "New Project",
+                    )}
+                    onProjectSelect={handleChooseExistingProject}
+                    onNoProject={handleChooseNoProject}
                     onStart={(config) => {
                       updateSession(activeSessionId, {
                         status: "running",
@@ -1134,6 +1165,11 @@ function AppContent() {
                     requiresRepository
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
+                    projects={repositories.filter(
+                      (repository) => repository !== "New Project",
+                    )}
+                    onProjectSelect={handleChooseExistingProject}
+                    onNoProject={handleChooseNoProject}
                     onStart={() => {
                       handleOpenRepositoryPicker();
                     }}
@@ -1142,7 +1178,7 @@ function AppContent() {
               </motion.div>
             ) : showWorkspace ? (
               <motion.div
-                key="workspace"
+                key={`workspace-${activeSessionId}-${activeSession.activeRunId}`}
                 initial={false}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 1 }}
@@ -1150,6 +1186,7 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <Workspace
+                  key={`${activeSessionId}:${activeSession.activeRunId}`}
                   sessionId={activeSessionId}
                   sessionTitle={activeSession.name}
                   sessionCreatedAt={activeSession.createdAt}
@@ -1163,7 +1200,13 @@ function AppContent() {
                     updateSession(activeSessionId, { mode })
                   }
                   onSessionStatusChange={(status) => {
-                    updateSession(activeSessionId, { status });
+                    // Lifecycle replay changes status, but it is not new task
+                    // activity. The server thread projection owns ordering.
+                    updateSession(
+                      activeSessionId,
+                      { status },
+                      { preserveActivityTimestamp: true },
+                    );
                     if (status === "completed" || status === "failed") {
                       void refreshSessionProjection(activeSessionId);
                     }
@@ -1204,6 +1247,7 @@ function AppContent() {
                   }}
                   onTabChange={setActiveTab}
                   summaryActionRequest={summaryActionRequest}
+                  onOpenRepositoryPicker={handleOpenRepositoryPicker}
                 />
               </motion.div>
             ) : isPreparingSetupShell ? (

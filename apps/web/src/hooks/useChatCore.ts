@@ -412,7 +412,9 @@ export function useChatCore(
   const activeTurnProjection = useActiveTurnProjection({
     turnId: resolveActiveProjectionTurnId({
       activeTurnId: activeConversationScope?.turnId,
-      serverTurnId,
+      // Never project a turn retained from the previous session/run. The
+      // conversation scope is the identity gate for lifecycle rendering.
+      serverTurnId: activeConversationScope ? serverTurnId : null,
       isSubmitting,
     }),
     transportLoading: isTransportLoading || isSubmitting,

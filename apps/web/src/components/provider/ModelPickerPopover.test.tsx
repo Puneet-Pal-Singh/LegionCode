@@ -160,7 +160,7 @@ describe("ModelPickerPopover", () => {
 
       expect(
         screen.getByRole("button", { name: /open model picker/i }),
-      ).toHaveTextContent("Axis (Free): z-ai/glm-4.5-air:free");
+      ).toHaveTextContent("Axis (Free): GLM 4.5 Air Free");
     });
 
     it("renders trigger button with selected model label", () => {
@@ -428,7 +428,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         expect(screen.getByText("LegionCode Axis")).toBeInTheDocument();
-        expect(screen.getByText("z-ai/glm-4.5-air:free")).toBeInTheDocument();
+        expect(screen.getByText("GLM 4.5 Air Free")).toBeInTheDocument();
       });
     });
 
@@ -885,98 +885,6 @@ describe("ModelPickerPopover", () => {
       expect(handleManageModels).toHaveBeenCalled();
     });
 
-    it("switches model view to all and calls callback", async () => {
-      render(
-        <ModelPickerPopover
-          {...defaultProps}
-          selectedProviderId="openai"
-          selectedModelId="gpt-4"
-        />,
-      );
-
-      fireEvent.click(
-        screen.getByRole("button", { name: /open model picker/i }),
-      );
-      const allButton = await screen.findByRole("button", { name: "All" });
-      fireEvent.click(allButton);
-
-      await waitFor(() => {
-        expect(mockHandlers.onSelectModelView).toHaveBeenCalledWith("all");
-      });
-    });
-
-    it("labels the popular tab as recommended for openrouter", async () => {
-      render(
-        <ModelPickerPopover
-          {...defaultProps}
-          catalog={[
-            ...mockCatalog,
-            {
-              providerId: "openrouter",
-              displayName: "OpenRouter",
-              authModes: ["api_key"],
-              adapterFamily: "openai-compatible",
-              capabilities: {
-                streaming: true,
-                tools: true,
-                jsonMode: true,
-                structuredOutputs: true,
-              },
-              modelSource: "remote",
-              defaultModelId: "openrouter/auto",
-            },
-          ]}
-          providerModels={{
-            ...mockModels,
-            openrouter: [{ id: "openrouter/auto", name: "Auto (Best Model)" }],
-          }}
-          visibleModelIds={{
-            ...mockVisibleModelIds,
-            openrouter: new Set(["openrouter/auto"]),
-          }}
-          selectedProviderId="openrouter"
-          selectedModelId="openrouter/auto"
-        />,
-      );
-
-      fireEvent.click(
-        screen.getByRole("button", { name: /open model picker/i }),
-      );
-
-      expect(
-        await screen.findByRole("button", { name: "Recommended" }),
-      ).toBeInTheDocument();
-    });
-
-    it("refreshes selected provider models when metadata is stale", async () => {
-      render(
-        <ModelPickerPopover
-          {...defaultProps}
-          selectedProviderId="openai"
-          selectedModelId="gpt-4"
-          selectedProviderMetadata={{
-            fetchedAt: new Date().toISOString(),
-            stale: true,
-            source: "cache",
-            staleReason: "provider_api_unavailable",
-          }}
-        />,
-      );
-
-      fireEvent.click(
-        screen.getByRole("button", { name: /open model picker/i }),
-      );
-      await screen.findByRole("button", { name: /refresh/i });
-      expect(screen.queryByText("Stale")).not.toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
-      await waitFor(() => {
-        expect(
-          mockHandlers.onRefreshSelectedProviderModels,
-        ).toHaveBeenCalledWith("openai");
-      });
-    });
-
     it("loads more models when pagination is available", async () => {
       render(
         <ModelPickerPopover
@@ -1002,7 +910,7 @@ describe("ModelPickerPopover", () => {
       });
     });
 
-    it("disables or hides discovery controls when callbacks are not provided", async () => {
+    it("hides pagination when its callback is not provided", async () => {
       render(
         <ModelPickerPopover
           {...defaultProps}
@@ -1018,48 +926,10 @@ describe("ModelPickerPopover", () => {
       fireEvent.click(
         screen.getByRole("button", { name: /open model picker/i }),
       );
-      expect(await screen.findByRole("button", { name: "All" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Popular" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: /refresh/i })).toBeDisabled();
+      await screen.findByRole("button", { name: /manage model visibility/i });
       expect(
         screen.queryByRole("button", { name: /load more/i }),
       ).not.toBeInTheDocument();
-    });
-
-    it("logs async handler errors instead of leaking unhandled rejections", async () => {
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
-      const onRefreshSelectedProviderModels = vi.fn(async () => {
-        throw new Error("refresh failed");
-      });
-
-      try {
-        render(
-          <ModelPickerPopover
-            {...defaultProps}
-            selectedProviderId="openai"
-            selectedModelId="gpt-4"
-            onRefreshSelectedProviderModels={onRefreshSelectedProviderModels}
-          />,
-        );
-
-        fireEvent.click(
-          screen.getByRole("button", { name: /open model picker/i }),
-        );
-        fireEvent.click(
-          await screen.findByRole("button", { name: /refresh/i }),
-        );
-
-        await waitFor(() => {
-          expect(consoleErrorSpy).toHaveBeenCalledWith(
-            "[model-picker/refresh] Failed to refresh models:",
-            expect.any(Error),
-          );
-        });
-      } finally {
-        consoleErrorSpy.mockRestore();
-      }
     });
   });
 

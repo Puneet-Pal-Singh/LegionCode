@@ -181,6 +181,10 @@ export function sessionArchivePath(sessionId: string): string {
   return `${sessionsPath()}/${encodeURIComponent(sessionId)}/archive`;
 }
 
+export function sessionDeletePath(sessionId: string): string {
+  return `${sessionsPath()}/${encodeURIComponent(sessionId)}`;
+}
+
 export function sessionTitlePath(sessionId: string): string {
   return `${sessionsPath()}/${encodeURIComponent(sessionId)}/title`;
 }
