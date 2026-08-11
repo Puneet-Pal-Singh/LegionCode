@@ -4,6 +4,27 @@ import type { LifecycleProjection } from "../../../services/lifecycle/LifecycleP
 import { useChatPresentation } from "./useChatPresentation";
 
 describe("useChatPresentation", () => {
+  it("keeps the loading placeholder visible while a new task identity hydrates", () => {
+    const { result } = renderHook(() =>
+      useChatPresentation({
+        messages: [
+          {
+            id: "stale-message",
+            role: "assistant",
+            content: "Previous task content",
+          },
+        ],
+        conversationTurns: [],
+        hasHydrated: false,
+        isLoading: false,
+        hasPendingApproval: false,
+        hasStartedSession: true,
+      }),
+    );
+
+    expect(result.current.isTranscriptHydrating).toBe(true);
+    expect(result.current.showSessionPlaceholder).toBe(true);
+  });
   it("renders the submitted setup prompt instead of a centered session spinner", () => {
     const { result } = renderHook(() =>
       useChatPresentation({

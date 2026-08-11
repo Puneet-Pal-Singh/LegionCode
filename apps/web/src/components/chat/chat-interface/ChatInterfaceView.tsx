@@ -105,7 +105,7 @@ export const ChatInterfaceView = forwardRef<
           </div>
         )}
       </div>
-      {props.showHeroComposer ? null : (
+      {props.showHeroComposer || props.showSessionPlaceholder ? null : (
         <div className="px-3 pb-4 sm:px-6">
           <div className="mx-auto max-w-4xl">
             {props.renderComposer("docked")}

@@ -30,7 +30,7 @@ export function useChatHydration(
   const sessionId = scope?.sessionId ?? null;
   const runId = scope?.runId ?? null;
   const [isHydrating, setIsHydrating] = useState(false);
-  const [hasHydrated, setHasHydrated] = useState(false);
+  const [hydratedScopeKey, setHydratedScopeKey] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeRef = useRef(scope);
@@ -62,7 +62,7 @@ export function useChatHydration(
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
-    setHasHydrated(false);
+    setHydratedScopeKey(null);
     setIsHydrating(false);
     logClientEvent("chat/hydration", "scope-reset", {
       runId,
@@ -151,7 +151,7 @@ export function useChatHydration(
 
         hasHydratedRef.current = true;
         resetRetry();
-        setHasHydrated(true);
+        setHydratedScopeKey(requestScopeKey);
       } catch (error) {
         if (isCurrentScope()) {
           retryOnError(error);
@@ -179,7 +179,13 @@ export function useChatHydration(
     setMessages,
   ]);
 
-  return { isHydrating, hasHydrated };
+  return {
+    isHydrating,
+    // A completed hydration belongs only to the exact conversation scope that
+    // produced it. This prevents the previous task from appearing hydrated for
+    // one render while a newly selected task is settling.
+    hasHydrated: Boolean(scopeKey) && hydratedScopeKey === scopeKey,
+  };
 }
 
 function summarizeMessageRoles(messages: Message[]): string {
