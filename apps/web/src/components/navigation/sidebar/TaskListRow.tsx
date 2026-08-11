@@ -1,7 +1,6 @@
 import {
   Archive,
   Circle,
-  CircleAlert,
   Clock3,
   LoaderCircle,
   Pause,
@@ -44,8 +43,8 @@ const STATUS_VISUALS: Record<SidebarTaskStatus, StatusVisual> = {
     kind: "icon",
   },
   failed: {
-    icon: CircleAlert,
-    indicatorClass: "text-zinc-400",
+    icon: Circle,
+    indicatorClass: "fill-red-400 text-red-400",
     kind: "icon",
   },
   completed: {
@@ -187,7 +186,7 @@ export function TaskListRow({
           >
             {task.title}
           </span>
-          <div className="flex shrink-0 items-center gap-2 text-xs">
+          <div className="flex min-w-12 shrink-0 items-center justify-end gap-2 text-xs">
             <StatusIndicator status={task.status} />
             {metricLabel ? (
               <span
@@ -249,7 +248,7 @@ export function TaskListRow({
             event.stopPropagation();
             setIsConfirmingDelete(true);
           }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 hover:bg-zinc-800 hover:text-red-300"
+          className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded p-0.5 text-zinc-500 opacity-0 transition focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 group-hover:opacity-100 hover:bg-zinc-800 hover:text-red-300"
         >
           <Archive size={12} aria-hidden="true" />
         </button>

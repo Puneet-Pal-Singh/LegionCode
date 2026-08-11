@@ -524,6 +524,29 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     [reconcileSessionMutation],
   );
 
+  const acknowledgeSession = useCallback(
+    async (id: string): Promise<void> => {
+      const session = sessionsRef.current.find((candidate) => candidate.id === id);
+      const terminalTurnId = session?.lastTerminalTurnId;
+      if (
+        !terminalTurnId ||
+        terminalTurnId === session?.lastAcknowledgedTerminalTurnId
+      ) {
+        return;
+      }
+
+      await reconcileSessionMutation(
+        id,
+        (current) => ({
+          ...current,
+          lastAcknowledgedTerminalTurnId: terminalTurnId,
+        }),
+        () => SessionStateService.acknowledgeSession(id, terminalTurnId),
+      );
+    },
+    [reconcileSessionMutation],
+  );
+
   /**
    * Update session metadata
    * Validates updates and maintains timestamps
@@ -603,6 +626,7 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
     unpinSession,
     archiveSession,
     unarchiveSession,
+    acknowledgeSession,
     updateSession,
     clearAllSessions,
     addRepository,

@@ -338,7 +338,7 @@ export function AgentSidebar({
   );
 
   const projectsHeader = (
-    <div className="group/projects flex h-8 items-center justify-between px-2">
+    <div className="group/projects flex h-10 items-center justify-between px-2">
       <span className="text-sm font-medium text-zinc-500">Projects</span>
       <div className="flex items-center gap-1">
         <button
@@ -413,11 +413,17 @@ export function AgentSidebar({
   return (
     <SidebarShell
       width={width}
+      header={
+        <div className="truncate text-base font-semibold tracking-tight">
+          <span className="text-zinc-100">Legion</span>
+          <span className="text-zinc-500">Code</span>
+        </div>
+      }
       utility={utility}
       footer={footer}
       onClose={onClose}
     >
-      <div className="space-y-2">
+      <div className="space-y-3">
         {projectsHeader}
         {pinnedTasks.length > 0 ? (
           <section className="space-y-1">

@@ -189,6 +189,7 @@ function AppContent() {
     unpinSession,
     archiveSession,
     unarchiveSession,
+    acknowledgeSession,
     updateSession,
     repositories,
     removeRepository,
@@ -938,6 +939,7 @@ function AppContent() {
       setGitReviewSessionId(null);
     }
     setActiveSessionId(sessionId);
+    void acknowledgeSession(sessionId);
   };
 
   /**
