@@ -5,11 +5,13 @@ const CHAT_READY_STABILITY_MS = 180;
 export function useStableChatLoadingIndicator(isLoading: boolean): boolean {
   const [isVisible, setIsVisible] = useState(isLoading);
   const latestLoadingRef = useRef(isLoading);
-  latestLoadingRef.current = isLoading;
+
+  useEffect(() => {
+    latestLoadingRef.current = isLoading;
+  }, [isLoading]);
 
   useEffect(() => {
     if (isLoading) {
-      setIsVisible(true);
       return;
     }
 
