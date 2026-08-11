@@ -46,12 +46,8 @@ describe("AgentSidebar", () => {
     expect(
       screen.getByPlaceholderText("Search tasks and projects"),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Filter tasks" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Add project" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add project" }));
     expect(onAddRepository).toHaveBeenCalledOnce();
-    expect(
-      screen.queryByRole("menuitem", { name: "Add project" }),
-    ).not.toBeInTheDocument();
   });
 
   it("opens the account menu and logs out the authenticated user", async () => {

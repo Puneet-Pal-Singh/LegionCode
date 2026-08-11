@@ -29,6 +29,7 @@ export function SidebarShell({
       style={{ width }}
     >
       <div className="flex h-14 shrink-0 items-center px-4">
+        {header ? <div className="min-w-0 flex-1">{header}</div> : null}
         {onClose ? (
           <motion.button
             type="button"
@@ -42,7 +43,6 @@ export function SidebarShell({
             <PanelLeftClose size={16} aria-hidden="true" />
           </motion.button>
         ) : null}
-        {header ? <div className="ml-2 min-w-0 flex-1">{header}</div> : null}
       </div>
 
       <div
