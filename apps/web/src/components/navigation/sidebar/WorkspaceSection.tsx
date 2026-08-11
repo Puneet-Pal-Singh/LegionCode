@@ -91,12 +91,12 @@ export function WorkspaceSection({
   };
 
   return (
-    <section className="space-y-1.5">
-      <div className="group/project grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center rounded-xl transition hover:bg-zinc-800/35">
+    <section className="space-y-1">
+      <div className="group/project grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-lg transition hover:bg-zinc-800/35">
         <button
           type="button"
           onClick={() => setIsExpanded((value) => !value)}
-          className="grid h-10 min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-zinc-500 transition hover:text-zinc-200"
+          className="grid h-9 min-w-0 grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-zinc-500 transition hover:text-zinc-200"
           aria-expanded={isExpanded}
           aria-label={`Toggle ${workspaceName}`}
         >
@@ -241,7 +241,7 @@ export function WorkspaceSection({
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.15 }}
-            className="mt-1 overflow-hidden"
+            className="overflow-hidden"
           >
             <TaskList
               tasks={sortedTasks}

@@ -38,7 +38,7 @@ describe("AgentSidebar", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "New task" }));
     expect(onCreate).toHaveBeenCalledWith();
     expect(screen.getByText("Projects")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Search" }));

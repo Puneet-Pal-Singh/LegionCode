@@ -181,7 +181,7 @@ export function TaskListRow({
           <span
             className={cn(
               "truncate text-sm",
-              task.isActive ? "font-semibold" : "font-medium",
+              task.isActive ? "font-medium" : "font-normal",
             )}
             title={task.title}
           >

@@ -278,16 +278,16 @@ export function AgentSidebar({
   ]);
 
   const utility = (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       <button
         type="button"
         onClick={() => onCreate()}
-        className="grid h-10 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800/65 hover:text-white"
+        className="grid h-9 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-zinc-800/65 hover:text-white"
       >
         <span className="flex size-8 items-center justify-center">
           <SquarePen size={16} aria-hidden="true" />
         </span>
-        <span>New chat</span>
+        <span>New task</span>
       </button>
 
       {isSearchOpen ? (
@@ -307,7 +307,7 @@ export function AgentSidebar({
               }
             }}
             placeholder="Search tasks and projects"
-            className="ui-input h-10 w-full rounded-xl pl-9 pr-9 text-sm text-zinc-300"
+            className="ui-input h-9 w-full rounded-lg pl-9 pr-9 text-sm text-zinc-300"
             aria-label="Search tasks"
           />
           <button
@@ -326,7 +326,7 @@ export function AgentSidebar({
         <button
           type="button"
           onClick={() => setIsSearchOpen(true)}
-          className="grid h-10 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-xl text-left text-sm font-medium text-zinc-100 transition hover:bg-zinc-800/55 hover:text-white"
+          className="grid h-9 w-full grid-cols-[2rem_minmax(0,1fr)] items-center rounded-lg text-left text-sm font-medium text-zinc-100 transition hover:bg-zinc-800/55 hover:text-white"
         >
           <span className="flex size-8 items-center justify-center">
             <Search size={16} aria-hidden="true" />
@@ -334,68 +334,67 @@ export function AgentSidebar({
           <span>Search</span>
         </button>
       )}
+    </div>
+  );
 
-      <div className="group/projects grid h-8 grid-cols-[2rem_minmax(0,1fr)_auto] items-center">
-        <span aria-hidden="true" />
-        <span className="text-sm font-medium text-zinc-500">Projects</span>
-        <div className="flex items-center gap-1">
+  const projectsHeader = (
+    <div className="group/projects flex h-8 items-center justify-between px-2">
+      <span className="text-sm font-medium text-zinc-500">Projects</span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-label="Add project"
+          onClick={onAddRepository}
+          className="rounded-md p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
+          title="Add project"
+        >
+          <FolderPlus size={14} aria-hidden="true" />
+        </button>
+        <div className="relative" ref={filterMenuRef}>
           <button
             type="button"
-            aria-label="Add project"
-            onClick={onAddRepository}
-            className="rounded-md p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
-            title="Add project"
+            aria-label="Filter tasks"
+            onClick={() => setIsFilterMenuOpen((value) => !value)}
+            className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
+            title="Filter tasks"
+            aria-haspopup="menu"
+            aria-expanded={isFilterMenuOpen}
           >
-            <FolderPlus size={14} aria-hidden="true" />
+            <MoreHorizontal
+              size={14}
+              aria-hidden="true"
+              className={statusFilter !== "all" ? "text-emerald-300" : undefined}
+            />
           </button>
-          <div className="relative" ref={filterMenuRef}>
-            <button
-              type="button"
-              aria-label="Filter tasks"
-              onClick={() => setIsFilterMenuOpen((value) => !value)}
-              className="rounded-md p-1.5 text-zinc-500 opacity-0 transition hover:bg-zinc-800/60 hover:text-zinc-200 focus-visible:opacity-100 group-hover/projects:opacity-100"
-              title="Filter tasks"
-              aria-haspopup="menu"
-              aria-expanded={isFilterMenuOpen}
-            >
-              <MoreHorizontal
-                size={14}
-                aria-hidden="true"
-                className={
-                  statusFilter !== "all" ? "text-emerald-300" : undefined
-                }
-              />
-            </button>
 
-            {isFilterMenuOpen ? (
-              <div
-                role="menu"
-                className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
-              >
-                <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">
-                  Show tasks
-                </div>
-                {FILTER_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setStatusFilter(option.value);
-                      setIsFilterMenuOpen(false);
-                    }}
-                    className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
-                    role="menuitemradio"
-                    aria-checked={statusFilter === option.value}
-                  >
-                    <span>{option.label}</span>
-                    {statusFilter === option.value ? (
-                      <Check size={14} className="text-zinc-300" />
-                    ) : null}
-                  </button>
-                ))}
+          {isFilterMenuOpen ? (
+            <div
+              role="menu"
+              className="ui-surface-popover absolute right-0 top-8 z-30 w-48 p-2"
+            >
+              <div className="px-2 pb-1 pt-1 text-sm text-zinc-500">
+                Show tasks
               </div>
-            ) : null}
-          </div>
+              {FILTER_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(option.value);
+                    setIsFilterMenuOpen(false);
+                  }}
+                  className="flex min-h-9 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+                  role="menuitemradio"
+                  aria-checked={statusFilter === option.value}
+                >
+                  <span>{option.label}</span>
+                  {statusFilter === option.value ? (
+                    <Check size={14} className="text-zinc-300" />
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -418,9 +417,10 @@ export function AgentSidebar({
       footer={footer}
       onClose={onClose}
     >
-      <div className="space-y-3">
+      <div className="space-y-2">
+        {projectsHeader}
         {pinnedTasks.length > 0 ? (
-          <section className="space-y-1.5">
+          <section className="space-y-1">
             <div className="grid h-9 grid-cols-[2rem_minmax(0,1fr)] items-center">
               <span className="flex size-8 items-center justify-center text-zinc-500">
                 <Pin size={14} aria-hidden="true" />
