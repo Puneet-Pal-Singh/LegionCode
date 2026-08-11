@@ -100,7 +100,7 @@ export function PermissionModeControl({
         disabled={disabled}
         className={cn(
           appearance === "ghost"
-            ? "inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-zinc-500 transition-all duration-200 hover:bg-zinc-800/50 hover:text-zinc-200"
+            ? "inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-zinc-300 transition-all duration-200 hover:bg-zinc-800/50 hover:text-zinc-100"
             : "inline-flex items-center gap-1.5 rounded-full border border-zinc-700/70 bg-zinc-900/80 px-2.5 py-1 text-xs font-medium text-zinc-300 transition",
           appearance === "pill" &&
             "hover:border-zinc-500/70 hover:bg-zinc-800/70 hover:text-zinc-100",

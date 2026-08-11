@@ -87,7 +87,7 @@ function BranchSelectorTrigger({
       aria-label="Select branch"
       aria-expanded={isOpen}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200",
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800/50 hover:text-zinc-100",
         isOpen && "bg-zinc-800/50 text-zinc-200",
       )}
     >
