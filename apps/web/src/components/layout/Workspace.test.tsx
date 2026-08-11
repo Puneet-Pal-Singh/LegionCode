@@ -508,4 +508,29 @@ describe("Workspace", () => {
       "review",
     );
   });
+
+  it("opens the existing review dialog from a completed edit", () => {
+    const onGitReviewOpenChange = vi.fn();
+    const setIsRightSidebarOpen = vi.fn();
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        onGitReviewOpenChange={onGitReviewOpenChange}
+        setIsRightSidebarOpen={setIsRightSidebarOpen}
+      />,
+    );
+
+    const chatProps = mockChatInterface.mock.calls.at(-1)?.[0] as {
+      onReviewOpen?: () => void;
+    };
+    chatProps.onReviewOpen?.();
+
+    expect(onGitReviewOpenChange).toHaveBeenCalledWith(true);
+    expect(setIsRightSidebarOpen).not.toHaveBeenCalled();
+    expect(mockWorkspaceStateSetters.setIsViewingContent).toHaveBeenCalledWith(
+      false,
+    );
+  });
 });

@@ -190,10 +190,10 @@ function TurnWorkflowEntry({
         <div data-testid={surfaceId ? `${surfaceId}-final` : undefined}>
           <TerminalMessage
             {...props}
-          terminalViewModel={terminalViewModel}
-          includeCurrentTurnReview={isCurrentTurn}
-          projection={entry.projection}
-          hookAudits={entry.projection.hookAudits}
+            terminalViewModel={terminalViewModel}
+            includeCurrentTurnReview={isCurrentTurn}
+            projection={entry.projection}
+            hookAudits={entry.projection.hookAudits}
           />
         </div>
       ) : null}

@@ -1,4 +1,10 @@
-import { useRef, useEffect, useMemo, useCallback } from "react";
+import {
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import {
   RunIdSchema,
   RunAttemptIdSchema,
@@ -40,13 +46,10 @@ import { ChatInterfaceView } from "./chat-interface/ChatInterfaceView";
 import { createLifecycleClient } from "../../services/api/lifecycleClient";
 import { useChatPresentation } from "./chat-interface/useChatPresentation";
 import type { InitialPromptSubmission } from "../../lib/initial-prompt-submission";
-import {
-  hasArtifactChangedFileSnapshot,
-  hasChangedFileSnapshot,
-} from "./chat-interface/changedFiles";
 import { useConversationLifecycleProjections } from "../../hooks/useConversationLifecycleProjections";
 import { mergeLifecycleProjections } from "./chat-interface/mergeLifecycleProjections";
 import type { ArtifactOpenHandler } from "./artifactOpen";
+import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoadingIndicator.js";
 
 interface ChatInterfaceProps {
   chatProps: {
@@ -87,6 +90,7 @@ interface ChatInterfaceProps {
   isLoadingRepoTree?: boolean;
   projectName?: string;
   onProjectClick?: () => void;
+  onPresentationReadyChange?: (ready: boolean) => void;
 }
 
 export function ChatInterface({
@@ -107,6 +111,7 @@ export function ChatInterface({
   isLoadingRepoTree = false,
   projectName,
   onProjectClick,
+  onPresentationReadyChange,
 }: ChatInterfaceProps) {
   const {
     messages,
@@ -218,6 +223,7 @@ export function ChatInterface({
     ],
   );
   const previousScrollScopeKeyRef = useRef<string | null>(null);
+  const previousPlaceholderVisibilityRef = useRef(true);
 
   const messageMetadataById = useMemo(() => {
     return buildChatMessageMetadata(
@@ -245,7 +251,10 @@ export function ChatInterface({
     () => buildConversationTurns(messages),
     [messages],
   );
-  const historicalLifecycleProjections = useConversationLifecycleProjections(
+  const {
+    projections: historicalLifecycleProjections,
+    isLoading: areHistoricalLifecyclesLoading,
+  } = useConversationLifecycleProjections(
     conversationTurns,
     lifecycleProjection?.turnId,
   );
@@ -305,7 +314,10 @@ export function ChatInterface({
   } = useChatPresentation({
     messages,
     conversationTurns,
-    hasHydrated,
+    hasHydrated:
+      hasHydrated &&
+      !areHistoricalLifecyclesLoading &&
+      (!activeTurn.hasCanonicalTurn || activeTurn.hasReplay),
     isLoading: activeRunLoading,
     hasPendingApproval: Boolean(pendingApproval),
     hasStartedSession,
@@ -313,6 +325,12 @@ export function ChatInterface({
     lifecycleProjectionsByTurnId,
     initialPromptSubmission,
   });
+  const showStableSessionPlaceholder = useStableChatLoadingIndicator(
+    showSessionPlaceholder,
+  );
+  useEffect(() => {
+    onPresentationReadyChange?.(!showStableSessionPlaceholder);
+  }, [onPresentationReadyChange, showStableSessionPlaceholder]);
   const renderComposerControls = (layout: ComposerLayout) => (
     <ChatComposerControls
       layout={layout}
@@ -379,9 +397,11 @@ export function ChatInterface({
   const latestLifecycleSequence = latestLifecycleProjection?.lastSequence ?? 0;
 
   // Keep the active turn visible as canonical lifecycle activity arrives.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scrollContainer = scrollRef.current;
-    if (!scrollContainer) {
+    const isLoaderReveal = previousPlaceholderVisibilityRef.current;
+    previousPlaceholderVisibilityRef.current = showStableSessionPlaceholder;
+    if (!scrollContainer || showStableSessionPlaceholder) {
       return;
     }
 
@@ -392,9 +412,16 @@ export function ChatInterface({
 
     scrollContainer.scrollTo({
       top: scrollContainer.scrollHeight,
-      behavior: isInitialScopeScroll ? "auto" : "smooth",
+      behavior: isInitialScopeScroll || isLoaderReveal ? "auto" : "smooth",
     });
-  }, [activeRunLoading, latestLifecycleSequence, messages, runId, sessionId]);
+  }, [
+    activeRunLoading,
+    latestLifecycleSequence,
+    messages,
+    runId,
+    sessionId,
+    showStableSessionPlaceholder,
+  ]);
 
   return (
     <ChatInterfaceView
@@ -402,7 +429,7 @@ export function ChatInterface({
       showHeroComposer={showHeroComposer}
       projectName={projectName}
       onProjectClick={onProjectClick}
-      showSessionPlaceholder={showSessionPlaceholder}
+      showSessionPlaceholder={showStableSessionPlaceholder}
       renderComposer={renderComposerControls}
       showDebugPanel={showDebugPanel}
       debugEvents={debugEvents}
@@ -419,13 +446,7 @@ export function ChatInterface({
       loadChangedFileDiff={loadChangedFileDiff}
       openPromptArtifactReview={openPromptArtifactReview}
       terminalViewModel={terminalViewModel}
-      terminalReviewFiles={
-        terminalViewModel &&
-        (hasChangedFileSnapshot(changedFileSnapshotsByAssistantMessageId) ||
-          hasArtifactChangedFileSnapshot(artifactSourcesByAssistantMessageId))
-          ? []
-          : completedTurnReview.files
-      }
+      terminalReviewFiles={terminalViewModel ? completedTurnReview.files : []}
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}
       loadArtifactChangedFileDiff={loadArtifactChangedFileDiff}
       loadCompletedTurnFileDiff={completedTurnReview.loadFileDiff}

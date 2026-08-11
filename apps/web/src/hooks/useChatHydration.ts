@@ -30,7 +30,7 @@ export function useChatHydration(
   const sessionId = scope?.sessionId ?? null;
   const runId = scope?.runId ?? null;
   const [isHydrating, setIsHydrating] = useState(false);
-  const [hydratedScopeKey, setHydratedScopeKey] = useState<string | null>(null);
+  const [hydratedKey, setHydratedKey] = useState<string | null>(null);
   const hasHydratedRef = useRef(false);
   const hydrationServiceRef = useRef(new ChatHydrationService());
   const scopeRef = useRef(scope);
@@ -62,7 +62,7 @@ export function useChatHydration(
   useEffect(() => {
     activeScopeKeyRef.current = scopeKey;
     hasHydratedRef.current = false;
-    setHydratedScopeKey(null);
+    setHydratedKey(null);
     setIsHydrating(false);
     logClientEvent("chat/hydration", "scope-reset", {
       runId,
@@ -151,7 +151,7 @@ export function useChatHydration(
 
         hasHydratedRef.current = true;
         resetRetry();
-        setHydratedScopeKey(requestScopeKey);
+        setHydratedKey(hydrationKey);
       } catch (error) {
         if (isCurrentScope()) {
           retryOnError(error);
@@ -184,7 +184,11 @@ export function useChatHydration(
     // A completed hydration belongs only to the exact conversation scope that
     // produced it. This prevents the previous task from appearing hydrated for
     // one render while a newly selected task is settling.
-    hasHydrated: Boolean(scopeKey) && hydratedScopeKey === scopeKey,
+    // Readiness belongs to the exact transcript revision, not only the thread.
+    // A terminal lifecycle update can require a second canonical history read;
+    // keeping the old scope-level readiness for that render exposed stale
+    // messages before the replacement request even started.
+    hasHydrated: Boolean(hydrationKey) && hydratedKey === hydrationKey,
   };
 }
 
