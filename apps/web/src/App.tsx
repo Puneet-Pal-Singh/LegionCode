@@ -910,6 +910,16 @@ function AppContent() {
     }
   };
 
+  const handleChooseExistingProject = (repository: string) => {
+    handleNewTask(repository);
+  };
+
+  const handleChooseNoProject = () => {
+    clearContext();
+    clearSetupSessionState();
+    createSession("New Task", "New Project");
+  };
+
   const focusReviewSidebar = () => {
     setReviewSidebarFocusRequest((previous) => previous + 1);
   };
@@ -1114,6 +1124,11 @@ function AppContent() {
                     reviewSidebarFocusRequest={reviewSidebarFocusRequest}
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
+                    projects={repositories.filter(
+                      (repository) => repository !== "New Project",
+                    )}
+                    onProjectSelect={handleChooseExistingProject}
+                    onNoProject={handleChooseNoProject}
                     onStart={(config) => {
                       updateSession(activeSessionId, {
                         status: "running",
@@ -1150,6 +1165,11 @@ function AppContent() {
                     requiresRepository
                     showOnboardingHighlights={showOnboardingOverlay}
                     onRepoClick={handleOpenRepositoryPicker}
+                    projects={repositories.filter(
+                      (repository) => repository !== "New Project",
+                    )}
+                    onProjectSelect={handleChooseExistingProject}
+                    onNoProject={handleChooseNoProject}
                     onStart={() => {
                       handleOpenRepositoryPicker();
                     }}
@@ -1166,6 +1186,7 @@ function AppContent() {
                 className="absolute inset-0 flex"
               >
                 <Workspace
+                  key={`${activeSessionId}:${activeSession.activeRunId}`}
                   sessionId={activeSessionId}
                   sessionTitle={activeSession.name}
                   sessionCreatedAt={activeSession.createdAt}
