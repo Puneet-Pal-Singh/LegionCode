@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { PanelLeftClose } from "lucide-react";
+import { useState } from "react";
 
 interface SidebarShellProps {
   width?: number;
@@ -20,12 +21,14 @@ export function SidebarShell({
   onClose,
   version,
 }: SidebarShellProps) {
+  const [isContentScrolled, setIsContentScrolled] = useState(false);
+
   return (
     <aside
       className="ui-sidebar-surface flex h-full flex-col overflow-hidden border-r"
       style={{ width }}
     >
-      <div className="flex h-14 shrink-0 items-center border-b ui-muted-divider px-4">
+      <div className="flex h-14 shrink-0 items-center px-4">
         {onClose ? (
           <motion.button
             type="button"
@@ -42,10 +45,23 @@ export function SidebarShell({
         {header ? <div className="ml-2 min-w-0 flex-1">{header}</div> : null}
       </div>
 
-      <div className="shrink-0 border-b ui-muted-divider px-4 pb-3 pt-3">
+      <div
+        data-testid="sidebar-utility"
+        data-content-scrolled={isContentScrolled ? "true" : "false"}
+        className={`shrink-0 px-4 pb-3 pt-3 ${
+          isContentScrolled ? "border-b ui-muted-divider" : ""
+        }`}
+      >
         {utility}
       </div>
-      <div className="flex-1 overflow-y-auto px-4 pb-3 pt-3">{children}</div>
+      <div
+        className="flex-1 overflow-y-auto px-4 pb-3 pt-3"
+        onScroll={(event) => {
+          setIsContentScrolled(event.currentTarget.scrollTop > 0);
+        }}
+      >
+        {children}
+      </div>
 
       {footer ? (
         <div className="border-t ui-muted-divider px-4 py-2">{footer}</div>

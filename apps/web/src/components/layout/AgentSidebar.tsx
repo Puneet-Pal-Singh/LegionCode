@@ -89,13 +89,14 @@ function mapSessionStatus(
   if (status === "waiting_for_approval") return "needs_approval";
   if (status === "paused") return "paused";
   if (status === "completed") {
-    return (!session.lastTerminalTurnId || selectSessionUnread(session)) &&
+    return Boolean(session.lastTerminalTurnId) &&
+      selectSessionUnread(session) &&
       shouldHighlightCompleted(session, activeSessionId)
       ? "completed"
       : "idle";
   }
   if (status === "failed") {
-    return !session.lastTerminalTurnId || selectSessionUnread(session)
+    return session.lastTerminalTurnId && selectSessionUnread(session)
       ? "failed"
       : "idle";
   }
