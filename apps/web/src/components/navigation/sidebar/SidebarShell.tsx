@@ -55,7 +55,7 @@ export function SidebarShell({
         {utility}
       </div>
       <div
-        className="flex-1 overflow-y-auto px-4 pb-3 pt-3"
+        className="sidebar-scroll-region flex-1 overflow-y-auto px-4 pb-3 pt-3"
         onScroll={(event) => {
           setIsContentScrolled(event.currentTarget.scrollTop > 0);
         }}
