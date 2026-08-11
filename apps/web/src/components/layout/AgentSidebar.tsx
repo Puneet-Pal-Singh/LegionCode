@@ -32,7 +32,6 @@ interface AgentSidebarProps {
   activeSessionId: string | null;
   approvalStatesBySessionId?: Record<string, boolean>;
   onSelect: (id: string) => void;
-  onOpenReview?: (id: string) => void;
   onCreate: (repo?: string) => void;
   onRemove: (id: string) => void;
   onRemoveRepository?: (repo: string) => void;
@@ -137,7 +136,6 @@ export function AgentSidebar({
   activeSessionId,
   approvalStatesBySessionId = {},
   onSelect,
-  onOpenReview,
   onCreate,
   onRemove,
   onRemoveRepository,
@@ -400,7 +398,7 @@ export function AgentSidebar({
     <SidebarShell
       width={width}
       header={
-        <div className="truncate text-lg font-semibold tracking-tight">
+        <div className="truncate pl-2 text-lg font-semibold tracking-tight">
           <span className="text-zinc-100">Legion</span>
           <span className="text-zinc-500">Code</span>
         </div>
@@ -425,7 +423,6 @@ export function AgentSidebar({
               <TaskList
                 tasks={pinnedTasks}
                 onSelectTask={onSelect}
-                onOpenTaskReview={onOpenReview}
                 onRemoveTask={onRemove}
               />
             </div>
@@ -438,7 +435,6 @@ export function AgentSidebar({
             workspaceName={section.repositoryLabel}
             tasks={section.tasks}
             onSelectTask={onSelect}
-            onOpenTaskReview={onOpenReview}
             onAddTask={() => onCreate(section.repository)}
             onRemoveTask={onRemove}
             onRemoveWorkspace={() => onRemoveRepository?.(section.repository)}
