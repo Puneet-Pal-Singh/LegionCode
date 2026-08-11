@@ -9,12 +9,16 @@ describe("PermissionModeControl", () => {
       <PermissionModeControl
         value={PRODUCT_MODES.AUTO_FOR_SAFE}
         onChange={vi.fn()}
+        appearance="ghost"
       />,
     );
 
     expect(
       screen.getByRole("button", { name: "Permission mode" }),
     ).toHaveTextContent("Auto edits");
+    expect(screen.getByRole("button", { name: "Permission mode" })).toHaveClass(
+      "text-zinc-400",
+    );
   });
 
   it("lets users switch from auto edits to full access", () => {
@@ -89,6 +93,9 @@ describe("PermissionModeControl", () => {
     expect(
       screen.getByRole("button", { name: "Permission mode" }),
     ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Permission mode" })).toHaveClass(
+      "opacity-45",
+    );
     expect(onChange).not.toHaveBeenCalled();
   });
 });
