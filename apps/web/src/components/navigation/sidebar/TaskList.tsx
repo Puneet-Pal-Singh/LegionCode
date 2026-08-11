@@ -5,7 +5,6 @@ import type { SidebarTaskItem } from "./types";
 interface TaskListProps {
   tasks: SidebarTaskItem[];
   onSelectTask: (taskId: string) => void;
-  onOpenTaskReview?: (taskId: string) => void;
   onRemoveTask?: (taskId: string) => void;
   emptyLabel?: string;
   maxRows?: number;
@@ -29,7 +28,6 @@ function clampIndex(index: number, listLength: number): number {
 export function TaskList({
   tasks,
   onSelectTask,
-  onOpenTaskReview,
   onRemoveTask,
   emptyLabel = "No tasks",
   maxRows = DEFAULT_MAX_ROWS,
@@ -92,9 +90,6 @@ export function TaskList({
             tabIndex={index === effectiveFocusedIndex ? 0 : -1}
             onFocus={() => setFocusedIndex(index)}
             onSelect={() => onSelectTask(task.id)}
-            onOpenReview={
-              onOpenTaskReview ? () => onOpenTaskReview(task.id) : undefined
-            }
             onRemove={onRemoveTask ? () => onRemoveTask(task.id) : undefined}
             onMoveFocus={(delta) => moveFocus(index, delta)}
             buttonRef={(element) => {

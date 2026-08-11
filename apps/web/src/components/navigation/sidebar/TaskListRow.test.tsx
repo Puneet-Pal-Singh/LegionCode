@@ -28,8 +28,7 @@ describe("TaskListRow product identity contract", () => {
     expect(row).toHaveClass("h-[34px]", "rounded-md");
   });
 
-  it("keeps notification status compact and exposes review and archive actions", () => {
-    const onOpenReview = vi.fn();
+  it("keeps notification status compact and exposes only the archive action", () => {
     const onRemove = vi.fn();
 
     render(
@@ -44,7 +43,6 @@ describe("TaskListRow product identity contract", () => {
         tabIndex={0}
         onFocus={vi.fn()}
         onSelect={vi.fn()}
-        onOpenReview={onOpenReview}
         onRemove={onRemove}
         onMoveFocus={vi.fn()}
       />,
@@ -52,8 +50,9 @@ describe("TaskListRow product identity contract", () => {
 
     expect(screen.getByTestId("task-status-failed")).toHaveClass("size-1.5");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open review for Review sidebar actions" }));
-    expect(onOpenReview).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: /Open review/ }),
+    ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Archive Review sidebar actions" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm archive for Review sidebar actions" }));

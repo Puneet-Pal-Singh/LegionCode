@@ -2,7 +2,6 @@ import {
   Archive,
   Circle,
   Clock3,
-  GitBranch,
   LoaderCircle,
   Pause,
   type LucideIcon,
@@ -16,7 +15,6 @@ interface TaskListRowProps {
   tabIndex: number;
   onFocus: () => void;
   onSelect: () => void;
-  onOpenReview?: () => void;
   onRemove?: () => void;
   onMoveFocus: (delta: number) => void;
   buttonRef?: (element: HTMLButtonElement | null) => void;
@@ -141,7 +139,6 @@ export function TaskListRow({
   tabIndex,
   onFocus,
   onSelect,
-  onOpenReview,
   onRemove,
   onMoveFocus,
   buttonRef,
@@ -196,10 +193,8 @@ export function TaskListRow({
           <div
             className={cn(
               "flex shrink-0 items-center justify-end gap-1.5 text-xs transition-[margin]",
-              (onOpenReview || onRemove) && !isConfirmingDelete
-                ? onOpenReview && onRemove
-                  ? "group-hover:mr-12 group-focus-within:mr-12"
-                  : "group-hover:mr-6 group-focus-within:mr-6"
+              onRemove && !isConfirmingDelete
+                ? "group-hover:mr-6 group-focus-within:mr-6"
                 : undefined,
             )}
           >
@@ -258,19 +253,6 @@ export function TaskListRow({
         </div>
       ) : (
         <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          {onOpenReview ? (
-            <button
-              type="button"
-              aria-label={`Open review for ${task.title}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenReview();
-              }}
-              className="grid size-5 place-items-center rounded text-zinc-500 transition-colors hover:bg-zinc-700/70 hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
-            >
-              <GitBranch size={12} aria-hidden="true" />
-            </button>
-          ) : null}
           {onRemove ? (
             <button
               type="button"
