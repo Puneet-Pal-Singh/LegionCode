@@ -25,6 +25,7 @@ describe("TaskListRow product identity contract", () => {
     expect(row).toHaveAttribute("data-testid", "thread-thr_server001");
     expect(row).toHaveAttribute("data-thread-id", "thr_server001");
     expect(row).toHaveAttribute("data-unread", "true");
+    expect(row).toHaveClass("h-[34px]", "rounded-md");
   });
 
   it("keeps notification status compact and exposes review and archive actions", () => {
