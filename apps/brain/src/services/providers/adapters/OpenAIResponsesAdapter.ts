@@ -275,12 +275,33 @@ function toResponsesInputItems(
     });
   }
 
+  const inputContent = message.content.flatMap(toResponsesUserContentPart);
   return [
     {
       role: message.role,
-      content: stringifyCoreMessageContent(message.content),
+      content: inputContent.length > 0 ? inputContent : " ",
     },
   ];
+}
+
+function toResponsesUserContentPart(
+  value: unknown,
+): Array<Record<string, unknown>> {
+  if (isTextPart(value)) {
+    return value.text.length > 0
+      ? [{ type: "input_text", text: value.text }]
+      : [];
+  }
+  if (isImagePart(value)) {
+    return [
+      {
+        type: "input_image",
+        image_url: value.image,
+        detail: "auto",
+      },
+    ];
+  }
+  return [];
 }
 
 function stringifyCoreMessageContent(content: CoreMessage["content"]): string {
@@ -398,9 +419,18 @@ function isTextPart(value: unknown): value is { type: "text"; text: string } {
   );
 }
 
-function isToolCallPart(
+function isImagePart(
   value: unknown,
-): value is {
+): value is { type: "image"; image: string } {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { type?: unknown }).type === "image" &&
+    typeof (value as { image?: unknown }).image === "string"
+  );
+}
+
+function isToolCallPart(value: unknown): value is {
   type: "tool-call";
   toolCallId: string;
   toolName: string;
@@ -415,9 +445,7 @@ function isToolCallPart(
   );
 }
 
-function isToolResultPart(
-  value: unknown,
-): value is {
+function isToolResultPart(value: unknown): value is {
   type: "tool-result";
   toolCallId: string;
   result: unknown;
