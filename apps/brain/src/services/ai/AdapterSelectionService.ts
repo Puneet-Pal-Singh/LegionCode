@@ -94,7 +94,15 @@ export async function selectAdapter(
   }
 
   if (route) {
-    return createTransportAdapter(route, env, overrideApiKey);
+    const connectionConfig = selection.providerId
+      ? await providerConfigService?.getConnectionConfig(selection.providerId)
+      : undefined;
+    return createTransportAdapter(
+      route,
+      env,
+      overrideApiKey,
+      connectionConfig,
+    );
   }
 
   return createAdapterForProvider(

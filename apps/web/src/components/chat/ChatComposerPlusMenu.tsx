@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { RunMode } from "@repo/shared-types";
 import { motion } from "framer-motion";
-import { Paperclip, Plus, Sparkles } from "lucide-react";
+import { FileCode2, ImagePlus, Plus, Sparkles } from "lucide-react";
 
 interface ChatComposerPlusMenuProps {
   mode: RunMode;
   disabled?: boolean;
-  onAddFiles: () => void;
+  onAttachImages: () => void;
+  onAddRepositoryContext: () => void;
   onModeChange?: (mode: RunMode) => void;
 }
 
 export function ChatComposerPlusMenu({
   mode,
   disabled = false,
-  onAddFiles,
+  onAttachImages,
+  onAddRepositoryContext,
   onModeChange,
 }: ChatComposerPlusMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -80,13 +82,28 @@ export function ChatComposerPlusMenu({
               if (disabled) {
                 return;
               }
-              onAddFiles();
+              onAttachImages();
               setIsOpen(false);
             }}
             className="ui-popover-item gap-3 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-zinc-200"
           >
-            <Paperclip size={16} className="text-zinc-400" />
-            Add photos & files
+            <ImagePlus size={16} className="text-zinc-400" />
+            Attach images
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            disabled={disabled}
+            onClick={() => {
+              if (disabled) return;
+              onAddRepositoryContext();
+              setIsOpen(false);
+            }}
+            className="ui-popover-item gap-3 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent disabled:hover:text-zinc-200"
+          >
+            <FileCode2 size={16} className="text-zinc-400" />
+            Add repository context
           </button>
 
           <div className="my-2 h-px bg-zinc-800" />

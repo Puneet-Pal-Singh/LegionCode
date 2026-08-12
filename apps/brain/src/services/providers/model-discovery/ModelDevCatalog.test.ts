@@ -416,6 +416,94 @@ describe("enrichModelFromModelDev", () => {
     expect(model.contextWindow).toBe(131072);
     expect(model.pricing).toBeUndefined();
   });
+
+  it.each([
+    {
+      modelId: "gpt-5.6-luna",
+      npm: "@ai-sdk/openai",
+      transport: "openai-responses",
+      endpoint: "https://opencode.ai/zen/v1/responses",
+    },
+    {
+      modelId: "claude-fable-5",
+      npm: "@ai-sdk/anthropic",
+      transport: "anthropic-messages",
+      endpoint: "https://opencode.ai/zen/v1/messages",
+    },
+    {
+      modelId: "gemini-3.5-flash",
+      npm: "@ai-sdk/google",
+      transport: "google-generative",
+      endpoint: "https://opencode.ai/zen/v1",
+    },
+    {
+      modelId: "glm-5.1",
+      npm: "@ai-sdk/openai-compatible",
+      transport: "openai-chat-completions",
+      endpoint: "https://opencode.ai/zen/v1/chat/completions",
+    },
+  ])(
+    "derives the $transport route from OpenCode's Models.dev SDK metadata",
+    ({ modelId, npm, transport, endpoint }) => {
+      const catalog = parseModelDevCatalog({
+        opencode: {
+          api: "https://opencode.ai/zen/v1",
+          npm: "@ai-sdk/openai-compatible",
+          models: {
+            [modelId]: {
+              provider: { npm },
+              tool_call: true,
+            },
+          },
+        },
+      })!;
+
+      const enriched = enrichModelFromModelDev(catalog, "opencode-zen", {
+        id: modelId,
+        name: modelId,
+        providerId: "opencode-zen",
+        availability: "unsupported_transport",
+        unavailableReason: "route unresolved",
+      });
+
+      expect(enriched).toMatchObject({
+        availability: "available",
+        capabilities: { supportsTools: true },
+        runtimeRoute: {
+          providerId: "opencode-zen",
+          modelId,
+          transport,
+          endpoint,
+        },
+      });
+      expect(enriched.unavailableReason).toBeUndefined();
+    },
+  );
+
+  it("uses the OpenCode Go provider-level API and SDK defaults", () => {
+    const catalog = parseModelDevCatalog({
+      "opencode-go": {
+        api: "https://opencode.ai/zen/go/v1",
+        npm: "@ai-sdk/openai-compatible",
+        models: { "mimo-v2-omni": { tool_call: true } },
+      },
+    })!;
+
+    const enriched = enrichModelFromModelDev(catalog, "opencode-go", {
+      id: "mimo-v2-omni",
+      name: "MiMo V2 Omni",
+      providerId: "opencode-go",
+      availability: "unsupported_transport",
+    });
+
+    expect(enriched.runtimeRoute).toEqual({
+      providerId: "opencode-go",
+      modelId: "mimo-v2-omni",
+      transport: "openai-chat-completions",
+      endpoint: "https://opencode.ai/zen/go/v1/chat/completions",
+    });
+    expect(enriched.availability).toBe("available");
+  });
 });
 
 describe("catalog-owned reasoning variants", () => {

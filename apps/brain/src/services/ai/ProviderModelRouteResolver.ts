@@ -6,7 +6,11 @@ import type {
 import { ValidationError } from "../../domain/errors";
 import { ProviderRegistryService } from "../providers";
 
-const MIXED_TRANSPORT_PROVIDERS = new Set(["opencode-zen", "cloudflare-ai"]);
+const MIXED_TRANSPORT_PROVIDERS = new Set([
+  "opencode-go",
+  "opencode-zen",
+  "cloudflare-ai",
+]);
 
 export interface ProviderModelRoute {
   providerId: string;

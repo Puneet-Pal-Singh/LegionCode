@@ -128,6 +128,51 @@ describe("OpenAIResponsesAdapter", () => {
     expect(body).not.toHaveProperty("temperature");
   });
 
+  it("forwards attached images as native Responses input_image parts", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ output_text: "A screenshot" }), {
+        status: 200,
+      }),
+    );
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "sk-test",
+      endpoint: "https://api.openai.com/v1/responses",
+      providerId: "openai",
+    });
+
+    await adapter.generate({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is shown?" },
+            {
+              type: "image",
+              image: "data:image/png;base64,aGVsbG8=",
+              mimeType: "image/png",
+            },
+          ],
+        },
+      ],
+      model: "gpt-5.6",
+    });
+
+    const body = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body));
+    expect(body.input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "What is shown?" },
+          {
+            type: "input_image",
+            image_url: "data:image/png;base64,aGVsbG8=",
+            detail: "auto",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("converts Zod coding-tool schemas for Responses function tools", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")

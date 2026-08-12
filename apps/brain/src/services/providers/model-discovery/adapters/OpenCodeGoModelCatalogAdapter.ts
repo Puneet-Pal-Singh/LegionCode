@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type {
   BYOKDiscoveredProviderModel,
-  ProviderModelTransport,
 } from "@repo/shared-types";
 import type { ProviderModelCatalogPort } from "../ProviderModelCatalogPort";
 import type {
@@ -16,29 +15,7 @@ import {
 
 const OPENCODE_GO_PROVIDER_ID = "opencode-go";
 const OPENCODE_GO_MODELS_ENDPOINT = "https://opencode.ai/zen/go/v1/models";
-const OPENCODE_GO_CHAT_ENDPOINT =
-  "https://opencode.ai/zen/go/v1/chat/completions";
-const OPENCODE_GO_MESSAGES_ENDPOINT = "https://opencode.ai/zen/go/v1/messages";
 const OPENCODE_GO_FETCH_TIMEOUT_MS = 15_000;
-
-const CHAT_COMPLETIONS_MODEL_IDS = new Set([
-  "glm-5.1",
-  "glm-5",
-  "kimi-k2.5",
-  "kimi-k2.6",
-  "deepseek-v4-pro",
-  "deepseek-v4-flash",
-  "mimo-v2.5",
-  "mimo-v2.5-pro",
-]);
-
-const MESSAGES_MODEL_IDS = new Set([
-  "minimax-m2.7",
-  "minimax-m2.5",
-  "qwen3.7-max",
-  "qwen3.6-plus",
-  "qwen3.5-plus",
-]);
 
 const OpenCodeGoModelsSchema = z.union([
   z.object({
@@ -199,54 +176,15 @@ async function parseOpenCodeGoModels(
 function normalizeOpenCodeGoModel(
   model: OpenCodeGoModelPayload,
 ): BYOKDiscoveredProviderModel {
-  const route = resolveOpenCodeGoRoute(model.id);
   return {
     id: model.id,
     name: model.name ?? model.id,
     providerId: OPENCODE_GO_PROVIDER_ID,
     description: model.description,
     contextWindow: model.contextWindow ?? model.context_window,
-    capabilities: {
-      supportsTools: route.available,
-      supportsStructuredOutputs:
-        route.available && route.transport === "openai-chat-completions",
-    },
-    runtimeRoute: {
-      providerId: OPENCODE_GO_PROVIDER_ID,
-      modelId: model.id,
-      transport: route.transport,
-      endpoint: route.endpoint,
-    },
-    availability: route.available ? "available" : "unsupported_transport",
-    unavailableReason: route.available
-      ? undefined
-      : "Anthropic Messages transport is not wired yet.",
-  };
-}
-
-function resolveOpenCodeGoRoute(modelId: string): {
-  transport: ProviderModelTransport;
-  endpoint: string;
-  available: boolean;
-} {
-  if (CHAT_COMPLETIONS_MODEL_IDS.has(modelId)) {
-    return {
-      transport: "openai-chat-completions",
-      endpoint: OPENCODE_GO_CHAT_ENDPOINT,
-      available: true,
-    };
-  }
-  if (MESSAGES_MODEL_IDS.has(modelId)) {
-    return {
-      transport: "anthropic-messages",
-      endpoint: OPENCODE_GO_MESSAGES_ENDPOINT,
-      available: false,
-    };
-  }
-  return {
-    transport: "openai-chat-completions",
-    endpoint: OPENCODE_GO_CHAT_ENDPOINT,
-    available: false,
+    availability: "unsupported_transport",
+    unavailableReason:
+      "OpenCode model transport metadata is unavailable from the live model-list response.",
   };
 }
 

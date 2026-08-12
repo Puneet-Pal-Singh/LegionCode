@@ -1013,6 +1013,7 @@ function AppContent() {
                         ),
                         sessionId: activeSessionId,
                         prompt: config.task,
+                        attachments: config.attachments,
                       });
                     }}
                   />

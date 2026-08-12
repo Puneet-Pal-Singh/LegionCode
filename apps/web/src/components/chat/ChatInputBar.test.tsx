@@ -43,6 +43,14 @@ describe("ChatInputBar", () => {
   const credentialId = "550e8400-e29b-41d4-a716-446655440000";
 
   beforeEach(() => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:image-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
     mockStore = {
       catalog: [
         {
@@ -583,7 +591,9 @@ describe("ChatInputBar", () => {
         screen.getByRole("button", { name: "Open composer options" }),
       );
       fireEvent.click(
-        await screen.findByRole("menuitem", { name: "Add photos & files" }),
+        await screen.findByRole("menuitem", {
+          name: "Add repository context",
+        }),
       );
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
@@ -595,18 +605,96 @@ describe("ChatInputBar", () => {
     });
   });
 
-  it("keeps unfinished attachment and voice controls hidden", () => {
+  it("attaches images in plan mode without pre-classifying model support", async () => {
+    const onSubmit = vi.fn(
+      async (attachments?: {
+        imageAttachments: Array<{
+          name: string;
+          mediaType: string;
+          source: string;
+        }>;
+      }) => {
+        void attachments;
+        return true;
+      },
+    );
+
     render(
       <ChatInputBar
         input=""
+        onChange={vi.fn()}
+        onSubmit={onSubmit}
+        sessionId="session-1"
+        mode="plan"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open composer options" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Attach images" }),
+    );
+    fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+      target: {
+        files: [new File(["hello"], "screen.png", { type: "image/png" })],
+      },
+    });
+
+    expect(await screen.findByLabelText("Attached images")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0]?.[0]?.imageAttachments).toHaveLength(1);
+    expect(onSubmit.mock.calls[0]?.[0]?.imageAttachments[0]).toMatchObject({
+      name: "screen.png",
+      mediaType: "image/png",
+      source: "upload",
+    });
+  });
+
+  it("accepts pasted and dropped images through the composer", async () => {
+    render(
+      <ChatInputBar
+        input="Inspect these"
         onChange={vi.fn()}
         onSubmit={vi.fn()}
         sessionId="session-1"
       />,
     );
 
-    expect(screen.queryByTitle("Attach file")).toBeNull();
-    expect(screen.queryByTitle("Voice input")).toBeNull();
+    const textarea = screen.getByPlaceholderText(
+      "Ask LegionCode anything, @ to add files, / for commands",
+    );
+    const pastedFile = new File(["pasted"], "pasted.png", {
+      type: "image/png",
+    });
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [
+          {
+            kind: "file",
+            type: "image/png",
+            getAsFile: () => pastedFile,
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByAltText(/pasted\.png/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Remove attached image 1"));
+
+    const droppedFile = new File(["dropped"], "dropped.webp", {
+      type: "image/webp",
+    });
+    fireEvent.drop(screen.getByTestId("chat-composer-drop-zone"), {
+      dataTransfer: {
+        types: ["Files"],
+        files: [droppedFile],
+      },
+    });
+
+    expect(await screen.findByAltText(/dropped\.webp/)).toBeTruthy();
   });
 
   it("allows sending selected review comments without freeform text", () => {

@@ -29,12 +29,11 @@ import {
   getPreferredMentionPath,
 } from "./fileMentions";
 import {
-  createChatImageAttachment,
-  formatAttachmentSize,
-  validateNextImageAttachment,
-  type ChatImageAttachment,
+  CHAT_IMAGE_MIME_TYPES,
   type ChatSubmitAttachments,
 } from "./chatImageAttachments";
+import { ChatImageAttachmentStrip } from "./ChatImageAttachmentStrip";
+import { useChatImageAttachmentDraft } from "./useChatImageAttachmentDraft";
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import {
   isProviderModelBootstrapLoading,
@@ -123,14 +122,9 @@ export function ChatInputBar({
 }: ChatInputBarProps) {
   const composerPreferences = useComposerPreferences();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const imageAttachmentsRef = useRef<ChatImageAttachment[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [imageAttachments, setImageAttachments] = useState<
-    ChatImageAttachment[]
-  >([]);
-  const [imageAttachmentError, setImageAttachmentError] = useState<
-    string | null
-  >(null);
+  const imageDraft = useChatImageAttachmentDraft();
   const [cursorPosition, setCursorPosition] = useState(0);
   const [highlightedFileIndex, setHighlightedFileIndex] = useState(0);
   const [switchWarningMessage, setSwitchWarningMessage] = useState<
@@ -180,7 +174,7 @@ export function ChatInputBar({
     setModelView,
     applySessionSelection,
   } = useProviderStore(runId);
-  const hasImageAttachments = imageAttachments.length > 0;
+  const hasImageAttachments = imageDraft.attachments.length > 0;
   const hasInput = input.trim().length > 0;
   const hasReviewComments = reviewComments.length > 0;
   const canSubmit = hasInput || hasReviewComments || hasImageAttachments;
@@ -276,24 +270,6 @@ export function ChatInputBar({
         (model) => model.id === selectedModelId,
       ))
     : undefined;
-  const selectedModelAllowsImages =
-    selectedModel?.inputModalities?.image === true &&
-    selectedModel.capabilityMetadata !== undefined &&
-    selectedModel.capabilityMetadata?.confidence !== "unknown";
-
-  useEffect(() => {
-    imageAttachmentsRef.current = imageAttachments;
-  }, [imageAttachments]);
-
-  useEffect(
-    () => () => {
-      for (const attachment of imageAttachmentsRef.current) {
-        URL.revokeObjectURL(attachment.previewUrl);
-      }
-    },
-    [],
-  );
-
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -376,29 +352,19 @@ export function ChatInputBar({
   };
 
   const submitComposer = async () => {
-    if (hasImageAttachments && mode !== "build") {
-      setImageAttachmentError(
-        "Image attachments are only supported in Build mode.",
-      );
-      return;
-    }
-    if (hasImageAttachments && !selectedModelAllowsImages) {
-      setImageAttachmentError(
-        "Selected model only allows text. Choose a vision-capable model to attach images.",
-      );
-      return;
-    }
     if (hasImageAttachments && hasReviewComments) {
-      setImageAttachmentError(
+      imageDraft.reportError(
         "Remove image attachments before sending selected review comments.",
       );
       return;
     }
     const submitted = await onSubmit(
-      hasImageAttachments ? { imageAttachments } : undefined,
+      hasImageAttachments
+        ? { imageAttachments: imageDraft.attachments }
+        : undefined,
     );
     if (hasImageAttachments && submitted !== false) {
-      clearImageAttachments();
+      imageDraft.clear();
     }
   };
 
@@ -471,90 +437,7 @@ export function ChatInputBar({
     if (guardActiveRunSwitch()) {
       return;
     }
-    if (nextMode !== "build" && hasImageAttachments) {
-      showSwitchWarning(
-        "Remove image attachments before switching to Plan mode.",
-      );
-      return;
-    }
     onModeChange?.(nextMode);
-  };
-
-  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => file !== null);
-    if (files.length === 0) {
-      return;
-    }
-    event.preventDefault();
-    void addImageFiles(files, "paste");
-  };
-
-  const addImageFiles = async (files: File[], source: "paste" | "upload") => {
-    if (mode !== "build") {
-      setImageAttachmentError(
-        "Image attachments are only supported in Build mode.",
-      );
-      return;
-    }
-    if (!selectedModelAllowsImages) {
-      setImageAttachmentError(
-        "Selected model only allows text. Choose a vision-capable model to attach images.",
-      );
-      return;
-    }
-
-    let firstError: string | null = null;
-    let addedAttachment = false;
-    for (const file of files) {
-      const validationError = validateNextImageAttachment({
-        file,
-        existingAttachments: imageAttachmentsRef.current,
-      });
-      if (validationError) {
-        firstError ??= validationError;
-        continue;
-      }
-      const attachment = await createChatImageAttachment(file, source);
-      const latestValidationError = validateNextImageAttachment({
-        file,
-        existingAttachments: imageAttachmentsRef.current,
-      });
-      if (latestValidationError) {
-        URL.revokeObjectURL(attachment.previewUrl);
-        firstError ??= latestValidationError;
-        continue;
-      }
-      const nextAttachments = [...imageAttachmentsRef.current, attachment];
-      imageAttachmentsRef.current = nextAttachments;
-      setImageAttachments(nextAttachments);
-      addedAttachment = true;
-    }
-    setImageAttachmentError(
-      firstError ?? (addedAttachment ? null : imageAttachmentError),
-    );
-  };
-
-  const removeImageAttachment = (attachmentId: string) => {
-    setImageAttachments((current) => {
-      const removed = current.find(
-        (attachment) => attachment.id === attachmentId,
-      );
-      if (removed) {
-        URL.revokeObjectURL(removed.previewUrl);
-      }
-      return current.filter((attachment) => attachment.id !== attachmentId);
-    });
-  };
-
-  const clearImageAttachments = () => {
-    for (const attachment of imageAttachmentsRef.current) {
-      URL.revokeObjectURL(attachment.previewUrl);
-    }
-    imageAttachmentsRef.current = [];
-    setImageAttachments([]);
   };
 
   const selectSuggestedFile = (filePath: string) => {
@@ -750,12 +633,30 @@ export function ChatInputBar({
         ) : null}
 
         <div
+          data-testid="chat-composer-drop-zone"
+          onDragOver={imageDraft.handleDragOver}
+          onDragLeave={imageDraft.handleDragLeave}
+          onDrop={imageDraft.handleDrop}
           className={`
-            ui-control-surface composer-surface p-3
+            ui-control-surface composer-surface relative p-3
             transition-all duration-200
             ${isFocused ? "composer-surface-focused shadow-lg shadow-black/20" : ""}
+            ${imageDraft.isDraggingImages ? "ring-1 ring-cyan-400/70" : ""}
           `}
         >
+          <input
+            ref={imageInputRef}
+            type="file"
+            multiple
+            accept={CHAT_IMAGE_MIME_TYPES.join(",")}
+            className="sr-only"
+            aria-label="Choose images to attach"
+            onChange={(event) => {
+              const files = event.currentTarget.files;
+              if (files) void imageDraft.addFiles(Array.from(files), "upload");
+              event.currentTarget.value = "";
+            }}
+          />
           {hasReviewComments ? (
             <div className="mb-3 space-y-2">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
@@ -823,30 +724,10 @@ export function ChatInputBar({
             </div>
           ) : null}
 
-          {hasImageAttachments ? (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {imageAttachments.map((attachment, index) => (
-                <div
-                  key={attachment.id}
-                  className="relative h-20 w-20 overflow-hidden rounded-md border border-zinc-700 bg-zinc-900"
-                >
-                  <img
-                    src={attachment.previewUrl}
-                    alt={`Attached image ${index + 1}: ${attachment.name}, ${attachment.mediaType}, ${formatAttachmentSize(attachment.byteSize)}`}
-                    className="h-full w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeImageAttachment(attachment.id)}
-                    className="absolute right-1 top-1 rounded-full bg-white p-1 text-black shadow transition hover:bg-zinc-200"
-                    aria-label={`Remove attached image ${index + 1}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <ChatImageAttachmentStrip
+            attachments={imageDraft.attachments}
+            onRemove={imageDraft.remove}
+          />
 
           <textarea
             ref={textareaRef}
@@ -858,7 +739,7 @@ export function ChatInputBar({
               );
               setDismissedMentionKey(null);
             }}
-            onPaste={handlePaste}
+            onPaste={imageDraft.handlePaste}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -904,9 +785,9 @@ export function ChatInputBar({
             </div>
           ) : null}
 
-          {imageAttachmentError ? (
+          {imageDraft.error ? (
             <div className="ui-control-surface mt-3 px-3 py-2 text-xs text-amber-100">
-              {imageAttachmentError}
+              {imageDraft.error}
             </div>
           ) : null}
 
@@ -938,7 +819,8 @@ export function ChatInputBar({
                 mode={mode}
                 disabled={isComposerActiveRun}
                 onModeChange={handleModeChange}
-                onAddFiles={insertMentionTrigger}
+                onAttachImages={() => imageInputRef.current?.click()}
+                onAddRepositoryContext={insertMentionTrigger}
               />
 
               <div className="h-3.5 w-px bg-zinc-700/80" />
@@ -982,23 +864,6 @@ export function ChatInputBar({
                     setProviderDialogInitialView("default");
                     setProviderDialogVariant("connect-only");
                     setShowProviderDialog(true);
-                    return;
-                  }
-                  const nextModel =
-                    providerModels[providerId]?.find(
-                      (model) => model.id === modelId,
-                    ) ??
-                    manageProviderModels?.[providerId]?.find(
-                      (model) => model.id === modelId,
-                    );
-                  const nextModelAllowsImages =
-                    nextModel?.inputModalities?.image === true &&
-                    nextModel.capabilityMetadata !== undefined &&
-                    nextModel.capabilityMetadata?.confidence !== "unknown";
-                  if (hasImageAttachments && !nextModelAllowsImages) {
-                    showSwitchWarning(
-                      "Remove image attachments before switching to a text-only model.",
-                    );
                     return;
                   }
                   if (hasMessages && !isComposerActiveRun) {
