@@ -74,6 +74,32 @@ describe("turn workflow projection", () => {
     });
   });
 
+  it("projects the typed failure reason inside the canonical terminal", () => {
+    const projection = applyLifecycleEvent(
+      createTurnWorkflowProjection(TURN_ID),
+      event(1, "turn.failed", {
+        payload: {
+          outcome: {
+            status: "failed",
+            failure: {
+              code: "provider_unavailable",
+              message: "OpenCode Zen route failed",
+              retryable: true,
+              correlationId: null,
+              details: null,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(projection.terminal).toMatchObject({
+      state: "failed",
+      content: "OpenCode Zen route failed",
+      errorCode: "provider_unavailable",
+    });
+  });
+
   it("projects canonical file, diff and shell details for interactive renderers", () => {
     const projection = replayTurnWorkflowProjection(TURN_ID, [
       event(1, "tool_call.started", {

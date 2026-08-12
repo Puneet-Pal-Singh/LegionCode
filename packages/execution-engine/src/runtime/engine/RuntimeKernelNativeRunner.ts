@@ -99,6 +99,10 @@ import {
   getAgenticLoopMaxSteps,
   recordAgenticLoopMetadata,
 } from "./RunAgenticLoopPolicy.js";
+import {
+  getNativeToolCallSafetyLimit,
+  shouldForceNativeFinalSynthesis,
+} from "./NativeProviderStepBudget.js";
 import { shouldRetryNativeFinalOnlyResponse } from "./NativeProviderFinalRecoveryPolicy.js";
 import { buildNativeProviderMessages } from "./NativeProviderFinalRecoveryMessages.js";
 import {
@@ -354,6 +358,7 @@ export class RuntimeKernelNativeRunner {
       canonicalWorkspaceId: input.workspaceId,
       workspace: input.workspace,
     });
+    const maxSteps = getAgenticLoopMaxSteps(input.input.metadata);
     const provider = new KernelAgenticProvider({
       run,
       input: input.input,
@@ -364,6 +369,7 @@ export class RuntimeKernelNativeRunner {
       runRepo: this.runRepo,
       runEventRecorder: this.runEventRecorder,
       isRunCancelled: this.isRunCancelled.bind(this),
+      maxSteps,
     });
     const capabilityManifest = createCloudSandboxRunCapabilityManifest({
       runId: protocol.run.id,
@@ -420,7 +426,7 @@ export class RuntimeKernelNativeRunner {
       }),
       hooks: input.hookOrchestration,
       producerId: "runtime-kernel-native",
-      maxToolCalls: getAgenticLoopMaxSteps(input.input.metadata),
+      maxToolCalls: getNativeToolCallSafetyLimit(maxSteps),
       clock: { now },
       signal: this.activeTurn?.abortController.signal,
     });
@@ -643,12 +649,15 @@ export class RuntimeKernelNativeRunner {
           cause: describeRuntimeErrorCause(error),
         }),
       );
-      return await finalizeRunWithAssistantMessage({
+      await finalizeRunWithAssistantMessage({
         run,
         runtimeFinal: createRuntimeFinalText(message),
         metadata: { terminalState },
         deps: this.getRunCompletionDependencies(),
       });
+      // The lifecycle terminal is the canonical failed-turn renderer. Do not
+      // stream a second assistant bubble above the failed workflow surface.
+      return createStreamResponse("");
     }
   }
 
@@ -921,6 +930,7 @@ class KernelAgenticProvider implements ProviderPort {
       runRepo: RunRepository;
       runEventRecorder: RunEventRecorder;
       isRunCancelled: () => Promise<boolean>;
+      maxSteps: number;
     },
   ) {
     this.messages = [...options.messages];
@@ -944,7 +954,12 @@ class KernelAgenticProvider implements ProviderPort {
         output: "The run stopped because its configured budget was exceeded.",
       };
     }
-    let finalOnlyRecoveryAttempts = 0;
+    let finalOnlyRecoveryAttempts = shouldForceNativeFinalSynthesis(
+      this.stepsExecuted,
+      this.options.maxSteps,
+    )
+      ? 1
+      : 0;
     let responseParts: LLMTextResponse["parts"];
     let responseUsage: LLMTextResponse["usage"] | null = null;
     let toolCalls: AgenticLoopToolCall[];

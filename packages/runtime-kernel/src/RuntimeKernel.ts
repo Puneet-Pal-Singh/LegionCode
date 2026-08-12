@@ -80,7 +80,10 @@ export class RuntimeKernel {
   private readonly maxToolCalls: number;
   private readonly clock: RuntimeKernelClock;
   private readonly lifecycles = new Map<string, RuntimeLifecycleCoordinator>();
-  private readonly approvalCoordinators = new Map<string, ApprovalCoordinator>();
+  private readonly approvalCoordinators = new Map<
+    string,
+    ApprovalCoordinator
+  >();
   private readonly artifactSettlements = new Map<
     string,
     TurnArtifactSettlementCoordinator
@@ -92,7 +95,10 @@ export class RuntimeKernel {
   private readonly pendingInterrupts = new Map<string, string>();
   private readonly executions = new Map<string, Promise<StartTurnResult>>();
   private readonly preparedTurns = new Map<string, PreparedTurn>();
-  private readonly activeContexts = new Map<string, Awaited<ReturnType<ContextAssemblyPort["assemble"]>>>();
+  private readonly activeContexts = new Map<
+    string,
+    Awaited<ReturnType<ContextAssemblyPort["assemble"]>>
+  >();
   private readonly compactedContexts = new Set<string>();
   private readonly compactions = new Map<string, Promise<void>>();
   private readonly automaticCompactions = new Set<string>();
@@ -383,15 +389,27 @@ export class RuntimeKernel {
         : await this.assembleContext(run, turn, workspace, toolResults);
       this.activeContexts.set(turn.id, effectiveContext);
       await this.maybeAutomaticallyCompact(prepared, effectiveContext);
-      const step = await this.dependencies.provider.generateNext({
-        run,
-        runAttemptId,
-        turn,
-        workspace,
-        context: this.activeContexts.get(turn.id) ?? effectiveContext,
-        toolResults,
-        signal: this.executionSignal,
-      });
+      let step: Awaited<ReturnType<ProviderPort["generateNext"]>>;
+      try {
+        step = await this.dependencies.provider.generateNext({
+          run,
+          runAttemptId,
+          turn,
+          workspace,
+          context: this.activeContexts.get(turn.id) ?? effectiveContext,
+          toolResults,
+          signal: this.executionSignal,
+        });
+      } catch (error) {
+        if (error instanceof RuntimeKernelError) throw error;
+        throw new RuntimeKernelError(
+          "provider_failed",
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Model provider request failed",
+          error,
+        );
+      }
       if (step.usage) {
         const lifecycle = this.lifecycles.get(turn.id);
         if (!lifecycle) {
@@ -563,7 +581,9 @@ export class RuntimeKernel {
       this.activeContexts.set(prepared.turn.id, result.context);
       this.compactedContexts.add(prepared.turn.id);
       if (result.context.budgetSnapshot) {
-        await prepared.lifecycle.updateContextBudget(result.context.budgetSnapshot);
+        await prepared.lifecycle.updateContextBudget(
+          result.context.budgetSnapshot,
+        );
       }
       await prepared.lifecycle.settleContextCompaction({
         ...base,
@@ -575,7 +595,8 @@ export class RuntimeKernel {
       await prepared.lifecycle.settleContextCompaction({
         ...base,
         phase: "failed",
-        error: error instanceof Error ? error.message : "Context compaction failed",
+        error:
+          error instanceof Error ? error.message : "Context compaction failed",
       });
       throw error;
     }
@@ -586,7 +607,11 @@ export class RuntimeKernel {
     reason: string,
   ): Promise<void> {
     try {
-      await this.settleArtifacts(prepared.turn.id, prepared.lifecycle, prepared.artifacts);
+      await this.settleArtifacts(
+        prepared.turn.id,
+        prepared.lifecycle,
+        prepared.artifacts,
+      );
       await prepared.lifecycle.interrupt(reason);
     } finally {
       this.approvalCoordinators.delete(prepared.turn.id);

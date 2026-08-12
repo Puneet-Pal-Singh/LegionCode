@@ -48,28 +48,32 @@ describe("RuntimeKernel canonical lifecycle", () => {
       async runSessionStart(input): Promise<void> {
         order.push("session");
         triggerIds.push(input.triggerEventId);
-        await input.auditAppender.appendHookAudit(
-          "hook.invocation.started",
-          { eventName: "SessionStart" },
-        );
+        await input.auditAppender.appendHookAudit("hook.invocation.started", {
+          eventName: "SessionStart",
+        });
       },
       async runUserPromptSubmit(input): Promise<void> {
         order.push("prompt");
         triggerIds.push(input.triggerEventId);
-        await input.auditAppender.appendHookAudit(
-          "hook.invocation.completed",
-          { eventName: "UserPromptSubmit" },
-        );
+        await input.auditAppender.appendHookAudit("hook.invocation.completed", {
+          eventName: "UserPromptSubmit",
+        });
       },
     };
-    const kernel = await createKernel(sink, ports, createArtifactPorts(), hooks);
+    const kernel = await createKernel(
+      sink,
+      ports,
+      createArtifactPorts(),
+      hooks,
+    );
 
     await kernel.startTurn({ run, turn, runAttemptId });
 
     expect(order).toEqual(["session", "prompt", "provider"]);
     expect(triggerIds).toEqual([
       sink.events.find((event) => event.type === "turn.started")?.eventId,
-      sink.events.find((event) => event.type === "run_attempt.started")?.eventId,
+      sink.events.find((event) => event.type === "run_attempt.started")
+        ?.eventId,
     ]);
     expect(eventTypes(sink).slice(0, 6)).toEqual([
       "turn.queued",
@@ -109,6 +113,58 @@ describe("RuntimeKernel canonical lifecycle", () => {
       "turn.completed",
     ]);
     expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("emits long final answers as schema-bounded deltas without truncation", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    const output = "x".repeat(8_137);
+    ports.provider.generateNext = vi.fn(async () => ({
+      kind: "complete" as const,
+      itemId: finalItemId,
+      output,
+    }));
+    const kernel = await createKernel(sink, ports);
+
+    await expect(
+      kernel.startTurn({ run, turn, runAttemptId }),
+    ).resolves.toMatchObject({
+      status: "completed",
+      output,
+    });
+
+    const deltas = sink.events.flatMap((event) =>
+      event.type === "assistant_message.delta" &&
+      typeof event.payload.delta === "string"
+        ? [event.payload.delta]
+        : [],
+    );
+    expect(deltas.map((delta) => delta.length)).toEqual([4_000, 4_000, 137]);
+    expect(deltas.join("")).toBe(output);
+    expect(terminalEvents(sink)).toHaveLength(1);
+  });
+
+  it("settles provider failures with a replayable sanitized reason", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw new Error("Provider route rejected token-secretvalue123456");
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "Provider route rejected",
+    );
+
+    const failed = sink.events.find((event) => event.type === "turn.failed");
+    expect(failed?.payload).toMatchObject({
+      outcome: {
+        failure: {
+          code: "provider_unavailable",
+          message: "Provider route rejected [redacted]",
+        },
+      },
+    });
   });
 
   it("automatically compacts once at the model-aware threshold and replays its settlement", async () => {
@@ -166,7 +222,9 @@ describe("RuntimeKernel canonical lifecycle", () => {
     expect(eventTypes(sink)).toContain("context_compaction.requested");
     expect(eventTypes(sink)).toContain("context_compaction.completed");
     expect(
-      eventTypes(sink).filter((type) => type === "context_compaction.completed"),
+      eventTypes(sink).filter(
+        (type) => type === "context_compaction.completed",
+      ),
     ).toHaveLength(1);
   });
 
@@ -380,9 +438,7 @@ describe("RuntimeKernel canonical lifecycle", () => {
       toolCall,
       request: approvalRequest,
     }));
-    ports.approvals.waitForDecision = vi.fn(
-      () => new Promise(() => undefined),
-    );
+    ports.approvals.waitForDecision = vi.fn(() => new Promise(() => undefined));
     const kernel = await createKernel(sink, ports);
 
     const execution = kernel.startTurn({ run, turn, runAttemptId });
@@ -587,14 +643,22 @@ describe("RuntimeKernel canonical lifecycle", () => {
     const ports = createPorts();
     const kernel = await createKernel(sink, ports);
 
-    kernel.requestInterruptBeforeStart(turn.id, "User stopped before execution");
+    kernel.requestInterruptBeforeStart(
+      turn.id,
+      "User stopped before execution",
+    );
     await kernel.startTurn({ run, turn, runAttemptId });
 
     expect(ports.provider.generateNext).not.toHaveBeenCalled();
     expect(terminalEvents(sink)).toHaveLength(1);
     expect(sink.events.at(-1)).toMatchObject({
       type: "turn.interrupted",
-      payload: { outcome: { status: "interrupted", reason: "User stopped before execution" } },
+      payload: {
+        outcome: {
+          status: "interrupted",
+          reason: "User stopped before execution",
+        },
+      },
     });
   });
 

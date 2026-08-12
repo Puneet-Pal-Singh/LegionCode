@@ -333,7 +333,11 @@ export class RuntimeLifecycleCoordinator {
         terminal,
         terminal === "failed"
           ? { reason: payload.error ?? "Context compaction failed" }
-          : { result: { preservedContextReference: payload.preservedContextReference } },
+          : {
+              result: {
+                preservedContextReference: payload.preservedContextReference,
+              },
+            },
       );
     });
   }
@@ -450,11 +454,13 @@ export class RuntimeLifecycleCoordinator {
 
   private async completeNow(output: string, itemId: ItemId): Promise<void> {
     await this.startItem(itemId, "assistant_message", {});
-    await this.emit({
-      type: "assistant_message.delta",
-      itemId,
-      payload: { phase: "final_answer", delta: output },
-    });
+    for (const delta of splitLifecycleOutput(output)) {
+      await this.emit({
+        type: "assistant_message.delta",
+        itemId,
+        payload: { phase: "final_answer", delta },
+      });
+    }
     await this.settleItem(itemId, "completed", { result: { output } });
     await this.settleTurn({ status: "completed" });
   }
@@ -679,4 +685,17 @@ export class RuntimeLifecycleCoordinator {
       ...fields,
     });
   }
+}
+
+function splitLifecycleOutput(output: string): string[] {
+  if (output.length === 0) return [""];
+  const chunks: string[] = [];
+  for (
+    let offset = 0;
+    offset < output.length;
+    offset += MAX_LIFECYCLE_OUTPUT_LENGTH
+  ) {
+    chunks.push(output.slice(offset, offset + MAX_LIFECYCLE_OUTPUT_LENGTH));
+  }
+  return chunks;
 }

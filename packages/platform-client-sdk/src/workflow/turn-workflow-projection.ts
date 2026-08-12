@@ -514,14 +514,20 @@ function settleTurn(
   const payload = readPayload(event);
   const outcome =
     (payload.outcome as Record<string, unknown> | undefined) ?? {};
+  const failure = readRecord(outcome.failure);
   return {
     ...projection,
     pendingApproval: null,
     terminal: {
       state,
       eventId: event.eventId,
-      content: readString(outcome, "summary") ?? state,
-      errorCode: readString(outcome, "code"),
+      content:
+        readString(outcome, "summary") ??
+        (failure ? readString(failure, "message") : null) ??
+        state,
+      errorCode:
+        readString(outcome, "code") ??
+        (failure ? readString(failure, "code") : null),
       occurredAt: event.createdAt,
     },
     phase: state,
