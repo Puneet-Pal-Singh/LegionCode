@@ -1,4 +1,7 @@
-import type { ProviderModelTransport } from "@repo/shared-types";
+import type {
+  ProviderConnectionConfig,
+  ProviderModelTransport,
+} from "@repo/shared-types";
 import type { Env } from "../../types/ai";
 import type { ProviderAdapter } from "../providers";
 import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
@@ -7,6 +10,7 @@ import {
   createGoogleAdapter,
   createOpenAIAdapter,
 } from "./ProviderAdapterFactory";
+import { buildCloudflareAIRouteHeaders } from "../providers/cloudflare/CloudflareAIRouteBuilder";
 
 export interface ProviderTransportRoute {
   providerId: string;
@@ -18,6 +22,7 @@ export function createTransportAdapter(
   route: ProviderTransportRoute,
   env: Env,
   apiKey: string,
+  connectionConfig?: ProviderConnectionConfig,
 ): ProviderAdapter {
   if (route.transport === "openai-chat-completions") {
     return createOpenAIAdapter(
@@ -25,6 +30,7 @@ export function createTransportAdapter(
       apiKey,
       toOpenAICompatibleBaseURL(route.endpoint),
       route.providerId,
+      resolveTransportHeaders(route.providerId, connectionConfig),
     );
   }
 
@@ -59,6 +65,19 @@ export function createTransportAdapter(
     `Provider transport "${route.transport}" is not wired for runtime inference yet.`,
     "UNKNOWN_PROVIDER",
   );
+}
+
+function resolveTransportHeaders(
+  providerId: string,
+  connectionConfig: ProviderConnectionConfig | undefined,
+): Record<string, string> | undefined {
+  if (
+    providerId === "cloudflare-ai" &&
+    connectionConfig?.providerId === "cloudflare-ai"
+  ) {
+    return buildCloudflareAIRouteHeaders(connectionConfig);
+  }
+  return undefined;
 }
 
 export function toOpenAICompatibleBaseURL(endpoint: string): string {

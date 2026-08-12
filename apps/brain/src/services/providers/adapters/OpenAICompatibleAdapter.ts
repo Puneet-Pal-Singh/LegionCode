@@ -16,6 +16,7 @@ import { PROVIDER_SDK_MAX_RETRIES } from "../ProviderRequestPolicy";
 export interface OpenAICompatibleConfig {
   apiKey: string;
   baseURL?: string;
+  headers?: Record<string, string>;
   defaultModel: string;
   supportedModels: string[];
 }
@@ -115,6 +116,7 @@ export abstract class OpenAICompatibleAdapter implements ProviderAdapter {
       ? createOpenAI({
           baseURL: config.baseURL,
           apiKey: config.apiKey,
+          headers: config.headers,
         })
       : createOpenAI({
           apiKey: config.apiKey,

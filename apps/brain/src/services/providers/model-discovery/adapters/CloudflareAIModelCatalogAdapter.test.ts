@@ -60,7 +60,7 @@ describe("CloudflareAIModelCatalogAdapter", () => {
     ).rejects.toThrow("account connection config");
   });
 
-  it("normalizes AI Gateway models with compat routes", async () => {
+  it("normalizes AI Gateway models with current REST routes", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -68,8 +68,8 @@ describe("CloudflareAIModelCatalogAdapter", () => {
           result: [
             {
               id: "@cf/meta/llama-3.1-8b-instruct",
-              name: "Llama 3.1 8B Instruct",
-              task: "Text Generation",
+              display_name: "Llama 3.1 8B Instruct",
+              task: { id: "text-generation", name: "Text Generation" },
             },
           ],
         }),
@@ -89,11 +89,37 @@ describe("CloudflareAIModelCatalogAdapter", () => {
 
     expect(models[0]?.runtimeRoute).toMatchObject({
       providerId: "cloudflare-ai",
-      modelId: "workers-ai/@cf/meta/llama-3.1-8b-instruct",
+      modelId: "@cf/meta/llama-3.1-8b-instruct",
       transport: "openai-chat-completions",
       endpoint:
-        "https://gateway.ai.cloudflare.com/v1/account_123/default/compat/chat/completions",
+        "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
     });
+    expect(models[0]?.name).toBe("Llama 3.1 8B Instruct");
+    expect(models[0]?.capabilities).toBeUndefined();
+  });
+
+  it("requests the full non-experimental text-generation page", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, result: [] }), {
+        status: 200,
+      }),
+    );
+
+    await new CloudflareAIModelCatalogAdapter().fetchAll("cloudflare-ai", {
+      apiKey: "cf-token",
+      connectionConfig: {
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        routeMode: "workers-ai-direct",
+      },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "task=Text%20Generation&per_page=100&hide_experimental=true",
+      ),
+      expect.any(Object),
+    );
   });
 
   it("wraps auth errors as non-retryable discovery errors", async () => {

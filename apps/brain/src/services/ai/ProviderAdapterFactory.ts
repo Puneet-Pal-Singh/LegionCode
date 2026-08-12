@@ -84,6 +84,7 @@ export function createOpenAIAdapter(
   overrideApiKey?: string,
   baseURL?: string,
   providerId = "openai",
+  headers?: Record<string, string>,
 ): OpenAIAdapter {
   const resolved = resolveOpenAIKey(env, overrideApiKey);
 
@@ -92,6 +93,7 @@ export function createOpenAIAdapter(
     baseURL: baseURL ?? resolved.baseURL,
     defaultModel: env.DEFAULT_MODEL,
     providerId,
+    headers,
   });
 }
 

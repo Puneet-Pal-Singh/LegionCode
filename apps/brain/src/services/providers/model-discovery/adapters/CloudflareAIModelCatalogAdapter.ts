@@ -25,8 +25,17 @@ const CloudflareModelSchema = z
   .object({
     id: z.string().min(1),
     name: z.string().min(1).optional(),
+    display_name: z.string().min(1).optional(),
     description: z.string().optional(),
-    task: z.string().optional(),
+    task: z
+      .union([
+        z.string(),
+        z.object({
+          id: z.string().optional(),
+          name: z.string().optional(),
+        }),
+      ])
+      .optional(),
     context_window: z.number().int().positive().optional(),
     contextWindow: z.number().int().positive().optional(),
   })
@@ -101,7 +110,7 @@ async function requestCloudflareModels(input: {
   );
   try {
     const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.accountId)}/ai/models/search?task=Text%20Generation`,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.accountId)}/ai/models/search?task=Text%20Generation&per_page=100&hide_experimental=true`,
       {
         method: "GET",
         headers: {
@@ -159,14 +168,10 @@ function normalizeCloudflareModel(
   });
   return {
     id: model.id,
-    name: model.name ?? model.id,
+    name: model.display_name ?? model.name ?? model.id,
     providerId: CLOUDFLARE_AI_PROVIDER_ID,
     description: model.description,
     contextWindow: model.contextWindow ?? model.context_window,
-    capabilities: {
-      supportsTools: true,
-      supportsStructuredOutputs: true,
-    },
     runtimeRoute: {
       providerId: CLOUDFLARE_AI_PROVIDER_ID,
       modelId: resolveCloudflareRuntimeModelId(config, model.id),
@@ -178,7 +183,10 @@ function normalizeCloudflareModel(
 }
 
 function isTextGenerationModel(model: CloudflareModelPayload): boolean {
-  const task = model.task?.trim().toLowerCase();
+  const task =
+    typeof model.task === "string"
+      ? model.task.trim().toLowerCase()
+      : (model.task?.name ?? model.task?.id)?.trim().toLowerCase();
   return !task || task.includes("text") || task.includes("chat");
 }
 
