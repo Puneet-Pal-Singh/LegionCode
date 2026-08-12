@@ -24,6 +24,12 @@ import { useFileLoader } from "../layout/workspace/useFileLoader";
 import { Resizer } from "../ui/Resizer";
 import type { FileExplorerHandle } from "../FileExplorer";
 import { ChatComposerPlusMenu } from "../chat/ChatComposerPlusMenu.js";
+import { ChatImageAttachmentStrip } from "../chat/ChatImageAttachmentStrip";
+import { useChatImageAttachmentDraft } from "../chat/useChatImageAttachmentDraft";
+import {
+  CHAT_IMAGE_MIME_TYPES,
+  type ChatSubmitAttachments,
+} from "../chat/chatImageAttachments";
 import { PermissionModeControl } from "../chat/PermissionModeControl.js";
 import { ReasoningEffortPicker } from "../chat/ReasoningEffortPicker.js";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
@@ -52,6 +58,7 @@ interface AgentSetupProps {
     branch: string;
     task: string;
     mode: RunMode;
+    attachments?: ChatSubmitAttachments;
   }) => void;
   onRepoClick?: () => void;
   projects?: readonly string[];
@@ -76,6 +83,7 @@ export function AgentSetup({
   const { repo, branch } = useGitHub();
   const { runId } = useRunContext();
   const [task, setTask] = useState("");
+  const imageDraft = useChatImageAttachmentDraft();
   const { productMode, setProductMode } = useSessionProductMode(sessionId);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -151,6 +159,7 @@ export function AgentSetup({
       loadManageProviderModels,
     });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const explorerRef = useRef<FileExplorerHandle>(null);
   const activeRunId = runId ?? "";
   const {
@@ -198,7 +207,9 @@ export function AgentSetup({
 
   const hasTask = task.trim().length > 0;
   const hasRepositoryContext = Boolean(repo?.full_name);
-  const canStart = hasTask && (!requiresRepository || hasRepositoryContext);
+  const hasImages = imageDraft.attachments.length > 0;
+  const canStart =
+    (hasTask || hasImages) && (!requiresRepository || hasRepositoryContext);
   const suggestionEntries = useMemo(
     () =>
       repoTree.map((entry) => ({
@@ -295,14 +306,15 @@ export function AgentSetup({
       return;
     }
 
-    if (task.trim()) {
-      onStart({
-        repo: repo?.full_name || "",
-        branch: branch || "main",
-        task,
-        mode,
-      });
-    }
+    onStart({
+      repo: repo?.full_name || "",
+      branch: branch || "main",
+      task: task.trim() || "Analyze the attached image(s).",
+      mode,
+      attachments: hasImages
+        ? { imageAttachments: imageDraft.attachments }
+        : undefined,
+    });
   };
 
   const handleTaskChange = (value: string, nextCursorPosition?: number) => {
@@ -493,10 +505,15 @@ export function AgentSetup({
           </div>
         ) : null}
         <motion.div
+          data-testid="setup-composer-drop-zone"
+          onDragOver={imageDraft.handleDragOver}
+          onDragLeave={imageDraft.handleDragLeave}
+          onDrop={imageDraft.handleDrop}
           className={`
             ui-control-surface relative z-10 p-3
             transition-all duration-200
             ${isInputFocused ? "shadow-lg shadow-black/20" : ""}
+            ${imageDraft.isDraggingImages ? "ring-1 ring-cyan-400/70" : ""}
           `}
           animate={{
             boxShadow: isInputFocused
@@ -504,6 +521,28 @@ export function AgentSetup({
               : "0 0 0 0px rgba(0, 0, 0, 0)",
           }}
         >
+          <input
+            ref={imageInputRef}
+            type="file"
+            multiple
+            accept={CHAT_IMAGE_MIME_TYPES.join(",")}
+            className="sr-only"
+            aria-label="Choose images to attach"
+            onChange={(event) => {
+              const files = event.currentTarget.files;
+              if (files) void imageDraft.addFiles(Array.from(files), "upload");
+              event.currentTarget.value = "";
+            }}
+          />
+          <ChatImageAttachmentStrip
+            attachments={imageDraft.attachments}
+            onRemove={imageDraft.remove}
+          />
+          {imageDraft.error ? (
+            <div className="mb-3 text-xs text-amber-200">
+              {imageDraft.error}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             value={task}
@@ -513,6 +552,7 @@ export function AgentSetup({
                 e.currentTarget.selectionStart ?? e.target.value.length,
               )
             }
+            onPaste={imageDraft.handlePaste}
             onKeyDown={handleTaskKeyDown}
             onClick={syncCursorPosition}
             onKeyUp={syncCursorPosition}
@@ -533,7 +573,8 @@ export function AgentSetup({
               <ChatComposerPlusMenu
                 mode={mode}
                 onModeChange={onModeChange}
-                onAddFiles={insertMentionTrigger}
+                onAttachImages={() => imageInputRef.current?.click()}
+                onAddRepositoryContext={insertMentionTrigger}
               />
 
               <div className="h-3.5 w-px bg-zinc-800" />

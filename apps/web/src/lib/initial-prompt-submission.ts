@@ -1,3 +1,5 @@
+import type { ChatSubmitAttachments } from "../components/chat/chatImageAttachments";
+
 declare const initialPromptSubmissionIdBrand: unique symbol;
 
 export type InitialPromptSubmissionId = string & {
@@ -7,6 +9,7 @@ export type InitialPromptSubmissionId = string & {
 export interface InitialPromptSubmission {
   id: InitialPromptSubmissionId;
   prompt: string;
+  attachments?: ChatSubmitAttachments;
 }
 
 export function createInitialPromptSubmissionId(

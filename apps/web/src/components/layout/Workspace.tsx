@@ -13,6 +13,7 @@ import { FileExplorerHandle } from "../FileExplorer";
 import { ChatInterface } from "../chat/ChatInterface";
 import { RunContextProvider } from "../../hooks/useRunContext";
 import { useChat } from "../../hooks/useChat";
+import { buildChatAppendMessage } from "../../hooks/useChatCore";
 import { cn } from "../../lib/utils";
 import { useGitStatus } from "../../hooks/useGitStatus";
 import { Resizer } from "../ui/Resizer";
@@ -289,7 +290,12 @@ export function Workspace({
     }
 
     handledInitialPromptIdRef.current = initialPromptSubmission.id;
-    void append({ role: "user", content: prompt })
+    void append(
+      buildChatAppendMessage(
+        prompt,
+        initialPromptSubmission.attachments?.imageAttachments ?? [],
+      ),
+    )
       .catch((error) => {
         console.error("[Workspace] Failed to submit setup prompt:", error);
         onSessionStatusChange?.("failed");

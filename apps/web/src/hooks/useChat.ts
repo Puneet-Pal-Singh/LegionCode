@@ -1,7 +1,7 @@
 import { type FormEvent } from "react";
 import type { Message } from "@ai-sdk/react";
 import type { ProductMode, RunMode } from "@repo/shared-types";
-import { useChatCore } from "./useChatCore";
+import { useChatCore, type ChatAppendMessage } from "./useChatCore";
 import { useChatHydration } from "./useChatHydration";
 import { useChatPersistence } from "./useChatPersistence";
 import { useChatArtifacts } from "./useChatArtifacts";
@@ -19,7 +19,7 @@ interface UseChatResult {
     e?: FormEvent,
     attachments?: ChatSubmitAttachments,
   ) => Promise<boolean>;
-  append: (message: { role: "user"; content: string }) => Promise<void>;
+  append: (message: ChatAppendMessage) => Promise<void>;
   isLoading: boolean;
   isHydrating: boolean;
   hasHydrated: boolean;
