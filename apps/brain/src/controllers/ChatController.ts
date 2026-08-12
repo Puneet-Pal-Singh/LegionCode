@@ -15,7 +15,6 @@ import {
   resolveRuntimeTarget,
 } from "./chat-runtime-helpers";
 import { RunAdmissionService } from "../runtime/RunAdmissionService";
-import { enforceImageCapability } from "../services/chat/ImageCapabilityGate";
 import { resolveChatModelMetadata } from "../services/chat/ChatModelMetadataResolution";
 import type { ChatModelMetadata } from "../services/chat/ChatModelMetadataResolver";
 import { validateChatReasoningEffort } from "../services/chat/ChatReasoningEffortPolicy";
@@ -197,15 +196,6 @@ export class ChatController {
     };
 
     try {
-      await enforceImageCapability({
-        env,
-        userId,
-        workspaceId,
-        providerId: body.providerId,
-        modelId: body.modelId,
-        hasImages: chatRequest.imageInput.hasImages,
-        correlationId,
-      });
       admissionGrant = await admissionService.enforce(
         admissionInput,
         correlationId,
