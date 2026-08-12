@@ -261,6 +261,7 @@ export class ChatController {
           repositoryBaseUrl: body.repositoryBaseUrl,
           contextWindowTokens: trustedModelMetadata.contextWindow,
           pricing: trustedModelMetadata.pricing,
+          providerRuntimeRoute: trustedModelMetadata.runtimeRoute,
           reasoningEffort: body.reasoningEffort,
           tools: body.tools,
           identity,

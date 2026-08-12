@@ -141,7 +141,7 @@ async function requestCloudflareModels(input: {
   );
   try {
     const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.accountId)}/ai/models/search?task=Text%20Generation&per_page=${CLOUDFLARE_AI_MODELS_PER_PAGE}&hide_experimental=true&page=${input.page}`,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(input.accountId)}/ai/models/search?task=text-generation&per_page=${CLOUDFLARE_AI_MODELS_PER_PAGE}&hide_experimental=true&page=${input.page}`,
       {
         method: "GET",
         headers: {
@@ -232,14 +232,18 @@ function normalizeCloudflareModel(
 }
 
 function isTextGenerationModel(model: CloudflareModelPayload): boolean {
-  const task = typeof model.task === "string"
-    ? model.task
-    : model.task?.id ?? model.task?.name;
+  const task =
+    typeof model.task === "string"
+      ? model.task
+      : (model.task?.id ?? model.task?.name);
   return normalizeCloudflareTask(task) === "text-generation";
 }
 
 function normalizeCloudflareTask(task: string | undefined): string | undefined {
-  return task?.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return task
+    ?.trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
 }
 
 async function toProviderApiError(

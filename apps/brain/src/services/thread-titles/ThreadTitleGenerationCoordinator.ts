@@ -44,7 +44,7 @@ interface ThreadTitleGenerationDependencies {
   titleService?: ThreadTitlePersistence;
 }
 
-const TITLE_GENERATION_TIMEOUT_MS = 7_500;
+const TITLE_GENERATION_TIMEOUT_MS = 20_000;
 
 /**
  * Schedules title inference only through a Worker-owned waitUntil lifecycle.
@@ -106,6 +106,7 @@ export class ThreadTitleGenerationCoordinator {
       });
       const title = normalizeGeneratedTitle(result.object.title);
       if (!title) {
+        console.warn("[thread-title] generation_failed reason=invalid_output");
         return;
       }
       await this.titleService.persist({

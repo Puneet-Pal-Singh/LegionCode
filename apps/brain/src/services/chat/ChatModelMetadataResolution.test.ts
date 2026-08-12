@@ -10,6 +10,12 @@ describe("resolveChatModelMetadata", () => {
           name: "GPT-5",
           providerId: "openai",
           capabilities: { reasoningEfforts: ["low"] },
+          runtimeRoute: {
+            providerId: "openai",
+            modelId: "gpt-5",
+            transport: "openai-responses",
+            endpoint: "https://api.openai.com/v1/responses",
+          },
         },
       ],
       page: { limit: 200, hasMore: false },
@@ -21,7 +27,13 @@ describe("resolveChatModelMetadata", () => {
         modelId: "gpt-5",
         fetchModels,
       }),
-    ).resolves.toMatchObject({ reasoningEfforts: ["low"] });
+    ).resolves.toMatchObject({
+      reasoningEfforts: ["low"],
+      runtimeRoute: {
+        transport: "openai-responses",
+        endpoint: "https://api.openai.com/v1/responses",
+      },
+    });
   });
 
   it("fails closed when the provider id is invalid", async () => {

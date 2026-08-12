@@ -116,7 +116,7 @@ describe("CloudflareAIModelCatalogAdapter", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        "task=Text%20Generation&per_page=100&hide_experimental=true&page=1",
+        "task=text-generation&per_page=100&hide_experimental=true&page=1",
       ),
       expect.any(Object),
     );
@@ -129,9 +129,7 @@ describe("CloudflareAIModelCatalogAdapter", () => {
         new Response(
           JSON.stringify({
             success: true,
-            result: [
-              { id: "@cf/meta/model-one", task: "Text Generation" },
-            ],
+            result: [{ id: "@cf/meta/model-one", task: "Text Generation" }],
             result_info: { page: 1, per_page: 1, total_pages: 2 },
           }),
           { status: 200 },
@@ -177,19 +175,21 @@ describe("CloudflareAIModelCatalogAdapter", () => {
   });
 
   it("rejects model pagination beyond the safety limit", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
-      const page = Number(new URL(String(input)).searchParams.get("page"));
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            success: true,
-            result: [{ id: "@cf/meta/model", task: "Text Generation" }],
-            result_info: { page, per_page: 1, total_pages: 21 },
-          }),
-          { status: 200 },
-        ),
-      );
-    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input) => {
+        const page = Number(new URL(String(input)).searchParams.get("page"));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              success: true,
+              result: [{ id: "@cf/meta/model", task: "Text Generation" }],
+              result_info: { page, per_page: 1, total_pages: 21 },
+            }),
+            { status: 200 },
+          ),
+        );
+      });
 
     await expect(
       new CloudflareAIModelCatalogAdapter().fetchAll("cloudflare-ai", {
