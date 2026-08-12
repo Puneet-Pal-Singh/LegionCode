@@ -38,6 +38,8 @@ import { isProviderModelBootstrapLoading } from "../../lib/provider-model-bootst
 import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 import { ProjectChooser } from "./ProjectChooser";
+import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
+import { FirstTaskSuggestions } from "../onboarding/FirstTaskSuggestions";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -46,7 +48,6 @@ interface AgentSetupProps {
   onModeChange?: (mode: RunMode) => void;
   requiresRepository?: boolean;
   reviewSidebarFocusRequest?: number;
-  showOnboardingHighlights?: boolean;
   onStart: (config: {
     repo: string;
     branch: string;
@@ -66,7 +67,6 @@ export function AgentSetup({
   onModeChange,
   requiresRepository = false,
   reviewSidebarFocusRequest = 0,
-  showOnboardingHighlights = false,
   onStart,
   onRepoClick,
   projects = [],
@@ -198,7 +198,11 @@ export function AgentSetup({
 
   const hasTask = task.trim().length > 0;
   const hasRepositoryContext = Boolean(repo?.full_name);
-  const canStart = hasTask && (!requiresRepository || hasRepositoryContext);
+  const hasProviderConnection = credentials.length > 0;
+  const canStart =
+    hasTask &&
+    hasProviderConnection &&
+    (!requiresRepository || hasRepositoryContext);
   const suggestionEntries = useMemo(
     () =>
       repoTree.map((entry) => ({
@@ -308,6 +312,25 @@ export function AgentSetup({
   const handleTaskChange = (value: string, nextCursorPosition?: number) => {
     setTask(value);
     setCursorPosition(nextCursorPosition ?? value.length);
+  };
+
+  const openProviderConnection = () => {
+    setProviderDialogInitialTab("available");
+    setProviderDialogInitialView("default");
+    setProviderDialogVariant("connect-only");
+    setShowProviderDialog(true);
+  };
+
+  const submitSuggestedTask = (prompt: string) => {
+    if (!hasProviderConnection || (requiresRepository && !hasRepositoryContext)) {
+      return;
+    }
+    onStart({
+      repo: repo?.full_name || "",
+      branch: branch || "main",
+      task: prompt,
+      mode,
+    });
   };
 
   const selectSuggestedFile = (filePath: string) => {
@@ -519,7 +542,7 @@ export function AgentSetup({
             onSelect={syncCursorPosition}
             onFocus={() => setIsInputFocused(true)}
             onBlur={() => setIsInputFocused(false)}
-            placeholder="Ask LegionCode anything, @ to add files, / for commands"
+            placeholder="Ask LegionCode to work on this repository…"
             rows={1}
             aria-controls={shouldShowFilePicker ? filePickerListId : undefined}
             aria-expanded={shouldShowFilePicker}
@@ -538,14 +561,7 @@ export function AgentSetup({
 
               <div className="h-3.5 w-px bg-zinc-800" />
 
-              <div
-                data-onboarding-target="setup-provider"
-                className={
-                  showOnboardingHighlights
-                    ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black"
-                    : undefined
-                }
-              >
+              <div>
                 <ModelPickerPopover
                   catalog={catalog}
                   credentials={credentials}
@@ -689,23 +705,8 @@ export function AgentSetup({
           add your provider key now.
         </div>
       ) : null}
-      {credentials.length === 0 ? (
-        <div className="mt-2 pl-2 text-xs text-zinc-500">
-          BYOK provider required before model selection.
-          <button
-            type="button"
-            onClick={() => {
-              setProviderDialogInitialTab("available");
-              setProviderDialogInitialView("default");
-              setProviderDialogVariant("connect-only");
-              setShowProviderDialog(true);
-            }}
-            className="ml-1 text-cyan-300 hover:text-cyan-200 underline-offset-2 hover:underline"
-          >
-            Connect provider
-          </button>
-          .
-        </div>
+      {!hasProviderConnection ? (
+        <ProviderRequiredInline onConnect={openProviderConnection} />
       ) : null}
     </motion.div>
   );
@@ -783,12 +784,7 @@ export function AgentSetup({
               >
                 <motion.button
                   type="button"
-                  data-onboarding-target="setup-repo"
-                  className={`flex items-center gap-1.5 mt-0.5 text-2xl font-medium text-zinc-500 hover:text-zinc-400 transition-colors duration-200 group ${
-                    showOnboardingHighlights
-                      ? "rounded-md ring-2 ring-cyan-500/70 ring-offset-2 ring-offset-black px-1.5 py-0.5"
-                      : ""
-                  }`}
+                  className="group mt-0.5 flex items-center gap-1.5 text-2xl font-medium text-zinc-500 transition-colors duration-200 hover:text-zinc-400"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -803,6 +799,12 @@ export function AgentSetup({
 
             <div className="mb-6 w-full max-w-4xl">
               {renderSetupComposer("hero")}
+              {hasProviderConnection && hasRepositoryContext ? (
+                <FirstTaskSuggestions
+                  onSubmit={submitSuggestedTask}
+                  onStartTyping={() => textareaRef.current?.focus()}
+                />
+              ) : null}
             </div>
           </div>
         </main>
