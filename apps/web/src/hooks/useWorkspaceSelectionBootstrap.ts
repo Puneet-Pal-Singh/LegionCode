@@ -20,21 +20,13 @@ export function useWorkspaceSelectionBootstrap({
   setContext,
 }: UseWorkspaceSelectionBootstrapInput): WorkspaceSelectionBootstrapStatus {
   const [status, setStatus] = useState<WorkspaceSelectionBootstrapStatus>(
-    enabled ? "loading" : "idle",
+    "loading",
   );
 
   useEffect(() => {
-    if (!enabled) {
-      setStatus("idle");
-      return;
-    }
-    if (currentRepository) {
-      setStatus("ready");
-      return;
-    }
+    if (!enabled || currentRepository) return;
 
     let cancelled = false;
-    setStatus("loading");
     void GitHubService.listWorkspaces()
       .then((workspaceState) => {
         if (cancelled) return;
@@ -56,6 +48,8 @@ export function useWorkspaceSelectionBootstrap({
     };
   }, [currentRepository, enabled, setContext]);
 
+  if (!enabled) return "idle";
+  if (currentRepository) return "ready";
   return status;
 }
 

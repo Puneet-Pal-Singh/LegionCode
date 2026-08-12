@@ -258,7 +258,6 @@ export function Workspace({
         lastMessage: undefined,
       }),
     [
-      activeTurn.hasCanonicalTurn,
       activeTurn.isTransportPending,
       canonicalRunStatus,
       hasPendingApproval,

@@ -813,6 +813,7 @@ export function useChatCore(
     [
       buildChatRequestBody,
       isActiveRunScope,
+      lifecycleClient,
       pushChatRequestDebugEvent,
       resolveProviderConfigFromApi,
       resolveSelectedProviderConfigForRequest,
@@ -820,6 +821,7 @@ export function useChatCore(
       runScopeKey,
       sessionId,
       status,
+      stopStream,
       submitResolvedMessage,
     ],
   );
@@ -992,7 +994,14 @@ const stop = useCallback(() => {
     };
 
     void cancelRun();
-  }, [isActiveScope, lifecycleClient, runId, runScopeKey, scopeKey, stopStream]);
+  }, [
+    isActiveRunScope,
+    lifecycleClient,
+    runId,
+    runScopeKey,
+    scopeKey,
+    stopStream,
+  ]);
 
   return {
     messages: scopedMessages,

@@ -52,7 +52,20 @@ export function AuthorizedRepositoryPicker({
   };
 
   useEffect(() => {
-    void loadRepositories();
+    let cancelled = false;
+    void GitHubService.listRepositories("all", "updated")
+      .then((nextRepos) => {
+        if (cancelled) return;
+        setRepos(nextRepos);
+        setRepoState("ready");
+        requestAnimationFrame(() => searchRef.current?.focus());
+      })
+      .catch(() => {
+        if (!cancelled) setRepoState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const filteredRepos = useMemo(() => {
@@ -95,16 +108,12 @@ export function AuthorizedRepositoryPicker({
     }
   };
 
-  const relativeActivity = (value: string) => {
-    const elapsed = Date.now() - new Date(value).getTime();
-    const days = Math.max(0, Math.floor(elapsed / 86_400_000));
-    if (days === 0) return "Today";
-    if (days === 1) return "1 day ago";
-    if (days < 30) return `${days} days ago`;
-    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
-      new Date(value),
-    );
-  };
+  const formatActivityDate = (value: string) =>
+    new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }).format(new Date(value));
 
   return (
     <main className="flex h-full min-h-0 w-full flex-col bg-[#090a0c] text-[#f2f4f7]">
@@ -170,7 +179,7 @@ export function AuthorizedRepositoryPicker({
                         {repo.private ? <Lock size={12} className="shrink-0 text-[#969daa]" aria-label="Private" /> : null}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[10px] text-[#969daa]">
-                        <span>{repo.language ?? "Repository"}</span><span>{repo.default_branch}</span><span>{relativeActivity(repo.updated_at)}</span>
+                        <span>{repo.language ?? "Repository"}</span><span>{repo.default_branch}</span><span>{formatActivityDate(repo.updated_at)}</span>
                       </div>
                     </div>
                     <span className={`grid h-5 w-5 place-items-center rounded-full border ${selected ? "border-[#65b8ff] bg-[#65b8ff] text-[#090a0c]" : "border-[#4a515d] text-transparent"}`}><Check size={12} /></span>
