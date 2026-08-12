@@ -3,7 +3,10 @@ import type { Env } from "../../types/ai";
 import type { ProviderAdapter } from "../providers";
 import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
 import { ValidationError } from "../../domain/errors";
-import { createOpenAIAdapter } from "./ProviderAdapterFactory";
+import {
+  createGoogleAdapter,
+  createOpenAIAdapter,
+} from "./ProviderAdapterFactory";
 
 export interface ProviderTransportRoute {
   providerId: string;
@@ -41,6 +44,15 @@ export function createTransportAdapter(
       providerId: route.providerId,
       defaultModel: env.DEFAULT_MODEL,
     });
+  }
+
+  if (route.transport === "google-generative") {
+    return createGoogleAdapter(
+      env,
+      apiKey,
+      route.endpoint,
+      route.providerId,
+    );
   }
 
   throw new ValidationError(

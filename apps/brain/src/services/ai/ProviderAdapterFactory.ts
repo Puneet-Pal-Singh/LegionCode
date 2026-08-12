@@ -117,6 +117,7 @@ export function createGoogleAdapter(
   env: Env,
   overrideApiKey?: string,
   baseURL?: string,
+  providerId = "google",
 ): GoogleAdapter {
   const resolved = resolveProviderKey(
     "google-native",
@@ -129,6 +130,7 @@ export function createGoogleAdapter(
     apiKey: resolved.apiKey,
     baseURL: baseURL ?? resolved.baseURL,
     defaultModel: env.DEFAULT_MODEL,
+    providerId,
   });
 }
 

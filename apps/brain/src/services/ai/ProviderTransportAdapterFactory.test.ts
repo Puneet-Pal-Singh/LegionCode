@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Env } from "../../types/ai";
 import { AnthropicMessagesAdapter, OpenAIResponsesAdapter } from "../providers";
+import { GoogleAdapter } from "../providers/adapters/GoogleAdapter";
 import {
   createTransportAdapter,
   toOpenAICompatibleBaseURL,
@@ -43,6 +44,21 @@ describe("ProviderTransportAdapterFactory", () => {
         "https://opencode.ai/zen/go/v1/chat/completions",
       ),
     ).toBe("https://opencode.ai/zen/go/v1");
+  });
+
+  it("creates a Google adapter with the logical OpenCode provider identity", () => {
+    const adapter = createTransportAdapter(
+      {
+        providerId: "opencode-zen",
+        transport: "google-generative",
+        endpoint: "https://opencode.ai/zen/v1",
+      },
+      createEnv(),
+      "oc-test",
+    );
+
+    expect(adapter).toBeInstanceOf(GoogleAdapter);
+    expect(adapter.provider).toBe("opencode-zen");
   });
 
   it("preserves the logical provider for OpenAI-compatible transports", () => {
