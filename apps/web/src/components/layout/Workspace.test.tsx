@@ -100,7 +100,6 @@ vi.mock("../../hooks/useGitStatus", () => ({
   },
 }));
 
-
 vi.mock("../../hooks/useGitDiff", () => ({
   useGitDiff: () => ({
     fetch: vi.fn(),
@@ -293,7 +292,8 @@ describe("Workspace", () => {
     const onInitialPromptHandled = vi.fn();
     const initialPromptSubmission = {
       id: createInitialPromptSubmissionId("setup-prompt-1"),
-      prompt: "Hey, read my readme and tell what do you think of this project??",
+      prompt:
+        "Hey, read my readme and tell what do you think of this project??",
     };
     const firstRender = render(
       <Workspace
@@ -362,6 +362,61 @@ describe("Workspace", () => {
 
     await waitFor(() => {
       expect(mockChatState.append).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("preserves setup-composer images in the first workspace message", async () => {
+    clearInitialPromptSubmissionClaimsForTests();
+    mockChatState.append.mockResolvedValue(undefined);
+    const initialPromptSubmission = {
+      id: createInitialPromptSubmissionId("setup-image-1"),
+      prompt: "Inspect this screenshot",
+      attachments: {
+        imageAttachments: [
+          {
+            id: "image-1",
+            name: "screen.png",
+            mediaType: "image/png" as const,
+            dataUrl: "data:image/png;base64,aGVsbG8=",
+            previewUrl: "blob:image-preview",
+            byteSize: 5,
+            source: "upload" as const,
+          },
+        ],
+      },
+    };
+
+    render(
+      <Workspace
+        sessionId="session-123"
+        runId="run-123"
+        repository="career-crew"
+        initialPromptSubmission={initialPromptSubmission}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(mockChatState.append).toHaveBeenCalledWith({
+        role: "user",
+        content: [
+          { type: "text", text: "Inspect this screenshot" },
+          {
+            type: "image",
+            image: "data:image/png;base64,aGVsbG8=",
+            mimeType: "image/png",
+            name: "screen.png",
+          },
+        ],
+        imageMetadata: [
+          {
+            id: "image-1",
+            name: "screen.png",
+            mediaType: "image/png",
+            byteSize: 5,
+            source: "upload",
+          },
+        ],
+      });
     });
   });
 

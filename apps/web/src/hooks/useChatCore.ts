@@ -65,7 +65,7 @@ import {
   type ActiveTurnProjection,
 } from "./useActiveTurnProjection.js";
 
-type ChatUserContent =
+export type ChatUserContent =
   | string
   | Array<
       | { type: "text"; text: string }
@@ -77,7 +77,7 @@ type ChatUserContent =
         }
     >;
 
-interface ChatAppendMessage {
+export interface ChatAppendMessage {
   id?: string;
   role: "user";
   content: ChatUserContent;
@@ -1047,7 +1047,7 @@ async function interruptAndAwaitTerminal(
   }
 }
 
-function buildChatAppendMessage(
+export function buildChatAppendMessage(
   text: string,
   imageAttachments: ChatImageAttachment[],
 ): ChatAppendMessage {
