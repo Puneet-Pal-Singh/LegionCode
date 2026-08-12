@@ -3,21 +3,15 @@ import { ValidationError } from "../../domain/errors";
 import { ProviderModelRouteResolver } from "./ProviderModelRouteResolver";
 
 describe("ProviderModelRouteResolver", () => {
-  it("resolves OpenAI-compatible providers to chat completions", () => {
+  it("requires discovered route metadata for OpenCode Go", () => {
     const resolver = new ProviderModelRouteResolver();
 
-    expect(
+    expect(() =>
       resolver.resolve({
         providerId: "opencode-go",
         modelId: "opencode-go/kimi-k2.6",
       }),
-    ).toEqual({
-      providerId: "opencode-go",
-      modelId: "opencode-go/kimi-k2.6",
-      runtimeModelId: "kimi-k2.6",
-      transport: "openai-chat-completions",
-      endpoint: "https://opencode.ai/zen/go/v1/chat/completions",
-    });
+    ).toThrow(ValidationError);
   });
 
   it("resolves Google-native providers to generative transport", () => {

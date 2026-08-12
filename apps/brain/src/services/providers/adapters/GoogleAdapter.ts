@@ -20,10 +20,11 @@ interface GoogleAdapterConfig {
   apiKey: string;
   baseURL?: string;
   defaultModel?: string;
+  providerId?: string;
 }
 
 export class GoogleAdapter implements ProviderAdapter {
-  readonly provider = "google";
+  readonly provider: string;
   readonly supportedModels: string[];
   private readonly client: ReturnType<typeof createGoogleGenerativeAI>;
   private readonly defaultModel: string;
@@ -37,6 +38,7 @@ export class GoogleAdapter implements ProviderAdapter {
       baseURL: config.baseURL,
       fetch: createGeminiThoughtSignatureFetchBridge(),
     });
+    this.provider = config.providerId ?? "google";
     this.defaultModel = config.defaultModel ?? "gemini-2.5-flash-lite";
     this.supportedModels = [];
   }

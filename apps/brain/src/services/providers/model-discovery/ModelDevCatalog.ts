@@ -30,6 +30,12 @@ let sharedCatalogCache:
 let sharedCatalogFetchPromise: Promise<ModelDevCatalog | null> | null = null;
 
 const ModelDevModelSchema = z.object({
+  provider: z
+    .object({
+      npm: z.string().min(1).optional(),
+      api: z.string().url().optional(),
+    })
+    .optional(),
   limit: z
     .object({
       context: z.number().int().nonnegative().optional(),
@@ -88,11 +94,19 @@ const ModelDevModelSchema = z.object({
 });
 
 export interface ModelDevCatalog {
-  providers: Record<string, { models: Record<string, ModelDevModel> }>;
+  providers: Record<
+    string,
+    {
+      api?: string;
+      npm?: string;
+      models: Record<string, ModelDevModel>;
+    }
+  >;
   fetchedAt: string;
 }
 
 export interface ModelDevModel {
+  provider?: { npm?: string; api?: string };
   limit?: { context?: number; input?: number; output?: number };
   modalities?: { input?: string[]; output?: string[] };
   cost?: ModelDevCost;
@@ -159,7 +173,14 @@ export function parseModelDevCatalog(
         models[modelId] = parsed.data;
       }
     }
-    providers[providerId] = { models };
+    const providerRecord = providerValue as Record<string, unknown>;
+    const api = z.string().url().safeParse(providerRecord.api);
+    const npm = z.string().min(1).safeParse(providerRecord.npm);
+    providers[providerId] = {
+      ...(api.success ? { api: api.data } : {}),
+      ...(npm.success ? { npm: npm.data } : {}),
+      models,
+    };
   }
   return Object.keys(providers).length > 0 ? { providers, fetchedAt } : null;
 }
@@ -349,6 +370,19 @@ export function enrichModelFromModelDev(
     next.capabilities = capabilities;
     metadataChanged = true;
   }
+
+  const runtimeRoute = resolveModelDevRuntimeRoute(
+    catalog,
+    providerId,
+    model.id,
+    entry,
+  );
+  if (runtimeRoute) {
+    next.runtimeRoute = runtimeRoute;
+    next.availability = "available";
+    delete next.unavailableReason;
+    metadataChanged = true;
+  }
   if (metadataChanged && next.capabilityMetadata === undefined) {
     next.capabilityMetadata = {
       source: "platform_registry",
@@ -387,6 +421,59 @@ function findModelDevEntry(
   return undefined;
 }
 
+function resolveModelDevRuntimeRoute(
+  catalog: ModelDevCatalog,
+  providerId: string,
+  modelId: string,
+  model: ModelDevModel,
+): BYOKDiscoveredProviderModel["runtimeRoute"] | undefined {
+  if (providerId !== "opencode-zen" && providerId !== "opencode-go") {
+    return undefined;
+  }
+  const catalogProviderId =
+    providerId === "opencode-zen" ? "opencode" : "opencode-go";
+  const provider = catalog.providers[catalogProviderId];
+  const api = model.provider?.api ?? provider?.api;
+  const npm = model.provider?.npm ?? provider?.npm;
+  if (!api || !npm) {
+    return undefined;
+  }
+  const baseUrl = api.replace(/\/$/, "");
+  if (npm === "@ai-sdk/openai") {
+    return {
+      providerId,
+      modelId,
+      transport: "openai-responses",
+      endpoint: `${baseUrl}/responses`,
+    };
+  }
+  if (npm === "@ai-sdk/anthropic") {
+    return {
+      providerId,
+      modelId,
+      transport: "anthropic-messages",
+      endpoint: `${baseUrl}/messages`,
+    };
+  }
+  if (npm === "@ai-sdk/google") {
+    return {
+      providerId,
+      modelId,
+      transport: "google-generative",
+      endpoint: baseUrl,
+    };
+  }
+  if (npm === "@ai-sdk/openai-compatible") {
+    return {
+      providerId,
+      modelId,
+      transport: "openai-chat-completions",
+      endpoint: `${baseUrl}/chat/completions`,
+    };
+  }
+  return undefined;
+}
+
 function resolveCatalogProviderIds(
   catalog: ModelDevCatalog,
   providerId: string,
@@ -394,6 +481,7 @@ function resolveCatalogProviderIds(
   const aliases: Record<string, readonly string[]> = {
     axis: ["openrouter"],
     together: ["togetherai"],
+    "opencode-zen": ["opencode"],
     "cloudflare-ai": ["cloudflare-workers-ai", "cloudflare-ai-gateway"],
   };
   const candidates = [providerId, ...(aliases[providerId] ?? [])];

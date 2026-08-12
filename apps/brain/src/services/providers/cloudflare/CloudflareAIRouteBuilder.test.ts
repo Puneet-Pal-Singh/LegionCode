@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCloudflareAIRoute,
+  buildCloudflareAIRouteHeaders,
   resolveCloudflareRuntimeModelId,
 } from "./CloudflareAIRouteBuilder";
 
@@ -21,7 +22,7 @@ describe("CloudflareAIRouteBuilder", () => {
     );
   });
 
-  it("defaults AI Gateway ID when omitted", () => {
+  it("uses the current Cloudflare REST endpoint for AI Gateway", () => {
     expect(
       buildCloudflareAIRoute({
         config: {
@@ -33,28 +34,32 @@ describe("CloudflareAIRouteBuilder", () => {
         transport: "openai-chat-completions",
       }),
     ).toBe(
-      "https://gateway.ai.cloudflare.com/v1/account_123/default/compat/chat/completions",
+      "https://api.cloudflare.com/client/v4/accounts/account_123/ai/v1/chat/completions",
     );
   });
 
-  it("builds AI Gateway compat chat-completions routes", () => {
+  it("routes a named AI Gateway through the required request header", () => {
     expect(
-      buildCloudflareAIRoute({
-        config: {
-          providerId: "cloudflare-ai",
-          accountId: "account_123",
-          gatewayId: "gateway-123",
-          routeMode: "ai-gateway",
-        },
-        modelId: "@cf/meta/llama-3.1-8b-instruct",
-        transport: "openai-chat-completions",
+      buildCloudflareAIRouteHeaders({
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        gatewayId: "gateway-123",
+        routeMode: "ai-gateway",
       }),
-    ).toBe(
-      "https://gateway.ai.cloudflare.com/v1/account_123/gateway-123/compat/chat/completions",
-    );
+    ).toEqual({ "cf-aig-gateway-id": "gateway-123" });
   });
 
-  it("prefixes Workers AI models for AI Gateway compat routes", () => {
+  it("defaults the AI Gateway request header when its ID is omitted", () => {
+    expect(
+      buildCloudflareAIRouteHeaders({
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        routeMode: "ai-gateway",
+      }),
+    ).toEqual({ "cf-aig-gateway-id": "default" });
+  });
+
+  it("preserves Workers AI model IDs for the Cloudflare REST API", () => {
     expect(
       resolveCloudflareRuntimeModelId(
         {
@@ -64,7 +69,7 @@ describe("CloudflareAIRouteBuilder", () => {
         },
         "@cf/meta/llama-3.1-8b-instruct",
       ),
-    ).toBe("workers-ai/@cf/meta/llama-3.1-8b-instruct");
+    ).toBe("@cf/meta/llama-3.1-8b-instruct");
   });
 
   it("preserves direct Workers AI model IDs", () => {
@@ -78,5 +83,15 @@ describe("CloudflareAIRouteBuilder", () => {
         "@cf/meta/llama-3.1-8b-instruct",
       ),
     ).toBe("@cf/meta/llama-3.1-8b-instruct");
+  });
+
+  it("does not add gateway headers to direct Workers AI requests", () => {
+    expect(
+      buildCloudflareAIRouteHeaders({
+        providerId: "cloudflare-ai",
+        accountId: "account_123",
+        routeMode: "workers-ai-direct",
+      }),
+    ).toBeUndefined();
   });
 });
