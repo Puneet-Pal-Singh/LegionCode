@@ -607,13 +607,16 @@ describe("ChatInputBar", () => {
 
   it("attaches images in plan mode without pre-classifying model support", async () => {
     const onSubmit = vi.fn(
-      async (_attachments?: {
+      async (attachments?: {
         imageAttachments: Array<{
           name: string;
           mediaType: string;
           source: string;
         }>;
-      }) => true,
+      }) => {
+        void attachments;
+        return true;
+      },
     );
 
     render(
