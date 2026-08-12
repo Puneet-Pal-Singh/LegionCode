@@ -336,7 +336,8 @@ export function ChatInterface({
   });
   const showStableSessionPlaceholder = useStableChatLoadingIndicator(
     showSessionPlaceholder,
-    hasImmediateUserSubmission,
+    hasImmediateUserSubmission ||
+      Boolean(initialPromptSubmission?.prompt.trim()),
   );
   useEffect(() => {
     onPresentationReadyChange?.(!showStableSessionPlaceholder);

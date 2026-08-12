@@ -57,11 +57,13 @@ function derivePresentationVisibility(
     !input.hasPendingApproval &&
     !input.hasStartedSession;
   const isTranscriptHydrating = !input.hasHydrated;
+  const hasImmediatePrompt =
+    input.hasImmediateUserSubmission ||
+    Boolean(input.initialPromptSubmission?.prompt.trim());
   return {
     showHeroComposer,
     isTranscriptHydrating,
-    showSessionPlaceholder:
-      isTranscriptHydrating && !input.hasImmediateUserSubmission,
+    showSessionPlaceholder: isTranscriptHydrating && !hasImmediatePrompt,
   };
 }
 

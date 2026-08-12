@@ -84,7 +84,7 @@ describe("useChatPresentation", () => {
       useChatPresentation({
         messages: [],
         conversationTurns: [],
-        hasHydrated: true,
+        hasHydrated: false,
         isLoading: true,
         hasPendingApproval: false,
         hasStartedSession: true,
@@ -96,6 +96,7 @@ describe("useChatPresentation", () => {
     );
 
     expect(result.current.showSessionPlaceholder).toBe(false);
+    expect(result.current.isTranscriptHydrating).toBe(true);
     expect(result.current.chatEntries[0]).toMatchObject({
       kind: "message",
       message: { role: "user", content: "Inspect the README" },

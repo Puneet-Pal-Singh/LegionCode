@@ -210,7 +210,10 @@ export function useChatCore(
       controller.signal,
     )
       .then((scope) => {
-        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+        if (
+          controller.signal.aborted ||
+          !isActiveRunScope(requestRunScopeKey)
+        ) {
           return;
         }
         if (!scope) return;
@@ -224,7 +227,10 @@ export function useChatCore(
         publishConversationScopeReady(scope);
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted || !isActiveRunScope(requestRunScopeKey)) {
+        if (
+          controller.signal.aborted ||
+          !isActiveRunScope(requestRunScopeKey)
+        ) {
           return;
         }
         if (
@@ -279,14 +285,12 @@ export function useChatCore(
   } = useProviderStore(runId);
   const selectedModel =
     selectedProviderId && selectedModelId
-      ? (
-          providerModels[selectedProviderId]?.find(
-            (model) => model.id === selectedModelId,
-          ) ??
-          manageProviderModels[selectedProviderId]?.find(
-            (model) => model.id === selectedModelId,
-          )
-        )
+      ? (providerModels[selectedProviderId]?.find(
+          (model) => model.id === selectedModelId,
+        ) ??
+        manageProviderModels[selectedProviderId]?.find(
+          (model) => model.id === selectedModelId,
+        ))
       : undefined;
   const selectedModelContextWindow = selectedModel?.contextWindow;
   const selectedModelPricing = selectedModel?.pricing;
@@ -297,9 +301,7 @@ export function useChatCore(
     [],
   );
   const hasConnectedCredential = credentials.length > 0;
-  const isModelConfigReady =
-    status === "ready" &&
-    hasConnectedCredential;
+  const isModelConfigReady = status === "ready" && hasConnectedCredential;
   const lifecycleClient = useMemo(() => createLifecycleClient(), []);
 
   const {
@@ -457,21 +459,6 @@ export function useChatCore(
       ),
     [pendingUserMessage, presentationScopeKey, scopedMessagesBase],
   );
-  useEffect(() => {
-    if (
-      !pendingUserMessage ||
-      pendingUserMessage.scopeKey !== presentationScopeKey ||
-      !hasEquivalentLatestUserMessage(
-        scopedMessagesBase,
-        pendingUserMessage.message,
-      )
-    ) {
-      return;
-    }
-    setPendingUserMessage((current) =>
-      current === pendingUserMessage ? null : current,
-    );
-  }, [pendingUserMessage, presentationScopeKey, scopedMessagesBase]);
   useEffect(() => {
     logClientEvent("chat/messages", "scoped-derived", {
       runId,
@@ -648,10 +635,7 @@ export function useChatCore(
       const bootstrapScopeKey = runScopeKey;
       const content = extractTextContent(message.content).trim();
       const hasImages = messageHasImageParts(message);
-      if (
-        (!content && !hasImages) ||
-        status !== "ready"
-      ) {
+      if ((!content && !hasImages) || status !== "ready") {
         throw new Error(
           "Chat is still establishing its server-owned turn scope or model settings. Wait a moment, then try again.",
         );
@@ -747,10 +731,7 @@ export function useChatCore(
           stopRequestedRef.current &&
           preAdmissionStopKeyRef.current === bootstrapScopeKey
         ) {
-          await interruptAndAwaitTerminal(
-            lifecycleClient,
-            requestScope,
-          );
+          await interruptAndAwaitTerminal(lifecycleClient, requestScope);
           stopStream();
           return;
         }
@@ -786,16 +767,20 @@ export function useChatCore(
             throw transportError;
           }
           setError(null);
-          logClientWarning("chat/stream", "transport-detached-after-acceptance", {
-            runId,
-            sessionId,
-            scopeKey: requestScopeKey,
-            clientMessageId: submittedMessage.id,
-            error:
-              transportError instanceof Error
-                ? transportError.message
-                : String(transportError),
-          });
+          logClientWarning(
+            "chat/stream",
+            "transport-detached-after-acceptance",
+            {
+              runId,
+              sessionId,
+              scopeKey: requestScopeKey,
+              clientMessageId: submittedMessage.id,
+              error:
+                transportError instanceof Error
+                  ? transportError.message
+                  : String(transportError),
+            },
+          );
         }
       } finally {
         if (isActiveRunScope(runScopeKey)) {
@@ -828,9 +813,7 @@ export function useChatCore(
 
   const shouldBlockSubmit = useCallback(
     (content: string, hasImages: boolean) =>
-      (!content && !hasImages) ||
-      canonicalRunLoading ||
-      !isModelConfigReady,
+      (!content && !hasImages) || canonicalRunLoading || !isModelConfigReady,
     [canonicalRunLoading, isModelConfigReady],
   );
 
@@ -847,10 +830,7 @@ export function useChatCore(
 
   const handleSubmitFailure = useCallback(
     (error: unknown, requestScopeKey: string, originalInput: string) => {
-      if (
-        requestScopeKey !== runScopeKey &&
-        !isActiveScope(requestScopeKey)
-      ) {
+      if (requestScopeKey !== runScopeKey && !isActiveScope(requestScopeKey)) {
         return;
       }
       restoreChatInput(originalInput);
@@ -887,7 +867,14 @@ export function useChatCore(
         error: error instanceof Error ? error.message : "Unknown append error",
       });
     },
-    [isActiveScope, pushDebugEvent, restoreChatInput, runId, runScopeKey, sessionId],
+    [
+      isActiveScope,
+      pushDebugEvent,
+      restoreChatInput,
+      runId,
+      runScopeKey,
+      sessionId,
+    ],
   );
 
   const submitPreparedInput = useCallback(
@@ -952,7 +939,7 @@ export function useChatCore(
     ],
   );
 
-const stop = useCallback(() => {
+  const stop = useCallback(() => {
     if (stopRequestedRef.current) {
       return;
     }
@@ -1032,7 +1019,9 @@ async function interruptAndAwaitTerminal(
   const settlementAbort = new AbortController();
   const settlementTimeout = window.setTimeout(
     () =>
-      settlementAbort.abort("Timed out waiting for interrupted terminal event."),
+      settlementAbort.abort(
+        "Timed out waiting for interrupted terminal event.",
+      ),
     15_000,
   );
   try {

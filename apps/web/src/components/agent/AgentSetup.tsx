@@ -45,7 +45,6 @@ import { useSessionProductMode } from "./hooks/useSessionProductMode";
 import { useSelectedProviderModelHydration } from "./hooks/useSelectedProviderModelHydration";
 import { ProjectChooser } from "./ProjectChooser";
 import { ProviderRequiredInline } from "../onboarding/ProviderRequiredInline";
-import { FirstTaskSuggestions } from "../onboarding/FirstTaskSuggestions";
 
 interface AgentSetupProps {
   sessionId: string;
@@ -330,18 +329,6 @@ export function AgentSetup({
     setProviderDialogInitialView("default");
     setProviderDialogVariant("connect-only");
     setShowProviderDialog(true);
-  };
-
-  const submitSuggestedTask = (prompt: string) => {
-    if (!hasProviderConnection || (requiresRepository && !hasRepositoryContext)) {
-      return;
-    }
-    onStart({
-      repo: repo?.full_name || "",
-      branch: branch || "main",
-      task: prompt,
-      mode,
-    });
   };
 
   const selectSuggestedFile = (filePath: string) => {
@@ -839,12 +826,6 @@ export function AgentSetup({
 
             <div className="mb-6 w-full max-w-4xl">
               {renderSetupComposer("hero")}
-              {hasProviderConnection && hasRepositoryContext ? (
-                <FirstTaskSuggestions
-                  onSubmit={submitSuggestedTask}
-                  onStartTyping={() => textareaRef.current?.focus()}
-                />
-              ) : null}
             </div>
           </div>
         </main>
