@@ -13,6 +13,7 @@ import type { ActiveTurnProjection } from "./useActiveTurnProjection";
 
 interface UseChatResult {
   messages: Message[];
+  optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (
@@ -51,6 +52,7 @@ export function useChat(
   // Core chat functionality
   const {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
@@ -93,6 +95,7 @@ export function useChat(
 
   return {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,

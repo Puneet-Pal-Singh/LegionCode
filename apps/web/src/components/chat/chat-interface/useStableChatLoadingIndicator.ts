@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 
 const CHAT_READY_STABILITY_MS = 180;
 
-export function useStableChatLoadingIndicator(isLoading: boolean): boolean {
+export function useStableChatLoadingIndicator(
+  isLoading: boolean,
+  hideImmediately = false,
+): boolean {
   const [isVisible, setIsVisible] = useState(isLoading);
   const latestLoadingRef = useRef(isLoading);
 
@@ -26,5 +29,5 @@ export function useStableChatLoadingIndicator(isLoading: boolean): boolean {
     return () => window.clearTimeout(timeoutId);
   }, [isLoading, isVisible]);
 
-  return isVisible;
+  return hideImmediately ? false : isVisible;
 }

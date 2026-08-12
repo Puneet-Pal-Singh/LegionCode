@@ -54,6 +54,7 @@ import { useStableChatLoadingIndicator } from "./chat-interface/useStableChatLoa
 interface ChatInterfaceProps {
   chatProps: {
     messages: Message[];
+    optimisticUserMessageId?: string | null;
     runId: string;
     input: string;
     handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -115,6 +116,7 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const {
     messages,
+    optimisticUserMessageId = null,
     runId,
     input,
     handleInputChange,
@@ -251,6 +253,12 @@ export function ChatInterface({
     () => buildConversationTurns(messages),
     [messages],
   );
+  const hasImmediateUserSubmission = useMemo(
+    () =>
+      optimisticUserMessageId !== null &&
+      messages.some((message) => message.id === optimisticUserMessageId),
+    [messages, optimisticUserMessageId],
+  );
   const {
     projections: historicalLifecycleProjections,
     isLoading: areHistoricalLifecyclesLoading,
@@ -324,9 +332,11 @@ export function ChatInterface({
     lifecycleProjection,
     lifecycleProjectionsByTurnId,
     initialPromptSubmission,
+    hasImmediateUserSubmission,
   });
   const showStableSessionPlaceholder = useStableChatLoadingIndicator(
     showSessionPlaceholder,
+    hasImmediateUserSubmission,
   );
   useEffect(() => {
     onPresentationReadyChange?.(!showStableSessionPlaceholder);

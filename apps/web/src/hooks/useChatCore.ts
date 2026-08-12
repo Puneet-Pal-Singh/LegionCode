@@ -90,6 +90,7 @@ interface ChatSubmitAttachments {
 
 interface UseChatCoreResult {
   messages: Message[];
+  optimisticUserMessageId: string | null;
   input: string;
   handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   handleSubmit: (
@@ -134,6 +135,9 @@ export function useChatCore(
     scopeKey: string;
     message: Message;
   } | null>(null);
+  const [optimisticUserMessageId, setOptimisticUserMessageId] = useState<
+    string | null
+  >(null);
   const [debugEvents, setDebugEvents] = useState<ChatDebugEvent[]>([]);
   const preAdmissionStopKeyRef = useRef<string | null>(null);
   const stopRequestedRef = useRef(false);
@@ -173,10 +177,11 @@ export function useChatCore(
     activeScopeKeyRef.current = scopeKey;
     activeConversationScopeRef.current = activeConversationScope;
     setServerTurnId(activeConversationScope?.turnId ?? null);
+    const presentationScopeKey = scopeKey ?? runScopeKey;
     setPendingUserMessage((current) =>
-      current?.scopeKey === scopeKey ? current : null,
+      current?.scopeKey === presentationScopeKey ? current : null,
     );
-  }, [activeConversationScope, scopeKey]);
+  }, [activeConversationScope, runScopeKey, scopeKey]);
 
   useEffect(() => {
     activeRunScopeKeyRef.current = runScopeKey;
@@ -185,6 +190,7 @@ export function useChatCore(
     setError(null);
     setIsSubmitting(false);
     setIsStopping(false);
+    setOptimisticUserMessageId(null);
     setDebugEvents([]);
     lastLoggedStreamErrorRef.current = null;
   }, [runScopeKey]);
@@ -665,6 +671,7 @@ export function useChatCore(
         scopeKey: bootstrapScopeKey,
         message: buildPendingUserMessage(submittedMessage),
       });
+      setOptimisticUserMessageId(submittedMessage.id ?? null);
       logClientEvent("chat/pending-user", "projected", {
         runId,
         sessionId,
@@ -694,7 +701,10 @@ export function useChatCore(
             scopeKey: bootstrapScopeKey,
             reason: "provider-resolution-unavailable",
           });
-          return;
+          if (!isActiveRunScope(runScopeKey)) return;
+          throw new Error(
+            "The selected provider configuration is unavailable. Reconnect the provider or choose another model, then try again.",
+          );
         }
         if (
           stopRequestedRef.current &&
@@ -791,12 +801,6 @@ export function useChatCore(
         if (isActiveRunScope(runScopeKey)) {
           const settledScopeKey = activeScopeKeyRef.current;
           setIsSubmitting(false);
-          logClientEvent("chat/pending-user", "cleared", {
-            runId,
-            sessionId,
-            scopeKey: settledScopeKey,
-            clientMessageId: submittedMessage.id,
-          });
           logClientEvent("chat/submit", "settled", {
             runId,
             sessionId,
@@ -853,6 +857,7 @@ export function useChatCore(
       // this handler still owns the only active submission and must clear that
       // projection as well; otherwise the UI remains stuck on "Starting".
       setPendingUserMessage(null);
+      setOptimisticUserMessageId(null);
       const message =
         error instanceof Error
           ? normalizeChatErrorMessage(error)
@@ -965,6 +970,7 @@ const stop = useCallback(() => {
           preAdmissionStopKeyRef.current = runScopeKey;
           stopStream();
           setPendingUserMessage(null);
+          setOptimisticUserMessageId(null);
         }
         dispatchRunSummaryRefresh(requestRunId);
       } catch (error) {
@@ -990,6 +996,7 @@ const stop = useCallback(() => {
 
   return {
     messages: scopedMessages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,

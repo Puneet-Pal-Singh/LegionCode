@@ -41,6 +41,44 @@ describe("useChatPresentation", () => {
     expect(result.current.isTranscriptHydrating).toBe(true);
     expect(result.current.showSessionPlaceholder).toBe(true);
   });
+
+  it("reveals an optimistically admitted prompt while canonical replay hydrates", () => {
+    const userMessage = {
+      id: "client_msg_pending",
+      role: "user" as const,
+      content: "Explain the failing test",
+    };
+    const { result } = renderHook(() =>
+      useChatPresentation({
+        messages: [userMessage],
+        conversationTurns: [
+          {
+            key: "turn:client_msg_pending",
+            userMessage,
+            assistantMessage: undefined,
+            turnId: undefined,
+          },
+        ],
+        hasHydrated: false,
+        isLoading: true,
+        hasPendingApproval: false,
+        hasStartedSession: true,
+        hasImmediateUserSubmission: true,
+      }),
+    );
+
+    expect(result.current.isTranscriptHydrating).toBe(true);
+    expect(result.current.showSessionPlaceholder).toBe(false);
+    expect(result.current.chatEntries[0]).toMatchObject({
+      kind: "message",
+      message: {
+        id: "client_msg_pending",
+        role: "user",
+        content: "Explain the failing test",
+      },
+    });
+  });
+
   it("renders the submitted setup prompt instead of a centered session spinner", () => {
     const { result } = renderHook(() =>
       useChatPresentation({

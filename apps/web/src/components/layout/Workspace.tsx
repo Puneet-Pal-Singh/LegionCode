@@ -175,6 +175,7 @@ export function Workspace({
 
   const {
     messages,
+    optimisticUserMessageId,
     input,
     handleInputChange,
     handleSubmit,
@@ -472,6 +473,7 @@ export function Workspace({
             <ChatInterface
               chatProps={{
                 messages,
+                optimisticUserMessageId,
                 runId: activeRunId,
                 input,
                 handleInputChange,
