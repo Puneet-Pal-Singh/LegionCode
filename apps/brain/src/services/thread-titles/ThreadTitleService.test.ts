@@ -157,13 +157,13 @@ describe("ThreadTitleService", () => {
   });
 
   it("uses the selected model for a bounded background title request", async () => {
-    const generateStructured = vi.fn().mockResolvedValue({
-      object: { title: "Review Cloud Task Checkout" },
+    const generateText = vi.fn().mockResolvedValue({
+      text: '"Review Cloud Task Checkout."\nIgnored explanation',
     });
     const persist = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
     const coordinator = new ThreadTitleGenerationCoordinator({} as Env, {
-      generator: { generateStructured },
+      generator: { generateText },
       titleService: { persist },
     });
 
@@ -179,11 +179,10 @@ describe("ThreadTitleService", () => {
     );
 
     await scheduled;
-    expect(generateStructured).toHaveBeenCalledWith(
+    expect(generateText).toHaveBeenCalledWith(
       expect.objectContaining({
         providerId: "google",
         model: "gemma-3-27b",
-        maxTokens: 32,
         temperature: 0,
         messages: [
           expect.objectContaining({ role: "system" }),
