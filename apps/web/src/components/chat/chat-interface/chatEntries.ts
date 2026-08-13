@@ -13,6 +13,7 @@ export type ChatInterfaceEntry =
       key: string;
       turnId: string;
       projection: LifecycleProjection;
+      assistantMessage?: Message;
     };
 
 export function buildChatEntries(
@@ -34,6 +35,9 @@ export function buildChatEntries(
         key: `workflow:${turnId}`,
         turnId,
         projection,
+        ...(conversationTurn.assistantMessage
+          ? { assistantMessage: conversationTurn.assistantMessage }
+          : {}),
       });
       emittedWorkflowTurnIds.add(turnId);
     }
@@ -75,7 +79,7 @@ function shouldIncludeAssistantMessage(
   if (!message || message.role !== "assistant") return false;
   if (
     projection?.terminal?.state === "completed" &&
-    projection.assistantText.trim()
+    (projection.assistantText.trim() || projection.terminal.content.trim())
   ) {
     return false;
   }

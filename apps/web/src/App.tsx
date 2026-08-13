@@ -1099,6 +1099,9 @@ function AppContent() {
                       updateSession(activeSessionId, { status: "running" });
                     }
                   }}
+                  onServerProjectionAvailable={() => {
+                    void refreshSessionProjection(activeSessionId);
+                  }}
                   onPendingApprovalStateChange={(hasPendingApproval) => {
                     handlePendingApprovalStateChange(
                       activeSessionId,

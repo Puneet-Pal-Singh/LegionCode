@@ -59,6 +59,44 @@ describe("buildChatEntries", () => {
     ).toEqual(["user-1", "workflow"]);
   });
 
+  it("uses terminal summary as canonical final output when assistant deltas are absent", () => {
+    const turnId = TurnIdSchema.parse("trn_summaryonly01");
+    const user = withTurnIdentity(
+      createMessage("user-summary", "user", "Inspect the repo"),
+      turnId,
+    );
+    const assistant = withTurnIdentity(
+      createMessage("assistant-summary", "assistant", "Done from transcript"),
+      turnId,
+    );
+    const projection = {
+      ...createLifecycleProjection(turnId),
+      lastSequence: 2,
+      assistantText: "",
+      terminal: {
+        state: "completed" as const,
+        eventId: "evt_summaryonly01",
+        content: "Done from canonical terminal",
+        occurredAt: "2026-06-25T00:00:01.000Z",
+      },
+    };
+
+    const entries = buildChatEntries(
+      buildConversationTurns([user, assistant]),
+      { [turnId]: projection },
+    );
+
+    expect(
+      entries.map((entry) =>
+        entry.kind === "message" ? entry.message.id : entry.kind,
+      ),
+    ).toEqual(["user-summary", "workflow"]);
+    expect(entries[1]).toMatchObject({
+      kind: "workflow",
+      assistantMessage: { id: "assistant-summary" },
+    });
+  });
+
   it("keeps the active canonical workflow visible while transcript identity catches up", () => {
     const turnId = TurnIdSchema.parse("trn_activegap01");
     const user = createMessage("user-1", "user", "Inspect the repo");

@@ -60,6 +60,7 @@ interface WorkspaceProps {
   hasStartedSession?: boolean;
   onSessionStatusChange?: (status: SessionStatus) => void;
   onPromptSubmitted?: (prompt: string) => void;
+  onServerProjectionAvailable?: () => void;
   initialPromptSubmission?: InitialPromptSubmission | null;
   onInitialPromptHandled?: (id: InitialPromptSubmissionId) => void;
   onPendingApprovalStateChange?: (hasPendingApproval: boolean) => void;
@@ -92,6 +93,7 @@ export function Workspace({
   hasStartedSession = false,
   onSessionStatusChange,
   onPromptSubmitted,
+  onServerProjectionAvailable,
   initialPromptSubmission = null,
   onInitialPromptHandled,
   onPendingApprovalStateChange,
@@ -201,6 +203,7 @@ export function Workspace({
     },
     mode,
     productMode,
+    onServerProjectionAvailable,
   );
   useEffect(() => {
     if (activeTurn.hasReplay && chatError) {

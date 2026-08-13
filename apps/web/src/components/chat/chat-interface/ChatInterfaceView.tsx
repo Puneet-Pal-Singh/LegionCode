@@ -194,6 +194,11 @@ function TurnWorkflowEntry({
             includeCurrentTurnReview={isCurrentTurn}
             projection={entry.projection}
             hookAudits={entry.projection.hookAudits}
+            metadata={
+              entry.assistantMessage
+                ? props.messageMetadataById[entry.assistantMessage.id]
+                : undefined
+            }
           />
         </div>
       ) : null}
@@ -227,6 +232,7 @@ function TerminalMessage(
     includeCurrentTurnReview: boolean;
     projection: LifecycleProjection;
     hookAudits: LifecycleProjection["hookAudits"];
+    metadata?: ChatMessageMetadata;
   },
 ) {
   const terminal = props.terminalViewModel;
@@ -292,6 +298,7 @@ function TerminalMessage(
             })
       }
       hookAudits={props.hookAudits}
+      metadata={props.metadata}
     />
   );
 }

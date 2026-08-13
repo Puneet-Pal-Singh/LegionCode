@@ -48,6 +48,7 @@ export function useChat(
   onFileCreated?: () => void,
   mode?: RunMode,
   productMode?: ProductMode,
+  onServerProjectionAvailable?: () => void,
 ): UseChatResult {
   // Core chat functionality
   const {
@@ -69,7 +70,13 @@ export function useChat(
     error,
     clearNonCanonicalError,
     debugEvents,
-  } = useChatCore(sessionId, runId, mode, productMode);
+  } = useChatCore(
+    sessionId,
+    runId,
+    mode,
+    productMode,
+    onServerProjectionAvailable,
+  );
 
   // Handle message hydration
   const { isHydrating, hasHydrated } = useChatHydration(

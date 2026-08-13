@@ -58,6 +58,7 @@ import {
 } from "./conversationScope";
 import { createLifecycleClient } from "../services/api/lifecycleClient";
 import { hasCanonicalLifecycleEvidence } from "./chat/resolveChatTransportFailure";
+import { attachActiveTurnIdentity } from "./chat/activeTurnMessageIdentity";
 import {
   useActiveTurnProjection,
   deriveCanonicalRunLoading,
@@ -123,6 +124,7 @@ export function useChatCore(
   externalRunId?: string,
   mode: RunMode = DEFAULT_RUN_MODE,
   productMode?: ProductMode,
+  onServerProjectionAvailable?: () => void,
 ): UseChatCoreResult {
   const [internalRunId, setInternalRunId] = useState<string>(() =>
     createRunId(),
@@ -349,6 +351,7 @@ export function useChatCore(
         return;
       }
       dispatchRunSummaryRefresh(runId);
+      onServerProjectionAvailable?.();
       logClientEvent("chat/stream", "response", {
         runId,
         sessionId,
@@ -370,6 +373,7 @@ export function useChatCore(
         return;
       }
       dispatchRunSummaryRefresh(runId);
+      onServerProjectionAvailable?.();
       logClientEvent("chat/stream", "finished", {
         runId,
         sessionId,
@@ -447,7 +451,10 @@ export function useChatCore(
     setIsSubmitting(false);
     setIsStopping(false);
   }, [activeTurnProjection.isTerminal, activeTurnProjection.turnId]);
-  const scopedMessagesBase = messages;
+  const scopedMessagesBase = useMemo(
+    () => attachActiveTurnIdentity(messages, activeConversationScope),
+    [activeConversationScope, messages],
+  );
   const presentationScopeKey = scopeKey ?? runScopeKey;
   const scopedMessages = useMemo(
     () =>
