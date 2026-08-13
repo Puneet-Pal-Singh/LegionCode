@@ -450,6 +450,10 @@ export function ChatInterface({
       runAttemptId={conversationScope?.runAttemptId ?? null}
       artifactIdentity={conversationScope}
       messageMetadataById={messageMetadataById}
+      modeLabel={mode === "plan" ? "Plan" : "Build"}
+      resolveModelLabel={(modelId) =>
+        resolveModelLabel(modelId, providerModels)
+      }
       onArtifactOpen={onArtifactOpen}
       onReviewOpen={onReviewOpen}
       snapshots={changedFileSnapshotsByAssistantMessageId}
