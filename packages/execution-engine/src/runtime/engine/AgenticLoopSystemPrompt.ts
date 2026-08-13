@@ -51,6 +51,7 @@ export function buildAgenticLoopSystemPrompt(input: {
     "- If a mutating tool fails for another reason, stop and explain what failed.",
     "- git_commit messages must be a single-line conventional commit subject (for example: feat: add hero carousel).",
     "Answer quality:",
+    "- Before calling tools, write one brief user-facing progress sentence that explains the next action. Keep it factual and never include hidden reasoning or chain-of-thought.",
     "- After gathering enough evidence, answer the user directly in plain English.",
     "- Summarize tool results instead of echoing raw JSON or raw telemetry.",
     "- Reference the files or git facts you actually observed.",

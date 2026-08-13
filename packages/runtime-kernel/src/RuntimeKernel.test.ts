@@ -167,6 +167,37 @@ describe("RuntimeKernel canonical lifecycle", () => {
     });
   });
 
+  it("does not expose raw provider quota diagnostics in failed-turn output", async () => {
+    const sink = createLifecycleSink();
+    const ports = createPorts();
+    ports.provider.generateNext = vi.fn(async () => {
+      throw Object.assign(
+        new Error(
+          "Quota exceeded for generativelanguage.googleapis.com/generate_content_free_tier_input_token_count; retry in 49s",
+        ),
+        { statusCode: 429 },
+      );
+    });
+    const kernel = await createKernel(sink, ports);
+
+    await expect(kernel.startTurn({ run, turn, runAttemptId })).rejects.toThrow(
+      "Quota exceeded",
+    );
+
+    const failed = sink.events.find((event) => event.type === "turn.failed");
+    expect(failed?.payload).toMatchObject({
+      outcome: {
+        failure: {
+          code: "provider_unavailable",
+          message: expect.stringContaining("temporarily rate limited"),
+        },
+      },
+    });
+    expect(JSON.stringify(failed?.payload)).not.toContain(
+      "generate_content_free_tier_input_token_count",
+    );
+  });
+
   it("automatically compacts once at the model-aware threshold and replays its settlement", async () => {
     const sink = createLifecycleSink();
     const ports = createPorts();

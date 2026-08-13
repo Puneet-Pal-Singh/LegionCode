@@ -79,13 +79,39 @@ export function toProtocolError(error: unknown): ProtocolError {
 }
 
 function mapProviderFailure(error: RuntimeKernelError): ProtocolError {
+  const statusCode = readProviderStatusCode(error.causeError);
   return {
     code: "provider_unavailable",
-    message: safeRuntimeErrorMessage(error.causeError),
+    message:
+      statusCode === 429
+        ? "The model provider is temporarily rate limited. LegionCode exhausted its bounded cooldown retry; retry later or choose another model."
+        : safeRuntimeErrorMessage(error.causeError),
     retryable: true,
     correlationId: null,
-    details: { runtimeKernelCode: error.code },
+    details: {
+      runtimeKernelCode: error.code,
+      ...(statusCode !== null ? { providerStatusCode: statusCode } : {}),
+    },
   };
+}
+
+function readProviderStatusCode(error: unknown): number | null {
+  const visited = new Set<unknown>();
+  let current = error;
+  let depth = 0;
+  while (current && depth < 8 && !visited.has(current)) {
+    visited.add(current);
+    if (typeof current === "object") {
+      const record = current as Record<string, unknown>;
+      if (typeof record.statusCode === "number") return record.statusCode;
+      current =
+        record.causeError ?? record.cause ?? record.lastError ?? record.error;
+      depth += 1;
+      continue;
+    }
+    break;
+  }
+  return null;
 }
 
 function safeRuntimeErrorMessage(error: unknown): string {
