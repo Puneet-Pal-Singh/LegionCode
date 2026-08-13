@@ -32,15 +32,9 @@ describe("LanguageToolService", () => {
       metadata: { path: "src/app.ts", formatter: "prettier", changed: true },
       truncated: false,
     });
-    const command = findCommand("pnpm");
+    const command = findCommand("prettier");
     expect(command).toMatchObject({
-      args: [
-        "exec",
-        "prettier",
-        "--write",
-        "--",
-        `${WORKSPACE_ROOT}/src/app.ts`,
-      ],
+      args: ["--write", "--", `${WORKSPACE_ROOT}/src/app.ts`],
       cwd: WORKSPACE_ROOT,
     });
   });
@@ -66,6 +60,15 @@ describe("LanguageToolService", () => {
       metadata: { languageService: "typescript", diagnosticCount: 2 },
       truncated: false,
     });
+    const command = findCommand("tsc");
+    expect(command).toBeDefined();
+    expect(command?.args).toEqual([
+      "--noEmit",
+      "--pretty",
+      "false",
+      "--incremental",
+      "false",
+    ]);
   });
 
   it("caps broad diagnostic output", async () => {
