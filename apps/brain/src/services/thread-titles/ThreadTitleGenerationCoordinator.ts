@@ -140,17 +140,21 @@ function classifyTitleGenerationFailure(
 }
 
 function normalizeGeneratedTitle(value: string): string | null {
-  const firstLine = value.split(/\r?\n/, 1)[0] ?? "";
-  const title = firstLine
+  const cleaned = value.replace(/<think>[\s\S]*?<\/think>\s*/giu, "");
+  const firstLine = cleaned
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return null;
+  const normalized = firstLine
+    .replace(/^#{1,6}\s*/u, "")
+    .replace(/^title\s*:\s*/iu, "")
     .replace(/^[\s"'`]+|[\s"'`.,:;!?]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!title) {
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length < 3) {
     return null;
   }
-  const wordCount = title.split(" ").filter(Boolean).length;
-  if (wordCount < 3 || wordCount > 6 || title.length > 80) {
-    return null;
-  }
-  return title;
+  return words.slice(0, 6).join(" ").slice(0, 80).trim() || null;
 }

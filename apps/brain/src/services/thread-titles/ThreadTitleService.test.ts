@@ -158,7 +158,7 @@ describe("ThreadTitleService", () => {
 
   it("uses the selected model for a bounded background title request", async () => {
     const generateText = vi.fn().mockResolvedValue({
-      text: '"Review Cloud Task Checkout."\nIgnored explanation',
+      text: '<think>Choose a concise title.</think>\nTitle: "Review Cloud Task Checkout Improvements."\nIgnored explanation',
     });
     const persist = vi.fn().mockResolvedValue(null);
     let scheduled: Promise<unknown> | undefined;
@@ -195,7 +195,7 @@ describe("ThreadTitleService", () => {
     );
     expect(persist).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Review Cloud Task Checkout",
+        title: "Review Cloud Task Checkout Improvements",
         source: "generated",
         expectedTitleVersion: 2,
       }),
