@@ -44,6 +44,21 @@ describe("useApprovalController", () => {
     expect(result.current.pendingApproval).not.toBeNull();
     expect(result.current.error).toBe("offline");
   });
+
+  it("clears transient approval state when the chat surface unmounts", () => {
+    const onPendingApprovalChange = vi.fn();
+    const { unmount } = renderHook(() =>
+      useApprovalController({
+        lifecycleProjection: pendingApprovalProjection(),
+        lifecycleClient: {} as LifecycleClient,
+        onPendingApprovalChange,
+      }),
+    );
+
+    expect(onPendingApprovalChange).toHaveBeenLastCalledWith(true);
+    unmount();
+    expect(onPendingApprovalChange).toHaveBeenLastCalledWith(false);
+  });
 });
 
 function pendingApprovalProjection() {

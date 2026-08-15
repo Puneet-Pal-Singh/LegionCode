@@ -26,13 +26,12 @@ interface ApprovalControllerInput {
   lifecycleClient?: LifecycleClient;
 }
 
-type PendingApprovalState =
-  | {
-      source: "lifecycle";
-      request: ApprovalRequest;
-      approval: LifecycleProjectionApproval;
-      turnId: LifecycleProjection["turnId"];
-    };
+type PendingApprovalState = {
+  source: "lifecycle";
+  request: ApprovalRequest;
+  approval: LifecycleProjectionApproval;
+  turnId: LifecycleProjection["turnId"];
+};
 
 export function useApprovalController(input: ApprovalControllerInput) {
   const lifecycleClient = useMemo(
@@ -149,10 +148,10 @@ function useApprovalLifecycle(
       setResolvedRequestId(null);
     }
   }, [projected, setResolvedRequestId]);
-  useEffect(
-    () => onPendingChange?.(Boolean(pending)),
-    [onPendingChange, pending],
-  );
+  useEffect(() => {
+    onPendingChange?.(Boolean(pending));
+    return () => onPendingChange?.(false);
+  }, [onPendingChange, pending]);
 }
 
 interface ResolveDecisionInput {

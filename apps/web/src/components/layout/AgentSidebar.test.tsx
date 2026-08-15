@@ -97,6 +97,28 @@ describe("AgentSidebar", () => {
       "data-status-kind",
       "icon",
     );
+    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
+      "Awaiting approval",
+    );
+  });
+
+  it("projects a server waiting-for-approval status into the task title", () => {
+    render(
+      <AgentSidebar
+        sessions={[createSession({ status: "waiting_for_approval" })]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("task-status-label-needs_approval")).toHaveTextContent(
+      "Awaiting approval",
+    );
   });
 
   it("uses the project folder as the only disclosure control", () => {
