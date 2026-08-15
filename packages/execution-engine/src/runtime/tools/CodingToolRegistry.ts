@@ -248,10 +248,6 @@ export const LIST_FILES_TOOL_INPUT_SCHEMA = createToolInputSchema(
 export const WRITE_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   path: z.string().min(1).max(MAX_TOOL_PATH_LENGTH),
   content: z.string().min(1).max(MAX_TOOL_WRITE_CONTENT_LENGTH),
-  expectedSha256: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/i)
-    .optional(),
 });
 
 export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
@@ -260,10 +256,6 @@ export const EDIT_FILE_TOOL_INPUT_SCHEMA = createToolInputSchema({
   newText: z.string().max(MAX_TOOL_WRITE_CONTENT_LENGTH),
   replaceAll: z.boolean().optional(),
   expectedReplacements: z.number().int().min(1).max(10_000).optional(),
-  expectedSha256: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/i)
-    .optional(),
 });
 
 export const MULTI_EDIT_TOOL_INPUT_SCHEMA = createToolInputSchema({

@@ -299,10 +299,7 @@ async function executeWriteFileTool(
   const result = await executeGatewayPlugin(executionService, "write_file", {
     path,
     content: validatedInput.content,
-    expectedSha256: resolveWriteFileExpectedSha256(
-      preflight,
-      validatedInput.expectedSha256,
-    ),
+    expectedSha256: await resolveWriteFileExpectedSha256(preflight),
   });
   const failure = extractExecutionFailure(result);
   if (failure) {

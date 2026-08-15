@@ -15,12 +15,20 @@ describe("WriteFilePrecondition", () => {
     });
   });
 
-  it("rejects a write when the existing target could not be verified", () => {
-    expect(() =>
-      resolveWriteFileExpectedSha256(
-        { kind: "error", message: "permission denied" },
-        "0".repeat(64),
-      ),
-    ).toThrow(/Unable to verify write target/);
+  it("rejects a write when the existing target could not be verified", async () => {
+    await expect(
+      resolveWriteFileExpectedSha256({
+        kind: "error",
+        message: "permission denied",
+      }),
+    ).rejects.toThrow(/Unable to verify write target/);
+  });
+
+  it("derives the replacement guard from the runtime preflight", async () => {
+    await expect(
+      resolveWriteFileExpectedSha256({ kind: "present", content: "hello" }),
+    ).resolves.toBe(
+      "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    );
   });
 });
