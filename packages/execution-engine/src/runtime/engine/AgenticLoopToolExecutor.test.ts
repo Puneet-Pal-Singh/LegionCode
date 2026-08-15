@@ -229,7 +229,7 @@ describe("AgenticLoopToolExecutor", () => {
     ]);
   });
 
-  it("routes formatter and diagnostics hooks through filesystem actions", async () => {
+  it("routes formatter hooks through filesystem actions", async () => {
     const calls: Array<{ plugin: string; action: string }> = [];
     const executionService: RuntimeExecutionService = {
       execute: async (plugin, action) => {
@@ -243,18 +243,8 @@ describe("AgenticLoopToolExecutor", () => {
       toolName: "format_file",
       toolInput: { path: "src/app.ts" },
     });
-    const diagnosticsResult = await executeAgenticLoopTool(executionService, {
-      taskId: "task-diagnostics-1",
-      toolName: "language_diagnostics",
-      toolInput: { path: "src/app.ts" },
-    });
-
     expect(formatResult.status).toBe("DONE");
-    expect(diagnosticsResult.status).toBe("DONE");
-    expect(calls).toEqual([
-      { plugin: "filesystem", action: "format_file" },
-      { plugin: "filesystem", action: "language_diagnostics" },
-    ]);
+    expect(calls).toEqual([{ plugin: "filesystem", action: "format_file" }]);
   });
 
   it("executes github_pr_list through the github bridge route", async () => {

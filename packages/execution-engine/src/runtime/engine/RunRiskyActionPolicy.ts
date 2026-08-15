@@ -236,7 +236,6 @@ function classifyRiskAction(
     toolName === "list_files" ||
     toolName === "glob" ||
     toolName === "grep" ||
-    toolName === "language_diagnostics" ||
     toolName === "git_status" ||
     toolName === "git_diff" ||
     toolName === "github_pr_list" ||
