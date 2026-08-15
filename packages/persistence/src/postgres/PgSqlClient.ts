@@ -129,8 +129,22 @@ export async function withPostgresSqlClient<T>(
   }
 }
 
-export function createPostgresSqlClient(connectionString: string): SqlClient {
-  return new PgPoolSqlClient(getPostgresPool(connectionString));
+/**
+ * Create a SQL client for the current execution scope.
+ *
+ * Durable Object instances can share a JavaScript isolate, but they may not
+ * share I/O objects. A module-global pg Pool is therefore only safe for the
+ * stateless Worker path. Runtime callers pass their canonical run scope so
+ * each run gets a pool owned by its Durable Object.
+ */
+export function createPostgresSqlClient(
+  connectionString: string,
+  scopeKey?: string,
+): SqlClient {
+  const pool = scopeKey
+    ? new Pool({ connectionString })
+    : getPostgresPool(connectionString);
+  return new PgPoolSqlClient(pool);
 }
 
 function getPostgresPool(connectionString: string): Pool {
