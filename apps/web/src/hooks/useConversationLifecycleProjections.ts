@@ -77,7 +77,7 @@ export function useConversationLifecycleProjections(
       });
     });
     return () => abortController.abort();
-  }, [client, turnIdsKey]);
+  }, [client, turnIds, turnIdsKey]);
 
   const isCurrent = state?.key === turnIdsKey;
   return {

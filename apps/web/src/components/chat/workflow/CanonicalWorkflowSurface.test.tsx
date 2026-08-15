@@ -98,10 +98,10 @@ describe("CanonicalWorkflowSurface", () => {
     expect(
       screen.getByTestId("workflow-summary-chevron-down"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Read README.md")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /read files/i }));
     expect(screen.getByText("Read README.md")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /read files/i }),
+    ).not.toBeInTheDocument();
     const toolDetails = screen.getByRole("button", {
       name: /view details for read readme/i,
     });
