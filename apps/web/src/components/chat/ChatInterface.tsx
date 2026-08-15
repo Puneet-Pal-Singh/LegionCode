@@ -171,7 +171,7 @@ export function ChatInterface({
   }, [messages]);
   const {
     selectedReviewComments,
-    openPromptArtifactReview,
+    selectPromptArtifactReview,
     toggleReviewCommentSelected,
     markReviewCommentsDispatching,
     markReviewCommentsDispatched,
@@ -459,7 +459,7 @@ export function ChatInterface({
       snapshots={changedFileSnapshotsByAssistantMessageId}
       artifacts={artifactSourcesByAssistantMessageId}
       loadChangedFileDiff={loadChangedFileDiff}
-      openPromptArtifactReview={openPromptArtifactReview}
+      selectPromptArtifactReview={selectPromptArtifactReview}
       terminalViewModel={terminalViewModel}
       terminalReviewFiles={terminalViewModel ? completedTurnReview.files : []}
       terminalTurnDiff={lifecycleProjection?.turnDiff ?? null}

@@ -367,6 +367,17 @@ describe("ModelPickerPopover", () => {
       const modelButton = (await screen.findByText("GPT-4")).closest("button");
       expect(modelButton).not.toBeNull();
       if (!modelButton) throw new Error("Model button was not rendered");
+      vi.spyOn(modelButton, "getBoundingClientRect").mockReturnValue({
+        top: 184,
+        right: 416,
+        bottom: 220,
+        left: 112,
+        width: 304,
+        height: 36,
+        x: 112,
+        y: 184,
+        toJSON: () => ({}),
+      });
       fireEvent.pointerEnter(modelButton);
 
       expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
@@ -388,6 +399,9 @@ describe("ModelPickerPopover", () => {
       expect(
         screen.getByTestId("model-picker-details").className,
       ).not.toContain("fixed");
+      expect(screen.getByTestId("model-picker-details")).toHaveStyle({
+        top: "184px",
+      });
     });
 
     it("does not invent inputs or reasoning for models without metadata", async () => {
@@ -417,6 +431,29 @@ describe("ModelPickerPopover", () => {
       const details = screen.getByTestId("model-picker-details");
       expect(details).toHaveTextContent("Not published");
       expect(details).not.toHaveTextContent("No reasoning");
+    });
+
+    it("clears stale model metadata when the picker list scrolls", async () => {
+      render(
+        <ModelPickerPopover
+          {...defaultProps}
+          selectedProviderId="openai"
+          selectedModelId="gpt-4"
+        />,
+      );
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /open model picker/i }),
+      );
+      const modelButton = (await screen.findByText("GPT-4")).closest("button");
+      expect(modelButton).not.toBeNull();
+      if (!modelButton) throw new Error("Model button was not rendered");
+      fireEvent.pointerEnter(modelButton);
+      expect(screen.getByTestId("model-picker-details")).toBeInTheDocument();
+
+      fireEvent.scroll(screen.getByTestId("model-picker-model-list"));
+
+      expect(screen.queryByTestId("model-picker-details")).not.toBeInTheDocument();
     });
 
     it("shows included default axis models in a dedicated section", async () => {

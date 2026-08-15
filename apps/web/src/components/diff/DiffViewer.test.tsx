@@ -89,7 +89,9 @@ describe("DiffViewer", () => {
 
     fireEvent.click(screen.getByLabelText("Diff view options"));
 
-    expect(screen.getByRole("menuitem", { name: "Disable word wrap" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "Disable word wrap" }),
+    ).toBeInTheDocument();
   });
 
   it("renders one file summary when the full diff header is hidden", () => {
@@ -131,6 +133,28 @@ describe("DiffViewer", () => {
     expect(screen.getByText("+1")).toBeInTheDocument();
     expect(screen.getByText("-1")).toBeInTheDocument();
     expect(screen.queryByText("Lines 1 - 2")).not.toBeInTheDocument();
+  });
+
+  it("keeps inline file stats in the live activity header", () => {
+    render(
+      <DiffViewer
+        showHeader={false}
+        fileSummaryLayout="inline"
+        diff={{
+          oldPath: "src/example.ts",
+          newPath: "src/example.ts",
+          isBinary: false,
+          isNewFile: false,
+          isDeleted: false,
+          hunks: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("src/example.ts").parentElement).toHaveClass(
+      "flex",
+      "justify-between",
+    );
   });
 
   it("does not render each hunk as a separate file", () => {

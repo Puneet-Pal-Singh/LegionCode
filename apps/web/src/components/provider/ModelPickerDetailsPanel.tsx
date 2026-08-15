@@ -6,6 +6,7 @@ interface ModelPickerDetailsPanelProps {
   model: ProviderModelOption;
   providerName: string;
   side: "left" | "right";
+  topPx: number;
 }
 
 /**
@@ -17,6 +18,7 @@ export function ModelPickerDetailsPanel({
   model,
   providerName,
   side,
+  topPx,
 }: ModelPickerDetailsPanelProps) {
   const inputs = Object.entries(model.inputModalities ?? {})
     .filter(([, supported]) => supported)
@@ -32,10 +34,12 @@ export function ModelPickerDetailsPanel({
     <div
       data-testid="model-picker-details"
       data-model-picker-attachment={side}
+      data-model-picker-anchor-top={topPx}
       className={cn(
-        "ui-surface-popover pointer-events-none absolute top-0 z-10 w-64 p-3 text-sm",
+        "ui-surface-popover pointer-events-none absolute z-10 max-h-[calc(100vh-24px)] w-64 max-w-[calc(100vw-24px)] overflow-y-auto p-3 text-sm",
         side === "right" ? "left-full ml-2" : "right-full mr-2",
       )}
+      style={{ top: `${topPx}px` }}
     >
       <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1.5">
         <ModelDetail label="Model" value={formatModelDisplayName(model)} />

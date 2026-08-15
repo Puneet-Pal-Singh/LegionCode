@@ -40,6 +40,9 @@ const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 352;
 const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
+const MODEL_DETAILS_GAP_PX = 8;
+const MODEL_DETAILS_WIDTH_PX = 256;
+const ESTIMATED_MODEL_DETAILS_HEIGHT_PX = 184;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
@@ -110,6 +113,35 @@ interface EffectiveSelection {
 interface HoveredModelDetails {
   model: ProviderModelOption;
   providerName: string;
+  side: "left" | "right";
+  topPx: number;
+}
+
+function resolveModelDetailsSide(
+  rowRect: DOMRect,
+): "left" | "right" {
+  const spaceRight = window.innerWidth - rowRect.right - VIEWPORT_PADDING_PX;
+  const spaceLeft = rowRect.left - VIEWPORT_PADDING_PX;
+  const requiredWidth = MODEL_DETAILS_WIDTH_PX + MODEL_DETAILS_GAP_PX;
+
+  if (spaceRight >= requiredWidth) return "right";
+  if (spaceLeft >= requiredWidth) return "left";
+  return spaceRight >= spaceLeft ? "right" : "left";
+}
+
+function resolveModelDetailsTop(
+  rowRect: DOMRect,
+  popoverRect: DOMRect,
+): number {
+  const maxViewportTop = Math.max(
+    VIEWPORT_PADDING_PX,
+    window.innerHeight - ESTIMATED_MODEL_DETAILS_HEIGHT_PX - VIEWPORT_PADDING_PX,
+  );
+  const viewportTop = Math.min(
+    Math.max(VIEWPORT_PADDING_PX, rowRect.top),
+    maxViewportTop,
+  );
+  return Math.max(0, viewportTop - popoverRect.top);
 }
 
 function formatProviderDisplayName(
@@ -276,6 +308,7 @@ export function ModelPickerPopover({
     null,
   );
   const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverContentRef = useRef<HTMLDivElement>(null);
   const triggerButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const connectedProviderIds = useMemo(
@@ -557,8 +590,17 @@ export function ModelPickerPopover({
   const showModelDetails = (
     model: ProviderModelOption,
     providerName: string,
+    row: HTMLButtonElement,
   ): void => {
-    setHoveredModel({ model, providerName });
+    const popoverRect = popoverContentRef.current?.getBoundingClientRect();
+    if (!popoverRect) return;
+    const rowRect = row.getBoundingClientRect();
+    setHoveredModel({
+      model,
+      providerName,
+      side: resolveModelDetailsSide(rowRect),
+      topPx: resolveModelDetailsTop(rowRect, popoverRect),
+    });
   };
 
   useEffect(() => {
@@ -568,6 +610,7 @@ export function ModelPickerPopover({
 
     const handleViewportChange = (): void => {
       const nextPlacement = resolvePlacement();
+      setHoveredModel(null);
       setPlacement((currentPlacement) =>
         isSamePlacement(currentPlacement, nextPlacement)
           ? currentPlacement
@@ -613,6 +656,7 @@ export function ModelPickerPopover({
       {/* Popover Content */}
       {isOpen && (
         <div
+          ref={popoverContentRef}
           className={`
             absolute z-50
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
@@ -667,6 +711,8 @@ export function ModelPickerPopover({
                 </div>
               )}
               <div
+                data-testid="model-picker-model-list"
+                onScroll={() => setHoveredModel(null)}
                 className={`overflow-y-auto flex-1 ${
                   isLoading ? "flex items-center justify-center" : ""
                 }`}
@@ -710,16 +756,18 @@ export function ModelPickerPopover({
                                 )
                               }
                               disabled={selectingModelId === model.id}
-                              onPointerEnter={() =>
+                              onPointerEnter={(event) =>
                                 showModelDetails(
                                   model,
                                   axisDefaultGroup.displayName,
+                                  event.currentTarget,
                                 )
                               }
-                              onFocus={() =>
+                              onFocus={(event) =>
                                 showModelDetails(
                                   model,
                                   axisDefaultGroup.displayName,
+                                  event.currentTarget,
                                 )
                               }
                               className={`
@@ -801,11 +849,19 @@ export function ModelPickerPopover({
                                   selectingModelId === model.id ||
                                   !isProviderModelAvailable(model)
                                 }
-                                onPointerEnter={() =>
-                                  showModelDetails(model, group.displayName)
+                                onPointerEnter={(event) =>
+                                  showModelDetails(
+                                    model,
+                                    group.displayName,
+                                    event.currentTarget,
+                                  )
                                 }
-                                onFocus={() =>
-                                  showModelDetails(model, group.displayName)
+                                onFocus={(event) =>
+                                  showModelDetails(
+                                    model,
+                                    group.displayName,
+                                    event.currentTarget,
+                                  )
                                 }
                                 className={`
                               min-h-9 w-full px-3 py-1.5 text-left text-sm
@@ -914,7 +970,8 @@ export function ModelPickerPopover({
             <ModelPickerDetailsPanel
               model={hoveredModel.model}
               providerName={hoveredModel.providerName}
-              side={placement.horizontal === "start" ? "right" : "left"}
+              side={hoveredModel.side}
+              topPx={hoveredModel.topPx}
             />
           ) : null}
         </div>

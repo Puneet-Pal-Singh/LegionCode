@@ -522,7 +522,8 @@ export function Workspace({
               }}
               onReviewOpen={() => {
                 setIsViewingContent(false);
-                onGitReviewOpenChange?.(true);
+                setActiveTab("review");
+                setIsRightSidebarOpen?.(true);
               }}
               onContextOpen={(budget, usage) => {
                 openContextTab(budget, usage, {

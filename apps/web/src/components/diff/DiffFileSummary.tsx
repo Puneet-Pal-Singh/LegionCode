@@ -1,9 +1,12 @@
+import { cn } from "../../lib/utils";
+
 interface DiffFileSummaryProps {
   additions: number;
   deletions: number;
   diffPath: string;
   isDeleted: boolean;
   isNewFile: boolean;
+  layout?: "stacked" | "inline";
 }
 
 export function DiffFileSummary({
@@ -12,11 +15,23 @@ export function DiffFileSummary({
   diffPath,
   isDeleted,
   isNewFile,
+  layout = "stacked",
 }: DiffFileSummaryProps) {
+  const inline = layout === "inline";
   return (
-    <div className="min-w-0">
+    <div
+      className={cn(
+        "min-w-0",
+        inline && "flex items-center justify-between gap-3",
+      )}
+    >
       <p className="truncate font-mono text-sm text-zinc-200">{diffPath}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap items-center gap-2 text-xs text-zinc-400",
+          !inline && "mt-2",
+        )}
+      >
         {isNewFile ? (
           <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">
             New file

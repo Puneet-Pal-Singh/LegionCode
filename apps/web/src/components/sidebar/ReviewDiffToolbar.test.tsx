@@ -3,6 +3,35 @@ import { describe, expect, it, vi } from "vitest";
 import { ReviewDiffToolbar } from "./ReviewDiffToolbar";
 
 describe("ReviewDiffToolbar", () => {
+  it("shows one stable canonical last-turn option", () => {
+    const onReviewScopeChange = vi.fn();
+    render(
+      <ReviewDiffToolbar
+        reviewScope="turn-diff"
+        onReviewScopeChange={onReviewScopeChange}
+        layout="stacked"
+        onLayoutChange={vi.fn()}
+        wordWrap
+        onWordWrapChange={vi.fn()}
+        allDiffsCollapsed={false}
+        onToggleAllDiffs={vi.fn()}
+        isChangesOpen={false}
+        onToggleChanges={vi.fn()}
+        canonicalAvailable
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Last turn changes" }));
+    expect(
+      screen.getAllByRole("menuitem", { name: "Last turn changes" }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryByRole("menuitem", { name: "Saved edit" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Git changes" }));
+    expect(onReviewScopeChange).toHaveBeenCalledWith("git-changes");
+  });
+
   it("toggles file changes directly and keeps collapse in the options menu", () => {
     const onToggleAllDiffs = vi.fn();
     const onToggleChanges = vi.fn();
