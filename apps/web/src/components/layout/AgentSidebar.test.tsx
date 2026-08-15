@@ -161,6 +161,25 @@ describe("AgentSidebar", () => {
     expect(indicator.getAttribute("class")).toContain("animate-spin");
   });
 
+  it("keeps a visible spinner while an idle session title is generating", () => {
+    render(
+      <AgentSidebar
+        sessions={[createSession({ status: "idle", titleStatus: "pending" })]}
+        repositories={["shadowbox/shadowbox"]}
+        activeSessionId="session-1"
+        onSelect={vi.fn()}
+        onCreate={vi.fn()}
+        onRemove={vi.fn()}
+        onAddRepository={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const indicator = screen.getByTestId("task-title-generating");
+    expect(indicator).toHaveAttribute("data-status-kind", "spinner");
+    expect(indicator.getAttribute("class")).toContain("animate-spin");
+  });
+
   it("renders paused sessions without marking them failed", () => {
     render(
       <AgentSidebar
@@ -270,7 +289,9 @@ describe("AgentSidebar", () => {
     );
 
     expect(screen.queryByTestId("task-status-idle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("task-status-completed"),
+    ).not.toBeInTheDocument();
   });
 
   it("hides status decoration after the completed highlight window", () => {
@@ -296,7 +317,9 @@ describe("AgentSidebar", () => {
     );
 
     expect(screen.queryByTestId("task-status-idle")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("task-status-completed")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("task-status-completed"),
+    ).not.toBeInTheDocument();
   });
 
   it("orders tasks by recent activity regardless of status", () => {

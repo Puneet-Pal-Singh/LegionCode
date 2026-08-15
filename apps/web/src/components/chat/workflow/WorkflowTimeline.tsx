@@ -96,32 +96,37 @@ function WorkflowSegment({
         </div>
       ) : null}
       {segment.children.length > 0 ? (
-        <ActivityDisclosure
-          title={buildSegmentTitle(segment)}
-          active={segment.isActive}
-        >
-          <div
-            ref={viewportRef}
-            onScroll={(event) => {
-              const viewport = event.currentTarget;
-              followRef.current =
-                viewport.scrollHeight -
-                  viewport.scrollTop -
-                  viewport.clientHeight <
-                24;
-            }}
-            className="max-h-60 space-y-1 overflow-y-auto pr-2"
-          >
-            {segment.children.map((item) => (
-              <WorkflowItemRow
-                key={item.itemId}
-                item={item}
-                turnDiff={turnDiff}
-                onArtifactOpen={onArtifactOpen}
-              />
-            ))}
-          </div>
-        </ActivityDisclosure>
+        segment.children.length === 1 ? (
+          <WorkflowItemRow
+            item={segment.children[0]!}
+            turnDiff={turnDiff}
+            onArtifactOpen={onArtifactOpen}
+          />
+        ) : (
+          <ActivityDisclosure title={buildSegmentTitle(segment)}>
+            <div
+              ref={viewportRef}
+              onScroll={(event) => {
+                const viewport = event.currentTarget;
+                followRef.current =
+                  viewport.scrollHeight -
+                    viewport.scrollTop -
+                    viewport.clientHeight <
+                  24;
+              }}
+              className="max-h-60 space-y-1 overflow-y-auto pr-2"
+            >
+              {segment.children.map((item) => (
+                <WorkflowItemRow
+                  key={item.itemId}
+                  item={item}
+                  turnDiff={turnDiff}
+                  onArtifactOpen={onArtifactOpen}
+                />
+              ))}
+            </div>
+          </ActivityDisclosure>
+        )
       ) : null}
     </div>
   );
@@ -129,11 +134,9 @@ function WorkflowSegment({
 
 function ActivityDisclosure({
   title,
-  active,
   children,
 }: {
   title: string;
-  active: boolean;
   children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -147,14 +150,7 @@ function ActivityDisclosure({
         className="group flex items-center gap-2 py-1 text-sm text-zinc-500 transition hover:text-zinc-100"
       >
         <Wrench className="h-4 w-4" aria-hidden="true" />
-        <span
-          className={cn(
-            "first-letter:uppercase",
-            active && "turn-lifecycle-shimmer",
-          )}
-        >
-          {title}
-        </span>
+        <span className="first-letter:uppercase">{title}</span>
         <ChevronDown
           className={cn(
             "h-3.5 w-3.5 transition-transform",

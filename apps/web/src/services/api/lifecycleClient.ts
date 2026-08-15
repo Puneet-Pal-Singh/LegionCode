@@ -24,6 +24,8 @@ import {
   type PlatformClient,
   type PlatformClientOperationOptions,
   type RunAttemptId,
+  type ReplayLifecycleEventsRequest,
+  type ReplayLifecycleEventsResponse,
   type StartTurnRequest,
   type SubmitLifecycleApprovalRequest,
   type SubmitUserInputResponseRequest,
@@ -63,6 +65,10 @@ export interface LifecycleClient {
     request: FollowLifecycleRequest,
     options?: PlatformClientOperationOptions,
   ): AsyncIterable<LifecycleEvent>;
+  replayLifecycleEvents(
+    request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ReplayLifecycleEventsResponse>;
   submitApproval(
     request: SubmitLifecycleApprovalRequest,
     options?: PlatformClientOperationOptions,
@@ -106,6 +112,13 @@ class PlatformLifecycleClient implements LifecycleClient {
     options?: PlatformClientOperationOptions,
   ): AsyncIterable<LifecycleEvent> {
     return this.platformClient.followTurnLifecycle(request, options);
+  }
+
+  replayLifecycleEvents(
+    request: ReplayLifecycleEventsRequest,
+    options?: PlatformClientOperationOptions,
+  ): Promise<ReplayLifecycleEventsResponse> {
+    return this.platformClient.replayLifecycleEvents(request, options);
   }
 
   submitApproval(
