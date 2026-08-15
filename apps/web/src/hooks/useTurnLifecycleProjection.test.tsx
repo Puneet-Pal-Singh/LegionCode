@@ -60,6 +60,10 @@ function createClient(events: readonly LifecycleEvent[]): LifecycleClient {
     followTurnLifecycle: vi.fn(async function* () {
       yield* events;
     }),
+    replayLifecycleEvents: vi.fn(async () => ({
+      events,
+      nextSequence: null,
+    })),
     submitApproval: vi.fn(async () => {
       throw new Error("Unsupported test operation");
     }),

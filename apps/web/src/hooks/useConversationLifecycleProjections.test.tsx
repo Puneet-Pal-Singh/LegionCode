@@ -23,12 +23,17 @@ describe("useConversationLifecycleProjections", () => {
     const replayReleased = new Promise<void>((resolve) => {
       releaseReplay = resolve;
     });
-    const client = createClient(async function* () {
-      yield lifecycleEvent(1, "turn.started", {});
+    const client = createClient(async () => {
       await replayReleased;
-      yield lifecycleEvent(2, "turn.completed", {
-        payload: { outcome: { status: "completed" } },
-      });
+      return {
+        events: [
+          lifecycleEvent(1, "turn.started", {}),
+          lifecycleEvent(2, "turn.completed", {
+            payload: { outcome: { status: "completed" } },
+          }),
+        ],
+        nextSequence: null,
+      };
     });
     const turns: ConversationTurn[] = [
       {
@@ -60,16 +65,39 @@ describe("useConversationLifecycleProjections", () => {
       "completed",
     );
   });
+
+  it("does not follow a stale nonterminal historical turn forever", async () => {
+    const client = createClient(async () => ({
+      events: [lifecycleEvent(1, "turn.started", {})],
+      nextSequence: null,
+    }));
+    const turns: ConversationTurn[] = [
+      {
+        key: "turn:user-stale",
+        userMessage: { id: "user-stale", role: "user", content: "Edit it" },
+        turnId: TURN_ID,
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useConversationLifecycleProjections(turns, null, client),
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.projections[TURN_ID]?.terminal).toBeNull();
+    expect(client.followTurnLifecycle).not.toHaveBeenCalled();
+  });
 });
 
 function createClient(
-  follow: () => AsyncGenerator<LifecycleEvent>,
+  replay: LifecycleClient["replayLifecycleEvents"],
 ): LifecycleClient {
   return {
     startTurn: vi.fn(async () => {
       throw new Error("Unsupported test operation");
     }),
-    followTurnLifecycle: vi.fn(follow),
+    followTurnLifecycle: vi.fn(async function* () {}),
+    replayLifecycleEvents: vi.fn(replay),
     submitApproval: vi.fn(async () => {
       throw new Error("Unsupported test operation");
     }),
