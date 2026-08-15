@@ -31,7 +31,7 @@ describe("ThreadTitleService", () => {
     });
 
     expect(preview).toMatchObject({
-      title: "Please inspect and fix…",
+      title: "Please i…",
       titleSource: "preview",
       titleVersion: 2,
     });
@@ -54,7 +54,7 @@ describe("ThreadTitleService", () => {
           threadId: THREAD_ID,
           payload: {
             firstMessageId: FIRST_MESSAGE_ID,
-            title: "Please inspect and fix…",
+            title: "Please i…",
             titleVersion: 2,
             source: "preview",
           },
@@ -184,6 +184,7 @@ describe("ThreadTitleService", () => {
         providerId: "google",
         model: "gemma-3-27b",
         temperature: 0,
+        maxOutputTokens: 32,
         messages: [
           expect.objectContaining({ role: "system" }),
           {

@@ -16,6 +16,7 @@ import type { AgentSession } from "../types/session";
 import { SessionStateService } from "../services/SessionStateService";
 import { createRunId } from "../lib/run-id";
 import { mergeServerSessionProjection } from "./session-title-ordering";
+import { usePendingTitleProjectionRefresh } from "./usePendingTitleProjectionRefresh";
 
 export type { AgentSession } from "../types/session";
 export type SessionHydrationStatus = "idle" | "loading" | "ready" | "failed";
@@ -245,6 +246,31 @@ export function useSessionManager(options: UseSessionManagerOptions = {}) {
       cancelled = true;
     };
   }, [hydrateFromServer]);
+
+  const mergeTitleServerSessions = useCallback(
+    (
+      serverSessions: Awaited<
+        ReturnType<typeof SessionStateService.hydrateSessionsFromServer>
+      >,
+    ) => {
+      setSessions((current) => {
+        const next = current.map((session) => {
+          const serverSession = serverSessions[session.id];
+          return serverSession
+            ? mergeServerSessionProjection(session, serverSession)
+            : session;
+        });
+        sessionsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  usePendingTitleProjectionRefresh({
+    enabled: hydrateFromServer && sessionHydrationStatus === "ready",
+    sessions,
+    onServerSessions: mergeTitleServerSessions,
+  });
 
   /**
    * Create a new session with v2 schema

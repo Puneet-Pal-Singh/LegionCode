@@ -27,6 +27,7 @@ export interface ThreadTitleGenerator {
     model?: string;
     providerId?: string;
     temperature?: number;
+    maxOutputTokens?: number;
     signal?: AbortSignal;
   }): Promise<{ text: string }>;
 }
@@ -66,6 +67,7 @@ export class ThreadTitleGenerationCoordinator {
             env,
             input.userId,
             input.workspaceId,
+            input.runId,
           ),
         ));
     this.titleService =
@@ -87,7 +89,7 @@ export class ThreadTitleGenerationCoordinator {
         {
           role: "system",
           content:
-            "Create a concise, neutral 3 to 6 word task title. Return only the title as plain text. Do not include quotes, punctuation, secrets, file contents, tool output, or reasoning.",
+            "Create a concise, neutral 3 to 5 word task title. Return only the title as plain text. Do not include quotes, punctuation, secrets, file contents, tool output, or reasoning.",
         },
         { role: "user", content: input.prompt },
       ];
@@ -97,6 +99,7 @@ export class ThreadTitleGenerationCoordinator {
         providerId: input.providerId,
         model: input.modelId,
         temperature: 0,
+        maxOutputTokens: 32,
         signal: abortController.signal,
       });
       const title = normalizeGeneratedTitle(result.text);
@@ -156,5 +159,5 @@ function normalizeGeneratedTitle(value: string): string | null {
   if (words.length < 3) {
     return null;
   }
-  return words.slice(0, 6).join(" ").slice(0, 80).trim() || null;
+  return words.slice(0, 5).join(" ").slice(0, 80).trim() || null;
 }

@@ -147,6 +147,40 @@ describe("SessionStateService", () => {
       );
     });
 
+    it("hydrates canonical title source and version for generated-title replay", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              sessions: [
+                {
+                  id: "550e8400-e29b-41d4-a716-446655440000",
+                  title: "Refine Landing Page Hero",
+                  titleSource: "generated",
+                  titleVersion: 3,
+                  repository: "acme/legioncode",
+                  activeRunId: "run_550e8400e29b41d4a716446655440001",
+                  mode: "build",
+                  status: "completed",
+                  createdAt: "2026-05-14T00:00:00.000Z",
+                  updatedAt: "2026-05-15T00:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+        ),
+      );
+
+      const sessions = await SessionStateService.hydrateSessionsFromServer();
+
+      expect(sessions["550e8400-e29b-41d4-a716-446655440000"]).toMatchObject({
+        name: "Refine Landing Page Hero",
+        titleSource: "generated",
+        titleVersion: 3,
+      });
+    });
+
     it("drops server sessions that still use legacy UUID run ids", async () => {
       vi.stubGlobal(
         "fetch",

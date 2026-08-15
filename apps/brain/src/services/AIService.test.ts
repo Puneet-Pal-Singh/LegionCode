@@ -314,11 +314,16 @@ vi.mock("./ai", () => ({
   generateText: vi.fn(
     async (
       adapter: ProviderAdapter,
-      params: { messages: CoreMessage[]; model?: string },
+      params: {
+        messages: CoreMessage[];
+        model?: string;
+        maxOutputTokens?: number;
+      },
     ) => {
       const result = await adapter.generate({
         messages: params.messages,
         model: params.model,
+        maxOutputTokens: params.maxOutputTokens,
       });
       return result;
     },
@@ -381,10 +386,14 @@ describe("AIService provider override routing", () => {
 
     const result = await service.generateText({
       messages: BASE_MESSAGES,
+      maxOutputTokens: 32,
     });
 
     expect(result.usage.provider).toBe("litellm");
     expect(litellmAdapter.generate).toHaveBeenCalledTimes(1);
+    expect(litellmAdapter.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ maxOutputTokens: 32 }),
+    );
   });
 
   it("uses persisted BYOK preferences when override is absent", async () => {

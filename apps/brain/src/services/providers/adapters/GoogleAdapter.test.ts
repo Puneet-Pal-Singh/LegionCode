@@ -106,10 +106,11 @@ describe("GoogleAdapter", () => {
     await adapter.generate({
       messages: [],
       model: "gemini-2.5-flash-lite",
+      maxOutputTokens: 32,
     });
 
     expect(mockGenerateText).toHaveBeenCalledWith(
-      expect.objectContaining({ maxRetries: 0 }),
+      expect.objectContaining({ maxRetries: 0, maxTokens: 32 }),
     );
   });
 
@@ -247,9 +248,7 @@ describe("GoogleAdapter", () => {
       value: {
         content: "Hello ",
         finishReason: "stop",
-        toolCalls: [
-          { toolName: "read_file", args: { path: "README.md" } },
-        ],
+        toolCalls: [{ toolName: "read_file", args: { path: "README.md" } }],
         usage: {
           provider: "google",
           model: "gemini-2.5-flash-lite",

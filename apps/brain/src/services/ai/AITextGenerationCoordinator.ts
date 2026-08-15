@@ -30,6 +30,7 @@ interface TextGenerationInput extends ProviderGenerationInput {
   system?: string;
   tools?: Record<string, CoreTool>;
   temperature: number;
+  maxOutputTokens?: number;
   reasoningEffort?: ReasoningEffort;
   signal?: AbortSignal;
 }
@@ -51,6 +52,7 @@ export async function generateTextWithSelection(
     system: input.system,
     tools: input.tools,
     temperature: input.temperature,
+    maxOutputTokens: input.maxOutputTokens,
     reasoningEffort: input.reasoningEffort,
     signal: input.signal,
     model: input.runtimeModelId ?? input.selection.model,
