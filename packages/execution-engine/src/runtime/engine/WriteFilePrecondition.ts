@@ -3,17 +3,17 @@ export type WriteFilePreflight =
   | { kind: "present"; content: string }
   | { kind: "error"; message: string };
 
-export function resolveWriteFileExpectedSha256(
+export async function resolveWriteFileExpectedSha256(
   preflight: WriteFilePreflight,
-  requestedExpectedSha256: string | undefined,
-): string | undefined {
-  // A hash guard describes a prior file version. Providers occasionally
-  // synthesize one for a creation request; the runtime's preflight read is the
-  // authoritative distinction between creation and replacement.
+): Promise<string | undefined> {
+  // The runtime's preflight is the authoritative file-version observation.
+  // Provider-generated hashes are not trustworthy concurrency capabilities.
   if (preflight.kind === "error") {
     throw new WriteFilePreconditionError(preflight.message);
   }
-  return preflight.kind === "missing" ? undefined : requestedExpectedSha256;
+  return preflight.kind === "missing"
+    ? undefined
+    : await sha256(preflight.content);
 }
 
 export class WriteFilePreconditionError extends Error {
@@ -35,4 +35,14 @@ function looksLikeMissingTargetError(message: string): boolean {
   return /no such file(?: or directory)?|file(?: was)? not found|path .* not found|file does not exist/i.test(
     message,
   );
+}
+
+async function sha256(content: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(content),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }

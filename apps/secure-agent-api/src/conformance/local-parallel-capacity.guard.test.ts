@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const MINIMUM_PARALLEL_RUN_CAPACITY = 2;
+const MINIMUM_PARALLEL_RUN_CAPACITY = 3;
 
 function readConfiguredCapacity(fileName: string): number {
   const configPath = decodeURIComponent(

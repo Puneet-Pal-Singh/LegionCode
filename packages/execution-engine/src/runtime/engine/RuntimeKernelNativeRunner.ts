@@ -165,7 +165,7 @@ import {
   summarizeConversationForCompaction,
 } from "./NativeProviderContextMessages.js";
 import { runWithProviderRateLimitRecovery } from "./NativeProviderRateLimitRecovery.js";
-import { resolveToolStepCommentary } from "./NativeProviderCommentary.js";
+import { resolveModelCommentary } from "./NativeProviderCommentary.js";
 
 const NATIVE_CANCELLATION_POLL_INTERVAL_MS = 2_000;
 type KernelWorkspaceManifest = NonNullable<
@@ -1121,7 +1121,7 @@ class KernelAgenticProvider implements ProviderPort {
         ),
       };
     }
-    const commentary = resolveToolStepCommentary(visibleText, toolCalls);
+    const commentary = resolveModelCommentary(visibleText);
     if (commentary) {
       await this.options.runEventRecorder.recordMessageEmitted(
         "assistant",

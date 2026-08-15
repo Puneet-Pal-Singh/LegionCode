@@ -15,14 +15,10 @@ describe("buildAgenticLoopSystemPrompt", () => {
 
     expect(prompt).toContain("Return only the user-facing response.");
     expect(prompt).toContain("Never reveal chain-of-thought");
-    expect(prompt).toContain(
-      "Before calling tools, write one brief user-facing progress sentence",
-    );
+    expect(prompt).not.toContain("Before calling tools");
     expect(prompt).toContain(
       'phrases such as "The user is asking" or "I should"',
     );
-    expect(prompt).toContain(
-      "When write_file creates a new path, omit expectedSha256.",
-    );
+    expect(prompt).not.toContain("expectedSha256");
   });
 });
