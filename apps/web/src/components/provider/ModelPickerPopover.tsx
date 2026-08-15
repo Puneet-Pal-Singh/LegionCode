@@ -33,13 +33,13 @@ import {
 import { resolveWebProviderProductPolicy } from "../../lib/provider-product-policy";
 import { isProviderModelAvailable } from "./providerModelAvailability";
 import { formatModelDisplayName } from "./modelDisplayName";
+import { ModelPickerDetailsPanel } from "./ModelPickerDetailsPanel";
 
 const VIEWPORT_PADDING_PX = 12;
 const POPOVER_GAP_PX = 8;
 const ESTIMATED_POPOVER_HEIGHT_PX = 352;
 const PREFERRED_POPOVER_WIDTH_PX = 304;
 const MIN_POPOVER_WIDTH_PX = 248;
-const MODEL_DETAILS_WIDTH_PX = 256;
 const WEB_PROVIDER_POLICY = resolveWebProviderProductPolicy();
 
 interface PopoverPlacement {
@@ -110,8 +110,6 @@ interface EffectiveSelection {
 interface HoveredModelDetails {
   model: ProviderModelOption;
   providerName: string;
-  topPx: number;
-  leftPx: number;
 }
 
 function formatProviderDisplayName(
@@ -557,28 +555,10 @@ export function ModelPickerPopover({
   };
 
   const showModelDetails = (
-    element: HTMLElement,
     model: ProviderModelOption,
     providerName: string,
   ): void => {
-    const rect = element.getBoundingClientRect();
-    const fitsRight =
-      rect.right + POPOVER_GAP_PX + MODEL_DETAILS_WIDTH_PX <=
-      window.innerWidth - VIEWPORT_PADDING_PX;
-    setHoveredModel({
-      model,
-      providerName,
-      topPx: Math.max(
-        VIEWPORT_PADDING_PX,
-        Math.min(rect.top, window.innerHeight - 220),
-      ),
-      leftPx: fitsRight
-        ? rect.right + POPOVER_GAP_PX
-        : Math.max(
-            VIEWPORT_PADDING_PX,
-            rect.left - MODEL_DETAILS_WIDTH_PX - POPOVER_GAP_PX,
-          ),
-    });
+    setHoveredModel({ model, providerName });
   };
 
   useEffect(() => {
@@ -633,9 +613,8 @@ export function ModelPickerPopover({
       {/* Popover Content */}
       {isOpen && (
         <div
-          data-testid="model-picker-popover"
           className={`
-            ui-surface-popover absolute z-50 flex max-h-96 flex-col overflow-hidden
+            absolute z-50
             ${placement.vertical === "down" ? "top-full mt-2" : "bottom-full mb-2"}
             ${placement.horizontal === "start" ? "left-0" : "right-0"}
           `}
@@ -644,104 +623,106 @@ export function ModelPickerPopover({
             maxWidth: `calc(100vw - ${VIEWPORT_PADDING_PX * 2}px)`,
           }}
         >
-          {!isLoading && (
-            <>
-              <div className="border-b border-neutral-800 p-2">
-                <div className="relative flex-1">
-                  <Search
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
-                  />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    placeholder="Search models or providers..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className={`
+          <div
+            data-testid="model-picker-popover"
+            className="ui-surface-popover flex max-h-96 flex-col overflow-hidden"
+          >
+            {!isLoading && (
+              <>
+                <div className="border-b border-neutral-800 p-2">
+                  <div className="relative flex-1">
+                    <Search
+                      size={15}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500"
+                    />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Search models or providers..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className={`
                       ui-input h-9 w-full bg-black/20
                       pl-9 pr-3 text-sm text-neutral-100 placeholder-neutral-500
                     `}
-                  />
+                    />
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
-
-          {/* Provider Groups */}
-          <div
-            className={`flex flex-1 flex-col overflow-hidden ${
-              isLoading ? "min-h-[12rem]" : ""
-            }`}
-          >
-            {isLoadingModelsInline && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
-              >
-                {modelLoadingLabel}
-              </div>
+              </>
             )}
+
+            {/* Provider Groups */}
             <div
-              className={`overflow-y-auto flex-1 ${
-                isLoading ? "flex items-center justify-center" : ""
+              className={`flex flex-1 flex-col overflow-hidden ${
+                isLoading ? "min-h-[12rem]" : ""
               }`}
             >
-              {isLoading ? (
-                <div className="px-6 py-8 text-center">
-                  <p className="text-sm font-medium text-neutral-200">
-                    {modelLoadingLabel}
-                  </p>
-                  <p className="mt-1 text-xs text-neutral-500">
-                    Fetching available models from your providers.
-                  </p>
+              {isLoadingModelsInline && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="border-b border-neutral-800 px-3 py-1.5 text-[11px] text-neutral-400"
+                >
+                  {modelLoadingLabel}
                 </div>
-              ) : filteredGroups.length === 0 ? (
-                <div className="p-6 text-center text-neutral-400 text-sm">
-                  {searchQuery
-                    ? "No models match your search"
-                    : WEB_PROVIDER_POLICY.isByokFirstProduction &&
-                        connectedProviderIds.size === 0
-                      ? "Connect a BYOK provider to choose models."
-                      : "No models available yet."}
-                </div>
-              ) : (
-                <>
-                  {axisDefaultGroup && (
-                    <div className="border-b border-neutral-800/80">
-                      <div className="sticky top-0 bg-[#111112] px-3 py-2">
-                        <h3 className="text-xs font-medium text-neutral-500">
-                          LegionCode Axis
-                        </h3>
-                      </div>
-                      <div className="py-1">
-                        {axisDefaultGroup.models.map((model) => (
-                          <button
-                            type="button"
-                            key={model.id}
-                            onClick={() =>
-                              handleSelectModel(
-                                axisDefaultGroup.providerId,
-                                model.id,
-                              )
-                            }
-                            disabled={selectingModelId === model.id}
-                            onPointerEnter={(event) =>
-                              showModelDetails(
-                                event.currentTarget,
-                                model,
-                                axisDefaultGroup.displayName,
-                              )
-                            }
-                            onFocus={(event) =>
-                              showModelDetails(
-                                event.currentTarget,
-                                model,
-                                axisDefaultGroup.displayName,
-                              )
-                            }
-                            className={`
+              )}
+              <div
+                className={`overflow-y-auto flex-1 ${
+                  isLoading ? "flex items-center justify-center" : ""
+                }`}
+              >
+                {isLoading ? (
+                  <div className="px-6 py-8 text-center">
+                    <p className="text-sm font-medium text-neutral-200">
+                      {modelLoadingLabel}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Fetching available models from your providers.
+                    </p>
+                  </div>
+                ) : filteredGroups.length === 0 ? (
+                  <div className="p-6 text-center text-neutral-400 text-sm">
+                    {searchQuery
+                      ? "No models match your search"
+                      : WEB_PROVIDER_POLICY.isByokFirstProduction &&
+                          connectedProviderIds.size === 0
+                        ? "Connect a BYOK provider to choose models."
+                        : "No models available yet."}
+                  </div>
+                ) : (
+                  <>
+                    {axisDefaultGroup && (
+                      <div className="border-b border-neutral-800/80">
+                        <div className="sticky top-0 bg-[#111112] px-3 py-2">
+                          <h3 className="text-xs font-medium text-neutral-500">
+                            LegionCode Axis
+                          </h3>
+                        </div>
+                        <div className="py-1">
+                          {axisDefaultGroup.models.map((model) => (
+                            <button
+                              type="button"
+                              key={model.id}
+                              onClick={() =>
+                                handleSelectModel(
+                                  axisDefaultGroup.providerId,
+                                  model.id,
+                                )
+                              }
+                              disabled={selectingModelId === model.id}
+                              onPointerEnter={() =>
+                                showModelDetails(
+                                  model,
+                                  axisDefaultGroup.displayName,
+                                )
+                              }
+                              onFocus={() =>
+                                showModelDetails(
+                                  model,
+                                  axisDefaultGroup.displayName,
+                                )
+                              }
+                              className={`
                             min-h-9 w-full px-3 py-1.5 text-left text-sm
                             transition-colors disabled:opacity-50
                             ${
@@ -752,88 +733,81 @@ export function ModelPickerPopover({
                                 : "text-neutral-400 hover:bg-neutral-800/50"
                             }
                           `}
-                            title={`${formatModelDisplayName(model)} (${model.id})`}
-                          >
-                            <div className="flex min-w-0 items-center gap-2">
-                              <p className="truncate font-medium">
-                                {formatModelDisplayName(model)}
-                              </p>
-                              {effectiveSelection.providerId ===
-                                axisDefaultGroup.providerId &&
-                                effectiveSelection.modelId === model.id && (
-                                  <>
-                                    <span className="sr-only">✓</span>
-                                    <Check
-                                      className="ml-auto text-neutral-100"
-                                      size={14}
-                                    />
-                                  </>
-                                )}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {connectedProviderGroups.length > 0 &&
-                    connectedProviderGroups.map((group) => (
-                      <div
-                        key={group.providerId}
-                        className="border-b border-neutral-800/80 last:border-b-0"
-                      >
-                        <div className="sticky top-0 bg-[#111112] px-3 py-2">
-                          <h3 className="text-xs font-medium text-neutral-500">
-                            {group.displayName}
-                          </h3>
-                        </div>
-                        <div className="py-1">
-                          {effectiveSelection.providerId === group.providerId &&
-                            effectiveSelection.modelId !== null &&
-                            !providerModels[group.providerId]?.some(
-                              (model) =>
-                                model.id === effectiveSelection.modelId,
-                            ) && (
-                              <div
-                                className="px-3 py-2 text-left text-xs bg-neutral-800 text-neutral-100"
-                                title={effectiveSelection.modelId}
-                              >
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <p className="truncate font-medium">
-                                    {effectiveSelection.modelId}
-                                  </p>
-                                </div>
+                              title={`${formatModelDisplayName(model)} (${model.id})`}
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <p className="truncate font-medium">
+                                  {formatModelDisplayName(model)}
+                                </p>
+                                {effectiveSelection.providerId ===
+                                  axisDefaultGroup.providerId &&
+                                  effectiveSelection.modelId === model.id && (
+                                    <>
+                                      <span className="sr-only">✓</span>
+                                      <Check
+                                        className="ml-auto text-neutral-100"
+                                        size={14}
+                                      />
+                                    </>
+                                  )}
                               </div>
-                            )}
-                          {group.models.map((model) => (
-                            <button
-                              type="button"
-                              key={model.id}
-                              onClick={() => {
-                                if (!isProviderModelAvailable(model)) {
-                                  return;
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {connectedProviderGroups.length > 0 &&
+                      connectedProviderGroups.map((group) => (
+                        <div
+                          key={group.providerId}
+                          className="border-b border-neutral-800/80 last:border-b-0"
+                        >
+                          <div className="sticky top-0 bg-[#111112] px-3 py-2">
+                            <h3 className="text-xs font-medium text-neutral-500">
+                              {group.displayName}
+                            </h3>
+                          </div>
+                          <div className="py-1">
+                            {effectiveSelection.providerId ===
+                              group.providerId &&
+                              effectiveSelection.modelId !== null &&
+                              !providerModels[group.providerId]?.some(
+                                (model) =>
+                                  model.id === effectiveSelection.modelId,
+                              ) && (
+                                <div
+                                  className="px-3 py-2 text-left text-xs bg-neutral-800 text-neutral-100"
+                                  title={effectiveSelection.modelId}
+                                >
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <p className="truncate font-medium">
+                                      {effectiveSelection.modelId}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            {group.models.map((model) => (
+                              <button
+                                type="button"
+                                key={model.id}
+                                onClick={() => {
+                                  if (!isProviderModelAvailable(model)) {
+                                    return;
+                                  }
+                                  handleSelectModel(group.providerId, model.id);
+                                }}
+                                disabled={
+                                  selectingModelId === model.id ||
+                                  !isProviderModelAvailable(model)
                                 }
-                                handleSelectModel(group.providerId, model.id);
-                              }}
-                              disabled={
-                                selectingModelId === model.id ||
-                                !isProviderModelAvailable(model)
-                              }
-                              onPointerEnter={(event) =>
-                                showModelDetails(
-                                  event.currentTarget,
-                                  model,
-                                  group.displayName,
-                                )
-                              }
-                              onFocus={(event) =>
-                                showModelDetails(
-                                  event.currentTarget,
-                                  model,
-                                  group.displayName,
-                                )
-                              }
-                              className={`
+                                onPointerEnter={() =>
+                                  showModelDetails(model, group.displayName)
+                                }
+                                onFocus={() =>
+                                  showModelDetails(model, group.displayName)
+                                }
+                                className={`
                               min-h-9 w-full px-3 py-1.5 text-left text-sm
                               transition-colors disabled:opacity-50
                               ${
@@ -844,149 +818,107 @@ export function ModelPickerPopover({
                                   : "text-neutral-400 hover:bg-neutral-800/50"
                               }
                             `}
-                              title={`${formatModelDisplayName(model)} (${model.id})`}
-                            >
-                              <div className="flex min-w-0 items-center gap-2">
-                                <p className="min-w-0 flex-1 truncate font-medium text-neutral-200">
-                                  {formatModelDisplayName(model)}
-                                </p>
-                                {!isProviderModelAvailable(model) && (
-                                  <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
-                                    Unavailable
-                                  </span>
-                                )}
-                                {effectiveSelection.providerId ===
-                                  group.providerId &&
-                                  effectiveSelection.modelId === model.id && (
-                                    <>
-                                      <span className="sr-only">✓</span>
-                                      <Check
-                                        className="ml-auto shrink-0 text-neutral-100"
-                                        size={14}
-                                      />
-                                    </>
+                                title={`${formatModelDisplayName(model)} (${model.id})`}
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <p className="min-w-0 flex-1 truncate font-medium text-neutral-200">
+                                    {formatModelDisplayName(model)}
+                                  </p>
+                                  {!isProviderModelAvailable(model) && (
+                                    <span className="ml-auto text-[10px] uppercase tracking-wide text-amber-300">
+                                      Unavailable
+                                    </span>
                                   )}
-                              </div>
-                            </button>
-                          ))}
-                          {group.models.length === 0 &&
-                            !(
-                              effectiveSelection.providerId ===
-                                group.providerId &&
-                              effectiveSelection.modelId !== null
-                            ) && (
-                              <div className="px-3 py-2 text-xs text-neutral-500">
-                                {group.isModelListLoaded
-                                  ? "No models available yet."
-                                  : "Models loading..."}
-                              </div>
-                            )}
+                                  {effectiveSelection.providerId ===
+                                    group.providerId &&
+                                    effectiveSelection.modelId === model.id && (
+                                      <>
+                                        <span className="sr-only">✓</span>
+                                        <Check
+                                          className="ml-auto shrink-0 text-neutral-100"
+                                          size={14}
+                                        />
+                                      </>
+                                    )}
+                                </div>
+                              </button>
+                            ))}
+                            {group.models.length === 0 &&
+                              !(
+                                effectiveSelection.providerId ===
+                                  group.providerId &&
+                                effectiveSelection.modelId !== null
+                              ) && (
+                                <div className="px-3 py-2 text-xs text-neutral-500">
+                                  {group.isModelListLoaded
+                                    ? "No models available yet."
+                                    : "Models loading..."}
+                                </div>
+                              )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                </>
-              )}
-            </div>
-            {hasMoreSelectedProviderModels &&
-              canLoadMoreSelectedProviderModels && (
-                <div className="border-t border-neutral-800 p-2">
+                      ))}
+                  </>
+                )}
+              </div>
+              {hasMoreSelectedProviderModels &&
+                canLoadMoreSelectedProviderModels && (
+                  <div className="border-t border-neutral-800 p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleLoadMore();
+                      }}
+                      disabled={
+                        isLoadingMoreSelectedProviderModels || isLoading
+                      }
+                      className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                    >
+                      {isLoadingMoreSelectedProviderModels
+                        ? "Loading..."
+                        : "Load more"}
+                    </button>
+                  </div>
+                )}
+              {!isLoading ? (
+                <div className="flex items-center justify-between border-t border-neutral-800 p-2">
                   <button
                     type="button"
                     onClick={() => {
-                      void handleLoadMore();
+                      setIsOpen(false);
+                      onManageModels();
                     }}
-                    disabled={isLoadingMoreSelectedProviderModels || isLoading}
-                    className="w-full rounded-md border border-neutral-700 px-2 py-1.5 text-xs text-neutral-300 transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                    className="ui-popover-item flex-1 gap-2"
+                    aria-label="Manage model visibility"
                   >
-                    {isLoadingMoreSelectedProviderModels
-                      ? "Loading..."
-                      : "Load more"}
+                    <SlidersHorizontal size={15} className="text-neutral-400" />
+                    Manage models
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onConnectProvider();
+                    }}
+                    className="flex size-9 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+                    aria-label="Connect provider"
+                    title="Connect provider"
+                  >
+                    <Plus size={15} />
                   </button>
                 </div>
-              )}
-            {!isLoading ? (
-              <div className="flex items-center justify-between border-t border-neutral-800 p-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    onManageModels();
-                  }}
-                  className="ui-popover-item flex-1 gap-2"
-                  aria-label="Manage model visibility"
-                >
-                  <SlidersHorizontal size={15} className="text-neutral-400" />
-                  Manage models
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    onConnectProvider();
-                  }}
-                  className="flex size-9 items-center justify-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
-                  aria-label="Connect provider"
-                  title="Connect provider"
-                >
-                  <Plus size={15} />
-                </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
+          {hoveredModel ? (
+            <ModelPickerDetailsPanel
+              model={hoveredModel.model}
+              providerName={hoveredModel.providerName}
+              side={placement.horizontal === "start" ? "right" : "left"}
+            />
+          ) : null}
         </div>
       )}
-      {isOpen && hoveredModel ? (
-        <ModelDetailsPanel details={hoveredModel} />
-      ) : null}
     </div>
-  );
-}
-
-function ModelDetailsPanel({ details }: { details: HoveredModelDetails }) {
-  const inputs = Object.entries(details.model.inputModalities ?? {})
-    .filter(([, supported]) => supported)
-    .map(([name]) => name)
-    .join(", ");
-  const reasoning = details.model.capabilities?.supportsReasoning
-    ? "Allows reasoning"
-    : details.model.capabilities?.supportsReasoning === false
-      ? "No reasoning"
-      : "Not published";
-  return (
-    <div
-      data-testid="model-picker-details"
-      className="ui-surface-popover pointer-events-none fixed z-[60] w-64 p-3 text-sm"
-      style={{ top: details.topPx, left: details.leftPx }}
-    >
-      <dl className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-3 gap-y-1.5">
-        <ModelDetail
-          label="Model"
-          value={formatModelDisplayName(details.model)}
-        />
-        <ModelDetail label="Provider" value={details.providerName} />
-        <ModelDetail label="Inputs" value={inputs || "Not published"} />
-        <ModelDetail label="Reasoning" value={reasoning} />
-        <ModelDetail
-          label="Context"
-          value={
-            details.model.contextWindow?.toLocaleString() ?? "Not published"
-          }
-        />
-      </dl>
-    </div>
-  );
-}
-
-function ModelDetail({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt className="text-xs text-neutral-500">{label}</dt>
-      <dd
-        className="truncate text-right font-medium text-neutral-100"
-        title={value}
-      >
-        {value}
-      </dd>
-    </>
   );
 }

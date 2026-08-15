@@ -286,7 +286,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         const popover = screen.getByTestId("model-picker-popover");
-        expect(popover.className).toContain("bottom-full");
+        expect(popover.parentElement?.className).toContain("bottom-full");
       });
 
       Object.defineProperty(window, "innerHeight", {
@@ -329,7 +329,7 @@ describe("ModelPickerPopover", () => {
 
       await waitFor(() => {
         const popover = screen.getByTestId("model-picker-popover");
-        expect(popover.className).toContain("right-0");
+        expect(popover.parentElement?.className).toContain("right-0");
       });
 
       Object.defineProperty(window, "innerWidth", {
@@ -381,6 +381,13 @@ describe("ModelPickerPopover", () => {
       expect(screen.getByTestId("model-picker-details")).toHaveTextContent(
         "Allows reasoning",
       );
+      expect(screen.getByTestId("model-picker-details")).toHaveAttribute(
+        "data-model-picker-attachment",
+        "right",
+      );
+      expect(
+        screen.getByTestId("model-picker-details").className,
+      ).not.toContain("fixed");
     });
 
     it("does not invent inputs or reasoning for models without metadata", async () => {
