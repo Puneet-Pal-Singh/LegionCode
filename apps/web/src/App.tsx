@@ -25,7 +25,6 @@ import type { RunInboxItem } from "./components/run/RunInbox";
 import { SessionStateService } from "./services/SessionStateService";
 import { RunContextProvider } from "./hooks/useRunContext";
 import { useProviderStore } from "./hooks/useProviderStore";
-import { usePendingApprovalStateBySession } from "./hooks/usePendingApprovalStateBySession";
 import {
   isSessionContextPending,
   resolveShellStartupState,
@@ -208,8 +207,6 @@ function AppContent() {
   const [gitReviewSessionId, setGitReviewSessionId] = useState<string | null>(
     null,
   );
-  const { approvalStatesBySessionId, handlePendingApprovalStateChange } =
-    usePendingApprovalStateBySession();
   const [reviewSidebarFocusRequest, setReviewSidebarFocusRequest] = useState(0);
   const [summaryActionRequest, setSummaryActionRequest] = useState<{
     id: number;
@@ -288,11 +285,12 @@ function AppContent() {
   const providerScopeSession = activeSession ?? sessions[0] ?? null;
   const providerScopeRunId =
     providerScopeSession?.activeRunId ?? setupSession?.activeRunId;
+  const providerScopeId = providerScopeSession?.id ?? providerScopeRunId;
   const {
     bootstrap: bootstrapProviderStore,
     credentials,
     reset: resetProviderStore,
-  } = useProviderStore(isAuthenticated ? providerScopeRunId : undefined);
+  } = useProviderStore(isAuthenticated ? providerScopeId : undefined);
 
   // Convert sessions to run inbox items for shell navigation
   // This supports the run-centric UI model and will be passed to AppShell in future PRs
@@ -629,14 +627,6 @@ function AppContent() {
     (InitialPromptSubmission & { sessionId: string }) | null
   >(null);
 
-  const scopedApprovalStatesBySessionId = useMemo(() => {
-    const validSessionIds = new Set(sessions.map((session) => session.id));
-    const nextEntries = Object.entries(approvalStatesBySessionId).filter(
-      ([sessionId]) => validSessionIds.has(sessionId),
-    );
-    return Object.fromEntries(nextEntries);
-  }, [approvalStatesBySessionId, sessions]);
-
   useEffect(() => {
     localStorage.setItem(
       "shadowbox_right_sidebar_open",
@@ -908,7 +898,6 @@ function AppContent() {
             sessions={sessions}
             repositories={repositories}
             activeSessionId={activeSessionId}
-            approvalStatesBySessionId={scopedApprovalStatesBySessionId}
             onSelect={handleSelectSession}
             onCreate={handleNewTask}
             onRemove={removeSession}
@@ -1102,12 +1091,6 @@ function AppContent() {
                   onServerProjectionAvailable={() => {
                     void refreshSessionProjection(activeSessionId);
                   }}
-                  onPendingApprovalStateChange={(hasPendingApproval) => {
-                    handlePendingApprovalStateChange(
-                      activeSessionId,
-                      hasPendingApproval,
-                    );
-                  }}
                   onHookSettingsContextChange={handleHookSettingsContextChange}
                   isRightSidebarOpen={isRightSidebarOpen}
                   setIsRightSidebarOpen={setIsRightSidebarOpen}
@@ -1159,7 +1142,11 @@ function AppContent() {
 
           <SettingsDialog
             isOpen={isSettingsDialogOpen}
-            runId={isAuthenticated ? providerScopeRunId : undefined}
+            runId={
+              isAuthenticated
+                ? (activeSessionId ?? providerScopeRunId)
+                : undefined
+            }
             workspaceId={
               hookSettingsContext?.sessionId === activeSessionId
                 ? hookSettingsContext.workspaceId

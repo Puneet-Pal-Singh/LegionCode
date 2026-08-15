@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApprovalId, ItemId, TurnId } from "@repo/platform-client-sdk";
 import type { LifecycleClient } from "../../../services/api/lifecycleClient";
@@ -8,12 +8,11 @@ import { useApprovalController } from "./useApprovalController";
 describe("useApprovalController", () => {
   it("dismisses an approval immediately after the canonical submission succeeds", async () => {
     const submitApproval = vi.fn().mockResolvedValue({});
-    const onPendingApprovalChange = vi.fn();
     const { result } = renderHook(() =>
       useApprovalController({
         lifecycleProjection: pendingApprovalProjection(),
         lifecycleClient: { submitApproval } as unknown as LifecycleClient,
-        onPendingApprovalChange,
+        sessionId: "session-1",
       }),
     );
 
@@ -24,15 +23,13 @@ describe("useApprovalController", () => {
       expect.objectContaining({ decision: "approved" }),
     );
     expect(result.current.pendingApproval).toBeNull();
-    await waitFor(() =>
-      expect(onPendingApprovalChange).toHaveBeenLastCalledWith(false),
-    );
   });
 
   it("keeps the approval visible when submission fails", async () => {
     const { result } = renderHook(() =>
       useApprovalController({
         lifecycleProjection: pendingApprovalProjection(),
+        sessionId: "session-1",
         lifecycleClient: {
           submitApproval: vi.fn().mockRejectedValue(new Error("offline")),
         } as unknown as LifecycleClient,
@@ -45,19 +42,24 @@ describe("useApprovalController", () => {
     expect(result.current.error).toBe("offline");
   });
 
-  it("clears transient approval state when the chat surface unmounts", () => {
-    const onPendingApprovalChange = vi.fn();
-    const { unmount } = renderHook(() =>
-      useApprovalController({
-        lifecycleProjection: pendingApprovalProjection(),
-        lifecycleClient: {} as LifecycleClient,
-        onPendingApprovalChange,
-      }),
+  it("does not let a resolved approval hide the same request in another chat", async () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId }) =>
+        useApprovalController({
+          lifecycleProjection: pendingApprovalProjection(),
+          lifecycleClient: {
+            submitApproval: vi.fn().mockResolvedValue({}),
+          } as unknown as LifecycleClient,
+          sessionId,
+        }),
+      { initialProps: { sessionId: "session-1" } },
     );
 
-    expect(onPendingApprovalChange).toHaveBeenLastCalledWith(true);
-    unmount();
-    expect(onPendingApprovalChange).toHaveBeenLastCalledWith(false);
+    // A decision in session-1 must not suppress the same request identity in
+    // session-2 after the chat surface switches.
+    await act(() => result.current.resolve("allow_once"));
+    rerender({ sessionId: "session-2" });
+    expect(result.current.pendingApproval).not.toBeNull();
   });
 });
 

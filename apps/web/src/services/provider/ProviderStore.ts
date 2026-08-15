@@ -251,9 +251,6 @@ export class ProviderStore {
 
     const previousRunId = this.activeRunId;
     const didSwitchRun = previousRunId !== null && previousRunId !== runId;
-    const carryForwardSelection = didSwitchRun
-      ? this.captureRunScopedSelectionSnapshot()
-      : null;
     this.activeRunId = runId;
 
     if (didSwitchRun) {
@@ -264,11 +261,11 @@ export class ProviderStore {
       this.resetRunScope();
     }
 
-    const restoredRunScopedSelection = this.restoreRunScopedSelection(runId);
+    this.restoreRunScopedSelection(runId);
     if (hasWorkspaceGlobalState(this.state)) {
-      this.hydrateRunScopedSelectionFromWorkspaceState(
-        !restoredRunScopedSelection ? carryForwardSelection : null,
-      );
+      // A new scope must never inherit another chat's selection. If this
+      // scope has no persisted choice, start from the workspace default.
+      this.hydrateRunScopedSelectionFromWorkspaceState();
       return false;
     }
 
@@ -1157,29 +1154,7 @@ export class ProviderStore {
       selection.selectedModelId ?? undefined,
     );
     this.persistRunScopedSelection(selection);
-    await this.persistSelectionAsWorkspaceDefault(selection);
     return this.resolveForChat();
-  }
-
-  private async persistSelectionAsWorkspaceDefault(
-    selection: ProviderSelectionSnapshot,
-  ): Promise<void> {
-    if (!selection.selectedProviderId || !selection.selectedModelId) {
-      return;
-    }
-
-    if (
-      this.state.preferences?.defaultProviderId ===
-        selection.selectedProviderId &&
-      this.state.preferences.defaultModelId === selection.selectedModelId
-    ) {
-      return;
-    }
-
-    await this.updatePreferences({
-      defaultProviderId: selection.selectedProviderId,
-      defaultModelId: selection.selectedModelId,
-    });
   }
 
   /**
@@ -1559,22 +1534,16 @@ export class ProviderStore {
     return true;
   }
 
-  private hydrateRunScopedSelectionFromWorkspaceState(
-    preferredSelection: ProviderSelectionSnapshot | null = null,
-  ): void {
+  private hydrateRunScopedSelectionFromWorkspaceState(): void {
     const selection = this.deriveSelectionSnapshot({
       catalog: this.state.catalog,
       credentials: this.state.credentials,
       preferences: this.state.preferences,
       providerModels: this.state.providerModels,
       visibleModelIds: this.state.visibleModelIds,
-      selectedProviderId:
-        preferredSelection?.selectedProviderId ?? this.state.selectedProviderId,
-      selectedCredentialId:
-        preferredSelection?.selectedCredentialId ??
-        this.state.selectedCredentialId,
-      selectedModelId:
-        preferredSelection?.selectedModelId ?? this.state.selectedModelId,
+      selectedProviderId: this.state.selectedProviderId,
+      selectedCredentialId: this.state.selectedCredentialId,
+      selectedModelId: this.state.selectedModelId,
     });
 
     this.setState({
@@ -1582,14 +1551,6 @@ export class ProviderStore {
       selectedCredentialId: selection.selectedCredentialId,
       selectedModelId: selection.selectedModelId,
     });
-  }
-
-  private captureRunScopedSelectionSnapshot(): ProviderSelectionSnapshot {
-    return {
-      selectedProviderId: this.state.selectedProviderId,
-      selectedCredentialId: this.state.selectedCredentialId,
-      selectedModelId: this.state.selectedModelId,
-    };
   }
 
   private persistRunScopedSelection(

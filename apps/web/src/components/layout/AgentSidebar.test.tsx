@@ -78,13 +78,12 @@ describe("AgentSidebar", () => {
     await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
   });
 
-  it("renders awaiting approval status when the session has a pending approval", () => {
+  it("renders awaiting approval status from canonical session state", () => {
     render(
       <AgentSidebar
-        sessions={[createSession()]}
+        sessions={[createSession({ status: "waiting_for_approval" })]}
         repositories={["shadowbox/shadowbox"]}
         activeSessionId="session-1"
-        approvalStatesBySessionId={{ "session-1": true }}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
         onRemove={vi.fn()}
@@ -146,10 +145,9 @@ describe("AgentSidebar", () => {
   it("shows the awaiting approval filter option in the sidebar menu", () => {
     render(
       <AgentSidebar
-        sessions={[createSession()]}
+        sessions={[createSession({ status: "waiting_for_approval" })]}
         repositories={["shadowbox/shadowbox"]}
         activeSessionId="session-1"
-        approvalStatesBySessionId={{ "session-1": true }}
         onSelect={vi.fn()}
         onCreate={vi.fn()}
         onRemove={vi.fn()}

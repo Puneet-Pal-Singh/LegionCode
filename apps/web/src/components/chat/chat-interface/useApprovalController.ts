@@ -22,7 +22,7 @@ import { getDisplayedApprovalDecisions } from "../approval/approvalDecisions.js"
 
 interface ApprovalControllerInput {
   lifecycleProjection: LifecycleProjection | null;
-  onPendingApprovalChange?: (hasPendingApproval: boolean) => void;
+  sessionId: string;
   lifecycleClient?: LifecycleClient;
 }
 
@@ -54,15 +54,17 @@ export function useApprovalController(input: ApprovalControllerInput) {
     [input.lifecycleProjection],
   );
   const projectedApproval = pendingApprovalState?.request ?? null;
+  const approvalIdentity = projectedApproval
+    ? `${input.sessionId}:${projectedApproval.turnId}:${projectedApproval.requestId}`
+    : null;
   const pendingApproval =
-    projectedApproval?.requestId === resolvedRequestId
+    approvalIdentity === resolvedRequestId
       ? null
       : projectedApproval;
 
   useApprovalLifecycle(
     projectedApproval,
-    pendingApproval,
-    input.onPendingApprovalChange,
+    input.sessionId,
     setResolvedRequestId,
     setError,
   );
@@ -77,8 +79,9 @@ export function useApprovalController(input: ApprovalControllerInput) {
         setBusyDecision,
         setError,
         setResolvedRequestId,
+        resolvedApprovalIdentity: approvalIdentity,
       }),
-    [lifecycleClient, pendingApprovalState],
+    [approvalIdentity, lifecycleClient, pendingApprovalState],
   );
 
   return {
@@ -135,23 +138,21 @@ function getCanonicalApprovalDecisions(
 
 function useApprovalLifecycle(
   projected: ApprovalRequest | null,
-  pending: ApprovalRequest | null,
-  onPendingChange: ApprovalControllerInput["onPendingApprovalChange"],
+  sessionId: string,
   setResolvedRequestId: Dispatch<SetStateAction<string | null>>,
   setError: Dispatch<SetStateAction<string | null>>,
 ) {
+  const approvalIdentity = projected
+    ? `${sessionId}:${projected.turnId}:${projected.requestId}`
+    : null;
   useEffect(() => {
     setError(null);
-  }, [pending?.requestId, setError]);
+  }, [approvalIdentity, setError]);
   useEffect(() => {
     if (!projected) {
       setResolvedRequestId(null);
     }
   }, [projected, setResolvedRequestId]);
-  useEffect(() => {
-    onPendingChange?.(Boolean(pending));
-    return () => onPendingChange?.(false);
-  }, [onPendingChange, pending]);
 }
 
 interface ResolveDecisionInput {
@@ -164,13 +165,13 @@ interface ResolveDecisionInput {
   >;
   readonly setError: Dispatch<SetStateAction<string | null>>;
   readonly setResolvedRequestId: Dispatch<SetStateAction<string | null>>;
+  readonly resolvedApprovalIdentity: string | null;
 }
 
 async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
   if (input.submittingRef.current || !input.pendingApprovalState) {
     return;
   }
-  const pendingApproval = input.pendingApprovalState.request;
   input.submittingRef.current = true;
   input.setBusyDecision(input.decision);
   input.setError(null);
@@ -186,7 +187,9 @@ async function resolveDecision(input: ResolveDecisionInput): Promise<void> {
         reason: null,
       });
     }
-    input.setResolvedRequestId(pendingApproval.requestId);
+    if (input.resolvedApprovalIdentity) {
+      input.setResolvedRequestId(input.resolvedApprovalIdentity);
+    }
   } catch (error) {
     input.setError(
       error instanceof Error

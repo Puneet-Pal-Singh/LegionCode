@@ -261,22 +261,18 @@ describe("ProviderStore", () => {
       expect(mockApiClient.getPreferences).toHaveBeenCalledTimes(1);
     });
 
-    it("carries forward the latest run selection when switching to a new run in-session", async () => {
+    it("does not carry a previous chat selection into a new chat", async () => {
       store.setActiveRunId("run-1");
       await store.bootstrap();
 
-      await store.applySessionSelection({
-        providerId: "openai",
-        credentialId: credential1Id,
-        modelId: "gpt-4-turbo",
-      });
+      store.setSelection("openai", credential1Id, "gpt-4-turbo");
 
       expect(store.setActiveRunId("run-2")).toBe(false);
 
       const state = store.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
-      expect(state.selectedModelId).toBe("gpt-4-turbo");
+      expect(state.selectedModelId).toBe("gpt-4");
     });
 
     it("allows workspace-global model loads to complete after a run switch", async () => {
@@ -802,10 +798,7 @@ describe("ProviderStore", () => {
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
       expect(state.lastResolvedConfig).toEqual(resolved);
-      expect(mockApiClient.updatePreferences).toHaveBeenCalledWith({
-        defaultProviderId: "openai",
-        defaultModelId: "gpt-4-turbo",
-      });
+      expect(mockApiClient.updatePreferences).not.toHaveBeenCalled();
       expect(mockApiClient.resolveForChat).toHaveBeenCalledWith({
         providerId: "openai",
         credentialId: credential1Id,
@@ -838,7 +831,7 @@ describe("ProviderStore", () => {
       expect(state.selectedModelId).toBe("gpt-4-turbo");
     });
 
-    it("restores selected workspace model defaults for a different run", async () => {
+    it("starts a new chat from the workspace default", async () => {
       store.setActiveRunId("run-1");
       await store.bootstrap();
 
@@ -860,7 +853,7 @@ describe("ProviderStore", () => {
       const state = nextRunStore.getState();
       expect(state.selectedProviderId).toBe("openai");
       expect(state.selectedCredentialId).toBe(credential1Id);
-      expect(state.selectedModelId).toBe("gpt-4-turbo");
+      expect(state.selectedModelId).toBe("gpt-4");
     });
 
     it("clamps selected model to provider visible models on bootstrap and resolve", async () => {
